@@ -51,6 +51,27 @@
   {% endif %}
   <script>
     (function () {
+      function fitBrand() {
+        var el = document.querySelector(".landing-brand");
+        if (!el) return;
+        var parent = el.parentElement;
+        if (!parent) return;
+        var maxPx = Math.min(33.6, parent.clientWidth * 0.055);
+        var minPx = 11;
+        el.style.fontSize = maxPx + "px";
+        var guard = 0;
+        while (el.scrollWidth > parent.clientWidth && maxPx > minPx && guard < 40) {
+          maxPx -= 0.5;
+          el.style.fontSize = maxPx + "px";
+          guard += 1;
+        }
+      }
+      fitBrand();
+      window.addEventListener("resize", fitBrand);
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(fitBrand).catch(function () {});
+      }
+
       var btn = document.getElementById("student-role-btn");
       var panel = document.getElementById("student-code-panel");
       var input = document.getElementById("code");

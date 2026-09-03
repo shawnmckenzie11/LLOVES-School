@@ -49,19 +49,23 @@ body.landing-page .admin-lock:hover {
   border-color: var(--accent);
 }
 body.landing-page .landing-wrap {
-  max-width: 44rem;
+  max-width: min(44rem, 100%);
+  width: 100%;
   padding-top: min(18vh, 7rem);
   text-align: center;
 }
 body.landing-page .landing-brand {
-  font-size: clamp(1.15rem, 3.2vw, 2.1rem);
-  line-height: 1.25;
+  display: block;
+  width: 100%;
+  max-width: 100%;
   margin: 0 0 2rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
   white-space: nowrap;
-  overflow-x: auto;
-  max-width: 100%;
+  overflow: hidden;
+  /* Fallback size before JS fit; vw keeps long titles on one line. */
+  font-size: clamp(0.72rem, 3.4vw, 2.1rem);
 }
 body.landing-page .landing-brand .brand-edge {
   color: #ef4444;
@@ -164,5 +168,129 @@ iframe.module-frame { width: 100%; min-height: 70vh; border: 1px solid var(--lin
 .live-code { font-size: 1.4rem; letter-spacing: 0.12em; font-family: ui-monospace, Menlo, monospace; }
 .setup-steps { color: var(--ink); line-height: 1.55; padding-left: 1.2rem; }
 .setup-steps li { margin: 0.45rem 0; }
+
+/* Admin (IT) dashboard */
+body.it-dashboard .wrap.it-wrap {
+  max-width: none;
+  width: 100%;
+  padding: 1.5rem clamp(1rem, 2.5vw, 2.5rem) 3rem;
+}
+body.it-dashboard .badge {
+  display: inline-block;
+  padding: 0.2em 0.55em;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: capitalize;
+}
+body.it-dashboard .badge-active  { background: #14532d; color: #bbf7d0; }
+body.it-dashboard .badge-pending { background: #2a2e38; color: #9ca3af; }
+body.it-dashboard .badge-archived{ background: #450a0a; color: #fca5a5; }
+body.it-dashboard .badge-ok      { background: #14532d; color: #bbf7d0; }
+body.it-dashboard .badge-warn    { background: #451a03; color: #fcd34d; }
+body.it-dashboard .it-tab-bar { gap: 0.4rem; margin-bottom: 1rem; }
+body.it-dashboard .it-tab-btn {
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  background: #1e3348;
+  color: var(--ink);
+  cursor: pointer;
+  border: 0;
+  font: inherit;
+}
+body.it-dashboard .it-tab-btn.on {
+  background: var(--accent);
+  color: #04221c;
+  font-weight: 650;
+}
+body.it-dashboard .it-tab-panel { margin-top: 0.25rem; }
+body.it-dashboard .it-section-head,
+body.it-dashboard .it-filter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+body.it-dashboard .it-section-head h2 { margin: 0; }
+body.it-dashboard .it-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0;
+}
+body.it-dashboard .it-toggle input { width: auto; }
+body.it-dashboard .it-add-staff-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+body.it-dashboard .it-staff-card { margin-top: 1rem; }
+body.it-dashboard .it-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+body.it-dashboard table.data {
+  min-width: 56rem;
+}
+body.it-dashboard .it-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+body.it-dashboard .it-actions .btn,
+body.it-dashboard .it-actions button {
+  margin: 0;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+  white-space: nowrap;
+}
+body.it-dashboard .it-action-form { margin: 0; display: inline; }
+body.it-dashboard .it-action-details {
+  position: relative;
+  display: inline-block;
+}
+body.it-dashboard .it-action-details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+body.it-dashboard .it-action-details > summary::-webkit-details-marker { display: none; }
+body.it-dashboard .it-inline-form {
+  margin-top: 0.45rem;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-width: 14rem;
+}
+body.it-dashboard .it-inline-form input { width: auto; flex: 1; min-width: 8rem; }
+body.it-dashboard .history-body { margin-top: 0.5rem; max-width: 22rem; }
+body.it-dashboard .filter-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+body.it-dashboard .filter-row label { margin: 0; }
+body.it-dashboard .filter-row input,
+body.it-dashboard .filter-row select { width: auto; min-width: 160px; }
+body.it-dashboard .it-filters { margin: 0; }
+body.it-dashboard .it-live-code { font-size: 1rem; }
+body.it-dashboard .it-switch-semester { margin-top: 0.75rem; }
+body.it-dashboard .it-setting-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+body.it-dashboard .it-setting-check input {
+  width: auto;
+  margin-top: 0.2rem;
+}
 
 /* Staff home + course dashboard chrome lives in staff-shell.css (loaded last). */
