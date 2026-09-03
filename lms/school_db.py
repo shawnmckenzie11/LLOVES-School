@@ -2695,6 +2695,39 @@ class SchoolDB(LovesDB):
         )
         grid["class"] = self.enrich_class(dash["class"])
         grid["ok"] = True
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            marked = {
+                k: v
+                for k, v in (grid.get("cells") or {}).items()
+                if v is True
+            }
+            with open(
+                "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
+                "a",
+                encoding="utf-8",
+            ) as _dbg:
+                _dbg.write(
+                    _json.dumps(
+                        {
+                            "sessionId": "436036",
+                            "hypothesisId": "E",
+                            "location": "school_db.py:attendance_week_grid",
+                            "message": "grid present cells",
+                            "data": {
+                                "class_id": class_id,
+                                "present_cells": marked,
+                                "day_totals": grid.get("day_totals") or {},
+                            },
+                            "timestamp": int(_time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion
         return grid
 
     def attendance_for_date(self, class_id: int, meeting: date) -> dict[str, Any]:

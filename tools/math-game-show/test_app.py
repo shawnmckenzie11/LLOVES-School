@@ -789,7 +789,7 @@ class GamePersistTests(unittest.TestCase):
         game = state["game"]
         self.assertEqual(game["status"], "live")
         self.assertEqual(game["round"], 1)
-        self.assertEqual(game["round_title"], "Open Question Round")
+        self.assertEqual(game["round_title"], "Open Question")
         self.assertGreaterEqual(game["round_remaining_sec"], 1190)
         self.assertLessEqual(game["round_remaining_sec"], 1200)
         self.assertTrue(game["round_ends_at"])
@@ -801,7 +801,7 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(member["points_r3"], 0)
         board = self.db.scoreboard()
         self.assertEqual(board["round"], 1)
-        self.assertEqual(board["round_title"], "Open Question Round")
+        self.assertEqual(board["round_title"], "Open Question")
         self.assertGreaterEqual(board["round_remaining_sec"], 1190)
 
     def test_add_late_student_to_live_team(self) -> None:
@@ -851,12 +851,12 @@ class GamePersistTests(unittest.TestCase):
             self.db.start_round(class_id, 1)
         state = self.db.start_round(class_id, 2)
         self.assertEqual(state["game"]["round"], 2)
-        self.assertEqual(state["game"]["round_title"], "Team Challenge Question")
+        self.assertEqual(state["game"]["round_title"], "Team Challenge")
         self.assertGreaterEqual(state["game"]["round_remaining_sec"], 590)
         self.assertLessEqual(state["game"]["round_remaining_sec"], 600)
         third = self.db.start_round(class_id, 3)
         self.assertEqual(third["game"]["round"], 3)
-        self.assertEqual(third["game"]["round_title"], "Consolidation Round")
+        self.assertEqual(third["game"]["round_title"], "Formative")
         with self.assertRaises(ValueError):
             self.db.start_round(class_id, 2)
 
@@ -1478,7 +1478,7 @@ class HttpApiTests(unittest.TestCase):
         )
         live = _http_json(self.base, f"/api/classes/{class_id}/game")
         self.assertEqual(live["game"]["round"], 1)
-        self.assertEqual(live["game"]["round_title"], "Open Question Round")
+        self.assertEqual(live["game"]["round_title"], "Open Question")
         self.assertGreaterEqual(live["game"]["round_remaining_sec"], 1190)
         skip = Request(
             self.base + f"/api/classes/{class_id}/game/round",
@@ -1498,11 +1498,11 @@ class HttpApiTests(unittest.TestCase):
             self.base, f"/api/classes/{class_id}/game/round", {"round": 2}
         )
         self.assertEqual(moved["game"]["round"], 2)
-        self.assertEqual(moved["game"]["round_title"], "Team Challenge Question")
+        self.assertEqual(moved["game"]["round_title"], "Team Challenge")
         board = _http_json(self.base, "/api/scoreboard")
         self.assertTrue(board["live"])
         self.assertEqual(board["round"], 2)
-        self.assertEqual(board["round_title"], "Team Challenge Question")
+        self.assertEqual(board["round_title"], "Team Challenge")
         self.assertGreaterEqual(board["round_remaining_sec"], 590)
         member = assigned["teams"][0]["members"][0]
         _http_json(

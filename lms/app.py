@@ -888,7 +888,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/")
     def landing():
-        """Public landing: Staff Login, IT Login, Student Code."""
+        """Public landing: Teacher / Student roles and Admin lock."""
         returning = request.cookies.get("lloves_seen") == "1"
         return render_template(
             "landing.html",
@@ -2308,14 +2308,37 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/rename", methods=["POST"])
     @login_required
     def api_rename(class_id: int):
-        """Rename teams."""
+        """Rename teams (optionally stay on rounds setup)."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
             names = body.get("teams") or []
             if not isinstance(names, list):
                 raise ValueError("teams must be a list")
-            return school.game.rename_teams(class_id, names)
+            go_live = body.get("go_live")
+            if go_live is None:
+                go_live = True
+            rounds = body.get("rounds")
+            return school.game.rename_teams(
+                class_id,
+                names,
+                go_live=bool(go_live),
+                rounds=rounds if isinstance(rounds, list) else None,
+            )
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/start-rounds", methods=["POST"])
+    @login_required
+    def api_start_rounds(class_id: int):
+        """Save the rounds plan and open live team scoring."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            rounds = body.get("rounds")
+            if rounds is not None and not isinstance(rounds, list):
+                raise ValueError("rounds must be a list")
+            return school.game.start_live_with_rounds(class_id, rounds)
 
         return _staff_post(class_id, run)
 

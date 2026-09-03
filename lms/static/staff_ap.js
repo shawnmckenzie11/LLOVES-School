@@ -16,7 +16,7 @@ import {
   showError,
   sortStudents,
 } from "/static/common.js";
-import { bindSchoolDayPicker, pickerValue, suggestedLogDay, syncOverlayPickers } from "/static/ap_calendar.js";
+import { bindSchoolDayPicker, defaultSchoolDay, pickerValue, syncOverlayPickers } from "/static/ap_calendar.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -38,6 +38,18 @@ let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
 let overlayPopout = false;
+let pendingScoreboard = false;
+let draftRounds = [
+  { kind: "open", minutes: 20 },
+  { kind: "challenge", minutes: 10 },
+  { kind: "formative", minutes: 10 },
+];
+
+const ROUND_KIND_OPTIONS = [
+  { kind: "open", label: "Open Question", defaultMin: 20 },
+  { kind: "challenge", label: "Team Challenge", defaultMin: 10 },
+  { kind: "formative", label: "Formative", defaultMin: 10 },
+];
 
 const $ = (id) => document.getElementById(id);
 
@@ -126,12 +138,22 @@ async function loadContext() {
 
 /**
  * Wire semester school-day pickers after log context loads.
+ * @param {string} [preferred]
+ * @param {{forceValue?: boolean}} [opts]
  */
-function bindAllPickers(preferred) {
+function bindAllPickers(preferred, opts = {}) {
   const onInvalid = (msg) => showError("#ap-overlay-error", new Error(msg));
-  const iso = preferred || suggestedLogDay(logContext);
   for (const id of ["ap-valid-date", "ap-meeting-date", "ap-gamify-date"]) {
-    bindSchoolDayPicker($(id), logContext, { onInvalid, value: iso });
+    const el = $(id);
+    const keep = pickerValue(el, logContext);
+    const iso = opts.forceValue
+      ? preferred || defaultSchoolDay(logContext)
+      : keep || preferred || defaultSchoolDay(logContext);
+    bindSchoolDayPicker(el, logContext, {
+      onInvalid,
+      value: iso,
+      forceValue: Boolean(opts.forceValue),
+    });
   }
 }
 
@@ -178,12 +200,18 @@ function promptValidDate(after) {
  * @param {() => Promise<void>} proceed
  */
 async function withValidatedDate(iso, proceed) {
+  pendingAction = null;
   await loadContext();
-  if (dateIsAllowed(iso)) {
-    await proceed();
+  const chosen = iso || sessionIso();
+  if (dateIsAllowed(chosen)) {
+    await proceed(chosen);
     return;
   }
-  promptValidDate(proceed);
+  pendingAction = () => proceed(pickerValue($("ap-valid-date"), logContext) || chosen);
+  fillValidateHint();
+  const picker = $("ap-valid-date");
+  if (picker && chosen) picker.value = chosen;
+  showPanel("validate");
 }
 
 /**
@@ -298,7 +326,7 @@ export async function openTakeAttendance() {
   hideError("#ap-overlay-error");
   try {
     await loadContext();
-    const meeting = suggestedLogDay(logContext);
+    const meeting = defaultSchoolDay(logContext);
     syncOverlayPickers(logContext, meeting);
     overlayState = await api(`/api/classes/${classId}/begin`, {
       method: "POST",
@@ -322,15 +350,27 @@ export async function openTakeAttendance() {
 }
 
 /**
- * Meeting date on the open session or active picker.
+ * Meeting date from the visible attendance/gamify picker (not a stale session).
  * @returns {string}
  */
 function sessionIso() {
-  const fromGamify = pickerValue($("ap-gamify-date"), logContext);
-  if (fromGamify) return fromGamify;
+  const attPanel = $("ap-panel-att");
+  const gamifyPanel = $("ap-panel-gamify");
+  const attVisible = attPanel && !attPanel.classList.contains("hidden");
+  const gamifyVisible = gamifyPanel && !gamifyPanel.classList.contains("hidden");
+  if (attVisible) {
+    const fromAtt = pickerValue($("ap-meeting-date"), logContext);
+    if (fromAtt) return fromAtt;
+  }
+  if (gamifyVisible) {
+    const fromGamify = pickerValue($("ap-gamify-date"), logContext);
+    if (fromGamify) return fromGamify;
+  }
   const fromAtt = pickerValue($("ap-meeting-date"), logContext);
   if (fromAtt) return fromAtt;
-  return overlayState?.session?.meeting_date || todayISO();
+  const fromGamify = pickerValue($("ap-gamify-date"), logContext);
+  if (fromGamify) return fromGamify;
+  return overlayState?.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
 }
 
 /**
@@ -338,8 +378,20 @@ function sessionIso() {
  * @param {string} [iso]
  */
 async function submitDone(iso) {
-  const meeting = iso || sessionIso();
+  const sessionMeeting = overlayState?.session?.meeting_date || null;
+  // Prefer explicit iso (from Done before loadContext), then live session (picker may be rebound).
+  const meeting =
+    iso ||
+    sessionMeeting ||
+    pickerValue($("ap-meeting-date"), logContext) ||
+    sessionIso();
+  syncOverlayPickers(logContext, meeting);
   await ensureMeetingDate(meeting);
+  if (overlayState?.session?.meeting_date && overlayState.session.meeting_date !== meeting) {
+    throw new Error(
+      `Could not set meeting date to ${meeting} (session is ${overlayState.session.meeting_date}).`
+    );
+  }
   await api(`/api/classes/${classId}/game/finalize-attendance`, {
     method: "POST",
     body: JSON.stringify({ present_ids: selectedPresent(), meeting_date: meeting }),
@@ -354,7 +406,13 @@ async function submitDone(iso) {
  * @param {string} [iso]
  */
 async function submitLogParticipation(iso) {
-  const meeting = iso || sessionIso();
+  const sessionMeeting = overlayState?.session?.meeting_date || null;
+  const meeting =
+    iso ||
+    sessionMeeting ||
+    pickerValue($("ap-meeting-date"), logContext) ||
+    sessionIso();
+  syncOverlayPickers(logContext, meeting);
   await ensureMeetingDate(meeting);
   overlayState = await api(`/api/classes/${classId}/game/attendance`, {
     method: "POST",
@@ -400,13 +458,14 @@ $("ap-gamify-date")?.addEventListener("change", async () => {
   }
 });
 
-for (const id of ["ap-att-cancel", "ap-validate-cancel", "ap-gamify-cancel", "ap-teams-cancel", "ap-names-cancel", "ap-score-cancel", "ap-live-cancel"]) {
+for (const id of ["ap-att-cancel", "ap-validate-cancel", "ap-gamify-cancel", "ap-teams-cancel", "ap-names-cancel", "ap-rounds-cancel", "ap-score-cancel", "ap-live-cancel"]) {
   $(id)?.addEventListener("click", () => cancelOverlay());
 }
 
 $("ap-att-done")?.addEventListener("click", async () => {
   try {
-    await withValidatedDate(sessionIso(), () => submitDone());
+    // Capture date before withValidatedDate → loadContext rebinds pickers.
+    await withValidatedDate(sessionIso(), (d) => submitDone(d));
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -414,7 +473,7 @@ $("ap-att-done")?.addEventListener("click", async () => {
 
 $("ap-att-log")?.addEventListener("click", async () => {
   try {
-    await withValidatedDate(sessionIso(), () => submitLogParticipation());
+    await withValidatedDate(sessionIso(), (d) => submitLogParticipation(d));
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -602,9 +661,8 @@ function renderNamesPanel() {
 $("ap-names-back")?.addEventListener("click", () => showPanel("teams"));
 
 $("ap-start-game")?.addEventListener("click", async () => {
-  const wantBoard = Boolean($("ap-scoreboard-toggle")?.checked);
-  localStorage.setItem(scoreboardKey, wantBoard ? "1" : "0");
-  const overlay = wantBoard ? reserveScoreboardOverlay() : null;
+  pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
+  localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
   const teams = [...document.querySelectorAll("#ap-name-list input")].map((el) => ({
     id: Number(el.dataset.teamId),
     name: el.value,
@@ -612,10 +670,103 @@ $("ap-start-game")?.addEventListener("click", async () => {
   try {
     overlayState = await api(`/api/classes/${classId}/game/rename`, {
       method: "POST",
-      body: JSON.stringify({ teams }),
+      body: JSON.stringify({ teams, go_live: false }),
     });
-    if (wantBoard) openScoreboardOverlay(overlay);
+    draftRounds = [
+      { kind: "open", minutes: 20 },
+      { kind: "challenge", minutes: 10 },
+      { kind: "formative", minutes: 10 },
+    ];
+    renderRoundsPanel();
+    showPanel("rounds");
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+/**
+ * Build the Set up Rounds editor.
+ */
+function renderRoundsPanel() {
+  const box = $("ap-rounds-list");
+  if (!box) return;
+  const used = new Set(draftRounds.map((r) => r.kind));
+  box.innerHTML = draftRounds
+    .map((row, index) => {
+      const options = ROUND_KIND_OPTIONS.map((opt) => {
+        const taken = used.has(opt.kind) && opt.kind !== row.kind;
+        return `<option value="${opt.kind}" ${opt.kind === row.kind ? "selected" : ""} ${taken ? "disabled" : ""}>${escapeHtml(opt.label)}</option>`;
+      }).join("");
+      return `<div class="ap-round-row" data-index="${index}">
+        <label class="field">Round ${index + 1}
+          <select data-round-kind>${options}</select>
+        </label>
+        <label class="field">Length (minutes)
+          <input type="number" min="1" max="180" value="${Number(row.minutes) || 10}" data-round-minutes>
+        </label>
+        <button type="button" class="secondary" data-round-remove ${draftRounds.length <= 1 ? "disabled" : ""}>Remove</button>
+      </div>`;
+    })
+    .join("");
+  const addBtn = $("ap-rounds-add");
+  if (addBtn) addBtn.disabled = draftRounds.length >= 3 || used.size >= 3;
+}
+
+$("ap-rounds-list")?.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const row = target.closest(".ap-round-row");
+  if (!row) return;
+  const index = Number(row.dataset.index);
+  if (!draftRounds[index]) return;
+  if (target.matches("[data-round-kind]") && target instanceof HTMLSelectElement) {
+    draftRounds[index].kind = target.value;
+    const meta = ROUND_KIND_OPTIONS.find((o) => o.kind === target.value);
+    if (meta && !row.querySelector("[data-round-minutes]")?.matches(":focus")) {
+      draftRounds[index].minutes = meta.defaultMin;
+    }
+  }
+  if (target.matches("[data-round-minutes]") && target instanceof HTMLInputElement) {
+    draftRounds[index].minutes = Math.max(1, Math.min(180, Number(target.value) || 1));
+  }
+  renderRoundsPanel();
+});
+
+$("ap-rounds-list")?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-round-remove]");
+  if (!btn) return;
+  const row = btn.closest(".ap-round-row");
+  const index = Number(row?.dataset.index);
+  if (draftRounds.length <= 1 || Number.isNaN(index)) return;
+  draftRounds.splice(index, 1);
+  renderRoundsPanel();
+});
+
+$("ap-rounds-add")?.addEventListener("click", () => {
+  if (draftRounds.length >= 3) return;
+  const used = new Set(draftRounds.map((r) => r.kind));
+  const next = ROUND_KIND_OPTIONS.find((o) => !used.has(o.kind));
+  if (!next) return;
+  draftRounds.push({ kind: next.kind, minutes: next.defaultMin });
+  renderRoundsPanel();
+});
+
+$("ap-rounds-back")?.addEventListener("click", () => showPanel("names"));
+
+$("ap-rounds-start")?.addEventListener("click", async () => {
+  const overlay = pendingScoreboard ? reserveScoreboardOverlay() : null;
+  try {
+    const rounds = draftRounds.map((row) => ({
+      kind: row.kind,
+      minutes: Number(row.minutes) || 10,
+    }));
+    overlayState = await api(`/api/classes/${classId}/game/start-rounds`, {
+      method: "POST",
+      body: JSON.stringify({ rounds }),
+    });
+    if (pendingScoreboard) openScoreboardOverlay(overlay);
     else overlay?.close();
+    pendingScoreboard = false;
     openLiveScoring(overlayState);
   } catch (err) {
     overlay?.close();
@@ -699,14 +850,14 @@ function renderLiveTeams(state) {
   paintLiveClock();
   const btn = $("ap-start-round");
   if (btn) {
-    if (n === 1) {
+    const count = Number(game.round_count) || (state.game?.rounds || []).length || 3;
+    if (n < count) {
       btn.hidden = false;
-      btn.textContent = "Start Round 2";
-      btn.dataset.round = "2";
-    } else if (n === 2) {
-      btn.hidden = false;
-      btn.textContent = "Start Round 3";
-      btn.dataset.round = "3";
+      const next = n + 1;
+      const nextTitle =
+        (state.game?.rounds || [])[next - 1]?.title || `Round ${next}`;
+      btn.textContent = `Start Round ${next} · ${nextTitle}`;
+      btn.dataset.round = String(next);
     } else {
       btn.hidden = true;
       delete btn.dataset.round;
@@ -848,7 +999,7 @@ export async function openLogParticipation() {
   hideError("#error");
   try {
     await loadContext();
-    const meeting = suggestedLogDay(logContext);
+    const meeting = defaultSchoolDay(logContext);
     syncOverlayPickers(logContext, meeting);
     overlayState = await api(`/api/classes/${classId}/begin`, {
       method: "POST",

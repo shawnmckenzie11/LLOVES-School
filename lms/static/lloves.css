@@ -20,6 +20,93 @@ h1 { font-size: 2rem; margin: 0.35rem 0 0.5rem; }
 .sub { color: var(--muted); margin: 0 0 1.5rem; }
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 @media (max-width: 800px) { .cards { grid-template-columns: 1fr; } }
+
+/* Public landing */
+body.landing-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(45, 212, 191, 0.18), transparent),
+    var(--bg);
+}
+body.landing-page .admin-lock {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 28, 44, 0.85);
+  color: var(--muted);
+  text-decoration: none;
+}
+body.landing-page .admin-lock:hover {
+  color: var(--accent-2);
+  border-color: var(--accent);
+}
+body.landing-page .landing-wrap {
+  max-width: 44rem;
+  padding-top: min(18vh, 7rem);
+  text-align: center;
+}
+body.landing-page .landing-brand {
+  font-size: clamp(1.65rem, 4.5vw, 2.45rem);
+  line-height: 1.2;
+  margin: 0 0 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+body.landing-page .role-prompt {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+body.landing-page .role-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  text-align: left;
+}
+@media (max-width: 640px) {
+  body.landing-page .role-cards { grid-template-columns: 1fr; }
+}
+body.landing-page .role-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.35rem 1.25rem;
+  text-decoration: none;
+}
+body.landing-page .role-card:hover,
+body.landing-page .role-card.is-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.35);
+}
+body.landing-page .role-card strong {
+  display: block;
+  font-size: 1.35rem;
+  margin-bottom: 0.4rem;
+}
+body.landing-page .student-code-panel {
+  margin-top: 1rem;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem;
+}
+body.landing-page .error { margin-bottom: 1rem; text-align: left; }
+
 .card, .choice {
   background: var(--card);
   border: 1px solid var(--line);
