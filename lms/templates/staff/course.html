@@ -30,13 +30,14 @@
 
     <nav class="tabs">
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if tab == 'pages' else '' }}">Pages</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if tab == 'assignments' else '' }}">Assignments</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
-      <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
-      <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>
     </nav>
 
     {% if tab == 'modules' %}
@@ -75,8 +76,10 @@
       {% if ap_view == 'attendance' %}
       <div id="attendance-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
-          <div class="row-actions">
+          <div class="row-actions ap-toolbar">
             <button type="button" id="take-attendance">Take Attendance</button>
+            <button type="button" class="secondary" id="att-clear">Clear</button>
+            <button type="button" class="secondary" id="att-sort">Sort: A–Z</button>
           </div>
         </div>
         <div id="att-error" class="error" hidden></div>
@@ -91,8 +94,10 @@
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">
-          <div class="row-actions">
+          <div class="row-actions ap-toolbar">
             <button type="button" id="begin">Log Participation</button>
+            <button type="button" class="secondary" id="part-clear">Clear</button>
+            <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
             <label class="field ap-view-field" for="round-view-select">
               <span class="ap-view-label">Class Data View</span>
               <select id="round-view-select" aria-label="Class Data View">
@@ -110,7 +115,7 @@
           <table class="sheet" id="sheet">
             <thead>
               <tr>
-                <th class="name">Student <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button></th>
+                <th class="name">Student</th>
               </tr>
             </thead>
           </table>
@@ -320,19 +325,22 @@
       </div>
     </div>
     <script type="module" src="/static/staff_gradebook.js"></script>
-    {% endif %}
-
-    {% if expectations %}
-    <details class="card exp-panel" style="margin-top:1.25rem">
-      <summary>Inherited curriculum expectations ({{ cls.ontario_code or cls.course_code }})</summary>
-      <ul>
+    {% elif tab == 'expectations' %}
+    <section class="card exp-panel">
+      <h2>Curriculum expectations</h2>
+      {% if expectations %}
+      <p class="hint">Inherited Ontario expectations for {{ cls.ontario_code or cls.course_code }} (verified wording only).</p>
+      <ul class="exp-list">
         {% for e in expectations %}
         <li><code>{{ e.code }}</code>{% if e.parent_code %} ← {{ e.parent_code }}{% endif %} · {{ e.kind }} · {{ e.statement }}</li>
         {% endfor %}
       </ul>
-    </details>
-    {% elif offering and offering.expectations_status != 'verified' %}
-    <p class="hint" style="margin-top:1rem">Expectations: {{ offering.expectations_status }} — assignment is allowed; wording is not invented.</p>
+      {% elif offering and offering.expectations_status != 'verified' %}
+      <p class="hint">Expectations: {{ offering.expectations_status }} — assignment is allowed; wording is not invented.</p>
+      {% else %}
+      <p class="hint">No inherited expectations are on file for this course code yet.</p>
+      {% endif %}
+    </section>
     {% endif %}
   </div>
 </body>

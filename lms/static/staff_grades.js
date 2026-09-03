@@ -89,9 +89,8 @@ function renderSheet(data) {
   const students = data.students || [];
   const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
   const daySums = {};
-  const clearActive = clearMode ? " on" : "";
 
-  let dates = `<tr class="att-dates"><th class="name"><button type="button" class="secondary${clearActive}" id="part-clear">Clear</button></th>`;
+  let dates = `<tr class="att-dates"><th class="name"></th>`;
   weeks.forEach((week, weekIndex) => {
     week.forEach((iso, dayIndex) => {
       const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
@@ -108,7 +107,7 @@ function renderSheet(data) {
   });
   dates += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL</th></tr>`;
 
-  let head = `<tr><th class="name">Student <button type="button" class="secondary" id="sort-toggle">${sortLabel}</button></th>`;
+  let head = `<tr><th class="name">Student</th>`;
   weeks.forEach((week, weekIndex) => {
     headers.forEach((label, dayIndex) => {
       const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
@@ -167,6 +166,10 @@ function renderSheet(data) {
   table.innerHTML = `<thead>${dates}${head}</thead><tbody>${body}${dayTotalRow}</tbody>`;
   table.classList.add("attendance-grid");
   document.getElementById("part-clear-hint")?.toggleAttribute("hidden", !clearMode);
+  const clearBtn = document.getElementById("part-clear");
+  if (clearBtn) clearBtn.classList.toggle("on", clearMode);
+  const sortBtn = document.getElementById("sort-toggle");
+  if (sortBtn) sortBtn.textContent = sortLabel;
 }
 
 /**
@@ -395,19 +398,6 @@ document.getElementById("confirm-dialog")?.addEventListener("click", (event) => 
 document.getElementById("sheet").addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : event.target.parentElement;
   if (!target) return;
-  if (target.closest("#sort-toggle")) {
-    event.preventDefault();
-    sort = sort === "az" ? "za" : "az";
-    localStorage.setItem(sortKey, sort);
-    refresh().catch((err) => showError("#error", err));
-    return;
-  }
-  if (target.closest("#part-clear")) {
-    event.preventDefault();
-    clearMode = !clearMode;
-    if (latest) paint(latest);
-    return;
-  }
   const dateCell = target.closest("[data-clear-date]");
   if (!dateCell || !clearMode) return;
   const iso = dateCell.getAttribute("data-clear-date");
@@ -424,6 +414,19 @@ document.getElementById("sheet").addEventListener("click", (event) => {
       return refresh();
     })
     .catch((err) => showError("#error", err));
+});
+
+document.getElementById("sort-toggle")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  sort = sort === "az" ? "za" : "az";
+  localStorage.setItem(sortKey, sort);
+  refresh().catch((err) => showError("#error", err));
+});
+
+document.getElementById("part-clear")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  clearMode = !clearMode;
+  if (latest) paint(latest);
 });
 
 refresh().catch((err) => showError("#error", err));

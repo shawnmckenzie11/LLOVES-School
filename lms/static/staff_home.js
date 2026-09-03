@@ -49,6 +49,7 @@ function escapeText(value) {
 /**
  * Add one or more Codenames from a field or pasted lines.
  * @param {string} raw
+ * @returns {boolean} False when validation failed.
  */
 function addNames(raw) {
   const lines = String(raw || "")
@@ -58,20 +59,39 @@ function addNames(raw) {
   for (const line of lines) {
     if (line.includes(",")) {
       showError("#error", "Codenames cannot contain commas.");
-      return;
+      return false;
     }
     if (line.length < 2 || line.length > 32) {
       showError("#error", "Codenames must be 2–32 characters.");
-      return;
+      return false;
     }
     if (names.some((n) => n.toLowerCase() === line.toLowerCase())) {
       showError("#error", `Duplicate Codename: ${line}`);
-      return;
+      return false;
     }
     names.push(line);
   }
   hideError("#error");
   renderRoster();
+  return true;
+}
+
+/**
+ * Apply pending single-line and multi-line fields (only on Add or final save).
+ * @returns {boolean}
+ */
+function harvestPendingNames() {
+  const paste = String($("codename-paste")?.value || "");
+  const single = String($("codename-input")?.value || "");
+  if (paste.trim()) {
+    if (!addNames(paste)) return false;
+    if ($("codename-paste")) $("codename-paste").value = "";
+  }
+  if (single.trim()) {
+    if (!addNames(single)) return false;
+    if ($("codename-input")) $("codename-input").value = "";
+  }
+  return true;
 }
 
 /**
@@ -106,6 +126,8 @@ async function startWizard(btn) {
   step = 0;
   names.length = 0;
   editingClassId = classId;
+  if ($("codename-paste")) $("codename-paste").value = "";
+  if ($("codename-input")) $("codename-input").value = "";
   if (classId) {
     steps = EDIT_STEPS;
   } else if (lockedDays && lockedTime) {
@@ -167,15 +189,18 @@ function validateStep() {
     showError("#error", "Choose an assigned course.");
     return false;
   }
-  if (key === "roster" && names.length < 1) {
-    showError("#error", "Add at least one Codename.");
-    return false;
+  if (key === "roster") {
+    if (!harvestPendingNames()) return false;
+    if (names.length < 1) {
+      showError("#error", "Add at least one Codename.");
+      return false;
+    }
   }
   return true;
 }
 
 /**
- * Create a new class (Populate Class).
+ * Create a new class (Populate Class), then return to the teacher dashboard.
  */
 async function submitClass() {
   const offering = $("offering");
@@ -185,22 +210,22 @@ async function submitClass() {
     time: lockedTime || $("time")?.value,
     codenames: names,
   };
-  const data = await api("/api/staff/classes", {
+  await api("/api/staff/classes", {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  location.href = `/staff/class/${data.class.id}`;
+  location.href = "/staff";
 }
 
 /**
- * Update an existing class roster without creating a new section.
+ * Update an existing class roster, then return to the teacher dashboard.
  */
 async function submitRosterEdit() {
-  const data = await api(`/api/staff/classes/${editingClassId}/roster`, {
+  await api(`/api/staff/classes/${editingClassId}/roster`, {
     method: "PUT",
     body: JSON.stringify({ codenames: names }),
   });
-  location.href = `/staff/class/${data.class.id}`;
+  location.href = "/staff";
 }
 
 document.querySelectorAll(".btn-populate").forEach((btn) => {
@@ -247,11 +272,6 @@ $("codename-input")?.addEventListener("keydown", (event) => {
     addNames($("codename-input").value);
     $("codename-input").value = "";
   }
-});
-
-$("codename-paste")?.addEventListener("change", () => {
-  addNames($("codename-paste").value);
-  $("codename-paste").value = "";
 });
 
 $("codename-list")?.addEventListener("click", (event) => {

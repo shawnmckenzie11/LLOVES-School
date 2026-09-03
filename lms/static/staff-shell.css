@@ -36,7 +36,44 @@ body.staff-shell .staff-top-btn.on {
   border-color: #0b5f59;
   color: #fff;
 }
-body.staff-shell .staff-top-spacer { flex: 1; min-width: 0.5rem; }
+body.staff-shell .ap-shortcut-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: -0.5rem 0 1.25rem;
+  padding: 0.7rem 0.85rem;
+  background: #fff;
+  border: 1px solid #c5d0dc;
+  border-radius: 10px;
+  color: #334155;
+  font-size: 0.92rem;
+}
+body.staff-shell .ap-shortcut-note-icon {
+  display: inline-flex;
+  color: #0f766e;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+body.staff-shell .roster-disclaimer {
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border-left: 3px solid #b45309;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+body.staff-shell .ap-toolbar {
+  flex-wrap: wrap;
+  align-items: center;
+}
+body.staff-shell .exp-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+}
+body.staff-shell .exp-list li {
+  margin: 0.35rem 0;
+}
 body.staff-shell .staff-top-link {
   color: #334155;
   font-size: 0.9rem;
@@ -586,7 +623,8 @@ body.staff-shell.course-modules .wrap.course-shell {
 body.staff-shell.course-modules .tabs {
   flex-shrink: 0;
 }
-body.staff-shell .layout#modules-root {
+body.staff-shell .layout#modules-root,
+body.staff-shell .layout#catalog-root {
   flex: 1 1 auto;
   min-height: 0;
   align-items: stretch;
@@ -598,13 +636,15 @@ body.staff-shell .module-nav-pane {
   display: flex;
   flex-direction: column;
 }
-body.staff-shell #module-nav {
+body.staff-shell #module-nav,
+body.staff-shell #catalog-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-body.staff-shell .layout#modules-root iframe.module-frame {
+body.staff-shell .layout#modules-root iframe.module-frame,
+body.staff-shell .layout#catalog-root iframe.module-frame {
   min-height: 0;
   height: 100%;
   align-self: stretch;
@@ -617,7 +657,8 @@ body.staff-shell .layout#modules-root iframe.module-frame {
   body.staff-shell .module-nav-pane {
     max-height: 40vh;
   }
-  body.staff-shell .layout#modules-root iframe.module-frame {
+  body.staff-shell .layout#modules-root iframe.module-frame,
+  body.staff-shell .layout#catalog-root iframe.module-frame {
     min-height: 50vh;
   }
 }

@@ -1508,6 +1508,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "syllabus",
             "ap",
             "gradebook",
+            "expectations",
         }:
             tab = "modules"
         pack_error = session.pop("pack_error", None)

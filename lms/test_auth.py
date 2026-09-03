@@ -89,6 +89,8 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
         self.assertIn("Learning Live Online Virtually", body)
+        self.assertIn('class="brand-edge"', body)
+        self.assertIn("Take attendance and log participation", body)
         self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
 

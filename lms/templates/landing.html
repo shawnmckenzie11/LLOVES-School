@@ -13,13 +13,20 @@
     </svg>
   </a>
   <div class="wrap landing-wrap">
-    <h1 class="landing-brand">{{ school_name|safe }}</h1>
+    {% set brand_words = school_name.split(' ') %}
+    <h1 class="landing-brand">
+      {% if brand_words|length == 1 %}
+      <span class="brand-edge">{{ brand_words[0]|safe }}</span>
+      {% else %}
+      <span class="brand-edge">{{ brand_words[0]|safe }}</span>{% for w in brand_words[1:-1] %} {{ w|safe }}{% endfor %} <span class="brand-edge">{{ brand_words[-1]|safe }}</span>
+      {% endif %}
+    </h1>
     <p class="role-prompt">Select your role:</p>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <div class="role-cards" id="role-cards">
       <a class="role-card" href="{{ url_for('auth_google', portal='staff') }}">
         <strong>Teacher</strong>
-        <span class="hint">Sign in to teach, take attendance, and log participation.</span>
+        <span class="hint">Take attendance and log participation</span>
       </a>
       <button type="button" class="role-card{% if student_error %} is-open{% endif %}" id="student-role-btn" aria-expanded="{{ 'true' if student_error else 'false' }}" aria-controls="student-code-panel">
         <strong>Student</strong>
