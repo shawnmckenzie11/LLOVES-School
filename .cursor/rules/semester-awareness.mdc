@@ -1,0 +1,19 @@
+---
+description: Always load current semester phase and TLDSB calendar dates before pacing
+alwaysApply: true
+---
+
+# Semester awareness
+
+Before any pacing, calendar, or “what should we teach this week” work:
+
+1. Read `frameworks/semester.json`
+2. Note `current_phase`: `preparing` | `in_session` | `exam` | `break`
+3. Respect PD days, holidays, exam windows, and winter break
+4. Apply school-wide shape: **20 weeks** (first instructional day through exam window); **first 2 instructional days** = intro only; **last instructional week before exams** = review; **due dates only on school days** derived from `semester.json` (never weekends, holidays, or PD — do not assume 20 × 5 = 100 days)
+
+Human summary: `frameworks/semester.md`  
+Calendar: dates in `frameworks/semester.json` (board PDF optional / local).  
+Workflow: `agents/semester-context.md`
+
+As of summer 2026 prep, active semester is **2026–2027 S1** (Sept 2026 – Jan 2027), phase **preparing**. Instructional **2026-09-08 → 2027-01-25**; exam window **2027-01-26 → 2027-02-01**.

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Class dashboard</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <p class="kicker"><a href="/">Teacher Dashboard</a></p>
+        <h1 id="title">Class</h1>
+        <p class="sub" id="meta"></p>
+      </div>
+      <div class="row-actions">
+        <a class="btn secondary" href="/">Return to Teacher Dashboard</a>
+        <button type="button" class="secondary" id="sort-toggle">Sort: Last, First</button>
+        <div class="view-toggle" role="group" aria-label="Lesson score view">
+          <button type="button" class="on" data-round-view="total" aria-pressed="true" title="Lesson total">Total</button>
+          <button type="button" data-round-view="r1" aria-pressed="false" title="Open Question">Open Question</button>
+          <button type="button" data-round-view="r2" aria-pressed="false" title="Team Challenge">Team Challenge</button>
+          <button type="button" data-round-view="r3" aria-pressed="false" title="Formative">Formative</button>
+          <button type="button" data-round-view="all" aria-pressed="false" title="Stacked Open Question, Team Challenge, Formative">All</button>
+        </div>
+        <div class="view-toggle" id="stat-window-toggle" role="group" aria-label="Scoreboard stats period">
+          <button type="button" class="on" data-stat-window="last_class" aria-pressed="true" title="Leaders from the last scored class">Last class</button>
+          <button type="button" data-stat-window="last_week" aria-pressed="false" title="Leaders from the last two scored classes">Last week</button>
+          <button type="button" data-stat-window="year" aria-pressed="false" title="Leaders from every scored class this year">This year</button>
+        </div>
+        <button type="button" id="begin">Begin a New Game</button>
+      </div>
+    </div>
+    <div id="error" class="error" hidden></div>
+    <div class="sheet-wrap">
+      <table class="sheet" id="sheet"></table>
+    </div>
+    <div class="sheet-tools">
+      <form id="add-student" class="tool-form">
+        <input id="new-last" type="text" placeholder="Last name" autocomplete="off">
+        <input id="new-first" type="text" placeholder="First name" autocomplete="off">
+        <input id="new-codename" type="text" placeholder="Codename" autocomplete="off" hidden>
+        <button type="submit">Add student</button>
+      </form>
+      <form id="freeze-sub" class="tool-form">
+        <input id="sub-name" type="text" value="SUBTOTAL" placeholder="SUBTOTAL" autocomplete="off">
+        <button type="submit">Log TOTAL as Subtotal</button>
+      </form>
+    </div>
+  </div>
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <p class="confirm-title">Confirm delete</p>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="row-actions">
+        <button type="submit" value="cancel" class="secondary">Cancel</button>
+        <button type="submit" value="ok" class="danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="/static/dashboard.js"></script>
+</body>
+</html>

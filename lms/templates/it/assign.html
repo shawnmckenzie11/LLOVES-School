@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>
+    {% if replace_offering %}
+      Replace Pack · {{ replace_offering.section_code or replace_offering.ontario_code }} · {{ school_name }}
+    {% else %}
+      Assign Course · {{ staff_member.display_name or staff_member.email }} · {{ school_name }}
+    {% endif %}
+  </title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <p class="kicker"><a href="{{ url_for('it_dashboard') }}">Admin dashboard</a></p>
+        {% if replace_offering %}
+        <h1>Replace Module Pack — {{ replace_offering.section_code or replace_offering.ontario_code }}</h1>
+        <p class="sub">{{ replace_offering.ontario_code }}</p>
+        {% else %}
+        <h1>Assign Course — {{ staff_member.display_name or staff_member.email }}</h1>
+        <p class="sub">{{ staff_member.email }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if replace_offering %}
+
+    <!-- ── Replace-pack mode ── -->
+    <section class="card">
+      <h2>Replace Module Pack</h2>
+      <p class="hint">Uploading a new pack replaces this offering's content library. Other teachers of the same code keep their current library unless you copy this offering to them later.</p>
+      <form method="post"
+            action="/it/offerings/{{ replace_offering.id }}/module-pack"
+            enctype="multipart/form-data">
+        <label class="field" for="module_pack">Common Cartridge file (.imscc or .zip)</label>
+        <input id="module_pack" name="module_pack" type="file" accept=".imscc,.zip,application/zip" required>
+        <div class="row-actions" style="margin-top:0.75rem">
+          <button type="submit">Upload</button>
+          <a class="btn secondary" href="{{ url_for('it_dashboard') }}">Cancel</a>
+        </div>
+      </form>
+    </section>
+
+    {% else %}
+
+    <!-- ── Assign-course mode ── -->
+    <section class="card">
+      <h2>Assign a course</h2>
+      {% if active %}
+      <p class="hint">Active semester: <strong>{{ active.label }}</strong></p>
+      {% else %}
+      <p class="hint">No active semester — assignments will be recorded without a semester.</p>
+      {% endif %}
+
+      <form method="post"
+            action="/it/staff/{{ staff_member.id }}/assign"
+            enctype="multipart/form-data">
+
+        <label class="field" for="ontario_code">Ontario course code</label>
+        <input id="ontario_code" name="ontario_code" list="course-codes" placeholder="MCF3M" required autocomplete="off">
+        <datalist id="course-codes">
+          {% for c in courses %}
+          <option value="{{ c.code }}">{{ c.title }}</option>
+          {% endfor %}
+        </datalist>
+
+        <label class="field" for="copied_from_offering_id">Base layer</label>
+        <select id="copied_from_offering_id" name="copied_from_offering_id">
+          <option value="">Course template (default)</option>
+        </select>
+
+        <label class="field" for="module_pack">Module pack (optional)</label>
+        <input id="module_pack" name="module_pack" type="file" accept=".imscc,.zip,application/zip">
+        <p class="hint">Required only if no shared template exists for this code yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. Base layer copies syllabus answers and the library pointer — not pack files.</p>
+
+        <label class="field" for="live_days">Live-class days</label>
+        <select id="live_days" name="live_days" required>
+          {% for d in day_options %}
+          <option value="{{ d.value }}">{{ d.label }}</option>
+          {% else %}
+          <option value="M/W/F">M/W/F</option>
+          <option value="T/Th/F">T/Th/F</option>
+          {% endfor %}
+        </select>
+
+        <label class="field" for="live_time">Start time (75 minutes implied)</label>
+        <select id="live_time" name="live_time" required>
+          {% for t in time_options %}
+          <option value="{{ t }}" {% if t == '2:00pm' %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Teachers inherit this schedule when they Populate Class; they only add Codenames.</p>
+
+        <div class="row-actions" style="margin-top:0.75rem">
+          <button type="submit">Assign</button>
+          <a class="btn secondary" href="{{ url_for('it_dashboard') }}">Cancel</a>
+        </div>
+      </form>
+
+      <p class="hint" style="margin-top:1rem">Assigning a code the teacher already holds creates a new section (MCF3M-2, MCF3M-3…). Sections share one content library. To avoid accidental duplicates, double-check the Course Offerings tab before assigning.</p>
+    </section>
+
+    {% endif %}
+  </div>
+
+  {% if not replace_offering %}
+  <script src="/static/it_dashboard.js"></script>
+  {% endif %}
+</body>
+</html>

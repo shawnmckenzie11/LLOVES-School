@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scoreboard</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="scoreboard">
+  <div class="board-stage">
+    <div id="idle" class="board-idle">WAITING FOR KICKOFF</div>
+    <div id="round-banner" class="round-banner hidden" hidden>
+      <span id="round-title"></span>
+      <span id="round-clock"></span>
+    </div>
+    <div id="final" class="final-board hidden" hidden>
+      <div class="final-scores">
+        <p class="final-kicker">FINAL SCORE</p>
+        <ol class="final-list" id="final-list"></ol>
+      </div>
+    </div>
+    <div id="bar" class="espn-bar"></div>
+    <div id="board-ticker" class="final-ticker hidden" hidden>
+      <span class="final-ticker-kicker" id="board-ticker-kicker">Leaders</span>
+      <div class="final-ticker-scroller">
+        <div class="final-ticker-track" id="board-ticker-track"></div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/static/scoreboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+!.cursor/
+
+# Local / secrets
+.env
+.env.*
+!.env.example
+
+# Temporary
+*.tmp
+_preserve/
+
+# Math Game Show local DB, uploads, and session logs
+tools/math-game-show/data/
+
+# LLOVES LMS sqlite, syllabus saves, logs
+lms/data/
+lms/.venv/
+
+# Never commit IMSCC packs (Admin uploads to Fly volume only)
+*.imscc
+**/imscc-unpacked/

@@ -1,0 +1,57 @@
+name: Deploy LLOVES LMS
+
+# Commits to main deploy to https://alc.mckenzian.com, but only after the
+# LMS test suite passes. Feature branches (LLOVEMS) run tests via ci.yml and
+# never deploy; merge to main to release.
+#
+# Add repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms)
+# before Actions deploys succeed on push to main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-lloves-lms
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: LMS test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r lms/requirements.txt
+
+      - name: Run tests
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+        run: python -m unittest discover -s lms -p 'test_*.py' -v
+
+  deploy:
+    name: Deploy to Fly
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard against dev login in production config
+        run: |
+          if grep -qE "^\s*LOCAL_DEV_LOGIN\s*=\s*['\"]?(1|true|yes)" fly.toml; then
+            echo "LOCAL_DEV_LOGIN must never be enabled in fly.toml"
+            exit 1
+          fi
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only

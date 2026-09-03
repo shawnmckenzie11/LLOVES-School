@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verify email · LLOVES</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap" style="max-width:28rem">
+    <p class="kicker">First login</p>
+    <h1>Check your email</h1>
+    {% if email_configured %}
+    <p class="sub">We sent a 6-digit code to <strong>{{ email }}</strong>. You will only need this once.</p>
+    {% else %}
+    <p class="sub">Enter the 6-digit code for <strong>{{ email }}</strong>. You will only need this once.</p>
+    {% endif %}
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    {% if info %}<p>{{ info }}</p>{% endif %}
+    {% if dev_code %}
+    <p class="hint">Dev code (email is not configured): <code>{{ dev_code }}</code></p>
+    {% endif %}
+    <form method="post">
+      <label class="field" for="code">Verification code</label>
+      <input id="code" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
+      <div class="row-actions" style="margin-top:1rem">
+        <button type="submit">Verify</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('resend_verification') }}" style="margin-top:1rem">
+      <button type="submit" class="secondary">Resend code</button>
+    </form>
+  </div>
+</body>
+</html>

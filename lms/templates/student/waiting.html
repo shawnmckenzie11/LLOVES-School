@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Waiting · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">{{ offering.ontario_code if offering else 'Course' }}</p>
+    <h1>Waiting for kickoff</h1>
+    <p class="sub">Your teacher has not started the live game yet. This page will join when the game goes live.</p>
+    <p class="hint">Later: options provided by your teacher. (Not in this version.)</p>
+  </div>
+  <script>
+    async function poll() {
+      try {
+        const res = await fetch("/api/student/state");
+        const data = await res.json();
+        if (data.redirect) {
+          location.href = data.redirect;
+        }
+      } catch (err) {
+        /* keep waiting */
+      }
+    }
+    setInterval(poll, 4000);
+    poll();
+  </script>
+</body>
+</html>

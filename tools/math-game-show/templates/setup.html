@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Begin a New Game</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker"><a href="/" id="home-link">Teacher Dashboard</a> · <a href="#" id="back-dash">Class dashboard</a></p>
+    <h1>Begin a New Game</h1>
+    <p class="sub session-line">
+      <span id="meta"></span>
+      <button type="button" class="text-btn" id="select-manually">Select Manually</button>
+    </p>
+    <div id="error" class="error" hidden></div>
+
+    <section id="manual-picker" class="card hidden">
+      <label class="field" for="meeting-date">Date</label>
+      <input id="meeting-date" type="date">
+      <label class="field" for="meeting-time" style="margin-top:12px">Time</label>
+      <select id="meeting-time"></select>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="close-picker">Close</button>
+        <button type="button" id="apply-meeting">Apply</button>
+      </div>
+    </section>
+
+    <section id="step-attendance" class="card hidden">
+      <h2>1 · Mark Attendance <span id="att-count" class="att-count">Attendance: 0</span></h2>
+      <p class="hint">Defaults from the previous session (all absent on the first game). Only present students go to teams.</p>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="att-all">All present</button>
+        <button type="button" class="secondary" id="att-none">All absent</button>
+      </div>
+      <div id="att-list" class="check-list" style="margin-top:12px"></div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="cancel-setup-att">Cancel</button>
+        <button type="button" id="att-next">Continue to teams</button>
+      </div>
+    </section>
+
+    <section id="step-teams" class="card hidden">
+      <h2>2 · Assign Students to Teams</h2>
+      <label class="field" for="n-teams">Number of teams</label>
+      <div class="stepper">
+        <button type="button" id="n-teams-down" aria-label="Fewer teams">−</button>
+        <input id="n-teams" type="number" min="2" value="2" inputmode="numeric">
+        <button type="button" id="n-teams-up" aria-label="More teams">+</button>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="cancel-setup-teams">Cancel</button>
+        <button type="button" class="secondary" id="teams-back">Back</button>
+        <button type="button" id="assign-random">Assign Randomly</button>
+        <button type="button" id="assign-balanced">Assign Balanced</button>
+        <button type="button" id="assign-manual">Assign Manually</button>
+      </div>
+      <p class="hint">Balanced fills even rosters first (sizes equal or off by one), dealing high TOTALs onto the weakest team with an open seat, then swaps to tighten strength. You will see each team’s scores side by side before naming them.</p>
+      <div id="manual-assign" class="hidden">
+        <p class="hint">Choose a team for each present student. Every team needs at least one student.</p>
+        <div id="manual-list" class="manual-list"></div>
+        <div class="row-actions">
+          <button type="button" class="secondary" id="manual-cancel">Cancel</button>
+          <button type="button" id="manual-confirm">Confirm assignment</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="step-names" class="card hidden">
+      <h2>3 · Create Teams</h2>
+      <p class="hint" id="names-hint">Inspect who landed on each team, then rename if you want. Create Teams opens the teacher view and Zoom scoreboard.</p>
+      <div id="name-list"></div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="cancel-setup-names">Cancel</button>
+        <button type="button" class="secondary" id="names-back">Back</button>
+        <button type="button" id="start-game">Create Teams</button>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="/static/setup.js"></script>
+</body>
+</html>

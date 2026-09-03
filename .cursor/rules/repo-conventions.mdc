@@ -1,0 +1,23 @@
+---
+description: LLOVES School repo layout conventions
+alwaysApply: true
+---
+
+# Repo conventions
+
+```
+frameworks/                 # shared ELC constants
+lms/                        # Flask LMS app
+  seeds/                    # verified expectations JSON
+  sources/ontario-curriculum/  # Ministry PDFs
+tools/math-game-show/       # live class game show (no overlay in this repo)
+agents/                     # school-facing agent prompts
+scripts/                    # syllabus + IMSCC helper scripts
+.cursor/rules/ + skills/    # school-facing only
+```
+
+- Do **not** add `courses/` or commit `.imscc` files.
+- Module packs: Admin upload → `content_libraries` on `/data`.
+- Put shared school rules under `frameworks/` or `.cursor/rules/`.
+- Teaching content > app scaffolding. Docstrings required on new functions/methods.
+- Do not commit unless Shawn asks.

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ school_name|safe }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">{{ school_short }} · Ontario secondary courses</p>
+    <h1>{{ school_name|safe }}</h1>
+    <p class="sub">Staff and Admin sign in with a personal Google account. Students enter the shared course code for the live lesson game.</p>
+    {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
+    <div class="cards">
+      <a class="choice" href="{{ url_for('auth_google', portal='staff') }}">
+        <strong>Staff Login</strong>
+        <span class="hint">Teachers — populate class, modules, syllabus, and grades.</span>
+      </a>
+      <a class="choice" href="{{ url_for('auth_google', portal='it') }}">
+        <strong>Admin Login</strong>
+        <span class="hint">Activate the semester, register staff, assign Ontario courses.</span>
+      </a>
+      <form class="choice" method="post" action="{{ url_for('auth_student_code') }}">
+        <strong>Student Code</strong>
+        <span class="hint">Eight-character course key. Same code for everyone in the course.</span>
+        <label class="field" for="code">Course code</label>
+        <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required>
+        <div class="row-actions" style="margin-top:0.75rem">
+          <button type="submit">Join live game</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% if google_client_id %}
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <div id="g_id_onload"
+       data-client_id="{{ google_client_id }}"
+       data-login_uri="{{ request.scheme }}://{{ request.host }}/auth/google/callback"
+       data-auto_select="{{ 'true' if one_tap_auto else 'false' }}"
+       data-itp_support="true"></div>
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,16 @@
+.git
+.cursor
+**/.venv
+**/venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+.DS_Store
+.env
+**/.env
+lms/.env
+lms/data
+agent-transcripts
+tools/math-game-show/data
+*.tmp
+_preserve/

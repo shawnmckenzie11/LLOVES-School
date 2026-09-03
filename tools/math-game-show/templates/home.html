@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Math Game Show</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">ELC · localhost only</p>
+    <h1>Teacher Dashboard</h1>
+    <p class="sub">Private teacher spreadsheet. Screen-share the scoreboard window on Zoom — students never get a URL.</p>
+    <div id="error" class="error" hidden></div>
+
+    <section id="mode-pick" class="choices">
+      <button type="button" class="choice" id="btn-create">
+        <strong>Create New Class</strong><br>
+        <span class="hint">Year, semester, course, Canvas CSV, days, time.</span>
+      </button>
+      <button type="button" class="choice" id="btn-existing">
+        <strong>Start Existing Class</strong><br>
+        <span class="hint">Classes for the current year / semester.</span>
+      </button>
+    </section>
+
+    <section id="wizard" class="card hidden">
+      <p class="wizard-progress" id="wiz-progress"></p>
+      <h2 id="wiz-title">Create New Class</h2>
+      <div id="step-year">
+        <label class="field" for="year">School year</label>
+        <input id="year" type="text" autocomplete="off">
+      </div>
+      <div id="step-semester" class="hidden">
+        <label class="field" for="semester">Semester</label>
+        <select id="semester">
+          <option>Semester 1</option>
+          <option>Semester 2</option>
+        </select>
+      </div>
+      <div id="step-course" class="hidden">
+        <label class="field" for="course">Course code</label>
+        <input id="course" type="text" autocomplete="off">
+      </div>
+      <div id="step-csv" class="hidden">
+        <label class="field" for="csv">Upload class CSV (Canvas gradebook)</label>
+        <input id="csv" type="file" accept=".csv,text/csv">
+        <p class="hint" id="csv-status">Keeps Student + ID only. Skips header / Points Possible rows.</p>
+      </div>
+      <div id="step-days" class="hidden">
+        <label class="field" for="days">Live-class days</label>
+        <select id="days">
+          <option value="M/W/F">M/W/F</option>
+          <option value="T/Th/F">T/Th/F</option>
+        </select>
+      </div>
+      <div id="step-time" class="hidden">
+        <label class="field" for="time">Start time (75 minutes implied)</label>
+        <select id="time"></select>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="wiz-back">Back</button>
+        <button type="button" id="wiz-next">Next</button>
+      </div>
+    </section>
+
+    <section id="existing" class="card hidden">
+      <h2>Start Existing Class</h2>
+      <p class="hint" id="existing-filter"></p>
+      <div id="class-list" class="class-list"></div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="exist-back">Back</button>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="/static/home.js"></script>
+</body>
+</html>

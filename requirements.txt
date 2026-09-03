@@ -1,0 +1,5 @@
+pymupdf>=1.24.0
+pdfplumber>=0.11.0
+# Nelson §1.1 math OCR (heavy: pulls torch, onnxruntime, transformers, …)
+# First run downloads HF models into ~/.pix2text/ and the HuggingFace cache.
+pix2text==1.1.6

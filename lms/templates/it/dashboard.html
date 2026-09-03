@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <style>
+    .badge { display: inline-block; padding: 0.2em 0.55em; border-radius: 5px; font-size: 0.78rem; font-weight: 650; letter-spacing: 0.04em; }
+    .badge-active  { background: #14532d; color: #bbf7d0; }
+    .badge-pending { background: #2a2e38; color: #9ca3af; }
+    .badge-archived{ background: #450a0a; color: #fca5a5; }
+    .badge-ok      { background: #14532d; color: #bbf7d0; }
+    .badge-warn    { background: #451a03; color: #fcd34d; }
+    .it-tab-btn { padding: 0.45rem 0.9rem; border-radius: 8px; background: #1e3348; color: var(--ink); cursor: pointer; border: 0; font: inherit; }
+    .it-tab-btn.on { background: var(--accent); color: #04221c; font-weight: 650; }
+    .it-tab-panel { margin-top: 1rem; }
+    details.rename-details summary,
+    details.history-details summary { font-size: 0.82rem; color: var(--accent-2); cursor: pointer; }
+    details.rename-details,
+    details.history-details { display: inline; }
+    details.history-details[open] { display: block; }
+    .history-body { margin-top: 0.5rem; }
+    .filter-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; align-items: flex-end; }
+    .filter-row label { margin: 0; }
+    .filter-row input, .filter-row select { width: auto; min-width: 160px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <p class="kicker">Admin dashboard</p>
+        <h1>{{ school_name }}</h1>
+        <p class="sub">Signed in as {{ user.email }} · <a href="{{ url_for('staff_home') }}">Staff home</a> · <a href="{{ url_for('logout') }}">Log out</a></p>
+      </div>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="row-actions" style="gap:0.4rem;margin-bottom:1rem" role="tablist">
+      <button class="it-tab-btn" data-tab="staff" role="tab" aria-selected="true">Staff</button>
+      <button class="it-tab-btn" data-tab="offerings" role="tab" aria-selected="false">Course Offerings</button>
+      <button class="it-tab-btn" data-tab="semester" role="tab" aria-selected="false">Semester</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         Tab: Staff
+    ═══════════════════════════════════════ -->
+    <div class="it-tab-panel" id="tab-staff" role="tabpanel">
+
+      <section class="card">
+        <h2>Add staff</h2>
+        <p class="hint">Personal Google accounts only. They stay pending until first login + email code.</p>
+        <form method="post" action="{{ url_for('it_register_staff') }}">
+          <label class="field" for="email">Google email</label>
+          <input id="email" name="email" type="email" required>
+          <label class="field" for="display_name">Display name (optional)</label>
+          <input id="display_name" name="display_name">
+          <div class="row-actions" style="margin-top:0.75rem"><button type="submit">Add staff</button></div>
+        </form>
+      </section>
+
+      <section class="card" style="margin-top:1rem">
+        <div class="row-actions" style="justify-content:space-between;margin-bottom:0.75rem">
+          <h2 style="margin:0">Staff</h2>
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem;color:var(--muted);margin:0">
+            <input type="checkbox" id="show-archived" style="width:auto"> Show archived
+          </label>
+        </div>
+
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Display Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Last Login</th>
+              <th>Current Courses</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for person in staff %}
+            {% set is_archived = person.archived_at is not none %}
+            {% set is_verified = person.verified_at is not none %}
+            {% set status = "archived" if is_archived else ("active" if is_verified else "pending") %}
+            <tr data-archived="{{ 'true' if is_archived else 'false' }}" {% if is_archived %}hidden{% endif %}>
+              <td>{{ person.display_name or "—" }}</td>
+              <td>{{ person.email }}</td>
+              <td>{{ "Admin" if person.role == "it" else person.role | capitalize }}</td>
+              <td><span class="badge badge-{{ status }}">{{ status }}</span></td>
+              <td>{{ person.last_login_at or "Never" }}</td>
+              <td>{{ person.assigned_codes or "—" }}</td>
+              <td>
+                {% if person.role != 'it' %}
+                <div class="row-actions" style="flex-wrap:wrap;gap:0.4rem">
+
+                  <!-- Edit Name -->
+                  <details class="rename-details">
+                    <summary>Edit Name</summary>
+                    <form method="post" action="/it/staff/{{ person.id }}/rename" style="margin-top:0.4rem;display:flex;gap:0.4rem">
+                      <input name="display_name" value="{{ person.display_name or '' }}" placeholder="Display name" style="width:auto;flex:1">
+                      <button type="submit">Save</button>
+                    </form>
+                  </details>
+
+                  <!-- Assign Course -->
+                  <a class="btn secondary" href="/it/staff/{{ person.id }}/assign">Assign Course</a>
+
+                  <!-- History -->
+                  <details class="history-details"
+                           data-history-url="/it/staff/{{ person.id }}/history"
+                           data-staff-id="{{ person.id }}">
+                    <summary>History</summary>
+                    <div class="history-body"></div>
+                  </details>
+
+                  <!-- Deactivate (hidden for self and IT) -->
+                  {% if person.id != user.id and not is_archived %}
+                  <form method="post" action="/it/staff/{{ person.id }}/deactivate">
+                    <button type="submit" class="danger">Deactivate</button>
+                  </form>
+                  {% endif %}
+
+                  <!-- Reactivate (only when archived) -->
+                  {% if is_archived %}
+                  <form method="post" action="/it/staff/{{ person.id }}/reactivate">
+                    <button type="submit" class="secondary">Reactivate</button>
+                  </form>
+                  {% endif %}
+
+                </div>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         Tab: Course Offerings
+    ═══════════════════════════════════════ -->
+    <div class="it-tab-panel" id="tab-offerings" role="tabpanel" hidden>
+
+      <section class="card">
+        <div class="filter-row" style="justify-content:space-between;align-items:flex-end">
+          <div class="filter-row" style="margin:0">
+            <div>
+              <label class="field" for="filter-semester">Semester</label>
+              <select id="filter-semester">
+                <option value="all">All semesters</option>
+                {% for s in semesters %}
+                <option value="{{ s.id }}" {% if active and s.id == active.id %}selected{% endif %}>{{ s.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="field" for="filter-teacher">Teacher</label>
+              <input id="filter-teacher" type="search" placeholder="Name or email">
+            </div>
+            <div>
+              <label class="field" for="filter-course">Course</label>
+              <input id="filter-course" type="search" placeholder="Code or title">
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem;color:var(--muted);margin:0">
+            <input type="checkbox" id="show-archived-offerings" style="width:auto"> Show archived
+          </label>
+        </div>
+
+        {% if not all_offerings %}
+        <p class="hint">No offerings yet.</p>
+        {% else %}
+        <table class="data" id="offerings-table">
+          <thead>
+            <tr>
+              <th>Course</th>
+              <th>Section</th>
+              <th>Teacher</th>
+              <th>Semester</th>
+              <th>Student Code</th>
+              <th>Pack Status</th>
+              <th>Status</th>
+              <th>Roster</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in all_offerings %}
+            <tr data-semester-id="{{ o.semester_id }}"
+                data-teacher="{{ (o.teacher_email or '') | lower }} {{ (o.teacher_name or '') | lower }}"
+                data-code="{{ (o.section_code or o.ontario_code or '') | lower }} {{ (o.course_title or '') | lower }}"
+                data-archived="{{ 'true' if o.archived_at else 'false' }}"
+                {% if o.archived_at %}hidden{% endif %}>
+              <td>{{ o.ontario_code }}{% if o.expectations_status is defined and o.expectations_status != 'verified' %} <span class="hint">({{ o.expectations_status }})</span>{% endif %}</td>
+              <td>{{ o.section_code or "—" }}</td>
+              <td>{{ o.teacher_email }}</td>
+              <td>{{ o.semester_label or o.semester_id or "—" }}</td>
+              <td><code class="live-code" style="font-size:1rem">{{ o.live_access_code }}</code></td>
+              <td>
+                {% if o.library_id %}
+                <span class="badge badge-ok">Installed</span>
+                {% else %}
+                <span class="badge badge-warn">No pack</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if o.archived_at %}
+                <span class="badge badge-archived">Archived</span>
+                {% else %}
+                <span class="badge badge-active">Active</span>
+                {% endif %}
+              </td>
+              <td>{{ o.roster_size }}</td>
+              <td>
+                <div class="row-actions">
+                  <form method="post" action="{{ url_for('it_rotate_code', offering_id=o.id) }}">
+                    <button type="submit" class="secondary">Rotate Code</button>
+                  </form>
+                  <a class="btn secondary" href="/it/offerings/{{ o.id }}/pack">Replace Pack</a>
+                  {% if o.archived_at %}
+                  <form method="post" action="{{ url_for('it_unarchive_offering', offering_id=o.id) }}">
+                    <button type="submit" class="secondary">Unarchive</button>
+                  </form>
+                  {% else %}
+                  <form method="post" action="{{ url_for('it_archive_offering', offering_id=o.id) }}"
+                        onsubmit="return confirm('Archive this offering? It will disappear from the teacher\'s dashboard.')">
+                    <button type="submit" class="secondary">Archive</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         Tab: Semester
+    ═══════════════════════════════════════ -->
+    <div class="it-tab-panel" id="tab-semester" role="tabpanel" hidden>
+
+      <section class="card">
+        <h2>Semester</h2>
+        {% if active %}
+        <p>Active: <strong>{{ active.label }}</strong> · instructional {{ active.instructional_first }} → {{ active.instructional_last }}</p>
+        <p class="hint">Teachers inherit this calendar (intro days, review week, PD, holidays, exam window). They cannot pick a year.</p>
+        {% else %}
+        <p>No semester is active. Activate 2026–2027 S1 from the school calendar.</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('it_activate_semester') }}" class="row-actions">
+          <button type="submit">Activate from school calendar (2026-2027 S1)</button>
+        </form>
+        {% if semesters %}
+        <form method="post" action="{{ url_for('it_activate_semester') }}" class="row-actions" style="margin-top:0.75rem">
+          <select name="semester_id">
+            {% for s in semesters %}
+            <option value="{{ s.id }}" {% if s.is_active %}selected{% endif %}>{{ s.label }}{% if s.is_active %} (active){% endif %}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="secondary">Switch active</button>
+        </form>
+        {% endif %}
+      </section>
+
+    </div>
+
+  </div>
+  <script src="/static/it_dashboard.js"></script>
+</body>
+</html>

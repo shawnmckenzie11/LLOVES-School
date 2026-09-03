@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Google OAuth setup · LLOVES</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap" style="max-width:40rem">
+    <p class="kicker">{{ school_short }} · {{ portal }} portal</p>
+    <h1>Google Sign-In is not configured on this machine</h1>
+    <p class="sub">LLOVES uses the same Web OAuth client pattern as the Cannabis Paper Scraper: a Google Cloud <strong>Web application</strong> client, External consent screen, personal Google accounts. Mock email login is tests-only.</p>
+    <ol class="setup-steps">
+      <li>Open <a href="https://console.cloud.google.com/apis/credentials">Google Cloud → APIs &amp; Services → Credentials</a> in the McKenzian project.</li>
+      <li>Create (or reuse) an OAuth client of type <strong>Web application</strong>.</li>
+      <li>Add authorized JavaScript origin <code>http://127.0.0.1:8787</code> and redirect URI <code>{{ redirect_uri }}</code>.</li>
+      <li>Copy client id and secret into <code>lms/.env</code> (see <code>lms/GOOGLE.md</code>).</li>
+      <li>Restart <code>python3 lms/app.py</code> and open <strong>http://127.0.0.1:8787</strong> (not localhost, unless you also added that origin).</li>
+    </ol>
+    <p class="hint">IT email <code>solutions@mckenzian.com</code> must be a Test user while the consent screen is in Testing. Staff Gmail addresses are allowlisted in LLOVES after you register them — Google will still show the account picker.</p>
+    <p><a class="btn" href="{{ url_for('landing') }}">Return to school home</a></p>
+  </div>
+</body>
+</html>

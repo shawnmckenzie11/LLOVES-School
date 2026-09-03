@@ -1,0 +1,75 @@
+:root {
+  --bg: #07111c;
+  --card: #0f1c2c;
+  --ink: #e8eef6;
+  --muted: #93a4b8;
+  --line: rgba(232, 238, 246, 0.12);
+  --accent: #2dd4bf;
+  --accent-2: #67e8f9;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --font: "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); min-height: 100%; }
+a { color: var(--accent-2); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.kicker { letter-spacing: 0.16em; text-transform: uppercase; font-size: 0.72rem; color: var(--muted); }
+h1 { font-size: 2rem; margin: 0.35rem 0 0.5rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+@media (max-width: 800px) { .cards { grid-template-columns: 1fr; } }
+.card, .choice {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.25rem;
+}
+.choice { display: block; width: 100%; text-align: left; color: inherit; cursor: pointer; font: inherit; }
+.choice:hover, button:hover { border-color: var(--accent); }
+.choice strong { display: block; font-size: 1.15rem; margin-bottom: 0.35rem; }
+.hint { color: var(--muted); font-size: 0.9rem; }
+label, .field { display: block; margin: 0.4rem 0 0.25rem; font-size: 0.85rem; color: var(--muted); }
+input, select, textarea {
+  width: 100%; padding: 0.55rem 0.7rem; border-radius: 8px;
+  border: 1px solid var(--line); background: #0a1624; color: var(--ink); font: inherit;
+}
+button, .btn {
+  display: inline-block; border: 0; border-radius: 8px; padding: 0.55rem 0.9rem;
+  background: var(--accent); color: #04221c; font-weight: 650; cursor: pointer; text-decoration: none;
+}
+button.secondary, .btn.secondary { background: #1e3348; color: var(--ink); }
+button.danger { background: #7f1d1d; color: #fee2e2; }
+.error { background: #3f1d1d; color: #fecaca; padding: 0.7rem 0.9rem; border-radius: 8px; }
+.hidden { display: none !important; }
+.topbar { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1.25rem; }
+.row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+table.data { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+table.data th, table.data td { text-align: left; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--line); }
+code { font-family: ui-monospace, Menlo, monospace; }
+.tabs { display: flex; gap: 0.4rem; margin: 0 0 1rem; }
+.tabs a { padding: 0.45rem 0.8rem; border-radius: 8px; text-decoration: none; color: var(--ink); background: #1e3348; }
+.tabs a.on { background: var(--accent); color: #04221c; }
+.layout { display: grid; grid-template-columns: 18rem 1fr; gap: 1rem; min-height: 70vh; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+.nav-list { list-style: none; margin: 0; padding: 0; font-size: 0.88rem; }
+.nav-list li { margin: 0.15rem 0; }
+.nav-list button { width: 100%; text-align: left; background: transparent; color: var(--ink); padding: 0.3rem 0.4rem; }
+.nav-list .mod { color: var(--accent-2); margin-top: 0.7rem; font-weight: 650; }
+iframe.module-frame { width: 100%; min-height: 70vh; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.sheet-wrap { overflow: auto; background: #fffdf8; color: #1c1914; border-radius: 10px; }
+.course-dash { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+.course-dash h2 { margin: 0.2rem 0 0.35rem; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 700px) { .choices { grid-template-columns: 1fr; } }
+.class-list button { display: block; width: 100%; margin: 0.4rem 0; text-align: left; background: #1e3348; color: var(--ink); }
+.wizard-progress { color: var(--muted); }
+.codename-list { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0; }
+.exp-panel { font-size: 0.85rem; color: var(--muted); }
+.exp-panel code { color: var(--accent-2); }
+.live-code { font-size: 1.4rem; letter-spacing: 0.12em; font-family: ui-monospace, Menlo, monospace; }
+.setup-steps { color: var(--ink); line-height: 1.55; padding-left: 1.2rem; }
+.setup-steps li { margin: 0.45rem 0; }
+
+/* Staff home + course dashboard chrome lives in staff-shell.css (loaded last). */

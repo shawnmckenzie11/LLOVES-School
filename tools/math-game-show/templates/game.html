@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teacher Game</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="game-dash">
+  <div class="wrap">
+    <div class="toolbar">
+      <div>
+        <p class="kicker"><a href="/">Teacher Dashboard</a> · <a id="dash-link" href="#">Class dashboard</a></p>
+        <div class="title-row">
+          <h1 id="title">Teacher Game</h1>
+          <button type="button" class="secondary" id="student-view">Student View</button>
+          <button type="button" class="secondary" id="open-overlay">Scoreboard overlay</button>
+        </div>
+        <p class="sub" id="meta"></p>
+      </div>
+      <div class="round-cluster">
+        <p class="round-label" id="round-label">ROUND 1 · Open Question Round</p>
+        <p class="round-clock" id="round-clock">20:00</p>
+        <button type="button" id="start-round" hidden>Start Round 2</button>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="add-late">Add Student</button>
+        <button type="button" class="secondary" id="quit-game">Quit Game</button>
+        <button type="button" class="danger" id="end-game">End Game</button>
+      </div>
+    </div>
+    <div id="error" class="error" hidden></div>
+    <!-- Future TODO: students awarding points to one another. Teacher-only +/- for now. -->
+    <div class="team-board">
+      <div id="teams" class="team-row"></div>
+    </div>
+    <p class="later">Later: students awarding points to one another. Scoring is teacher-only for now.</p>
+  </div>
+  <dialog id="add-late-dialog" class="confirm-dialog">
+    <form id="add-late-form">
+      <p class="confirm-title">Add Student</p>
+      <p class="confirm-message">Pick someone not marked present and the team they join. They start at 0.</p>
+      <label class="field-label">Student
+        <select id="late-student" required></select>
+      </label>
+      <label class="field-label">Team
+        <select id="late-team" required></select>
+      </label>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="add-late-cancel">Cancel</button>
+        <button type="submit">Add to team</button>
+      </div>
+    </form>
+  </dialog>
+  <script type="module" src="/static/game.js"></script>
+</body>
+</html>

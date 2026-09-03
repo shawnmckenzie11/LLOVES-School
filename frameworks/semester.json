@@ -1,0 +1,57 @@
+{
+  "semester": "2026-2027 S1",
+  "label": "September 2026 – January 2027",
+  "current_phase": "preparing",
+  "as_of": "2026-07-30",
+  "verified_on": "2026-07-30",
+  "calendar": {
+    "source_url": "https://www.tldsb.ca/wp-content/uploads/2025/12/Proposed-2026-27-TLDSB-School-Year-Calendar-2.pdf",
+    "local_pdf": "frameworks/sources/tldsb-2026-27-school-year-calendar.pdf",
+    "status": "proposed",
+    "notes": "PDF title says Proposed. Dates verified from letter marks (P/B/H/E) and purple First Day of School shading. Re-verify if TLDSB publishes a final calendar."
+  },
+  "instructional": {
+    "first_day_of_school": "2026-09-08",
+    "last_instructional_day_before_exams": "2027-01-25",
+    "semester_end_approx": "2027-02-01"
+  },
+  "pd_days": [
+    {"date": "2026-09-02", "type": "PD", "scope": "all"},
+    {"date": "2026-09-03", "type": "PD", "scope": "all"},
+    {"date": "2026-11-20", "type": "PD", "scope": "all"},
+    {"date": "2027-01-29", "type": "PD", "scope": "secondary", "notes": "Calendar marks E|P on this day (exam + secondary PD)."},
+    {"date": "2027-02-02", "type": "PD", "scope": "all"}
+  ],
+  "holidays": [
+    {"date": "2026-09-04", "type": "board", "name": "Board holiday"},
+    {"date": "2026-09-07", "type": "stat", "name": "Labour Day"},
+    {"date": "2026-10-12", "type": "stat", "name": "Thanksgiving"},
+    {"date": "2026-12-21", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-22", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-23", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-24", "type": "stat", "name": "Winter break"},
+    {"date": "2026-12-25", "type": "stat", "name": "Christmas Day"},
+    {"date": "2026-12-28", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-29", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-30", "type": "board", "name": "Winter break"},
+    {"date": "2026-12-31", "type": "board", "name": "Winter break"},
+    {"date": "2027-01-01", "type": "stat", "name": "New Year's Day"}
+  ],
+  "exam_window": {
+    "secondary_exam_days": [
+      "2027-01-26",
+      "2027-01-27",
+      "2027-01-28",
+      "2027-01-29",
+      "2027-02-01"
+    ],
+    "notes": "Jan 26–28 marked E; Jan 29 marked E|P; Feb 1 marked E."
+  },
+  "phases": {
+    "preparing": "Before first instructional day; summer/pre-term course build",
+    "in_session": "From first_day_of_school through day before exam window",
+    "exam": "During secondary_exam_days",
+    "break": "Board/stat holidays and multi-day breaks (e.g. winter break)"
+  },
+  "update_instructions": "When the semester changes: (1) set as_of to today, (2) update current_phase, (3) replace date arrays from the board calendar PDF, (4) sync frameworks/semester.md, (5) optionally archive this file under frameworks/archive/."
+}

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ cls.section_code or cls.ontario_code or cls.course_code }} · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+</head>
+<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% endif %}">
+  <div class="wrap course-shell">
+    <nav class="staff-top-menu" aria-label="Staff navigation">
+      <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
+      {% for item in nav_courses %}
+      <a class="staff-top-btn{% if item.class_id and item.class_id == cls.id %} on{% endif %}"
+         href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+      <span class="staff-top-spacer"></span>
+      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+    </nav>
+
+    <div class="topbar">
+      <div>
+        <h1>{{ cls.section_code or cls.ontario_code or cls.course_code }}</h1>
+      </div>
+    </div>
+
+    {% if pack_error %}<div class="error">{{ pack_error }}</div>{% endif %}
+
+    <nav class="tabs">
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if tab == 'pages' else '' }}">Pages</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if tab == 'assignments' else '' }}">Assignments</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='grades') }}" class="{{ 'on' if tab == 'grades' else '' }}">Track Attendance &amp; Participation</a>
+    </nav>
+
+    {% if tab == 'modules' %}
+    <div class="layout" id="modules-root" data-class-id="{{ cls.id }}">
+      <aside class="card module-nav-pane">
+        <div id="module-nav">Loading modules…</div>
+      </aside>
+      <iframe class="module-frame" id="module-frame" title="Module page"></iframe>
+    </div>
+    <script type="module" src="/static/course_modules.js"></script>
+    {% elif tab in ['pages', 'assignments', 'quizzes', 'question-banks'] %}
+    <p class="hint">Imported catalog for this course. Items here are the building blocks the Modules tab links to.</p>
+    <div class="layout" id="catalog-root" data-class-id="{{ cls.id }}" data-kind="{{ tab }}">
+      <aside class="card module-nav-pane">
+        <div id="catalog-list">Loading {{ tab.replace('-', ' ') }}…</div>
+      </aside>
+      <iframe class="module-frame" id="catalog-frame" title="Component preview"></iframe>
+    </div>
+    <script type="module" src="/static/course_catalog.js"></script>
+    {% elif tab == 'syllabus' %}
+    <p class="hint">Click-to-place editor only (no sequential packer). Calendar is locked from Admin.</p>
+    <p class="row-actions">
+      <a class="btn" href="{{ url_for('staff_syllabus_editor', class_id=cls.id) }}">Edit placements</a>
+      <a class="btn secondary" href="{{ url_for('staff_syllabus', class_id=cls.id) }}">View saved calendar</a>
+    </p>
+    <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
+    {% else %}
+    <div id="grades-root" data-class-id="{{ cls.id }}">
+      <div class="topbar">
+        <div class="row-actions">
+          <button type="button" id="begin">Start Live Class Tracker</button>
+        </div>
+      </div>
+      <section class="card grades-panel">
+        <h2>Class Data View</h2>
+        <div class="view-toggle" role="group" aria-label="Lesson score view">
+          <button type="button" class="on" data-round-view="total" aria-pressed="true">Total</button>
+          <button type="button" data-round-view="r1" aria-pressed="false">Open Question</button>
+          <button type="button" data-round-view="r2" aria-pressed="false">Team Challenge</button>
+          <button type="button" data-round-view="r3" aria-pressed="false">Formative</button>
+          <button type="button" data-round-view="all" aria-pressed="false">All</button>
+        </div>
+      </section>
+      <div id="error" class="error" hidden></div>
+      <div class="sheet-wrap">
+        <table class="sheet" id="sheet">
+          <thead>
+            <tr>
+              <th class="name">Student <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button></th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <section class="card grades-panel">
+        <h2>Scoreboard period</h2>
+        <div class="view-toggle" id="stat-window-toggle" role="group" aria-label="Scoreboard stats period">
+          <button type="button" class="on" data-stat-window="last_class" aria-pressed="true">Last class</button>
+          <button type="button" data-stat-window="last_week" aria-pressed="false">Last week</button>
+          <button type="button" data-stat-window="year" aria-pressed="false">This year</button>
+        </div>
+      </section>
+      <section class="card grades-panel">
+        <h2>Log TOTAL</h2>
+        <form id="freeze-sub" class="tool-form">
+          <input id="sub-name" type="text" value="SUBTOTAL" placeholder="SUBTOTAL" autocomplete="off">
+          <button type="submit">Log TOTAL as Subtotal</button>
+        </form>
+      </section>
+    </div>
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <p class="confirm-title">Confirm delete</p>
+        <p id="confirm-message" class="confirm-message"></p>
+        <div class="row-actions">
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
+          <button type="submit" value="ok" class="danger">Delete</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="/static/staff_grades.js"></script>
+    {% endif %}
+
+    {% if expectations %}
+    <details class="card exp-panel" style="margin-top:1.25rem">
+      <summary>Inherited curriculum expectations ({{ cls.ontario_code or cls.course_code }})</summary>
+      <ul>
+        {% for e in expectations %}
+        <li><code>{{ e.code }}</code>{% if e.parent_code %} ← {{ e.parent_code }}{% endif %} · {{ e.kind }} · {{ e.statement }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% elif offering and offering.expectations_status != 'verified' %}
+    <p class="hint" style="margin-top:1rem">Expectations: {{ offering.expectations_status }} — assignment is allowed; wording is not invented.</p>
+    {% endif %}
+  </div>
+</body>
+</html>

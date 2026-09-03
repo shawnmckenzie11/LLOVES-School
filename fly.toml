@@ -1,0 +1,43 @@
+# LLOVES LMS — deploy from the repository root so Docker context
+# includes frameworks/, lms/, tools/, and scripts/.
+#
+# Public URL: https://alc.mckenzian.com
+# See lms/DEPLOY.md (Fly + Cloudflare CNAME, same pattern as hh / iaw).
+#
+#   fly volumes create lloves_data --region yyz --size 3
+#   fly deploy
+#
+# Persistent volume holds sqlite + Admin-uploaded IMSCC libraries.
+
+app = 'lloves-lms'
+primary_region = 'yyz'
+
+[build]
+  dockerfile = 'lms/Dockerfile'
+
+[env]
+  FLASK_ENV = 'production'
+  IT_EMAILS = 'solutions@mckenzian.com'
+  GOOGLE_REDIRECT_URI = 'https://alc.mckenzian.com/auth/google/callback'
+  PUBLIC_APP_URL = 'https://alc.mckenzian.com'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [http_service.http_options]
+    # Large IMSCC uploads (~650MB+) + unpack can sit quiet after the body lands.
+    idle_timeout = 600
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+[[mounts]]
+  source = 'lloves_data'
+  destination = '/data'

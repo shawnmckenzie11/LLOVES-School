@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staff · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+</head>
+<body class="staff-shell">
+  <div class="wrap">
+    <nav class="staff-top-menu" aria-label="Staff navigation">
+      <a class="staff-top-btn on" href="{{ url_for('staff_home') }}">Dashboard</a>
+      {% for item in nav_courses %}
+      <a class="staff-top-btn" href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+      <span class="staff-top-spacer"></span>
+      {% if user.role == 'it' %}<a class="staff-top-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
+      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+    </nav>
+    <p class="kicker">Staff · {{ user.email }}</p>
+    <h1>Teacher Dashboard</h1>
+    {% if active %}
+    <p class="sub">{{ active.label }} · courses Admin assigned to this account. Populate a class to add Codenames (live days and time are set by Admin).</p>
+    {% else %}
+    <p class="sub">Ask Admin to activate a semester before you populate a class.</p>
+    {% endif %}
+    <div id="error" class="error hidden"></div>
+
+    {% if not offerings %}
+    <p>No course is assigned to you for the active semester. Ask Admin to assign an Ontario course code.</p>
+    {% else %}
+    <section id="course-dash" class="course-dash">
+      {% for o in offerings %}
+      <article class="card" data-ontario-code="{{ o.ontario_code }}" data-offering-id="{{ o.id }}" data-section-index="{{ o.section_index or 1 }}"{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>
+        <p class="kicker">Assigned course{% if (o.section_index or 1) > 1 %} · section {{ o.section_index }}{% endif %}</p>
+        <h2>{{ o.section_code or o.ontario_code }}</h2>
+        <p class="sub">{{ o.course_title }}</p>
+        <p>Student code <code class="live-code">{{ o.live_access_code }}</code></p>
+        {% if o.classes %}
+        <div class="class-list">
+          {% for cls in o.classes %}
+          <div class="class-section">
+            <p class="schedule-line">Schedule: {{ cls.days }} · {{ cls.time }}</p>
+            <a class="btn btn-open-course" href="{{ url_for('staff_course', class_id=cls.id) }}">OPEN COURSE</a>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif o.live_days and o.live_time %}
+        <p class="schedule-line">Schedule (from Admin): {{ o.live_days }} · {{ o.live_time }}</p>
+        <p class="hint">No roster yet — Populate Class to add Codenames.</p>
+        {% else %}
+        <p class="hint">No section yet.</p>
+        {% endif %}
+        <div class="row-actions">
+          <button type="button" class="btn-populate secondary" data-offering-id="{{ o.id }}"{% if o.classes %} data-class-id="{{ o.classes[0].id }}"{% endif %}{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>{% if o.classes %}Edit Class{% else %}Populate Class{% endif %}</button>
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+    <select id="offering" class="hidden" aria-hidden="true">
+      {% for o in offerings %}
+      <option value="{{ o.id }}" data-code="{{ o.live_access_code }}">{{ o.section_code or o.ontario_code }} · student code {{ o.live_access_code }}</option>
+      {% endfor %}
+    </select>
+
+    <section id="wizard" class="card hidden">
+      <p class="wizard-progress" id="wiz-progress"></p>
+      <h2 id="wiz-title">Populate Class</h2>
+      <div id="step-offering" class="hidden">
+        <label class="field" for="offering-visible">Assigned course</label>
+        <p id="offering-chosen" class="sub"></p>
+      </div>
+      <div id="step-roster" class="hidden">
+        <label class="field" for="codename-input">Codenames (one per student)</label>
+        <div class="codename-list" id="codename-list"></div>
+        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a Codename">
+        <div class="row-actions" style="margin-top:0.5rem">
+          <button type="button" class="secondary" id="add-codename">Add</button>
+        </div>
+        <p class="hint">Paste several lines at once. No commas. <span id="roster-count">0</span> students. Existing scores stay on Codenames you keep.</p>
+        <textarea id="codename-paste" rows="4" placeholder="Or paste one Codename per line"></textarea>
+      </div>
+      <div id="step-days" class="hidden">
+        <label class="field" for="days">Live-class days</label>
+        <select id="days">
+          <option value="M/W/F">M/W/F</option>
+          <option value="T/Th/F">T/Th/F</option>
+        </select>
+      </div>
+      <div id="step-time" class="hidden">
+        <label class="field" for="time">Start time (75 minutes implied)</label>
+        <select id="time">
+          {% for t in time_options %}
+          <option value="{{ t }}" {% if t == '2:00pm' %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="wiz-back">Back</button>
+        <button type="button" id="wiz-next">Next</button>
+      </div>
+    </section>
+
+    {% endif %}
+  </div>
+  <script type="module" src="/static/staff_home.js"></script>
+</body>
+</html>

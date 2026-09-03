@@ -1,0 +1,31 @@
+---
+description: LLOVES / ELC school identity, online delivery, and shared framework inheritance
+alwaysApply: true
+---
+
+# LLOVES / ELC teaching constants
+
+Shawn teaches **online** at **ELC** (Ontario) via the **LLOVES** LMS. Shared facts live in `frameworks/`.
+
+## Always true
+
+- Async: LLOVES module pages (Canvas-shaped packs via Admin IMSCC upload)
+- Sync: **two 75-minute** Zoom live classes / week
+- Friday: **75-minute** flexible office-hours Zoom
+- Curriculum: Ontario secondary; expectations seed under `lms/seeds/`
+- Semester state: read `frameworks/semester.json` before pacing
+- Semester is **20 weeks** (first instructional day through the exam window); do **not** assume 20 × 5 = 100 school days
+- **First 2 instructional days** = intro / course overview only (no module work)
+- **Last instructional week before exams** = review (no new module)
+- Due dates **only on school days** (never weekends, holidays, or PD days from `frameworks/semester.json`)
+- **No `.imscc` in git** — packs live on the Fly `/data` volume
+
+## Before planning lessons or pacing
+
+1. Load `frameworks/school.md`, `frameworks/class-structure.md`, `frameworks/canvas-lms.md`
+2. Load `frameworks/semester.json` (phase + dates)
+3. Load root `AGENTS.md` and `lms/SCHOOL.md`
+
+## Inheritance
+
+School frameworks are the source of truth. Do not invent conflicting school-level rules inside `lms/`.
