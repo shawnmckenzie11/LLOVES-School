@@ -1,10 +1,10 @@
-import { api, escapeHtml, formatPoints, hideError, openScoreboardOverlay, reserveScoreboardOverlay, showError } from "/static/common.js";
+import { api, escapeHtml, formatPoints, hideError, showError } from "/static/common.js";
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
 const sortKey = `lloves-sort-${classId}`;
 const roundViewKey = `mgs-round-view-${classId}`;
-const ROUND_VIEWS = ["total", "r1", "r2", "r3", "all"];
+const ROUND_VIEWS = ["total", "r1", "r2", "r3"];
 const STAT_WINDOWS = ["last_class", "last_week", "year"];
 const SLICE_KEYS = { total: "points", r1: "points_r1", r2: "points_r2", r3: "points_r3" };
 const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
@@ -12,6 +12,7 @@ const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
 let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
 let roundView = loadRoundView(localStorage.getItem(roundViewKey));
 let latest = null;
+let clearMode = false;
 
 /**
  * Roster label is the Codename only.
@@ -28,8 +29,7 @@ function displayName(student) {
  * @returns {"total"|"r1"|"r2"|"r3"|"all"}
  */
 function loadRoundView(raw) {
-  if (raw === "overall") return "total";
-  if (raw === "rounds") return "all";
+  if (raw === "overall" || raw === "all" || raw === "rounds") return "total";
   if (ROUND_VIEWS.includes(raw)) return raw;
   return "total";
 }
@@ -39,7 +39,7 @@ function loadRoundView(raw) {
  */
 async function refresh() {
   hideError("#error");
-  const data = await api(`/api/classes/${classId}/dashboard?sort=${sort}`);
+  const data = await api(`/api/classes/${classId}/participation-grid?sort=${sort}`);
   paint(data);
 }
 
@@ -59,74 +59,114 @@ function payloadStatWindow(data) {
  */
 function paint(data) {
   latest = data;
-  const cls = data.class;
-  document.querySelectorAll("[data-round-view]").forEach((btn) => {
-    const on = btn.dataset.roundView === roundView;
-    btn.classList.toggle("on", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-  });
-  const statWindow = payloadStatWindow(data);
-  document.querySelectorAll("[data-stat-window]").forEach((btn) => {
-    const on = btn.dataset.statWindow === statWindow;
-    btn.classList.toggle("on", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-  });
+  const select = document.getElementById("round-view-select");
+  if (select instanceof HTMLSelectElement) select.value = roundView;
   renderSheet(data);
 }
 
 /**
- * Build the spreadsheet: class columns, frozen subtotals, live SUBTOTAL, TOTAL.
+ * Points for one calendar cell for the active Class Data View slice.
+ * @param {{points?: number, points_r1?: number, points_r2?: number, points_r3?: number}|null|undefined} cell
+ * @returns {number}
+ */
+function gridCellPoints(cell) {
+  if (!cell) return 0;
+  const slice = roundView === "r1" || roundView === "r2" || roundView === "r3" ? roundView : "total";
+  return cellSlice(cell, slice);
+}
+
+/**
+ * Build the semester calendar sheet (same columns as attendance).
  * @param {any} data
  */
 function renderSheet(data) {
   const table = document.getElementById("sheet");
-  const columns = data.columns || (data.sessions || []).map((session) => ({
-    kind: "session",
-    ...session,
-  }));
+  if (!table) return;
+  const weeks = data.weeks || [];
+  const labels = data.date_labels || [];
+  const meta = data.day_meta || [];
+  const headers = data.weekday_headers || ["M", "T", "W", "T", "F"];
   const students = data.students || [];
   const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
-  let html = `<thead><tr><th class='name'>Student <button type="button" class="secondary" id="sort-toggle">${sortLabel}</button></th>`;
-  for (const column of columns) {
-    if (column.kind === "subtotal") {
-      html += `<th class="subtotal-col">${escapeHtml(column.name || column.header_label)}
-        <button type="button" class="icon-btn" data-del-subtotal="${column.id}" title="Delete subtotal">×</button>
-      </th>`;
-      continue;
-    }
-    html += `<th>${escapeHtml(column.header_label)}`;
-    if (column.status === "ended" && column.log_path) {
-      html += `<a class="log-link" href="/api/sessions/${column.id}/log" target="_blank" rel="noopener">log</a>`;
-    }
-    html += `<button type="button" class="icon-btn" data-del-session="${column.id}" title="Delete column">×</button>`;
-    html += "</th>";
-  }
-  html += "<th class='live-sub'>SUBTOTAL</th><th class='total'>TOTAL SCORE</th></tr></thead><tbody>";
+  const daySums = {};
+  const clearActive = clearMode ? " on" : "";
+
+  let dates = `<tr class="att-dates"><th class="name"><button type="button" class="secondary${clearActive}" id="part-clear">Clear</button></th>`;
+  weeks.forEach((week, weekIndex) => {
+    week.forEach((iso, dayIndex) => {
+      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
+      const cell = meta[weekIndex]?.[dayIndex];
+      const label = labels[weekIndex]?.[dayIndex] || cell?.label || "";
+      const closed = cell && cell.school_day === false;
+      const clickable =
+        clearMode && iso && cell?.school_day ? ` data-clear-date="${escapeHtml(iso)}"` : "";
+      const title = cell?.iso
+        ? ` title="${escapeHtml(cell.iso)}${cell.reason ? ` · ${escapeHtml(cell.reason)}` : ""}"`
+        : "";
+      dates += `<th class="att-day att-date${edge}${closed ? " closed" : ""}${clickable ? " clear-target" : ""}"${title}${clickable}>${escapeHtml(label)}</th>`;
+    });
+  });
+  dates += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL</th></tr>`;
+
+  let head = `<tr><th class="name">Student <button type="button" class="secondary" id="sort-toggle">${sortLabel}</button></th>`;
+  weeks.forEach((week, weekIndex) => {
+    headers.forEach((label, dayIndex) => {
+      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
+      const cell = meta[weekIndex]?.[dayIndex];
+      const closed = cell && cell.school_day === false;
+      const title = cell?.iso ? ` title="${escapeHtml(cell.iso)}"` : "";
+      head += `<th class="att-day${edge}${closed ? " closed" : ""}"${title}>${escapeHtml(label)}</th>`;
+    });
+  });
+  head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
+
+  let body = "";
   for (const student of students) {
-    html += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
-    for (const column of columns) {
-      if (column.kind === "subtotal") {
-        const frozen = data.cells[`sub:${column.id}:${student.id}`] || { points: 0 };
-        html += `<td class="cell frozen">${escapeHtml(formatPoints(frozen.points))}</td>`;
-        continue;
-      }
-      const cell = data.cells[`${column.id}:${student.id}`] || {
-        present: false,
-        points: 0,
-        points_r1: 0,
-        points_r2: 0,
-        points_r3: 0,
-      };
-      const kind = cell.present ? "present" : "absent";
-      html += sessionCellHtml(cell, kind);
-    }
-    const liveCols = liveSessionColumns(columns);
-    const allCols = sessionColumns(columns);
-    html += summaryCellHtml(data, student.id, liveCols, "live-sub");
-    html += summaryCellHtml(data, student.id, allCols, "total");
+    const sid = Number(student.id);
+    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    weeks.forEach((week, weekIndex) => {
+      week.forEach((iso, dayIndex) => {
+        const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
+        const cellMeta = meta[weekIndex]?.[dayIndex];
+        if (!iso || !cellMeta) {
+          body += `<td class="att-day empty${edge}"></td>`;
+          return;
+        }
+        if (cellMeta.school_day === false) {
+          body += `<td class="att-day closed${edge}"></td>`;
+          return;
+        }
+        const cell = data.cells?.[`${sid}:${iso}`];
+        const pts = gridCellPoints(cell);
+        if (pts) daySums[iso] = numericPoints((daySums[iso] || 0) + pts);
+        const text = pts ? escapeHtml(formatPoints(pts)) : "";
+        body += `<td class="att-day cell${edge}">${text}</td>`;
+      });
+    });
+    const liveSub = data.live_subtotals?.[String(sid)] ?? 0;
+    const total = data.totals?.[String(sid)] ?? 0;
+    body += `<td class="live-sub">${escapeHtml(formatPoints(liveSub))}</td>`;
+    body += `<td class="total">${escapeHtml(formatPoints(total))}</td></tr>`;
   }
-  html += "</tbody>";
-  table.innerHTML = html;
+
+  let dayTotalRow = `<tr class="att-day-total"><td class="name">Total</td>`;
+  weeks.forEach((week, weekIndex) => {
+    week.forEach((iso, dayIndex) => {
+      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
+      const cellMeta = meta[weekIndex]?.[dayIndex];
+      if (!iso || !cellMeta || cellMeta.school_day === false) {
+        dayTotalRow += `<td class="att-day total-cell${edge}"></td>`;
+        return;
+      }
+      const sum = daySums[iso] ?? 0;
+      dayTotalRow += `<td class="att-day total-cell${edge}">${sum ? escapeHtml(formatPoints(sum)) : ""}</td>`;
+    });
+  });
+  dayTotalRow += `<td class="live-sub"></td><td class="total"></td></tr>`;
+
+  table.innerHTML = `<thead>${dates}${head}</thead><tbody>${body}${dayTotalRow}</tbody>`;
+  table.classList.add("attendance-grid");
+  document.getElementById("part-clear-hint")?.toggleAttribute("hidden", !clearMode);
 }
 
 /**
@@ -288,17 +328,17 @@ function sessionCellHtml(cell, kind) {
  */
 async function mutate(url, extra) {
   hideError("#error");
-  const data = await api(url, {
+  await api(url, {
     method: "POST",
     body: JSON.stringify({ sort, ...extra }),
   });
-  paint(data);
+  await refresh();
 }
 
-document.querySelector("[aria-label='Lesson score view']")?.addEventListener("click", (event) => {
-  const btn = event.target instanceof Element ? event.target.closest("[data-round-view]") : null;
-  if (!btn) return;
-  const next = btn.dataset.roundView;
+document.getElementById("round-view-select")?.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  const next = select.value;
   if (!ROUND_VIEWS.includes(next)) return;
   roundView = next;
   localStorage.setItem(roundViewKey, roundView);
@@ -313,28 +353,6 @@ document.getElementById("stat-window-toggle")?.addEventListener("click", (event)
   mutate(`/api/classes/${classId}/stat-window`, { window: next }).catch((err) =>
     showError("#error", err)
   );
-});
-
-document.getElementById("begin").addEventListener("click", async () => {
-  hideError("#error");
-  const overlay = reserveScoreboardOverlay();
-  try {
-    const state = await api(`/api/classes/${classId}/begin`, {
-      method: "POST",
-      body: "{}",
-    });
-    const status = state.game && state.game.status;
-    if (status === "live") {
-      openScoreboardOverlay(overlay);
-      location.href = `/class/${classId}/game`;
-      return;
-    }
-    overlay?.close();
-    location.href = `/class/${classId}/setup`;
-  } catch (err) {
-    overlay?.close();
-    showError("#error", err);
-  }
 });
 
 document.getElementById("freeze-sub").addEventListener("submit", (event) => {
@@ -384,39 +402,28 @@ document.getElementById("sheet").addEventListener("click", (event) => {
     refresh().catch((err) => showError("#error", err));
     return;
   }
-  const delSession = target.closest("[data-del-session]");
-  if (delSession) {
+  if (target.closest("#part-clear")) {
     event.preventDefault();
-    const id = Number(delSession.dataset.delSession);
-    const column = (latest?.columns || latest?.sessions || []).find((c) => Number(c.id) === id);
-    const header = column?.header_label || "this class column";
-    askToDelete(
-      `Delete class column “${header}” and all scores in it?\n\nThis cannot be undone.`
-    ).then((ok) => {
-      if (!ok) return;
-      mutate(`/api/classes/${classId}/sessions/delete`, { session_id: id }).catch((err) =>
-        showError("#error", err)
-      );
-    });
+    clearMode = !clearMode;
+    if (latest) paint(latest);
     return;
   }
-  const delSub = target.closest("[data-del-subtotal]");
-  if (delSub) {
-    event.preventDefault();
-    const id = Number(delSub.dataset.delSubtotal);
-    const column = (latest?.columns || []).find(
-      (c) => c.kind === "subtotal" && Number(c.id) === id
-    );
-    const header = column?.name || column?.header_label || "this subtotal";
-    askToDelete(
-      `Delete subtotal column “${header}”?\n\nClass scores stay. Live SUBTOTAL will recount from any remaining freeze.`
-    ).then((ok) => {
-      if (!ok) return;
-      mutate(`/api/classes/${classId}/subtotals/delete`, { id }).catch((err) =>
-        showError("#error", err)
-      );
-    });
-  }
+  const dateCell = target.closest("[data-clear-date]");
+  if (!dateCell || !clearMode) return;
+  const iso = dateCell.getAttribute("data-clear-date");
+  if (!iso) return;
+  if (!window.confirm(`Clear participation and attendance for ${iso}?`)) return;
+  hideError("#error");
+  api(`/api/classes/${classId}/attendance-day/clear`, {
+    method: "POST",
+    body: JSON.stringify({ date: iso, sort }),
+  })
+    .then(() => {
+      clearMode = false;
+      window.dispatchEvent(new CustomEvent("lloves-attendance-refresh"));
+      return refresh();
+    })
+    .catch((err) => showError("#error", err));
 });
 
 refresh().catch((err) => showError("#error", err));

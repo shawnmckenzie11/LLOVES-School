@@ -1797,7 +1797,23 @@ class GameShowDB:
             Updated game state.
         """
         cls = self.get_class(class_id)
-        if meeting_date < (today or date.today()):
+        # Attendance logs may target any day in the semester window (not only today+).
+        try:
+            from schedule import load_semester_json
+        except ImportError:
+            load_semester_json = None  # type: ignore[assignment]
+        first_day = None
+        if load_semester_json:
+            payload = load_semester_json() or {}
+            raw = (payload.get("instructional") or {}).get("first_day_of_school")
+            if raw:
+                try:
+                    first_day = date.fromisoformat(str(raw)[:10])
+                except ValueError:
+                    first_day = None
+        if first_day and meeting_date < first_day:
+            raise ValueError("Choose a date on or after the first instructional day")
+        if not first_day and meeting_date < (today or date.today()):
             raise ValueError("Choose today or a future date")
         label = (time_label or cls["time"]).strip()
         if label not in TIME_OPTIONS:
@@ -1966,33 +1982,7 @@ class GameShowDB:
                 raise ValueError("Attendance can only be edited during setup")
             if not present_set:
                 raise ValueError("Mark at least one student present")
-            session_id = int(game["session_id"])
-            students = self.conn.execute(
-                "SELECT id FROM students WHERE class_id = ?", (class_id,)
-            ).fetchall()
-            for row in students:
-                sid = int(row["id"])
-                is_present = 1 if sid in present_set else 0
-                self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET present = ?,
-                        points = CASE WHEN ? = 0 THEN 0 ELSE points END,
-                        points_r1 = CASE WHEN ? = 0 THEN 0 ELSE points_r1 END,
-                        points_r2 = CASE WHEN ? = 0 THEN 0 ELSE points_r2 END,
-                        points_r3 = CASE WHEN ? = 0 THEN 0 ELSE points_r3 END
-                    WHERE session_id = ? AND student_id = ?
-                    """,
-                    (
-                        is_present,
-                        is_present,
-                        is_present,
-                        is_present,
-                        is_present,
-                        session_id,
-                        sid,
-                    ),
-                )
+            self._write_attendance_unlocked(game, present_set)
             # Drop any teams from a previous pass through this setup.
             self.conn.execute(
                 "DELETE FROM game_memberships WHERE game_id = ?", (game["id"],)
@@ -2008,6 +1998,135 @@ class GameShowDB:
             )
             self.conn.commit()
         return self.game_state(class_id)
+
+    def _write_attendance_unlocked(
+        self, game: sqlite3.Row, present_set: set[int]
+    ) -> None:
+        """Persist present/absent flags for every roster student.
+
+        Caller holds the lock. Does not change ``games.status``.
+
+        Args:
+            game: Open games row.
+            present_set: Student ids marked present.
+        """
+        session_id = int(game["session_id"])
+        class_id = int(game["class_id"])
+        students = self.conn.execute(
+            "SELECT id FROM students WHERE class_id = ?", (class_id,)
+        ).fetchall()
+        for row in students:
+            sid = int(row["id"])
+            is_present = 1 if sid in present_set else 0
+            self.conn.execute(
+                """
+                UPDATE session_scores
+                SET present = ?,
+                    points = CASE WHEN ? = 0 THEN 0 ELSE points END,
+                    points_r1 = CASE WHEN ? = 0 THEN 0 ELSE points_r1 END,
+                    points_r2 = CASE WHEN ? = 0 THEN 0 ELSE points_r2 END,
+                    points_r3 = CASE WHEN ? = 0 THEN 0 ELSE points_r3 END
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (
+                    is_present,
+                    is_present,
+                    is_present,
+                    is_present,
+                    is_present,
+                    session_id,
+                    sid,
+                ),
+            )
+
+    def finalize_attendance_only(
+        self, class_id: int, present_ids: list[int]
+    ) -> dict[str, Any]:
+        """Save today's attendance and close without teams or live scoring.
+
+        Writes present/absent into the week grid column, ends the session, and
+        clears the open game so Take Attendance can start fresh next time.
+
+        Args:
+            class_id: Classes primary key.
+            present_ids: Student ids who are present.
+
+        Returns:
+            ``{ok, class_id, session_id}``.
+        """
+        present_set = {int(x) for x in present_ids}
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] not in {"attendance", "teams", "names"}:
+                raise ValueError("Attendance-only finish is only available during setup")
+            if not present_set:
+                raise ValueError("Mark at least one student present")
+            self._write_attendance_unlocked(game, present_set)
+            # Drop any partial team setup; attendance column stays.
+            self.conn.execute(
+                "DELETE FROM point_events WHERE game_id = ?", (game["id"],)
+            )
+            self.conn.execute(
+                "DELETE FROM game_memberships WHERE game_id = ?", (game["id"],)
+            )
+            self.conn.execute(
+                "DELETE FROM team_buckets WHERE game_id = ?", (game["id"],)
+            )
+            self.conn.execute(
+                "DELETE FROM game_teams WHERE game_id = ?", (game["id"],)
+            )
+            session_id = int(game["session_id"])
+            game_id = int(game["id"])
+            self.conn.execute(
+                """
+                UPDATE sessions
+                SET status = 'ended', log_path = NULL
+                WHERE id = ?
+                """,
+                (session_id,),
+            )
+            self.conn.execute(
+                "UPDATE games SET status = 'ended' WHERE id = ?", (game_id,)
+            )
+            if self._scoreboard_game_id() == game_id:
+                self._set_scoreboard_game(None)
+            self.conn.commit()
+        return {"ok": True, "class_id": class_id, "session_id": session_id}
+
+    def attendance_score_rows(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
+        """Session meeting rows and present flags for the week grid.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            ``{sessions, scores}`` lists of plain dicts.
+        """
+        with self._lock:
+            sessions = [
+                dict(row)
+                for row in self.conn.execute(
+                    """
+                    SELECT id, starts_at, status FROM sessions
+                    WHERE class_id = ?
+                    ORDER BY starts_at ASC, id ASC
+                    """,
+                    (int(class_id),),
+                )
+            ]
+            scores = [
+                dict(row)
+                for row in self.conn.execute(
+                    """
+                    SELECT ss.session_id, ss.student_id, ss.present
+                    FROM session_scores ss
+                    JOIN sessions se ON se.id = ss.session_id
+                    WHERE se.class_id = ?
+                    """,
+                    (int(class_id),),
+                )
+            ]
+        return {"sessions": sessions, "scores": scores}
 
     def set_setup_step(self, class_id: int, status: str) -> dict[str, Any]:
         """Move the open game between attendance / teams / names.
@@ -2177,6 +2296,91 @@ class GameShowDB:
                     "UPDATE games SET status = 'live' WHERE id = ?", (game_id,)
                 )
             self._set_scoreboard_game(game_id)
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def start_ungamified_live(self, class_id: int) -> dict[str, Any]:
+        """Go live with one implicit team so individual +/- scoring works.
+
+        Used when the teacher declines Gamify. Present students (or the
+        whole roster if none are marked) sit on a single team named Class.
+        The scoreboard is not opened.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Game state with status ``live``.
+        """
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] == "live":
+                return self.game_state(class_id, game_id=int(game["id"]))
+            if game["status"] not in {"attendance", "teams", "names"}:
+                raise ValueError("Start scoring after attendance is marked")
+            session_id = int(game["session_id"])
+            present_rows = self.conn.execute(
+                """
+                SELECT student_id FROM session_scores
+                WHERE session_id = ? AND present = 1
+                """,
+                (session_id,),
+            ).fetchall()
+            present_ids = [int(r["student_id"]) for r in present_rows]
+            if not present_ids:
+                present_ids = [
+                    int(r["id"])
+                    for r in self.conn.execute(
+                        "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                        (class_id,),
+                    ).fetchall()
+                ]
+                for sid in present_ids:
+                    self.conn.execute(
+                        """
+                        UPDATE session_scores SET present = 1
+                        WHERE session_id = ? AND student_id = ?
+                        """,
+                        (session_id, sid),
+                    )
+            if not present_ids:
+                raise ValueError("Mark at least one student present")
+            game_id = int(game["id"])
+            self.conn.execute("DELETE FROM game_memberships WHERE game_id = ?", (game_id,))
+            self.conn.execute("DELETE FROM team_buckets WHERE game_id = ?", (game_id,))
+            self.conn.execute("DELETE FROM game_teams WHERE game_id = ?", (game_id,))
+            cur = self.conn.execute(
+                """
+                INSERT INTO game_teams (game_id, name, color, sort_order)
+                VALUES (?, ?, ?, ?)
+                """,
+                (game_id, "Class", color_for_team(0), 0),
+            )
+            team_id = int(cur.lastrowid)
+            self.conn.execute(
+                "INSERT INTO team_buckets (game_id, team_id, points) VALUES (?, ?, 0)",
+                (game_id, team_id),
+            )
+            for sid in present_ids:
+                self.conn.execute(
+                    """
+                    INSERT INTO game_memberships (game_id, team_id, student_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (game_id, team_id, sid),
+                )
+            self.conn.execute(
+                """
+                UPDATE games
+                SET status = 'live',
+                    current_round = 1,
+                    round_started_at = ?,
+                    round_duration_sec = ?
+                WHERE id = ?
+                """,
+                (self._now(), ROUND_DURATIONS_SEC[1], game_id),
+            )
+            self._set_scoreboard_game(None)
             self.conn.commit()
         return self.game_state(class_id)
 

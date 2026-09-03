@@ -250,6 +250,25 @@ class ItTests(unittest.TestCase):
         self.assertGreaterEqual(IMSCC_MAX_BYTES, 650 * 1024 * 1024)
         self.assertEqual(self.app.config["MAX_CONTENT_LENGTH"], IMSCC_MAX_BYTES)
 
+    def test_settings_tab_live_day_gate(self) -> None:
+        """Admin Settings API toggles only_live_class_days."""
+        self._login_it()
+        dash = self.client.get("/it")
+        self.assertEqual(dash.status_code, 200)
+        html = dash.get_data(as_text=True)
+        self.assertIn("tab-settings", html)
+        self.assertIn("only-live-class-days", html)
+        before = self.client.get("/api/it/settings").get_json()
+        self.assertFalse(before["only_live_class_days"])
+        updated = self.client.post(
+            "/api/it/settings",
+            json={"only_live_class_days": True},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.get_json()["only_live_class_days"])
+        self.assertTrue(self.school.only_live_class_days())
+        self.client.post("/api/it/settings", json={"only_live_class_days": False})
+
     def test_syllabus_editor_needs_imscc_gracefully(self) -> None:
         """Editor route does not crash when the teacher has a class."""
         self.school.activate_from_semester_json()

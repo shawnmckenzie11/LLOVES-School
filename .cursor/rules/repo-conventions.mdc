@@ -10,7 +10,7 @@ frameworks/                 # shared ELC constants
 lms/                        # Flask LMS app
   seeds/                    # verified expectations JSON
   sources/ontario-curriculum/  # Ministry PDFs
-tools/math-game-show/       # live class game show (no overlay in this repo)
+tools/math-game-show/       # live class tracker DB/UI (staff Attendance & Participation surface)
 agents/                     # school-facing agent prompts
 scripts/                    # syllabus + IMSCC helper scripts
 .cursor/rules/ + skills/    # school-facing only
@@ -21,3 +21,5 @@ scripts/                    # syllabus + IMSCC helper scripts
 - Put shared school rules under `frameworks/` or `.cursor/rules/`.
 - Teaching content > app scaffolding. Docstrings required on new functions/methods.
 - Do not commit unless Shawn asks.
+- `tools/math-game-show/` is the staff **Attendance & Participation** tracker (mounted via `lms/school_db.py` + staff course tabs), not a separate product island. Keep the path; change product language in the staff UI.
+- Workflow lanes / localhost / main-only deploy: `.cursor/rules/local-first-workflow.mdc`.

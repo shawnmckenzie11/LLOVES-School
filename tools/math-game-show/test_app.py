@@ -555,6 +555,27 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(dash["sessions"][0]["header_label"], "Tue 9/8 2:00pm")
         self.assertIsNone(dash["open_game"])
 
+    def test_finalize_attendance_only_keeps_column(self) -> None:
+        """Done path ends the session with present marks and no open game."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:2]]
+        absent = [s["id"] for s in state["students"][2:3]]
+        result = self.db.finalize_attendance_only(class_id, present)
+        self.assertTrue(result["ok"])
+        dash = self.db.dashboard(class_id)
+        self.assertIsNone(dash["open_game"])
+        ended = [s for s in dash["sessions"] if s["status"] == "ended"]
+        self.assertEqual(len(ended), 1)
+        session_id = ended[0]["id"]
+        for sid in present:
+            cell = dash["cells"][f"{session_id}:{sid}"]
+            self.assertTrue(cell["present"])
+            self.assertEqual(cell["points"], 0)
+        for sid in absent:
+            cell = dash["cells"][f"{session_id}:{sid}"]
+            self.assertFalse(cell["present"])
+
     def test_quit_live_game_discards_scores(self) -> None:
         """Quit Game drops a live session so nothing is written to the sheet."""
         class_id = self.cls["id"]

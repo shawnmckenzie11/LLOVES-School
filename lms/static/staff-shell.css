@@ -177,6 +177,371 @@ body.staff-shell table.sheet th.name #sort-toggle {
   padding: 0.28rem 0.55rem;
   font-weight: 650;
 }
+body.staff-shell .ap-subtabs {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 0.35rem;
+}
+body.staff-shell .ap-subtabs a {
+  color: #334155;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.25rem 0.15rem;
+}
+body.staff-shell .ap-subtabs a.on {
+  color: #0f766e;
+  border-bottom: 2px solid #0f766e;
+}
+body.staff-shell .scoreboard-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  margin-right: 0.75rem;
+}
+body.staff-shell .attendance-grid th.week-start,
+body.staff-shell .attendance-grid td.week-start {
+  border-left: 3px solid #0f172a;
+}
+body.staff-shell .attendance-grid td.present {
+  background: #dcfce7;
+  color: #14532d;
+  font-weight: 700;
+  text-align: center;
+}
+body.staff-shell .attendance-grid td.absent {
+  background: #fee2e2;
+  color: #7f1d1d;
+  font-weight: 700;
+  text-align: center;
+}
+body.staff-shell .attendance-grid td.empty {
+  background: #f8fafc;
+}
+body.staff-shell .attendance-grid td.unset {
+  background: #fff;
+}
+body.staff-shell .attendance-grid th.att-date {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+  padding: 0.2rem 0.15rem;
+}
+body.staff-shell .attendance-grid th.closed,
+body.staff-shell .attendance-grid td.closed {
+  background: #e2e8f0;
+  color: #94a3b8;
+}
+body.staff-shell .class-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+body.staff-shell .btn-ap-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ecfeff;
+  text-decoration: none;
+}
+body.staff-shell .btn-ap-shortcut:hover {
+  background: #0d9488;
+}
+body.staff-shell .ap-overlay.ap-overlay-wide {
+  max-width: min(56rem, 96vw);
+}
+body.staff-shell .ap-date-input {
+  width: 100%;
+  max-width: 16rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 1rem;
+}
+body.staff-shell .ap-track-choice {
+  margin: 0.75rem 0;
+}
+body.staff-shell .ap-track-btn {
+  display: block;
+  width: 100%;
+  margin: 0.35rem 0 0.15rem;
+  text-align: left;
+}
+body.staff-shell .scoreboard-help {
+  margin-bottom: 0.75rem;
+}
+body.staff-shell .ap-participation-bar .row-actions {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+body.staff-shell .ap-view-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+}
+body.staff-shell .ap-view-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+}
+body.staff-shell #round-view-select {
+  min-width: 11rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.95rem;
+}
+body.staff-shell .ap-overlay-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -0.25rem 0 0.35rem;
+}
+body.staff-shell .ap-popout-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 6px;
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+body.staff-shell .ap-popout-btn[aria-pressed="true"] {
+  background: #0f766e;
+  color: #ecfeff;
+  border-color: #0f766e;
+}
+body.staff-shell .ap-overlay.ap-overlay--popout {
+  position: fixed;
+  inset: auto auto auto auto;
+  top: 1.25rem;
+  left: 1.25rem;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  width: min(42rem, calc(100vw - 2.5rem));
+  height: min(85vh, 920px);
+  border: 0;
+  background: transparent;
+}
+body.staff-shell .ap-overlay.ap-overlay--popout::backdrop {
+  background: transparent;
+}
+body.staff-shell .ap-overlay.ap-overlay--popout .ap-overlay-card {
+  resize: both;
+  overflow: auto;
+  min-width: 320px;
+  min-height: 280px;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+body.staff-shell .ap-overlay.ap-overlay--popout.ap-overlay-wide {
+  width: min(56rem, calc(100vw - 2.5rem));
+}
+body.staff-shell .scoreboard-preview {
+  margin-top: 0.5rem;
+  background: #000;
+  color: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  font-stretch: condensed;
+  padding: 0;
+  border: 0;
+}
+body.staff-shell .sb-preview-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 2px solid #facc15;
+  color: #facc15;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+body.staff-shell .sb-preview-clock {
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+body.staff-shell .sb-preview-teams {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  min-height: 5.5rem;
+}
+body.staff-shell .sb-preview-team {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem 0.5rem 0.85rem;
+  border-left: 4px solid #facc15;
+  border-bottom: 2px solid #facc15;
+}
+body.staff-shell .sb-preview-team--1 { border-left-color: #ef4444; }
+body.staff-shell .sb-preview-team--2 { border-left-color: #3b82f6; }
+body.staff-shell .sb-preview-team--3 { border-left-color: #facc15; }
+body.staff-shell .sb-preview-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+body.staff-shell .sb-preview-score {
+  font-size: 2.75rem;
+  line-height: 1;
+  font-weight: 300;
+}
+body.staff-shell .sb-preview-ticker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: #111;
+  font-size: 0.68rem;
+  border-top: 2px solid #facc15;
+}
+body.staff-shell .sb-preview-leaders {
+  background: #facc15;
+  color: #000;
+  font-weight: 800;
+  padding: 0.15rem 0.35rem;
+  letter-spacing: 0.03em;
+}
+body.staff-shell .sb-preview-sep {
+  color: #facc15;
+}
+body.staff-shell .attendance-grid tr.att-day-total td {
+  font-weight: 700;
+  background: #f1f5f9;
+  text-align: center;
+}
+body.staff-shell .attendance-grid th.clear-target {
+  cursor: pointer;
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+}
+body.staff-shell #att-clear.on,
+body.staff-shell #part-clear.on {
+  background: #0f766e;
+  color: #ecfeff;
+}
+body.staff-shell .ap-round-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.5rem 0 0.75rem;
+  font-weight: 600;
+}
+body.staff-shell .ap-live-teams {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+  max-height: 52vh;
+  overflow: auto;
+  margin-bottom: 0.75rem;
+}
+body.staff-shell .ap-live-team {
+  border: 2px solid var(--team, #64748b);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  background: #fff;
+}
+body.staff-shell .ap-live-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+body.staff-shell .ap-live-row.team-head {
+  margin-bottom: 0.35rem;
+}
+body.staff-shell .ap-live-player {
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #e2e8f0;
+}
+body.staff-shell .attendance-grid td.cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+body.staff-shell .ap-overlay {
+  border: 0;
+  padding: 0;
+  max-width: min(36rem, 94vw);
+  width: 100%;
+  background: transparent;
+}
+body.staff-shell .ap-overlay::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+body.staff-shell .ap-overlay-card {
+  background: #fffdf8;
+  color: #1c1914;
+  border-radius: 12px;
+  padding: 1rem 1.1rem 1.15rem;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.28);
+}
+body.staff-shell .ap-overlay-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+body.staff-shell .ap-overlay-card .check-list {
+  max-height: 40vh;
+  overflow: auto;
+  margin: 0.75rem 0;
+}
+body.staff-shell .ap-overlay-card .check-list label {
+  display: block;
+  margin: 0.25rem 0;
+}
+body.staff-shell .ap-score-list {
+  max-height: 50vh;
+  overflow: auto;
+  margin: 0.75rem 0;
+}
+body.staff-shell .ap-score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+body.staff-shell .ap-score-row .pm {
+  margin-left: auto;
+  display: flex;
+  gap: 0.25rem;
+}
+body.staff-shell .ap-score-pts {
+  font-weight: 700;
+  min-width: 2.5rem;
+}
+body.staff-shell .grade-weights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+body.staff-shell .weight-chip {
+  background: #ecfeff;
+  border: 1px solid #99f6e4;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.35rem;
+  font-size: 0.92rem;
+}
+body.staff-shell .weight-pct {
+  font-weight: 500;
+  color: #475569;
+  font-size: 0.85rem;
+}
 body.staff-shell .pack-progress {
   margin-top: 0.85rem;
 }

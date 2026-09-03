@@ -922,6 +922,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             all_offerings=all_offerings,
             courses=school.search_ontario_courses("", limit=300),
             school_name=SCHOOL_NAME,
+            only_live_class_days=school.only_live_class_days(),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -937,6 +938,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         else:
             school.activate_from_semester_json()
         return redirect(url_for("it_dashboard"))
+
+    @app.route("/api/it/settings", methods=["GET", "POST"])
+    @it_required
+    def it_settings_api():
+        """Read or update school-wide Admin settings."""
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "only_live_class_days": school.only_live_class_days(),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        enabled = body.get("only_live_class_days")
+        if enabled is None:
+            return jsonify({"ok": False, "error": "only_live_class_days is required"}), 400
+        flag = bool(enabled) if not isinstance(enabled, str) else enabled.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        school.set_only_live_class_days(flag)
+        return jsonify({"ok": True, "only_live_class_days": school.only_live_class_days()})
 
     @app.route("/it/staff", methods=["POST"])
     @it_required
@@ -1438,7 +1463,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>")
     @staff_required
     def staff_course(class_id: int):
-        """Course dashboard: Modules, Syllabus, Track Attendance & Participation."""
+        """Course dashboard: Modules, Attendance & Participation, Grades."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
@@ -1452,7 +1477,39 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         expectations = []
         if offering:
             expectations = school.list_expectations(str(offering["ontario_code"]))
-        tab = request.args.get("tab") or "modules"
+        tab = (request.args.get("tab") or "modules").strip().lower()
+        # Old tracker lived at ?tab=grades; send those bookmarks to A&P.
+        if tab == "grades":
+            return redirect(
+                url_for(
+                    "staff_course",
+                    class_id=class_id,
+                    tab="ap",
+                    view=request.args.get("view") or "attendance",
+                )
+            )
+        # Historical aliases for the tracker / A&P surface.
+        if tab in {"track", "attendance-participation", "attendance", "participation"}:
+            view = "participation" if tab == "participation" else (
+                "attendance" if tab == "attendance" else (request.args.get("view") or "attendance")
+            )
+            return redirect(
+                url_for("staff_course", class_id=class_id, tab="ap", view=view)
+            )
+        ap_view = (request.args.get("view") or "attendance").strip().lower()
+        if ap_view not in {"attendance", "participation"}:
+            ap_view = "attendance"
+        if tab not in {
+            "modules",
+            "pages",
+            "assignments",
+            "quizzes",
+            "question-banks",
+            "syllabus",
+            "ap",
+            "gradebook",
+        }:
+            tab = "modules"
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
         return render_template(
@@ -1463,6 +1520,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             expectations=expectations,
             nav_courses=_staff_nav_courses(int(user["id"])),
             tab=tab,
+            ap_view=ap_view,
+            take_attendance=request.args.get("take") == "1",
             school_name=SCHOOL_NAME,
             show_module_pack_upload=False,
             pack_error=pack_error,
@@ -1785,8 +1844,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/class/<int:class_id>")
     @staff_required
     def class_redirect(class_id: int):
-        """Send the old game-show class URL to the course dashboard."""
-        return redirect(url_for("staff_course", class_id=class_id, tab="grades"))
+        """Send the old game-show class URL to Attendance & Participation."""
+        return redirect(
+            url_for("staff_course", class_id=class_id, tab="ap", view="participation")
+        )
 
     @app.route("/class/<int:class_id>/setup")
     @staff_required
@@ -1965,6 +2026,40 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
+    def _meeting_from_state(class_id: int) -> date | None:
+        """Read the open session's calendar date, if any.
+
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            Meeting date or None.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+        try:
+            state = school.game.game_state(class_id)
+        except Exception:  # noqa: BLE001
+            return None
+        sess = state.get("session") or {}
+        return session_meeting_date(sess.get("starts_at") or sess.get("meeting_date"))
+
+    def _validate_log_date(class_id: int, meeting: date | None) -> None:
+        """Enforce school-day and optional live-class-day rules.
+
+        Args:
+            class_id: Class primary key.
+            meeting: Chosen date.
+
+        Raises:
+            ValueError: When the date is not allowed.
+        """
+        if meeting is None:
+            raise ValueError("Choose a date to log.")
+        school.assert_log_date_allowed(class_id, meeting)
+
     @app.route("/api/classes/<int:class_id>/begin", methods=["POST"])
     @login_required
     def api_begin(class_id: int):
@@ -1975,8 +2070,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         body = request.get_json(silent=True) or {}
         try:
             meeting = _optional_date(body.get("meeting_date"))
+            if meeting is not None and body.get("validate"):
+                _validate_log_date(class_id, meeting)
             state = school.game.begin_game(class_id, meeting_date=meeting)
             return jsonify({"ok": True, **state})
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/log-context")
+    @login_required
+    def api_log_context(class_id: int):
+        """Live-class calendar context for overlays and date pickers."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        try:
+            return jsonify(school.log_context_for_class(class_id))
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
@@ -2010,6 +2119,23 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         return _staff_post(class_id, run)
 
+    def _apply_validated_meeting(class_id: int, body: dict[str, Any]) -> None:
+        """Optionally set meeting date, then enforce log-day rules.
+
+        Args:
+            class_id: Class primary key.
+            body: JSON with optional ``meeting_date`` / ``time``.
+        """
+        chosen = _optional_date(body.get("meeting_date"))
+        if chosen is not None:
+            time_label = body.get("time")
+            school.game.set_meeting_date(
+                class_id,
+                chosen,
+                time_label=str(time_label) if time_label else None,
+            )
+        _validate_log_date(class_id, _meeting_from_state(class_id) or chosen)
+
     @app.route("/api/classes/<int:class_id>/game/cancel", methods=["POST"])
     @login_required
     def api_cancel(class_id: int):
@@ -2019,12 +2145,135 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/attendance", methods=["POST"])
     @login_required
     def api_attendance(class_id: int):
-        """Save who is present."""
+        """Save who is present and advance to teams (Log Participation)."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            _apply_validated_meeting(class_id, body)
             ids = [int(x) for x in (body.get("present_ids") or [])]
             return school.game.save_attendance(class_id, ids)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/finalize-attendance", methods=["POST"])
+    @login_required
+    def api_finalize_attendance(class_id: int):
+        """Save attendance into the week grid and close without teams/live."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            _apply_validated_meeting(class_id, body)
+            ids = [int(x) for x in (body.get("present_ids") or [])]
+            return school.game.finalize_attendance_only(class_id, ids)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/ungamified", methods=["POST"])
+    @login_required
+    def api_ungamified(class_id: int):
+        """Start individual participation scoring without teams/scoreboard."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            _apply_validated_meeting(class_id, body)
+            ids = body.get("present_ids")
+            state = school.game.game_state(class_id)
+            status = str((state.get("game") or {}).get("status") or "")
+            if ids is not None and status == "attendance":
+                school.game.save_attendance(class_id, [int(x) for x in ids])
+            return school.game.start_ungamified_live(class_id)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/attendance-grid")
+    @login_required
+    def api_attendance_grid(class_id: int):
+        """Weekday attendance grid for the Attendance sub-tab."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        sort = request.args.get("sort") or "az"
+        try:
+            return jsonify(school.attendance_week_grid(class_id, sort=sort))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/attendance-day")
+    @login_required
+    def api_attendance_day(class_id: int):
+        """Present roster for one logged school day."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        chosen = _optional_date(request.args.get("date"))
+        if chosen is None:
+            return _json_error(ValueError("date is required (YYYY-MM-DD)"))
+        try:
+            return jsonify(school.attendance_for_date(class_id, chosen))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/attendance-day/clear", methods=["POST"])
+    @login_required
+    def api_clear_attendance_day(class_id: int):
+        """Delete sessions (attendance + participation) for one school day."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            chosen = _optional_date(body.get("date"))
+            if chosen is None:
+                raise ValueError("date is required (YYYY-MM-DD)")
+            sort = str(body.get("sort") or "az")
+            return school.clear_attendance_day(class_id, chosen, sort=sort)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/participation-grid")
+    @login_required
+    def api_participation_grid(class_id: int):
+        """Semester calendar participation grid for the Participation sub-tab."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        sort = request.args.get("sort") or "az"
+        try:
+            return jsonify(school.participation_week_grid(class_id, sort=sort))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/gradebook")
+    @login_required
+    def api_gradebook(class_id: int):
+        """Weighted gradebook scaffold (Participation / Term / Exam)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        sort = request.args.get("sort") or "az"
+        try:
+            return jsonify(school.gradebook_for_class(class_id, sort=sort))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/grade-weights", methods=["GET", "POST"])
+    @login_required
+    def api_grade_weights(class_id: int):
+        """Read or update category weights (extension point for edit UI)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        if request.method == "GET":
+            try:
+                return jsonify(
+                    {"ok": True, "weights": school.grade_weights_for_class(class_id)}
+                )
+            except Exception as exc:  # noqa: BLE001
+                return _json_error(exc)
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            raw = body.get("weights") if isinstance(body.get("weights"), dict) else body
+            weights = school.set_grade_weights(class_id, raw or {})
+            return {"weights": weights}
 
         return _staff_post(class_id, run)
 

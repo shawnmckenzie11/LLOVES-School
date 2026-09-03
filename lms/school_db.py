@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -193,6 +193,7 @@ class LovesDB:
         self._ensure_offering_schedule_columns()
         self._ensure_library_schema()
         self._ensure_archived_column()
+        self._ensure_gradebook_schema()
         self._seed()
         self.conn.commit()
 
@@ -455,6 +456,29 @@ class LovesDB:
         if "archived_at" not in cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
 
+    def _ensure_gradebook_schema(self) -> None:
+        """Create per-class grade category weight storage (editable later).
+
+        Seeds are applied lazily in ``grade_weights_for_class`` so empty classes
+        still get Participation 15% / Term 60% / Exam 25% defaults.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS grade_category_weights (
+                class_id INTEGER NOT NULL,
+                category TEXT NOT NULL,
+                weight_pct REAL NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, category)
+            );
+            CREATE TABLE IF NOT EXISTS school_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+
     def _ensure_offering_archived_column(self) -> None:
         """Add course_offerings.archived_at if absent (live migration)."""
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(course_offerings)")}
@@ -491,7 +515,7 @@ class LovesDB:
                     INSERT INTO users (email, display_name, role, created_at)
                     VALUES (?, ?, 'it', ?)
                     """,
-                    (self.it_email, "IT", _now()),
+                    (self.it_email, "Shawn", _now()),
                 )
             if SEMESTER_JSON.is_file() and self.conn.execute(
                 "SELECT COUNT(*) AS n FROM semesters"
@@ -2313,3 +2337,552 @@ class SchoolDB(LovesDB):
                 )
             self.conn.commit()
         return count
+
+    def grade_weights_for_class(self, class_id: int) -> dict[str, float]:
+        """Return persisted category weights, seeding defaults when missing.
+
+        Args:
+            class_id: Game-show / offering class primary key.
+
+        Returns:
+            Map of category → weight percent (participation / term / exam).
+        """
+        try:
+            from gradebook import GRADE_CATEGORIES, default_grade_weights, normalize_grade_weights
+        except ImportError:
+            from lms.gradebook import (
+                GRADE_CATEGORIES,
+                default_grade_weights,
+                normalize_grade_weights,
+            )
+
+        defaults = default_grade_weights()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT category, weight_pct FROM grade_category_weights
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+            if not rows:
+                now = _now()
+                for category, weight in defaults.items():
+                    self.conn.execute(
+                        """
+                        INSERT INTO grade_category_weights (
+                            class_id, category, weight_pct, updated_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (int(class_id), category, float(weight), now),
+                    )
+                self.conn.commit()
+                return defaults
+            raw = {str(r["category"]): float(r["weight_pct"]) for r in rows}
+            # Backfill any category added in a later schema revision.
+            missing = [c for c in GRADE_CATEGORIES if c not in raw]
+            if missing:
+                now = _now()
+                for category in missing:
+                    weight = defaults[category]
+                    self.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO grade_category_weights (
+                            class_id, category, weight_pct, updated_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (int(class_id), category, float(weight), now),
+                    )
+                    raw[category] = weight
+                self.conn.commit()
+            return normalize_grade_weights(raw)
+
+    def set_grade_weights(
+        self, class_id: int, weights: dict[str, Any]
+    ) -> dict[str, float]:
+        """Persist category weights for a class (extension point for edit UI).
+
+        Args:
+            class_id: Class primary key.
+            weights: Partial or full category → percent map.
+
+        Returns:
+            Normalized stored weights.
+        """
+        try:
+            from gradebook import GRADE_CATEGORIES, normalize_grade_weights
+        except ImportError:
+            from lms.gradebook import GRADE_CATEGORIES, normalize_grade_weights
+
+        normalized = normalize_grade_weights(weights)
+        now = _now()
+        with self._lock:
+            for category in GRADE_CATEGORIES:
+                self.conn.execute(
+                    """
+                    INSERT INTO grade_category_weights (
+                        class_id, category, weight_pct, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(class_id, category) DO UPDATE SET
+                        weight_pct = excluded.weight_pct,
+                        updated_at = excluded.updated_at
+                    """,
+                    (int(class_id), category, float(normalized[category]), now),
+                )
+            self.conn.commit()
+        return normalized
+
+    def get_school_setting(self, key: str, default: str = "") -> str:
+        """Return one school-wide setting value.
+
+        Args:
+            key: Settings primary key.
+            default: Fallback when the row is missing.
+
+        Returns:
+            Stored string, or ``default``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT value FROM school_settings WHERE key = ?",
+                (str(key),),
+            ).fetchone()
+        if row is None:
+            return default
+        return str(row["value"])
+
+    def set_school_setting(self, key: str, value: str) -> dict[str, str]:
+        """Upsert one school-wide setting.
+
+        Args:
+            key: Settings primary key.
+            value: Stored string.
+
+        Returns:
+            ``{key, value}``.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO school_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (str(key), str(value), _now()),
+            )
+            self.conn.commit()
+        return {"key": str(key), "value": str(value)}
+
+    def only_live_class_days(self) -> bool:
+        """True when Admin requires live-class-day log validation."""
+        try:
+            from gradebook import SETTING_ONLY_LIVE_CLASS_DAYS
+        except ImportError:
+            from lms.gradebook import SETTING_ONLY_LIVE_CLASS_DAYS
+        raw = self.get_school_setting(SETTING_ONLY_LIVE_CLASS_DAYS, "0")
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    def set_only_live_class_days(self, enabled: bool) -> bool:
+        """Persist the live-class-day attendance gate.
+
+        Args:
+            enabled: Whether logging is limited to M/W/F or T/Th/F school days.
+
+        Returns:
+            The stored flag.
+        """
+        try:
+            from gradebook import SETTING_ONLY_LIVE_CLASS_DAYS
+        except ImportError:
+            from lms.gradebook import SETTING_ONLY_LIVE_CLASS_DAYS
+        self.set_school_setting(SETTING_ONLY_LIVE_CLASS_DAYS, "1" if enabled else "0")
+        return enabled
+
+    def log_context_for_class(self, class_id: int) -> dict[str, Any]:
+        """Calendar + schedule payload for attendance/participation overlays.
+
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            Live-day flags, valid picker dates, and Admin gate.
+        """
+        try:
+            from gradebook import (
+                is_live_class_date,
+                load_instructional_weekdays,
+                live_weekday_set,
+                short_day_label,
+                teacher_weekday_span,
+            )
+        except ImportError:
+            from lms.gradebook import (
+                is_live_class_date,
+                load_instructional_weekdays,
+                live_weekday_set,
+                short_day_label,
+                teacher_weekday_span,
+            )
+
+        cls = self.enrich_class(self.game.get_class(class_id))
+        days_label = str(cls.get("days") or "")
+        instructional = load_instructional_weekdays()
+        school_set = set(instructional)
+        today = date.today()
+        valid_live = [
+            {
+                "iso": d.isoformat(),
+                "label": f"{short_day_label(d)} · {d.isoformat()}",
+            }
+            for d in instructional
+            if is_live_class_date(
+                d, days_label=days_label, instructional=school_set
+            )
+        ]
+        valid_school = [
+            {
+                "iso": d.isoformat(),
+                "label": f"{short_day_label(d)} · {d.isoformat()}",
+            }
+            for d in instructional
+        ]
+        gated = self.only_live_class_days()
+        span = teacher_weekday_span()
+        picker_rows = valid_live if gated else valid_school
+        picker_isos = [row["iso"] for row in picker_rows]
+        today_iso = today.isoformat()
+        if today_iso in picker_isos:
+            default_date = today_iso
+        else:
+            default_date = next(
+                (iso for iso in picker_isos if iso >= today_iso),
+                picker_isos[0] if picker_isos else today_iso,
+            )
+        return {
+            "ok": True,
+            "class": cls,
+            "days": days_label,
+            "live_weekdays": sorted(live_weekday_set(days_label)),
+            "only_live_class_days": gated,
+            "today": today.isoformat(),
+            "today_is_live": is_live_class_date(
+                today, days_label=days_label, instructional=school_set
+            ),
+            "today_is_school": today in school_set,
+            "valid_dates": valid_live if gated else valid_school,
+            "valid_live_dates": valid_live,
+            "valid_school_dates": valid_school,
+            "first_day": span[0].isoformat() if span else None,
+            "last_day": span[-1].isoformat() if span else None,
+            "default_date": default_date,
+            "suggested_date": self._suggested_log_date(
+                class_id, picker_isos, picker_set=set(picker_isos)
+            ),
+        }
+
+    def _suggested_log_date(
+        self,
+        class_id: int,
+        picker_isos: list[str],
+        *,
+        picker_set: set[str] | None = None,
+    ) -> str:
+        """Next picker-valid school day without finalized attendance.
+
+        In-progress setup sessions are ignored so the next day stays available.
+
+        Args:
+            class_id: Class primary key.
+            picker_isos: Ordered allowed ISO dates from log context.
+            picker_set: Optional prebuilt set of ``picker_isos``.
+
+        Returns:
+            ISO date string for the next open attendance slot.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+
+        allowed = picker_set if picker_set is not None else set(picker_isos)
+        if not picker_isos:
+            return date.today().isoformat()
+        marks = self.game.attendance_score_rows(class_id)
+        logged_dates: set[str] = set()
+        for sess in marks.get("sessions") or []:
+            if str(sess.get("status") or "") != "ended":
+                continue
+            meeting = session_meeting_date(sess.get("starts_at"))
+            if meeting is not None:
+                logged_dates.add(meeting.isoformat())
+        today_iso = date.today().isoformat()
+        if logged_dates:
+            last_logged = max(logged_dates)
+            search = [iso for iso in picker_isos if iso > last_logged]
+        else:
+            search = [iso for iso in picker_isos if iso >= today_iso]
+        if not search:
+            search = list(picker_isos)
+        for iso in search:
+            if iso in allowed and iso not in logged_dates:
+                return iso
+        for iso in picker_isos:
+            if iso in allowed and iso not in logged_dates:
+                return iso
+        return picker_isos[-1]
+
+    def assert_log_date_allowed(
+        self, class_id: int, meeting: date, *, require_live: bool | None = None
+    ) -> None:
+        """Raise if this meeting date cannot be logged.
+
+        Always rejects non-school days. When the Admin gate is on (or
+        ``require_live`` is True), also requires a live-class weekday.
+
+        Args:
+            class_id: Class primary key.
+            meeting: Chosen session date.
+            require_live: Override the Admin setting when not None.
+
+        Raises:
+            ValueError: When the date is not allowed.
+        """
+        try:
+            from gradebook import is_live_class_date, load_instructional_weekdays
+        except ImportError:
+            from lms.gradebook import is_live_class_date, load_instructional_weekdays
+
+        cls = self.enrich_class(self.game.get_class(class_id))
+        instructional = set(load_instructional_weekdays())
+        if meeting not in instructional:
+            raise ValueError(
+                f"{meeting.isoformat()} is not a secondary school day "
+                "(holiday, PD, weekend, or outside the semester)."
+            )
+        gated = self.only_live_class_days() if require_live is None else require_live
+        if gated and not is_live_class_date(
+            meeting, days_label=str(cls.get("days") or ""), instructional=instructional
+        ):
+            schedule = cls.get("days") or "the course live-class days"
+            raise ValueError(
+                f"{meeting.isoformat()} is not a live class day for this course "
+                f"({schedule}). Pick a valid date."
+            )
+
+    def attendance_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Slim weekday attendance grid for the staff Attendance sub-tab.
+
+        Args:
+            class_id: Class primary key.
+            sort: Roster sort (``az`` / ``za`` Codename).
+
+        Returns:
+            Week-grid payload plus enriched class metadata.
+        """
+        try:
+            from gradebook import build_attendance_week_grid
+        except ImportError:
+            from lms.gradebook import build_attendance_week_grid
+
+        dash = self.game.dashboard(class_id, sort=sort)
+        marks = self.game.attendance_score_rows(class_id)
+        grid = build_attendance_week_grid(
+            students=list(dash.get("students") or []),
+            sessions=marks["sessions"],
+            score_rows=marks["scores"],
+        )
+        grid["class"] = self.enrich_class(dash["class"])
+        grid["ok"] = True
+        return grid
+
+    def attendance_for_date(self, class_id: int, meeting: date) -> dict[str, Any]:
+        """Present/absent ids logged on a school day (from finalized sessions).
+
+        Args:
+            class_id: Class primary key.
+            meeting: Calendar date to inspect.
+
+        Returns:
+            ``present_ids``, ``absent_ids``, ``logged``, optional ``session_id``.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+
+        marks = self.game.attendance_score_rows(class_id)
+        session_dates: dict[int, date] = {}
+        session_ids: list[int] = []
+        for sess in marks["sessions"]:
+            if str(sess.get("status") or "") == "template":
+                continue
+            md = session_meeting_date(sess.get("starts_at"))
+            if md == meeting:
+                sid = int(sess["id"])
+                session_dates[sid] = md
+                session_ids.append(sid)
+        if not session_ids:
+            return {
+                "ok": True,
+                "date": meeting.isoformat(),
+                "logged": False,
+                "present_ids": [],
+                "absent_ids": [],
+                "session_id": None,
+            }
+        present: set[int] = set()
+        absent: set[int] = set()
+        for row in marks["scores"]:
+            sess_id = int(row["session_id"])
+            if sess_id not in session_dates:
+                continue
+            sid = int(row["student_id"])
+            if int(row.get("present") or 0) == 1:
+                present.add(sid)
+            else:
+                absent.add(sid)
+        return {
+            "ok": True,
+            "date": meeting.isoformat(),
+            "logged": True,
+            "present_ids": sorted(present),
+            "absent_ids": sorted(absent),
+            "session_id": session_ids[0] if len(session_ids) == 1 else None,
+        }
+
+    def clear_attendance_day(
+        self, class_id: int, meeting: date, sort: str = "az"
+    ) -> dict[str, Any]:
+        """Remove attendance/participation logged on one school day.
+
+        Deletes every non-template session column whose meeting date matches.
+
+        Args:
+            class_id: Class primary key.
+            meeting: School day to clear.
+            sort: Roster sort for the returned grid.
+
+        Returns:
+            Updated attendance week grid payload.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+
+        marks = self.game.attendance_score_rows(class_id)
+        to_delete: list[int] = []
+        for sess in marks["sessions"]:
+            if str(sess.get("status") or "") == "template":
+                continue
+            md = session_meeting_date(sess.get("starts_at"))
+            if md == meeting:
+                to_delete.append(int(sess["id"]))
+        for sess_id in to_delete:
+            self.game.delete_session_column(class_id, sess_id, sort=sort)
+        return self.attendance_week_grid(class_id, sort=sort)
+
+    def participation_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Semester calendar participation grid (same columns as attendance).
+
+        Args:
+            class_id: Class primary key.
+            sort: Roster sort (``az`` / ``za`` Codename).
+
+        Returns:
+            Week grid with point cells plus live/total rollups from dashboard.
+        """
+        try:
+            from gradebook import build_participation_week_grid
+        except ImportError:
+            from lms.gradebook import build_participation_week_grid
+
+        dash = self.game.dashboard(class_id, sort=sort)
+        marks = self.game.attendance_score_rows(class_id)
+        score_rows: list[dict[str, Any]] = []
+        cells = dash.get("cells") or {}
+        for sess in marks["sessions"]:
+            sess_id = int(sess["id"])
+            for student in dash.get("students") or []:
+                stid = int(student["id"])
+                cell = cells.get(f"{sess_id}:{stid}")
+                if not cell:
+                    continue
+                score_rows.append(
+                    {
+                        "session_id": sess_id,
+                        "student_id": stid,
+                        "points": cell.get("points", 0),
+                        "points_r1": cell.get("points_r1", 0),
+                        "points_r2": cell.get("points_r2", 0),
+                        "points_r3": cell.get("points_r3", 0),
+                    }
+                )
+        grid = build_participation_week_grid(
+            students=list(dash.get("students") or []),
+            sessions=list(marks.get("sessions") or []),
+            score_rows=score_rows,
+        )
+        grid["class"] = self.enrich_class(dash["class"])
+        grid["live_subtotals"] = dash.get("live_subtotals") or {}
+        grid["totals"] = dash.get("totals") or {}
+        grid["ok"] = True
+        return grid
+
+    def gradebook_for_class(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Weighted gradebook scaffold: Participation / Term / Exam.
+
+        Participation rolls up credited live-class session points. Term and Exam
+        are placeholders (empty items) until assignments/exams are wired.
+
+        Args:
+            class_id: Class primary key.
+            sort: Roster sort key.
+
+        Returns:
+            Gradebook JSON for the staff Grades tab.
+        """
+        weights = self.grade_weights_for_class(class_id)
+        dash = self.game.dashboard(class_id, sort=sort)
+        students = list(dash.get("students") or [])
+        career = self.game.career_totals(class_id)
+        participation_scores: dict[str, float] = {}
+        for student in students:
+            sid = int(student["id"])
+            participation_scores[str(sid)] = float(career.get(sid) or 0)
+        return {
+            "ok": True,
+            "class": self.enrich_class(dash["class"]),
+            "students": students,
+            "weights": weights,
+            "categories": [
+                {
+                    "id": "participation",
+                    "label": "Participation",
+                    "weight_pct": weights["participation"],
+                    "scores": participation_scores,
+                    "editable_weights": True,
+                },
+                {
+                    "id": "term",
+                    "label": "Term",
+                    "weight_pct": weights["term"],
+                    "scores": {str(int(s["id"])): None for s in students},
+                    "items": [],
+                    "editable_weights": True,
+                },
+                {
+                    "id": "exam",
+                    "label": "Exam",
+                    "weight_pct": weights["exam"],
+                    "scores": {str(int(s["id"])): None for s in students},
+                    "items": [],
+                    "placeholder": True,
+                    "editable_weights": True,
+                },
+            ],
+            # Explicit hook for a later weight-edit UI (POST /grade-weights).
+            "weight_edit_endpoint": f"/api/classes/{int(class_id)}/grade-weights",
+        }

@@ -41,6 +41,7 @@
       <button class="it-tab-btn" data-tab="staff" role="tab" aria-selected="true">Staff</button>
       <button class="it-tab-btn" data-tab="offerings" role="tab" aria-selected="false">Course Offerings</button>
       <button class="it-tab-btn" data-tab="semester" role="tab" aria-selected="false">Semester</button>
+      <button class="it-tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
     </div>
 
     <!-- ═══════════════════════════════════════
@@ -269,6 +270,22 @@
         {% endif %}
       </section>
 
+    </div>
+
+    <div class="it-tab-panel" id="tab-settings" role="tabpanel" hidden>
+      <section class="card">
+        <h2>Attendance settings</h2>
+        <p class="hint">School-wide rules for staff Attendance &amp; Participation logging.</p>
+        <label style="display:flex;align-items:flex-start;gap:0.6rem;margin:0.75rem 0">
+          <input type="checkbox" id="only-live-class-days" style="width:auto;margin-top:0.2rem"
+                 {% if only_live_class_days %}checked{% endif %}>
+          <span>
+            <strong>Only allow attendance logged on live class days</strong><br>
+            <span class="hint">When checked, Done / Log Participation require a valid M/W/F or T/Th/F school day for the course (with a date picker if today’s date does not match).</span>
+          </span>
+        </label>
+        <p id="settings-status" class="hint" aria-live="polite"></p>
+      </section>
     </div>
 
   </div>

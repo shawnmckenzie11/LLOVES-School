@@ -19,7 +19,7 @@ tools/math-game-show/   Live Math Game Show (db/schedule/teams; no overlay)
 scripts/        syllabus_calendar + canvas unpack/inventory + reingest
 agents/         School-facing agent prompts (semester, syllabus calendar)
 .cursor/rules/  Always-on school rules
-.cursor/skills/ semester-context, syllabus-calendar
+.cursor/skills/ semester-context, syllabus-calendar, local-verify, release-gate
 ```
 
 ## Non-negotiables
@@ -31,12 +31,19 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 - Include docstrings on any new functions/methods
 - Do not commit unless Shawn asks
 
+## Local first / merge to main deploys
+
+- **Code lane:** feature branch → verify at `http://127.0.0.1:8787` + unit tests → PR → CI → merge **`main`** → GitHub Actions deploys ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)). Feature branches run tests only ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+- **Ops lane:** live Fly `/data` only; no git unless Shawn asks for a code change.
+- Always-on rule: [`.cursor/rules/local-first-workflow.mdc`](.cursor/rules/local-first-workflow.mdc). Skills: [`.cursor/skills/local-verify`](.cursor/skills/local-verify/SKILL.md), [`.cursor/skills/release-gate`](.cursor/skills/release-gate/SKILL.md).
+- Do **not** laptop-`flyctl deploy` for routine release; do not commit unless Shawn asks.
+
 ## Production
 
 - App: `lloves-lms` (Fly.io, region `yyz`)
 - Public URL: https://alc.mckenzian.com
 - Volume: `lloves_data` → `/data` (sqlite + libraries)
-- Deploy: `flyctl deploy --remote-only` from repo root (or GitHub Actions with `FLY_API_TOKEN`)
+- Deploy: merge to `main` (Actions). Laptop `flyctl deploy --remote-only` only if Shawn explicitly asks.
 
 ## Agent entry points
 
@@ -44,3 +51,5 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 |-------|------|----------|
 | Semester context | [`agents/semester-context.md`](agents/semester-context.md) | Pacing, calendars, “what week” |
 | Syllabus calendar | [`agents/syllabus-calendar.md`](agents/syllabus-calendar.md) | School-day syllabus dates (prefer `--edit`) |
+| Local verify | [`.cursor/skills/local-verify/SKILL.md`](.cursor/skills/local-verify/SKILL.md) | UI/API/staff/IT done-when on localhost |
+| Release gate | [`.cursor/skills/release-gate/SKILL.md`](.cursor/skills/release-gate/SKILL.md) | PR → CI → merge main → Deploy → `/health` |

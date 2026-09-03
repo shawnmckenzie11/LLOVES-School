@@ -1,0 +1,55 @@
+---
+description: Local-first ops vs code lanes, branch prefixes, localhost gate, main-only deploy
+alwaysApply: true
+---
+
+# Local-first workflow
+
+Agents infer lane, branch, and done-when from this rule. Do **not** ask Shawn to paste an intake checklist.
+
+## Silent intake (every coding chat)
+
+At the start of work, fill silently (do not ask Shawn to paste):
+
+| Field | How to decide |
+|-------|----------------|
+| **Lane** | `ops` = live Fly `/data` only, no git. `code` = feature branch → localhost → PR → merge `main`. |
+| **Surface** | `school/` `it/` `staff/` `student/` `class/` `mgs/` from what is changing. |
+| **Branch** | Match surface prefix; never commit on `main` for feature work. |
+| **Local done-when** | UI/route work must pass at `http://127.0.0.1:8787` (not screenshot-only). |
+| **Ops vs code** | Ops never invents git commits; code never `flyctl deploy`s for routine release. |
+
+Point at existing school rules (`elc-school`, `semester-awareness`, `repo-conventions`) for teaching constants — do not duplicate semester facts here.
+
+## Two lanes
+
+- **ops** — no git. Live volume `/data` on Fly (`https://alc.mckenzian.com`). Semester/staff/pack actions on production data only when Shawn explicitly confirms live DB.
+- **code** — feature branch → localhost verify → PR → CI → merge `main` → Actions deploy.
+
+## Release truth
+
+- Push/merge to **`main`** deploys ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
+- Other branches run tests only ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+- Routine release = merge to `main` and watch Deploy + `/health`. Do **not** run laptop `flyctl deploy` unless Shawn explicitly asks.
+
+## Forbidden unless Shawn asks
+
+- `flyctl deploy` / `fly deploy`
+- Push to `main`
+- Commit secrets, `.imscc`, or `lms/data/`
+- Any git commit (repo rule: only commit when Shawn asks)
+
+## Branch prefixes
+
+| Prefix | Use |
+|--------|-----|
+| `school/` | Shared frameworks, agent rules/skills, cross-cutting school docs |
+| `it/` | IT portal / admin tooling |
+| `staff/` | Staff LMS UI/API (including Attendance & Participation / Grades) |
+| `student/` | Student portal |
+| `class/` | Class/section offering wiring |
+| `mgs/` | Game-show package only when detached from staff shell |
+
+## Localhost gate
+
+UI, route, or staff/student portal work is **unfinished** until exercised at `http://127.0.0.1:8787`. Screenshot-only or “looks right in template” is not done. Use `.cursor/skills/local-verify` and `.cursor/skills/release-gate` when relevant.

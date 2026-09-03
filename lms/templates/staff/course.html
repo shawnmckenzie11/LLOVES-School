@@ -35,7 +35,8 @@
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
       <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
-      <a href="{{ url_for('staff_course', class_id=cls.id, tab='grades') }}" class="{{ 'on' if tab == 'grades' else '' }}">Track Attendance &amp; Participation</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
     </nav>
 
     {% if tab == 'modules' %}
@@ -62,60 +63,250 @@
       <a class="btn secondary" href="{{ url_for('staff_syllabus', class_id=cls.id) }}">View saved calendar</a>
     </p>
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
-    {% else %}
-    <div id="grades-root" data-class-id="{{ cls.id }}">
-      <div class="topbar">
-        <div class="row-actions">
-          <button type="button" id="begin">Start Live Class Tracker</button>
+    {% elif tab == 'ap' %}
+    <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="{{ '1' if take_attendance else '0' }}">
+      <nav class="ap-subtabs" aria-label="Attendance and Participation">
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
+           class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
+           class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
+      </nav>
+
+      {% if ap_view == 'attendance' %}
+      <div id="attendance-root" data-class-id="{{ cls.id }}">
+        <div class="topbar">
+          <div class="row-actions">
+            <button type="button" id="take-attendance">Take Attendance</button>
+          </div>
+        </div>
+        <div id="att-error" class="error" hidden></div>
+        <p class="hint" id="att-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s attendance.</p>
+        <div class="sheet-wrap attendance-wrap">
+          <table class="sheet attendance-grid" id="attendance-grid">
+            <thead><tr><th class="name">Student</th><th class="total">Total</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
-      <section class="card grades-panel">
-        <h2>Class Data View</h2>
-        <div class="view-toggle" role="group" aria-label="Lesson score view">
-          <button type="button" class="on" data-round-view="total" aria-pressed="true">Total</button>
-          <button type="button" data-round-view="r1" aria-pressed="false">Open Question</button>
-          <button type="button" data-round-view="r2" aria-pressed="false">Team Challenge</button>
-          <button type="button" data-round-view="r3" aria-pressed="false">Formative</button>
-          <button type="button" data-round-view="all" aria-pressed="false">All</button>
+      {% else %}
+      <div id="grades-root" data-class-id="{{ cls.id }}">
+        <div class="topbar ap-participation-bar">
+          <div class="row-actions">
+            <button type="button" id="begin">Log Participation</button>
+            <label class="field ap-view-field" for="round-view-select">
+              <span class="ap-view-label">Class Data View</span>
+              <select id="round-view-select" aria-label="Class Data View">
+                <option value="total">Total</option>
+                <option value="r1">Open Question</option>
+                <option value="r2">Team Challenge</option>
+                <option value="r3">Formative</option>
+              </select>
+            </label>
+          </div>
         </div>
+        <div id="error" class="error" hidden></div>
+        <p class="hint" id="part-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s participation and attendance.</p>
+        <div class="sheet-wrap">
+          <table class="sheet" id="sheet">
+            <thead>
+              <tr>
+                <th class="name">Student <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button></th>
+              </tr>
+            </thead>
+          </table>
+        </div>
+        <section class="card grades-panel">
+          <h2>Scoreboard period</h2>
+          <div class="view-toggle" id="stat-window-toggle" role="group" aria-label="Scoreboard stats period">
+            <button type="button" class="on" data-stat-window="last_class" aria-pressed="true">Last class</button>
+            <button type="button" data-stat-window="last_week" aria-pressed="false">Last week</button>
+            <button type="button" data-stat-window="year" aria-pressed="false">This year</button>
+          </div>
+        </section>
+        <section class="card grades-panel">
+          <h2>Log TOTAL</h2>
+          <form id="freeze-sub" class="tool-form">
+            <input id="sub-name" type="text" value="SUBTOTAL" placeholder="SUBTOTAL" autocomplete="off">
+            <button type="submit">Log TOTAL as Subtotal</button>
+          </form>
+        </section>
+      </div>
+      <dialog id="confirm-dialog" class="confirm-dialog">
+        <form method="dialog">
+          <p class="confirm-title">Confirm delete</p>
+          <p id="confirm-message" class="confirm-message"></p>
+          <div class="row-actions">
+            <button type="submit" value="cancel" class="secondary">Cancel</button>
+            <button type="submit" value="ok" class="danger">Delete</button>
+          </div>
+        </form>
+      </dialog>
+      {% endif %}
+
+      <dialog id="ap-overlay" class="ap-overlay" aria-labelledby="ap-overlay-title">
+        <div class="ap-overlay-card">
+          <div class="ap-overlay-toolbar">
+            <button type="button" class="ap-popout-btn" id="ap-popout" aria-label="Pop out (resize)" aria-pressed="false" title="Pop out for resizing">⧉</button>
+          </div>
+          <div id="ap-overlay-error" class="error" hidden></div>
+          <section id="ap-panel-att" class="ap-panel hidden">
+            <h2 id="ap-overlay-title">Mark Attendance <span id="ap-att-count" class="att-count">Attendance: 0</span></h2>
+            <label class="field" for="ap-meeting-date">Class date</label>
+            <input type="date" id="ap-meeting-date" class="ap-date-input">
+            <p class="hint">Defaults from the previous session (all absent on the first log). Only present students go to participation.</p>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-att-all">All present</button>
+              <button type="button" class="secondary" id="ap-att-none">All absent</button>
+            </div>
+            <div id="ap-att-list" class="check-list"></div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-att-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-att-done">Done</button>
+              <button type="button" id="ap-att-log">Log Participation</button>
+            </div>
+          </section>
+          <section id="ap-panel-validate" class="ap-panel hidden">
+            <h2>Choose a class date</h2>
+            <p class="hint" id="ap-validate-hint">This is not a live class day for this course. Pick a valid date to continue.</p>
+            <label class="field" for="ap-valid-date">Class date</label>
+            <input type="date" id="ap-valid-date" class="ap-date-input">
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-validate-cancel">Cancel</button>
+              <button type="button" id="ap-validate-apply">Use this date</button>
+            </div>
+          </section>
+          <section id="ap-panel-gamify" class="ap-panel hidden">
+            <h2>How should participation be tracked?</h2>
+            <label class="field" for="ap-gamify-date">Class date</label>
+            <input type="date" id="ap-gamify-date" class="ap-date-input">
+            <div class="ap-track-choice">
+              <button type="button" class="secondary ap-track-btn" id="ap-gamify-no">Individual Tracking</button>
+              <p class="hint">Assign points to individuals in the class list.</p>
+              <button type="button" class="ap-track-btn" id="ap-gamify-yes">Team Tracking</button>
+              <p class="hint">Create groups to assign points to teams or individuals.</p>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-gamify-cancel">Cancel</button>
+            </div>
+          </section>
+          <section id="ap-panel-teams" class="ap-panel hidden">
+            <h2>Assign Students to Teams</h2>
+            <div class="scoreboard-help">
+              <p class="hint">The scoreboard is a separate full-screen display for team standings during class. Turn it on to show live team totals on another monitor or projector.</p>
+              <div class="scoreboard-preview" aria-hidden="true">
+                <div class="sb-preview-top">
+                  <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
+                  <span class="sb-preview-clock">19:16</span>
+                </div>
+                <div class="sb-preview-teams">
+                  <div class="sb-preview-team sb-preview-team--1">
+                    <span class="sb-preview-name">TEAM 1</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--2">
+                    <span class="sb-preview-name">TEAM 2</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--3">
+                    <span class="sb-preview-name">TEAM 3</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                </div>
+                <div class="sb-preview-ticker">
+                  <span class="sb-preview-leaders">LEADERS · LAST CLASS</span>
+                  <span class="sb-preview-stat">Lise S +6</span>
+                  <span class="sb-preview-sep">|</span>
+                  <span class="sb-preview-stat">Open Question Leaders · Lise S 6</span>
+                  <span class="sb-preview-sep">|</span>
+                  <span class="sb-preview-stat">Open Question Most Improved · Lise S</span>
+                </div>
+              </div>
+            </div>
+            <label class="scoreboard-opt">
+              <input type="checkbox" id="ap-scoreboard-toggle">
+              Scoreboard
+            </label>
+            <label class="field" for="ap-n-teams">Number of teams</label>
+            <div class="stepper">
+              <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
+              <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric">
+              <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
+            </div>
+            <p class="hint ap-assign-hints"><strong>Assign Randomly</strong> — shuffle present students into teams.<br>
+            <strong>Assign Balanced</strong> — split by prior participation totals.<br>
+            <strong>Assign Manually</strong> — pick each student&apos;s team before continuing.</p>
+            <div class="row-actions">
+              <button type="button" id="ap-assign-random">Assign Randomly</button>
+              <button type="button" id="ap-assign-balanced">Assign Balanced</button>
+              <button type="button" id="ap-assign-manual">Assign Manually</button>
+            </div>
+            <div id="ap-manual-assign" class="hidden">
+              <div id="ap-manual-list" class="manual-list"></div>
+              <div class="row-actions">
+                <button type="button" class="secondary" id="ap-manual-cancel">Cancel</button>
+                <button type="button" id="ap-manual-confirm">Confirm assignment</button>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-teams-cancel">Cancel</button>
+            </div>
+          </section>
+          <section id="ap-panel-names" class="ap-panel hidden">
+            <h2>Create Teams</h2>
+            <div id="ap-name-list"></div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-names-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-names-back">Back</button>
+              <button type="button" id="ap-start-game">Create Teams</button>
+            </div>
+          </section>
+          <section id="ap-panel-score" class="ap-panel hidden">
+            <h2>Log Participation</h2>
+            <div id="ap-score-list" class="ap-score-list"></div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-score-cancel">Cancel</button>
+              <button type="button" class="danger" id="ap-score-end">End Game</button>
+            </div>
+          </section>
+          <section id="ap-panel-live" class="ap-panel hidden">
+            <h2>Log Participation</h2>
+            <p id="ap-live-meta" class="hint"></p>
+            <div class="ap-round-bar">
+              <span id="ap-round-label"></span>
+              <span id="ap-round-clock"></span>
+              <button type="button" class="secondary" id="ap-start-round" hidden>Start Round 2</button>
+            </div>
+            <div id="ap-live-teams" class="ap-live-teams"></div>
+            <div class="row-actions">
+              <button type="button" class="secondary" id="ap-live-cancel">Cancel</button>
+              <button type="button" class="danger" id="ap-live-end">End Game</button>
+            </div>
+          </section>
+        </div>
+      </dialog>
+      <script type="module" src="/static/staff_ap.js"></script>
+      {% if ap_view == 'attendance' %}
+      <script type="module" src="/static/staff_attendance.js"></script>
+      {% else %}
+      <script type="module" src="/static/staff_grades.js"></script>
+      {% endif %}
+    </div>
+    {% elif tab == 'gradebook' %}
+    <div id="gradebook-root" data-class-id="{{ cls.id }}">
+      <section class="card grades-panel">
+        <h2>Grades</h2>
+        <p class="hint">Weighted categories (editable later via API). Participation rolls up live-class credits; Exam is a placeholder.</p>
+        <div id="gradebook-weights" class="grade-weights" aria-live="polite"></div>
       </section>
-      <div id="error" class="error" hidden></div>
+      <div id="gradebook-error" class="error" hidden></div>
       <div class="sheet-wrap">
-        <table class="sheet" id="sheet">
-          <thead>
-            <tr>
-              <th class="name">Student <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button></th>
-            </tr>
-          </thead>
+        <table class="sheet" id="gradebook-sheet">
+          <thead><tr><th class="name">Student</th></tr></thead>
+          <tbody></tbody>
         </table>
       </div>
-      <section class="card grades-panel">
-        <h2>Scoreboard period</h2>
-        <div class="view-toggle" id="stat-window-toggle" role="group" aria-label="Scoreboard stats period">
-          <button type="button" class="on" data-stat-window="last_class" aria-pressed="true">Last class</button>
-          <button type="button" data-stat-window="last_week" aria-pressed="false">Last week</button>
-          <button type="button" data-stat-window="year" aria-pressed="false">This year</button>
-        </div>
-      </section>
-      <section class="card grades-panel">
-        <h2>Log TOTAL</h2>
-        <form id="freeze-sub" class="tool-form">
-          <input id="sub-name" type="text" value="SUBTOTAL" placeholder="SUBTOTAL" autocomplete="off">
-          <button type="submit">Log TOTAL as Subtotal</button>
-        </form>
-      </section>
     </div>
-    <dialog id="confirm-dialog" class="confirm-dialog">
-      <form method="dialog">
-        <p class="confirm-title">Confirm delete</p>
-        <p id="confirm-message" class="confirm-message"></p>
-        <div class="row-actions">
-          <button type="submit" value="cancel" class="secondary">Cancel</button>
-          <button type="submit" value="ok" class="danger">Delete</button>
-        </div>
-      </form>
-    </dialog>
-    <script type="module" src="/static/staff_grades.js"></script>
+    <script type="module" src="/static/staff_gradebook.js"></script>
     {% endif %}
 
     {% if expectations %}

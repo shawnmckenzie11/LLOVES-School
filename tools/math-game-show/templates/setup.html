@@ -37,7 +37,8 @@
       <div id="att-list" class="check-list" style="margin-top:12px"></div>
       <div class="row-actions">
         <button type="button" class="secondary" id="cancel-setup-att">Cancel</button>
-        <button type="button" id="att-next">Continue to teams</button>
+        <button type="button" class="secondary" id="att-done">Done</button>
+        <button type="button" id="att-next">Log Participation</button>
       </div>
     </section>
 
@@ -69,9 +70,13 @@
 
     <section id="step-names" class="card hidden">
       <h2>3 · Create Teams</h2>
-      <p class="hint" id="names-hint">Inspect who landed on each team, then rename if you want. Create Teams opens the teacher view and Zoom scoreboard.</p>
+      <p class="hint" id="names-hint">Inspect who landed on each team, then rename if you want. Create Teams opens the teacher view; Scoreboard only pops when checked.</p>
       <div id="name-list"></div>
       <div class="row-actions">
+        <label class="scoreboard-opt">
+          <input type="checkbox" id="scoreboard-toggle">
+          Scoreboard
+        </label>
         <button type="button" class="secondary" id="cancel-setup-names">Cancel</button>
         <button type="button" class="secondary" id="names-back">Back</button>
         <button type="button" id="start-game">Create Teams</button>

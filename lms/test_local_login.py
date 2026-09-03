@@ -61,7 +61,8 @@ class LocalLoginTests(unittest.TestCase):
             rv = self.client.get("/auth/google?portal=it")
             self.assertEqual(rv.status_code, 200)
             html = rv.get_data(as_text=True)
-            self.assertIn("Simulated Google Sign-In", html)
+            self.assertIn("Admin login", html)
+            self.assertIn("LOCAL_DEV_LOGIN=1", html)
             self.assertNotIn("accounts.google.com", html)
             self.assertIn("solutions@mckenzian.com", html)
 

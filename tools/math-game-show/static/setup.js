@@ -14,10 +14,41 @@ import {
 
 const classId = classIdFromPath();
 const nameSort = dashboardSort(classId);
+const scoreboardKey = `lloves-scoreboard-${classId}`;
 let state = null;
 let lastAssignMode = null;
 
 const $ = (id) => document.getElementById(id);
+
+/**
+ * Course URL after Done / Cancel (Attendance or Participation sub-tab).
+ * @returns {string}
+ */
+function returnHref() {
+  const view = sessionStorage.getItem(`lloves-ap-return-${classId}`) || "participation";
+  const safe = view === "attendance" ? "attendance" : "participation";
+  return `/staff/class/${classId}?tab=ap&view=${safe}`;
+}
+
+/**
+ * Whether Create Teams should open the scoreboard overlay.
+ * @returns {boolean}
+ */
+function scoreboardEnabled() {
+  const box = $("scoreboard-toggle");
+  if (box) return Boolean(box.checked);
+  return localStorage.getItem(scoreboardKey) === "1";
+}
+
+/**
+ * Keep the Scoreboard checkbox in sync with localStorage.
+ */
+function syncScoreboardPref() {
+  const box = $("scoreboard-toggle");
+  if (!box) return;
+  localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
+}
+
 
 /**
  * Fetch open-game state and show the matching setup step.
@@ -27,7 +58,7 @@ async function load() {
   state = await api(`/api/classes/${classId}/game`);
   const status = state.game.status;
   $("meta").textContent = `${state.class.course_code} · ${state.session.header_label}`;
-  $("back-dash").href = `/class/${classId}`;
+  $("back-dash").href = returnHref();
   fillTimeOptions(state);
   const dateEl = $("meeting-date");
   constrainMeetingDate();
@@ -55,6 +86,12 @@ async function load() {
     setNTeams(current);
   }
   if (status === "names") renderNames();
+  const boardBox = $("scoreboard-toggle");
+  if (boardBox && boardBox.dataset.bound !== "1") {
+    boardBox.checked = localStorage.getItem(scoreboardKey) === "1";
+    boardBox.addEventListener("change", syncScoreboardPref);
+    boardBox.dataset.bound = "1";
+  }
 }
 
 /**
@@ -247,7 +284,22 @@ $("att-next").addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ present_ids: selectedPresent() }),
     });
+    sessionStorage.setItem(`lloves-ap-return-${classId}`, "participation");
     await load();
+  } catch (err) {
+    showError("#error", err);
+  }
+});
+
+$("att-done")?.addEventListener("click", async () => {
+  hideError("#error");
+  try {
+    await api(`/api/classes/${classId}/game/finalize-attendance`, {
+      method: "POST",
+      body: JSON.stringify({ present_ids: selectedPresent() }),
+    });
+    sessionStorage.setItem(`lloves-ap-return-${classId}`, "attendance");
+    location.href = `/staff/class/${classId}?tab=ap&view=attendance`;
   } catch (err) {
     showError("#error", err);
   }
@@ -321,7 +373,9 @@ $("names-back").addEventListener("click", async () => {
 
 $("start-game").addEventListener("click", async () => {
   hideError("#error");
-  const overlay = reserveScoreboardOverlay();
+  syncScoreboardPref();
+  const wantBoard = scoreboardEnabled();
+  const overlay = wantBoard ? reserveScoreboardOverlay() : null;
   const teams = [...document.querySelectorAll("#name-list input")].map((el) => ({
     id: Number(el.dataset.teamId),
     name: el.value,
@@ -331,7 +385,8 @@ $("start-game").addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ teams }),
     });
-    openScoreboardOverlay(overlay);
+    if (wantBoard) openScoreboardOverlay(overlay);
+    else overlay?.close();
     location.href = `/class/${classId}/game`;
   } catch (err) {
     overlay?.close();
@@ -355,12 +410,12 @@ async function cancelSetup(href) {
 
 ["cancel-setup-att", "cancel-setup-teams", "cancel-setup-names"].forEach((id) => {
   const el = $(id);
-  if (el) el.addEventListener("click", () => cancelSetup(`/class/${classId}`));
+  if (el) el.addEventListener("click", () => cancelSetup(returnHref()));
 });
 
 $("back-dash").addEventListener("click", (event) => {
   event.preventDefault();
-  cancelSetup(`/class/${classId}`);
+  cancelSetup(returnHref());
 });
 
 $("home-link").addEventListener("click", (event) => {

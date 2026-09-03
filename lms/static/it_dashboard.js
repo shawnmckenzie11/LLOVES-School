@@ -321,4 +321,30 @@ document.addEventListener("DOMContentLoaded", () => {
   initHistoryDetails();
   initCourseCodeTypeahead();
   initBasePicker();
+  initSettingsTab();
 });
+
+/**
+ * Persist Admin attendance settings from the Settings tab.
+ */
+function initSettingsTab() {
+  const box = document.getElementById("only-live-class-days");
+  const status = document.getElementById("settings-status");
+  if (!box) return;
+  box.addEventListener("change", async () => {
+    if (status) status.textContent = "Saving…";
+    try {
+      const rv = await fetch("/api/it/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ only_live_class_days: box.checked }),
+      });
+      const data = await rv.json();
+      if (!rv.ok || !data.ok) throw new Error(data.error || "Save failed");
+      if (status) status.textContent = "Saved.";
+    } catch (err) {
+      box.checked = !box.checked;
+      if (status) status.textContent = String(err.message || err);
+    }
+  });
+}
