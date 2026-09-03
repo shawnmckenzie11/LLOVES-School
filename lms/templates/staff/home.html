@@ -7,20 +7,12 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
 </head>
-<body class="staff-shell">
-  <div class="wrap">
-    <nav class="staff-top-menu staff-top-menu--home" aria-label="Staff navigation">
-      <span class="staff-top-spacer"></span>
-      {% if user.role == 'it' %}<a class="staff-top-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
-      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
-    </nav>
-    <p class="kicker">Staff · {{ user.email }}</p>
-    <h1>Teacher Dashboard</h1>
-    {% if active %}
-    <p class="sub">{{ active.label }} · courses Admin assigned to this account. Populate a class to add Codenames (live days and time are set by Admin).</p>
-    {% else %}
-    <p class="sub">Ask Admin to activate a semester before you populate a class.</p>
-    {% endif %}
+<body class="staff-shell staff-home">
+  <div class="staff-home-corner" aria-label="Account">
+    {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
+    <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
+  </div>
+  <div class="wrap staff-home-wrap">
     <p class="ap-shortcut-note">
       <span class="ap-shortcut-note-icon" aria-hidden="true">
         <svg width="18" height="18" viewBox="0 0 24 24">

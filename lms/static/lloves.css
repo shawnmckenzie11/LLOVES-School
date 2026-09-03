@@ -48,27 +48,30 @@ body.landing-page .admin-lock:hover {
   color: var(--accent-2);
   border-color: var(--accent);
 }
-body.landing-page .landing-wrap {
-  max-width: min(44rem, 100%);
-  width: 100%;
-  padding-top: min(18vh, 7rem);
-  text-align: center;
-}
 body.landing-page .landing-brand {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  max-width: 100%;
-  margin: 0 0 2rem;
+  max-width: 100vw;
+  margin: 0;
+  padding: min(14vh, 5.5rem) 1rem 1.5rem;
+  text-align: center;
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
-  /* Fallback size before JS fit; vw keeps long titles on one line. */
-  font-size: clamp(0.72rem, 3.4vw, 2.1rem);
+  /* Full-viewport fallback before JS fit (not the 44rem card column). */
+  font-size: clamp(0.65rem, 2.6vw, 1.75rem);
 }
 body.landing-page .landing-brand .brand-edge {
   color: #ef4444;
+}
+body.landing-page .landing-wrap {
+  max-width: min(44rem, 100%);
+  width: 100%;
+  padding-top: 0.5rem;
+  text-align: center;
 }
 body.landing-page .role-prompt {
   margin: 0 0 0.85rem;
