@@ -54,6 +54,38 @@ body.staff-shell .ap-shortcut-note-icon {
   flex-shrink: 0;
   margin-top: 0.1rem;
 }
+body.staff-shell.staff-home .staff-home-corner {
+  position: fixed;
+  top: 0.85rem;
+  right: 1rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+body.staff-shell.staff-home .staff-corner-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #c5d0dc;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  text-decoration: none;
+  font-weight: 650;
+  font-size: 0.9rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+body.staff-shell.staff-home .staff-corner-link:hover {
+  border-color: #0b5f59;
+  color: #0b5f59;
+}
+body.staff-shell.staff-home .staff-home-wrap {
+  padding-top: 3.25rem;
+}
+body.staff-shell.staff-home .ap-shortcut-note {
+  margin: 0 0 1.25rem;
+}
 body.staff-shell .roster-disclaimer {
   margin: 0 0 0.85rem;
   padding: 0.7rem 0.85rem;
