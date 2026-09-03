@@ -47,9 +47,8 @@ function paint(data) {
   const students = data.students || [];
   const dayTotals = data.day_totals || {};
   const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
-  const clearActive = clearMode ? " on" : "";
 
-  let dates = `<tr class="att-dates"><th class="name"><button type="button" class="secondary${clearActive}" id="att-clear">Clear</button></th>`;
+  let dates = `<tr class="att-dates"><th class="name"></th>`;
   weeks.forEach((week, weekIndex) => {
     week.forEach((iso, dayIndex) => {
       const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
@@ -66,7 +65,7 @@ function paint(data) {
   });
   dates += `<th class="total"></th></tr>`;
 
-  let head = `<tr><th class="name">Student <button type="button" class="secondary" id="att-sort">${sortLabel}</button></th>`;
+  let head = `<tr><th class="name">Student</th>`;
   weeks.forEach((week, weekIndex) => {
     headers.forEach((label, dayIndex) => {
       const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
@@ -128,6 +127,12 @@ function paint(data) {
 
   table.innerHTML = `<thead>${dates}${head}</thead><tbody>${body}${dayTotalRow}</tbody>`;
   document.getElementById("att-clear-hint")?.toggleAttribute("hidden", !clearMode);
+  const clearBtn = document.getElementById("att-clear");
+  if (clearBtn) {
+    clearBtn.classList.toggle("on", clearMode);
+  }
+  const sortBtn = document.getElementById("att-sort");
+  if (sortBtn) sortBtn.textContent = sortLabel;
 }
 
 /**
@@ -137,19 +142,6 @@ function paint(data) {
 async function onGridClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (target.closest("#att-sort")) {
-    event.preventDefault();
-    sort = sort === "az" ? "za" : "az";
-    localStorage.setItem(sortKey, sort);
-    refresh().catch((err) => showError("#att-error", err));
-    return;
-  }
-  if (target.closest("#att-clear")) {
-    event.preventDefault();
-    clearMode = !clearMode;
-    if (latestGrid) paint(latestGrid);
-    return;
-  }
   const dateCell = target.closest("[data-clear-date]");
   if (!dateCell || !clearMode) return;
   const iso = dateCell.getAttribute("data-clear-date");
@@ -167,6 +159,19 @@ async function onGridClick(event) {
     showError("#att-error", err);
   }
 }
+
+document.getElementById("att-sort")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  sort = sort === "az" ? "za" : "az";
+  localStorage.setItem(sortKey, sort);
+  refresh().catch((err) => showError("#att-error", err));
+});
+
+document.getElementById("att-clear")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  clearMode = !clearMode;
+  if (latestGrid) paint(latestGrid);
+});
 
 document.getElementById("attendance-grid")?.addEventListener("click", (event) => {
   onGridClick(event).catch((err) => showError("#att-error", err));

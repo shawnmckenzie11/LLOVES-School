@@ -900,25 +900,43 @@ class LovesDB:
     ) -> int:
         """Return the section number a new offering for this teacher should take.
 
-        Uses ``MAX(section_index) + 1`` rather than a row count so deleting a
-        section never re-labels the ones that remain.
+        Only non-archived offerings in this semester count toward the preferred
+        next index. When an archived row still occupies that UNIQUE slot, the
+        lowest unused positive index is chosen instead.
 
         Args:
             semester_id: Semester the offering belongs to.
             ontario_code: Catalog course code.
             teacher_user_id: Staff or IT user id.
         """
+        code = (ontario_code or "").strip().upper()
         with self._lock:
-            row = self.conn.execute(
+            active = self.conn.execute(
                 """
                 SELECT MAX(COALESCE(section_index, 1)) AS top
                 FROM course_offerings
                 WHERE semester_id = ? AND ontario_code = ? AND teacher_user_id = ?
+                  AND archived_at IS NULL
                 """,
-                (semester_id, (ontario_code or "").strip().upper(), teacher_user_id),
+                (semester_id, code, teacher_user_id),
             ).fetchone()
-        top = int(row["top"] or 0) if row else 0
-        return max(top, 0) + 1
+            used_rows = self.conn.execute(
+                """
+                SELECT COALESCE(section_index, 1) AS section_index
+                FROM course_offerings
+                WHERE semester_id = ? AND ontario_code = ? AND teacher_user_id = ?
+                """,
+                (semester_id, code, teacher_user_id),
+            ).fetchall()
+        used = {int(row["section_index"]) for row in used_rows}
+        top = int(active["top"] or 0) if active else 0
+        candidate = max(top, 0) + 1
+        if candidate not in used:
+            return candidate
+        index = 1
+        while index in used:
+            index += 1
+        return index
 
     def assign_course(
         self,
@@ -1013,6 +1031,46 @@ class LovesDB:
             raise KeyError(f"offering {offering_id}")
         return self._offering_dict(row)
 
+    def _active_section_rank(self, data: dict[str, Any]) -> int:
+        """1-based rank among non-archived offerings for this teacher/code/term.
+
+        Archived rows and other semesters are ignored so a lone active section
+        keeps the plain Ontario code even if older archived rows used higher
+        ``section_index`` values.
+
+        Args:
+            data: Offering row dict with id, semester, code, teacher, archive.
+
+        Returns:
+            Display rank starting at 1.
+        """
+        if data.get("archived_at"):
+            try:
+                return max(int(data.get("section_index") or 1), 1)
+            except (TypeError, ValueError):
+                return 1
+        oid = int(data["id"])
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id FROM course_offerings
+                WHERE semester_id = ?
+                  AND ontario_code = ?
+                  AND teacher_user_id = ?
+                  AND archived_at IS NULL
+                ORDER BY COALESCE(section_index, 1), id
+                """,
+                (
+                    int(data["semester_id"]),
+                    str(data.get("ontario_code") or "").strip().upper(),
+                    int(data["teacher_user_id"]),
+                ),
+            ).fetchall()
+        for index, row in enumerate(rows, start=1):
+            if int(row["id"]) == oid:
+                return index
+        return 1
+
     def _offering_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         """Attach the section number and its display code to an offering row.
 
@@ -1025,7 +1083,8 @@ class LovesDB:
         data = dict(row)
         index = int(data.get("section_index") or 1)
         data["section_index"] = index
-        data["section_code"] = section_code(str(data.get("ontario_code") or ""), index)
+        rank = self._active_section_rank(data)
+        data["section_code"] = section_code(str(data.get("ontario_code") or ""), rank)
         return data
 
     def archive_offering(self, offering_id: int) -> dict[str, Any]:
@@ -1138,16 +1197,17 @@ class LovesDB:
     def get_offering_for(
         self, semester_id: int, ontario_code: str, teacher_user_id: int
     ) -> dict[str, Any] | None:
-        """Return this teacher's first section of a course/semester, if present.
+        """Return this teacher's first active section of a course/semester.
 
-        Later sections (``MCF3M-2``) exist as their own rows; callers that need
-        every section use ``list_offerings``.
+        Archived offerings are ignored. Later sections (``MCF3M-2``) exist as
+        their own rows; callers that need every section use ``list_offerings``.
         """
         with self._lock:
             row = self.conn.execute(
                 """
                 SELECT id FROM course_offerings
                 WHERE semester_id = ? AND ontario_code = ? AND teacher_user_id = ?
+                  AND archived_at IS NULL
                 ORDER BY COALESCE(section_index, 1), id
                 LIMIT 1
                 """,

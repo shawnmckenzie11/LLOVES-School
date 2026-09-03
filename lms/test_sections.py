@@ -224,12 +224,22 @@ class SectionTests(unittest.TestCase):
         self.assertIn("<h1>MCF3M-2</h1>", course_html)
         self.assertIn(">Dashboard</a>", course_html)
         self.assertNotIn("Staff home", course_html)
-        self.assertIn("Inherited curriculum expectations", course_html)
-        # Expectations sit after the Modules tab chrome, not in the top menu.
-        self.assertGreater(
-            course_html.find("Inherited curriculum expectations"),
-            course_html.find('class="tabs"'),
+        self.assertIn(">Expectations</a>", course_html)
+        self.assertIn("Attendance &amp; Participation", course_html)
+        # A&P and Grades sit beside Modules in the tab row.
+        modules_at = course_html.find(">Modules</a>")
+        ap_at = course_html.find("Attendance &amp; Participation")
+        grades_at = course_html.find(">Grades</a>")
+        self.assertGreater(ap_at, modules_at)
+        self.assertGreater(grades_at, modules_at)
+        self.assertLess(ap_at, grades_at)
+        self.assertNotIn("Inherited curriculum expectations", course_html)
+        expectations_page = self.client.get(
+            f"/staff/class/{second_class['id']}?tab=expectations"
         )
+        self.assertEqual(expectations_page.status_code, 200)
+        exp_html = expectations_page.get_data(as_text=True)
+        self.assertIn("Curriculum expectations", exp_html)
         plain = self.client.get(f"/staff/class/{first_class['id']}")
         self.assertEqual(plain.status_code, 200)
         self.assertIn("<h1>MCF3M</h1>", plain.get_data(as_text=True))
@@ -278,8 +288,8 @@ class SectionTests(unittest.TestCase):
         rows = self.school.list_offerings(teacher_user_id=int(teacher["id"]))
         self.assertEqual([row["section_code"] for row in rows], ["MCF3M", "MCF3M-2"])
 
-    def test_deleting_a_section_does_not_relabel_the_others(self) -> None:
-        """Section numbers are stored, so removing MCF3M leaves MCF3M-2 as MCF3M-2."""
+    def test_deleting_a_section_relabels_lone_survivor_plain(self) -> None:
+        """With only one active section left, the display code drops the suffix."""
         teacher = self._teacher()
         first = self._assign(teacher)
         second = self._assign(teacher)
@@ -288,10 +298,24 @@ class SectionTests(unittest.TestCase):
         )
         self.school.conn.commit()
         rows = self.school.list_offerings(teacher_user_id=int(teacher["id"]))
-        self.assertEqual([row["section_code"] for row in rows], ["MCF3M-2"])
+        self.assertEqual([row["section_code"] for row in rows], ["MCF3M"])
         self.assertEqual(
-            self.school.get_offering(int(second["id"]))["section_code"], "MCF3M-2"
+            self.school.get_offering(int(second["id"]))["section_code"], "MCF3M"
         )
+
+    def test_archived_section_does_not_force_suffix_on_reassign(self) -> None:
+        """Archived offerings are ignored when choosing the next display code."""
+        teacher = self._teacher()
+        first = self._assign(teacher)
+        self.assertEqual(first["section_code"], "MCF3M")
+        self.school.archive_offering(int(first["id"]))
+        again = self._assign(teacher)
+        self.assertNotEqual(int(first["id"]), int(again["id"]))
+        self.assertEqual(again["section_code"], "MCF3M")
+        active = self.school.list_offerings(
+            teacher_user_id=int(teacher["id"]), include_archived=False
+        )
+        self.assertEqual([row["section_code"] for row in active], ["MCF3M"])
 
     def _downgrade_to_pre_section_schema(self) -> None:
         """Rewrite ``course_offerings`` to its pre-section shape on the temp file.
