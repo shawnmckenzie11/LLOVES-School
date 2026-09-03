@@ -18,22 +18,13 @@ export function allowedDates(logContext) {
  */
 export function defaultSchoolDay(logContext) {
   const allowed = allowedDates(logContext);
-  const today = String(logContext?.today || "").trim();
+  const today = String(logContext?.today || logContext?.default_date || "").trim();
   if (today && allowed.includes(today)) return today;
+  if (logContext?.default_date && allowed.includes(logContext.default_date)) {
+    return logContext.default_date;
+  }
   const next = allowed.find((d) => d >= today);
   return next || allowed[0] || today;
-}
-
-/**
- * Next school day to log: first valid date with no attendance yet, else default.
- * @param {any} logContext
- * @returns {string}
- */
-export function suggestedLogDay(logContext) {
-  const suggested = String(logContext?.suggested_date || "").trim();
-  const allowed = allowedDates(logContext);
-  if (suggested && allowed.includes(suggested)) return suggested;
-  return defaultSchoolDay(logContext);
 }
 
 /**
@@ -55,29 +46,42 @@ export function snapToAllowed(iso, allowed) {
  * Configure a visible ``<input type="date">`` for semester school-day picking.
  * @param {HTMLInputElement|null} input
  * @param {any} logContext
- * @param {{onInvalid?: (msg: string) => void}} [opts]
+ * @param {{onInvalid?: (msg: string) => void, value?: string, forceValue?: boolean}} [opts]
  */
 export function bindSchoolDayPicker(input, logContext, opts = {}) {
   if (!input || !logContext) return;
   const allowed = allowedDates(logContext);
   const allowedSet = new Set(allowed);
-  const min = logContext.first_day || allowed[0] || "";
-  const max = logContext.last_day || allowed[allowed.length - 1] || "";
+  const min = allowed[0] || logContext.first_day || "";
+  const max = allowed[allowed.length - 1] || logContext.last_day || "";
   if (min) input.min = min;
   if (max) input.max = max;
   input.required = true;
 
-  const preferred = opts.value || suggestedLogDay(logContext);
-  if (preferred) input.value = preferred;
+  const alreadyBound = input.dataset.apCalendarBound === "1";
+  const current = String(input.value || "").trim();
+  // Keep a user-chosen date across rebinds (loadContext must not reset it).
+  if (opts.forceValue && opts.value) {
+    input.value = opts.value;
+  } else if (!alreadyBound) {
+    input.value = opts.value || defaultSchoolDay(logContext);
+  } else if (current && allowedSet.has(current)) {
+    /* keep current */
+  } else if (opts.value && allowedSet.has(opts.value)) {
+    input.value = opts.value;
+  } else {
+    input.value = defaultSchoolDay(logContext);
+  }
 
-  if (input.dataset.apCalendarBound === "1") return;
+  if (alreadyBound) return;
   input.dataset.apCalendarBound = "1";
 
   input.addEventListener("change", () => {
     const value = input.value;
     if (!value) return;
-    if (allowedSet.has(value)) return;
-    const snapped = snapToAllowed(value, allowed);
+    const liveAllowed = new Set(allowedDates(logContext));
+    if (liveAllowed.has(value)) return;
+    const snapped = snapToAllowed(value, allowedDates(logContext));
     input.value = snapped;
     opts.onInvalid?.(
       "Only school days in the current semester can be selected. Date adjusted."
@@ -91,7 +95,7 @@ export function bindSchoolDayPicker(input, logContext, opts = {}) {
  * @param {string} iso
  */
 export function syncOverlayPickers(logContext, iso) {
-  const value = iso || suggestedLogDay(logContext);
+  const value = iso || defaultSchoolDay(logContext);
   for (const id of ["ap-valid-date", "ap-meeting-date", "ap-gamify-date"]) {
     const el = document.getElementById(id);
     if (el) el.value = value;

@@ -78,15 +78,18 @@ class AuthTests(unittest.TestCase):
         rv = self.client.post("/verify-email", data={"code": code}, follow_redirects=False)
         self.assertEqual(rv.status_code, 302)
 
-    def test_landing_has_three_actions(self) -> None:
-        """Public landing shows Staff, IT, and Student Code."""
+    def test_landing_has_teacher_student_and_admin_lock(self) -> None:
+        """Public landing shows Teacher/Student roles and Admin lock."""
         rv = self.client.get("/")
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
-        self.assertIn("Staff Login", body)
-        self.assertIn("Admin Login", body)
-        self.assertIn("Student Code", body)
+        self.assertIn("Teacher", body)
+        self.assertIn("Student", body)
+        self.assertIn("Select your role:", body)
+        self.assertIn("Admin login", body)
+        self.assertIn("auth/google?portal=it", body)
         self.assertIn("Learning Live Online Virtually", body)
+        self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
 
     def test_unknown_google_403(self) -> None:

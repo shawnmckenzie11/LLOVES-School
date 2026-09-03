@@ -225,6 +225,90 @@ class RosterTests(unittest.TestCase):
         self.assertTrue(grid["cells"].get(f"{present_id}:{day1}"))
         self.assertTrue(grid["cells"].get(f"{present_id}:{day2}"))
 
+    def test_picked_meeting_date_lands_in_matching_column(self) -> None:
+        """Attendance finalized for a picker date fills that calendar column."""
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Aspen"],
+            },
+        )
+        class_id = rv.get_json()["class"]["id"]
+        begin = self.client.post(
+            f"/api/classes/{class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        self.assertEqual(begin.status_code, 200)
+        moved = self.client.post(
+            f"/api/classes/{class_id}/game/meeting",
+            json={"meeting_date": "2026-09-11"},
+        )
+        self.assertEqual(moved.status_code, 200)
+        self.assertEqual(moved.get_json()["session"]["meeting_date"], "2026-09-11")
+        present_id = int(begin.get_json()["students"][0]["id"])
+        done = self.client.post(
+            f"/api/classes/{class_id}/game/finalize-attendance",
+            json={"present_ids": [present_id], "meeting_date": "2026-09-11"},
+        )
+        self.assertEqual(done.status_code, 200)
+        grid = self.client.get(f"/api/classes/{class_id}/attendance-grid?sort=az").get_json()
+        self.assertTrue(grid["cells"].get(f"{present_id}:2026-09-11"))
+        self.assertIsNone(grid["cells"].get(f"{present_id}:2026-09-08"))
+
+    def test_setup_rounds_then_start_scoring(self) -> None:
+        """Create Teams can pause on rounds setup before live scoring."""
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Aspen", "Birch"],
+            },
+        )
+        class_id = rv.get_json()["class"]["id"]
+        begin = self.client.post(
+            f"/api/classes/{class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        ids = [int(s["id"]) for s in begin.get_json()["students"]]
+        self.client.post(
+            f"/api/classes/{class_id}/game/attendance",
+            json={"present_ids": ids, "meeting_date": "2026-09-09"},
+        )
+        assigned = self.client.post(
+            f"/api/classes/{class_id}/game/assign",
+            json={"n_teams": 2, "mode": "random"},
+        )
+        teams = [
+            {"id": t["id"], "name": t["name"]}
+            for t in assigned.get_json()["teams"]
+        ]
+        renamed = self.client.post(
+            f"/api/classes/{class_id}/game/rename",
+            json={"teams": teams, "go_live": False},
+        )
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.get_json()["game"]["status"], "rounds")
+        live = self.client.post(
+            f"/api/classes/{class_id}/game/start-rounds",
+            json={
+                "rounds": [
+                    {"kind": "formative", "minutes": 15},
+                    {"kind": "open", "minutes": 20},
+                ]
+            },
+        )
+        self.assertEqual(live.status_code, 200)
+        state = live.get_json()
+        self.assertEqual(state["game"]["status"], "live")
+        self.assertEqual(state["game"]["round_title"], "Formative")
+        self.assertEqual(state["game"]["round_count"], 2)
+        self.assertEqual(state["game"]["round_duration_sec"], 15 * 60)
+
     def test_participation_grid_matches_attendance_columns(self) -> None:
         """Participation tab grid shares semester date columns with attendance."""
         rv = self.client.post(

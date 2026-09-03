@@ -6,31 +6,33 @@
   <title>{{ school_name|safe }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
 </head>
-<body>
-  <div class="wrap">
-    <p class="kicker">{{ school_short }} · Ontario secondary courses</p>
-    <h1>{{ school_name|safe }}</h1>
-    <p class="sub">Staff and Admin sign in with a personal Google account. Students enter the shared course code for the live lesson game.</p>
+<body class="landing-page">
+  <a class="admin-lock" href="{{ url_for('auth_google', portal='it') }}" title="Admin login" aria-label="Admin login">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 0 1 4 0v2h-4V6zm7 14H7V10h10v10zm-5-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+    </svg>
+  </a>
+  <div class="wrap landing-wrap">
+    <h1 class="landing-brand">{{ school_name|safe }}</h1>
+    <p class="role-prompt">Select your role:</p>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
-    <div class="cards">
-      <a class="choice" href="{{ url_for('auth_google', portal='staff') }}">
-        <strong>Staff Login</strong>
-        <span class="hint">Teachers — populate class, modules, syllabus, and grades.</span>
+    <div class="role-cards" id="role-cards">
+      <a class="role-card" href="{{ url_for('auth_google', portal='staff') }}">
+        <strong>Teacher</strong>
+        <span class="hint">Sign in to teach, take attendance, and log participation.</span>
       </a>
-      <a class="choice" href="{{ url_for('auth_google', portal='it') }}">
-        <strong>Admin Login</strong>
-        <span class="hint">Activate the semester, register staff, assign Ontario courses.</span>
-      </a>
-      <form class="choice" method="post" action="{{ url_for('auth_student_code') }}">
-        <strong>Student Code</strong>
-        <span class="hint">Eight-character course key. Same code for everyone in the course.</span>
-        <label class="field" for="code">Course code</label>
-        <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required>
-        <div class="row-actions" style="margin-top:0.75rem">
-          <button type="submit">Join live game</button>
-        </div>
-      </form>
+      <button type="button" class="role-card{% if student_error %} is-open{% endif %}" id="student-role-btn" aria-expanded="{{ 'true' if student_error else 'false' }}" aria-controls="student-code-panel">
+        <strong>Student</strong>
+        <span class="hint">Enter your course code to join the live lesson.</span>
+      </button>
     </div>
+    <form class="student-code-panel{% if not student_error %} hidden{% endif %}" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
+      <label class="field" for="code">Course code</label>
+      <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required placeholder="8-character code">
+      <div class="row-actions" style="margin-top:0.75rem">
+        <button type="submit">Join</button>
+      </div>
+    </form>
   </div>
   {% if google_client_id %}
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -40,5 +42,20 @@
        data-auto_select="{{ 'true' if one_tap_auto else 'false' }}"
        data-itp_support="true"></div>
   {% endif %}
+  <script>
+    (function () {
+      var btn = document.getElementById("student-role-btn");
+      var panel = document.getElementById("student-code-panel");
+      var input = document.getElementById("code");
+      if (!btn || !panel) return;
+      btn.addEventListener("click", function () {
+        var open = panel.classList.toggle("hidden") === false;
+        btn.classList.toggle("is-open", open);
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open && input) input.focus();
+      });
+      if (!panel.classList.contains("hidden") && input) input.focus();
+    })();
+  </script>
 </body>
 </html>

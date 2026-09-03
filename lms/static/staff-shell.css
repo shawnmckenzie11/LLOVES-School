@@ -434,7 +434,23 @@ body.staff-shell #part-clear.on {
   background: #0f766e;
   color: #ecfeff;
 }
-body.staff-shell .ap-round-bar {
+body.staff-shell .ap-rounds-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+body.staff-shell .ap-round-row {
+  display: grid;
+  grid-template-columns: 1fr 8rem auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+@media (max-width: 640px) {
+  body.staff-shell .ap-round-row {
+    grid-template-columns: 1fr;
+  }
+}
   display: flex;
   flex-wrap: wrap;
   align-items: center;

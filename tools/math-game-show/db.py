@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS games (
     owns_session INTEGER NOT NULL DEFAULT 0,
     current_round INTEGER NOT NULL DEFAULT 1,
     round_started_at TEXT,
-    round_duration_sec INTEGER
+    round_duration_sec INTEGER,
+    rounds_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS point_events (
@@ -170,8 +171,20 @@ TEAM_RULES = ("each_member", "split_members", "team_only")
 ROUND_TITLES = {
     1: "Open Question Round",
     2: "Team Challenge Question",
-    3: "Consolidation Round",
+    3: "Formative Round",
 }
+
+ROUND_KIND_META = {
+    "open": {"title": "Open Question", "bucket": 1, "default_min": 20},
+    "challenge": {"title": "Team Challenge", "bucket": 2, "default_min": 10},
+    "formative": {"title": "Formative", "bucket": 3, "default_min": 10},
+}
+
+DEFAULT_ROUNDS_CONFIG = [
+    {"kind": "open", "duration_sec": 20 * 60},
+    {"kind": "challenge", "duration_sec": 10 * 60},
+    {"kind": "formative", "duration_sec": 10 * 60},
+]
 
 # Public scoreboard ticker: Leaders + Most Improved per teaching slice.
 LEADER_SLICES = (
@@ -185,6 +198,79 @@ ROUND_DURATIONS_SEC = {
     2: 10 * 60,
     3: 10 * 60,
 }
+
+
+def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
+    """Validate and normalize a teacher rounds plan (1–3 unique kinds).
+
+    Args:
+        raw: List of ``{kind, duration_sec|minutes}`` or None for defaults.
+
+    Returns:
+        Normalized list with ``kind``, ``title``, ``bucket``, ``duration_sec``.
+
+    Raises:
+        ValueError: When count, kinds, or durations are invalid.
+    """
+    if raw is None:
+        items = list(DEFAULT_ROUNDS_CONFIG)
+    else:
+        if not isinstance(raw, list):
+            raise ValueError("rounds must be a list")
+        items = list(raw)
+    if not 1 <= len(items) <= 3:
+        raise ValueError("Choose between 1 and 3 rounds")
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("Each round must be an object")
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind not in ROUND_KIND_META:
+            raise ValueError(
+                "Round type must be Open Question, Team Challenge, or Formative"
+            )
+        if kind in seen:
+            raise ValueError("Each round type can be used at most once")
+        seen.add(kind)
+        meta = ROUND_KIND_META[kind]
+        if item.get("duration_sec") is not None:
+            duration = int(item.get("duration_sec") or 0)
+        elif item.get("minutes") is not None:
+            duration = int(float(item.get("minutes")) * 60)
+        else:
+            duration = int(meta["default_min"] * 60)
+        if duration < 60 or duration > 3 * 60 * 60:
+            raise ValueError("Round length must be between 1 and 180 minutes")
+        out.append(
+            {
+                "kind": kind,
+                "title": meta["title"],
+                "bucket": int(meta["bucket"]),
+                "duration_sec": duration,
+            }
+        )
+    return out
+
+
+def rounds_from_game_row(game: dict[str, Any] | sqlite3.Row) -> list[dict[str, Any]]:
+    """Parse ``rounds_json`` from a games row, falling back to defaults.
+
+    Args:
+        game: Games row mapping.
+    """
+    raw = None
+    try:
+        raw = game["rounds_json"]
+    except (KeyError, IndexError, TypeError):
+        raw = None
+    if raw:
+        try:
+            parsed = json.loads(str(raw))
+            return normalize_rounds_config(parsed)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+    return normalize_rounds_config(None)
 
 
 def split_amount(amount: float, n_members: int) -> list[float]:
@@ -506,6 +592,8 @@ class GameShowDB:
             self.conn.execute("ALTER TABLE games ADD COLUMN round_started_at TEXT")
         if "round_duration_sec" not in game_cols:
             self.conn.execute("ALTER TABLE games ADD COLUMN round_duration_sec INTEGER")
+        if "rounds_json" not in game_cols:
+            self.conn.execute("ALTER TABLE games ADD COLUMN rounds_json TEXT")
         self.conn.execute(
             """
             UPDATE games
@@ -1839,6 +1927,37 @@ class GameShowDB:
                 (meeting.isoformat(), header, game["session_id"]),
             )
             self.conn.commit()
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                with open(
+                    "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _dbg:
+                    _dbg.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "436036",
+                                "hypothesisId": "D",
+                                "location": "db.py:set_meeting_date",
+                                "message": "set_meeting_date applied",
+                                "data": {
+                                    "class_id": class_id,
+                                    "requested": meeting_date.isoformat(),
+                                    "session_id": int(game["session_id"]),
+                                    "starts_at": meeting.isoformat(),
+                                    "header": header,
+                                    "game_status": str(game["status"]),
+                                },
+                                "timestamp": int(_time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
         return self.game_state(class_id)
 
     def cancel_setup(self, class_id: int) -> dict[str, Any]:
@@ -1856,7 +1975,7 @@ class GameShowDB:
         """
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] not in {"attendance", "teams", "names", "live"}:
+            if game["status"] not in {"attendance", "teams", "names", "rounds", "live"}:
                 raise ValueError("Quit is only available during an open game")
             self._discard_setup_unlocked(game)
             self.conn.commit()
@@ -2062,6 +2181,41 @@ class GameShowDB:
             if not present_set:
                 raise ValueError("Mark at least one student present")
             self._write_attendance_unlocked(game, present_set)
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                sess = self.conn.execute(
+                    "SELECT id, starts_at, status, header_label FROM sessions WHERE id = ?",
+                    (int(game["session_id"]),),
+                ).fetchone()
+                with open(
+                    "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _dbg:
+                    _dbg.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "436036",
+                                "hypothesisId": "E",
+                                "location": "db.py:finalize_attendance_only",
+                                "message": "finalize writing attendance",
+                                "data": {
+                                    "class_id": class_id,
+                                    "session_id": int(game["session_id"]),
+                                    "starts_at": str(sess["starts_at"]) if sess else None,
+                                    "header": str(sess["header_label"]) if sess else None,
+                                    "present_count": len(present_set),
+                                    "game_status": str(game["status"]),
+                                },
+                                "timestamp": int(_time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
             # Drop any partial team setup; attendance column stays.
             self.conn.execute(
                 "DELETE FROM point_events WHERE game_id = ?", (game["id"],)
@@ -2138,11 +2292,11 @@ class GameShowDB:
         Returns:
             Updated game state.
         """
-        if status not in {"attendance", "teams", "names"}:
-            raise ValueError("Setup step must be attendance, teams, or names")
+        if status not in {"attendance", "teams", "names", "rounds"}:
+            raise ValueError("Setup step must be attendance, teams, names, or rounds")
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] not in {"attendance", "teams", "names", "live"}:
+            if game["status"] not in {"attendance", "teams", "names", "rounds", "live"}:
                 raise ValueError("Cannot change setup step after End Game")
             if game["status"] == "live":
                 raise ValueError("Cannot return to setup during a live game")
@@ -2153,6 +2307,13 @@ class GameShowDB:
                 ).fetchone()
                 if int(n_teams["n"]) < 1:
                     raise ValueError("Assign teams before renaming them")
+            if status == "rounds":
+                n_teams = self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM game_teams WHERE game_id = ?",
+                    (game["id"],),
+                ).fetchone()
+                if int(n_teams["n"]) < 1:
+                    raise ValueError("Create teams before setting up rounds")
             self.conn.execute(
                 "UPDATE games SET status = ? WHERE id = ?", (status, game["id"])
             )
@@ -2249,19 +2410,29 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
-    def rename_teams(self, class_id: int, names: list[dict[str, Any]]) -> dict[str, Any]:
-        """Apply teacher team names, then move the game to live scoring.
+    def rename_teams(
+        self,
+        class_id: int,
+        names: list[dict[str, Any]],
+        *,
+        go_live: bool = True,
+        rounds: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Apply teacher team names, optionally moving the game to live scoring.
 
         Args:
             class_id: Classes primary key.
             names: List of ``{id, name}`` for each team.
+            go_live: When False, stay on the names/rounds setup step.
+            rounds: Optional rounds plan used when going live.
 
         Returns:
-            Updated game state (status ``live``).
+            Updated game state.
         """
+        plan = normalize_rounds_config(rounds) if go_live else None
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] not in {"names", "live"}:
+            if game["status"] not in {"names", "live", "rounds"}:
                 raise ValueError("Rename teams after they have been assigned")
             game_id = int(game["id"])
             for item in names:
@@ -2278,24 +2449,84 @@ class GameShowDB:
                 )
                 if cur.rowcount != 1:
                     raise KeyError(f"team {team_id}")
+            if not go_live:
+                self.conn.execute(
+                    "UPDATE games SET status = 'rounds' WHERE id = ?",
+                    (game_id,),
+                )
+                self.conn.commit()
+                return self.game_state(class_id)
+            assert plan is not None
             going_live = game["status"] != "live"
             if going_live:
+                first = plan[0]
                 self.conn.execute(
                     """
                     UPDATE games
                     SET status = 'live',
                         current_round = 1,
                         round_started_at = ?,
-                        round_duration_sec = ?
+                        round_duration_sec = ?,
+                        rounds_json = ?
                     WHERE id = ?
                     """,
-                    (self._now(), ROUND_DURATIONS_SEC[1], game_id),
+                    (
+                        self._now(),
+                        int(first["duration_sec"]),
+                        json.dumps(plan),
+                        game_id,
+                    ),
                 )
             else:
                 self.conn.execute(
                     "UPDATE games SET status = 'live' WHERE id = ?", (game_id,)
                 )
             self._set_scoreboard_game(game_id)
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def start_live_with_rounds(
+        self, class_id: int, rounds: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """Start live scoring from the rounds setup step.
+
+        Args:
+            class_id: Classes primary key.
+            rounds: Teacher rounds plan (1–3 unique types with lengths).
+
+        Returns:
+            Live game state.
+        """
+        plan = normalize_rounds_config(rounds)
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] not in {"names", "rounds"}:
+                raise ValueError("Set up rounds after teams are created")
+            n_teams = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM game_teams WHERE game_id = ?",
+                (game["id"],),
+            ).fetchone()
+            if int(n_teams["n"]) < 1:
+                raise ValueError("Create teams before starting rounds")
+            first = plan[0]
+            self.conn.execute(
+                """
+                UPDATE games
+                SET status = 'live',
+                    current_round = 1,
+                    round_started_at = ?,
+                    round_duration_sec = ?,
+                    rounds_json = ?
+                WHERE id = ?
+                """,
+                (
+                    self._now(),
+                    int(first["duration_sec"]),
+                    json.dumps(plan),
+                    int(game["id"]),
+                ),
+            )
+            self._set_scoreboard_game(int(game["id"]))
             self.conn.commit()
         return self.game_state(class_id)
 
@@ -2375,10 +2606,16 @@ class GameShowDB:
                 SET status = 'live',
                     current_round = 1,
                     round_started_at = ?,
-                    round_duration_sec = ?
+                    round_duration_sec = ?,
+                    rounds_json = ?
                 WHERE id = ?
                 """,
-                (self._now(), ROUND_DURATIONS_SEC[1], game_id),
+                (
+                    self._now(),
+                    ROUND_DURATIONS_SEC[1],
+                    json.dumps(normalize_rounds_config(None)),
+                    game_id,
+                ),
             )
             self._set_scoreboard_game(None)
             self.conn.commit()
@@ -2470,29 +2707,30 @@ class GameShowDB:
         return self.game_state(class_id)
 
     def start_round(self, class_id: int, round_number: int) -> dict[str, Any]:
-        """Advance the live game to Round 2 or Round 3.
+        """Advance the live game to the next configured round.
 
-        Only the next round can be started (1→2→3). The timer hitting 0:00
-        does not advance the round; the teacher may start the next round
-        early.
+        Only the next round in the teacher plan can be started. The timer
+        hitting 0:00 does not advance the round.
 
         Args:
             class_id: Classes primary key.
-            round_number: ``2`` or ``3``.
+            round_number: 1-based index into the configured rounds list.
 
         Returns:
             Updated game state with a fresh countdown.
         """
         target = int(round_number)
-        if target not in (2, 3):
-            raise ValueError("round must be 2 or 3")
         with self._lock:
             game = self._game_row(class_id)
             if game["status"] != "live":
                 raise ValueError("Rounds start after Create Teams")
+            plan = rounds_from_game_row(game)
+            if target < 2 or target > len(plan):
+                raise ValueError(f"round must be between 2 and {len(plan)}")
             current = int(game["current_round"] or 1)
             if target != current + 1:
                 raise ValueError(f"Cannot skip to round {target}")
+            nxt = plan[target - 1]
             self.conn.execute(
                 """
                 UPDATE games
@@ -2501,7 +2739,7 @@ class GameShowDB:
                     round_duration_sec = ?
                 WHERE id = ?
                 """,
-                (target, self._now(), ROUND_DURATIONS_SEC[target], int(game["id"])),
+                (target, self._now(), int(nxt["duration_sec"]), int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
@@ -2703,8 +2941,11 @@ class GameShowDB:
             session_id = int(game["session_id"])
             seq = int(game["event_seq"] or 0) + 1
             round_n = int(game["current_round"] or 1)
-            if round_n not in (1, 2, 3):
-                round_n = 1
+            plan = rounds_from_game_row(game)
+            if 1 <= round_n <= len(plan):
+                score_bucket = int(plan[round_n - 1]["bucket"])
+            else:
+                score_bucket = 1 if round_n not in (1, 2, 3) else round_n
             last_event: dict[str, Any]
             if kind == "student":
                 member = self.conn.execute(
@@ -2716,7 +2957,7 @@ class GameShowDB:
                 ).fetchone()
                 if member is None:
                     raise KeyError(f"student {target_id} is not on a live team")
-                self._credit_student(session_id, target_id, amount, round_n)
+                self._credit_student(session_id, target_id, amount, score_bucket)
                 team = dict(
                     self.conn.execute(
                         "SELECT * FROM game_teams WHERE id = ?",
@@ -2760,12 +3001,12 @@ class GameShowDB:
                 member_ids = self._team_member_ids(game_id, target_id)
                 if rule == "each_member":
                     for sid in member_ids:
-                        self._credit_student(session_id, sid, amount, round_n)
+                        self._credit_student(session_id, sid, amount, score_bucket)
                 elif rule == "split_members":
                     shares = split_amount(amount, len(member_ids))
                     for sid, share in zip(member_ids, shares, strict=True):
                         if share:
-                            self._credit_student(session_id, sid, share, round_n)
+                            self._credit_student(session_id, sid, share, score_bucket)
                     remainder = as_points(amount - sum(shares))
                     if remainder:
                         self._bump_team_bucket(game_id, target_id, remainder)
@@ -3438,17 +3679,22 @@ class GameShowDB:
         Args:
             game: A games row dict (status, current_round, round_started_at, …).
         """
+        plan = rounds_from_game_row(game)
         current = int(game.get("current_round") or 1)
-        if current not in ROUND_TITLES:
+        if current < 1 or current > len(plan):
             current = 1
+        active = plan[current - 1]
         live = str(game.get("status") or "") == "live"
         started = game.get("round_started_at") if live else None
         raw_dur = game.get("round_duration_sec") if live else None
-        duration_i = int(raw_dur) if raw_dur not in (None, "") else 0
+        duration_i = int(raw_dur) if raw_dur not in (None, "") else int(active["duration_sec"])
         started_s = str(started) if started else None
         return {
             "round": current,
-            "round_title": round_title(current),
+            "round_title": str(active["title"]),
+            "round_kind": str(active["kind"]),
+            "round_count": len(plan),
+            "rounds": plan,
             "round_started_at": started_s,
             "round_duration_sec": duration_i or None,
             "round_ends_at": round_ends_at(started_s, duration_i),
