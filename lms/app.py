@@ -917,7 +917,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             semesters=semesters,
             semesters_all=semesters,
             active=active,
-            staff=school.list_staff(include_archived=False),
+            staff=school.list_staff(include_archived=True),
             offerings=offerings,
             all_offerings=all_offerings,
             courses=school.search_ontario_courses("", limit=300),

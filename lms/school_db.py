@@ -122,6 +122,44 @@ def _now() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+def format_human_datetime(raw: str | None) -> str:
+    """Turn an ISO timestamp into a short, human-readable local string.
+
+    Args:
+        raw: ISO datetime (``2026-09-03T17:40:13``) or blank.
+
+    Returns:
+        ``Never``, ``Today · 5:40 PM``, ``Yesterday · 5:40 PM``,
+        ``Sep 3 · 5:40 PM``, or ``Sep 3, 2025 · 5:40 PM``.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return "Never"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    now = datetime.now().replace(microsecond=0)
+    hour = dt.hour % 12 or 12
+    meridiem = "AM" if dt.hour < 12 else "PM"
+    clock = f"{hour}:{dt.minute:02d} {meridiem}"
+    day = dt.date()
+    today = now.date()
+    yesterday = today.fromordinal(today.toordinal() - 1)
+    if day == today:
+        return f"Today · {clock}"
+    if day == yesterday:
+        return f"Yesterday · {clock}"
+    months = (
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    )
+    mon = months[dt.month - 1]
+    if dt.year == now.year:
+        return f"{mon} {dt.day} · {clock}"
+    return f"{mon} {dt.day}, {dt.year} · {clock}"
+
+
 def parse_semester_label(semester: str) -> tuple[str, str]:
     """Turn ``2026-2027 S1`` into ``(2026/27, Semester 1)``.
 
@@ -1601,6 +1639,7 @@ class SchoolDB(LovesDB):
                 or None
             )
             item["last_login_at"] = item.get("last_login_at")
+            item["last_login_display"] = format_human_datetime(item.get("last_login_at"))
             out.append(item)
         return out
 

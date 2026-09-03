@@ -19,10 +19,21 @@ os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from school_db import format_human_datetime  # noqa: E402
 
 
 class ItTests(unittest.TestCase):
     """IT dashboard backend: calendar clone and course assignment."""
+
+    def test_format_human_datetime_never_and_today(self) -> None:
+        """Blank stamps say Never; same-day ISO stamps say Today."""
+        self.assertEqual(format_human_datetime(None), "Never")
+        self.assertEqual(format_human_datetime(""), "Never")
+        from datetime import datetime
+
+        stamp = datetime.now().replace(hour=17, minute=40, second=0, microsecond=0).isoformat()
+        self.assertTrue(format_human_datetime(stamp).startswith("Today · "))
+        self.assertIn("5:40 PM", format_human_datetime(stamp))
 
     def setUp(self) -> None:
         """Isolated sqlite + Flask test client."""
@@ -258,6 +269,9 @@ class ItTests(unittest.TestCase):
         html = dash.get_data(as_text=True)
         self.assertIn("tab-settings", html)
         self.assertIn("only-live-class-days", html)
+        self.assertIn("it-wrap", html)
+        self.assertIn("it-dashboard", html)
+        self.assertIn("Today · ", html)
         before = self.client.get("/api/it/settings").get_json()
         self.assertFalse(before["only_live_class_days"])
         updated = self.client.post(
