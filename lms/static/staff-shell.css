@@ -83,22 +83,38 @@ body.staff-shell.staff-home .staff-corner-link:hover {
 body.staff-shell.staff-home .staff-home-wrap {
   padding-top: 3.25rem;
 }
+body.staff-shell.staff-home .course-dash {
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+}
+body.staff-shell.staff-home .course-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: course-card;
+}
 body.staff-shell.staff-home .course-card-code {
   margin: 0;
   width: 100%;
   font-size: 1.85rem;
   line-height: 1.15;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 body.staff-shell.staff-home .course-card-schedule {
   margin: 0.35rem 0 0;
+  min-height: 1.35em;
   color: #334155;
   font-size: 0.925rem; /* 50% of the course-code size */
   font-weight: 650;
   letter-spacing: 0.02em;
 }
+body.staff-shell.staff-home .course-card-schedule.is-placeholder {
+  font-weight: 500;
+  color: #64748b;
+}
 body.staff-shell.staff-home .course-card-join {
   margin: 0.45rem 0 0;
+  min-height: 1.4em;
 }
 body.staff-shell.staff-home .course-card-join .live-code {
   font-size: 1rem;
@@ -110,7 +126,8 @@ body.staff-shell.staff-home .course-card-actions {
   gap: 0.55rem;
   margin-top: 1rem;
 }
-body.staff-shell.staff-home .course-action-row {
+body.staff-shell.staff-home .course-action-row,
+body.staff-shell.staff-home form.course-action-row {
   display: flex;
   width: 100%;
   margin: 0;
@@ -118,7 +135,7 @@ body.staff-shell.staff-home .course-action-row {
 }
 body.staff-shell.staff-home .course-action-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.55rem;
 }
 body.staff-shell.staff-home .course-action {
@@ -127,6 +144,7 @@ body.staff-shell.staff-home .course-action {
   justify-content: center;
   gap: 0.45rem;
   width: 100%;
+  min-width: 0;
   min-height: 2.75rem;
   margin: 0;
   padding: 0.55rem 0.7rem;
@@ -137,10 +155,16 @@ body.staff-shell.staff-home .course-action {
   font: inherit;
   font-weight: 650;
   font-size: 0.92rem;
+  line-height: 1.25;
   text-align: center;
   text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
   cursor: pointer;
   box-sizing: border-box;
+}
+body.staff-shell.staff-home .course-action span {
+  min-width: 0;
 }
 body.staff-shell.staff-home .course-action svg {
   flex-shrink: 0;
@@ -157,12 +181,19 @@ body.staff-shell.staff-home .course-action.btn-populate.secondary {
 body.staff-shell.staff-home .course-action-live {
   background: #0f766e;
 }
-@media (max-width: 640px) {
+body.staff-shell.staff-home .course-action.is-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+body.staff-shell.staff-home .course-card-pack-progress {
+  margin-top: 0.75rem;
+}
+body.staff-shell.staff-home .course-card-pack-bar {
+  width: 100%;
+}
+@container course-card (min-width: 22rem) {
   body.staff-shell.staff-home .course-action-split {
-    grid-template-columns: 1fr;
-  }
-  body.staff-shell.staff-home .course-action {
-    min-height: 2.75rem;
+    grid-template-columns: 1fr 1fr;
   }
 }
 body.staff-shell.staff-home .ap-shortcut-note {

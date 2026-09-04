@@ -451,6 +451,7 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn("Explore Course", empty)
         self.assertNotIn("Run Live Class", empty)
         self.assertNotIn("Schedule:", empty)
+        self.assertIn("Schedule set when you Populate Class", empty)
 
         created = self.client.post(
             "/api/staff/classes",
@@ -472,6 +473,7 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn("OPEN COURSE", filled)
         self.assertIn("Explore Course", filled)
         self.assertIn("M | W | F | 2:00 PM", filled)
+        self.assertNotIn("Schedule set when you Populate Class", filled)
         self.assertIn(f"/staff/class/{class_id}", filled)
         self.assertIn("Student code appears when you Run Live Class", filled)
 

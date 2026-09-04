@@ -470,6 +470,96 @@ def library_counts(db: Any, library_id: int) -> dict[str, int]:
     return out
 
 
+def library_pack_summary(db: Any, library_id: int | None) -> dict[str, Any]:
+    """Counts for the Admin base-layer picker (modules present and loaded).
+
+    Assignments and tests are items **in modules**, not orphan catalog rows.
+    Banks are ok when at least one question bank has a non-zero question total.
+
+    Args:
+        db: School database.
+        library_id: ``content_libraries.id``, or None/0 for no pack.
+    """
+    empty = {
+        "ingested": False,
+        "modules": 0,
+        "pages": 0,
+        "assignments": 0,
+        "tests": 0,
+        "banks_ok": False,
+        "note": "no pack",
+    }
+    if not library_id:
+        return empty
+    if not library_is_ingested(db, int(library_id)):
+        return {**empty, "note": "loading…"}
+    lib = int(library_id)
+    modules = int(
+        db.conn.execute(
+            "SELECT COUNT(*) AS n FROM module_outlines WHERE library_id = ?",
+            (lib,),
+        ).fetchone()["n"]
+    )
+    pages = int(
+        db.conn.execute(
+            "SELECT COUNT(*) AS n FROM pages WHERE library_id = ?", (lib,)
+        ).fetchone()["n"]
+    )
+    assignments = int(
+        db.conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM module_items mi
+            JOIN module_outlines mo ON mo.id = mi.outline_id
+            WHERE mo.library_id = ? AND mi.component_type = 'assignment'
+            """,
+            (lib,),
+        ).fetchone()["n"]
+    )
+    tests = int(
+        db.conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM module_items mi
+            JOIN module_outlines mo ON mo.id = mi.outline_id
+            WHERE mo.library_id = ? AND mi.component_type = 'quiz'
+            """,
+            (lib,),
+        ).fetchone()["n"]
+    )
+    banks_ok = (
+        int(
+            db.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM (
+                    SELECT b.id
+                    FROM question_banks b
+                    JOIN questions q ON q.bank_id = b.id
+                    WHERE b.library_id = ?
+                    GROUP BY b.id
+                    HAVING COUNT(q.id) > 0
+                )
+                """,
+                (lib,),
+            ).fetchone()["n"]
+        )
+        > 0
+    )
+    note = (
+        f"{modules} modules · {pages} pages · {assignments} assignments · "
+        f"{tests} tests · banks {'ok' if banks_ok else 'none'}"
+    )
+    return {
+        "ingested": True,
+        "modules": modules,
+        "pages": pages,
+        "assignments": assignments,
+        "tests": tests,
+        "banks_ok": banks_ok,
+        "note": note,
+    }
+
+
 def _with_settings(row: Any) -> dict[str, Any]:
     """Decode a ``settings_json`` column into a nested dict."""
     data = dict(row)

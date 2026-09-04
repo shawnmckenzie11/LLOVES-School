@@ -180,6 +180,67 @@ def read_pack_status(dest_root: Path) -> dict[str, Any]:
     }
 
 
+def pack_ui_state(
+    status: dict[str, Any], *, has_library: bool
+) -> dict[str, Any]:
+    """Badge and one-line copy for Admin Offerings and staff course cards.
+
+    ``library_id`` is set as soon as the file lands, so Installed is reserved
+    for a finished unpack (``stage=done``) or an already-usable attached
+    library that never wrote a status file.
+
+    Args:
+        status: Payload from ``read_pack_status``.
+        has_library: True when the offering has a ``library_id``.
+    """
+    stage = str(status.get("stage") or "idle")
+    detail = str(status.get("detail") or "").strip()
+    error = status.get("error")
+    busy = bool(status.get("busy"))
+    if stage == "error":
+        line = str(error or detail or "Pack install failed.")
+        return {
+            "badge": "Failed",
+            "badge_class": "badge-warn",
+            "line": line,
+            "busy": False,
+            "stage": stage,
+            "detail": detail,
+            "error": line,
+        }
+    if busy:
+        line = detail or "Loading module pack…"
+        return {
+            "badge": "Loading",
+            "badge_class": "badge-warn",
+            "line": line,
+            "busy": True,
+            "stage": stage,
+            "detail": detail,
+            "error": None,
+        }
+    if has_library:
+        line = detail if stage == "done" and detail else "Installed"
+        return {
+            "badge": "Installed",
+            "badge_class": "badge-ok",
+            "line": line,
+            "busy": False,
+            "stage": stage or "done",
+            "detail": detail,
+            "error": None,
+        }
+    return {
+        "badge": "No pack",
+        "badge_class": "badge-warn",
+        "line": "No pack",
+        "busy": False,
+        "stage": stage,
+        "detail": detail,
+        "error": None,
+    }
+
+
 def resolve_module_pack(
     ontario_code: str,
     offering_imscc: str | None,
