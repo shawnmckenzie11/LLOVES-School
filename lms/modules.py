@@ -48,7 +48,15 @@ logger = logging.getLogger(__name__)
 IMSCC_MAX_BYTES = 800 * 1024 * 1024
 PACK_STATUS_NAME = "install_status.json"
 PACK_BUSY_STAGES = frozenset(
-    {"saving", "validating", "queued", "unpacking", "inventory"}
+    {
+        "saving",
+        "validating",
+        "queued",
+        "unpacking",
+        "inventory",
+        "ingest",
+        "syllabus",
+    }
 )
 
 PLACEHOLDER_TYPES = {

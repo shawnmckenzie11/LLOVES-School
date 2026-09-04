@@ -32,7 +32,7 @@
     <!-- ── Replace-pack mode ── -->
     <section class="card">
       <h2>Replace Module Pack</h2>
-      <p class="hint">Uploading a new pack replaces this offering's content library. Other teachers of the same code keep their current library unless you copy this offering to them later. Large packs upload first, then unpack in the background — keep this tab open until progress finishes.</p>
+      <p class="hint">Uploading a new pack replaces this offering's content library. Other teachers of the same code keep their current library unless you copy this offering to them later. After the file is stored you can leave this page — progress continues on Course Offerings and the teacher's staff home card.</p>
       <form id="module-pack-form"
             method="post"
             action="/it/offerings/{{ replace_offering.id }}/module-pack"
@@ -79,10 +79,11 @@
         <select id="copied_from_offering_id" name="copied_from_offering_id">
           <option value="">Course template (default)</option>
         </select>
+        <p id="base-layer-note" class="hint">no pack</p>
 
         <label class="field" for="module_pack">Module pack (optional)</label>
         <input id="module_pack" name="module_pack" type="file" accept=".imscc,.zip,application/zip">
-        <p class="hint">Required only if no shared template exists for this code yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. Large packs upload first, then unpack in the background — keep this tab open until progress finishes.</p>
+        <p class="hint">Required only if no shared template exists for this code yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. After the file is stored you can leave this page — progress continues on Course Offerings and the teacher's staff home card.</p>
 
         <div id="pack-progress" class="pack-progress" hidden>
           <progress id="pack-progress-bar" max="100" value="0"></progress>

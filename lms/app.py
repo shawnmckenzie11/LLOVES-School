@@ -80,6 +80,22 @@ from components import (  # noqa: E402
     outline_raw_modules,
     quiz_questions,
 )
+try:
+    from pack_progress import (
+        annotate_offering_pack,
+        finish_install_detail,
+        instances_payload,
+        status_payload,
+    )
+    from syllabus_seed import seed_syllabus_from_due_dates
+except ImportError:
+    from lms.pack_progress import (
+        annotate_offering_pack,
+        finish_install_detail,
+        instances_payload,
+        status_payload,
+    )
+    from lms.syllabus_seed import seed_syllabus_from_due_dates
 from modules import (  # noqa: E402
     IMSCC_MAX_BYTES,
     ensure_unpacked,
@@ -122,6 +138,28 @@ def _optional_date(value: Any) -> date | None:
 
 
 logger = logging.getLogger(__name__)
+
+def _agent_dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Append one NDJSON debug line for the Cursor debug session."""
+    # #region agent log
+    try:
+        payload = {
+            "sessionId": "3d5e3c",
+            "timestamp": int(__import__("time").time() * 1000),
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "runId": "pre-fix",
+        }
+        log_path = Path("/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-3d5e3c.log")
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(__import__("json").dumps(payload) + "\n")
+    except Exception:
+        pass
+    # #endregion
+
+
 
 
 def _json_error(exc: BaseException):
@@ -704,6 +742,24 @@ def create_app(
     _register_pages(app, school)
     _register_game_api(app, school)
     app.jinja_env.globals["live_schedule"] = format_live_schedule_line
+
+    @app.before_request
+    def _agent_dbg_request():
+        """Log whether a browser hit actually reached this Flask process."""
+        path = request.path or ""
+        if path in {"/", "/health", "/json/version"} or path.startswith("/it") or path.startswith("/staff"):
+            _agent_dbg(
+                "C",
+                "app.py:before_request",
+                "flask received request",
+                {
+                    "path": path,
+                    "host": request.host,
+                    "remote": request.remote_addr,
+                    "pid": os.getpid(),
+                },
+            )
+
     return app
 
 
@@ -854,27 +910,22 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     unpacked,
                     force=True,
                 )
+                _discard_unpacked(unpacked)
                 write_pack_status(
                     dest_root,
                     stage="syllabus",
                     detail="Placing tests, quizzes, and assignments on the syllabus…",
                 )
                 try:
-                    syllabus_mod.seed_syllabus_from_due_dates(
+                    seed_syllabus_from_due_dates(
                         school, offering, data_dir=school.data_dir
                     )
                 except Exception:  # noqa: BLE001 — pack still usable without seed
                     logger.exception("Syllabus seed from due dates failed")
-            summary = (
-                library_pack_summary(school, int(library_id))
-                if library_id
-                else {"note": "installed"}
-            )
-            note = str(summary.get("note") or "installed")
             write_pack_status(
                 dest_root,
                 stage="done",
-                detail=f"Module pack installed — {note}",
+                detail=finish_install_detail(school, library_id),
             )
         except Exception as exc:  # noqa: BLE001 — surface on the status poll
             logger.exception("Background module-pack install failed")
@@ -971,10 +1022,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_semester()
         offerings = school.list_offerings(semester_id=active["id"] if active else None)
         all_offerings = school.list_offerings()
+        offerings = [
+            annotate_offering_pack(row, _library_dest(row)) for row in offerings
+        ]
+        all_offerings = [
+            annotate_offering_pack(row, _library_dest(row)) for row in all_offerings
+        ]
         from flask import make_response
 
-        offerings = [_annotate_pack_status(row) for row in offerings]
-        all_offerings = [_annotate_pack_status(row) for row in all_offerings]
         html = render_template(
             "it/dashboard.html",
             user=user,
@@ -1054,26 +1109,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_list_instances():
         """JSON: prior offerings of a course code (any semester, any teacher)."""
         code = (request.args.get("code") or "").strip().upper()
-        if not code:
-            return jsonify({"ok": True, "instances": [], "template_note": "no pack"})
-        instances = school.list_prior_instances(code)
-        for inst in instances:
-            lib_id = inst.get("library_id")
-            summary = library_pack_summary(school, int(lib_id) if lib_id else 0)
-            inst["pack_note"] = summary["note"]
-            inst["pack_summary"] = summary
-        latest = school.latest_library_for_code(code)
-        template = library_pack_summary(
-            school, int(latest["id"]) if latest else 0
-        )
-        return jsonify(
-            {
-                "ok": True,
-                "instances": instances,
-                "template_note": template["note"],
-                "template_summary": template,
-            }
-        )
+        return jsonify(instances_payload(school, code))
 
     def _upload_file() -> Any:
         """Return the IMSCC ``FileStorage`` when the IT form sent a real file."""
@@ -1220,9 +1256,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_module_pack_status(offering_id: int):
         """JSON progress for an IT library upload/unpack."""
         offering = school.get_offering(int(offering_id))
-        status = read_pack_status(_library_dest(offering))
-        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
-        return jsonify({**status, **ui})
+        return jsonify(status_payload(offering, _library_dest(offering)))
 
     @app.route("/it/offerings/<int:offering_id>/rotate", methods=["POST"])
     @it_required
@@ -1450,7 +1484,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 semester_id=int(active["id"]),
                 include_archived=False,
             )
-            offerings = [_annotate_pack_status(row) for row in offerings]
+            offerings = [
+                annotate_offering_pack(row, _library_dest(row)) for row in offerings
+            ]
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         from flask import make_response
 
@@ -1686,18 +1722,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         offering = school.get_offering(int(offering_id))
         if int(offering["teacher_user_id"]) != int(user["id"]) and user["role"] != "it":
             abort(403)
-        status = read_pack_status(_library_dest(offering))
-        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
-        return jsonify({**status, **ui})
+        return jsonify(status_payload(offering, _library_dest(offering)))
 
     @app.route("/staff/class/<int:class_id>/module-pack/status")
     @staff_required
     def staff_module_pack_status(class_id: int):
-        """Staff pack-status endpoint for a class the teacher owns."""
+        """Staff pack-status for a class the teacher owns."""
         _, offering = _owned_offering_for_pack(class_id)
-        status = read_pack_status(_library_dest(offering))
-        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
-        return jsonify({**status, **ui})
+        return jsonify(status_payload(offering, _library_dest(offering)))
 
     @app.route("/api/staff/class/<int:class_id>/modules")
     @staff_required
@@ -2821,4 +2853,10 @@ if __name__ == "__main__":
     print(f"LLOVES LMS: http://{host}:{port}/")
     print(f"Database: {application.config['SCHOOL_DB'].db_path}")
     print(f"Ontario catalog: {catalog_n} courses")
+    _agent_dbg(
+        "A",
+        "app.py:__main__",
+        "flask starting",
+        {"host": host, "port": port, "pid": os.getpid()},
+    )
     application.run(host=host, port=port, debug=os.getenv("FLASK_DEBUG") == "1")

@@ -280,3 +280,70 @@ $("codename-list")?.addEventListener("click", (event) => {
   names.splice(Number(btn.dataset.i), 1);
   renderRoster();
 });
+
+
+/**
+ * Grey non-roster actions and show a bottom-of-card pack progress bar.
+ * @param {HTMLElement} card
+ * @param {{busy?: boolean, line?: string, detail?: string, error?: string|null}} status
+ */
+function applyPackBusy(card, status) {
+  const busy = Boolean(status.busy);
+  const bar = card.querySelector(".course-card-pack-progress");
+  const meter = bar?.querySelector("progress");
+  const detail = bar?.querySelector(".pack-progress-detail");
+  if (bar) {
+    bar.hidden = !busy && !status.error;
+    if (detail) {
+      detail.textContent = status.line || status.detail || status.error || "";
+    }
+    if (meter) {
+      if (busy) meter.removeAttribute("value");
+      else meter.value = 100;
+    }
+  }
+  card.querySelectorAll(".course-action").forEach((el) => {
+    el.classList.toggle("is-disabled", busy);
+    if (busy) {
+      el.setAttribute("aria-disabled", "true");
+      el.setAttribute("tabindex", "-1");
+    } else {
+      el.removeAttribute("aria-disabled");
+      el.removeAttribute("tabindex");
+    }
+  });
+  card.classList.toggle("pack-busy", busy);
+}
+
+/**
+ * Poll each course card's pack-status URL while a library is loading.
+ */
+function initPackProgress() {
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".course-action.is-disabled")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    true
+  );
+  document.querySelectorAll("article[data-pack-status-url]").forEach((card) => {
+    const url = card.getAttribute("data-pack-status-url");
+    if (!url) return;
+    const tick = async () => {
+      try {
+        const rv = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!rv.ok) return;
+        const status = await rv.json();
+        applyPackBusy(card, status);
+        if (status.busy) window.setTimeout(tick, 700);
+      } catch (_) {}
+    };
+    tick();
+  });
+}
+
+initPackProgress();

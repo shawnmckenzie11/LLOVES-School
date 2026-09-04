@@ -86,5 +86,11 @@
       if (!panel.classList.contains("hidden") && input) input.focus();
     })();
   </script>
+
+  <script>
+    // #region agent log
+    fetch('http://127.0.0.1:7424/ingest/06a65a63-e2b0-42ff-8efe-529415899763',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3d5e3c'},body:JSON.stringify({sessionId:'3d5e3c',location:'landing.html',message:'landing painted',data:{href:location.href,port:location.port,protocol:location.protocol},timestamp:Date.now(),hypothesisId:'C',runId:'pre-fix'})}).catch(function(){});
+    // #endregion
+  </script>
 </body>
 </html>

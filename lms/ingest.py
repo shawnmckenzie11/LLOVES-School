@@ -940,7 +940,12 @@ class LibraryIngestor:
             break
         payload = {
             key: _child_text(root, key)
-            for key in ("submission_types", "grading_type", "workflow_state")
+            for key in (
+                "submission_types",
+                "grading_type",
+                "workflow_state",
+                "due_at",
+            )
             if _child_text(root, key)
         }
         with self.db._lock:  # noqa: SLF001 - shared connection lock
@@ -989,7 +994,13 @@ class LibraryIngestor:
         title = _child_text(root, "title") or folder.name
         payload: dict[str, Any] = {
             key: _child_text(root, key)
-            for key in ("quiz_type", "points_possible", "time_limit", "workflow_state")
+            for key in (
+                "quiz_type",
+                "points_possible",
+                "time_limit",
+                "workflow_state",
+                "due_at",
+            )
             if _child_text(root, key)
         }
         description = _child_text(root, "description")

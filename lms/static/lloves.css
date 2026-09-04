@@ -306,5 +306,17 @@ body.it-dashboard .it-setting-check input {
 .pack-progress-detail {
   margin: 0.35rem 0 0;
 }
+.it-pack-status {
+  max-width: 22rem;
+}
+.it-pack-line {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  color: #3d4f63;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Staff home + course dashboard chrome lives in staff-shell.css (loaded last). */

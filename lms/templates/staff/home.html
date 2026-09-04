@@ -103,6 +103,10 @@
           <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>
           <p class="course-card-pack-error hint"{% if not o.pack_error %} hidden{% endif %}>{{ o.pack_error or "" }}</p>
         </div>
+        <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
+          <progress max="100"{% if o.pack_busy %}{% else %} value="100"{% endif %}></progress>
+          <p class="pack-progress-detail hint">{{ o.pack_line or o.pack_error or "" }}</p>
+        </div>
       </article>
       {% endfor %}
     </section>

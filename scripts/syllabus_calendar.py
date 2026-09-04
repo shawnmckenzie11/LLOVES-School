@@ -1504,7 +1504,7 @@ def parse_editor_placements(
         kind = value.get("assessment_kind") or value.get("assessmentKind")
         if kind in ("", None):
             kind = None
-        if kind not in {None, "test", "conference"}:
+        if kind not in {None, "test", "conference", "assignment", "quiz"}:
             raise ValueError(f"invalid assessment kind on {day.isoformat()}")
         review = bool(value.get("review"))
         live = bool(value.get("live"))

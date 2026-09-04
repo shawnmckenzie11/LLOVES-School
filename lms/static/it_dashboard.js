@@ -38,8 +38,13 @@ function initTabs() {
       return null;
     }
   })();
+  const fromQuery = new URLSearchParams(window.location.search).get("tab");
   const initial =
-    saved && document.getElementById("tab-" + saved) ? saved : "staff";
+    fromQuery && document.getElementById("tab-" + fromQuery)
+      ? fromQuery
+      : saved && document.getElementById("tab-" + saved)
+        ? saved
+        : "staff";
   activate(initial);
 }
 
@@ -257,14 +262,23 @@ function initBasePicker() {
 
   async function refreshBases() {
     const code = (codeInput.value || "").trim().toUpperCase();
+    const noteEl = document.getElementById("base-layer-note");
     baseSelect.innerHTML = "";
-    baseSelect.appendChild(makeOption("", "Course template (default)"));
-    if (!code) return;
+    if (!code) {
+      baseSelect.appendChild(makeOption("", "Course template (default)"));
+      if (noteEl) noteEl.textContent = "no pack";
+      return;
+    }
     try {
       const rv = await fetch("/it/instances?code=" + encodeURIComponent(code));
       const data = await rv.json();
+      const templateNote = data.template_note || "no pack";
+      baseSelect.appendChild(
+        makeOption("", "Course template (default) — " + templateNote)
+      );
+      if (noteEl) noteEl.textContent = templateNote;
       for (const inst of data.instances || []) {
-        const pack = inst.has_pack ? "pack" : "no pack";
+        const pack = inst.pack_note || (inst.has_pack ? "pack" : "no pack");
         const email = inst.teacher_email || "teacher";
         const shown = inst.section_code || inst.ontario_code || "";
         const label =
@@ -275,9 +289,8 @@ function initBasePicker() {
           (inst.term || "") +
           " · " +
           email +
-          " (" +
-          pack +
-          ")";
+          " — " +
+          pack;
         baseSelect.appendChild(makeOption(String(inst.offering_id), label));
       }
     } catch (_) {}
@@ -322,7 +335,43 @@ document.addEventListener("DOMContentLoaded", () => {
   initCourseCodeTypeahead();
   initBasePicker();
   initSettingsTab();
+  initPackStatusLines();
 });
+
+/**
+ * Poll busy Pack Status cells so Admin sees one live progress line.
+ */
+function initPackStatusLines() {
+  const cells = document.querySelectorAll(".it-pack-status[data-status-url]");
+  cells.forEach((cell) => {
+    const url = cell.getAttribute("data-status-url");
+    if (!url) return;
+    const paint = (status) => {
+      const badge = cell.querySelector(".badge");
+      const line = cell.querySelector(".it-pack-line");
+      if (badge) {
+        badge.textContent = status.badge || badge.textContent;
+        badge.className = "badge " + (status.badge_class || "");
+      }
+      if (line) {
+        const text = status.line || status.detail || "";
+        line.textContent = text;
+        line.title = text;
+      }
+      cell.dataset.packBusy = status.busy ? "true" : "false";
+    };
+    const tick = async () => {
+      try {
+        const rv = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!rv.ok) return;
+        const status = await rv.json();
+        paint(status);
+        if (status.busy) window.setTimeout(tick, 700);
+      } catch (_) {}
+    };
+    if (cell.dataset.packBusy === "true") tick();
+  });
+}
 
 /**
  * Persist Admin attendance settings from the Settings tab.
