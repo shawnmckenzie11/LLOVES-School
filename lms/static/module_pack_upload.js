@@ -1,5 +1,5 @@
 /**
- * XHR upload progress + status poll for staff Common Cartridge installs.
+ * XHR upload progress + status poll for Admin Common Cartridge installs.
  */
 
 const form = document.getElementById("module-pack-form");
@@ -13,12 +13,19 @@ const progressDetail = document.getElementById("pack-progress-detail");
 const classId = Number(form?.dataset.classId || 0);
 const POLL_MS = 700;
 
+/** @type {string} */
+let activeStatusUrl = form?.dataset.statusUrl || "";
+
 /**
  * Status URL for the current form (IT library upload or leftover staff path).
  * @returns {string}
  */
 function statusEndpoint() {
-  return form?.dataset.statusUrl || (classId ? `/staff/class/${classId}/module-pack/status` : "");
+  return (
+    activeStatusUrl ||
+    form?.dataset.statusUrl ||
+    (classId ? `/staff/class/${classId}/module-pack/status` : "")
+  );
 }
 
 let pollTimer = 0;
@@ -77,7 +84,11 @@ function stopPoll() {
  * @returns {Promise<{stage?: string, detail?: string, error?: string|null, busy?: boolean, ok?: boolean}>}
  */
 async function fetchStatus() {
-  const response = await fetch(statusEndpoint(), {
+  const endpoint = statusEndpoint();
+  if (!endpoint) {
+    throw new Error("Missing pack status URL");
+  }
+  const response = await fetch(endpoint, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -102,8 +113,12 @@ function paintStatus(status, fallback) {
 /**
  * Poll until unpack finishes, then follow the success URL.
  * @param {string} redirectUrl
+ * @param {string} [statusUrl]
  */
-function pollUntilDone(redirectUrl) {
+function pollUntilDone(redirectUrl, statusUrl) {
+  if (statusUrl) {
+    activeStatusUrl = statusUrl;
+  }
   setBar(null);
   showProgress(
     "Unpacking Common Cartridge… this can take a few minutes"
@@ -164,8 +179,11 @@ function uploadPack(body) {
     }
     if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
       const redirectUrl = data.redirect || `${window.location.pathname}?pack=ok`;
+      if (data.status_url) {
+        activeStatusUrl = data.status_url;
+      }
       if (data.installing) {
-        pollUntilDone(redirectUrl);
+        pollUntilDone(redirectUrl, data.status_url || activeStatusUrl);
         return;
       }
       stopPoll();
@@ -175,7 +193,7 @@ function uploadPack(body) {
     const message =
       data.error ||
       (xhr.status === 413
-        ? "Module pack is too large (max 250 MB)."
+        ? "Module pack is too large (max 800 MB)."
         : `Upload failed (HTTP ${xhr.status}).`);
     fail(message);
   };
@@ -185,8 +203,8 @@ function uploadPack(body) {
 }
 
 form?.addEventListener("submit", (event) => {
+  // Assign without a file uses a normal navigation; pack uploads use XHR.
   if (!fileInput?.files?.length) return;
-  if (!statusEndpoint() && !classId) return;
   event.preventDefault();
   const body = new FormData(form);
   if (submitBtn) submitBtn.disabled = true;
@@ -200,7 +218,7 @@ form?.addEventListener("submit", (event) => {
  * Resume the progress UI if a previous install is still running.
  */
 async function resumeIfBusy() {
-  if (!form || (!statusEndpoint() && !classId)) return;
+  if (!form || !statusEndpoint()) return;
   try {
     const status = await fetchStatus();
     if (status.stage === "error" && status.error) {

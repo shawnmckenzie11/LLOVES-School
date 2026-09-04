@@ -32,14 +32,20 @@
     <!-- ── Replace-pack mode ── -->
     <section class="card">
       <h2>Replace Module Pack</h2>
-      <p class="hint">Uploading a new pack replaces this offering's content library. Other teachers of the same code keep their current library unless you copy this offering to them later.</p>
-      <form method="post"
+      <p class="hint">Uploading a new pack replaces this offering's content library. Other teachers of the same code keep their current library unless you copy this offering to them later. Large packs upload first, then unpack in the background — keep this tab open until progress finishes.</p>
+      <form id="module-pack-form"
+            method="post"
             action="/it/offerings/{{ replace_offering.id }}/module-pack"
-            enctype="multipart/form-data">
+            enctype="multipart/form-data"
+            data-status-url="{{ url_for('it_module_pack_status', offering_id=replace_offering.id) }}">
         <label class="field" for="module_pack">Common Cartridge file (.imscc or .zip)</label>
         <input id="module_pack" name="module_pack" type="file" accept=".imscc,.zip,application/zip" required>
+        <div id="pack-progress" class="pack-progress" hidden>
+          <progress id="pack-progress-bar" max="100" value="0"></progress>
+          <p id="pack-progress-detail" class="pack-progress-detail hint"></p>
+        </div>
         <div class="row-actions" style="margin-top:0.75rem">
-          <button type="submit">Upload</button>
+          <button id="module-pack-submit" type="submit">Upload</button>
           <a class="btn secondary" href="{{ url_for('it_dashboard') }}">Cancel</a>
         </div>
       </form>
@@ -56,7 +62,8 @@
       <p class="hint">No active semester — assignments will be recorded without a semester.</p>
       {% endif %}
 
-      <form method="post"
+      <form id="module-pack-form"
+            method="post"
             action="/it/staff/{{ staff_member.id }}/assign"
             enctype="multipart/form-data">
 
@@ -75,7 +82,12 @@
 
         <label class="field" for="module_pack">Module pack (optional)</label>
         <input id="module_pack" name="module_pack" type="file" accept=".imscc,.zip,application/zip">
-        <p class="hint">Required only if no shared template exists for this code yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. Base layer copies syllabus answers and the library pointer — not pack files.</p>
+        <p class="hint">Required only if no shared template exists for this code yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. Large packs upload first, then unpack in the background — keep this tab open until progress finishes.</p>
+
+        <div id="pack-progress" class="pack-progress" hidden>
+          <progress id="pack-progress-bar" max="100" value="0"></progress>
+          <p id="pack-progress-detail" class="pack-progress-detail hint"></p>
+        </div>
 
         <label class="field" for="live_days">Live-class days</label>
         <select id="live_days" name="live_days" required>
@@ -96,7 +108,7 @@
         <p class="hint">Teachers inherit this schedule when they Populate Class; they only add Codenames.</p>
 
         <div class="row-actions" style="margin-top:0.75rem">
-          <button type="submit">Assign</button>
+          <button id="module-pack-submit" type="submit">Assign</button>
           <a class="btn secondary" href="{{ url_for('it_dashboard') }}">Cancel</a>
         </div>
       </form>
@@ -110,5 +122,6 @@
   {% if not replace_offering %}
   <script src="/static/it_dashboard.js"></script>
   {% endif %}
+  <script src="/static/module_pack_upload.js"></script>
 </body>
 </html>

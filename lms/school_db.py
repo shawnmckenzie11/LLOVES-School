@@ -2053,7 +2053,6 @@ class SchoolDB(LovesDB):
             Dict with ``library``, ``stored`` (Path), ``dest_root``.
         """
         import shutil
-        import uuid
 
         try:
             from instances import library_root
@@ -2062,19 +2061,18 @@ class SchoolDB(LovesDB):
             from lms.instances import library_root
             from lms.modules import store_uploaded_module_pack
 
-        incoming = Path(self.data_dir) / "libraries" / "_incoming" / uuid.uuid4().hex
-        try:
-            stored = store_uploaded_module_pack(file_storage, incoming)
-        except Exception:
-            shutil.rmtree(incoming, ignore_errors=True)
-            raise
+        # Write straight into the permanent library folder so large cartridges
+        # are not saved under ``_incoming`` and then moved again in-request.
         library = self.create_library(ontario_code, origin="upload")
         dest = library_root(self.data_dir, int(library["id"]))
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.move(str(incoming), str(dest))
-        stored = dest / stored.name
+        try:
+            stored = store_uploaded_module_pack(file_storage, dest)
+        except Exception:
+            shutil.rmtree(dest, ignore_errors=True)
+            raise
         library = self.set_library_source(int(library["id"]), str(stored))
         if offering_id is not None:
             self.attach_library(int(offering_id), int(library["id"]))

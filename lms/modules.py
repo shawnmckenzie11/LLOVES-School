@@ -47,7 +47,9 @@ logger = logging.getLogger(__name__)
 # Canvas MCF3M export is ~189MB; production packs can exceed 600MB.
 IMSCC_MAX_BYTES = 800 * 1024 * 1024
 PACK_STATUS_NAME = "install_status.json"
-PACK_BUSY_STAGES = frozenset({"saving", "validating", "unpacking", "inventory"})
+PACK_BUSY_STAGES = frozenset(
+    {"saving", "validating", "queued", "unpacking", "inventory"}
+)
 
 PLACEHOLDER_TYPES = {
     "Quizzes::Quiz",
@@ -404,6 +406,22 @@ def install_uploaded_module_pack(imscc: Path, dest_root: Path) -> dict[str, Any]
     inventory_path = dest_root / "inventory.json"
     write_pack_status(
         dest_root,
+        stage="validating",
+        detail="Checking Common Cartridge…",
+    )
+    try:
+        validate_imscc_upload("course.imscc", imscc)
+    except ValueError as exc:
+        err = str(exc)
+        write_pack_status(dest_root, stage="error", detail=err, error=err)
+        return {
+            "ok": False,
+            "unpacked": False,
+            "error": err,
+            "inventory": None,
+        }
+    write_pack_status(
+        dest_root,
         stage="unpacking",
         detail="Unpacking Common Cartridge… this can take a few minutes",
     )
@@ -470,18 +488,59 @@ def validate_imscc_upload(filename: str, path: Path, *, max_bytes: int = IMSCC_M
         )
 
 
+def validate_imscc_upload_quick(
+    filename: str, path: Path, *, max_bytes: int = IMSCC_MAX_BYTES
+) -> None:
+    """Fast request-path checks only (extension, size, ZIP magic).
+
+    Full Common Cartridge validation (readable zip + ``imsmanifest.xml``) runs
+    later in ``install_uploaded_module_pack`` so large uploads can finish the
+    HTTP request without sitting idle during a multi-minute namelist scan.
+
+    Args:
+        filename: Original upload name (extension check).
+        path: Saved file on disk.
+        max_bytes: Size ceiling.
+
+    Raises:
+        ValueError: Type, size, or missing ZIP magic.
+    """
+    name = (filename or "").lower().strip()
+    if not (name.endswith(".imscc") or name.endswith(".zip")):
+        raise ValueError("Module pack must be a .imscc (or .zip) Common Cartridge.")
+    if not path.is_file():
+        raise ValueError("Upload did not land on disk.")
+    size = path.stat().st_size
+    if size == 0:
+        raise ValueError("That file is empty.")
+    if size > max_bytes:
+        raise ValueError(
+            f"Module pack is too large (max {max_bytes // (1024 * 1024)} MB)."
+        )
+    with path.open("rb") as handle:
+        header = handle.read(4)
+    if header[:2] != b"PK":
+        raise ValueError("That file is not a ZIP/IMSCC archive.")
+
+
 def store_uploaded_module_pack(
     file_storage: Any,
     dest_root: Path,
     *,
     max_bytes: int = IMSCC_MAX_BYTES,
+    full_validate: bool = False,
 ) -> Path:
     """Validate and store an IMSCC upload without unpacking it.
+
+    By default only quick checks run here so the HTTP handler can return while
+    unpack/inventory continue in a background thread. Pass ``full_validate=True``
+    to keep historical sync cartridge checks (small packs / callers that need it).
 
     Args:
         file_storage: Werkzeug ``FileStorage`` from the upload form.
         dest_root: Offering folder (``module_packs/<id>/``).
         max_bytes: Size ceiling.
+        full_validate: When True, run full ``imsmanifest.xml`` validation now.
 
     Returns:
         Path to the stored ``course.imscc``.
@@ -502,7 +561,12 @@ def store_uploaded_module_pack(
         write_pack_status(
             dest_root, stage="validating", detail="Checking Common Cartridge…"
         )
-        validate_imscc_upload(str(file_storage.filename), tmp, max_bytes=max_bytes)
+        if full_validate:
+            validate_imscc_upload(str(file_storage.filename), tmp, max_bytes=max_bytes)
+        else:
+            validate_imscc_upload_quick(
+                str(file_storage.filename), tmp, max_bytes=max_bytes
+            )
         os.replace(tmp, dest)
     except Exception as exc:
         if tmp.exists():
@@ -510,6 +574,11 @@ def store_uploaded_module_pack(
         message = str(exc) if isinstance(exc, ValueError) else "Could not store that module pack."
         write_pack_status(dest_root, stage="error", detail=message, error=message)
         raise
+    write_pack_status(
+        dest_root,
+        stage="queued",
+        detail="Upload saved. Unpacking will start shortly…",
+    )
     return dest
 
 

@@ -300,6 +300,10 @@ class ModulePackTests(unittest.TestCase):
         self.assertTrue(body.get("ok"))
         self.assertFalse(body.get("installing"))
         self.assertIn("pack=ok", body.get("redirect") or "")
+        self.assertIn(
+            f"/it/offerings/{self.eng_offering['id']}/module-pack/status",
+            body.get("status_url") or "",
+        )
         offering = self.school.get_offering(int(self.eng_offering["id"]))
         self.assertTrue(offering.get("library_id"))
         status = self.client.get(

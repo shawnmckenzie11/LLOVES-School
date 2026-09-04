@@ -1003,6 +1003,66 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return uploaded
 
+    def _assign_error(message: str, status: int = 400):
+        """Return a JSON or HTML error for IT assign / pack upload forms."""
+        if _wants_json():
+            return jsonify({"ok": False, "error": message}), status
+        return render_template("forbidden.html", message=message), status
+
+    def _start_pack_install(
+        offering_id: int, stored: Path, dest_root: Path
+    ) -> bool:
+        """Run pack install sync under TESTING, otherwise in a daemon thread.
+
+        Args:
+            offering_id: ``course_offerings.id``.
+            stored: Path to ``course.imscc`` already on disk.
+            dest_root: Shared library folder for unpack/inventory.
+
+        Returns:
+            True when install continues in the background (UI should poll).
+        """
+        if app.config.get("TESTING"):
+            _install_module_pack_job(int(offering_id), stored, dest_root)
+            return False
+        worker = threading.Thread(
+            target=_install_module_pack_job,
+            args=(int(offering_id), stored, dest_root),
+            daemon=True,
+        )
+        worker.start()
+        return True
+
+    def _pack_upload_success(
+        *,
+        offering_id: int,
+        redirect_url: str,
+        stored: Path | None = None,
+        dest_root: Path | None = None,
+    ):
+        """Finish an IT assign/replace after optional pack store.
+
+        Outside tests, unpack/inventory always runs in the background so the
+        HTTP request returns as soon as the file is on disk.
+        """
+        installing = False
+        status_url = None
+        if stored is not None and dest_root is not None:
+            installing = _start_pack_install(int(offering_id), stored, dest_root)
+            status_url = url_for(
+                "it_module_pack_status", offering_id=int(offering_id)
+            )
+        if _wants_json():
+            payload: dict[str, Any] = {
+                "ok": True,
+                "installing": installing,
+                "redirect": redirect_url,
+            }
+            if status_url:
+                payload["status_url"] = status_url
+            return jsonify(payload)
+        return redirect(redirect_url)
+
     @app.route("/it/offerings", methods=["POST"])
     @it_required
     def it_assign_course():
@@ -1026,10 +1086,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 dest_root = created["dest_root"]
                 stored = created["stored"]
             if uploaded is None and not school.base_layer_available(code):
-                return render_template(
-                    "forbidden.html",
-                    message=f"A module pack (.imscc) is required for {code} — no template exists yet.",
-                ), 400
+                return _assign_error(
+                    f"A module pack (.imscc) is required for {code} — no template exists yet."
+                )
             offering = school.assign_course(
                 teacher_user_id=teacher_id,
                 ontario_code=code,
@@ -1044,18 +1103,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_time=live_time,
             )
         except (ValueError, KeyError) as exc:
-            return render_template("forbidden.html", message=str(exc)), 400
-        if stored is not None and dest_root is not None:
-            if app.config.get("TESTING"):
-                _install_module_pack_job(int(offering["id"]), stored, dest_root)
-            else:
-                worker = threading.Thread(
-                    target=_install_module_pack_job,
-                    args=(int(offering["id"]), stored, dest_root),
-                    daemon=True,
-                )
-                worker.start()
-        return redirect(url_for("it_dashboard"))
+            return _assign_error(str(exc))
+        return _pack_upload_success(
+            offering_id=int(offering["id"]),
+            redirect_url=url_for("it_dashboard"),
+            stored=stored,
+            dest_root=dest_root,
+        )
 
     @app.route("/it/offerings/<int:offering_id>/module-pack", methods=["POST"])
     @it_required
@@ -1063,12 +1117,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Attach a new shared library to an existing offering (IT only)."""
         offering = school.get_offering(int(offering_id))
         uploaded = _upload_file()
-        json_client = _wants_json()
         if uploaded is None:
-            message = "Choose a .imscc module pack to upload."
-            if json_client:
-                return jsonify({"ok": False, "error": message}), 400
-            return render_template("forbidden.html", message=message), 400
+            return _assign_error("Choose a .imscc module pack to upload.")
         try:
             created = school.store_upload_library(
                 str(offering["ontario_code"]),
@@ -1076,25 +1126,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 offering_id=int(offering["id"]),
             )
         except ValueError as exc:
-            if json_client:
-                return jsonify({"ok": False, "error": str(exc)}), 400
-            return render_template("forbidden.html", message=str(exc)), 400
-        dest_root = created["dest_root"]
-        stored = created["stored"]
-        done_url = url_for("it_dashboard", pack="ok")
-        background = json_client and not app.config.get("TESTING")
-        if background:
-            worker = threading.Thread(
-                target=_install_module_pack_job,
-                args=(int(offering["id"]), stored, dest_root),
-                daemon=True,
-            )
-            worker.start()
-            return jsonify({"ok": True, "installing": True, "redirect": done_url})
-        _install_module_pack_job(int(offering["id"]), stored, dest_root)
-        if json_client:
-            return jsonify({"ok": True, "installing": False, "redirect": done_url})
-        return redirect(done_url)
+            return _assign_error(str(exc))
+        return _pack_upload_success(
+            offering_id=int(offering["id"]),
+            redirect_url=url_for("it_dashboard", pack="ok"),
+            stored=created["stored"],
+            dest_root=created["dest_root"],
+        )
 
     @app.route("/it/offerings/<int:offering_id>/module-pack/status")
     @it_required
@@ -1267,10 +1305,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 dest_root = created["dest_root"]
                 stored = created["stored"]
             if uploaded is None and not school.base_layer_available(code):
-                return render_template(
-                    "forbidden.html",
-                    message=f"A module pack (.imscc) is required for {code} — no template exists yet.",
-                ), 400
+                return _assign_error(
+                    f"A module pack (.imscc) is required for {code} — no template exists yet."
+                )
             offering = school.assign_course(
                 teacher_user_id=staff_id,
                 ontario_code=code,
@@ -1285,18 +1322,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_time=live_time,
             )
         except (ValueError, KeyError) as exc:
-            return render_template("forbidden.html", message=str(exc)), 400
-        if stored is not None and dest_root is not None:
-            if app.config.get("TESTING"):
-                _install_module_pack_job(int(offering["id"]), stored, dest_root)
-            else:
-                worker = threading.Thread(
-                    target=_install_module_pack_job,
-                    args=(int(offering["id"]), stored, dest_root),
-                    daemon=True,
-                )
-                worker.start()
-        return redirect(url_for("it_dashboard", tab="staff"))
+            return _assign_error(str(exc))
+        return _pack_upload_success(
+            offering_id=int(offering["id"]),
+            redirect_url=url_for("it_dashboard", tab="staff"),
+            stored=stored,
+            dest_root=dest_root,
+        )
 
     @app.route("/it/offerings/<int:offering_id>/pack")
     @it_required
