@@ -10,6 +10,7 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from csv_import import parse_canvas_grades_csv
 from schedule import (
@@ -153,11 +154,25 @@ CREATE TABLE IF NOT EXISTS app_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS student_moods (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    meeting_date TEXT NOT NULL,
+    mood TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(class_id, student_id, meeting_date)
+);
 """
 
 SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
 STAT_WINDOW_KEY_PREFIX = "stat_window:"
+SHOW_RANK_KEY_PREFIX = "show_rank:"
+STUDENT_MOODS = ("good", "ok", "low")
+STUDENT_CHARACTERS = ("char_a", "char_b", "char_c", "char_d")
 STAT_WINDOWS = ("last_class", "last_week", "year")
 DEFAULT_STAT_WINDOW = "last_class"
 STAT_WINDOW_LABELS = {
@@ -165,6 +180,12 @@ STAT_WINDOW_LABELS = {
     "last_week": "last week",
     "year": "this year",
 }
+
+
+def ontario_today() -> date:
+    """Return today's calendar date in ``America/Toronto``."""
+    return datetime.now(ZoneInfo("America/Toronto")).date()
+
 
 TEAM_RULES = ("each_member", "split_members", "team_only")
 
@@ -575,6 +596,7 @@ class GameShowDB:
         self._migrate_rounds()
         self._migrate_lloves_roster()
         self._migrate_class_live_access_code()
+        self._migrate_student_portal()
 
     def _migrate_rounds(self) -> None:
         """Add round/timer columns and copy legacy points into Round 1.
@@ -658,6 +680,31 @@ class GameShowDB:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_students_class_codename
             ON students(class_id, codename)
             WHERE codename IS NOT NULL AND TRIM(codename) != ''
+            """
+        )
+
+    def _migrate_student_portal(self) -> None:
+        """Add character_key and the daily student_moods table."""
+        student_cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(students)").fetchall()
+        }
+        if "character_key" not in student_cols:
+            self.conn.execute("ALTER TABLE students ADD COLUMN character_key TEXT")
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS student_moods (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+                meeting_date TEXT NOT NULL,
+                mood TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(class_id, student_id, meeting_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_student_moods_class_date
+            ON student_moods(class_id, meeting_date);
             """
         )
 
@@ -991,6 +1038,310 @@ class GameShowDB:
         payload["student_count"] = self._student_count(class_id)
         return payload
 
+    def get_student(self, class_id: int, student_id: int) -> dict[str, Any]:
+        """Return one roster row with today's mood attached.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"student {student_id}")
+        payload = dict(row)
+        payload["mood"] = self.get_mood(class_id, student_id)
+        return payload
+
+    def set_character(self, class_id: int, student_id: int, character_key: str) -> dict[str, Any]:
+        """Persist a join-screen character for one student.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+            character_key: One of ``STUDENT_CHARACTERS``.
+        """
+        key = (character_key or "").strip()
+        if key not in STUDENT_CHARACTERS:
+            raise ValueError("Choose one of the four characters.")
+        self.get_student(class_id, student_id)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE students
+                SET character_key = ?
+                WHERE id = ? AND class_id = ?
+                """,
+                (key, int(student_id), int(class_id)),
+            )
+            self.conn.commit()
+        return self.get_student(class_id, student_id)
+
+    def get_mood(
+        self,
+        class_id: int,
+        student_id: int,
+        meeting_date: str | None = None,
+    ) -> str | None:
+        """Return the stored mood for a student on one meeting date.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+            meeting_date: YYYY-MM-DD; defaults to Ontario today.
+        """
+        day = meeting_date or ontario_today().isoformat()
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT mood FROM student_moods
+                WHERE class_id = ? AND student_id = ? AND meeting_date = ?
+                """,
+                (int(class_id), int(student_id), day),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["mood"])
+
+    def set_mood(
+        self,
+        class_id: int,
+        student_id: int,
+        mood: str,
+        meeting_date: str | None = None,
+    ) -> dict[str, Any]:
+        """Upsert today's (or a given day's) mood check-in.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+            mood: One of ``STUDENT_MOODS``.
+            meeting_date: YYYY-MM-DD; defaults to Ontario today.
+        """
+        key = (mood or "").strip()
+        if key not in STUDENT_MOODS:
+            raise ValueError("Choose how you are feeling.")
+        self.get_student(class_id, student_id)
+        day = meeting_date or ontario_today().isoformat()
+        session_id = self._session_id_for_date(class_id, day)
+        now = self._now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO student_moods (
+                    class_id, student_id, session_id, meeting_date, mood, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, student_id, meeting_date) DO UPDATE SET
+                    mood = excluded.mood,
+                    session_id = excluded.session_id,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), int(student_id), session_id, day, key, now),
+            )
+            self.conn.commit()
+        return self.get_student(class_id, student_id)
+
+    def mood_cells(self, class_id: int) -> dict[str, Any]:
+        """Mood grid cells keyed like attendance (``student_id:YYYY-MM-DD``).
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, meeting_date, mood
+                FROM student_moods
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+        cells: dict[str, str] = {}
+        totals: dict[str, int] = {}
+        day_totals: dict[str, int] = {}
+        for row in rows:
+            sid = int(row["student_id"])
+            iso = str(row["meeting_date"])
+            mood = str(row["mood"])
+            cells[f"{sid}:{iso}"] = mood
+            totals[str(sid)] = totals.get(str(sid), 0) + 1
+            day_totals[iso] = day_totals.get(iso, 0) + 1
+        return {"cells": cells, "totals": totals, "day_totals": day_totals}
+
+    def today_moods(self, class_id: int) -> dict[int, str]:
+        """Map student id → mood for Ontario today.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        day = ontario_today().isoformat()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, mood FROM student_moods
+                WHERE class_id = ? AND meeting_date = ?
+                """,
+                (int(class_id), day),
+            ).fetchall()
+        return {int(row["student_id"]): str(row["mood"]) for row in rows}
+
+    def attach_today_moods(self, class_id: int, students: list[dict[str, Any]]) -> None:
+        """Set ``mood`` on each roster dict from today's check-ins.
+
+        Args:
+            class_id: Classes primary key.
+            students: Mutable roster rows.
+        """
+        moods = self.today_moods(class_id)
+        for student in students:
+            student["mood"] = moods.get(int(student["id"]))
+
+    def get_show_rank(self, class_id: int) -> bool:
+        """Whether students may see class rank (default false).
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT value FROM app_state WHERE key = ?",
+                (f"{SHOW_RANK_KEY_PREFIX}{int(class_id)}",),
+            ).fetchone()
+        if row is None:
+            return False
+        return str(row["value"] or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def set_show_rank(self, class_id: int, enabled: bool) -> dict[str, Any]:
+        """Persist the student rank-visibility flag for a class.
+
+        Args:
+            class_id: Classes primary key.
+            enabled: True to show rank on the student board.
+        """
+        self.get_class(class_id)
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO app_state (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (f"{SHOW_RANK_KEY_PREFIX}{int(class_id)}", "1" if enabled else "0"),
+            )
+            self.conn.commit()
+        return {"class_id": int(class_id), "show_rank": bool(enabled)}
+
+    def _session_id_for_date(self, class_id: int, meeting_date: str) -> int | None:
+        """Return a non-template session id on ``meeting_date``, if any.
+
+        Args:
+            class_id: Classes primary key.
+            meeting_date: YYYY-MM-DD.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM sessions
+                WHERE class_id = ?
+                  AND substr(starts_at, 1, 10) = ?
+                  AND status != 'template'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id), meeting_date),
+            ).fetchone()
+        return int(row["id"]) if row else None
+
+    def student_live_payload(self, class_id: int, student_id: int) -> dict[str, Any]:
+        """Build the student home/API payload for one rostered student.
+
+        Rank is computed among present students by ``session_points`` and
+        omitted from ``me`` when ``show_rank`` is false.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+        """
+        student = self.get_student(class_id, student_id)
+        show_rank = self.get_show_rank(class_id)
+        status = "waiting"
+        scoring = False
+        points = 0.0
+        team_name = None
+        team_points = 0.0
+        rank = None
+        rank_of = None
+        with self._lock:
+            open_game = self.conn.execute(
+                """
+                SELECT id, status FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if open_game is not None:
+            game_status = str(open_game["status"] or "")
+            if game_status == "live":
+                status = "scoring"
+                scoring = True
+            else:
+                status = "setup"
+            state = self.game_state(class_id)
+            sid = int(student_id)
+            for row in state.get("students") or []:
+                if int(row["id"]) != sid:
+                    continue
+                points = as_points(row.get("session_points"))
+                break
+            for team in state.get("teams") or []:
+                members = team.get("members") or []
+                if any(int(m["id"]) == sid for m in members):
+                    team_name = team.get("name")
+                    team_points = as_points(team.get("score"))
+                    break
+            present = [
+                row
+                for row in (state.get("students") or [])
+                if row.get("present")
+            ]
+            present.sort(
+                key=lambda row: (
+                    -float(row.get("session_points") or 0),
+                    int(row["id"]),
+                )
+            )
+            rank_of = len(present)
+            for index, row in enumerate(present, start=1):
+                if int(row["id"]) == sid:
+                    rank = index
+                    break
+        me: dict[str, Any] = {
+            "id": int(student["id"]),
+            "codename": str(student.get("codename") or student.get("first_name") or ""),
+            "character": student.get("character_key"),
+            "mood": student.get("mood"),
+            "points": points,
+            "team_name": team_name,
+            "team_points": team_points,
+        }
+        if show_rank:
+            me["rank"] = rank
+            me["rank_of"] = rank_of
+        return {
+            "ok": True,
+            "status": status,
+            "scoring": scoring,
+            "show_rank": show_rank,
+            "class_id": int(class_id),
+            "me": me,
+            "scoreboard": self.scoreboard(class_id),
+        }
+
     def get_class_by_live_code(self, live_access_code: str) -> dict[str, Any] | None:
         """Return the class that owns this unique student join code.
 
@@ -1231,6 +1582,7 @@ class GameShowDB:
                 )
             )
             sort_out = "last"
+        self.attach_today_moods(class_id, students)
         columns = self._sheet_columns(sessions, subtotals)
         return {
             "class": cls,
@@ -3253,6 +3605,7 @@ class GameShowDB:
                 )
             ]
         totals = self.career_totals(class_id)
+        self.attach_today_moods(class_id, students)
         team_of = {int(m["student_id"]): int(m["team_id"]) for m in memberships}
         present_ids = [int(s["id"]) for s in students if scores.get(int(s["id"]), {}).get("present")]
         default_present = self.previous_present_ids(class_id, int(session["id"]))
@@ -3317,6 +3670,7 @@ class GameShowDB:
             "default_present_ids": default_present,
             "teams": teams_out,
             "time_options": list(TIME_OPTIONS),
+            "show_rank": self.get_show_rank(class_id),
         }
 
     def set_current_class(self, class_id: int) -> None:

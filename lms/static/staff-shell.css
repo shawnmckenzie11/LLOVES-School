@@ -393,6 +393,11 @@ body.staff-shell .attendance-grid td.present {
   font-weight: 700;
   text-align: center;
 }
+body.staff-shell .attendance-grid td.mood-good,
+body.staff-shell .attendance-grid td.mood-ok,
+body.staff-shell .attendance-grid td.mood-low {
+  text-align: center;
+}
 body.staff-shell .attendance-grid td.absent {
   background: #fee2e2;
   color: #7f1d1d;

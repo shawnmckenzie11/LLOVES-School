@@ -1,0 +1,187 @@
+/* Student live-class portal (phone-first). Staff shells stay untouched. */
+
+body.student-portal {
+  margin: 0;
+  min-height: 100dvh;
+  background: #071018;
+  color: #e8f1f8;
+}
+
+body.student-portal .student-wrap {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2rem;
+}
+
+body.student-portal h1 {
+  font-size: 1.45rem;
+  margin: 0.2rem 0 0.4rem;
+}
+
+body.student-portal .sub {
+  color: #9fb3c8;
+  margin-bottom: 1.1rem;
+}
+
+.mood-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.mood-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.4rem;
+  min-height: 6.5rem;
+  background: #122033;
+  color: inherit;
+}
+
+.mood-face {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.mood-label {
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.char-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.char-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.85rem 0.5rem;
+  background: #122033;
+  border: 2px solid #1e3348;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.char-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.char-card:has(input:checked),
+.char-card:has(input:focus-visible) {
+  border-color: #2dd4bf;
+}
+
+.char-join {
+  margin-top: 1.1rem;
+}
+
+.char-join button {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  font-size: 1.05rem;
+}
+
+body.student-home {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+body.student-home .student-tools {
+  flex: 0 0 auto;
+  padding: 0.75rem 0.9rem;
+}
+
+body.student-home.is-live .student-tools {
+  flex: 7 1 0;
+  min-height: 0;
+}
+
+body.student-home .student-boards {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.5rem 0.9rem 0.9rem;
+}
+
+body.student-home.is-live .student-boards {
+  flex: 3 1 0;
+  min-height: 0;
+}
+
+.student-wait {
+  margin: 0;
+  color: #9fb3c8;
+  font-size: 0.95rem;
+}
+
+.student-me,
+.student-scoreboard {
+  background: #122033;
+  border: 1px solid #1e3348;
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+}
+
+.student-me .me-name {
+  font-weight: 700;
+  margin: 0 0 0.35rem;
+}
+
+.student-me .stat {
+  margin: 0.15rem 0;
+  color: #9fb3c8;
+  font-size: 0.92rem;
+}
+
+.student-me .stat strong {
+  color: #e8f1f8;
+  float: right;
+}
+
+.student-scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sb-idle {
+  margin: 0;
+  color: #9fb3c8;
+}
+
+.sb-team {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-left: 4px solid var(--team, #0f766e);
+  padding: 0.25rem 0.45rem;
+}
+
+.sb-score {
+  font-weight: 700;
+}
+
+@media (min-width: 720px) {
+  body.student-home.is-live {
+    flex-direction: row;
+  }
+
+  body.student-home.is-live .student-tools {
+    flex: 7 1 0;
+  }
+
+  body.student-home.is-live .student-boards {
+    flex: 3 1 0;
+    max-width: 22rem;
+  }
+}

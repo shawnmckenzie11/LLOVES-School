@@ -17,10 +17,12 @@ import {
   sortStudents,
 } from "/static/common.js";
 import { bindSchoolDayPicker, defaultSchoolDay, pickerValue, syncOverlayPickers } from "/static/ap_calendar.js";
+import { nameWithMood } from "/static/mood_faces.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
 const scoreboardKey = `lloves-scoreboard-${classId}`;
+const rankKey = `lloves-rank-${classId}`;
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
@@ -274,7 +276,7 @@ function renderAttendanceList() {
   for (const student of sortStudents(overlayState.students || [], nameSort)) {
     const id = `ap-att-${student.id}`;
     const row = document.createElement("label");
-    row.innerHTML = `<input type="checkbox" id="${id}" value="${student.id}"> ${escapeHtml(displayName(student))}`;
+    row.innerHTML = `<input type="checkbox" id="${id}" value="${student.id}"> ${nameWithMood(displayName(student), student.mood)}`;
     list.appendChild(row);
     row.querySelector("input").checked = checked.has(student.id);
   }
@@ -571,6 +573,13 @@ function setNTeams(value) {
 function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
   if (box) box.checked = localStorage.getItem(scoreboardKey) === "1";
+  const rankBox = $("ap-rank-toggle");
+  if (rankBox) {
+    const fromState = overlayState && typeof overlayState.show_rank === "boolean";
+    rankBox.checked = fromState
+      ? Boolean(overlayState.show_rank)
+      : localStorage.getItem(rankKey) === "1";
+  }
   setNTeams(Number($("ap-n-teams")?.value) || 2);
 }
 
@@ -581,6 +590,15 @@ $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
   if (box instanceof HTMLInputElement) {
     localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
   }
+});
+$("ap-rank-toggle")?.addEventListener("change", (event) => {
+  const box = event.target;
+  if (!(box instanceof HTMLInputElement)) return;
+  localStorage.setItem(rankKey, box.checked ? "1" : "0");
+  api(`/api/classes/${classId}/show-rank`, {
+    method: "POST",
+    body: JSON.stringify({ enabled: box.checked }),
+  }).catch((err) => showError("#ap-overlay-error", err));
 });
 
 /**
@@ -620,7 +638,7 @@ $("ap-assign-manual")?.addEventListener("click", () => {
     .map((student, index) => {
       const teamIndex = index % Math.max(1, nTeams);
       return `<div class="manual-row">
-        <span>${escapeHtml(displayName(student))}</span>
+        <span>${nameWithMood(displayName(student), student.mood)}</span>
         <div class="team-step" data-student-id="${student.id}" data-team-index="${teamIndex}">
           <button type="button" data-step="-1">−</button>
           <span class="team-n">Team ${teamIndex + 1}</span>
@@ -790,7 +808,7 @@ function renderScoreList() {
           `<button type="button" data-kind="student" data-id="${row.id}" data-amount="${n}">${n > 0 ? "+" : ""}${n}</button>`
       ).join("");
       return `<div class="ap-score-row">
-        <span>${escapeHtml(displayName(row))}</span>
+        <span>${nameWithMood(displayName(row), row.mood)}</span>
         <span class="ap-score-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
         <span class="pm">${buttons}</span>
       </div>`;
@@ -879,7 +897,7 @@ function renderLiveTeams(state) {
         .map(
           (s) => `<div class="ap-live-player">
             <div class="ap-live-row">
-              <span class="who">${escapeHtml(displayName(s))}</span>
+              <span class="who">${nameWithMood(displayName(s), s.mood)}</span>
               <span class="now">${escapeHtml(formatPoints(s.session_points || 0))}</span>
             </div>
             <div class="pm">${studentButtons(s.id)}</div>

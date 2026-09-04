@@ -101,6 +101,12 @@ from paths import (  # noqa: E402
     SCHOOL_NAME,
     SCHOOL_SHORT,
 )
+from student_portal import (  # noqa: E402
+    bind_student_session,
+    character_choices,
+    mood_choices,
+    next_student_endpoint,
+)
 import syllabus as syllabus_mod  # noqa: E402
 from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  # noqa: E402
 
@@ -1626,7 +1632,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 url_for("staff_course", class_id=class_id, tab="ap", view=view)
             )
         ap_view = (request.args.get("view") or "attendance").strip().lower()
-        if ap_view not in {"attendance", "participation"}:
+        if ap_view not in {"attendance", "participation", "mood"}:
             ap_view = "attendance"
         if tab not in {
             "modules",
@@ -2021,61 +2027,152 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """ESPN board: staff overlay or student join."""
         return send_from_directory(MGS_TEMPLATES, "scoreboard.html")
 
+    def _student_identity() -> tuple[dict[str, Any], int, int] | None:
+        """Return offering and roster ids when the student session is bound.
+
+        Returns:
+            ``(offering, class_id, student_id)`` or ``None`` if incomplete.
+        """
+        offering_id = session.get("student_offering_id")
+        class_id = session.get("student_class_id")
+        student_id = session.get("student_id")
+        if not offering_id or not class_id or not student_id:
+            return None
+        offering = school.get_offering(int(offering_id))
+        return offering, int(class_id), int(student_id)
+
+    def _student_advance():
+        """Redirect to pick, landing, or the next unfinished student step."""
+        ident = _student_identity()
+        if ident is None:
+            if session.get("student_offering_id") and session.get("student_codename"):
+                return redirect(url_for("student_pick"))
+            return redirect(url_for("landing"))
+        _offering, class_id, student_id = ident
+        return redirect(
+            url_for(next_student_endpoint(school, class_id, student_id))
+        )
+
     @app.route("/student/waiting")
     @student_required
     def student_waiting():
-        """Waiting room when the teacher has not started a live game."""
-        offering = None
-        offering_id = session.get("student_offering_id")
-        if offering_id:
-            try:
-                offering = school.get_offering(int(offering_id))
-            except (TypeError, ValueError, KeyError):
-                offering = None
-        return render_template(
-            "student/waiting.html",
-            offering=offering,
-            school_name=SCHOOL_NAME,
-        )
+        """Legacy waiting URL; send the student to mood / character / home."""
+        return _student_advance()
 
     @app.route("/student/game")
     @student_required
     def student_game():
-        """Student scoreboard-first live game (no scoring controls)."""
-        if not session.get("student_class_id"):
-            return redirect(url_for("student_waiting"))
-        return send_from_directory(MGS_TEMPLATES, "scoreboard.html")
+        """Legacy game URL; send the student to mood / character / home."""
+        return _student_advance()
+
+    @app.route("/student/mood", methods=["GET", "POST"])
+    @student_required
+    def student_mood():
+        """Daily mood check-in before the character / home boards."""
+        ident = _student_identity()
+        if ident is None:
+            return _student_advance()
+        offering, class_id, student_id = ident
+        if request.method == "POST":
+            mood = (request.form.get("mood") or "").strip()
+            try:
+                school.game.set_mood(class_id, student_id, mood)
+            except ValueError as exc:
+                return render_template(
+                    "student/mood.html",
+                    offering=offering,
+                    moods=mood_choices(),
+                    error=str(exc),
+                    school_name=SCHOOL_NAME,
+                )
+            return _student_advance()
+        student = school.game.get_student(class_id, student_id)
+        if student.get("mood"):
+            return _student_advance()
+        return render_template(
+            "student/mood.html",
+            offering=offering,
+            moods=mood_choices(),
+            error=None,
+            school_name=SCHOOL_NAME,
+        )
+
+    @app.route("/student/character", methods=["GET", "POST"])
+    @student_required
+    def student_character():
+        """Join-class character pick after mood check-in."""
+        ident = _student_identity()
+        if ident is None:
+            return _student_advance()
+        offering, class_id, student_id = ident
+        student = school.game.get_student(class_id, student_id)
+        if not student.get("mood"):
+            return _student_advance()
+        if request.method == "POST":
+            character = (request.form.get("character") or "").strip()
+            try:
+                school.game.set_character(class_id, student_id, character)
+            except ValueError as exc:
+                return render_template(
+                    "student/character.html",
+                    offering=offering,
+                    characters=character_choices(),
+                    error=str(exc),
+                    school_name=SCHOOL_NAME,
+                )
+            return _student_advance()
+        if (student.get("character_key") or "").strip():
+            return _student_advance()
+        return render_template(
+            "student/character.html",
+            offering=offering,
+            characters=character_choices(),
+            error=None,
+            school_name=SCHOOL_NAME,
+        )
+
+    @app.route("/student/home")
+    @student_required
+    def student_home():
+        """Student live-class boards after mood and character."""
+        ident = _student_identity()
+        if ident is None:
+            return _student_advance()
+        offering, class_id, student_id = ident
+        if next_student_endpoint(school, class_id, student_id) != "student_home":
+            return _student_advance()
+        payload = school.game.student_live_payload(class_id, student_id)
+        return render_template(
+            "student/home.html",
+            offering=offering,
+            payload=payload,
+            school_name=SCHOOL_NAME,
+        )
 
     @app.route("/student/pick", methods=["GET", "POST"])
     @student_required
     def student_pick():
-        """Disambiguate overlapping live sections by Codename or days/time."""
+        """Disambiguate overlapping sections that share the same Codename."""
         code = session.get("student_live_code") or ""
-        live = school.live_games_for_access_code(code)
+        name = session.get("student_codename") or ""
+        matches = school.find_roster_matches(code, name)
         error = None
         if request.method == "POST":
             class_id = request.form.get("class_id")
-            codename = request.form.get("codename") or ""
-            if class_id:
-                chosen = next((g for g in live if str(g["class_id"]) == str(class_id)), None)
-                if chosen:
-                    session["student_class_id"] = int(chosen["class_id"])
-                    return redirect(url_for("student_game"))
-                error = "That section is not live."
-            elif codename.strip():
-                try:
-                    match = school.find_class_by_codename(code, codename)
-                except ValueError as exc:
-                    match = None
-                    error = str(exc)
-                if match:
-                    session["student_class_id"] = int(match["id"])
-                    return redirect(url_for("student_game"))
-                error = error or "No live section matched that Codename."
+            chosen = next(
+                (row for row in matches if str(row["class"]["id"]) == str(class_id)),
+                None,
+            )
+            if chosen:
+                offering = school.get_offering(int(session["student_offering_id"]))
+                bind_student_session(
+                    session, offering, chosen["class"], chosen["student"]
+                )
+                return _student_advance()
+            error = "That section is not available."
         return render_template(
             "student/pick.html",
-            live=live,
-            classes=school.classes_for_access_code(code),
+            classes=[row["class"] for row in matches],
             error=error,
             school_name=SCHOOL_NAME,
         )
@@ -2083,23 +2180,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/state")
     @student_required
     def student_state():
-        """Waiting-room poll: join when this class's live game appears."""
-        class_id = session.get("student_class_id")
-        if class_id:
-            live = school.game.live_game_for_class(int(class_id))
-            if live:
+        """Live-class payload for the bound student (or a pick redirect)."""
+        ident = _student_identity()
+        if ident is None:
+            if session.get("student_codename"):
                 return jsonify(
-                    {"ok": True, "status": "live", "redirect": url_for("student_game")}
+                    {"ok": True, "status": "pick", "redirect": url_for("student_pick")}
                 )
-            return jsonify({"ok": True, "status": "waiting"})
-        code = session.get("student_live_code") or ""
-        live = school.live_games_for_access_code(code)
-        if len(live) == 1:
-            session["student_class_id"] = int(live[0]["class_id"])
-            return jsonify({"ok": True, "status": "live", "redirect": url_for("student_game")})
-        if len(live) > 1:
-            return jsonify({"ok": True, "status": "pick", "redirect": url_for("student_pick")})
-        return jsonify({"ok": True, "status": "waiting"})
+            return jsonify(
+                {"ok": True, "status": "waiting", "redirect": url_for("landing")}
+            )
+        _offering, class_id, student_id = ident
+        return jsonify(school.game.student_live_payload(class_id, student_id))
 
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
@@ -2352,6 +2444,35 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify(school.attendance_week_grid(class_id, sort=sort))
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/mood-grid")
+    @login_required
+    def api_mood_grid(class_id: int):
+        """Weekday mood grid for the Mood sub-tab."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        sort = request.args.get("sort") or "az"
+        try:
+            return jsonify(school.mood_week_grid(class_id, sort=sort))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/show-rank", methods=["POST"])
+    @login_required
+    def api_show_rank(class_id: int):
+        """Toggle whether students see class rank on their board."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            raw = body.get("enabled")
+            if isinstance(raw, str):
+                enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                enabled = bool(raw)
+            return school.game.set_show_rank(class_id, enabled)
+
+        return _staff_post(class_id, run)
 
     @app.route("/api/classes/<int:class_id>/attendance-day")
     @login_required

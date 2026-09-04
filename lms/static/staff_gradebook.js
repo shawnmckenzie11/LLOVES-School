@@ -1,4 +1,5 @@
 import { api, escapeHtml, hideError, showError } from "/static/common.js";
+import { moodGlyph } from "/static/mood_faces.js";
 
 const root = document.getElementById("gradebook-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -61,7 +62,7 @@ function paint(data) {
   let body = "";
   for (const student of data.students || []) {
     const sid = String(student.id);
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    body += `<tr><td class="name">${moodGlyph(student.mood) ? `${moodGlyph(student.mood)} ` : ""}${escapeHtml(displayName(student))}</td>`;
     for (const cat of categories) {
       const val = cat.scores ? cat.scores[sid] : null;
       body += `<td class="cell">${escapeHtml(scoreLabel(val))}</td>`;

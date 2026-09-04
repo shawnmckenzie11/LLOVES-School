@@ -1,4 +1,5 @@
 import { api, escapeHtml, formatPoints, hideError, showError } from "/static/common.js";
+import { moodGlyph } from "/static/mood_faces.js";
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -122,7 +123,7 @@ function renderSheet(data) {
   let body = "";
   for (const student of students) {
     const sid = Number(student.id);
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    body += `<tr><td class="name">${moodGlyph(student.mood) ? `${moodGlyph(student.mood)} ` : ""}${escapeHtml(displayName(student))}</td>`;
     weeks.forEach((week, weekIndex) => {
       week.forEach((iso, dayIndex) => {
         const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
