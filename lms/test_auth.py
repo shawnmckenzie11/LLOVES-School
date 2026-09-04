@@ -178,19 +178,43 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 401)
 
     def test_student_code_joins_waiting_room(self) -> None:
-        """A valid course key with no live game lands in the waiting room."""
+        """A class join code with no live game lands in the waiting room."""
         self.school.activate_from_semester_json()
         teacher = self.school.register_staff("teacher@gmail.com")
         offering = self.school.assign_course(
             teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
         )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        user = self.school.get_user_by_email("teacher@gmail.com")
+        assert user is not None
+        self.client.post("/verify-email", data={"code": user["verification_code"]})
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = created.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        code = self.school.game.get_class(class_id)["live_access_code"]
+        self.client.get("/logout")
         rv = self.client.post(
             "/auth/student-code",
-            data={"code": offering["live_access_code"]},
+            data={"code": code},
             follow_redirects=False,
         )
         self.assertEqual(rv.status_code, 302)
         self.assertIn("/student/waiting", rv.headers.get("Location", ""))
+        unknown = self.client.post(
+            "/auth/student-code",
+            data={"code": offering["live_access_code"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(unknown.status_code, 401)
 
     def test_student_code_rate_limit(self) -> None:
         """More than 5 attempts per IP in 10 minutes is 429."""

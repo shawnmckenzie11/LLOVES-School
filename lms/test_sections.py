@@ -106,7 +106,7 @@ class SectionTests(unittest.TestCase):
         self.client.post("/verify-email", data={"code": user["verification_code"]})
 
     def _populate(self, offering: dict, codename: str) -> dict:
-        """Create a class section on an offering so it has an OPEN COURSE link.
+        """Create a class section on an offering so it has an Explore Course link.
 
         Args:
             offering: Offering dict.
@@ -213,9 +213,9 @@ class SectionTests(unittest.TestCase):
         rv = self.client.get("/staff")
         self.assertEqual(rv.status_code, 200)
         html = rv.get_data(as_text=True)
-        self.assertEqual(html.count('class="card" data-ontario-code="MCF3M"'), 2)
-        self.assertIn("<h2>MCF3M</h2>", html)
-        self.assertIn("<h2>MCF3M-2</h2>", html)
+        self.assertEqual(html.count('data-ontario-code="MCF3M"'), 2)
+        self.assertIn("<h2 class=\"course-card-code\">MCF3M</h2>", html)
+        self.assertIn("<h2 class=\"course-card-code\">MCF3M-2</h2>", html)
         self.assertIn(f'/staff/class/{first_class["id"]}"', html)
         self.assertIn(f'/staff/class/{second_class["id"]}"', html)
         page = self.client.get(f"/staff/class/{second_class['id']}")

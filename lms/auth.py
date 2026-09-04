@@ -248,7 +248,7 @@ def student_required(f: Callable) -> Callable:
 
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("student_offering_id"):
+        if not session.get("student_offering_id") and not session.get("student_class_id"):
             return redirect(url_for("landing"))
         return f(*args, **kwargs)
 
@@ -595,7 +595,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/student-code", methods=["POST"])
     def auth_student_code():
-        """Join a course live game (or waiting room) with the shared 8-char key."""
+        """Join one class with its unique 8-character live-access code."""
         from flask import jsonify
 
         db = school_db()
@@ -615,9 +615,8 @@ def register_auth_routes(app: Flask) -> None:
             or (request.get_json(silent=True) or {}).get("code")
             or ""
         )
-        code = str(raw).strip().upper()
-        offering = db.get_offering_by_code(code)
-        if not offering:
+        cls = db.get_class_by_live_code(str(raw))
+        if not cls:
             msg = "That student code was not recognized."
             if request.is_json:
                 return jsonify({"ok": False, "error": msg}), 401
@@ -626,16 +625,15 @@ def register_auth_routes(app: Flask) -> None:
             ), 401
 
         session.clear()
-        session["student_offering_id"] = int(offering["id"])
-        session["student_live_code"] = offering["live_access_code"]
-        session["student_course"] = offering["ontario_code"]
+        session["student_class_id"] = int(cls["id"])
+        if cls.get("offering_id"):
+            session["student_offering_id"] = int(cls["offering_id"])
+        session["student_live_code"] = cls["live_access_code"]
+        session["student_course"] = cls.get("ontario_code") or cls.get("course_code")
         session["role"] = "student"
         session.permanent = True
 
-        live = db.live_games_for_access_code(offering["live_access_code"])
-        if len(live) == 1:
-            session["student_class_id"] = int(live[0]["class_id"])
+        live = db.game.live_game_for_class(int(cls["id"]))
+        if live:
             return redirect(url_for("student_game"))
-        if len(live) > 1:
-            return redirect(url_for("student_pick"))
         return redirect(url_for("student_waiting"))

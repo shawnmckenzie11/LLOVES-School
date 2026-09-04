@@ -161,7 +161,7 @@ function renderStep() {
   const key = steps[step];
   $("wiz-progress").textContent = `Step ${step + 1} of ${steps.length}`;
   if (editingClassId) {
-    $("wiz-title").textContent = "Edit Class";
+    $("wiz-title").textContent = "Edit Roster";
   } else {
     $("wiz-title").textContent = TITLES[key] || "Populate Class";
   }

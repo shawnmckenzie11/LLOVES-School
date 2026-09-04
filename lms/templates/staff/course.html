@@ -156,6 +156,9 @@
           <div id="ap-overlay-error" class="error" hidden></div>
           <section id="ap-panel-att" class="ap-panel hidden">
             <h2 id="ap-overlay-title">Mark Attendance <span id="ap-att-count" class="att-count">Attendance: 0</span></h2>
+            {% if cls.live_access_code %}
+            <p class="hint">Student code <code class="live-code">{{ cls.live_access_code }}</code></p>
+            {% endif %}
             <label class="field" for="ap-meeting-date">Class date</label>
             <input type="date" id="ap-meeting-date" class="ap-date-input">
             <p class="hint">Defaults from the previous session (all absent on the first log). Only present students go to participation.</p>

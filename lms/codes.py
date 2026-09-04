@@ -1,4 +1,4 @@
-"""Shared 8-character live-game access codes (one per Ontario course)."""
+"""8-character live-access codes for student join (unique per class)."""
 
 from __future__ import annotations
 

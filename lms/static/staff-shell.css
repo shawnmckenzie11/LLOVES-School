@@ -83,6 +83,88 @@ body.staff-shell.staff-home .staff-corner-link:hover {
 body.staff-shell.staff-home .staff-home-wrap {
   padding-top: 3.25rem;
 }
+body.staff-shell.staff-home .course-card-code {
+  margin: 0;
+  width: 100%;
+  font-size: 1.85rem;
+  line-height: 1.15;
+  word-break: break-word;
+}
+body.staff-shell.staff-home .course-card-schedule {
+  margin: 0.35rem 0 0;
+  color: #334155;
+  font-size: 0.925rem; /* 50% of the course-code size */
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+body.staff-shell.staff-home .course-card-join {
+  margin: 0.45rem 0 0;
+}
+body.staff-shell.staff-home .course-card-join .live-code {
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+body.staff-shell.staff-home .course-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+body.staff-shell.staff-home .course-action-row {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  gap: 0.55rem;
+}
+body.staff-shell.staff-home .course-action-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+body.staff-shell.staff-home .course-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #0b5f59;
+  background: #0f766e;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.92rem;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+body.staff-shell.staff-home .course-action svg {
+  flex-shrink: 0;
+}
+body.staff-shell.staff-home .course-action:hover {
+  filter: brightness(1.05);
+}
+body.staff-shell.staff-home .course-action.secondary,
+body.staff-shell.staff-home .course-action.btn-populate.secondary {
+  background: #fff;
+  color: #0f172a;
+  border-color: #64748b;
+}
+body.staff-shell.staff-home .course-action-live {
+  background: #0f766e;
+}
+@media (max-width: 640px) {
+  body.staff-shell.staff-home .course-action-split {
+    grid-template-columns: 1fr;
+  }
+  body.staff-shell.staff-home .course-action {
+    min-height: 2.75rem;
+  }
+}
 body.staff-shell.staff-home .ap-shortcut-note {
   margin: 0 0 1.25rem;
 }
@@ -520,6 +602,7 @@ body.staff-shell .ap-round-row {
     grid-template-columns: 1fr;
   }
 }
+body.staff-shell .ap-round-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

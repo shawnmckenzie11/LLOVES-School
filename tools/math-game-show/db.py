@@ -574,6 +574,7 @@ class GameShowDB:
             )
         self._migrate_rounds()
         self._migrate_lloves_roster()
+        self._migrate_class_live_access_code()
 
     def _migrate_rounds(self) -> None:
         """Add round/timer columns and copy legacy points into Round 1.
@@ -657,6 +658,22 @@ class GameShowDB:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_students_class_codename
             ON students(class_id, codename)
             WHERE codename IS NOT NULL AND TRIM(codename) != ''
+            """
+        )
+
+    def _migrate_class_live_access_code(self) -> None:
+        """Add a unique 8-character student join code per class section."""
+        class_cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(classes)").fetchall()
+        }
+        if "live_access_code" not in class_cols:
+            self.conn.execute("ALTER TABLE classes ADD COLUMN live_access_code TEXT")
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_live_access_code
+            ON classes(live_access_code)
+            WHERE live_access_code IS NOT NULL AND TRIM(live_access_code) != ''
             """
         )
 
@@ -973,6 +990,79 @@ class GameShowDB:
         payload = dict(row)
         payload["student_count"] = self._student_count(class_id)
         return payload
+
+    def get_class_by_live_code(self, live_access_code: str) -> dict[str, Any] | None:
+        """Return the class that owns this unique student join code.
+
+        Args:
+            live_access_code: Normalized 8-character code.
+
+        Returns:
+            Class dict, or ``None`` when no class has that code.
+        """
+        code = (live_access_code or "").strip().upper()
+        if not code:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM classes
+                WHERE live_access_code = ?
+                LIMIT 1
+                """,
+                (code,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = dict(row)
+        payload["student_count"] = self._student_count(int(payload["id"]))
+        return payload
+
+    def set_class_live_access_code(self, class_id: int, code: str) -> dict[str, Any]:
+        """Persist a unique student join code on one class.
+
+        Args:
+            class_id: Classes primary key.
+            code: Uppercase 8-character live-access code.
+
+        Returns:
+            Updated class dict.
+
+        Raises:
+            KeyError: If the class does not exist.
+        """
+        self.get_class(class_id)
+        with self._lock:
+            self.conn.execute(
+                "UPDATE classes SET live_access_code = ? WHERE id = ?",
+                ((code or "").strip().upper(), int(class_id)),
+            )
+            self.conn.commit()
+        return self.get_class(class_id)
+
+    def live_game_for_class(self, class_id: int) -> dict[str, Any] | None:
+        """Return the open live game for one class, if any.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Game row joined with class schedule, or ``None``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT g.id AS game_id, g.class_id, g.status, g.session_id,
+                       cl.days, cl.time, cl.course_code, cl.offering_id
+                FROM games g
+                JOIN classes cl ON cl.id = g.class_id
+                WHERE g.class_id = ? AND g.status = 'live'
+                ORDER BY g.id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        return dict(row) if row else None
 
     def _student_count(self, class_id: int) -> int:
         """Count roster rows for a class.

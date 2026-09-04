@@ -211,6 +211,34 @@ def picker_year_semester(today: date | None = None) -> tuple[str, str]:
     return h_year, h_sem
 
 
+def format_live_schedule_line(days: str, time_label: str) -> str:
+    """Format a staff-home schedule like ``M | W | F | 2:00 PM``.
+
+    Args:
+        days: Wizard preset (``M/W/F``) or stored label (``Mon/Wed/Fri``).
+        time_label: Wizard time such as ``2:00pm``.
+
+    Returns:
+        Pipe-separated day abbreviations and a spaced AM/PM time, or ``""``.
+    """
+    day_pipes = {
+        "M/W/F": "M | W | F",
+        "Mon/Wed/Fri": "M | W | F",
+        "T/Th/F": "T | Th | F",
+        "Tue/Thu/Fri": "T | Th | F",
+    }
+    days_part = day_pipes.get((days or "").strip(), "")
+    raw_time = (time_label or "").strip()
+    match = _TIME_RE.match(raw_time.replace(" ", ""))
+    if match:
+        time_part = f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
+    else:
+        time_part = raw_time
+    if days_part and time_part:
+        return f"{days_part} | {time_part}"
+    return days_part or time_part
+
+
 def store_days(preset: str) -> str:
     """Map wizard ``M/W/F`` / ``T/Th/F`` to stored weekday labels.
 

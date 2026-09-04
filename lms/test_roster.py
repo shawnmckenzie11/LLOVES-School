@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLOVES roster path: Codenames, no CSV, shared live_access_code."""
+"""LLOVES roster path: Codenames, no CSV, per-class live_access_code."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class RosterTests(unittest.TestCase):
         )
         self.assertEqual(rv.status_code, 200)
         class_id = rv.get_json()["class"]["id"]
-        self.assertEqual(rv.get_json()["class"]["live_access_code"], self.offering["live_access_code"])
+        self.assertIsNone(rv.get_json()["class"]["live_access_code"])
         dash = self.client.get(f"/api/classes/{class_id}/dashboard?sort=az")
         self.assertEqual(dash.status_code, 200)
         names = [s["codename"] for s in dash.get_json()["students"]]
@@ -354,7 +354,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("2026-09-09", live_isos)  # Wed
 
     def test_staff_home_has_ap_shortcut(self) -> None:
-        """Course cards expose a Log Attendance & Participation shortcut."""
+        """Course cards expose Take Attendance & Log Participation and Run Live Class."""
         created = self.client.post(
             "/api/staff/classes",
             json={
@@ -366,9 +366,14 @@ class RosterTests(unittest.TestCase):
         )
         class_id = created.get_json()["class"]["id"]
         home = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn("btn-ap-shortcut", home)
-        self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance&amp;take=1", home)
-        self.assertIn("Log Attendance", home)
+        self.assertIn("Take Attendance", home)
+        self.assertIn("Log Participation", home)
+        self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance", home)
+        self.assertNotIn("take=1", home)
+        self.assertIn(f"/staff/class/{class_id}/run-live", home)
+        self.assertIn("Run Live Class", home)
+        self.assertIn("Explore Course", home)
+        self.assertIn("Edit Roster", home)
 
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
@@ -434,17 +439,17 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(again.get_json()["weights"]["term"], 55.0)
 
     def test_staff_home_populate_vs_edit(self) -> None:
-        """Empty offerings say Populate Class; existing sections say Edit Class."""
+        """Empty offerings say Populate Class; existing sections say Edit Roster."""
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         empty = home.get_data(as_text=True)
-        self.assertRegex(
-            empty,
-            r'<button[^>]*class="btn-populate secondary"[^>]*>Populate Class</button>',
-        )
+        self.assertIn("<span>Populate Class</span>", empty)
+        self.assertNotIn("<span>Edit Roster</span>", empty)
         self.assertNotIn("Edit Class", empty)
         self.assertNotIn("Repopulate Class", empty)
         self.assertNotIn("OPEN COURSE", empty)
+        self.assertNotIn("Explore Course", empty)
+        self.assertNotIn("Run Live Class", empty)
         self.assertNotIn("Schedule:", empty)
 
         created = self.client.post(
@@ -460,19 +465,15 @@ class RosterTests(unittest.TestCase):
         class_id = created.get_json()["class"]["id"]
 
         filled = self.client.get("/staff").get_data(as_text=True)
-        self.assertRegex(
-            filled,
-            r'<button[^>]*class="btn-populate secondary"[^>]*>Edit Class</button>',
-        )
+        self.assertIn("<span>Edit Roster</span>", filled)
         self.assertIn(f'data-class-id="{class_id}"', filled)
-        self.assertNotRegex(
-            filled,
-            r'<button[^>]*class="btn-populate secondary"[^>]*>Populate Class</button>',
-        )
+        self.assertNotIn("<span>Populate Class</span>", filled)
         self.assertNotIn("Repopulate Class", filled)
-        self.assertIn("OPEN COURSE", filled)
-        self.assertIn("Schedule: Mon/Wed/Fri · 2:00pm", filled)
+        self.assertNotIn("OPEN COURSE", filled)
+        self.assertIn("Explore Course", filled)
+        self.assertIn("M | W | F | 2:00 PM", filled)
         self.assertIn(f"/staff/class/{class_id}", filled)
+        self.assertIn("Student code appears when you Run Live Class", filled)
 
         dash = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
         self.assertIn("<h1>MCF3M</h1>", dash)
@@ -520,6 +521,97 @@ class RosterTests(unittest.TestCase):
         )
         self.assertEqual(still_post.status_code, 200)
         self.assertNotEqual(still_post.get_json()["class"]["id"], class_id)
+
+    def test_run_live_mints_unique_class_code(self) -> None:
+        """Run Live Class mints a persistent unique join code per class."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        run = self.client.post(
+            f"/staff/class/{class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        location = run.headers.get("Location", "")
+        self.assertIn(f"/staff/class/{class_id}", location)
+        self.assertIn("tab=ap", location)
+        self.assertIn("take=1", location)
+        minted = self.school.game.get_class(class_id)["live_access_code"]
+        self.assertEqual(len(minted), 8)
+        self.assertNotEqual(minted, self.offering["live_access_code"])
+        again = self.client.post(
+            f"/staff/class/{class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(again.status_code, 302)
+        self.assertEqual(
+            self.school.game.get_class(class_id)["live_access_code"], minted
+        )
+        home = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn(minted, home)
+        self.assertNotIn("Student code appears when you Run Live Class", home)
+
+    def test_two_classes_get_distinct_student_codes(self) -> None:
+        """Concurrent sections do not share a student join code."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_a = first.get_json()["class"]["id"]
+        other = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        second = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": other["id"],
+                "days": "T/Th/F",
+                "time": "2:00pm",
+                "codenames": ["Birch"],
+            },
+        )
+        class_b = second.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_a}/run-live")
+        self.client.post(f"/staff/class/{class_b}/run-live")
+        code_a = self.school.game.get_class(class_a)["live_access_code"]
+        code_b = self.school.game.get_class(class_b)["live_access_code"]
+        self.assertNotEqual(code_a, code_b)
+        self.client.get("/logout")
+        join_a = self.client.post(
+            "/auth/student-code", data={"code": code_a}, follow_redirects=False
+        )
+        self.assertEqual(join_a.status_code, 302)
+        self.assertIn("/student/waiting", join_a.headers.get("Location", ""))
+        with self.client.session_transaction() as sess:
+            self.assertEqual(int(sess["student_class_id"]), int(class_a))
+            self.assertEqual(sess["student_live_code"], code_a)
+        self.client.get("/logout")
+        join_offering = self.client.post(
+            "/auth/student-code",
+            data={"code": self.offering["live_access_code"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(join_offering.status_code, 401)
+        join_b = self.client.post(
+            "/auth/student-code", data={"code": code_b}, follow_redirects=False
+        )
+        self.assertEqual(join_b.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(int(sess["student_class_id"]), int(class_b))
 
 
 if __name__ == "__main__":

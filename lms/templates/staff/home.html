@@ -13,14 +13,6 @@
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
-    <p class="ap-shortcut-note">
-      <span class="ap-shortcut-note-icon" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
-        </svg>
-      </span>
-      <span><strong>Log Attendance and/or Participation</strong> — use the calendar icon beside each course open button.</span>
-    </p>
     <div id="error" class="error hidden"></div>
 
     {% if not offerings %}
@@ -28,36 +20,86 @@
     {% else %}
     <section id="course-dash" class="course-dash">
       {% for o in offerings %}
-      <article class="card" data-ontario-code="{{ o.ontario_code }}" data-offering-id="{{ o.id }}" data-section-index="{{ o.section_index or 1 }}"{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>
-        <p class="kicker">Assigned course{% if (o.section_index or 1) > 1 %} · section {{ o.section_index }}{% endif %}</p>
-        <h2>{{ o.section_code or o.ontario_code }}</h2>
-        <p class="sub">{{ o.course_title }}</p>
-        <p>Student code <code class="live-code">{{ o.live_access_code }}</code></p>
-        {% if o.classes %}
-        <div class="class-list">
-          {% for cls in o.classes %}
-          <div class="class-section">
-            <p class="schedule-line">Schedule: {{ cls.days }} · {{ cls.time }}</p>
-            <a class="btn btn-open-course" href="{{ url_for('staff_course', class_id=cls.id) }}">OPEN COURSE</a>
-            <a class="btn-ap-shortcut"
-               href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance', take=1) }}"
-               title="Log Attendance &amp; Participation"
-               aria-label="Log Attendance and Participation">
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
-              </svg>
-            </a>
-          </div>
-          {% endfor %}
-        </div>
+      {% set cls = o.classes[0] if o.classes else none %}
+      {% set sched_days = cls.days if cls else o.live_days %}
+      {% set sched_time = cls.time if cls else o.live_time %}
+      <article class="card course-card{% if o.pack_busy %} pack-busy{% endif %}"
+               data-ontario-code="{{ o.ontario_code }}"
+               data-offering-id="{{ o.id }}"
+               data-section-index="{{ o.section_index or 1 }}"
+               data-pack-status-url="{{ url_for('staff_offering_pack_status', offering_id=o.id) }}"
+               data-pack-busy="{{ '1' if o.pack_busy else '0' }}"
+               data-pack-stage="{{ o.pack_stage or '' }}"
+               data-pack-detail="{{ o.pack_detail or '' }}"
+               {% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>
+        <h2 class="course-card-code">{{ o.section_code or o.ontario_code }}</h2>
+        {% if sched_days and sched_time %}
+        <p class="course-card-schedule">{{ live_schedule(sched_days, sched_time) }}</p>
+        {% endif %}
+        {% if cls and cls.live_access_code %}
+        <p class="course-card-join">Student code <code class="live-code">{{ cls.live_access_code }}</code></p>
+        {% elif cls %}
+        <p class="course-card-join hint">Student code appears when you Run Live Class</p>
         {% elif o.live_days and o.live_time %}
-        <p class="schedule-line">Schedule (from Admin): {{ o.live_days }} · {{ o.live_time }}</p>
         <p class="hint">No roster yet — Populate Class to add Codenames.</p>
         {% else %}
         <p class="hint">No section yet.</p>
         {% endif %}
-        <div class="row-actions">
-          <button type="button" class="btn-populate secondary" data-offering-id="{{ o.id }}"{% if o.classes %} data-class-id="{{ o.classes[0].id }}"{% endif %}{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>{% if o.classes %}Edit Class{% else %}Populate Class{% endif %}</button>
+
+        <div class="course-card-actions">
+          {% if cls %}
+          <form class="course-action-row" method="post" action="{{ url_for('staff_run_live_class', class_id=cls.id) }}">
+            <button type="submit" class="course-action course-action-live" aria-label="Run Live Class"{% if o.pack_busy %} disabled{% endif %}>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M8 5v14l11-7z"/>
+              </svg>
+              <span>Run Live Class</span>
+            </button>
+          </form>
+          <a class="course-action-row course-action{% if o.pack_busy %} is-disabled{% endif %}"
+             href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
+             aria-label="Take Attendance and Log Participation"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
+            </svg>
+            <span>Take Attendance &amp; Log Participation</span>
+          </a>
+          <div class="course-action-row course-action-split">
+            <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
+               href="{{ url_for('staff_course', class_id=cls.id) }}"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M4 6h16v2H4V6zm0 5h10v2H4v-2zm0 5h16v2H4v-2z"/>
+              </svg>
+              <span>Explore Course</span>
+            </a>
+            <button type="button" class="course-action btn-populate secondary"
+                    data-offering-id="{{ o.id }}"
+                    data-class-id="{{ cls.id }}"
+                    {% if o.live_days %}data-live-days="{{ o.live_days }}"{% endif %}
+                    {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/>
+              </svg>
+              <span>Edit Roster</span>
+            </button>
+          </div>
+          {% else %}
+          <div class="course-action-row">
+            <button type="button" class="course-action btn-populate secondary"
+                    data-offering-id="{{ o.id }}"
+                    {% if o.live_days %}data-live-days="{{ o.live_days }}"{% endif %}
+                    {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/>
+              </svg>
+              <span>Populate Class</span>
+            </button>
+          </div>
+          {% endif %}
+        </div>
+        <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
+          <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>
+          <p class="course-card-pack-error hint"{% if not o.pack_error %} hidden{% endif %}>{{ o.pack_error or "" }}</p>
         </div>
       </article>
       {% endfor %}

@@ -70,6 +70,7 @@ from components import (  # noqa: E402
     library_counts,
     library_file_path,
     library_is_ingested,
+    library_pack_summary,
     list_assignments,
     list_pages,
     list_question_banks,
@@ -84,6 +85,7 @@ from modules import (  # noqa: E402
     ensure_unpacked,
     install_uploaded_module_pack,
     module_pack_root,
+    pack_ui_state,
     placeholder_html,
     read_pack_status,
     resolve_module_pack,
@@ -100,7 +102,7 @@ from paths import (  # noqa: E402
     SCHOOL_SHORT,
 )
 import syllabus as syllabus_mod  # noqa: E402
-from schedule import TIME_OPTIONS, wizard_defaults  # noqa: E402
+from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  # noqa: E402
 
 MGS_TEMPLATES = MGS_PATH / "templates"
 MGS_STATIC = MGS_PATH / "static"
@@ -695,6 +697,7 @@ def create_app(
     register_auth_routes(app)
     _register_pages(app, school)
     _register_game_api(app, school)
+    app.jinja_env.globals["live_schedule"] = format_live_schedule_line
     return app
 
 
@@ -817,7 +820,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def _install_module_pack_job(
         offering_id: int, stored: Path, dest_root: Path
     ) -> None:
-        """Unpack and inventory a stored cartridge into a shared library folder.
+        """Unpack, ingest, and seed syllabus for a stored cartridge.
 
         Args:
             offering_id: ``course_offerings.id``.
@@ -829,14 +832,67 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if not status.get("ok"):
                 return
             school.set_offering_imscc(int(offering_id), str(stored))
+            offering = school.get_offering(int(offering_id))
+            library_id = offering.get("library_id")
+            unpacked = Path(dest_root) / "unpacked"
+            if library_id and unpacked.is_dir():
+                write_pack_status(
+                    dest_root,
+                    stage="ingest",
+                    detail="Loading modules, pages, and assessments…",
+                )
+                ensure_ingested(
+                    school,
+                    school.data_dir,
+                    int(library_id),
+                    unpacked,
+                    force=True,
+                )
+                write_pack_status(
+                    dest_root,
+                    stage="syllabus",
+                    detail="Placing tests, quizzes, and assignments on the syllabus…",
+                )
+                try:
+                    syllabus_mod.seed_syllabus_from_due_dates(
+                        school, offering, data_dir=school.data_dir
+                    )
+                except Exception:  # noqa: BLE001 — pack still usable without seed
+                    logger.exception("Syllabus seed from due dates failed")
+            summary = (
+                library_pack_summary(school, int(library_id))
+                if library_id
+                else {"note": "installed"}
+            )
+            note = str(summary.get("note") or "installed")
             write_pack_status(
-                dest_root, stage="done", detail="Module pack installed."
+                dest_root,
+                stage="done",
+                detail=f"Module pack installed — {note}",
             )
         except Exception as exc:  # noqa: BLE001 — surface on the status poll
             logger.exception("Background module-pack install failed")
             write_pack_status(
                 dest_root, stage="error", detail=str(exc), error=str(exc)
             )
+
+    def _annotate_pack_status(offering: dict[str, Any]) -> dict[str, Any]:
+        """Attach badge/line/busy fields from ``install_status.json``.
+
+        Args:
+            offering: Course offering dict.
+        """
+        item = dict(offering)
+        status = read_pack_status(_library_dest(item))
+        ui = pack_ui_state(status, has_library=bool(item.get("library_id")))
+        item["pack_busy"] = ui["busy"]
+        item["pack_badge"] = ui["badge"]
+        item["pack_badge_class"] = ui["badge_class"]
+        item["pack_line"] = ui["line"]
+        item["pack_stage"] = ui["stage"]
+        item["pack_detail"] = ui["detail"]
+        item["pack_error"] = ui["error"]
+        return item
 
     def _library_dest(offering: dict[str, Any]) -> Path:
         """Shared library folder used for IT upload progress, with leftover fallback.
@@ -911,6 +967,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         all_offerings = school.list_offerings()
         from flask import make_response
 
+        offerings = [_annotate_pack_status(row) for row in offerings]
+        all_offerings = [_annotate_pack_status(row) for row in all_offerings]
         html = render_template(
             "it/dashboard.html",
             user=user,
@@ -991,8 +1049,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """JSON: prior offerings of a course code (any semester, any teacher)."""
         code = (request.args.get("code") or "").strip().upper()
         if not code:
-            return jsonify({"ok": True, "instances": []})
-        return jsonify({"ok": True, "instances": school.list_prior_instances(code)})
+            return jsonify({"ok": True, "instances": [], "template_note": "no pack"})
+        instances = school.list_prior_instances(code)
+        for inst in instances:
+            lib_id = inst.get("library_id")
+            summary = library_pack_summary(school, int(lib_id) if lib_id else 0)
+            inst["pack_note"] = summary["note"]
+            inst["pack_summary"] = summary
+        latest = school.latest_library_for_code(code)
+        template = library_pack_summary(
+            school, int(latest["id"]) if latest else 0
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "instances": instances,
+                "template_note": template["note"],
+                "template_summary": template,
+            }
+        )
 
     def _upload_file() -> Any:
         """Return the IMSCC ``FileStorage`` when the IT form sent a real file."""
@@ -1106,7 +1181,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _assign_error(str(exc))
         return _pack_upload_success(
             offering_id=int(offering["id"]),
-            redirect_url=url_for("it_dashboard"),
+            redirect_url=url_for("it_dashboard", tab="offerings"),
             stored=stored,
             dest_root=dest_root,
         )
@@ -1129,7 +1204,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _assign_error(str(exc))
         return _pack_upload_success(
             offering_id=int(offering["id"]),
-            redirect_url=url_for("it_dashboard", pack="ok"),
+            redirect_url=url_for("it_dashboard", tab="offerings", pack="ok"),
             stored=created["stored"],
             dest_root=created["dest_root"],
         )
@@ -1139,7 +1214,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_module_pack_status(offering_id: int):
         """JSON progress for an IT library upload/unpack."""
         offering = school.get_offering(int(offering_id))
-        return jsonify(read_pack_status(_library_dest(offering)))
+        status = read_pack_status(_library_dest(offering))
+        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
+        return jsonify({**status, **ui})
 
     @app.route("/it/offerings/<int:offering_id>/rotate", methods=["POST"])
     @it_required
@@ -1325,7 +1402,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _assign_error(str(exc))
         return _pack_upload_success(
             offering_id=int(offering["id"]),
-            redirect_url=url_for("it_dashboard", tab="staff"),
+            redirect_url=url_for("it_dashboard", tab="offerings"),
             stored=stored,
             dest_root=dest_root,
         )
@@ -1367,6 +1444,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 semester_id=int(active["id"]),
                 include_archived=False,
             )
+            offerings = [_annotate_pack_status(row) for row in offerings]
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         from flask import make_response
 
@@ -1492,6 +1570,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
 
+    @app.route("/staff/class/<int:class_id>/run-live", methods=["POST"])
+    @staff_required
+    def staff_run_live_class(class_id: int):
+        """Mint a unique per-class student code and open the live A&P overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        school.ensure_class_live_access_code(class_id)
+        return redirect(
+            url_for(
+                "staff_course",
+                class_id=class_id,
+                tab="ap",
+                view="attendance",
+                take=1,
+            )
+        )
+
     @app.route("/staff/class/<int:class_id>")
     @staff_required
     def staff_course(class_id: int):
@@ -1574,12 +1671,27 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": message}), 403
         return render_template("forbidden.html", message=message), 403
 
+    @app.route("/staff/offerings/<int:offering_id>/module-pack/status")
+    @staff_required
+    def staff_offering_pack_status(offering_id: int):
+        """JSON pack progress for the teacher who owns this offering."""
+        user = current_user()
+        assert user is not None
+        offering = school.get_offering(int(offering_id))
+        if int(offering["teacher_user_id"]) != int(user["id"]) and user["role"] != "it":
+            abort(403)
+        status = read_pack_status(_library_dest(offering))
+        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
+        return jsonify({**status, **ui})
+
     @app.route("/staff/class/<int:class_id>/module-pack/status")
     @staff_required
     def staff_module_pack_status(class_id: int):
-        """Staff pack-status endpoint kept as a no-op idle payload."""
+        """Staff pack-status endpoint for a class the teacher owns."""
         _, offering = _owned_offering_for_pack(class_id)
-        return jsonify(read_pack_status(_library_dest(offering)))
+        status = read_pack_status(_library_dest(offering))
+        ui = pack_ui_state(status, has_library=bool(offering.get("library_id")))
+        return jsonify({**status, **ui})
 
     @app.route("/api/staff/class/<int:class_id>/modules")
     @staff_required
@@ -1913,7 +2025,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @student_required
     def student_waiting():
         """Waiting room when the teacher has not started a live game."""
-        offering = school.get_offering(int(session["student_offering_id"]))
+        offering = None
+        offering_id = session.get("student_offering_id")
+        if offering_id:
+            try:
+                offering = school.get_offering(int(offering_id))
+            except (TypeError, ValueError, KeyError):
+                offering = None
         return render_template(
             "student/waiting.html",
             offering=offering,
@@ -1965,13 +2083,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/state")
     @student_required
     def student_state():
-        """Waiting-room poll: join when a live game appears."""
+        """Waiting-room poll: join when this class's live game appears."""
+        class_id = session.get("student_class_id")
+        if class_id:
+            live = school.game.live_game_for_class(int(class_id))
+            if live:
+                return jsonify(
+                    {"ok": True, "status": "live", "redirect": url_for("student_game")}
+                )
+            return jsonify({"ok": True, "status": "waiting"})
         code = session.get("student_live_code") or ""
         live = school.live_games_for_access_code(code)
-        if session.get("student_class_id"):
-            still = [g for g in live if int(g["class_id"]) == int(session["student_class_id"])]
-            if still:
-                return jsonify({"ok": True, "status": "live", "redirect": url_for("student_game")})
         if len(live) == 1:
             session["student_class_id"] = int(live[0]["class_id"])
             return jsonify({"ok": True, "status": "live", "redirect": url_for("student_game")})

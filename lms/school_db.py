@@ -2141,6 +2141,8 @@ class SchoolDB(LovesDB):
         for row in rows:
             item = dict(row)
             item["student_count"] = self.game._student_count(int(item["id"]))
+            class_code = str(item.get("live_access_code") or "").strip()
+            item["live_access_code"] = class_code or None
             result.append(item)
         return result
 
@@ -2183,7 +2185,8 @@ class SchoolDB(LovesDB):
         with self.game._lock:
             rows = self.game.conn.execute(
                 """
-                SELECT cl.*, o.live_access_code, o.ontario_code AS offering_code,
+                SELECT cl.*, o.live_access_code AS offering_live_access_code,
+                       o.ontario_code AS offering_code,
                        o.section_index AS section_index,
                        s.label AS semester_label
                 FROM classes cl
@@ -2203,6 +2206,8 @@ class SchoolDB(LovesDB):
                 item["section_index"],
             )
             item["student_count"] = self.game._student_count(int(item["id"]))
+            class_code = str(item.get("live_access_code") or "").strip()
+            item["live_access_code"] = class_code or None
             out.append(item)
         return out
 
@@ -2223,41 +2228,17 @@ class SchoolDB(LovesDB):
         return bool(row) and int(row["teacher_user_id"] or 0) == int(teacher_user_id)
 
     def live_games_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """Live games for every section sharing this course key."""
-        offering = self.get_offering_by_code(live_access_code)
-        if not offering:
+        """Live games for the class that owns this unique student join code."""
+        cls = self.game.get_class_by_live_code(live_access_code)
+        if not cls:
             return []
-        with self.game._lock:
-            rows = self.game.conn.execute(
-                """
-                SELECT g.id AS game_id, g.class_id, g.status, g.session_id,
-                       cl.days, cl.time, cl.course_code, cl.offering_id
-                FROM games g
-                JOIN classes cl ON cl.id = g.class_id
-                JOIN course_offerings o ON o.id = cl.offering_id
-                WHERE o.semester_id = ? AND o.ontario_code = ? AND g.status = 'live'
-                ORDER BY cl.days, cl.time, cl.id
-                """,
-                (offering["semester_id"], offering["ontario_code"]),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        live = self.game.live_game_for_class(int(cls["id"]))
+        return [live] if live else []
 
     def classes_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """All class sections that share this student key."""
-        offering = self.get_offering_by_code(live_access_code)
-        if not offering:
-            return []
-        with self.game._lock:
-            rows = self.game.conn.execute(
-                """
-                SELECT cl.* FROM classes cl
-                JOIN course_offerings o ON o.id = cl.offering_id
-                WHERE o.semester_id = ? AND o.ontario_code = ?
-                ORDER BY cl.days, cl.time, cl.id
-                """,
-                (offering["semester_id"], offering["ontario_code"]),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        """Class sections that belong to this unique student join code."""
+        cls = self.game.get_class_by_live_code(live_access_code)
+        return [cls] if cls else []
 
     def find_class_by_codename(
         self, live_access_code: str, codename: str
@@ -2296,7 +2277,9 @@ class SchoolDB(LovesDB):
             semester = self.get_semester(int(offering["semester_id"]))
         except KeyError:
             semester = {}
-        class_payload["live_access_code"] = offering["live_access_code"]
+        class_payload["offering_live_access_code"] = offering["live_access_code"]
+        class_code = str(class_payload.get("live_access_code") or "").strip()
+        class_payload["live_access_code"] = class_code or None
         class_payload["semester_label"] = (semester or {}).get("label")
         class_payload["ontario_code"] = offering["ontario_code"]
         class_payload["section_index"] = int(offering.get("section_index") or 1)
@@ -2308,6 +2291,66 @@ class SchoolDB(LovesDB):
         class_payload["instance_relpath"] = offering.get("instance_relpath")
         class_payload["copied_from_offering_id"] = offering.get("copied_from_offering_id")
         return class_payload
+
+    def class_live_code_taken(self, live_access_code: str) -> bool:
+        """True when a class or offering already uses this 8-character code.
+
+        Args:
+            live_access_code: Candidate join code.
+        """
+        code = (live_access_code or "").strip().upper()
+        if not code:
+            return True
+        if self.game.get_class_by_live_code(code):
+            return True
+        return bool(self.offerings_for_live_code(code))
+
+    def ensure_class_live_access_code(self, class_id: int) -> dict[str, Any]:
+        """Mint a unique per-class student join code, or return the existing one.
+
+        Run Live Class is idempotent: a class keeps the same 8-character code
+        across meetings so students can reuse it.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Enriched class dict including ``live_access_code``.
+
+        Raises:
+            KeyError: If the class does not exist.
+        """
+        cls = self.game.get_class(class_id)
+        existing = str(cls.get("live_access_code") or "").strip().upper()
+        if existing:
+            return self.enrich_class(cls)
+        code = generate_live_access_code()
+        while self.class_live_code_taken(code):
+            code = generate_live_access_code()
+        updated = self.game.set_class_live_access_code(class_id, code)
+        return self.enrich_class(updated)
+
+    def get_class_by_live_code(self, live_access_code: str) -> dict[str, Any] | None:
+        """Resolve a student-typed join code to one class.
+
+        Args:
+            live_access_code: Raw or normalized 8-character code.
+
+        Returns:
+            Enriched class dict, or ``None`` if the code is not a class key.
+        """
+        try:
+            from codes import normalize_live_access_code
+        except ImportError:
+            from lms.codes import normalize_live_access_code
+        try:
+            code = normalize_live_access_code(live_access_code)
+        except ValueError:
+            return None
+        cls = self.game.get_class_by_live_code(code)
+        if cls is None:
+            return None
+        return self.enrich_class(cls)
 
     def upsert_document(self, **fields: Any) -> int:
         """Insert or update a curriculum PDF registry row."""
