@@ -2223,7 +2223,13 @@ class SchoolDB(LovesDB):
         return bool(row) and int(row["teacher_user_id"] or 0) == int(teacher_user_id)
 
     def live_games_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """Live games for every section sharing this course key."""
+        """Live games for a class join code or shared offering course key."""
+        getter = getattr(self.game, "get_class_by_live_code", None)
+        if callable(getter):
+            cls = getter(live_access_code)
+            if cls:
+                live = self.game.live_game_for_class(int(cls["id"]))
+                return [live] if live else []
         offering = self.get_offering_by_code(live_access_code)
         if not offering:
             return []
@@ -2243,7 +2249,12 @@ class SchoolDB(LovesDB):
         return [dict(r) for r in rows]
 
     def classes_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """All class sections that share this student key."""
+        """Resolve sections by per-class join code, else by offering course key."""
+        getter = getattr(self.game, "get_class_by_live_code", None)
+        if callable(getter):
+            cls = getter(live_access_code)
+            if cls:
+                return [cls]
         offering = self.get_offering_by_code(live_access_code)
         if not offering:
             return []

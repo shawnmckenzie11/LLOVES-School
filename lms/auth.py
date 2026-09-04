@@ -249,7 +249,7 @@ def student_required(f: Callable) -> Callable:
 
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("student_offering_id"):
+        if not session.get("student_offering_id") and not session.get("student_class_id"):
             return redirect(url_for("landing"))
         return f(*args, **kwargs)
 
@@ -263,7 +263,7 @@ def staff_or_student_scoreboard(f: Callable) -> Callable:
     def decorated(*args, **kwargs):
         if current_user() is not None:
             return f(*args, **kwargs)
-        if session.get("student_offering_id"):
+        if session.get("student_offering_id") or session.get("student_class_id"):
             return f(*args, **kwargs)
         if request.path.startswith("/api/"):
             return {"ok": False, "error": "Authentication required."}, 401
@@ -596,7 +596,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/student-code", methods=["POST"])
     def auth_student_code():
-        """Join with course code and roster name; bind or pick a section."""
+        """Join via per-class code (mobile) or course key + roster name (portal)."""
         from flask import jsonify
 
         db = school_db()
@@ -613,17 +613,41 @@ def register_auth_routes(app: Flask) -> None:
 
         payload = request.get_json(silent=True) or {}
         raw = request.form.get("code") or payload.get("code") or ""
-        name = request.form.get("name") or payload.get("name") or ""
+        name = (request.form.get("name") or payload.get("name") or "").strip()
         code = str(raw).strip().upper()
-        name = str(name).strip()
+
+        get_cls = getattr(db, "get_class_by_live_code", None)
+        cls = get_cls(code) if callable(get_cls) else None
         offering = db.get_offering_by_code(code)
-        if not offering:
+        if cls and not offering and cls.get("offering_id"):
+            try:
+                offering = db.get_offering(int(cls["offering_id"]))
+            except KeyError:
+                offering = None
+
+        if not cls and not offering:
             msg = "That student code was not recognized."
             if request.is_json:
                 return jsonify({"ok": False, "error": msg}), 401
             return render_template(
                 "landing.html", **landing_kwargs(student_error=msg)
             ), 401
+
+        # Mobile: unique class code alone joins waiting/game
+        if cls and not name:
+            session.clear()
+            session["student_class_id"] = int(cls["id"])
+            if cls.get("offering_id"):
+                session["student_offering_id"] = int(cls["offering_id"])
+            session["student_live_code"] = cls["live_access_code"]
+            session["student_course"] = cls.get("ontario_code") or cls.get("course_code")
+            session["role"] = "student"
+            session.permanent = True
+            live = db.game.live_game_for_class(int(cls["id"]))
+            if live:
+                return redirect(url_for("student_game"))
+            return redirect(url_for("student_waiting"))
+
         if not name:
             msg = "Enter the name on your class roster."
             if request.is_json:
@@ -632,7 +656,7 @@ def register_auth_routes(app: Flask) -> None:
                 "landing.html", **landing_kwargs(student_error=msg)
             ), 401
 
-        matches = db.find_roster_matches(offering["live_access_code"], name)
+        matches = db.find_roster_matches(code, name)
         if not matches:
             msg = "That name was not found on the course roster."
             if request.is_json:
@@ -642,6 +666,13 @@ def register_auth_routes(app: Flask) -> None:
             ), 401
 
         if len(matches) > 1:
+            if not offering:
+                msg = "That student code was not recognized."
+                if request.is_json:
+                    return jsonify({"ok": False, "error": msg}), 401
+                return render_template(
+                    "landing.html", **landing_kwargs(student_error=msg)
+                ), 401
             session.clear()
             session["student_offering_id"] = int(offering["id"])
             session["student_live_code"] = offering["live_access_code"]
@@ -652,6 +683,18 @@ def register_auth_routes(app: Flask) -> None:
             return redirect(url_for("student_pick"))
 
         chosen = matches[0]
+        if not offering and chosen["class"].get("offering_id"):
+            try:
+                offering = db.get_offering(int(chosen["class"]["offering_id"]))
+            except KeyError:
+                offering = None
+        if not offering:
+            msg = "That student code was not recognized."
+            if request.is_json:
+                return jsonify({"ok": False, "error": msg}), 401
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=msg)
+            ), 401
         bind_student_session(session, offering, chosen["class"], chosen["student"])
         return redirect(
             url_for(
