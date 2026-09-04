@@ -28,7 +28,7 @@
     {% else %}
     <section id="course-dash" class="course-dash">
       {% for o in offerings %}
-      <article class="card" data-ontario-code="{{ o.ontario_code }}" data-offering-id="{{ o.id }}" data-section-index="{{ o.section_index or 1 }}"{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>
+      <article class="card{% if o.pack_busy %} pack-busy{% endif %}" data-ontario-code="{{ o.ontario_code }}" data-offering-id="{{ o.id }}" data-section-index="{{ o.section_index or 1 }}" data-pack-status-url="{{ url_for('staff_offering_pack_status', offering_id=o.id) }}" data-pack-busy="{{ 'true' if o.pack_busy else 'false' }}"{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>
         <p class="kicker">Assigned course{% if (o.section_index or 1) > 1 %} · section {{ o.section_index }}{% endif %}</p>
         <h2>{{ o.section_code or o.ontario_code }}</h2>
         <p class="sub">{{ o.course_title }}</p>
@@ -38,8 +38,8 @@
           {% for cls in o.classes %}
           <div class="class-section">
             <p class="schedule-line">Schedule: {{ cls.days }} · {{ cls.time }}</p>
-            <a class="btn btn-open-course" href="{{ url_for('staff_course', class_id=cls.id) }}">OPEN COURSE</a>
-            <a class="btn-ap-shortcut"
+            <a class="btn btn-open-course course-action{% if o.pack_busy %} is-disabled{% endif %}" href="{{ url_for('staff_course', class_id=cls.id) }}"{% if o.pack_busy %} aria-disabled="true" tabindex="-1"{% endif %}>OPEN COURSE</a>
+            <a class="btn-ap-shortcut course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance', take=1) }}"
                title="Log Attendance &amp; Participation"
                aria-label="Log Attendance and Participation">
@@ -58,6 +58,10 @@
         {% endif %}
         <div class="row-actions">
           <button type="button" class="btn-populate secondary" data-offering-id="{{ o.id }}"{% if o.classes %} data-class-id="{{ o.classes[0].id }}"{% endif %}{% if o.live_days %} data-live-days="{{ o.live_days }}"{% endif %}{% if o.live_time %} data-live-time="{{ o.live_time }}"{% endif %}>{% if o.classes %}Edit Class{% else %}Populate Class{% endif %}</button>
+        </div>
+        <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
+          <progress max="100"{% if o.pack_busy %}{% else %} value="100"{% endif %}></progress>
+          <p class="pack-progress-detail hint">{{ o.pack_line or o.pack_error or "" }}</p>
         </div>
       </article>
       {% endfor %}

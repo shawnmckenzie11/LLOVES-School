@@ -178,14 +178,7 @@ function uploadPack(body) {
       data = {};
     }
     if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
-      const redirectUrl = data.redirect || `${window.location.pathname}?pack=ok`;
-      if (data.status_url) {
-        activeStatusUrl = data.status_url;
-      }
-      if (data.installing) {
-        pollUntilDone(redirectUrl, data.status_url || activeStatusUrl);
-        return;
-      }
+      const redirectUrl = data.redirect || "/it?tab=offerings";
       stopPoll();
       window.location.href = redirectUrl;
       return;
@@ -226,14 +219,7 @@ async function resumeIfBusy() {
       return;
     }
     if (!status.busy) return;
-    if (submitBtn) submitBtn.disabled = true;
-    if (fileInput) fileInput.disabled = true;
-    paintStatus(
-      status,
-      "Unpacking Common Cartridge… this can take a few minutes"
-    );
-    setBar(null);
-    pollUntilDone(`${window.location.pathname}?pack=ok`);
+    window.location.href = "/it?tab=offerings";
   } catch {
     // Leave the plain form available.
   }

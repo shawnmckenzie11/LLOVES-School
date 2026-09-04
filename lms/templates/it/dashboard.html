@@ -178,12 +178,12 @@
                 <td>{{ o.teacher_email }}</td>
                 <td>{{ o.semester_label or o.semester_id or "—" }}</td>
                 <td><code class="live-code it-live-code">{{ o.live_access_code }}</code></td>
-                <td>
-                  {% if o.library_id %}
-                  <span class="badge badge-ok">Installed</span>
-                  {% else %}
-                  <span class="badge badge-warn">No pack</span>
-                  {% endif %}
+                <td class="it-pack-status"
+                    data-offering-id="{{ o.id }}"
+                    data-pack-busy="{{ 'true' if o.pack_busy else 'false' }}"
+                    data-status-url="{{ url_for('it_module_pack_status', offering_id=o.id) }}">
+                  <span class="badge {{ o.pack_badge_class }}">{{ o.pack_badge }}</span>
+                  <span class="it-pack-line" title="{{ o.pack_line }}">{{ o.pack_line }}</span>
                 </td>
                 <td>
                   {% if o.archived_at %}
