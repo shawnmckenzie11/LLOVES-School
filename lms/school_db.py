@@ -2228,17 +2228,48 @@ class SchoolDB(LovesDB):
         return bool(row) and int(row["teacher_user_id"] or 0) == int(teacher_user_id)
 
     def live_games_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """Live games for the class that owns this unique student join code."""
+        """Live games for a class join code or shared offering course key."""
         cls = self.game.get_class_by_live_code(live_access_code)
-        if not cls:
+        if cls:
+            live = self.game.live_game_for_class(int(cls["id"]))
+            return [live] if live else []
+        offering = self.get_offering_by_code(live_access_code)
+        if not offering:
             return []
-        live = self.game.live_game_for_class(int(cls["id"]))
-        return [live] if live else []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT g.id AS game_id, g.class_id, g.status, g.session_id,
+                       cl.days, cl.time, cl.course_code, cl.offering_id
+                FROM games g
+                JOIN classes cl ON cl.id = g.class_id
+                JOIN course_offerings o ON o.id = cl.offering_id
+                WHERE o.semester_id = ? AND o.ontario_code = ? AND g.status = 'live'
+                ORDER BY cl.days, cl.time, cl.id
+                """,
+                (offering["semester_id"], offering["ontario_code"]),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def classes_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
-        """Class sections that belong to this unique student join code."""
+        """Resolve sections by per-class join code, else by offering course key."""
         cls = self.game.get_class_by_live_code(live_access_code)
-        return [cls] if cls else []
+        if cls:
+            return [cls]
+        offering = self.get_offering_by_code(live_access_code)
+        if not offering:
+            return []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT cl.* FROM classes cl
+                JOIN course_offerings o ON o.id = cl.offering_id
+                WHERE o.semester_id = ? AND o.ontario_code = ?
+                ORDER BY cl.days, cl.time, cl.id
+                """,
+                (offering["semester_id"], offering["ontario_code"]),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def find_class_by_codename(
         self, live_access_code: str, codename: str
