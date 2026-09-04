@@ -30,12 +30,14 @@
       </a>
       <button type="button" class="role-card{% if student_error %} is-open{% endif %}" id="student-role-btn" aria-expanded="{{ 'true' if student_error else 'false' }}" aria-controls="student-code-panel">
         <strong>Student</strong>
-        <span class="hint">Enter your course code to join the live lesson.</span>
+        <span class="hint">Enter your course code and name to join the live lesson.</span>
       </button>
     </div>
     <form class="student-code-panel{% if not student_error %} hidden{% endif %}" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Course code</label>
       <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required placeholder="8-character code">
+      <label class="field" for="student-name">Name</label>
+      <input id="student-name" name="name" autocomplete="name" required placeholder="Name on the roster">
       <div class="row-actions" style="margin-top:0.75rem">
         <button type="submit">Join</button>
       </div>

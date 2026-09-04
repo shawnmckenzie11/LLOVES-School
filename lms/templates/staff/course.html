@@ -69,6 +69,8 @@
       <nav class="ap-subtabs" aria-label="Attendance and Participation">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='mood') }}"
+           class="{{ 'on' if ap_view == 'mood' else '' }}">Mood</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
       </nav>
@@ -86,6 +88,22 @@
         <p class="hint" id="att-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s attendance.</p>
         <div class="sheet-wrap attendance-wrap">
           <table class="sheet attendance-grid" id="attendance-grid">
+            <thead><tr><th class="name">Student</th><th class="total">Total</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      {% elif ap_view == 'mood' %}
+      <div id="mood-root" data-class-id="{{ cls.id }}">
+        <div class="topbar">
+          <div class="row-actions ap-toolbar">
+            <button type="button" class="secondary" id="mood-sort">Sort: A–Z</button>
+          </div>
+        </div>
+        <div id="mood-error" class="error" hidden></div>
+        <p class="hint">Same calendar as Attendance. Faces are what students tapped at join.</p>
+        <div class="sheet-wrap attendance-wrap">
+          <table class="sheet attendance-grid" id="mood-grid">
             <thead><tr><th class="name">Student</th><th class="total">Total</th></tr></thead>
             <tbody></tbody>
           </table>
@@ -156,6 +174,9 @@
           <div id="ap-overlay-error" class="error" hidden></div>
           <section id="ap-panel-att" class="ap-panel hidden">
             <h2 id="ap-overlay-title">Mark Attendance <span id="ap-att-count" class="att-count">Attendance: 0</span></h2>
+            {% if cls.live_access_code %}
+            <p class="hint">Student code <code class="live-code">{{ cls.live_access_code }}</code></p>
+            {% endif %}
             <label class="field" for="ap-meeting-date">Class date</label>
             <input type="date" id="ap-meeting-date" class="ap-date-input">
             <p class="hint">Defaults from the previous session (all absent on the first log). Only present students go to participation.</p>
@@ -231,6 +252,10 @@
               <input type="checkbox" id="ap-scoreboard-toggle">
               Scoreboard
             </label>
+            <label class="scoreboard-opt">
+              <input type="checkbox" id="ap-rank-toggle">
+              Rank
+            </label>
             <label class="field" for="ap-n-teams">Number of teams</label>
             <div class="stepper">
               <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
@@ -305,6 +330,8 @@
       <script type="module" src="/static/staff_ap.js"></script>
       {% if ap_view == 'attendance' %}
       <script type="module" src="/static/staff_attendance.js"></script>
+      {% elif ap_view == 'mood' %}
+      <script type="module" src="/static/staff_mood.js"></script>
       {% else %}
       <script type="module" src="/static/staff_grades.js"></script>
       {% endif %}

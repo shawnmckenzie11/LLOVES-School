@@ -2283,6 +2283,36 @@ class SchoolDB(LovesDB):
             return matches[0]
         return None
 
+    def find_roster_matches(
+        self, live_access_code: str, name: str
+    ) -> list[dict[str, Any]]:
+        """Return ``{class, student}`` pairs whose Codename matches ``name``.
+
+        Matching is case-insensitive on ``lower(trim(codename))`` across every
+        section that shares the student course code.
+
+        Args:
+            live_access_code: Shared 8-character offering key.
+            name: Student-entered roster name.
+        """
+        needle = (name or "").strip().lower()
+        if not needle:
+            return []
+        classes = self.classes_for_access_code(live_access_code)
+        matches: list[dict[str, Any]] = []
+        with self.game._lock:
+            for cls in classes:
+                row = self.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ? AND lower(trim(codename)) = ?
+                    """,
+                    (int(cls["id"]), needle),
+                ).fetchone()
+                if row:
+                    matches.append({"class": cls, "student": dict(row)})
+        return matches
+
     def enrich_class(self, class_payload: dict[str, Any]) -> dict[str, Any]:
         """Attach offering semester label and live access code."""
         offering_id = class_payload.get("offering_id")
@@ -2825,6 +2855,36 @@ class SchoolDB(LovesDB):
         except Exception:
             pass
         # #endregion
+        return grid
+
+    def mood_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Slim weekday mood grid for the staff Mood sub-tab.
+
+        Same calendar shape as attendance; cell values come from student
+        check-ins rather than present/absent marks.
+
+        Args:
+            class_id: Class primary key.
+            sort: Roster sort (``az`` / ``za`` Codename).
+        """
+        try:
+            from gradebook import build_attendance_week_grid
+        except ImportError:
+            from lms.gradebook import build_attendance_week_grid
+
+        dash = self.game.dashboard(class_id, sort=sort)
+        marks = self.game.attendance_score_rows(class_id)
+        grid = build_attendance_week_grid(
+            students=list(dash.get("students") or []),
+            sessions=marks["sessions"],
+            score_rows=marks["scores"],
+        )
+        mood = self.game.mood_cells(class_id)
+        grid["cells"] = mood.get("cells") or {}
+        grid["totals"] = mood.get("totals") or {}
+        grid["day_totals"] = mood.get("day_totals") or {}
+        grid["class"] = self.enrich_class(dash["class"])
+        grid["ok"] = True
         return grid
 
     def attendance_for_date(self, class_id: int, meeting: date) -> dict[str, Any]:

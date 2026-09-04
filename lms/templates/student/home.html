@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Class · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+</head>
+<body class="student-portal student-home{% if payload.scoring %} is-live{% endif %}" data-scoring="{{ '1' if payload.scoring else '0' }}">
+  <section class="student-tools" aria-label="Class tools">
+    <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting for your teacher to start scoring.{% endif %}</p>
+  </section>
+  <section class="student-boards">
+    <div id="me-board" class="student-me" aria-label="Your stats"></div>
+    <div id="class-board" class="student-scoreboard" aria-label="Class scoreboard"></div>
+  </section>
+  <script type="module" src="/static/student-portal.js"></script>
+</body>
+</html>

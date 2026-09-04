@@ -3,28 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Choose section · {{ school_name }}</title>
+  <title>Which section? · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
 </head>
-<body>
-  <div class="wrap">
-    <p class="kicker">More than one live game</p>
-    <h1>Which section?</h1>
-    <p class="sub">Two classes are live with the same course code. Pick your days/time, or type your Codename.</p>
+<body class="student-portal">
+  <div class="student-wrap">
+    <p class="kicker">More than one section</p>
+    <h1>Which class?</h1>
+    <p class="sub">Your name is on more than one roster for this code. Pick your days and time.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post">
-      {% for g in live %}
+      {% for cls in classes %}
       <p>
-        <button type="submit" name="class_id" value="{{ g.class_id }}">
-          {{ g.course_code }} · {{ g.days }} · {{ g.time }}
+        <button type="submit" name="class_id" value="{{ cls.id }}">
+          {{ cls.course_code }} · {{ cls.days }} · {{ cls.time }}
         </button>
       </p>
       {% endfor %}
-      <label class="field" for="codename">Or your Codename</label>
-      <input id="codename" name="codename" autocomplete="off">
-      <div class="row-actions" style="margin-top:0.75rem">
-        <button type="submit">Join with Codename</button>
-      </div>
     </form>
   </div>
 </body>

@@ -24,6 +24,7 @@ from flask import (
 import email_service
 from school_db import SchoolDB
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT
+from student_portal import bind_student_session, next_student_endpoint
 
 
 def google_client_id() -> str:
@@ -595,7 +596,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/student-code", methods=["POST"])
     def auth_student_code():
-        """Join a course live game (or waiting room) with the shared 8-char key."""
+        """Join with course code and roster name; bind or pick a section."""
         from flask import jsonify
 
         db = school_db()
@@ -610,12 +611,11 @@ def register_auth_routes(app: Flask) -> None:
                 "landing.html", **landing_kwargs(student_error=body["error"])
             ), 429
 
-        raw = (
-            request.form.get("code")
-            or (request.get_json(silent=True) or {}).get("code")
-            or ""
-        )
+        payload = request.get_json(silent=True) or {}
+        raw = request.form.get("code") or payload.get("code") or ""
+        name = request.form.get("name") or payload.get("name") or ""
         code = str(raw).strip().upper()
+        name = str(name).strip()
         offering = db.get_offering_by_code(code)
         if not offering:
             msg = "That student code was not recognized."
@@ -624,18 +624,41 @@ def register_auth_routes(app: Flask) -> None:
             return render_template(
                 "landing.html", **landing_kwargs(student_error=msg)
             ), 401
+        if not name:
+            msg = "Enter the name on your class roster."
+            if request.is_json:
+                return jsonify({"ok": False, "error": msg}), 401
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=msg)
+            ), 401
 
-        session.clear()
-        session["student_offering_id"] = int(offering["id"])
-        session["student_live_code"] = offering["live_access_code"]
-        session["student_course"] = offering["ontario_code"]
-        session["role"] = "student"
-        session.permanent = True
+        matches = db.find_roster_matches(offering["live_access_code"], name)
+        if not matches:
+            msg = "That name was not found on the course roster."
+            if request.is_json:
+                return jsonify({"ok": False, "error": msg}), 401
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=msg)
+            ), 401
 
-        live = db.live_games_for_access_code(offering["live_access_code"])
-        if len(live) == 1:
-            session["student_class_id"] = int(live[0]["class_id"])
-            return redirect(url_for("student_game"))
-        if len(live) > 1:
+        if len(matches) > 1:
+            session.clear()
+            session["student_offering_id"] = int(offering["id"])
+            session["student_live_code"] = offering["live_access_code"]
+            session["student_course"] = offering["ontario_code"]
+            session["student_codename"] = name
+            session["role"] = "student"
+            session.permanent = True
             return redirect(url_for("student_pick"))
-        return redirect(url_for("student_waiting"))
+
+        chosen = matches[0]
+        bind_student_session(session, offering, chosen["class"], chosen["student"])
+        return redirect(
+            url_for(
+                next_student_endpoint(
+                    db,
+                    int(chosen["class"]["id"]),
+                    int(chosen["student"]["id"]),
+                )
+            )
+        )

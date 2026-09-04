@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Choose character · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+</head>
+<body class="student-portal">
+  <div class="student-wrap">
+    <p class="kicker">{{ offering.ontario_code if offering else 'Course' }}</p>
+    <h1>Choose your character</h1>
+    <p class="sub">Pick one, then join class. You can wait here until scoring starts.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" id="character-form">
+      <div class="char-grid" role="radiogroup" aria-label="Characters">
+        <label class="char-card">
+          <input type="radio" name="character" value="char_a" required>
+          <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="#c4a574"/>
+            <ellipse cx="32" cy="26" rx="14" ry="16" fill="#5c3d2e"/>
+            <circle cx="24" cy="30" r="3" fill="#1f2937"/>
+            <circle cx="40" cy="30" r="3" fill="#1f2937"/>
+            <path d="M24 40c4 4 12 4 16 0" fill="none" stroke="#1f2937" stroke-width="2"/>
+          </svg>
+          <span>Avery</span>
+        </label>
+        <label class="char-card">
+          <input type="radio" name="character" value="char_b" required>
+          <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="#f0c7a0"/>
+            <path d="M14 28c4-18 32-18 36 0v6c-6 10-30 10-36 0z" fill="#3f2a1a"/>
+            <circle cx="24" cy="32" r="3" fill="#1f2937"/>
+            <circle cx="40" cy="32" r="3" fill="#1f2937"/>
+            <path d="M26 42c3 3 9 3 12 0" fill="none" stroke="#1f2937" stroke-width="2"/>
+          </svg>
+          <span>Jordan</span>
+        </label>
+        <label class="char-card">
+          <input type="radio" name="character" value="char_c" required>
+          <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="#c68642"/>
+            <path d="M12 38c2-22 38-22 40 0v8H12z" fill="#1e3a5f"/>
+            <circle cx="32" cy="34" r="12" fill="#c68642"/>
+            <circle cx="26" cy="32" r="2.5" fill="#1f2937"/>
+            <circle cx="38" cy="32" r="2.5" fill="#1f2937"/>
+            <path d="M26 40c3 3 9 3 12 0" fill="none" stroke="#1f2937" stroke-width="2"/>
+          </svg>
+          <span>Samira</span>
+        </label>
+        <label class="char-card">
+          <input type="radio" name="character" value="char_d" required>
+          <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="#e8c4a8"/>
+            <path d="M18 22h28v8H18z" fill="#1f2937"/>
+            <rect x="16" y="28" width="32" height="4" rx="1" fill="#334155"/>
+            <circle cx="24" cy="34" r="2.5" fill="#1f2937"/>
+            <circle cx="40" cy="34" r="2.5" fill="#1f2937"/>
+            <path d="M26 42c3 2 9 2 12 0" fill="none" stroke="#1f2937" stroke-width="2"/>
+          </svg>
+          <span>Kenji</span>
+        </label>
+      </div>
+      <div class="row-actions char-join">
+        <button type="submit">Join Class</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
