@@ -67,7 +67,7 @@ fly secrets set SMTP_SERVER='smtp.example.com' SMTP_PORT='587' \
 
 ```bash
 fly apps create lloves-lms --org personal   # once
-fly volumes create lloves_data --region yyz --size 3 --app lloves-lms   # once
+fly volumes create lloves_data --region yyz --size 15 --app lloves-lms   # once
 fly secrets set FLASK_SECRET_KEY="$(openssl rand -hex 32)" \
   GOOGLE_CLIENT_ID='...' GOOGLE_CLIENT_SECRET='...' --app lloves-lms
 fly deploy --app lloves-lms
@@ -90,7 +90,7 @@ App caps are raised so Admin can attach large Common Cartridges:
 | Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **800 MB** in `lms/modules.py` |
 | gunicorn | `--timeout 600` | Unpack after upload can exceed 5 minutes |
 | Fly `http_service.http_options.idle_timeout` | **600s** | Quiet periods while the body is received / unpack runs |
-| Fly volume `lloves_data` | currently **3 GB** | A 639 MB `.imscc` plus unpacked tree may need a larger volume (`fly volumes extend`) |
+| Fly volume `lloves_data` | currently **15 GB** | Large `.imscc` + unpacked tree; extend with `fly volumes extend <id> --size N -a lloves-lms` if uploads hit disk full |
 
 **Cloudflare:** keep the `alc` CNAME **DNS only** (grey cloud). Orange-cloud proxying often rejects or truncates very large request bodies; if uploads still fail under ~800 MB with a proxy error, confirm the record is grey-clouded.
 

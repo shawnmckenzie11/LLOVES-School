@@ -4,10 +4,11 @@
 # Public URL: https://alc.mckenzian.com
 # See lms/DEPLOY.md (Fly + Cloudflare CNAME, same pattern as hh / iaw).
 #
-#   fly volumes create lloves_data --region yyz --size 3
+#   fly volumes create lloves_data --region yyz --size 15
 #   fly deploy
 #
-# Persistent volume holds sqlite + Admin-uploaded IMSCC libraries.
+# Persistent volume holds sqlite + Admin-uploaded IMSCC libraries
+# (extend with: fly volumes extend <vol_id> --size 15 -a lloves-lms).
 
 app = 'lloves-lms'
 primary_region = 'yyz'

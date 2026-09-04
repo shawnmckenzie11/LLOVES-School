@@ -568,6 +568,22 @@ def store_uploaded_module_pack(
                 str(file_storage.filename), tmp, max_bytes=max_bytes
             )
         os.replace(tmp, dest)
+    except OSError as exc:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        # errno 28 = ENOSPC — volume full on Fly /data
+        if getattr(exc, "errno", None) == 28:
+            message = (
+                "Server disk is full — Admin cannot store this module pack until "
+                "the Fly /data volume is extended (see lms/DEPLOY.md)."
+            )
+        else:
+            message = "Could not store that module pack (disk write failed)."
+        write_pack_status(dest_root, stage="error", detail=message, error=message)
+        raise ValueError(message) from exc
     except Exception as exc:
         if tmp.exists():
             tmp.unlink()
