@@ -143,6 +143,7 @@ function syncTeamFlowVisibility() {
   });
   const opts = $("ap-track-game-opts");
   if (opts) opts.hidden = !team;
+  syncScoreboardPreview();
   if (team) {
     renderTeamsPanel();
   }
@@ -841,7 +842,10 @@ function renderScoringRoundChrome(state) {
   const meta = $("ap-live-meta");
   if (meta) meta.hidden = breakRound;
   const tabs = $("ap-score-team-tabs");
-  if (tabs && breakRound) tabs.hidden = true;
+  if (tabs && breakRound) {
+    tabs.hidden = true;
+    tabs.innerHTML = "";
+  }
   return breakRound;
 }
 
@@ -968,7 +972,18 @@ $("ap-att-log")?.addEventListener("click", async () => {
 $("ap-gamify-next")?.addEventListener("click", async () => {
   try {
     if (trackMode === "team") {
-      await withValidatedDate(sessionIso(), async () => {
+      await withValidatedDate(sessionIso(), async (meeting) => {
+        const ids = selectedPresent();
+        if (!ids.length) {
+          throw new Error(
+            "No students have joined yet. Share the live session code, then continue when someone is present."
+          );
+        }
+        // Persist present flags and advance game status to ``teams`` before assign.
+        overlayState = await api(`/api/classes/${classId}/game/attendance`, {
+          method: "POST",
+          body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
+        });
         renderTeamsPanel();
         showPanel("teams");
       });
@@ -1054,12 +1069,15 @@ function renderTeamsPanel() {
 }
 
 /**
- * Show/hide the scoreboard mock preview from the checkbox.
+ * Show/hide the scoreboard mock preview (below checkbox container, above footer).
  */
 function syncScoreboardPreview() {
+  const opts = $("ap-track-game-opts");
   const box = $("ap-scoreboard-toggle");
   const wrap = $("ap-scoreboard-preview-wrap");
-  if (wrap) wrap.hidden = !(box instanceof HTMLInputElement && box.checked);
+  const teamVisible = opts instanceof HTMLElement && !opts.hidden;
+  const checked = box instanceof HTMLInputElement && box.checked;
+  if (wrap) wrap.hidden = !(teamVisible && checked);
 }
 
 /**
@@ -1108,6 +1126,18 @@ $("ap-rank-toggle")?.addEventListener("change", (event) => {
  */
 async function assign(mode) {
   lastAssignMode = mode;
+  const meeting = sessionIso();
+  const ids = selectedPresent();
+  if (!ids.length) {
+    throw new Error(
+      "No students have joined yet. Share the live session code, then continue when someone is present."
+    );
+  }
+  // Ensure present flags + ``teams`` status even if Attendance Next was skipped.
+  overlayState = await api(`/api/classes/${classId}/game/attendance`, {
+    method: "POST",
+    body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
+  });
   const payload = { n_teams: Number($("ap-n-teams").value), mode };
   if (mode === "manual") {
     payload.assignments = [...document.querySelectorAll("#ap-manual-list .team-step")].map((el) => ({
@@ -1154,6 +1184,62 @@ async function startMeetTeamsPhase() {
     method: "POST",
     body: JSON.stringify({ minutes }),
   });
+  applyMeetTimerUi(overlayState);
+}
+
+/**
+ * Paint Meet Your Team Start/Pause control from game timer fields.
+ * @param {any} [state]
+ */
+function applyMeetTimerUi(state = overlayState) {
+  const game = state?.game || {};
+  const stepper = $("ap-meet-stepper");
+  const clock = $("ap-meet-live-clock");
+  const btn = $("ap-meet-start");
+  const phase = String(game.overlay_phase || "");
+  const running =
+    phase === "meet_teams" &&
+    Boolean(game.round_ends_at_ms) &&
+    !game.timer_paused;
+  const paused = phase === "meet_teams" && Boolean(game.timer_paused);
+  if (stepper) stepper.hidden = running || paused;
+  if (clock) {
+    clock.hidden = !(running || paused);
+    if (running) {
+      meetEndsAtMs = Number(game.round_ends_at_ms) || 0;
+      clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
+    } else if (paused) {
+      meetEndsAtMs = 0;
+      clock.textContent = formatCountdown(Number(game.round_remaining_sec) || 0);
+    }
+  }
+  if (btn) {
+    if (running) {
+      btn.textContent = "Pause";
+      btn.dataset.meetState = "running";
+    } else if (paused) {
+      btn.textContent = "Resume";
+      btn.dataset.meetState = "paused";
+    } else {
+      btn.textContent = "Start";
+      btn.dataset.meetState = "idle";
+    }
+  }
+}
+
+/** Meet Your Team countdown deadline (epoch ms), or 0 when idle/paused. */
+let meetEndsAtMs = 0;
+
+/**
+ * Tick the Meet Your Team countdown when running.
+ */
+function paintMeetClock() {
+  const clock = $("ap-meet-live-clock");
+  const btn = $("ap-meet-start");
+  if (!clock || clock.hidden) return;
+  if (btn?.dataset.meetState === "paused") return;
+  if (!meetEndsAtMs) return;
+  clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
@@ -1304,6 +1390,24 @@ $("ap-meet-minutes")?.addEventListener("change", () => {
 $("ap-meet-start")?.addEventListener("click", async () => {
   try {
     hideError("#ap-overlay-error");
+    const btn = $("ap-meet-start");
+    const state = btn?.dataset.meetState || "idle";
+    if (state === "running") {
+      overlayState = await api(`/api/classes/${classId}/game/timer/pause`, {
+        method: "POST",
+        body: "{}",
+      });
+      applyMeetTimerUi(overlayState);
+      return;
+    }
+    if (state === "paused") {
+      overlayState = await api(`/api/classes/${classId}/game/timer/resume`, {
+        method: "POST",
+        body: "{}",
+      });
+      applyMeetTimerUi(overlayState);
+      return;
+    }
     await startMeetTeamsPhase();
   } catch (err) {
     showError("#ap-overlay-error", err);
@@ -1581,6 +1685,15 @@ function renderLiveTeams(state) {
   const rootEl = $("ap-live-teams");
   if (!rootEl) return;
   const teams = state.teams || [];
+  if (isBreakRound()) {
+    if (tabs) {
+      tabs.hidden = true;
+      tabs.innerHTML = "";
+    }
+    rootEl.innerHTML = "";
+    updateStepSummaries();
+    return;
+  }
   if (tabs) {
     tabs.hidden = teams.length < 2;
     if (!tabs.dataset.activeTeam && teams[0]) {
@@ -1631,6 +1744,7 @@ function renderLiveTeams(state) {
 function paintLiveClock() {
   const clock = $("ap-round-clock");
   if (clock) clock.textContent = formatCountdown(remainingUntilMs(roundEndsAtMs));
+  paintMeetClock();
 }
 
 setInterval(paintLiveClock, 1000);

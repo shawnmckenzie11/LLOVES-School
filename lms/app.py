@@ -3179,6 +3179,28 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         return _staff_post(class_id, run)
 
+    @app.route("/api/classes/<int:class_id>/game/timer/pause", methods=["POST"])
+    @login_required
+    def api_timer_pause(class_id: int):
+        """Pause the active Meet / round countdown."""
+
+        def run(_body):
+            """Apply one staff JSON mutation for this class."""
+            return school.game.pause_round_timer(class_id)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/timer/resume", methods=["POST"])
+    @login_required
+    def api_timer_resume(class_id: int):
+        """Resume a paused Meet / round countdown."""
+
+        def run(_body):
+            """Apply one staff JSON mutation for this class."""
+            return school.game.resume_round_timer(class_id)
+
+        return _staff_post(class_id, run)
+
     @app.route("/api/classes/<int:class_id>/game/anticipation", methods=["POST"])
     @login_required
     def api_anticipation(class_id: int):

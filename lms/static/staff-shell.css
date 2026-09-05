@@ -877,7 +877,7 @@ body.staff-shell .ap-track-choice {
   gap: 0.45rem;
 }
 body.staff-shell .ap-track-game-opts {
-  margin: 0.35rem 0 0.85rem;
+  margin: 0.35rem 0 0.55rem;
   padding: 0.7rem 0.8rem;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -889,6 +889,12 @@ body.staff-shell .ap-track-game-opts {
 body.staff-shell .ap-track-game-opts[hidden] {
   display: none !important;
 }
+body.staff-shell #ap-scoreboard-preview-wrap {
+  margin: 0 0 0.75rem;
+}
+body.staff-shell #ap-scoreboard-preview-wrap[hidden] {
+  display: none !important;
+}
 body.staff-shell .ap-meet-timer-row {
   display: flex;
   align-items: center;
@@ -896,8 +902,23 @@ body.staff-shell .ap-meet-timer-row {
   flex-wrap: wrap;
   margin: 0.35rem 0 0.55rem;
 }
+body.staff-shell .ap-meet-stepper[hidden],
+body.staff-shell #ap-meet-stepper[hidden] {
+  display: none !important;
+}
 body.staff-shell .ap-meet-start {
   min-width: 5.5rem;
+}
+body.staff-shell .ap-meet-live-clock {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: #0f766e;
+}
+body.staff-shell .ap-meet-live-clock[hidden] {
+  display: none !important;
 }
 body.staff-shell .ap-join-strip {
   margin: 0.35rem 0 0.65rem;

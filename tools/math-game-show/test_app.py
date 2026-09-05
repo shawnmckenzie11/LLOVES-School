@@ -383,6 +383,39 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(new_session["kind"], "session")
         self.assertNotEqual(new_session["id"], later_id)
 
+    def test_assign_teams_from_attendance_after_joins(self) -> None:
+        """Joiners mark present while status is attendance; Teams Next still assigns."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        self.assertEqual(state["game"]["status"], "attendance")
+        present = [s["id"] for s in state["students"][:4]]
+        for sid in present:
+            self.assertTrue(self.db.mark_student_present_on_open_session(class_id, sid))
+        state = self.db.assign_teams(class_id, 2, "balanced")
+        self.assertEqual(state["game"]["status"], "names")
+        self.assertEqual(len(state["teams"]), 2)
+        member_count = sum(len(t["members"]) for t in state["teams"])
+        self.assertEqual(member_count, 4)
+
+    def test_meet_timer_pause_and_resume(self) -> None:
+        """Meet Your Team Start can pause and resume the countdown."""
+        class_id = self.cls["id"]
+        self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in self.db.game_state(class_id)["students"][:4]]
+        self.db.save_attendance(class_id, present)
+        self.db.assign_teams(class_id, 2, "random")
+        started = self.db.start_meet_teams(class_id, minutes=3)
+        self.assertEqual(started["game"]["overlay_phase"], "meet_teams")
+        self.assertFalse(started["game"].get("timer_paused"))
+        self.assertIsInstance(started["game"]["round_ends_at_ms"], int)
+        paused = self.db.pause_round_timer(class_id)
+        self.assertTrue(paused["game"]["timer_paused"])
+        self.assertIsNone(paused["game"]["round_ends_at_ms"])
+        self.assertGreater(paused["game"]["round_remaining_sec"], 0)
+        resumed = self.db.resume_round_timer(class_id)
+        self.assertFalse(resumed["game"].get("timer_paused"))
+        self.assertIsInstance(resumed["game"]["round_ends_at_ms"], int)
+
     def test_game_scoring_end_log_and_colors(self) -> None:
         """4 present, 2 random teams, individual+team awards, End Game persist."""
         class_id = self.cls["id"]
@@ -1296,7 +1329,8 @@ class RoundClockTests(unittest.TestCase):
         self.assertEqual(round_remaining_sec(started.isoformat(), 1200, now=later), 1199)
         expired = datetime(2026, 9, 8, 14, 30, 0)
         self.assertEqual(round_remaining_sec(started.isoformat(), 1200, now=expired), 0)
-        self.assertEqual(round_remaining_sec(None, 1200, now=started), 0)
+        # No start time + duration = paused / frozen remaining.
+        self.assertEqual(round_remaining_sec(None, 1200, now=started), 1200)
         end_ms = round_ends_at_ms(started.isoformat(), 1200)
         expected = int((started + timedelta(seconds=1200)).timestamp() * 1000)
         self.assertEqual(end_ms, expected)
