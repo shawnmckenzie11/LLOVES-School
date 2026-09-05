@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import tempfile
@@ -172,6 +173,8 @@ class ItTests(unittest.TestCase):
         self.assertIn('enctype="multipart/form-data"', html)
         self.assertIn('name="module_pack"', html)
         self.assertIn("Module pack", html)
+        self.assertIn('name="roster_csv"', html)
+        self.assertIn("Student roster CSV", html)
         self.assertIn('name="live_days"', html)
         self.assertIn('name="live_time"', html)
         self.assertIn("M/W/F", html)
@@ -179,6 +182,69 @@ class ItTests(unittest.TestCase):
         rv2 = self.client.get("/it")
         self.assertEqual(rv2.status_code, 200)
         self.assertIn(f"/it/staff/{staff_id}/assign", rv2.get_data(as_text=True))
+
+
+    def test_admin_assign_csv_populates_class(self) -> None:
+        """POST assign with roster CSV creates the Codename class for that teacher."""
+        self.school.activate_from_semester_json()
+        self._ensure_library("MCF3M")
+        self._login_it()
+        staff = self.school.register_staff("csvroster@gmail.com")
+        csv_body = "Codename\nMaple\n\nCedar\n"
+        rv = self.client.post(
+            f"/it/staff/{int(staff['id'])}/assign",
+            data={
+                "ontario_code": "MCF3M",
+                "live_days": "M/W/F",
+                "live_time": "2:00pm",
+                "roster_csv": (io.BytesIO(csv_body.encode("utf-8")), "roster.csv"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 302)
+        offering = self.school.get_offering_for(
+            int(self.school.get_active_semester()["id"]),
+            "MCF3M",
+            int(staff["id"]),
+        )
+        assert offering is not None
+        classes = self.school.list_staff_classes(
+            int(staff["id"]), int(offering["semester_id"])
+        )
+        matching = [c for c in classes if int(c.get("offering_id") or 0) == int(offering["id"])]
+        self.assertEqual(len(matching), 1)
+        dash = self.school.game.dashboard(int(matching[0]["id"]), sort="az")
+        names = [s["codename"] for s in dash["students"]]
+        self.assertEqual(names, ["Cedar", "Maple"])
+        self.assertEqual(int(matching[0].get("student_count") or 0), 2)
+
+    def test_admin_assign_csv_rejects_comma_in_name(self) -> None:
+        """Comma in a first-column name fails before the offering is created."""
+        self.school.activate_from_semester_json()
+        self._ensure_library("MCF3M")
+        self._login_it()
+        staff = self.school.register_staff("badcsv@gmail.com")
+        csv_body = 'Name\n"Maple, Syrup"\n'
+        rv = self.client.post(
+            f"/it/staff/{int(staff['id'])}/assign",
+            data={
+                "ontario_code": "MCF3M",
+                "live_days": "T/Th/F",
+                "live_time": "10:40am",
+                "roster_csv": (io.BytesIO(csv_body.encode("utf-8")), "bad.csv"),
+            },
+            content_type="multipart/form-data",
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 400)
+        self.assertIn("comma", rv.get_data(as_text=True).lower())
+        offering = self.school.get_offering_for(
+            int(self.school.get_active_semester()["id"]),
+            "MCF3M",
+            int(staff["id"]),
+        )
+        self.assertIsNone(offering)
 
     def test_assigned_codes_exclude_archived_offerings(self) -> None:
         """Staff tab Current Courses omits soft-archived offerings."""

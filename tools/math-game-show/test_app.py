@@ -35,6 +35,7 @@ from db import (  # noqa: E402
     leader_periods,
     member_round_points,
     normalize_stat_window,
+    parse_codename_column_csv,
     points_label,
     roster_from_codenames,
     round_ends_at_ms,
@@ -1705,6 +1706,13 @@ class LlovesCodenameRosterTests(unittest.TestCase):
         """Commas would split the Grades column."""
         with self.assertRaises(ValueError):
             roster_from_codenames(["Maple, Syrup"])
+
+    def test_parse_codename_column_csv(self) -> None:
+        """First column only; skip empties and a Codename header."""
+        names = parse_codename_column_csv("Codename,Extra\nMaple,x\n\nCedar,\n")
+        self.assertEqual(names, ["Maple", "Cedar"])
+        with self.assertRaises(ValueError):
+            parse_codename_column_csv("Codename\n\n")
 
     def test_dashboard_sorts_codenames_za(self) -> None:
         """Sort toggle is A–Z / Z–A on Codename."""

@@ -106,7 +106,11 @@
           <option value="{{ t }}" {% if t == '2:00pm' %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
-        <p class="hint">Teachers inherit this schedule when they Populate Class; they only add Codenames.</p>
+        <p class="hint">Teachers inherit this schedule. Optional CSV below populates the class now; otherwise they add Codenames later.</p>
+
+        <label class="field" for="roster_csv">Student roster CSV (optional)</label>
+        <input id="roster_csv" name="roster_csv" type="file" accept=".csv,text/csv">
+        <p class="hint">First column only = Codenames (one student per row). Empty rows are skipped. No commas in names. Header row optional (Name / Codename / Student).</p>
 
         <div class="row-actions" style="margin-top:0.75rem">
           <button id="module-pack-submit" type="submit">Assign</button>
