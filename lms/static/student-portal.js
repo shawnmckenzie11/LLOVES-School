@@ -12,6 +12,28 @@ const body = document.body;
 let lastPromptId = null;
 
 /**
+ * Fetch init with per-tab visit token header when available.
+ * @param {RequestInit} [init]
+ * @returns {RequestInit}
+ */
+function visitFetchInit(init) {
+  if (typeof window.studentVisitFetchInit === "function") {
+    return window.studentVisitFetchInit(init);
+  }
+  return init || {};
+}
+
+/**
+ * Set a distinctive tab title for multi-tab testing.
+ * @param {string} codename
+ */
+function setTabTitle(codename) {
+  const name = (codename || "").trim();
+  if (!name) return;
+  document.title = `${name} · Class`;
+}
+
+/**
  * Format a points value for the student boards.
  * @param {unknown} value
  * @returns {string}
@@ -42,6 +64,7 @@ function paintMe(payload) {
       ${rankLine}
     </div>
   `;
+  setTabTitle(String(me.codename || ""));
 }
 
 /**
@@ -214,12 +237,15 @@ function wirePromptControls(prompt) {
  */
 async function submitResponse(promptId, response) {
   try {
-    const res = await fetch("/api/student/live-prompt/response", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ prompt_id: promptId, response }),
-    });
+    const res = await fetch(
+      "/api/student/live-prompt/response",
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ prompt_id: promptId, response }),
+      })
+    );
     const data = await res.json();
     if (data.redirect) {
       location.href = data.redirect;
@@ -245,7 +271,7 @@ async function submitResponse(promptId, response) {
  */
 async function tick() {
   try {
-    const res = await fetch("/api/student/state");
+    const res = await fetch("/api/student/state", visitFetchInit());
     const data = await res.json();
     if (data.redirect && data.redirect !== "/student/home" && !data.me) {
       location.href = data.redirect;
@@ -267,3 +293,8 @@ async function tick() {
 
 tick();
 setInterval(tick, 4000);
+
+const bootCodename = body && body.dataset ? body.dataset.codename : "";
+if (bootCodename) {
+  setTabTitle(bootCodename);
+}

@@ -2726,7 +2726,15 @@ class SchoolDB(LovesDB):
             raise KeyError(f"live session {session_id} is not active")
         name = (codename or "").strip()
         now = _now()
-        visit_token = secrets.token_urlsafe(24)
+        existing = self.get_live_session_attendee(session_id, student_id)
+        if (
+            existing
+            and not existing.get("left_at")
+            and (existing.get("visit_token") or "").strip()
+        ):
+            visit_token = str(existing["visit_token"]).strip()
+        else:
+            visit_token = secrets.token_urlsafe(24)
         with self._lock:
             self.conn.execute(
                 """
@@ -3293,6 +3301,8 @@ class SchoolDB(LovesDB):
             raise KeyError(f"class {class_id} has no offering_id")
         existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
         if existing is not None:
+            if int(existing["class_id"]) == int(class_id):
+                return existing
             raise ValueError(
                 "You already have a live class running. "
                 "Use End Class, End Game, or Quit to finish it before starting another."
@@ -3489,6 +3499,47 @@ class SchoolDB(LovesDB):
                 int(session_row["class_id"]), [int(student_id)]
             )
         return attendee
+
+    def disconnect_live_session_by_visit_token(
+        self,
+        token: str,
+        *,
+        clear_mood: bool = True,
+    ) -> dict[str, Any] | None:
+        """Mark one attendee left by opaque visit token.
+
+        Used when a student tab closes with ``X-Student-Visit-Token`` so other
+        tabs in the same browser (shared cookie) are not disconnected.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+            clear_mood: When True, clear this student's mood and character.
+
+        Returns:
+            Updated attendee row, or ``None`` when the token is unknown.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+        if row is None:
+            return None
+        attendee = dict(row)
+        if attendee.get("left_at"):
+            return attendee
+        return self.disconnect_live_session_student(
+            int(attendee["live_session_id"]),
+            int(attendee["student_id"]),
+            clear_mood=clear_mood,
+        )
 
     def upsert_document(self, **fields: Any) -> int:
         """Insert or update a curriculum PDF registry row."""

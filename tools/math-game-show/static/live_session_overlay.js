@@ -15,7 +15,6 @@ const sessionId = Number(
 const classIdHint = Number(params.get("class_id") || 0);
 
 const codeEl = document.getElementById("live-code");
-const copyBtn = document.getElementById("live-copy-code");
 const copyFeedback = document.getElementById("live-copy-feedback");
 const roundEl = document.getElementById("live-round");
 const roundClockEl = document.getElementById("live-round-clock");
@@ -25,6 +24,13 @@ const emptyEl = document.getElementById("live-empty");
 const teamsSection = document.getElementById("live-teams");
 const teamBoard = document.getElementById("live-team-board");
 const endedEl = document.getElementById("live-ended");
+const anticipationEl = document.getElementById("live-anticipation");
+const anticipationClockEl = document.getElementById("live-anticipation-clock");
+const anticipationTitleEl = document.getElementById("live-anticipation-title");
+const celebrateEl = document.getElementById("live-celebrate");
+const celebrateTeamEl = document.getElementById("live-celebrate-team");
+const celebrateMembersEl = document.getElementById("live-celebrate-members");
+const confettiEl = document.getElementById("live-confetti");
 
 let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
@@ -36,6 +42,12 @@ let lastPresent = [];
 /** @type {any|null} */
 let lastBoard = null;
 let copyFeedbackTimer = 0;
+let lastPhase = "";
+let celebrationDone = false;
+/** @type {AudioContext|null} */
+let audioCtx = null;
+let anticipationBeepTimer = 0;
+let anticipationIntensity = 0;
 
 /**
  * Present attendees (still in the session) from a state payload.
@@ -60,7 +72,14 @@ function presentAttendees(state) {
  * @returns {boolean}
  */
 function hasTeamScoreboard(board) {
-  if (!board?.live) return false;
+  if (!board) return false;
+  const phase = String(board.overlay_phase || "");
+  const active =
+    Boolean(board.live) ||
+    Boolean(board.final) ||
+    phase === "meet_teams" ||
+    phase === "anticipation";
+  if (!active) return false;
   const teams = Array.isArray(board.teams) ? board.teams : [];
   if (teams.length < 2) return false;
   if (teams.length === 1 && teams[0]?.name === "Class") return false;
@@ -102,7 +121,7 @@ function rosterItemHtml(row) {
 }
 
 /**
- * Paint In-class list: flat for individual, grouped by team when Team Tracking.
+ * Paint Participants list: flat for individual, grouped by team when Team Tracking.
  */
 function paintRoster() {
   if (!rosterBody) return;
@@ -176,6 +195,18 @@ function paintRoster() {
  * @param {any} board
  */
 function paintRound(board) {
+  const phase = String(board?.overlay_phase || "");
+  if (phase === "anticipation") {
+    if (roundEl) {
+      roundEl.hidden = true;
+      roundEl.classList.add("hidden");
+    }
+    if (roundClockEl) {
+      roundClockEl.hidden = true;
+      roundClockEl.classList.add("hidden");
+    }
+    return;
+  }
   const title = String(board?.round_title || "").trim();
   const show = hasTeamScoreboard(board) && Boolean(title);
   const key = show ? `${title}:${board?.round_ends_at_ms || ""}` : "";
@@ -185,7 +216,7 @@ function paintRound(board) {
       return;
     }
     lastRoundKey = key;
-    roundEl.textContent = show ? `Round: ${title}` : "";
+    roundEl.textContent = show ? (phase === "meet_teams" ? title : `Round: ${title}`) : "";
     roundEl.hidden = !show;
     roundEl.classList.toggle("hidden", !show);
   }
@@ -199,6 +230,12 @@ function paintRound(board) {
  */
 function paintRoundClock(board) {
   if (!roundClockEl) return;
+  const phase = String(board?.overlay_phase || "");
+  if (phase === "anticipation") {
+    roundClockEl.hidden = true;
+    roundClockEl.classList.add("hidden");
+    return;
+  }
   const show = hasTeamScoreboard(board) && Boolean(board?.round_ends_at_ms);
   roundClockEl.textContent = show ? formatCountdown(remainingUntilMs(roundEndsAtMs)) : "";
   roundClockEl.hidden = !show;
@@ -206,15 +243,12 @@ function paintRoundClock(board) {
 }
 
 /**
- * Format join code for display (grouped for manual reading).
+ * Display join code without spaces (raw uppercase).
  * @param {string} code
  * @returns {string}
  */
 function formatDisplayCode(code) {
-  const raw = String(code || "").trim().toUpperCase();
-  if (!raw || raw === "····") return raw;
-  if (raw.length === 8) return `${raw.slice(0, 4)} ${raw.slice(4)}`;
-  return raw.replace(/(.{4})/g, "$1 ").trim();
+  return copyableCode(code) || "····";
 }
 
 /**
@@ -258,7 +292,8 @@ function paintSession(state) {
  */
 function paintTeamScores(board) {
   if (!teamsSection || !teamBoard) return;
-  if (!hasTeamScoreboard(board)) {
+  const phase = String(board?.overlay_phase || "");
+  if (phase === "anticipation" || !hasTeamScoreboard(board)) {
     teamsSection.hidden = true;
     teamsSection.classList.add("hidden");
     teamBoard.innerHTML = "";
@@ -285,14 +320,174 @@ function paintTeamScores(board) {
 }
 
 /**
- * Apply scoreboard poll: round label, team-grouped roster, vertical scores.
+ * Ensure a shared AudioContext for original anticipation beeps.
+ * @returns {AudioContext|null}
+ */
+function getAudioContext() {
+  if (audioCtx) return audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  audioCtx = new Ctx();
+  return audioCtx;
+}
+
+/**
+ * Play one short original beep (not copyrighted theme audio).
+ * @param {number} intensity 0–1
+ */
+function playAnticipationBeep(intensity) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const freq = 220 + intensity * 440;
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(freq, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.045 + intensity * 0.06, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.2);
+}
+
+/**
+ * Start CSS + Web Audio anticipation sequence (~2 minutes).
+ * @param {any} board
+ */
+function startAnticipation(board) {
+  if (!anticipationEl) return;
+  anticipationEl.hidden = false;
+  anticipationEl.classList.remove("hidden");
+  document.body.classList.add("is-anticipation");
+  anticipationIntensity = 0;
+  if (anticipationTitleEl) anticipationTitleEl.textContent = "Rounds incoming";
+  paintAnticipationClock(board);
+  if (anticipationBeepTimer) window.clearInterval(anticipationBeepTimer);
+  anticipationBeepTimer = window.setInterval(() => {
+    anticipationIntensity = Math.min(1, anticipationIntensity + 0.03);
+    document.body.style.setProperty("--anticipation-intensity", String(anticipationIntensity));
+    if (anticipationTitleEl) {
+      const stings = ["Rounds incoming", "Teams ready", "Hold…", "Almost there"];
+      const idx = Math.min(stings.length - 1, Math.floor(anticipationIntensity * stings.length));
+      anticipationTitleEl.textContent = stings[idx];
+    }
+    playAnticipationBeep(anticipationIntensity);
+  }, 3500);
+}
+
+/**
+ * Stop anticipation visuals and audio loop.
+ */
+function stopAnticipation() {
+  if (anticipationBeepTimer) {
+    window.clearInterval(anticipationBeepTimer);
+    anticipationBeepTimer = 0;
+  }
+  if (anticipationEl) {
+    anticipationEl.hidden = true;
+    anticipationEl.classList.add("hidden");
+  }
+  document.body.classList.remove("is-anticipation");
+  document.body.style.removeProperty("--anticipation-intensity");
+}
+
+/**
+ * Paint anticipation countdown from board timer.
+ * @param {any} board
+ */
+function paintAnticipationClock(board) {
+  if (!anticipationClockEl) return;
+  const ends = Number(board?.round_ends_at_ms) || 0;
+  anticipationClockEl.textContent = ends ? formatCountdown(remainingUntilMs(ends)) : "";
+}
+
+/**
+ * Rank teams by score descending.
+ * @param {any} board
+ * @returns {Array<any>}
+ */
+function rankedTeams(board) {
+  const teams = Array.isArray(board?.teams) ? [...board.teams] : [];
+  return teams.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+}
+
+/**
+ * Run winner celebration once when the final board arrives.
+ * @param {any} board
+ */
+function maybeCelebrateWinner(board) {
+  const isFinal =
+    Boolean(board?.final) || board?.status === "ended" || String(board?.overlay_phase || "") === "";
+  if (!board || !hasTeamScoreboard(board)) return;
+  if (!(Boolean(board.final) || board.status === "ended")) return;
+  if (celebrationDone) return;
+  celebrationDone = true;
+  stopAnticipation();
+  const winners = rankedTeams(board);
+  const top = winners[0];
+  if (!top || !celebrateEl) return;
+  document.body.classList.add("is-celebrating");
+  celebrateEl.hidden = false;
+  celebrateEl.classList.remove("hidden");
+  if (celebrateTeamEl) celebrateTeamEl.textContent = String(top.name || "Winner");
+  const members = Array.isArray(top.players) ? top.players : [];
+  if (celebrateMembersEl) {
+    celebrateMembersEl.innerHTML = members
+      .map((p) => {
+        const name = String(p.codename || p.first_name || p.name || "").trim() || "Player";
+        return `<li>${escapeHtml(name)}</li>`;
+      })
+      .join("");
+  }
+  spawnConfetti();
+  window.setTimeout(() => {
+    document.body.classList.remove("is-celebrating");
+    if (celebrateEl) {
+      celebrateEl.classList.add("is-settled");
+    }
+  }, 8000);
+  void isFinal;
+}
+
+/**
+ * Create lightweight CSS confetti particles in the celebration layer.
+ */
+function spawnConfetti() {
+  if (!confettiEl) return;
+  confettiEl.innerHTML = "";
+  const colors = ["#f5c518", "#3d7eff", "#9dffb0", "#ff8f8f", "#d7deef"];
+  for (let i = 0; i < 36; i += 1) {
+    const bit = document.createElement("span");
+    bit.className = "live-overlay-confetti-bit";
+    bit.style.setProperty("--i", String(i));
+    bit.style.setProperty("--c", colors[i % colors.length]);
+    bit.style.setProperty("--x", `${(Math.random() * 100).toFixed(1)}%`);
+    bit.style.setProperty("--d", `${(0.8 + Math.random() * 1.4).toFixed(2)}s`);
+    confettiEl.appendChild(bit);
+  }
+}
+
+/**
+ * Apply scoreboard poll: phase, round label, team-grouped roster, vertical scores.
  * @param {any} board
  */
 function paintTeams(board) {
   lastBoard = board;
+  const phase = String(board?.overlay_phase || "");
+  if (phase === "anticipation") {
+    if (lastPhase !== "anticipation") startAnticipation(board);
+    else paintAnticipationClock(board);
+  } else if (lastPhase === "anticipation") {
+    stopAnticipation();
+  }
+  lastPhase = phase;
   paintRound(board);
   paintRoster();
   paintTeamScores(board);
+  maybeCelebrateWinner(board);
 }
 
 /**
@@ -360,9 +555,15 @@ async function tick() {
   }
 }
 
-copyBtn?.addEventListener("click", (event) => {
+codeEl?.addEventListener("click", (event) => {
   event.preventDefault();
   copyClassCode();
+});
+codeEl?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    copyClassCode();
+  }
 });
 
 if (!sessionId) {
@@ -372,6 +573,9 @@ if (!sessionId) {
   tick();
   setInterval(tick, 2000);
   setInterval(() => {
-    if (lastBoard) paintRoundClock(lastBoard);
+    if (!lastBoard) return;
+    const phase = String(lastBoard.overlay_phase || "");
+    if (phase === "anticipation") paintAnticipationClock(lastBoard);
+    else paintRoundClock(lastBoard);
   }, 1000);
 }

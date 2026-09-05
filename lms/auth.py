@@ -260,10 +260,20 @@ def it_required(f: Callable) -> Callable:
 
 
 def student_required(f: Callable) -> Callable:
-    """Require a student-code session (no Google)."""
+    """Require a student-code session (no Google).
+
+    Also allows a valid ``visit_token`` query param or
+    ``X-Student-Visit-Token`` header so multiple student tabs can coexist in
+    one browser without relying on the shared Flask session cookie alone.
+    """
 
     @wraps(f)
     def decorated(*args, **kwargs):
+        from student_portal import visit_token_from_request
+
+        token = visit_token_from_request()
+        if token and school_db().resolve_student_visit_token(token) is not None:
+            return f(*args, **kwargs)
         if not session.get("student_offering_id") and not session.get("student_class_id"):
             return redirect(url_for("landing"))
         return f(*args, **kwargs)
@@ -645,10 +655,26 @@ def register_auth_routes(app: Flask) -> None:
         attendee. Safe to call with sendBeacon; always returns 204 when the
         cookie session is incomplete.
 
-        Only clears student session keys so a same-browser staff login (used
-        during local testing) is not wiped by a student tab close/beacon.
+        When ``visit_token`` is supplied (header or JSON body), only that
+        attendee is disconnected so other student tabs in the same browser
+        keep their sessions.
+
+        Only clears student session keys when the cookie matches that token
+        so a same-browser staff login (used during local testing) is not
+        wiped by a student tab close/beacon.
         """
         from flask import Response
+
+        from student_portal import visit_token_from_request
+
+        token = visit_token_from_request()
+        if token:
+            school_db().disconnect_live_session_by_visit_token(
+                token, clear_mood=True
+            )
+            if session.get("student_visit_token") == token:
+                clear_student_session_keys(session)
+            return Response(status=204)
 
         _disconnect_student_live_if_bound()
         clear_student_session_keys(session)
@@ -737,6 +763,7 @@ def register_auth_routes(app: Flask) -> None:
         )
         db.clear_recent_code_attempts(ip)
         attendee = join_result.get("attendee") or {}
+        visit_token = str(attendee.get("visit_token") or "")
         bind_student_session(
             session,
             offering,
@@ -744,14 +771,14 @@ def register_auth_routes(app: Flask) -> None:
             student,
             live_session_id=int(live_session["id"]),
             session_code=str(live_session.get("session_code") or code),
-            visit_token=str(attendee.get("visit_token") or ""),
+            visit_token=visit_token,
         )
-        return redirect(
-            url_for(
-                next_student_endpoint(
-                    db,
-                    class_id,
-                    int(student["id"]),
-                )
-            )
+        from student_portal import student_url_with_token
+
+        endpoint = next_student_endpoint(
+            db,
+            class_id,
+            int(student["id"]),
+            visit_token=visit_token,
         )
+        return redirect(student_url_with_token(endpoint, visit_token))

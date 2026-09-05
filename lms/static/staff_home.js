@@ -1,4 +1,4 @@
-import { api, hideError, reserveLiveSessionOverlay, showError } from "/static/common.js";
+import { api, hideError, showError } from "/static/common.js";
 
 const POPULATE_STEPS_FULL = ["roster", "days", "time"];
 const POPULATE_STEPS_ROSTER = ["roster"];
@@ -230,6 +230,13 @@ async function submitRosterEdit() {
 
 document.querySelectorAll(".btn-populate").forEach((btn) => {
   btn.addEventListener("click", () => {
+    if (btn.disabled || btn.getAttribute("aria-disabled") === "true") {
+      showError(
+        "#error",
+        new Error("End the live class before editing the roster.")
+      );
+      return;
+    }
     startWizard(btn).catch((err) => showError("#error", err));
   });
 });
@@ -348,16 +355,3 @@ function initPackProgress() {
 }
 
 initPackProgress();
-
-/**
- * Reserve the live-session overlay popup on Run Live Class click (before redirect).
- */
-function bindRunLiveOverlayReserve() {
-  document.querySelectorAll('form[action*="/run-live"]').forEach((form) => {
-    form.addEventListener("submit", () => {
-      reserveLiveSessionOverlay();
-    });
-  });
-}
-
-bindRunLiveOverlayReserve();

@@ -39,6 +39,123 @@ STUDENT_SESSION_KEYS = (
 )
 
 
+def visit_token_from_request(req: Any | None = None) -> str:
+    """Read opaque visit token from query, form, header, or JSON body.
+
+    Args:
+        req: Flask ``request``; defaults to the active request when omitted.
+
+    Returns:
+        Trimmed token string, or ``""`` when absent.
+    """
+    from flask import request as flask_request
+
+    req = req or flask_request
+    token = (
+        (req.args.get("v") or req.headers.get("X-Student-Visit-Token") or "")
+        .strip()
+    )
+    if token:
+        return token
+    if req.form:
+        token = (req.form.get("visit_token") or "").strip()
+        if token:
+            return token
+    payload = req.get_json(silent=True) or {}
+    if isinstance(payload, dict):
+        token = (payload.get("visit_token") or "").strip()
+        if token:
+            return token
+    return ""
+
+
+def resolve_student_live_context(
+    school: Any,
+    session: Any,
+    req: Any | None = None,
+) -> dict[str, Any] | None:
+    """Resolve student live context from visit token (preferred) or Flask session.
+
+    Visit tokens let multiple student tabs share one browser cookie without
+    cross-talk: each tab sends its opaque ``v`` token on requests.
+
+    Args:
+        school: SchoolDB instance.
+        session: Flask session mapping.
+        req: Flask ``request``; defaults to the active request when omitted.
+
+    Returns:
+        Dict with ``offering``, ``class_id``, ``student_id``, ``live_session_id``,
+        ``visit_token``, and ``codename``; or ``None`` when unresolved.
+    """
+    token = visit_token_from_request(req)
+    if token:
+        resolved = school.resolve_student_visit_token(token)
+        if resolved is not None:
+            attendee = resolved["attendee"]
+            session_row = resolved["session"]
+            class_id = int(resolved["class_id"])
+            student_id = int(resolved["student_id"])
+            live_session_id = int(resolved["live_session_id"])
+            try:
+                cls = school.game.get_class(class_id)
+                student = school.game.get_student(class_id, student_id)
+                offering = school.get_offering(int(session_row["offering_id"]))
+            except (KeyError, TypeError):
+                return None
+            codename = str(
+                attendee.get("codename")
+                or student.get("codename")
+                or student.get("first_name")
+                or ""
+            )
+            return {
+                "offering": offering,
+                "class_id": class_id,
+                "student_id": student_id,
+                "live_session_id": live_session_id,
+                "visit_token": token,
+                "codename": codename,
+            }
+    offering_id = session.get("student_offering_id")
+    class_id = session.get("student_class_id")
+    student_id = session.get("student_id")
+    if not offering_id or not class_id or not student_id:
+        return None
+    try:
+        offering = school.get_offering(int(offering_id))
+    except KeyError:
+        return None
+    live_session_id = session.get("student_live_session_id")
+    return {
+        "offering": offering,
+        "class_id": int(class_id),
+        "student_id": int(student_id),
+        "live_session_id": int(live_session_id) if live_session_id else 0,
+        "visit_token": str(session.get("student_visit_token") or ""),
+        "codename": str(session.get("student_codename") or ""),
+    }
+
+
+def student_url_with_token(endpoint: str, token: str, **kwargs: Any) -> str:
+    """Build a student route URL scoped to a visit token.
+
+    Args:
+        endpoint: Flask endpoint name (for example ``student_home``).
+        token: Opaque ``live_session_attendees.visit_token``.
+        **kwargs: Extra ``url_for`` keyword arguments.
+
+    Returns:
+        Relative URL, with ``?v=`` appended when ``token`` is non-empty.
+    """
+    from flask import url_for
+
+    cleaned = (token or "").strip()
+    if cleaned:
+        kwargs["v"] = cleaned
+    return url_for(endpoint, **kwargs)
+
+
 def clear_student_session_keys(session: Any) -> None:
     """Remove student-code keys without wiping a same-browser staff login.
 
@@ -80,21 +197,7 @@ def bind_student_session(
             the durable offering code when provided).
         visit_token: Opaque attendee token for ``/student/s/<token>``.
     """
-    preserved: dict[str, Any] = {}
-    if session.get("logged_in") and session.get("user_id"):
-        for key in (
-            "logged_in",
-            "user_id",
-            "portal",
-            "email",
-            "display_name",
-            "picture",
-            "role",
-        ):
-            if key in session:
-                preserved[key] = session[key]
-    session.clear()
-    session.update(preserved)
+    clear_student_session_keys(session)
     session["student_offering_id"] = int(offering["id"])
     session["student_live_code"] = (
         (session_code or "").strip().upper()
@@ -111,34 +214,45 @@ def bind_student_session(
     token = (visit_token or "").strip()
     if token:
         session["student_visit_token"] = token
-    if "role" not in preserved:
+    if not session.get("logged_in"):
         session["role"] = "student"
     # Live student access must not outlive the browser session as a permanent
     # cookie; the active-attendee gate clears keys when class ends.
     session.permanent = False
 
 
-def next_student_endpoint(school: Any, class_id: int, student_id: int) -> str:
+def next_student_endpoint(
+    school: Any,
+    class_id: int,
+    student_id: int,
+    *,
+    visit_token: str = "",
+) -> str:
     """Return the Flask endpoint after join / mood / legacy redirects.
 
     Mood is optional. After pick/skip (``student_mood_done``) or when a mood
     is already stored, continue to home.
 
+    When ``visit_token`` is set (multi-tab testing), cookie ``student_mood_done``
+    from another tab is ignored so each visit token keeps its own mood step.
+
     Args:
         school: SchoolDB.
         class_id: Class primary key.
         student_id: Students primary key.
+        visit_token: Opaque attendee token when routing a token-scoped visit.
 
     Returns:
         ``student_mood`` or ``student_home``.
     """
     from flask import session
 
-    if session.get("student_mood_done"):
-        return "student_home"
     student = school.game.get_student(class_id, student_id)
     if student.get("mood"):
-        session["student_mood_done"] = True
+        if not visit_token:
+            session["student_mood_done"] = True
+        return "student_home"
+    if not visit_token and session.get("student_mood_done"):
         return "student_home"
     return "student_mood"
 

@@ -56,7 +56,7 @@ class StudentPortalTests(unittest.TestCase):
                 "offering_id": self.offering["id"],
                 "days": "M/W/F",
                 "time": "2:00pm",
-                "codenames": ["Maple"],
+                "codenames": ["Maple", "Aspen"],
             },
         )
         self.assertEqual(created.status_code, 200)
@@ -244,6 +244,101 @@ class StudentPortalTests(unittest.TestCase):
             )
             self.assertEqual(sess.get("student_live_session_id"), self.live_session_id)
             self.assertEqual(sess.get("student_visit_token"), token)
+
+    def test_multi_tab_visit_token_isolates_identity(self) -> None:
+        """Two student joins in one browser: token header keeps each codename."""
+        join_maple = self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(join_maple.status_code, 302)
+        maple_loc = join_maple.headers.get("Location", "")
+        self.assertIn("v=", maple_loc)
+        attendees = self.school.list_live_session_attendees(self.live_session_id)
+        maple_token = str(
+            next(row for row in attendees if row["codename"] == "Maple")["visit_token"]
+        )
+
+        join_aspen = self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Aspen"},
+            follow_redirects=False,
+        )
+        self.assertEqual(join_aspen.status_code, 302)
+        attendees = self.school.list_live_session_attendees(self.live_session_id)
+        aspen_token = str(
+            next(row for row in attendees if row["codename"] == "Aspen")["visit_token"]
+        )
+        self.assertNotEqual(maple_token, aspen_token)
+
+        # Cookie now reflects Aspen; Maple token header must still resolve Maple.
+        maple_state = self.student.get(
+            "/api/student/state",
+            headers={"X-Student-Visit-Token": maple_token},
+        )
+        self.assertEqual(maple_state.status_code, 200)
+        self.assertEqual(maple_state.get_json()["me"]["codename"], "Maple")
+
+        aspen_state = self.student.get(
+            "/api/student/state",
+            headers={"X-Student-Visit-Token": aspen_token},
+        )
+        self.assertEqual(aspen_state.status_code, 200)
+        self.assertEqual(aspen_state.get_json()["me"]["codename"], "Aspen")
+
+        mood_maple = self.student.post(
+            "/student/mood",
+            data={"mood": "good", "visit_token": maple_token},
+            headers={"X-Student-Visit-Token": maple_token},
+            follow_redirects=False,
+        )
+        self.assertEqual(mood_maple.status_code, 302)
+        maple = self.school.game.get_student(
+            self.class_id,
+            int(
+                self.school.game.find_student_by_codename(self.class_id, "Maple")["id"]
+            ),
+        )
+        aspen = self.school.game.get_student(
+            self.class_id,
+            int(
+                self.school.game.find_student_by_codename(self.class_id, "Aspen")["id"]
+            ),
+        )
+        self.assertEqual(maple.get("mood"), "good")
+        self.assertIsNone(aspen.get("mood"))
+
+        leave_maple = self.student.post(
+            "/api/student/leave",
+            json={"visit_token": maple_token},
+            headers={"X-Student-Visit-Token": maple_token},
+        )
+        self.assertEqual(leave_maple.status_code, 204)
+        aspen_state_after = self.student.get(
+            "/api/student/state",
+            headers={"X-Student-Visit-Token": aspen_token},
+        )
+        self.assertEqual(aspen_state_after.status_code, 200)
+        self.assertEqual(aspen_state_after.get_json()["me"]["codename"], "Aspen")
+
+    def test_rejoin_preserves_visit_token(self) -> None:
+        """Rejoining while still active keeps the same opaque visit token."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        first = self.school.list_live_session_attendees(self.live_session_id)[0]
+        first_token = str(first["visit_token"])
+
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        second = self.school.list_live_session_attendees(self.live_session_id)[0]
+        self.assertEqual(str(second["visit_token"]), first_token)
 
 
 if __name__ == "__main__":
