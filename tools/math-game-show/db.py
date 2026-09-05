@@ -455,7 +455,9 @@ def round_remaining_sec(
     """Seconds left on a round clock, never below 0.
 
     A full second must elapse before the count drops, so a just-started
-    20:00 round still reads 1200.
+    20:00 round still reads 1200. When ``started_at`` is missing but
+    ``duration_sec`` is set, the timer is treated as paused and the full
+    stored duration is returned (frozen remaining).
 
     Args:
         started_at: ISO timestamp when the round began, or None.
@@ -465,8 +467,10 @@ def round_remaining_sec(
     Returns:
         Remaining whole seconds, clamped at 0.
     """
-    if not started_at or not duration_sec:
+    if not duration_sec:
         return 0
+    if not started_at:
+        return max(0, int(duration_sec))
     try:
         started = datetime.fromisoformat(str(started_at))
     except ValueError:
@@ -3049,8 +3053,15 @@ class GameShowDB:
         """
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] not in {"teams", "names"}:
+            if game["status"] not in {"attendance", "teams", "names"}:
                 raise ValueError("Assign teams during the setup wizard")
+            if game["status"] == "attendance":
+                # Promote when the UI skipped an earlier attendance POST.
+                self.conn.execute(
+                    "UPDATE games SET status = 'teams' WHERE id = ?",
+                    (int(game["id"]),),
+                )
+                game = self._game_row(class_id)
             session_id = int(game["session_id"])
             present_rows = self.conn.execute(
                 """
@@ -3241,6 +3252,71 @@ class GameShowDB:
                 WHERE id = ?
                 """,
                 (self._now(), minutes_i * 60, int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def pause_round_timer(self, class_id: int) -> dict[str, Any]:
+        """Freeze the active Meet / round countdown at its remaining time.
+
+        Stores remaining seconds in ``round_duration_sec`` and clears
+        ``round_started_at`` so clients show a paused clock.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When no running timer is active.
+        """
+        with self._lock:
+            game = dict(self._game_row(class_id))
+            started = game.get("round_started_at")
+            duration = game.get("round_duration_sec")
+            if not started or not duration:
+                raise ValueError("No running timer to pause")
+            remaining = round_remaining_sec(str(started), int(duration))
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_started_at = NULL,
+                    round_duration_sec = ?
+                WHERE id = ?
+                """,
+                (max(0, remaining), int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def resume_round_timer(self, class_id: int) -> dict[str, Any]:
+        """Resume a paused Meet / round countdown from frozen remaining.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When the timer is not paused with remaining time.
+        """
+        with self._lock:
+            game = dict(self._game_row(class_id))
+            started = game.get("round_started_at")
+            duration = game.get("round_duration_sec")
+            if started:
+                raise ValueError("Timer is already running")
+            if not duration or int(duration) <= 0:
+                raise ValueError("No paused timer to resume")
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_started_at = ?
+                WHERE id = ?
+                """,
+                (self._now(), int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
@@ -4598,6 +4674,7 @@ class GameShowDB:
                 str(game["round_started_at"]) if game.get("round_started_at") else None
             )
             duration_i = int(game.get("round_duration_sec") or 180)
+            paused = started_s is None and duration_i > 0
             return {
                 "round": 0,
                 "round_title": "Meet the Teams",
@@ -4606,9 +4683,12 @@ class GameShowDB:
                 "rounds": [],
                 "round_started_at": started_s,
                 "round_duration_sec": duration_i or None,
-                "round_ends_at": round_ends_at(started_s, duration_i),
-                "round_ends_at_ms": round_ends_at_ms(started_s, duration_i),
+                "round_ends_at": None if paused else round_ends_at(started_s, duration_i),
+                "round_ends_at_ms": None
+                if paused
+                else round_ends_at_ms(started_s, duration_i),
                 "round_remaining_sec": round_remaining_sec(started_s, duration_i),
+                "timer_paused": paused,
                 "overlay_phase": phase,
             }
         if phase == "anticipation":
@@ -4639,6 +4719,7 @@ class GameShowDB:
         raw_dur = game.get("round_duration_sec") if live else None
         duration_i = int(raw_dur) if raw_dur not in (None, "") else int(active["duration_sec"])
         started_s = str(started) if started else None
+        paused = live and started_s is None and duration_i > 0
         return {
             "round": current,
             "round_title": str(active["title"]),
@@ -4647,9 +4728,10 @@ class GameShowDB:
             "rounds": plan,
             "round_started_at": started_s,
             "round_duration_sec": duration_i or None,
-            "round_ends_at": round_ends_at(started_s, duration_i),
-            "round_ends_at_ms": round_ends_at_ms(started_s, duration_i),
+            "round_ends_at": None if paused else round_ends_at(started_s, duration_i),
+            "round_ends_at_ms": None if paused else round_ends_at_ms(started_s, duration_i),
             "round_remaining_sec": round_remaining_sec(started_s, duration_i),
+            "timer_paused": paused,
             "overlay_phase": None,
         }
 

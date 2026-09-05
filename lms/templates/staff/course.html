@@ -162,28 +162,6 @@
                   </span>
                 </label>
               </div>
-              <div class="scoreboard-help" id="ap-scoreboard-preview-wrap">
-                <div class="scoreboard-preview" aria-hidden="true">
-                  <div class="sb-preview-top">
-                    <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
-                    <span class="sb-preview-clock">19:16</span>
-                  </div>
-                  <div class="sb-preview-teams">
-                    <div class="sb-preview-team sb-preview-team--1">
-                      <span class="sb-preview-name">TEAM 1</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                    <div class="sb-preview-team sb-preview-team--2">
-                      <span class="sb-preview-name">TEAM 2</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                    <div class="sb-preview-team sb-preview-team--3">
-                      <span class="sb-preview-name">TEAM 3</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
               <div class="ap-game-opt-row">
                 <label class="scoreboard-opt" for="ap-rank-toggle">
                   <input type="checkbox" id="ap-rank-toggle">
@@ -191,6 +169,28 @@
                     <span class="ap-game-opt-title">Allow students to privately see their rank in class</span>
                   </span>
                 </label>
+              </div>
+            </div>
+            <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
+              <div class="scoreboard-preview" aria-hidden="true">
+                <div class="sb-preview-top">
+                  <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
+                  <span class="sb-preview-clock">19:16</span>
+                </div>
+                <div class="sb-preview-teams">
+                  <div class="sb-preview-team sb-preview-team--1">
+                    <span class="sb-preview-name">TEAM 1</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--2">
+                    <span class="sb-preview-name">TEAM 2</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--3">
+                    <span class="sb-preview-name">TEAM 3</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="track-step-footer">
@@ -250,13 +250,14 @@
           </div>
           <div class="track-step-body">
             <label class="field" for="ap-meet-minutes">Meet Your Team timer (min)</label>
-            <div class="ap-meet-timer-row">
-              <div class="stepper ap-teams-stepper">
+            <div class="ap-meet-timer-row" id="ap-meet-timer-row">
+              <div class="stepper ap-teams-stepper" id="ap-meet-stepper">
                 <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
                 <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
                 <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
               </div>
-              <button type="button" id="ap-meet-start" class="ap-meet-start">Start</button>
+              <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
+              <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
             </div>
             <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
             <div id="ap-name-list" class="ap-name-list-compact"></div>
