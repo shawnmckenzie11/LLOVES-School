@@ -694,6 +694,48 @@ class GamePersistTests(unittest.TestCase):
                 class_id, date(2026, 8, 1), today=date(2026, 8, 31)
             )
 
+    def test_end_game_writes_picker_meeting_date_column(self) -> None:
+        """End Game retargets the session to the picker date before closing.
+
+        Scores must land on the teacher-chosen calendar day even if the live
+        session was briefly pointing at another starts_at (e.g. “today”).
+        """
+        class_id = self.cls["id"]
+        state = self.db.begin_game(
+            class_id, today=date(2026, 8, 31), meeting_date=date(2026, 9, 8)
+        )
+        self.assertEqual(state["session"]["meeting_date"], "2026-09-08")
+        present = [s["id"] for s in state["students"][:2]]
+        self.db.save_attendance(class_id, present)
+        self.db.start_ungamified_live(class_id)
+        member_id = present[0]
+        self.db.award_points(
+            class_id, kind="student", target_id=member_id, amount=7
+        )
+        # Simulate a stale/wrong starts_at, then End Game with picker date.
+        with self.db._lock:
+            self.db.conn.execute(
+                """
+                UPDATE sessions
+                SET starts_at = ?, header_label = ?
+                WHERE id = ?
+                """,
+                (
+                    "2026-09-09T14:00:00",
+                    "Tue 9/9 2:00pm",
+                    int(state["session"]["id"]),
+                ),
+            )
+            self.db.conn.commit()
+        ended = self.db.end_game(class_id, meeting_date=date(2026, 9, 11))
+        self.assertEqual(ended["meeting_date"], "2026-09-11")
+        dash = self.db.dashboard(class_id)
+        session = next(s for s in dash["sessions"] if s["id"] == ended["session_id"])
+        self.assertEqual(str(session["starts_at"])[:10], "2026-09-11")
+        self.assertEqual(
+            dash["cells"][f"{session['id']}:{member_id}"]["points"], 7
+        )
+
     def test_team_credit_rules(self) -> None:
         """each_member, split_members, and team_only credit individuals differently."""
         self.assertEqual(split_amount(10, 3), [3.3, 3.3, 3.3])
@@ -992,6 +1034,44 @@ class GamePersistTests(unittest.TestCase):
             self.db.award_points(
                 class_id, kind="student", target_id=member["id"], amount=1
             )
+
+    def test_individual_open_question_only_rounds(self) -> None:
+        """Individual Class tracking prepares rounds then starts Open Question only."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:3]]
+        self.db.save_attendance(class_id, present)
+        prepared = self.db.start_ungamified_live(class_id, go_live=False)
+        self.assertEqual(prepared["game"]["status"], "rounds")
+        self.assertEqual(len(prepared["teams"]), 1)
+        self.assertEqual(prepared["teams"][0]["name"], "Class")
+        with self.assertRaises(ValueError):
+            self.db.start_live_with_rounds(
+                class_id, [{"kind": "challenge", "minutes": 10}]
+            )
+        live = self.db.start_live_with_rounds(
+            class_id, [{"kind": "open", "minutes": 12}]
+        )
+        self.assertEqual(live["game"]["status"], "live")
+        self.assertEqual(live["game"]["round_title"], "Open Question")
+        self.assertEqual(live["game"]["round_count"], 1)
+        self.assertIsNone(self.db._scoreboard_game_id())
+        with self.assertRaises(ValueError):
+            self.db.append_and_start_round(
+                class_id, {"kind": "formative", "minutes": 8}
+            )
+        appended = self.db.append_and_start_round(
+            class_id, {"kind": "open", "minutes": 8}
+        )
+        self.assertEqual(appended["game"]["round"], 2)
+        self.db.end_game(class_id)
+        again = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present2 = [s["id"] for s in again["students"][:2]]
+        self.db.save_attendance(class_id, present2)
+        direct = self.db.start_ungamified_live(class_id, go_live=True)
+        self.assertEqual(direct["game"]["status"], "live")
+        self.assertEqual(direct["game"]["round_count"], 1)
+        self.assertEqual(direct["game"]["round_title"], "Open Question")
 
     def test_r2_awards_do_not_change_r1(self) -> None:
         """New awards tag the current round; the lesson total is the sum."""

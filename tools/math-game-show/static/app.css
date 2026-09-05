@@ -722,13 +722,19 @@ table.roster tbody.player-block tr.player-line td {
 
 body.scoreboard.overlay {
   height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
+  min-height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
 }
 
 body.scoreboard.overlay .board-stage {
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
+  max-height: 100%;
   justify-content: flex-end;
   overflow: hidden;
 }
@@ -751,13 +757,16 @@ body.scoreboard {
   background: #07080a;
   color: #f4f1ea;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
   font-family: "DIN Condensed", "Arial Narrow", Impact, sans-serif;
+  box-sizing: border-box;
 }
 
 .board-stage {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1189,42 +1198,106 @@ body.scoreboard.overlay .board-stage.is-final {
   .choices { grid-template-columns: 1fr; }
   table.sheet th.name, table.sheet td.name,
   table.sheet th.total, table.sheet td.total { position: static; }
+
+  /* Mobile board: pin scoreboard, stack teams so the bottom team stays visible */
+  body.scoreboard {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  body.scoreboard .board-stage {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  body.scoreboard .round-banner {
+    flex: 0 0 auto;
+    padding: 6px 12px 4px;
+    font-size: clamp(14px, 3.5vw, 18px);
+    gap: 10px;
+  }
+  body.scoreboard .espn-bar {
+    flex-direction: column;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(58dvh, 100%);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.scoreboard .espn-team {
+    flex: 0 0 auto;
+    min-height: 3.1rem;
+    border-bottom: 1px solid #1a1d24;
+  }
+  body.scoreboard .espn-meta {
+    padding: 8px 12px;
+  }
+  body.scoreboard .espn-score {
+    font-size: clamp(28px, 8vw, 48px);
+  }
+  body.scoreboard .final-ticker {
+    flex: 0 0 auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  body.scoreboard .final-board {
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  body.scoreboard .final-scores {
+    min-height: 0;
+    overflow: auto;
+  }
+  body.scoreboard .final-list {
+    flex-direction: column;
+  }
 }
 
 /* Live session overlay — narrow vertical Zoom-share strip */
 body.live-overlay {
   margin: 0;
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   background: #0b1020;
   color: #f4f6fb;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body.live-overlay.overlay {
-  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
 }
 
 .live-overlay-stage {
   box-sizing: border-box;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.85rem 0.65rem 1rem;
+  gap: 0.55rem;
+  padding: 0.65rem 0.55rem max(0.75rem, env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
 }
 
 body.live-overlay.overlay .live-overlay-stage {
   height: 100%;
-  min-height: 100%;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .live-overlay-header {
   text-align: center;
   -webkit-app-region: drag;
+  flex: 0 0 auto;
 }
 
 .live-overlay-header .no-drag {
@@ -1301,6 +1374,7 @@ body.live-overlay.overlay .live-overlay-stage {
   border: 1px solid rgba(245, 197, 24, calc(0.25 + var(--anticipation-intensity, 0) * 0.55));
   background: rgba(245, 197, 24, calc(0.04 + var(--anticipation-intensity, 0) * 0.12));
   overflow: hidden;
+  flex: 0 0 auto;
 }
 
 .live-overlay-anticipation[hidden],
@@ -1365,6 +1439,7 @@ body.live-overlay.overlay .live-overlay-stage {
   background: rgba(12, 13, 16, 0.92);
   overflow: visible;
   z-index: 5;
+  flex: 0 0 auto;
 }
 
 .live-overlay-celebrate[hidden],
@@ -1499,6 +1574,15 @@ body.live-overlay.is-celebrating .live-overlay-teams {
   display: none;
 }
 
+.live-overlay-roster {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .live-overlay-section-title {
   margin: 0 0 0.4rem;
   font-size: 0.72rem;
@@ -1575,9 +1659,16 @@ body.live-overlay.is-celebrating .live-overlay-teams {
 }
 
 .live-overlay-teams {
-  margin-top: auto;
-  padding-top: 0.65rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  margin-top: 0;
+  padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+  max-height: min(45dvh, 20rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .live-overlay-team-board {
@@ -1670,4 +1761,27 @@ body.live-overlay.is-celebrating .live-overlay-teams {
 
 body.live-overlay.is-ended .live-overlay-code {
   color: #8b95ad;
+}
+
+/* Mobile: keep scoreboard chrome compact so bottom teams stay in view */
+@media (max-width: 420px) {
+  .live-overlay-stage {
+    gap: 0.4rem;
+    padding: 0.5rem 0.45rem max(0.55rem, env(safe-area-inset-bottom, 0px));
+  }
+  .live-overlay-code {
+    font-size: clamp(1.15rem, 4.2vw, 1.55rem);
+  }
+  .live-overlay-teams {
+    max-height: min(48dvh, 18rem);
+  }
+  .live-overlay-espn {
+    min-height: 2.75rem;
+  }
+  .live-overlay-espn-meta {
+    padding: 0.35rem 0.45rem;
+  }
+  .live-overlay-espn-score {
+    font-size: clamp(1.15rem, 5vw, 1.5rem);
+  }
 }
