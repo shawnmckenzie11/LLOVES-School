@@ -3903,6 +3903,7 @@ class SchoolDB(LovesDB):
             "valid_dates": valid_live if gated else valid_school,
             "valid_live_dates": valid_live,
             "valid_school_dates": valid_school,
+            "logged_dates": self._logged_meeting_dates(class_id),
             "first_day": span[0].isoformat() if span else None,
             "last_day": span[-1].isoformat() if span else None,
             "default_date": default_date,
@@ -3910,6 +3911,30 @@ class SchoolDB(LovesDB):
                 class_id, picker_isos, picker_set=set(picker_isos)
             ),
         }
+
+    def _logged_meeting_dates(self, class_id: int) -> list[str]:
+        """ISO school days that already have ended attendance/participation.
+
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            Sorted unique ``YYYY-MM-DD`` strings for finalized session columns.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+
+        marks = self.game.attendance_score_rows(class_id)
+        logged: set[str] = set()
+        for sess in marks.get("sessions") or []:
+            if str(sess.get("status") or "") != "ended":
+                continue
+            meeting = session_meeting_date(sess.get("starts_at"))
+            if meeting is not None:
+                logged.add(meeting.isoformat())
+        return sorted(logged)
 
     def _suggested_log_date(
         self,

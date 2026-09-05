@@ -383,7 +383,8 @@ class GameShowHandler(BaseHTTPRequestHandler):
             return
         end = re.match(r"^/api/classes/(\d+)/game/end$", path)
         if end:
-            result = db.end_game(int(end.group(1)))
+            chosen = _optional_date(body.get("meeting_date"))
+            result = db.end_game(int(end.group(1)), meeting_date=chosen)
             self._send_json(200, result)
             return
         add_student = re.match(r"^/api/classes/(\d+)/students$", path)

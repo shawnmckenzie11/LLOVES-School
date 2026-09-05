@@ -416,35 +416,50 @@ body.staff-shell .ap-subtabs a.on {
   border-bottom: 2px solid #0f766e;
 }
 body.staff-shell .scoreboard-opt {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.55rem;
   font-weight: 600;
   margin: 0;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   cursor: pointer;
 }
 body.staff-shell .scoreboard-opt input[type="checkbox"] {
   margin-top: 0.2rem;
-  flex: 0 0 auto;
 }
 body.staff-shell .ap-game-opt-copy {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 body.staff-shell .ap-game-opt-title {
   font-weight: 650;
   color: #0f172a;
   line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 body.staff-shell .ap-game-opt-row {
   margin: 0.35rem 0;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 body.staff-shell .ap-game-opt-row .hint.compact {
   margin: 0;
   font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 body.staff-shell .attendance-grid th.week-start,
 body.staff-shell .attendance-grid td.week-start {
@@ -885,6 +900,9 @@ body.staff-shell .ap-track-game-opts {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 body.staff-shell .ap-track-game-opts[hidden] {
   display: none !important;
@@ -1294,6 +1312,37 @@ body.staff-shell .track-step-footer .track-nav-quit {
 }
 body.staff-shell .track-step-footer .track-nav-next {
   justify-self: end;
+}
+/* Scoring: keep Prev / Quit / Add Round / End Class on one row (incl. mobile) */
+body.staff-shell #ap-panel-score .track-step-footer {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+body.staff-shell #ap-panel-score .track-step-footer > button {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-self: stretch;
+  padding: 0.5rem 0.28rem;
+  font-size: 0.82rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 520px) {
+  body.staff-shell #ap-panel-score .track-step-footer {
+    gap: 0.28rem;
+  }
+  body.staff-shell #ap-panel-score .track-step-footer > button {
+    padding: 0.45rem 0.18rem;
+    font-size: 0.72rem;
+    letter-spacing: -0.01em;
+  }
 }
 body.staff-shell .ap-att-readonly .ap-att-row,
 body.staff-shell .track-live-root .ap-att-row {

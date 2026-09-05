@@ -3358,13 +3358,53 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
+    def _game_is_individual_tracking(self, game_id: int) -> bool:
+        """True when the game has a single Class team (individual tracking).
+
+        Args:
+            game_id: Games primary key.
+
+        Returns:
+            Whether this is individual (not multi-team) tracking.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT name FROM game_teams
+            WHERE game_id = ?
+            ORDER BY sort_order, id
+            """,
+            (int(game_id),),
+        ).fetchall()
+        return len(rows) == 1 and str(rows[0]["name"] or "") == "Class"
+
+    def _require_open_only_rounds(
+        self, plan: list[dict[str, Any]], *, individual: bool
+    ) -> None:
+        """Reject non-Open Question kinds for individual tracking.
+
+        Args:
+            plan: Normalized rounds plan.
+            individual: Whether the game is individual Class-team tracking.
+
+        Raises:
+            ValueError: When individual tracking includes a non-open kind.
+        """
+        if not individual:
+            return
+        for row in plan:
+            if str(row.get("kind") or "") != "open":
+                raise ValueError(
+                    "Individual tracking only supports Open Question rounds"
+                )
+
     def start_live_with_rounds(
         self, class_id: int, rounds: list[dict[str, Any]] | None = None
     ) -> dict[str, Any]:
         """Start live scoring from the rounds setup step.
 
         Typically called with a single Round 1 entry; later rounds are appended
-        via :meth:`append_and_start_round`. Duplicate kinds and Break are allowed.
+        via :meth:`append_and_start_round`. Duplicate kinds and Break are allowed
+        for team tracking; individual (Class) tracking is Open Question only.
 
         Args:
             class_id: Classes primary key.
@@ -3384,6 +3424,8 @@ class GameShowDB:
             ).fetchone()
             if int(n_teams["n"]) < 1:
                 raise ValueError("Create teams before starting rounds")
+            individual = self._game_is_individual_tracking(int(game["id"]))
+            self._require_open_only_rounds(plan, individual=individual)
             first = plan[0]
             self.conn.execute(
                 """
@@ -3403,28 +3445,38 @@ class GameShowDB:
                     int(game["id"]),
                 ),
             )
-            self._set_scoreboard_game(int(game["id"]))
+            # Team game scoreboard only — individual Class tracking stays off ESPN.
+            self._set_scoreboard_game(None if individual else int(game["id"]))
             self.conn.commit()
         return self.game_state(class_id)
 
-    def start_ungamified_live(self, class_id: int) -> dict[str, Any]:
-        """Go live with one implicit team so individual +/- scoring works.
+    def start_ungamified_live(
+        self, class_id: int, *, go_live: bool = True
+    ) -> dict[str, Any]:
+        """Create the Class team for individual tracking; optionally go live.
 
-        Used when the teacher declines Gamify. Present students (or the
-        whole roster if none are marked) sit on a single team named Class.
-        The scoreboard is not opened.
+        Present students (or the whole roster if none are marked) sit on a
+        single team named Class. When ``go_live`` is False, the game parks on
+        ``rounds`` so Start Round can begin an Open Question (same path as
+        team tracking). When True, goes live with one Open Question round.
+        The scoreboard is never opened for individual tracking.
 
         Args:
             class_id: Classes primary key.
+            go_live: When False, stay on rounds setup; when True, start live.
 
         Returns:
-            Game state with status ``live``.
+            Game state with status ``rounds`` or ``live``.
         """
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] == "live":
+            if go_live and game["status"] == "live":
                 return self.game_state(class_id, game_id=int(game["id"]))
-            if game["status"] not in {"attendance", "teams", "names"}:
+            if not go_live and game["status"] == "rounds" and self._game_is_individual_tracking(
+                int(game["id"])
+            ):
+                return self.game_state(class_id, game_id=int(game["id"]))
+            if game["status"] not in {"attendance", "teams", "names", "rounds"}:
                 raise ValueError("Start scoring after attendance is marked")
             session_id = int(game["session_id"])
             present_rows = self.conn.execute(
@@ -3477,23 +3529,43 @@ class GameShowDB:
                     """,
                     (game_id, team_id, sid),
                 )
-            self.conn.execute(
-                """
-                UPDATE games
-                SET status = 'live',
-                    current_round = 1,
-                    round_started_at = ?,
-                    round_duration_sec = ?,
-                    rounds_json = ?
-                WHERE id = ?
-                """,
-                (
-                    self._now(),
-                    ROUND_DURATIONS_SEC[1],
-                    json.dumps(normalize_rounds_config(None)),
-                    game_id,
-                ),
+            open_only = normalize_rounds_config(
+                [{"kind": "open", "minutes": 20}]
             )
+            if go_live:
+                first = open_only[0]
+                self.conn.execute(
+                    """
+                    UPDATE games
+                    SET status = 'live',
+                        overlay_phase = NULL,
+                        current_round = 1,
+                        round_started_at = ?,
+                        round_duration_sec = ?,
+                        rounds_json = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        self._now(),
+                        int(first["duration_sec"]),
+                        json.dumps(open_only),
+                        game_id,
+                    ),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE games
+                    SET status = 'rounds',
+                        overlay_phase = NULL,
+                        current_round = 0,
+                        round_started_at = NULL,
+                        round_duration_sec = NULL,
+                        rounds_json = ?
+                    WHERE id = ?
+                    """,
+                    (json.dumps(open_only), game_id),
+                )
             self._set_scoreboard_game(None)
             self.conn.commit()
         return self.game_state(class_id)
@@ -3649,7 +3721,9 @@ class GameShowDB:
             current = int(game["current_round"] or 1)
             if current != len(plan):
                 raise ValueError("Finish or stay on the latest round before adding another")
+            individual = self._game_is_individual_tracking(int(game["id"]))
             new_plan = normalize_rounds_config([*plan, round_spec])
+            self._require_open_only_rounds(new_plan, individual=individual)
             target = len(new_plan)
             nxt = new_plan[target - 1]
             self.conn.execute(
@@ -3988,18 +4062,25 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
-    def end_game(self, class_id: int) -> dict[str, Any]:
+    def end_game(
+        self, class_id: int, meeting_date: date | None = None
+    ) -> dict[str, Any]:
         """Close the live game; keep events, team scores, and credited cells.
 
         Individual credited scores are already on ``session_scores``. Team
         buckets and memberships stay so the session remains inspectable.
         Dashboard cells show credited scores only (not a blended formula).
 
+        When ``meeting_date`` is provided, the session column is retargeted to
+        that calendar day before ending so A&P grids land on the picker date
+        (not “today” or a stale setup default).
+
         Args:
             class_id: Classes primary key.
+            meeting_date: Optional teacher-chosen class date for the column.
 
         Returns:
-            ``{ok, class_id, session_id, log_path}``.
+            ``{ok, class_id, session_id, log_path, meeting_date}``.
         """
         with self._lock:
             game = self._game_row(class_id)
@@ -4007,6 +4088,22 @@ class GameShowDB:
                 raise ValueError("End Game is only available during a live game")
             session_id = int(game["session_id"])
             game_id = int(game["id"])
+            if meeting_date is not None:
+                cls = self.get_class(class_id)
+                meeting = datetime.combine(
+                    meeting_date, parse_time_label(cls["time"])
+                )
+                header = self._label_for_meeting(
+                    class_id, cls, meeting, exclude_id=session_id
+                )
+                self.conn.execute(
+                    """
+                    UPDATE sessions
+                    SET starts_at = ?, header_label = ?
+                    WHERE id = ?
+                    """,
+                    (meeting.isoformat(), header, session_id),
+                )
             log_path = self.logs_dir / f"session-{session_id}.jsonl"
             log_path.touch(exist_ok=True)
             self.conn.execute(
@@ -4022,11 +4119,16 @@ class GameShowDB:
             )
             self._set_scoreboard_game(game_id)
             self.conn.commit()
+            sess = self.conn.execute(
+                "SELECT starts_at FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            ended_day = str(sess["starts_at"])[:10] if sess else None
         return {
             "ok": True,
             "class_id": class_id,
             "session_id": session_id,
             "log_path": str(log_path),
+            "meeting_date": ended_day,
         }
 
     def game_state(self, class_id: int, game_id: int | None = None) -> dict[str, Any]:

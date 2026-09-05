@@ -97,10 +97,37 @@ function isScoringLive() {
 }
 
 /**
+ * Smooth-scroll a Tracking accordion target into view (mobile-friendly top align).
+ * Avoids nested list scrollers; skips no-ops when the step did not change.
+ * @param {HTMLElement|null} [focusEl] Prefer this node (e.g. Add Round form).
+ * @param {ScrollLogicalPosition} [block]
+ */
+function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
+  const step =
+    (focusEl instanceof HTMLElement && focusEl.closest(".track-step.ap-panel")) ||
+    document.querySelector(".track-step.ap-panel.is-current:not([hidden])") ||
+    document.querySelector(`.track-step.ap-panel[data-step="${currentStep}"]`);
+  const target = focusEl instanceof HTMLElement ? focusEl : step;
+  if (!(target instanceof HTMLElement) || target.hidden) return;
+
+  const run = () => {
+    try {
+      target.scrollIntoView({ behavior: "smooth", block, inline: "nearest" });
+    } catch (_) {
+      target.scrollIntoView(true);
+    }
+  };
+  // Double rAF so expand/collapse layout settles before scrolling.
+  requestAnimationFrame(() => requestAnimationFrame(run));
+}
+
+/**
  * Expand one accordion step; collapse others; apply lock chrome.
  * @param {string} name
+ * @param {{scroll?: boolean, forceScroll?: boolean, scrollTarget?: HTMLElement|null, scrollBlock?: ScrollLogicalPosition}} [opts]
  */
-function showPanel(name) {
+function showPanel(name, opts = {}) {
+  const prevStep = currentStep;
   currentStep = name === "live" ? "score" : name;
   const locked = isScoringLive();
   scoringLocked = locked;
@@ -129,10 +156,18 @@ function showPanel(name) {
     selectTrackMode("individual");
   }
   updateStepSummaries();
+
+  const shouldScroll =
+    opts.scroll !== false &&
+    (Boolean(opts.forceScroll) || prevStep !== currentStep);
+  if (shouldScroll) {
+    scrollActiveTrackStepIntoView(opts.scrollTarget || null, opts.scrollBlock || "start");
+  }
 }
 
 /**
- * Show Teams / Meet / Rounds only under Team Tracking; expose Run as Game opts.
+ * Show Teams / Meet only under Team Tracking; rounds stay for both modes.
+ * Expose Run as Game opts for team mode only.
  */
 function syncTeamFlowVisibility() {
   const team = trackMode === "team";
@@ -141,6 +176,8 @@ function syncTeamFlowVisibility() {
   document.querySelectorAll("[data-team-flow]").forEach((el) => {
     if (el instanceof HTMLElement) el.hidden = !team;
   });
+  const rounds = $("ap-panel-rounds");
+  if (rounds) rounds.hidden = false;
   const opts = $("ap-track-game-opts");
   if (opts) opts.hidden = !team;
   syncScoreboardPreview();
@@ -376,8 +413,24 @@ async function ensureMeetingDate(iso) {
  */
 async function isDateLogged(iso) {
   if (!iso) return false;
+  if (Array.isArray(logContext?.logged_dates)) {
+    return logContext.logged_dates.includes(iso);
+  }
   const day = await api(`/api/classes/${classId}/attendance-day?date=${encodeURIComponent(iso)}`);
   return Boolean(day.logged);
+}
+
+/**
+ * Confirm before overriding an already-logged school day.
+ * Cancel leaves the prior choice untouched (caller must not proceed).
+ * @param {string} iso
+ * @returns {Promise<boolean>}
+ */
+async function confirmOverrideIfLogged(iso) {
+  if (!iso || !(await isDateLogged(iso))) return true;
+  return window.confirm(
+    `Stored attendance and participation for ${iso} will be overridden. Continue?`
+  );
 }
 
 /**
@@ -387,9 +440,13 @@ async function isDateLogged(iso) {
 function showValidateGrid(selected) {
   const box = $("ap-day-grid");
   if (!box || !logContext) return;
+  const logged = new Set(
+    Array.isArray(logContext.logged_dates) ? logContext.logged_dates : []
+  );
   const iso = renderSemesterDayGrid(box, logContext, {
     selected: selected || suggestedLogDay(logContext),
     minIso: String(logContext.today || ""),
+    loggedDates: logged,
     onSelect: (value) => {
       const hidden = $("ap-valid-date");
       if (hidden) hidden.value = value;
@@ -451,6 +508,25 @@ async function applyValidateDateChoice(opts = {}) {
       "#ap-overlay-error",
       new Error("Pick a valid school day from the calendar, then try again.")
     );
+    if (opts.reservedWin && !opts.reservedWin.closed) {
+      try {
+        opts.reservedWin.close();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return;
+  }
+  const priorIso =
+    String($("ap-meeting-date")?.value || "").trim() ||
+    overlayState?.session?.meeting_date ||
+    "";
+  if (!(await confirmOverrideIfLogged(iso))) {
+    // Cancel: keep prior date selection; do not begin/clobber.
+    if (priorIso) {
+      syncOverlayPickers(logContext, priorIso);
+      showValidateGrid(priorIso);
+    }
     if (opts.reservedWin && !opts.reservedWin.closed) {
       try {
         opts.reservedWin.close();
@@ -526,10 +602,7 @@ export async function openRunLiveClass() {
     const decision = resolveLogDate(logContext, { todayLogged }, { flow: "run_live" });
 
     if (decision.mode === "confirm_override") {
-      const ok = window.confirm(
-        "Stored attendance and participation for today will be overridden. Continue?"
-      );
-      if (!ok) return;
+      if (!(await confirmOverrideIfLogged(decision.iso))) return;
       await proceedRunLiveBegin(decision.iso, { reservedWin: null });
       return;
     }
@@ -594,6 +667,7 @@ async function loadContext() {
 
 /**
  * Wire semester school-day pickers after log context loads.
+ * Preserves an already-chosen class date on hidden inputs unless forced.
  * @param {string} [preferred]
  * @param {{forceValue?: boolean}} [opts]
  */
@@ -603,7 +677,10 @@ function bindAllPickers(preferred, opts = {}) {
     const el = $(id);
     if (!el || el.type === "hidden") {
       if (el && el.type === "hidden") {
-        el.value = preferred || defaultSchoolDay(logContext) || el.value;
+        const existing = String(el.value || "").trim();
+        if (opts.forceValue || !existing) {
+          el.value = preferred || defaultSchoolDay(logContext) || existing;
+        }
       }
       continue;
     }
@@ -890,13 +967,18 @@ function openLiveScoring(state, opts = {}) {
 }
 
 /**
- * Meeting date from hidden field or open session.
+ * Canonical class date: open session first, then picker, then default.
+ * Preferring session prevents loadContext/bindAllPickers from clobbering
+ * the teacher-chosen day into “today” before attendance / end-game writes.
  * @returns {string}
  */
 function sessionIso() {
-  const fromAtt = $("ap-meeting-date")?.value || pickerValue($("ap-meeting-date"), logContext);
+  const fromSession = String(overlayState?.session?.meeting_date || "").trim();
+  if (fromSession) return fromSession;
+  const fromAtt =
+    $("ap-meeting-date")?.value || pickerValue($("ap-meeting-date"), logContext);
   if (fromAtt) return fromAtt;
-  return overlayState?.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
+  return defaultSchoolDay(logContext) || todayISO();
 }
 
 /**
@@ -939,11 +1021,18 @@ function selectTrackMode(mode) {
     const check = btn.querySelector(".ap-att-check");
     if (check) check.textContent = on ? "✓" : "";
   }
-  if (mode !== "team" && ["teams", "names", "rounds"].includes(currentStep)) {
+  if (mode !== "team" && ["teams", "names"].includes(currentStep)) {
     showPanel("gamify");
     return;
   }
+  if (mode === "individual" && draftRound.kind !== "open") {
+    draftRound = { kind: "open", minutes: 20, title: "" };
+  }
+  if (mode === "individual" && nextDraftRound.kind !== "open") {
+    nextDraftRound = { kind: "open", minutes: 10, title: "" };
+  }
   syncTeamFlowVisibility();
+  if (currentStep === "rounds") renderRoundsPanel();
   updateStepSummaries();
 }
 
@@ -991,11 +1080,21 @@ $("ap-gamify-next")?.addEventListener("click", async () => {
     }
     await withValidatedDate(sessionIso(), async (meeting) => {
       const ids = selectedPresent();
+      // Park on rounds (Class team) so Start Round uses the same start-rounds path.
       overlayState = await api(`/api/classes/${classId}/game/ungamified`, {
         method: "POST",
-        body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
+        body: JSON.stringify({
+          present_ids: ids,
+          meeting_date: meeting,
+          go_live: false,
+        }),
       });
-      openLiveScoring(overlayState);
+      draftRound = { kind: "open", minutes: 20, title: "" };
+      nextDraftRound = { kind: "open", minutes: 10, title: "" };
+      setupRoundNumber = 1;
+      pendingScoreboard = false;
+      renderRoundsPanel();
+      showPanel("rounds");
     });
   } catch (err) {
     showError("#ap-overlay-error", err);
@@ -1415,24 +1514,43 @@ $("ap-meet-start")?.addEventListener("click", async () => {
 });
 
 /**
+ * Round kinds available for the current tracking mode.
+ * Individual tracking is Open Question only; team mode keeps all kinds.
+ * @returns {typeof ROUND_KIND_OPTIONS}
+ */
+function availableRoundKinds() {
+  if (trackMode === "individual") {
+    return ROUND_KIND_OPTIONS.filter((option) => option.kind === "open");
+  }
+  return ROUND_KIND_OPTIONS;
+}
+
+/**
  * Build one round editor row for the sequential setup flow.
  * @param {{kind: string, minutes: number, title: string}} round
  * @param {number} roundNumber
  * @returns {string}
  */
 function roundEditorMarkup(round, roundNumber) {
-  const options = ROUND_KIND_OPTIONS.map(
-    (option) =>
-      `<option value="${option.kind}" ${option.kind === round.kind ? "selected" : ""}>${escapeHtml(option.label)}</option>`
-  ).join("");
-  const breakTitle = isBreakRound(round)
+  const kinds = availableRoundKinds();
+  const selectedKind = kinds.some((option) => option.kind === round.kind)
+    ? round.kind
+    : "open";
+  const options = kinds
+    .map(
+      (option) =>
+        `<option value="${option.kind}" ${option.kind === selectedKind ? "selected" : ""}>${escapeHtml(option.label)}</option>`
+    )
+    .join("");
+  const kindLocked = trackMode === "individual";
+  const breakTitle = isBreakRound({ ...round, kind: selectedKind })
     ? `<label class="field ap-round-title">Break title
         <input type="text" maxlength="80" value="${escapeHtml(round.title || "")}" data-round-title required>
       </label>`
     : "";
-  return `<div class="ap-round-row${isBreakRound(round) ? " has-title" : ""}">
+  return `<div class="ap-round-row${isBreakRound({ ...round, kind: selectedKind }) ? " has-title" : ""}">
     <label class="field ap-round-type">Round ${roundNumber}
-      <select data-round-kind>${options}</select>
+      <select data-round-kind${kindLocked ? " disabled" : ""}>${options}</select>
     </label>
     <label class="field ap-round-len">Length (min)
       <input type="number" min="1" max="180" value="${Number(round.minutes) || 10}" data-round-minutes>
@@ -1447,11 +1565,12 @@ function roundEditorMarkup(round, roundNumber) {
  * @returns {{kind: string, minutes: number, title?: string}}
  */
 function roundRequestBody(round) {
+  const kind = trackMode === "individual" ? "open" : round.kind;
   const body = {
-    kind: round.kind,
+    kind,
     minutes: Math.max(1, Math.min(180, Number(round.minutes) || 1)),
   };
-  if (isBreakRound(round)) {
+  if (isBreakRound({ ...round, kind })) {
     const title = String(round.title || "").trim();
     if (!title) throw new Error("Enter a title for the break.");
     body.title = title;
@@ -1465,11 +1584,21 @@ function roundRequestBody(round) {
 function renderRoundsPanel() {
   const box = $("ap-rounds-list");
   if (!box) return;
+  if (trackMode === "individual" && draftRound.kind !== "open") {
+    draftRound = { kind: "open", minutes: draftRound.minutes || 20, title: "" };
+  }
   box.innerHTML = roundEditorMarkup(draftRound, setupRoundNumber);
   const title = $("ap-rounds-title");
   if (title) title.textContent = `Start Round ${setupRoundNumber}`;
   const start = $("ap-rounds-start");
   if (start) start.textContent = `Start Round ${setupRoundNumber}`;
+  const hint = $("ap-rounds-hint");
+  if (hint) {
+    hint.textContent =
+      trackMode === "individual"
+        ? "Individual tracking uses Open Question rounds only. Set the length, then Start Round."
+        : "Set up one round at a time. Open Question uses action chips when scoring.";
+  }
   updateStepSummaries();
 }
 
@@ -1499,9 +1628,13 @@ $("ap-rounds-list")?.addEventListener("input", (event) => {
 $("ap-rounds-start")?.addEventListener("click", async () => {
   const hasLiveOverlay = Boolean(liveSessionId || readLiveSessionId());
   // Live-overlay is primary for Track Live Class — skip separate ESPN window.
-  const wantEspn = pendingScoreboard && !hasLiveOverlay;
+  // Individual tracking never uses the team scoreboard overlay.
+  const wantEspn = trackMode === "team" && pendingScoreboard && !hasLiveOverlay;
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
+    if (trackMode === "individual") {
+      draftRound = { ...draftRound, kind: "open" };
+    }
     const rounds = [roundRequestBody(draftRound)];
     overlayState = await api(`/api/classes/${classId}/game/start-rounds`, {
       method: "POST",
@@ -1523,6 +1656,9 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
  * Paint the inline editor for the next live round.
  */
 function renderNextRoundPanel() {
+  if (trackMode === "individual" && nextDraftRound.kind !== "open") {
+    nextDraftRound = { kind: "open", minutes: nextDraftRound.minutes || 10, title: "" };
+  }
   const fields = $("ap-next-round-fields");
   if (fields) fields.innerHTML = roundEditorMarkup(nextDraftRound, setupRoundNumber);
   const title = $("ap-next-round-title");
@@ -1539,6 +1675,8 @@ $("ap-add-round-btn")?.addEventListener("click", () => {
   if (form) form.hidden = false;
   const add = $("ap-add-round-btn");
   if (add) add.hidden = true;
+  // Bring the new round controls to the top of the viewport for editing.
+  scrollActiveTrackStepIntoView(form, "start");
 });
 
 $("ap-next-round-cancel")?.addEventListener("click", () => {
@@ -1576,6 +1714,9 @@ $("ap-next-round-fields")?.addEventListener("input", (event) => {
 
 $("ap-next-round-start")?.addEventListener("click", async () => {
   try {
+    if (trackMode === "individual") {
+      nextDraftRound = { ...nextDraftRound, kind: "open" };
+    }
     const round = roundRequestBody(nextDraftRound);
     overlayState = await api(`/api/classes/${classId}/game/append-round`, {
       method: "POST",
@@ -1806,7 +1947,11 @@ $("ap-score-list")?.addEventListener("click", async (event) => {
 
 async function endGame() {
   try {
-    await api(`/api/classes/${classId}/game/end`, { method: "POST", body: "{}" });
+    const meeting = sessionIso();
+    await api(`/api/classes/${classId}/game/end`, {
+      method: "POST",
+      body: JSON.stringify(meeting ? { meeting_date: meeting } : {}),
+    });
   } catch (err) {
     showError("#ap-overlay-error", err);
     return;
@@ -1832,12 +1977,50 @@ $("ap-score-end")?.addEventListener("click", endGame);
 
 /**
  * Resume an in-progress live class when returning to tab=live with a session id.
+ * Uses the open game's meeting_date; does not re-begin with “today” and discard
+ * a picker-chosen setup column.
+ * @returns {Promise<boolean>}
  */
 async function resumeLiveClassIfNeeded() {
   liveSessionId = readLiveSessionId() || liveSessionId;
   if (!liveSessionId) return false;
   try {
     await loadContext();
+    let state = null;
+    try {
+      state = await api(`/api/classes/${classId}/game`);
+    } catch (_) {
+      state = null;
+    }
+    const status = String(state?.game?.status || "");
+    const openStatuses = new Set(["attendance", "teams", "names", "rounds", "live"]);
+    if (state?.game && openStatuses.has(status)) {
+      overlayState = state;
+      const meeting =
+        state.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
+      syncOverlayPickers(logContext, meeting);
+      const meetingInput = $("ap-meeting-date");
+      if (meetingInput) meetingInput.value = meeting;
+      if (status === "live") {
+        openLiveScoring(overlayState);
+        ensureLiveSessionOverlay();
+        startLiveSessionPolling();
+        return true;
+      }
+      renderAttendanceList();
+      if (status === "teams" || status === "names") {
+        selectTrackMode("team");
+        renderTeamsPanel();
+        showPanel(status === "names" ? "names" : "teams");
+      } else if (status === "rounds") {
+        selectTrackMode("team");
+        showPanel("rounds");
+      } else {
+        showPanel("att");
+      }
+      await ensureLiveSessionMinted();
+      return true;
+    }
     overlayState = await api(`/api/classes/${classId}/begin`, {
       method: "POST",
       body: JSON.stringify({
@@ -1910,7 +2093,7 @@ document.querySelectorAll("[data-track-nav='prev']").forEach((btn) => {
       gamify: "att",
       teams: "gamify",
       names: "teams",
-      rounds: "names",
+      rounds: trackMode === "team" ? "names" : "gamify",
     };
     const target = back[current || ""];
     if (target) showPanel(target);

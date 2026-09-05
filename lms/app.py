@@ -2954,7 +2954,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/ungamified", methods=["POST"])
     @login_required
     def api_ungamified(class_id: int):
-        """Start individual participation scoring without teams/scoreboard."""
+        """Prepare or start individual Class-team tracking (no scoreboard).
+
+        Body may include ``go_live`` (default True). When False, parks on
+        rounds setup so Start Round can begin an Open Question.
+        """
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
@@ -2964,7 +2968,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             status = str((state.get("game") or {}).get("status") or "")
             if ids is not None and status == "attendance":
                 school.game.save_attendance(class_id, [int(x) for x in ids])
-            return school.game.start_ungamified_live(class_id)
+            go_live_raw = body.get("go_live")
+            if go_live_raw is None:
+                go_live = True
+            elif isinstance(go_live_raw, str):
+                go_live = go_live_raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                go_live = bool(go_live_raw)
+            return school.game.start_ungamified_live(class_id, go_live=go_live)
 
         return _staff_post(class_id, run)
 
@@ -3268,7 +3279,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply End Game then optionally invalidate the ephemeral join code."""
-            result = school.game.end_game(class_id)
+            chosen = _optional_date(body.get("meeting_date"))
+            result = school.game.end_game(class_id, meeting_date=chosen)
             preserve = bool((body or {}).get("preserve_live_session"))
             if not preserve:
                 ended = school.end_active_live_sessions_for_class(class_id)

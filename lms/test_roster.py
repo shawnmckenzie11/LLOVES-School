@@ -277,6 +277,51 @@ class RosterTests(unittest.TestCase):
         self.assertTrue(grid["cells"].get(f"{present_id}:2026-09-11"))
         self.assertIsNone(grid["cells"].get(f"{present_id}:2026-09-08"))
 
+    def test_end_game_honors_picker_meeting_date(self) -> None:
+        """Live End Game persists participation on the picker-chosen day column."""
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Aspen", "Birch"],
+            },
+        )
+        class_id = rv.get_json()["class"]["id"]
+        begin = self.client.post(
+            f"/api/classes/{class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        ids = [int(s["id"]) for s in begin.get_json()["students"]]
+        live = self.client.post(
+            f"/api/classes/{class_id}/game/ungamified",
+            json={"present_ids": ids, "meeting_date": "2026-09-11"},
+        )
+        self.assertEqual(live.status_code, 200)
+        self.assertEqual(live.get_json()["session"]["meeting_date"], "2026-09-11")
+        scored = self.client.post(
+            f"/api/classes/{class_id}/game/score",
+            json={"kind": "student", "id": ids[0], "amount": 4},
+        )
+        self.assertEqual(scored.status_code, 200)
+        ended = self.client.post(
+            f"/api/classes/{class_id}/game/end",
+            json={"meeting_date": "2026-09-11"},
+        )
+        self.assertEqual(ended.status_code, 200)
+        self.assertEqual(ended.get_json()["meeting_date"], "2026-09-11")
+        part = self.client.get(
+            f"/api/classes/{class_id}/participation-grid?sort=az"
+        ).get_json()
+        cell = part["cells"].get(f"{ids[0]}:2026-09-11")
+        self.assertIsNotNone(cell)
+        self.assertEqual(float(cell["points"]), 4.0)
+        empty = part["cells"].get(f"{ids[0]}:2026-09-08") or {}
+        self.assertEqual(float(empty.get("points") or 0), 0.0)
+        ctx = self.client.get(f"/api/classes/{class_id}/log-context").get_json()
+        self.assertIn("2026-09-11", ctx.get("logged_dates") or [])
+
     def test_setup_rounds_then_start_scoring(self) -> None:
         """Create Teams can pause on rounds setup before live scoring."""
         rv = self.client.post(
@@ -439,11 +484,70 @@ class RosterTests(unittest.TestCase):
         state = live.get_json()
         self.assertEqual(state["game"]["status"], "live")
         self.assertEqual(len(state["teams"]), 1)
+        self.assertEqual(state["game"]["round_title"], "Open Question")
+        self.assertEqual(state["game"]["round_count"], 1)
         award = self.client.post(
             f"/api/classes/{class_id}/game/score",
             json={"kind": "student", "id": ids[0], "amount": 5},
         )
         self.assertEqual(award.status_code, 200)
+
+    def test_individual_prepare_then_start_open_round(self) -> None:
+        """Individual tracking parks on rounds, then Start Round opens scoring."""
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Aspen", "Birch"],
+            },
+        )
+        class_id = rv.get_json()["class"]["id"]
+        begin = self.client.post(
+            f"/api/classes/{class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        ids = [int(s["id"]) for s in begin.get_json()["students"]]
+        prepared = self.client.post(
+            f"/api/classes/{class_id}/game/ungamified",
+            json={
+                "present_ids": ids,
+                "meeting_date": "2026-09-09",
+                "go_live": False,
+            },
+        )
+        self.assertEqual(prepared.status_code, 200)
+        prep = prepared.get_json()
+        self.assertEqual(prep["game"]["status"], "rounds")
+        self.assertEqual(len(prep["teams"]), 1)
+        self.assertEqual(prep["teams"][0]["name"], "Class")
+        rejected = self.client.post(
+            f"/api/classes/{class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "break", "minutes": 5, "title": "Snack"}]},
+        )
+        self.assertEqual(rejected.status_code, 400)
+        live = self.client.post(
+            f"/api/classes/{class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "open", "minutes": 15}]},
+        )
+        self.assertEqual(live.status_code, 200)
+        state = live.get_json()
+        self.assertEqual(state["game"]["status"], "live")
+        self.assertEqual(state["game"]["round_title"], "Open Question")
+        self.assertEqual(state["game"]["round_count"], 1)
+        self.assertEqual(state["game"]["round_duration_sec"], 15 * 60)
+        nxt = self.client.post(
+            f"/api/classes/{class_id}/game/append-round",
+            json={"kind": "open", "minutes": 10},
+        )
+        self.assertEqual(nxt.status_code, 200)
+        self.assertEqual(nxt.get_json()["game"]["round"], 2)
+        bad = self.client.post(
+            f"/api/classes/{class_id}/game/append-round",
+            json={"kind": "challenge", "minutes": 10},
+        )
+        self.assertEqual(bad.status_code, 400)
 
     def test_gradebook_weights_defaults_and_persist(self) -> None:
         """Grades scaffold seeds 15/60/25 and persists weight edits."""
