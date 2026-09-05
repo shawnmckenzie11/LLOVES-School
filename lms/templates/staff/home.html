@@ -94,15 +94,16 @@
             </a>
           </div>
           <div class="course-action-row">
-            <button type="button" class="course-action btn-populate secondary"
+            <button type="button" class="course-action btn-populate secondary{% if live_here %} is-disabled{% endif %}"
                     data-offering-id="{{ o.id }}"
                     data-class-id="{{ cls.id }}"
                     {% if o.live_days %}data-live-days="{{ o.live_days }}"{% endif %}
-                    {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}>
+                    {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}
+                    {% if live_here %}disabled aria-disabled="true" title="End the live class before editing the roster"{% endif %}>
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/>
               </svg>
-              <span>Edit Roster</span>
+              <span>{% if live_here %}Roster Locked{% else %}Edit Roster{% endif %}</span>
             </button>
           </div>
           {% else %}

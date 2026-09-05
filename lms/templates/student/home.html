@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Class · {{ school_name }}</title>
+  <title>{% if codename %}{{ codename }} · {% endif %}Class · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
 </head>
 <body class="student-portal student-home{% if payload.scoring %} is-live{% endif %}"
       data-scoring="{{ '1' if payload.scoring else '0' }}"
-      data-visit-token="{{ visit_token or '' }}">
+      data-visit-token="{{ visit_token or '' }}"
+      data-codename="{{ codename or '' }}">
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
     <div id="me-board" class="student-me"></div>
   </header>
@@ -21,6 +22,7 @@
   <footer class="student-chrome student-chrome-bottom" aria-label="Class scoreboard">
     <div id="class-board" class="student-scoreboard"></div>
   </footer>
+  <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>
 </body>

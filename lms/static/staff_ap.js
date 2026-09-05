@@ -12,6 +12,7 @@ import {
   openLiveSessionOverlay,
   openScoreboardOverlay,
   remainingUntilMs,
+  reserveLiveSessionOverlay,
   reserveScoreboardOverlay,
   showError,
   sortStudents,
@@ -105,20 +106,22 @@ function showPanel(name) {
   const locked = isScoringLive();
   scoringLocked = locked;
   hideError("#ap-overlay-error");
+  syncTeamFlowVisibility();
 
   document.querySelectorAll(".track-step.ap-panel").forEach((el) => {
     const step = el.dataset.step || "";
     const isScore = step === "score";
     const isCurrent = step === currentStep || (currentStep === "score" && isScore);
     const isSetup = !isScore && step !== "validate";
-    el.classList.toggle("hidden", step === "validate" && currentStep !== "validate");
-    el.classList.toggle("is-current", isCurrent);
-    el.classList.toggle("is-collapsed", !isCurrent);
+    const teamFlowHidden = el.hasAttribute("data-team-flow") && trackMode !== "team";
+    el.classList.toggle("hidden", (step === "validate" && currentStep !== "validate") || teamFlowHidden);
+    el.classList.toggle("is-current", isCurrent && !teamFlowHidden);
+    el.classList.toggle("is-collapsed", !isCurrent || teamFlowHidden);
     el.classList.toggle("is-locked", locked && isSetup);
     const body = el.querySelector(".track-step-body");
     const summary = el.querySelector(".track-step-summary");
-    if (body) body.hidden = !isCurrent;
-    if (summary) summary.setAttribute("aria-expanded", isCurrent ? "true" : "false");
+    if (body) body.hidden = !isCurrent || teamFlowHidden;
+    if (summary) summary.setAttribute("aria-expanded", isCurrent && !teamFlowHidden ? "true" : "false");
     const lockEl = el.querySelector(".track-step-lock");
     if (lockEl) lockEl.hidden = !(locked && isSetup);
   });
@@ -127,6 +130,23 @@ function showPanel(name) {
     selectTrackMode("individual");
   }
   updateStepSummaries();
+}
+
+/**
+ * Show Teams / Meet / Rounds only under Team Tracking; expose Run as Game opts.
+ */
+function syncTeamFlowVisibility() {
+  const team = trackMode === "team";
+  const accordion = $("track-accordion");
+  if (accordion) accordion.classList.toggle("is-team-flow", team);
+  document.querySelectorAll("[data-team-flow]").forEach((el) => {
+    if (el instanceof HTMLElement) el.hidden = !team;
+  });
+  const opts = $("ap-track-game-opts");
+  if (opts) opts.hidden = !team;
+  if (team) {
+    renderTeamsPanel();
+  }
 }
 
 /**
@@ -211,13 +231,25 @@ function readLiveSessionId() {
 
 /**
  * Open the narrow Zoom-share live overlay for the current session.
+ * @param {Window|null} [reservedWin]
  * @returns {Window|null}
  */
-function ensureLiveSessionOverlay() {
+function ensureLiveSessionOverlay(reservedWin = null) {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return null;
   liveSessionId = id;
-  return openLiveSessionOverlay(id, null, { classId });
+  const win = openLiveSessionOverlay(id, reservedWin || null, { classId });
+  setJoinStripVisible(!win);
+  return win;
+}
+
+/**
+ * Show or hide the Attendance soft-reopen link when the overlay popup was blocked.
+ * @param {boolean} show
+ */
+function setJoinStripVisible(show) {
+  const strip = $("ap-join-strip");
+  if (strip) strip.hidden = !show;
 }
 
 /**
@@ -364,13 +396,92 @@ function showValidateGrid(selected) {
   });
   const hidden = $("ap-valid-date");
   if (hidden) hidden.value = iso;
+  return iso;
 }
 
 /**
- * Begin Run Live Class for a resolved meeting date (session mint deferred).
- * @param {string} iso
+ * Mint a live join session (if needed) and open the Zoom-share overlay once.
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {Promise<number>}
  */
-async function proceedRunLiveBegin(iso) {
+async function ensureLiveSessionMinted(opts = {}) {
+  const reservedWin = opts.reservedWin || null;
+  liveSessionId = readLiveSessionId() || liveSessionId;
+  if (!liveSessionId) {
+    const res = await api(`/api/classes/${classId}/live-session/start`, {
+      method: "POST",
+      body: "{}",
+    });
+    liveSessionId = Number(res.live_session_id || res.live_session?.id || 0);
+    if (root && liveSessionId) {
+      root.dataset.liveSessionId = String(liveSessionId);
+    }
+    if (liveSessionId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", "live");
+      url.searchParams.set("live_session_id", String(liveSessionId));
+      window.history.replaceState({}, "", url.toString());
+    }
+  }
+  if (liveSessionId) {
+    ensureLiveSessionOverlay(reservedWin);
+    startLiveSessionPolling();
+  } else if (reservedWin && !reservedWin.closed) {
+    try {
+      reservedWin.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return liveSessionId;
+}
+
+/**
+ * Apply the validate-step date and continue the deferred flow.
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {Promise<void>}
+ */
+async function applyValidateDateChoice(opts = {}) {
+  const gridIso = gridSelectedIso($("ap-day-grid"));
+  const hiddenIso = String($("ap-valid-date")?.value || "").trim();
+  const iso = gridIso || pickerValue($("ap-valid-date"), logContext) || hiddenIso;
+  if (!iso) {
+    showError(
+      "#ap-overlay-error",
+      new Error("Pick a valid school day from the calendar, then try again.")
+    );
+    if (opts.reservedWin && !opts.reservedWin.closed) {
+      try {
+        opts.reservedWin.close();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return;
+  }
+  hideError("#ap-overlay-error");
+  syncOverlayPickers(logContext, iso);
+  const attDate = $("ap-meeting-date");
+  if (attDate) attDate.value = iso;
+  const fn = pendingAction;
+  pendingAction = null;
+  if (fn) {
+    await fn(iso, opts);
+    return;
+  }
+  if (root?.dataset.apView === "live") {
+    await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+    return;
+  }
+  showPanel("gamify");
+}
+
+/**
+ * Begin Run Live Class for a resolved meeting date, then mint the join code.
+ * @param {string} iso
+ * @param {{ reservedWin?: Window|null }} [opts]
+ */
+async function proceedRunLiveBegin(iso, opts = {}) {
   syncOverlayPickers(logContext, iso);
   const meetingInput = $("ap-meeting-date");
   if (meetingInput) meetingInput.value = iso;
@@ -380,23 +491,15 @@ async function proceedRunLiveBegin(iso) {
   });
   if (overlayState.game?.status === "live") {
     openLiveScoring(overlayState);
-    if (liveSessionId) {
-      ensureLiveSessionOverlay();
-      startLiveSessionPolling();
-    }
+    await ensureLiveSessionMinted(opts);
     return;
   }
-  await ensureMeetingDate(iso);
-  syncOverlayPickers(logContext, iso);
   if (liveSessionId) sessionPresentIds = new Set();
   scoringLocked = false;
   trackMode = null;
   renderAttendanceList();
   showPanel("att");
-  if (liveSessionId) {
-    ensureLiveSessionOverlay();
-    startLiveSessionPolling();
-  }
+  await ensureLiveSessionMinted(opts);
 }
 
 /**
@@ -411,7 +514,7 @@ export async function openRunLiveClass() {
     if (overlayState?.game?.status === "live") {
       openLiveScoring(overlayState);
       if (liveSessionId) {
-        ensureLiveSessionOverlay();
+        ensureLiveSessionOverlay(null);
         startLiveSessionPolling();
       }
       return;
@@ -426,18 +529,24 @@ export async function openRunLiveClass() {
         "Stored attendance and participation for today will be overridden. Continue?"
       );
       if (!ok) return;
-      await proceedRunLiveBegin(decision.iso);
+      await proceedRunLiveBegin(decision.iso, { reservedWin: null });
       return;
     }
 
     if (decision.mode === "auto") {
-      await proceedRunLiveBegin(decision.iso);
+      await proceedRunLiveBegin(decision.iso, { reservedWin: null });
       return;
     }
 
-    pendingAction = async () => {
-      const iso = gridSelectedIso($("ap-day-grid")) || $("ap-valid-date")?.value || decision.iso;
-      await proceedRunLiveBegin(iso);
+    pendingAction = async (pickedIso, actionOpts = {}) => {
+      const iso =
+        pickedIso ||
+        gridSelectedIso($("ap-day-grid")) ||
+        $("ap-valid-date")?.value ||
+        decision.iso;
+      await proceedRunLiveBegin(iso, {
+        reservedWin: actionOpts.reservedWin || null,
+      });
     };
     fillValidateHint();
     showValidateGrid(decision.iso);
@@ -740,6 +849,11 @@ function selectTrackMode(mode) {
     const check = btn.querySelector(".ap-att-check");
     if (check) check.textContent = on ? "✓" : "";
   }
+  if (mode !== "team" && ["teams", "names", "rounds"].includes(currentStep)) {
+    showPanel("gamify");
+    return;
+  }
+  syncTeamFlowVisibility();
   updateStepSummaries();
 }
 
@@ -755,39 +869,6 @@ for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
 document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   if (btn.id === "ap-score-cancel" || btn.id === "ap-validate-cancel") return;
   btn.addEventListener("click", () => cancelOverlay());
-});
-
-$("ap-share-code")?.addEventListener("click", async () => {
-  try {
-    liveSessionId = readLiveSessionId() || liveSessionId;
-    if (!liveSessionId) {
-      const res = await fetch(`/staff/class/${classId}/run-live`, {
-        method: "POST",
-        credentials: "same-origin",
-        redirect: "manual",
-      });
-      const loc = res.headers.get("Location") || "";
-      const match = /live_session_id=(\d+)/.exec(loc);
-      if (match) {
-        liveSessionId = Number(match[1]);
-        if (root) root.dataset.liveSessionId = String(liveSessionId);
-        const url = new URL(window.location.href);
-        url.searchParams.set("tab", "live");
-        url.searchParams.set("live_session_id", String(liveSessionId));
-        window.history.replaceState({}, "", url.toString());
-      } else if (res.status >= 300 && res.status < 400 && loc) {
-        window.location.assign(loc);
-        return;
-      } else {
-        const errText = await res.text();
-        throw new Error(errText.slice(0, 160) || "Could not mint a join code.");
-      }
-    }
-    ensureLiveSessionOverlay();
-    startLiveSessionPolling();
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
 });
 
 $("ap-att-log")?.addEventListener("click", async () => {
@@ -820,25 +901,15 @@ $("ap-gamify-next")?.addEventListener("click", async () => {
   }
 });
 
-$("ap-validate-apply")?.addEventListener("click", async () => {
-  const iso =
-    gridSelectedIso($("ap-day-grid")) ||
-    pickerValue($("ap-valid-date"), logContext) ||
-    $("ap-valid-date")?.value;
-  if (!iso) return;
-  try {
-    overlayState = await api(`/api/classes/${classId}/game/meeting`, {
-      method: "POST",
-      body: JSON.stringify({ meeting_date: iso }),
-    });
-    const attDate = $("ap-meeting-date");
-    if (attDate) attDate.value = iso;
-    const fn = pendingAction;
-    pendingAction = null;
-    if (fn) await fn();
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
+$("ap-validate-apply")?.addEventListener("click", () => {
+  const reservedWin = reserveLiveSessionOverlay();
+  applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
+});
+
+$("ap-open-overlay")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  const reservedWin = reserveLiveSessionOverlay();
+  ensureLiveSessionOverlay(reservedWin);
 });
 
 $("ap-gamify-yes")?.addEventListener("click", () => {
@@ -875,7 +946,7 @@ function setNTeams(value) {
 }
 
 /**
- * Refresh the teams overlay from game state.
+ * Refresh the teams overlay from game state (scoreboard/rank live on Tracking mode).
  */
 function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
@@ -946,7 +1017,7 @@ $("ap-rank-toggle")?.addEventListener("change", (event) => {
 });
 
 /**
- * Assign teams and show roster preview with prior participation.
+ * Assign teams, open Meet Your Team, and start the overlay meet timer.
  * @param {"random"|"balanced"|"manual"} mode
  */
 async function assign(mode) {
@@ -965,6 +1036,53 @@ async function assign(mode) {
   $("ap-manual-assign")?.classList.add("hidden");
   renderNamesPanel();
   showPanel("names");
+}
+
+/**
+ * Read Meet Your Team timer minutes from the stepper (default 3).
+ * @returns {number}
+ */
+function meetMinutes() {
+  const raw = Number($("ap-meet-minutes")?.value);
+  if (!Number.isFinite(raw)) return 3;
+  return Math.max(1, Math.min(30, Math.round(raw)));
+}
+
+/**
+ * Clamp the Meet Your Team timer control.
+ * @param {number} value
+ */
+function setMeetMinutes(value) {
+  const n = Math.max(1, Math.min(30, Number(value) || 3));
+  const el = $("ap-meet-minutes");
+  if (el) el.value = String(n);
+}
+
+/**
+ * Post meet-teams phase so the live overlay shows Meet the Teams + countdown.
+ * @returns {Promise<void>}
+ */
+async function startMeetTeamsPhase() {
+  const minutes = meetMinutes();
+  overlayState = await api(`/api/classes/${classId}/game/meet-teams`, {
+    method: "POST",
+    body: JSON.stringify({ minutes }),
+  });
+}
+
+/**
+ * Signal the live overlay to run the 2-minute pre-rounds anticipation sequence.
+ * @returns {Promise<void>}
+ */
+async function startAnticipationPhase() {
+  try {
+    overlayState = await api(`/api/classes/${classId}/game/anticipation`, {
+      method: "POST",
+      body: "{}",
+    });
+  } catch (_) {
+    /* non-fatal — rounds UI still works */
+  }
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
@@ -1057,15 +1175,8 @@ $("ap-manual-list")?.addEventListener("click", (event) => {
  */
 function renderNamesPanel() {
   const hint = $("ap-names-hint");
-  if (hint && lastAssignMode === "balanced") {
-    hint.textContent =
-      "Balanced preview — even rosters (sizes equal or off by one), inspect prior participation side by side, then rename if you want.";
-  } else if (hint && lastAssignMode === "random") {
-    hint.textContent =
-      "Random preview — inspect names and prior participation, then rename teams if you want.";
-  } else if (hint) {
-    hint.textContent =
-      "Rename teams and inspect roster strength (prior participation) before creating teams.";
+  if (hint) {
+    hint.textContent = "Optional: Update team names below";
   }
   const box = $("ap-name-list");
   if (!box) return;
@@ -1107,6 +1218,25 @@ $("ap-start-game")?.addEventListener("click", async () => {
     ];
     renderRoundsPanel();
     showPanel("rounds");
+    await startAnticipationPhase();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-meet-minutes-down")?.addEventListener("click", () => {
+  setMeetMinutes(meetMinutes() - 1);
+});
+$("ap-meet-minutes-up")?.addEventListener("click", () => {
+  setMeetMinutes(meetMinutes() + 1);
+});
+$("ap-meet-minutes")?.addEventListener("change", () => {
+  setMeetMinutes(meetMinutes());
+});
+$("ap-meet-start")?.addEventListener("click", async () => {
+  try {
+    hideError("#ap-overlay-error");
+    await startMeetTeamsPhase();
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -1279,7 +1409,7 @@ function renderLiveTeams(state) {
   overlayState = state;
   const meta = $("ap-live-meta");
   if (meta) {
-    meta.textContent = `${state.class?.course_code || ""} · ${state.session?.header_label || ""}`.trim();
+    meta.textContent = "Note: Team points not passed in gradebook";
   }
   const game = state.game || {};
   const n = Number(game.round) || 1;
@@ -1492,8 +1622,7 @@ async function resumeLiveClassIfNeeded() {
     }
     renderAttendanceList();
     showPanel("att");
-    ensureLiveSessionOverlay();
-    startLiveSessionPolling();
+    await ensureLiveSessionMinted();
     return true;
   } catch (_) {
     return false;
@@ -1552,7 +1681,6 @@ document.querySelectorAll("[data-track-nav='prev']").forEach((btn) => {
       teams: "gamify",
       names: "teams",
       rounds: "names",
-      validate: "att",
     };
     const target = back[current || ""];
     if (target) showPanel(target);
@@ -1563,6 +1691,7 @@ selectTrackMode("individual");
 if (localStorage.getItem(scoreboardKey) === null) {
   localStorage.setItem(scoreboardKey, "1");
 }
+setMeetMinutes(3);
 
 if (root?.dataset.apView === "live") {
   (async () => {

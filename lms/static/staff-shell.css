@@ -416,11 +416,35 @@ body.staff-shell .ap-subtabs a.on {
   border-bottom: 2px solid #0f766e;
 }
 body.staff-shell .scoreboard-opt {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
   font-weight: 600;
-  margin-right: 0.75rem;
+  margin: 0;
+  width: 100%;
+  cursor: pointer;
+}
+body.staff-shell .scoreboard-opt input[type="checkbox"] {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+body.staff-shell .ap-game-opt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+body.staff-shell .ap-game-opt-title {
+  font-weight: 650;
+  color: #0f172a;
+  line-height: 1.3;
+}
+body.staff-shell .ap-game-opt-row {
+  margin: 0.35rem 0;
+}
+body.staff-shell .ap-game-opt-row .hint.compact {
+  margin: 0;
+  font-weight: 500;
 }
 body.staff-shell .attendance-grid th.week-start,
 body.staff-shell .attendance-grid td.week-start {
@@ -801,6 +825,49 @@ body.staff-shell .ap-track-choice {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+body.staff-shell .ap-track-game-opts {
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+body.staff-shell .ap-track-game-opts[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-meet-timer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0 0.55rem;
+}
+body.staff-shell .ap-meet-start {
+  min-width: 5.5rem;
+}
+body.staff-shell .ap-join-strip {
+  margin: 0.35rem 0 0.65rem;
+}
+body.staff-shell .ap-join-strip[hidden] {
+  display: none !important;
+}
+body.staff-shell button.linkish {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+body.staff-shell .track-step[data-team-flow][hidden] {
+  display: none !important;
 }
 body.staff-shell .ap-track-btn {
   display: flex;

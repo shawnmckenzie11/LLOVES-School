@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>How are you feeling? · {{ school_name }}</title>
+  <title>{% if codename %}{{ codename }} · {% endif %}How are you feeling? · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
 </head>
@@ -14,6 +14,7 @@
     <p class="sub">Optional — pick a face if you like, or skip and join class.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form class="mood-form" method="post" id="mood-form">
+      <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
       <div class="mood-row" role="radiogroup" aria-label="How are you feeling? (optional)">
         {% for mood in moods %}
         <label class="mood-btn mood-{{ mood.key }}">
@@ -29,6 +30,6 @@
       </div>
     </form>
   </div>
-  <script src="/static/student-live-session.js"></script>
+  <script src="/static/student-visit-token.js"></script>
 </body>
 </html>

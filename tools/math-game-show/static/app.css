@@ -1237,49 +1237,34 @@ body.live-overlay.overlay .live-overlay-stage {
 }
 
 .live-overlay-code {
-  margin: 0.35rem 0 0.25rem;
+  margin: 0.35rem 0 0.15rem;
   font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
   font-size: clamp(1.35rem, 4.5vw, 1.85rem);
   font-weight: 700;
   font-variant-numeric: slashed-zero;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   color: #f5c518;
   word-break: break-all;
   text-transform: uppercase;
-}
-
-.live-overlay-code-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin: 0.15rem 0 0.35rem;
-  min-height: 1.6rem;
-}
-
-.live-overlay-copy {
-  appearance: none;
-  border: 1px solid rgba(245, 197, 24, 0.45);
-  background: rgba(245, 197, 24, 0.12);
-  color: #f5c518;
-  font: inherit;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0.28rem 0.65rem;
-  border-radius: 3px;
   cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
-.live-overlay-copy:hover {
-  background: rgba(245, 197, 24, 0.22);
+.live-overlay-code:hover,
+.live-overlay-code:focus-visible {
+  color: #ffe28a;
+  outline: none;
 }
 
 .live-overlay-copy-feedback {
+  display: block;
+  margin: 0 auto 0.35rem;
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #9dffb0;
+  text-align: center;
+  min-height: 1rem;
 }
 
 .live-overlay-copy-feedback[hidden] {
@@ -1310,8 +1295,165 @@ body.live-overlay.overlay .live-overlay-stage {
   display: none !important;
 }
 
+.live-overlay-anticipation {
+  position: relative;
+  margin: 0.25rem 0 0.65rem;
+  padding: 0.85rem 0.55rem 1rem;
+  text-align: center;
+  border: 1px solid rgba(245, 197, 24, calc(0.25 + var(--anticipation-intensity, 0) * 0.55));
+  background: rgba(245, 197, 24, calc(0.04 + var(--anticipation-intensity, 0) * 0.12));
+  overflow: hidden;
+}
+
+.live-overlay-anticipation[hidden],
+.live-overlay-anticipation.hidden {
+  display: none !important;
+}
+
+.live-overlay-anticipation-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9aa6c3;
+}
+
+.live-overlay-anticipation-title {
+  margin: 0.35rem 0 0.55rem;
+  font-size: clamp(1.05rem, 4vw, 1.35rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f5c518;
+  animation: live-overlay-sting 1.8s ease-in-out infinite;
+}
+
+.live-overlay-anticipation-pulse {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 0.55rem;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 197, 24, 0.55);
+  box-shadow: 0 0 0 0 rgba(245, 197, 24, 0.45);
+  animation: live-overlay-pulse 1.2s ease-out infinite;
+  transform: scale(calc(0.85 + var(--anticipation-intensity, 0) * 0.45));
+}
+
+.live-overlay-anticipation-clock {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  color: #d7deef;
+}
+
+@keyframes live-overlay-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(245, 197, 24, 0.45); }
+  70% { box-shadow: 0 0 0 14px rgba(245, 197, 24, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 197, 24, 0); }
+}
+
+@keyframes live-overlay-sting {
+  0%, 100% { opacity: 0.75; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+.live-overlay-celebrate {
+  position: relative;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.9rem 0.55rem 1rem;
+  text-align: center;
+  border-top: 3px solid #f5c518;
+  background: rgba(12, 13, 16, 0.92);
+  overflow: hidden;
+}
+
+.live-overlay-celebrate[hidden],
+.live-overlay-celebrate.hidden {
+  display: none !important;
+}
+
+.live-overlay-celebrate-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #f5c518;
+}
+
+.live-overlay-celebrate-team {
+  margin: 0.35rem 0 0.55rem;
+  font-size: clamp(1.25rem, 5vw, 1.75rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  animation: live-overlay-slam 0.7s cubic-bezier(0.2, 1.4, 0.3, 1) both;
+}
+
+.live-overlay-celebrate-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.live-overlay-celebrate-members li {
+  font-size: 0.92rem;
+  opacity: 0;
+  animation: live-overlay-member-in 0.45s ease forwards;
+}
+
+.live-overlay-celebrate-members li:nth-child(1) { animation-delay: 0.15s; }
+.live-overlay-celebrate-members li:nth-child(2) { animation-delay: 0.28s; }
+.live-overlay-celebrate-members li:nth-child(3) { animation-delay: 0.4s; }
+.live-overlay-celebrate-members li:nth-child(4) { animation-delay: 0.52s; }
+.live-overlay-celebrate-members li:nth-child(5) { animation-delay: 0.64s; }
+.live-overlay-celebrate-members li:nth-child(n+6) { animation-delay: 0.76s; }
+
+.live-overlay-confetti {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.live-overlay-confetti-bit {
+  position: absolute;
+  top: -8%;
+  left: var(--x, 50%);
+  width: 6px;
+  height: 10px;
+  background: var(--c, #f5c518);
+  opacity: 0.9;
+  animation: live-overlay-fall var(--d, 1.2s) linear forwards;
+}
+
+@keyframes live-overlay-slam {
+  0% { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes live-overlay-member-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes live-overlay-fall {
+  to { transform: translateY(120%) rotate(220deg); opacity: 0; }
+}
+
+body.live-overlay.is-anticipation .live-overlay-roster {
+  opacity: 0.55;
+}
+
+body.live-overlay.is-celebrating .live-overlay-roster,
+body.live-overlay.is-celebrating .live-overlay-teams {
+  opacity: 0.35;
+}
+
 .live-overlay-count {
-  /* Count now lives in the In class heading as (N). */
+  /* Count now lives in the Participants heading as (N). */
   display: none;
 }
 

@@ -12,13 +12,8 @@
       <path fill="currentColor" d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 0 1 4 0v2h-4V6zm7 14H7V10h10v10zm-5-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
     </svg>
   </a>
-  {% set brand_words = school_name.split(' ') %}
   <h1 class="landing-brand">
-    {% if brand_words|length == 1 %}
-    <span class="brand-edge">{{ brand_words[0]|safe }}</span>
-    {% else %}
-    <span class="brand-edge">{{ brand_words[0]|safe }}</span>{% for w in brand_words[1:-1] %} {{ w|safe }}{% endfor %} <span class="brand-edge">{{ brand_words[-1]|safe }}</span>
-    {% endif %}
+    <span class="brand-edge">Attendance</span> &amp; <span class="brand-edge">Live Classes</span>
   </h1>
   <div class="wrap landing-wrap">
     <p class="role-prompt">Select your role:</p>

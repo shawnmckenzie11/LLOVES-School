@@ -551,6 +551,18 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(sorted(names), ["Cedar", "Maple"])
         kept = next(s for s in rv.get_json()["students"] if s["codename"] == "Maple")
         self.assertEqual(kept["id"], maple["id"])
+
+        run = self.client.post(
+            f"/staff/class/{class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        blocked = self.client.put(
+            f"/api/staff/classes/{class_id}/roster",
+            json={"codenames": ["Maple", "Cedar", "Oak"]},
+        )
+        self.assertEqual(blocked.status_code, 409)
+        self.assertIn("live class", blocked.get_json().get("error", "").lower())
         still_post = self.client.post(
             "/api/staff/classes",
             json={
@@ -564,7 +576,7 @@ class RosterTests(unittest.TestCase):
         self.assertNotEqual(still_post.get_json()["class"]["id"], class_id)
 
     def test_run_live_mints_unique_session_code(self) -> None:
-        """Run Live Class mints a session; a second Run is blocked until ended."""
+        """Run Live Class mints a session; same-class rerun reuses it."""
         first = self.client.post(
             "/api/staff/classes",
             json={
@@ -591,15 +603,11 @@ class RosterTests(unittest.TestCase):
         minted = str(session_one["session_code"])
         self.assertEqual(len(minted), 8)
         self.assertNotEqual(minted, self.offering["live_access_code"])
-        blocked = self.client.post(
+        reuse = self.client.post(
             f"/staff/class/{class_id}/run-live",
             follow_redirects=False,
         )
-        self.assertEqual(blocked.status_code, 400)
-        self.assertIn(
-            b"already have a live class running",
-            blocked.get_data(),
-        )
+        self.assertEqual(reuse.status_code, 302)
         still_active = self.school.get_active_live_session_for_class(class_id)
         self.assertIsNotNone(still_active)
         assert still_active is not None

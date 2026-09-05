@@ -94,10 +94,22 @@
          data-run="{{ '1' if run_live else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
       <div class="track-accordion" id="track-accordion">
-        <div class="track-share-bar">
-          <button type="button" id="ap-share-code" class="ap-share-code-btn">Generate and Share Join Code</button>
-          <p class="hint" id="ap-share-hint">Opens the live Zoom strip with the join code for students.</p>
-        </div>
+
+        <section id="ap-panel-validate" class="track-step ap-panel hidden" data-step="validate">
+          <div class="track-step-summary" data-accordion-toggle="validate" aria-expanded="false">
+            <span class="track-step-title">Class Date</span>
+          </div>
+          <div class="track-step-body">
+            <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
+            <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
+            <input type="hidden" id="ap-valid-date" class="ap-date-input">
+            <div class="track-step-footer">
+              <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+              <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
+              <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
+            </div>
+          </div>
+        </section>
 
         <section id="ap-panel-att" class="track-step ap-panel" data-step="att">
           <div class="track-step-summary" data-accordion-toggle="att" aria-expanded="true">
@@ -107,27 +119,16 @@
           </div>
           <div class="track-step-body">
             <p class="hint">Join-only: students appear present when they enter the live session code.</p>
+            <p class="hint compact ap-join-strip" id="ap-join-strip" hidden>
+              <button type="button" class="linkish" id="ap-open-overlay">Open join strip</button>
+              <span> — popup was blocked; open the Zoom-share overlay once.</span>
+            </p>
             <input type="hidden" id="ap-meeting-date" value="">
             <div id="ap-att-list" class="check-list ap-att-readonly"></div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
               <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-validate" class="track-step ap-panel hidden" data-step="validate">
-          <div class="track-step-summary" data-accordion-toggle="validate" aria-expanded="false">
-            <span class="track-step-title">Choose a class date</span>
-          </div>
-          <div class="track-step-body">
-            <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
-            <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
-            <input type="hidden" id="ap-valid-date" class="ap-date-input">
-            <div class="track-step-footer">
-              <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
-              <button type="button" id="ap-validate-apply">Use this date</button>
             </div>
           </div>
         </section>
@@ -149,7 +150,48 @@
                 <span class="ap-att-check" aria-hidden="true"></span>
                 <span class="ap-att-name">Team Tracking</span>
               </button>
-              <p class="hint">Assign points to groups creatively or run as Gameshow or Team Challenge.</p>
+              <p class="hint">Assign points to individuals and groups creatively.</p>
+            </div>
+            <div class="ap-track-game-opts" id="ap-track-game-opts" hidden>
+              <div class="ap-game-opt-row">
+                <label class="scoreboard-opt" for="ap-scoreboard-toggle">
+                  <input type="checkbox" id="ap-scoreboard-toggle" checked>
+                  <span class="ap-game-opt-copy">
+                    <span class="ap-game-opt-title">Run as Game</span>
+                    <span class="hint compact">Include scoreboard during class</span>
+                  </span>
+                </label>
+              </div>
+              <div class="scoreboard-help" id="ap-scoreboard-preview-wrap">
+                <div class="scoreboard-preview" aria-hidden="true">
+                  <div class="sb-preview-top">
+                    <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
+                    <span class="sb-preview-clock">19:16</span>
+                  </div>
+                  <div class="sb-preview-teams">
+                    <div class="sb-preview-team sb-preview-team--1">
+                      <span class="sb-preview-name">TEAM 1</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                    <div class="sb-preview-team sb-preview-team--2">
+                      <span class="sb-preview-name">TEAM 2</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                    <div class="sb-preview-team sb-preview-team--3">
+                      <span class="sb-preview-name">TEAM 3</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="ap-game-opt-row">
+                <label class="scoreboard-opt" for="ap-rank-toggle">
+                  <input type="checkbox" id="ap-rank-toggle">
+                  <span class="ap-game-opt-copy">
+                    <span class="ap-game-opt-title">Allow students to privately see their rank in class</span>
+                  </span>
+                </label>
+              </div>
             </div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
@@ -159,43 +201,13 @@
           </div>
         </section>
 
-        <section id="ap-panel-teams" class="track-step ap-panel" data-step="teams">
+        <section id="ap-panel-teams" class="track-step ap-panel" data-step="teams" data-team-flow hidden>
           <div class="track-step-summary" data-accordion-toggle="teams" aria-expanded="false">
             <span class="track-step-title">Teams</span>
             <span class="track-step-meta" id="ap-teams-summary"></span>
             <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
           </div>
           <div class="track-step-body">
-            <label class="scoreboard-opt">
-              <input type="checkbox" id="ap-scoreboard-toggle" checked>
-              Show scoreboard for Game Show or Team Challenge
-            </label>
-            <div class="scoreboard-help" id="ap-scoreboard-preview-wrap">
-              <div class="scoreboard-preview" aria-hidden="true">
-                <div class="sb-preview-top">
-                  <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
-                  <span class="sb-preview-clock">19:16</span>
-                </div>
-                <div class="sb-preview-teams">
-                  <div class="sb-preview-team sb-preview-team--1">
-                    <span class="sb-preview-name">TEAM 1</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                  <div class="sb-preview-team sb-preview-team--2">
-                    <span class="sb-preview-name">TEAM 2</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                  <div class="sb-preview-team sb-preview-team--3">
-                    <span class="sb-preview-name">TEAM 3</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <label class="scoreboard-opt">
-              <input type="checkbox" id="ap-rank-toggle">
-              Allow students to privately see their rank in class
-            </label>
             <label class="field" for="ap-n-teams">Number of teams</label>
             <div class="stepper ap-teams-stepper">
               <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
@@ -230,14 +242,23 @@
           </div>
         </section>
 
-        <section id="ap-panel-names" class="track-step ap-panel" data-step="names">
+        <section id="ap-panel-names" class="track-step ap-panel" data-step="names" data-team-flow hidden>
           <div class="track-step-summary" data-accordion-toggle="names" aria-expanded="false">
-            <span class="track-step-title">Team names / preview</span>
+            <span class="track-step-title">Round 1: Meet Your Team</span>
             <span class="track-step-meta" id="ap-names-summary"></span>
             <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
           </div>
           <div class="track-step-body">
-            <p class="hint compact" id="ap-names-hint">Rename teams and review prior participation.</p>
+            <label class="field" for="ap-meet-minutes">Meet Your Team timer (min)</label>
+            <div class="ap-meet-timer-row">
+              <div class="stepper ap-teams-stepper">
+                <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
+                <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
+                <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
+              </div>
+              <button type="button" id="ap-meet-start" class="ap-meet-start">Start</button>
+            </div>
+            <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
             <div id="ap-name-list" class="ap-name-list-compact"></div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" id="ap-names-back" data-track-nav="prev">← Prev</button>
@@ -247,7 +268,7 @@
           </div>
         </section>
 
-        <section id="ap-panel-rounds" class="track-step ap-panel" data-step="rounds">
+        <section id="ap-panel-rounds" class="track-step ap-panel" data-step="rounds" data-team-flow hidden>
           <div class="track-step-summary" data-accordion-toggle="rounds" aria-expanded="false">
             <span class="track-step-title">Rounds</span>
             <span class="track-step-meta" id="ap-rounds-summary"></span>
@@ -275,7 +296,7 @@
           <div class="track-step-body">
             <div class="ap-score-shell">
               <header class="ap-score-header">
-                <p id="ap-live-meta" class="hint compact"></p>
+                <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
                 <div class="ap-round-bar">
                   <span id="ap-round-label"></span>
                   <span id="ap-round-clock"></span>

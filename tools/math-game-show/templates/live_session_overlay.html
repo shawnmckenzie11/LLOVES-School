@@ -9,16 +9,25 @@
 <body class="live-overlay">
   <div class="live-overlay-stage" id="live-stage">
     <header class="live-overlay-header">
-      <p class="live-overlay-code" id="live-code">····</p>
-      <div class="live-overlay-code-actions no-drag">
-        <button type="button" class="live-overlay-copy" id="live-copy-code">Copy Code</button>
-        <span class="live-overlay-copy-feedback" id="live-copy-feedback" hidden>Copied</span>
-      </div>
+      <p class="live-overlay-code no-drag" id="live-code" title="Click to copy" role="button" tabindex="0">····</p>
+      <span class="live-overlay-copy-feedback" id="live-copy-feedback" hidden>Copied</span>
       <p class="live-overlay-round hidden" id="live-round" hidden></p>
       <p class="live-overlay-round-clock hidden" id="live-round-clock" hidden></p>
     </header>
+    <section class="live-overlay-anticipation hidden" id="live-anticipation" aria-live="polite" hidden>
+      <p class="live-overlay-anticipation-kicker" id="live-anticipation-kicker">Get ready</p>
+      <p class="live-overlay-anticipation-title" id="live-anticipation-title">Rounds incoming</p>
+      <div class="live-overlay-anticipation-pulse" aria-hidden="true"></div>
+      <p class="live-overlay-anticipation-clock" id="live-anticipation-clock"></p>
+    </section>
+    <section class="live-overlay-celebrate hidden" id="live-celebrate" aria-live="polite" hidden>
+      <div class="live-overlay-confetti" id="live-confetti" aria-hidden="true"></div>
+      <p class="live-overlay-celebrate-kicker">Winner</p>
+      <h2 class="live-overlay-celebrate-team" id="live-celebrate-team"></h2>
+      <ul class="live-overlay-celebrate-members" id="live-celebrate-members"></ul>
+    </section>
     <section class="live-overlay-roster" aria-label="Logged-in students">
-      <h2 class="live-overlay-section-title" id="live-roster-title">In class <span class="live-overlay-att-count" id="live-count">(0)</span></h2>
+      <h2 class="live-overlay-section-title" id="live-roster-title">Participants <span class="live-overlay-att-count" id="live-count">(0)</span></h2>
       <div class="live-overlay-roster-body" id="live-roster-body">
         <ul class="live-overlay-list" id="live-roster"></ul>
       </div>

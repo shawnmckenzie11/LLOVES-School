@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS games (
     current_round INTEGER NOT NULL DEFAULT 1,
     round_started_at TEXT,
     round_duration_sec INTEGER,
-    rounds_json TEXT
+    rounds_json TEXT,
+    overlay_phase TEXT
 );
 
 CREATE TABLE IF NOT EXISTS point_events (
@@ -629,6 +630,8 @@ class GameShowDB:
             self.conn.execute("ALTER TABLE games ADD COLUMN round_duration_sec INTEGER")
         if "rounds_json" not in game_cols:
             self.conn.execute("ALTER TABLE games ADD COLUMN rounds_json TEXT")
+        if "overlay_phase" not in game_cols:
+            self.conn.execute("ALTER TABLE games ADD COLUMN overlay_phase TEXT")
         self.conn.execute(
             """
             UPDATE games
@@ -3083,7 +3086,12 @@ class GameShowDB:
                     raise KeyError(f"team {team_id}")
             if not go_live:
                 self.conn.execute(
-                    "UPDATE games SET status = 'rounds' WHERE id = ?",
+                    """
+                    UPDATE games
+                    SET status = 'rounds',
+                        overlay_phase = NULL
+                    WHERE id = ?
+                    """,
                     (game_id,),
                 )
                 self.conn.commit()
@@ -3096,6 +3104,7 @@ class GameShowDB:
                     """
                     UPDATE games
                     SET status = 'live',
+                        overlay_phase = NULL,
                         current_round = 1,
                         round_started_at = ?,
                         round_duration_sec = ?,
@@ -3111,9 +3120,93 @@ class GameShowDB:
                 )
             else:
                 self.conn.execute(
-                    "UPDATE games SET status = 'live' WHERE id = ?", (game_id,)
+                    """
+                    UPDATE games
+                    SET status = 'live',
+                        overlay_phase = NULL
+                    WHERE id = ?
+                    """,
+                    (game_id,),
                 )
             self._set_scoreboard_game(game_id)
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def start_meet_teams(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
+        """Start the Meet the Teams overlay timer after teams are assigned.
+
+        Sets ``overlay_phase`` to ``meet_teams`` and exposes ``round_title`` /
+        ``round_ends_at_ms`` on the scoreboard for the live Zoom strip.
+
+        Args:
+            class_id: Classes primary key.
+            minutes: Countdown length (clamped 1–30). Default 3.
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When teams are not assigned yet.
+        """
+        minutes_i = max(1, min(30, int(minutes) if minutes is not None else 3))
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] not in {"names", "rounds"}:
+                raise ValueError("Meet the Teams after teams have been assigned")
+            n_teams = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM game_teams WHERE game_id = ?",
+                (game["id"],),
+            ).fetchone()
+            if int(n_teams["n"]) < 2:
+                raise ValueError("Create at least two teams before Meet the Teams")
+            self.conn.execute(
+                """
+                UPDATE games
+                SET overlay_phase = 'meet_teams',
+                    round_started_at = ?,
+                    round_duration_sec = ?,
+                    current_round = 0
+                WHERE id = ?
+                """,
+                (self._now(), minutes_i * 60, int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def start_anticipation(self, class_id: int) -> dict[str, Any]:
+        """Signal the live overlay to run the pre-rounds anticipation sequence.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When the game is not on the rounds setup step.
+        """
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] not in {"names", "rounds"}:
+                raise ValueError("Anticipation starts from the Rounds setup step")
+            n_teams = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM game_teams WHERE game_id = ?",
+                (game["id"],),
+            ).fetchone()
+            if int(n_teams["n"]) < 2:
+                raise ValueError("Create teams before anticipation")
+            self.conn.execute(
+                """
+                UPDATE games
+                SET status = 'rounds',
+                    overlay_phase = 'anticipation',
+                    round_started_at = ?,
+                    round_duration_sec = ?,
+                    current_round = 0
+                WHERE id = ?
+                """,
+                (self._now(), 120, int(game["id"])),
+            )
             self.conn.commit()
         return self.game_state(class_id)
 
@@ -3145,6 +3238,7 @@ class GameShowDB:
                 """
                 UPDATE games
                 SET status = 'live',
+                    overlay_phase = NULL,
                     current_round = 1,
                     round_started_at = ?,
                     round_duration_sec = ?,
@@ -3855,6 +3949,7 @@ class GameShowDB:
                 "session_id": int(game["session_id"]),
                 "event_seq": int(game["event_seq"] or 0),
                 "last_event": last_event,
+                "overlay_phase": str(game.get("overlay_phase") or "") or None,
                 **round_info,
             },
             "session": session,
@@ -3934,6 +4029,11 @@ class GameShowDB:
                 return self._scoreboard_payload(
                     self.game_state(current_id, game_id=live_id), live=True
                 )
+            phase_id = self._overlay_phase_game_id_for_class(current_id)
+            if phase_id is not None:
+                return self._scoreboard_payload(
+                    self.game_state(current_id, game_id=phase_id), live=True
+                )
             pinned_id = self._scoreboard_game_id()
             if pinned_id is not None:
                 pinned = self._game_row_by_id(pinned_id)
@@ -3965,6 +4065,7 @@ class GameShowDB:
             "round_ends_at": None,
             "round_ends_at_ms": None,
             "round_remaining_sec": None,
+            "overlay_phase": None,
             "leaders": idle_leaders,
             "stat_window": window,
             "stat_window_label": stat_window_label(window),
@@ -3981,6 +4082,30 @@ class GameShowDB:
                 """
                 SELECT id FROM games
                 WHERE class_id = ? AND status = 'live'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (class_id,),
+            ).fetchone()
+        return int(row["id"]) if row else None
+
+    def _overlay_phase_game_id_for_class(self, class_id: int) -> int | None:
+        """Return a setup game id that has an active live-overlay phase.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Game id when ``overlay_phase`` is set on a names/rounds game.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM games
+                WHERE class_id = ?
+                  AND status IN ('names', 'rounds')
+                  AND overlay_phase IS NOT NULL
+                  AND TRIM(overlay_phase) != ''
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -4089,21 +4214,27 @@ class GameShowDB:
         )
 
     def _scoreboard_players(self, team: dict[str, Any]) -> list[dict[str, Any]]:
-        """First names (and student ids) on a team for the public scoreboard.
+        """Display names (and student ids) on a team for the public scoreboard.
+
+        Prefers LLOVES ``codename`` when present, otherwise ``first_name``.
 
         Args:
             team: A ``game_state`` team dict (may include full member rows).
 
         Returns:
-            ``[{first_name, student_id}]`` sorted by first name. No last names.
-            ``student_id`` is additive for live-overlay In-class grouping.
+            ``[{first_name, student_id, codename?}]`` sorted by display name.
+            ``student_id`` is additive for live-overlay Participants grouping.
         """
         names: list[dict[str, Any]] = []
         for member in team.get("members") or []:
+            codename = str(member.get("codename") or "").strip()
             first = str(member.get("first_name") or "").strip()
-            if not first:
+            label = codename or first
+            if not label:
                 continue
-            row: dict[str, Any] = {"first_name": first}
+            row: dict[str, Any] = {"first_name": label}
+            if codename:
+                row["codename"] = codename
             sid = int(member.get("id") or 0)
             if sid > 0:
                 row["student_id"] = sid
@@ -4326,11 +4457,49 @@ class GameShowDB:
         """Round index, title, timer end, and remaining seconds.
 
         Timer expiry does not change ``current_round``. Remaining is never
-        negative.
+        negative. Meet-the-Teams / anticipation overlay phases override the
+        title and timer while the game is still in setup.
 
         Args:
             game: A games row dict (status, current_round, round_started_at, …).
         """
+        phase = str(game.get("overlay_phase") or "").strip()
+        if phase == "meet_teams":
+            started_s = (
+                str(game["round_started_at"]) if game.get("round_started_at") else None
+            )
+            duration_i = int(game.get("round_duration_sec") or 180)
+            return {
+                "round": 0,
+                "round_title": "Meet the Teams",
+                "round_kind": "meet",
+                "round_count": 0,
+                "rounds": [],
+                "round_started_at": started_s,
+                "round_duration_sec": duration_i or None,
+                "round_ends_at": round_ends_at(started_s, duration_i),
+                "round_ends_at_ms": round_ends_at_ms(started_s, duration_i),
+                "round_remaining_sec": round_remaining_sec(started_s, duration_i),
+                "overlay_phase": phase,
+            }
+        if phase == "anticipation":
+            started_s = (
+                str(game["round_started_at"]) if game.get("round_started_at") else None
+            )
+            duration_i = int(game.get("round_duration_sec") or 120)
+            return {
+                "round": 0,
+                "round_title": "Get Ready",
+                "round_kind": "anticipation",
+                "round_count": 0,
+                "rounds": [],
+                "round_started_at": started_s,
+                "round_duration_sec": duration_i or None,
+                "round_ends_at": round_ends_at(started_s, duration_i),
+                "round_ends_at_ms": round_ends_at_ms(started_s, duration_i),
+                "round_remaining_sec": round_remaining_sec(started_s, duration_i),
+                "overlay_phase": phase,
+            }
         plan = rounds_from_game_row(game)
         current = int(game.get("current_round") or 1)
         if current < 1 or current > len(plan):
@@ -4352,6 +4521,7 @@ class GameShowDB:
             "round_ends_at": round_ends_at(started_s, duration_i),
             "round_ends_at_ms": round_ends_at_ms(started_s, duration_i),
             "round_remaining_sec": round_remaining_sec(started_s, duration_i),
+            "overlay_phase": None,
         }
 
     def _scoreboard_payload(self, state: dict[str, Any], live: bool) -> dict[str, Any]:
@@ -4364,6 +4534,9 @@ class GameShowDB:
         game = state["game"]
         class_id = int(state["class"]["id"])
         window = self._get_stat_window(class_id)
+        phase = game.get("overlay_phase")
+        if live and not phase and str(game.get("status") or "") == "live":
+            phase = "live"
         payload = {
             "ok": True,
             "live": live,
@@ -4389,6 +4562,7 @@ class GameShowDB:
             "round_ends_at": game.get("round_ends_at"),
             "round_ends_at_ms": game.get("round_ends_at_ms"),
             "round_remaining_sec": game.get("round_remaining_sec"),
+            "overlay_phase": phase,
             "leaders": self._scoreboard_leaders(class_id, window),
             "stat_window": window,
             "stat_window_label": stat_window_label(window),

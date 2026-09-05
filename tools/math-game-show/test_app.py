@@ -807,6 +807,39 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(board["round_title"], "Open Question")
         self.assertGreaterEqual(board["round_remaining_sec"], 1190)
 
+    def test_meet_teams_and_anticipation_overlay_phases(self) -> None:
+        """Meet the Teams and anticipation expose overlay timer fields before live."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:4]]
+        self.db.save_attendance(class_id, present)
+        self.db.assign_teams(class_id, 2, "random")
+        meet = self.db.start_meet_teams(class_id, minutes=3)
+        self.assertEqual(meet["game"]["overlay_phase"], "meet_teams")
+        self.assertEqual(meet["game"]["round_title"], "Meet the Teams")
+        self.assertIsInstance(meet["game"]["round_ends_at_ms"], int)
+        self.assertGreaterEqual(meet["game"]["round_remaining_sec"], 170)
+        board = self.db.scoreboard()
+        self.assertTrue(board["live"])
+        self.assertEqual(board["overlay_phase"], "meet_teams")
+        self.assertEqual(board["round_title"], "Meet the Teams")
+        self.assertGreaterEqual(len(board["teams"]), 2)
+        teams = meet["teams"]
+        self.db.rename_teams(
+            class_id,
+            [{"id": t["id"], "name": t["name"]} for t in teams],
+            go_live=False,
+        )
+        anti = self.db.start_anticipation(class_id)
+        self.assertEqual(anti["game"]["overlay_phase"], "anticipation")
+        self.assertEqual(anti["game"]["status"], "rounds")
+        anti_board = self.db.scoreboard()
+        self.assertEqual(anti_board["overlay_phase"], "anticipation")
+        live = self.db.start_live_with_rounds(class_id)
+        self.assertEqual(live["game"]["status"], "live")
+        self.assertIsNone(live["game"]["overlay_phase"])
+        self.assertEqual(live["game"]["round_title"], "Open Question")
+
     def test_add_late_student_to_live_team(self) -> None:
         """An absent roster student can join a live team at zero points."""
         state = self._go_live(n_present=4)
