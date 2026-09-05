@@ -31,7 +31,8 @@ primary_region = 'yyz'
   processes = ['app']
 
   [http_service.http_options]
-    # Large IMSCC uploads (~650MB+) + unpack can sit quiet after the body lands.
+    # Large IMSCC uploads (any size) + unpack can sit quiet after the body lands.
+    # Free config — Fly Proxy has no hard body-size reject; disk on lloves_data is the cap.
     idle_timeout = 600
 
 [[vm]]

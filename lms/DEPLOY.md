@@ -81,17 +81,25 @@ curl -s https://alc.mckenzian.com/health
 fly certs check alc.mckenzian.com --app lloves-lms
 ```
 
-## Large module-pack uploads (~650MB+)
+## Large module-pack uploads (any size the volume can hold)
 
-App caps are raised so Admin can attach large Common Cartridges:
+LLOVES does **not** enforce an app-level byte ceiling on Admin/IT `.imscc` uploads.
+Fly Proxy streams request bodies and does **not** advertise a hard body-size limit
+that requires a paid upgrade to raise. Config already set (no machine upsell):
 
 | Layer | Setting | Notes |
 |-------|---------|--------|
-| Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **800 MB** in `lms/modules.py` |
+| Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **`None`** (unlimited) in `lms/modules.py` |
 | gunicorn | `--timeout 600` | Unpack after upload can exceed 5 minutes |
-| Fly `http_service.http_options.idle_timeout` | **600s** | Quiet periods while the body is received / unpack runs |
-| Fly volume `lloves_data` | currently **15 GB** | Large `.imscc` + unpacked tree; extend with `fly volumes extend <id> --size N -a lloves-lms` if uploads hit disk full |
+| Fly `http_service.http_options.idle_timeout` | **600s** | Free config; quiet periods while the body is received / unpack runs |
+| Fly Proxy body size | streaming | No documented hard cap; >10 MB skips replay buffering (latency quirk only, not a reject) |
+| Fly volume `lloves_data` | currently **15 GB** | **Real hard limit** for `.imscc` + unpacked tree. Extending volume **costs money** — only if disk-full errors appear |
 
-**Cloudflare:** keep the `alc` CNAME **DNS only** (grey cloud). Orange-cloud proxying often rejects or truncates very large request bodies; if uploads still fail under ~800 MB with a proxy error, confirm the record is grey-clouded.
+**Zero-cost vs paid:** Raising Flask/gunicorn/idle_timeout is free. Extending the
+volume or buying a larger VM is **not** free — do not extend unless `/data` is full.
 
-If Flask returns HTTP 413, the message names the app max and points here for edge/volume caps.
+**Cloudflare:** keep the `alc` CNAME **DNS only** (grey cloud). Orange-cloud proxying
+often rejects or truncates very large request bodies.
+
+If something still returns HTTP 413, it is not an LLOVES size cap — check Cloudflare
+proxy mode, idle timeout on a stalled upload, or volume free space.

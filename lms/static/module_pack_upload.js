@@ -186,7 +186,7 @@ function uploadPack(body) {
     const message =
       data.error ||
       (xhr.status === 413
-        ? "Module pack is too large (max 800 MB)."
+        ? "Upload rejected (HTTP 413). Check server disk, proxy timeout, or Cloudflare DNS-only — see Deploy docs."
         : `Upload failed (HTTP ${xhr.status}).`);
     fail(message);
   };
