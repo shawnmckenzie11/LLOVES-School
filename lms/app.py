@@ -1000,13 +1000,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.errorhandler(413)
     def upload_too_large(_err):
-        """Reject oversized IMSCC uploads with a clear size message."""
-        max_mb = IMSCC_MAX_BYTES // (1024 * 1024)
-        message = (
-            f"Module pack is too large (max {max_mb} MB). "
-            "If the file is under that limit, the edge proxy or volume may still "
-            "be capping uploads — see lms/DEPLOY.md."
-        )
+        """Explain HTTP 413 when a request body was rejected upstream or locally."""
+        if IMSCC_MAX_BYTES is None:
+            message = (
+                "Upload rejected (HTTP 413). LLOVES does not cap module-pack size "
+                "in the app — check Fly idle timeout, Cloudflare (must be DNS-only), "
+                "or /data volume free space. See lms/DEPLOY.md."
+            )
+        else:
+            max_mb = IMSCC_MAX_BYTES // (1024 * 1024)
+            message = (
+                f"Module pack is too large (max {max_mb} MB). "
+                "If the file is under that limit, the edge proxy or volume may still "
+                "be capping uploads — see lms/DEPLOY.md."
+            )
         if _wants_json():
             return jsonify({"ok": False, "error": message}), 413
         if "/module-pack" in (request.path or ""):

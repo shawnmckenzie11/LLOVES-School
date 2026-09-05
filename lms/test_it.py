@@ -320,12 +320,12 @@ class ItTests(unittest.TestCase):
         self.assertEqual(created["days"], "Tue/Thu/Fri")
         self.assertEqual(created["time"], "9:15am")
 
-    def test_imscc_max_bytes_allows_650mb_class_packs(self) -> None:
-        """App content-length ceiling is above a ~639 MB IMSCC."""
+    def test_imscc_max_bytes_unlimited_for_any_size_packs(self) -> None:
+        """App does not cap IMSCC upload size (Fly Proxy streams bodies)."""
         from modules import IMSCC_MAX_BYTES
 
-        self.assertGreaterEqual(IMSCC_MAX_BYTES, 650 * 1024 * 1024)
-        self.assertEqual(self.app.config["MAX_CONTENT_LENGTH"], IMSCC_MAX_BYTES)
+        self.assertIsNone(IMSCC_MAX_BYTES)
+        self.assertIsNone(self.app.config["MAX_CONTENT_LENGTH"])
 
     def test_settings_tab_live_day_gate(self) -> None:
         """Admin Settings API toggles only_live_class_days."""

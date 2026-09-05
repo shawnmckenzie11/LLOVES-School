@@ -252,6 +252,17 @@ class ModulePackTests(unittest.TestCase):
         self.assertFalse(offering.get("imscc_path"))
         self.assertFalse(offering.get("library_id"))
 
+    def test_assert_imscc_within_size_skips_when_unlimited(self) -> None:
+        """Optional byte ceiling is skipped when ``max_bytes`` is None."""
+        from modules import assert_imscc_within_size
+
+        path = Path(self.tmp.name) / "big.imscc"
+        path.write_bytes(b"PK" + (b"x" * 2048))
+        assert_imscc_within_size(path, None)
+        with self.assertRaises(ValueError) as raised:
+            assert_imscc_within_size(path, 100)
+        self.assertIn("too large", str(raised.exception))
+
     def test_it_module_pack_status_idle_then_unpacking(self) -> None:
         """IT status starts idle and reflects a written install_status.json."""
         from instances import library_root

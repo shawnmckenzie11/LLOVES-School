@@ -143,7 +143,7 @@ IN SCOPE
 OUT OF SCOPE / FILE FENCE
 - Do not build student portal pages
 - Do not do staff mobile UX polish
-- Do not shrink IMSCC_MAX_BYTES or reverse background unpack without Shawn’s OK
+- Do not re-introduce an artificial IMSCC byte ceiling or reverse background unpack without Shawn’s OK
 
 CURRENT STATE
 - main already includes background unpack + XHR progress wiring for assign/replace and clearer disk-full errors. Fly volume was extended to 15GB (ops). Remaining work is product/UX process Shawn names (template meaning, badge truth, orphans, etc.).

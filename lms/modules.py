@@ -44,8 +44,10 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
-# Canvas MCF3M export is ~189MB; production packs can exceed 600MB.
-IMSCC_MAX_BYTES = 800 * 1024 * 1024
+# No app-level byte ceiling: Fly Proxy streams request bodies (no hard size
+# cap / no paid upgrade to raise). Disk on ``lloves_data`` remains the real
+# limit — see ``lms/DEPLOY.md``. ``None`` disables Flask ``MAX_CONTENT_LENGTH``.
+IMSCC_MAX_BYTES: int | None = None
 PACK_STATUS_NAME = "install_status.json"
 PACK_BUSY_STAGES = frozenset(
     {
@@ -519,13 +521,34 @@ def install_uploaded_module_pack(imscc: Path, dest_root: Path) -> dict[str, Any]
     }
 
 
-def validate_imscc_upload(filename: str, path: Path, *, max_bytes: int = IMSCC_MAX_BYTES) -> None:
+def assert_imscc_within_size(path: Path, max_bytes: int | None) -> None:
+    """Reject empty packs; optionally enforce a byte ceiling.
+
+    Args:
+        path: Saved upload on disk.
+        max_bytes: When set, reject files larger than this; ``None`` = no ceiling.
+
+    Raises:
+        ValueError: Empty file or over the optional ceiling.
+    """
+    size = path.stat().st_size
+    if size == 0:
+        raise ValueError("That file is empty.")
+    if max_bytes is not None and size > max_bytes:
+        raise ValueError(
+            f"Module pack is too large (max {max_bytes // (1024 * 1024)} MB)."
+        )
+
+
+def validate_imscc_upload(
+    filename: str, path: Path, *, max_bytes: int | None = IMSCC_MAX_BYTES
+) -> None:
     """Raise ``ValueError`` if ``path`` is not a reasonable Common Cartridge.
 
     Args:
         filename: Original upload name (extension check).
         path: Saved file on disk.
-        max_bytes: Size ceiling.
+        max_bytes: Optional size ceiling (``None`` = unlimited).
 
     Raises:
         ValueError: Type, size, ZIP, or missing ``imsmanifest.xml``.
@@ -535,13 +558,7 @@ def validate_imscc_upload(filename: str, path: Path, *, max_bytes: int = IMSCC_M
         raise ValueError("Module pack must be a .imscc (or .zip) Common Cartridge.")
     if not path.is_file():
         raise ValueError("Upload did not land on disk.")
-    size = path.stat().st_size
-    if size == 0:
-        raise ValueError("That file is empty.")
-    if size > max_bytes:
-        raise ValueError(
-            f"Module pack is too large (max {max_bytes // (1024 * 1024)} MB)."
-        )
+    assert_imscc_within_size(path, max_bytes)
     with path.open("rb") as handle:
         header = handle.read(4)
     if header[:2] != b"PK":
@@ -558,7 +575,7 @@ def validate_imscc_upload(filename: str, path: Path, *, max_bytes: int = IMSCC_M
 
 
 def validate_imscc_upload_quick(
-    filename: str, path: Path, *, max_bytes: int = IMSCC_MAX_BYTES
+    filename: str, path: Path, *, max_bytes: int | None = IMSCC_MAX_BYTES
 ) -> None:
     """Fast request-path checks only (extension, size, ZIP magic).
 
@@ -569,7 +586,7 @@ def validate_imscc_upload_quick(
     Args:
         filename: Original upload name (extension check).
         path: Saved file on disk.
-        max_bytes: Size ceiling.
+        max_bytes: Optional size ceiling (``None`` = unlimited).
 
     Raises:
         ValueError: Type, size, or missing ZIP magic.
@@ -579,13 +596,7 @@ def validate_imscc_upload_quick(
         raise ValueError("Module pack must be a .imscc (or .zip) Common Cartridge.")
     if not path.is_file():
         raise ValueError("Upload did not land on disk.")
-    size = path.stat().st_size
-    if size == 0:
-        raise ValueError("That file is empty.")
-    if size > max_bytes:
-        raise ValueError(
-            f"Module pack is too large (max {max_bytes // (1024 * 1024)} MB)."
-        )
+    assert_imscc_within_size(path, max_bytes)
     with path.open("rb") as handle:
         header = handle.read(4)
     if header[:2] != b"PK":
@@ -596,7 +607,7 @@ def store_uploaded_module_pack(
     file_storage: Any,
     dest_root: Path,
     *,
-    max_bytes: int = IMSCC_MAX_BYTES,
+    max_bytes: int | None = IMSCC_MAX_BYTES,
     full_validate: bool = False,
 ) -> Path:
     """Validate and store an IMSCC upload without unpacking it.
@@ -608,7 +619,7 @@ def store_uploaded_module_pack(
     Args:
         file_storage: Werkzeug ``FileStorage`` from the upload form.
         dest_root: Offering folder (``module_packs/<id>/``).
-        max_bytes: Size ceiling.
+        max_bytes: Optional size ceiling (``None`` = unlimited).
         full_validate: When True, run full ``imsmanifest.xml`` validation now.
 
     Returns:
@@ -671,14 +682,14 @@ def save_uploaded_module_pack(
     file_storage: Any,
     dest_root: Path,
     *,
-    max_bytes: int = IMSCC_MAX_BYTES,
+    max_bytes: int | None = IMSCC_MAX_BYTES,
 ) -> Path:
     """Validate, store, unpack, and inventory a staff IMSCC upload.
 
     Args:
         file_storage: Werkzeug ``FileStorage`` from the upload form.
         dest_root: Offering folder (``module_packs/<id>/``).
-        max_bytes: Size ceiling.
+        max_bytes: Optional size ceiling (``None`` = unlimited).
 
     Returns:
         Path to the stored ``course.imscc``.
