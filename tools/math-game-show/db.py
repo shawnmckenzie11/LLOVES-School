@@ -213,6 +213,7 @@ ROUND_KIND_META = {
     "open": {"title": "Open Question", "bucket": 1, "default_min": 20},
     "challenge": {"title": "Team Challenge", "bucket": 2, "default_min": 10},
     "formative": {"title": "Formative", "bucket": 3, "default_min": 10},
+    "break": {"title": "Break", "bucket": None, "default_min": 5},
 }
 
 DEFAULT_ROUNDS_CONFIG = [
@@ -220,6 +221,9 @@ DEFAULT_ROUNDS_CONFIG = [
     {"kind": "challenge", "duration_sec": 10 * 60},
     {"kind": "formative", "duration_sec": 10 * 60},
 ]
+
+# Soft cap so a stuck client cannot grow rounds_json without bound.
+MAX_ROUNDS_PLAN = 30
 
 # Public scoreboard ticker: Leaders + Most Improved per teaching slice.
 LEADER_SLICES = (
@@ -236,16 +240,22 @@ ROUND_DURATIONS_SEC = {
 
 
 def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
-    """Validate and normalize a teacher rounds plan (1–3 unique kinds).
+    """Validate and normalize a teacher rounds plan.
+
+    Allows any count from 1 through ``MAX_ROUNDS_PLAN``, duplicate kinds, and
+    an optional ``title`` override (required for ``break``). Gradebook buckets
+    stay keyed by kind (``open``→1, ``challenge``→2, ``formative``→3);
+    ``break`` has no bucket.
 
     Args:
-        raw: List of ``{kind, duration_sec|minutes}`` or None for defaults.
+        raw: List of ``{kind, duration_sec|minutes, title?}`` or None for defaults.
 
     Returns:
-        Normalized list with ``kind``, ``title``, ``bucket``, ``duration_sec``.
+        Normalized list with ``kind``, ``title``, ``bucket`` (or ``None``),
+        and ``duration_sec``.
 
     Raises:
-        ValueError: When count, kinds, or durations are invalid.
+        ValueError: When count, kinds, titles, or durations are invalid.
     """
     if raw is None:
         items = list(DEFAULT_ROUNDS_CONFIG)
@@ -253,9 +263,8 @@ def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
         if not isinstance(raw, list):
             raise ValueError("rounds must be a list")
         items = list(raw)
-    if not 1 <= len(items) <= 3:
-        raise ValueError("Choose between 1 and 3 rounds")
-    seen: set[str] = set()
+    if not 1 <= len(items) <= MAX_ROUNDS_PLAN:
+        raise ValueError(f"Choose between 1 and {MAX_ROUNDS_PLAN} rounds")
     out: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -263,11 +272,8 @@ def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
         kind = str(item.get("kind") or "").strip().lower()
         if kind not in ROUND_KIND_META:
             raise ValueError(
-                "Round type must be Open Question, Team Challenge, or Formative"
+                "Round type must be Open Question, Team Challenge, Formative, or Break"
             )
-        if kind in seen:
-            raise ValueError("Each round type can be used at most once")
-        seen.add(kind)
         meta = ROUND_KIND_META[kind]
         if item.get("duration_sec") is not None:
             duration = int(item.get("duration_sec") or 0)
@@ -277,11 +283,19 @@ def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
             duration = int(meta["default_min"] * 60)
         if duration < 60 or duration > 3 * 60 * 60:
             raise ValueError("Round length must be between 1 and 180 minutes")
+        title_raw = item.get("title")
+        title = str(title_raw).strip() if title_raw is not None else ""
+        if kind == "break":
+            if not title:
+                raise ValueError("Break rounds need a title")
+        elif not title:
+            title = str(meta["title"])
+        bucket = meta["bucket"]
         out.append(
             {
                 "kind": kind,
-                "title": meta["title"],
-                "bucket": int(meta["bucket"]),
+                "title": title,
+                "bucket": int(bucket) if bucket is not None else None,
                 "duration_sec": duration,
             }
         )
@@ -1592,6 +1606,7 @@ class GameShowDB:
                 """,
                 (int(class_id),),
             ).fetchone()
+        round_label = ""
         if open_game is not None:
             game_status = str(open_game["status"] or "")
             if game_status == "live":
@@ -1628,6 +1643,12 @@ class GameShowDB:
                 if int(row["id"]) == sid:
                     rank = index
                     break
+            if scoring:
+                game_fields = state.get("game") or {}
+                round_n = int(game_fields.get("round") or 0)
+                title = str(game_fields.get("round_title") or "").strip()
+                if round_n >= 1 and title:
+                    round_label = f"Round {round_n} · {title}"
         me: dict[str, Any] = {
             "id": int(student["id"]),
             "codename": str(student.get("codename") or student.get("first_name") or ""),
@@ -1646,6 +1667,7 @@ class GameShowDB:
             "scoring": scoring,
             "show_rank": show_rank,
             "class_id": int(class_id),
+            "round_label": round_label,
             "me": me,
             "scoreboard": self.scoreboard(class_id),
         }
@@ -3265,9 +3287,12 @@ class GameShowDB:
     ) -> dict[str, Any]:
         """Start live scoring from the rounds setup step.
 
+        Typically called with a single Round 1 entry; later rounds are appended
+        via :meth:`append_and_start_round`. Duplicate kinds and Break are allowed.
+
         Args:
             class_id: Classes primary key.
-            rounds: Teacher rounds plan (1–3 unique types with lengths).
+            rounds: Teacher rounds plan (1+ entries with lengths; optional titles).
 
         Returns:
             Live game state.
@@ -3520,6 +3545,57 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
+    def append_and_start_round(
+        self, class_id: int, round_spec: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Append one round to the live plan and start it immediately.
+
+        Used by the sequential staff accordion (Add Round → Start Round N).
+        The new entry may duplicate a prior kind or be a titled Break.
+
+        Args:
+            class_id: Classes primary key.
+            round_spec: ``{kind, minutes|duration_sec, title?}`` for the next round.
+
+        Returns:
+            Updated live game state on the new round.
+
+        Raises:
+            ValueError: When the game is not live or the spec is invalid.
+        """
+        if not isinstance(round_spec, dict):
+            raise ValueError("round must be an object")
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] != "live":
+                raise ValueError("Add rounds while the class is live")
+            plan = rounds_from_game_row(game)
+            current = int(game["current_round"] or 1)
+            if current != len(plan):
+                raise ValueError("Finish or stay on the latest round before adding another")
+            new_plan = normalize_rounds_config([*plan, round_spec])
+            target = len(new_plan)
+            nxt = new_plan[target - 1]
+            self.conn.execute(
+                """
+                UPDATE games
+                SET current_round = ?,
+                    round_started_at = ?,
+                    round_duration_sec = ?,
+                    rounds_json = ?
+                WHERE id = ?
+                """,
+                (
+                    target,
+                    self._now(),
+                    int(nxt["duration_sec"]),
+                    json.dumps(new_plan),
+                    int(game["id"]),
+                ),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
     def _append_log(self, session_id: int, record: dict[str, Any]) -> Path:
         """Append one JSONL scoring action under ``data/logs/``.
 
@@ -3723,7 +3799,10 @@ class GameShowDB:
             round_n = int(game["current_round"] or 1)
             plan = rounds_from_game_row(game)
             if 1 <= round_n <= len(plan):
-                score_bucket = int(plan[round_n - 1]["bucket"])
+                active = plan[round_n - 1]
+                if active.get("bucket") is None or str(active.get("kind") or "") == "break":
+                    raise ValueError("Break rounds do not accept scores")
+                score_bucket = int(active["bucket"])
             else:
                 score_bucket = 1 if round_n not in (1, 2, 3) else round_n
             last_event: dict[str, Any]

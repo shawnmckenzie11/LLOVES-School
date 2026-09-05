@@ -244,7 +244,7 @@
 
         <section id="ap-panel-names" class="track-step ap-panel" data-step="names" data-team-flow hidden>
           <div class="track-step-summary" data-accordion-toggle="names" aria-expanded="false">
-            <span class="track-step-title">Round 1: Meet Your Team</span>
+            <span class="track-step-title">Meet Your Team</span>
             <span class="track-step-meta" id="ap-names-summary"></span>
             <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
           </div>
@@ -270,20 +270,17 @@
 
         <section id="ap-panel-rounds" class="track-step ap-panel" data-step="rounds" data-team-flow hidden>
           <div class="track-step-summary" data-accordion-toggle="rounds" aria-expanded="false">
-            <span class="track-step-title">Rounds</span>
+            <span class="track-step-title" id="ap-rounds-title">Start Round 1</span>
             <span class="track-step-meta" id="ap-rounds-summary"></span>
             <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
           </div>
           <div class="track-step-body">
-            <p class="hint compact">1–3 rounds. Open Question uses action chips when scoring.</p>
+            <p class="hint compact">Set up one round at a time. Open Question uses action chips when scoring.</p>
             <div id="ap-rounds-list" class="ap-rounds-list ap-rounds-compact"></div>
-            <div class="row-actions compact">
-              <button type="button" class="secondary" id="ap-rounds-add">Add round</button>
-            </div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" id="ap-rounds-back" data-track-nav="prev">← Prev</button>
               <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Next →</button>
+              <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start Round 1</button>
             </div>
           </div>
         </section>
@@ -294,13 +291,14 @@
             <span class="track-step-meta" id="ap-score-summary"></span>
           </div>
           <div class="track-step-body">
+            <div id="ap-score-past-rounds" class="ap-past-rounds" hidden></div>
+            <div id="ap-break-banner" class="ap-break-banner" hidden></div>
             <div class="ap-score-shell">
               <header class="ap-score-header">
                 <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
                 <div class="ap-round-bar">
                   <span id="ap-round-label"></span>
                   <span id="ap-round-clock"></span>
-                  <button type="button" class="secondary" id="ap-start-round" hidden>Start Round 2</button>
                 </div>
                 <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
               </header>
@@ -309,9 +307,18 @@
                 <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
               </div>
             </div>
+            <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
+              <h3 id="ap-next-round-title">Start Round 2</h3>
+              <div id="ap-next-round-fields" class="ap-rounds-list ap-rounds-compact"></div>
+              <div class="row-actions compact">
+                <button type="button" class="secondary" id="ap-next-round-cancel">Cancel</button>
+                <button type="button" id="ap-next-round-start">Start Round 2</button>
+              </div>
+            </section>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
+              <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
               <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
             </div>
           </div>

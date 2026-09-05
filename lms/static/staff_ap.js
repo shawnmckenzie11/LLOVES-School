@@ -68,16 +68,15 @@ let sessionLateIds = new Set();
 let scoringLocked = false;
 let trackMode = null;
 let currentStep = "att";
-let draftRounds = [
-  { kind: "open", minutes: 20 },
-  { kind: "challenge", minutes: 10 },
-  { kind: "formative", minutes: 10 },
-];
+let draftRound = { kind: "open", minutes: 20, title: "" };
+let nextDraftRound = { kind: "open", minutes: 10, title: "" };
+let setupRoundNumber = 1;
 
 const ROUND_KIND_OPTIONS = [
   { kind: "open", label: "Open Question", defaultMin: 20 },
   { kind: "challenge", label: "Team Challenge", defaultMin: 10 },
   { kind: "formative", label: "Formative", defaultMin: 10 },
+  { kind: "break", label: "Break", defaultMin: 5 },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -178,9 +177,10 @@ function updateStepSummaries() {
   }
   const rounds = $("ap-rounds-summary");
   if (rounds) {
-    rounds.textContent = draftRounds
-      .map((r) => ROUND_KIND_OPTIONS.find((o) => o.kind === r.kind)?.label || r.kind)
-      .join(" · ");
+    const label =
+      ROUND_KIND_OPTIONS.find((option) => option.kind === draftRound.kind)?.label ||
+      draftRound.kind;
+    rounds.textContent = `Round ${setupRoundNumber} · ${label}`;
   }
   const score = $("ap-score-summary");
   if (score && isScoringLive()) {
@@ -751,10 +751,25 @@ function updateAttCount() {
 }
 
 /**
+ * True when a supplied round, or the active live round, is a break.
+ * @param {{kind?: string}|null} [round]
+ * @returns {boolean}
+ */
+function isBreakRound(round = null) {
+  if (round?.kind) return String(round.kind) === "break";
+  const game = overlayState?.game || {};
+  if (game.round_kind) return String(game.round_kind) === "break";
+  const rounds = game.rounds || [];
+  const n = Number(game.round) || 1;
+  return String(rounds[n - 1]?.kind || "") === "break";
+}
+
+/**
  * True when current round kind is Open Question.
  * @returns {boolean}
  */
 function isOpenQuestionRound() {
+  if (isBreakRound()) return false;
   const game = overlayState?.game || {};
   if (game.round_kind) return String(game.round_kind) === "open";
   const rounds = game.rounds || [];
@@ -763,6 +778,71 @@ function isOpenQuestionRound() {
   if (row?.kind) return row.kind === "open";
   const title = String(game.round_title || "").toLowerCase();
   return title.includes("open question");
+}
+
+/**
+ * Paint locked summaries for every completed round before the active round.
+ * @param {any} state
+ */
+function renderPastRounds(state) {
+  const box = $("ap-score-past-rounds");
+  if (!box) return;
+  const game = state?.game || {};
+  const currentRound = Number(game.round) || 1;
+  const pastRounds = (game.rounds || []).slice(0, Math.max(0, currentRound - 1));
+  box.hidden = pastRounds.length === 0;
+  box.innerHTML = pastRounds
+    .map((round, index) => {
+      const kindLabel =
+        ROUND_KIND_OPTIONS.find((option) => option.kind === round.kind)?.label ||
+        round.kind ||
+        `Round ${index + 1}`;
+      const title = round.title || round.round_title || kindLabel;
+      const minutes =
+        Number(round.minutes) || Number(round.duration_sec) / 60;
+      return `<div class="ap-past-round">
+        <span>Round ${index + 1} · ${escapeHtml(title)}${minutes > 0 ? ` · ${minutes} min` : ""}</span>
+        <span class="ap-past-round-lock">Locked</span>
+      </div>`;
+    })
+    .join("");
+}
+
+/**
+ * Update round labels, timer, history, and break-only scoring visibility.
+ * @param {any} state
+ * @returns {boolean} Whether the active round is a break.
+ */
+function renderScoringRoundChrome(state) {
+  const game = state?.game || {};
+  const n = Number(game.round) || 1;
+  const currentRound = (game.rounds || [])[n - 1] || null;
+  const kindLabel =
+    ROUND_KIND_OPTIONS.find(
+      (option) => option.kind === (game.round_kind || currentRound?.kind)
+    )?.label || "";
+  const title = game.round_title || currentRound?.title || kindLabel || `Round ${n}`;
+  const label = $("ap-round-label");
+  if (label) label.textContent = `Round ${n} · ${title}`;
+  roundEndsAtMs = lockRoundDeadline(roundEndsAtMs, game.round_ends_at_ms);
+  paintLiveClock();
+  renderPastRounds(state);
+
+  const breakRound = isBreakRound();
+  const breakBanner = $("ap-break-banner");
+  if (breakBanner) {
+    breakBanner.hidden = !breakRound;
+    breakBanner.textContent = breakRound
+      ? `Break in progress · ${title}. Scoring is paused.`
+      : "";
+  }
+  const scoreBody = document.querySelector("#ap-panel-score .ap-score-body");
+  if (scoreBody instanceof HTMLElement) scoreBody.hidden = breakRound;
+  const meta = $("ap-live-meta");
+  if (meta) meta.hidden = breakRound;
+  const tabs = $("ap-score-team-tabs");
+  if (tabs && breakRound) tabs.hidden = true;
+  return breakRound;
 }
 
 /**
@@ -784,9 +864,15 @@ function openLiveScoring(state, opts = {}) {
       if (m.late) sessionLateIds.add(Number(m.id));
     }
   }
+  const breakRound = renderScoringRoundChrome(state);
   const scoreEnd = $("ap-score-end");
   const scoreCancel = $("ap-score-cancel");
-  if (isIndividual) {
+  if (breakRound) {
+    pendingTeam = null;
+    liveStamp = "";
+    $("ap-score-list") && ($("ap-score-list").innerHTML = "");
+    $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
+  } else if (isIndividual) {
     $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
     renderScoreList();
   } else {
@@ -1070,21 +1156,6 @@ async function startMeetTeamsPhase() {
   });
 }
 
-/**
- * Signal the live overlay to run the 2-minute pre-rounds anticipation sequence.
- * @returns {Promise<void>}
- */
-async function startAnticipationPhase() {
-  try {
-    overlayState = await api(`/api/classes/${classId}/game/anticipation`, {
-      method: "POST",
-      body: "{}",
-    });
-  } catch (_) {
-    /* non-fatal — rounds UI still works */
-  }
-}
-
 $("ap-assign-random")?.addEventListener("click", () => {
   selectAssignMode("random");
   $("ap-manual-assign")?.classList.add("hidden");
@@ -1211,14 +1282,11 @@ $("ap-start-game")?.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ teams, go_live: false }),
     });
-    draftRounds = [
-      { kind: "open", minutes: 20 },
-      { kind: "challenge", minutes: 10 },
-      { kind: "formative", minutes: 10 },
-    ];
+    draftRound = { kind: "open", minutes: 20, title: "" };
+    nextDraftRound = { kind: "open", minutes: 10, title: "" };
+    setupRoundNumber = 1;
     renderRoundsPanel();
     showPanel("rounds");
-    await startAnticipationPhase();
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -1243,71 +1311,85 @@ $("ap-meet-start")?.addEventListener("click", async () => {
 });
 
 /**
- * Build the Set up Rounds editor.
+ * Build one round editor row for the sequential setup flow.
+ * @param {{kind: string, minutes: number, title: string}} round
+ * @param {number} roundNumber
+ * @returns {string}
+ */
+function roundEditorMarkup(round, roundNumber) {
+  const options = ROUND_KIND_OPTIONS.map(
+    (option) =>
+      `<option value="${option.kind}" ${option.kind === round.kind ? "selected" : ""}>${escapeHtml(option.label)}</option>`
+  ).join("");
+  const breakTitle = isBreakRound(round)
+    ? `<label class="field ap-round-title">Break title
+        <input type="text" maxlength="80" value="${escapeHtml(round.title || "")}" data-round-title required>
+      </label>`
+    : "";
+  return `<div class="ap-round-row${isBreakRound(round) ? " has-title" : ""}">
+    <label class="field ap-round-type">Round ${roundNumber}
+      <select data-round-kind>${options}</select>
+    </label>
+    <label class="field ap-round-len">Length (min)
+      <input type="number" min="1" max="180" value="${Number(round.minutes) || 10}" data-round-minutes>
+    </label>
+    ${breakTitle}
+  </div>`;
+}
+
+/**
+ * Return a validated API body for one sequential round.
+ * @param {{kind: string, minutes: number, title: string}} round
+ * @returns {{kind: string, minutes: number, title?: string}}
+ */
+function roundRequestBody(round) {
+  const body = {
+    kind: round.kind,
+    minutes: Math.max(1, Math.min(180, Number(round.minutes) || 1)),
+  };
+  if (isBreakRound(round)) {
+    const title = String(round.title || "").trim();
+    if (!title) throw new Error("Enter a title for the break.");
+    body.title = title;
+  }
+  return body;
+}
+
+/**
+ * Build the single Round N setup editor.
  */
 function renderRoundsPanel() {
   const box = $("ap-rounds-list");
   if (!box) return;
-  const used = new Set(draftRounds.map((r) => r.kind));
-  box.innerHTML = draftRounds
-    .map((row, index) => {
-      const options = ROUND_KIND_OPTIONS.map((opt) => {
-        const taken = used.has(opt.kind) && opt.kind !== row.kind;
-        return `<option value="${opt.kind}" ${opt.kind === row.kind ? "selected" : ""} ${taken ? "disabled" : ""}>${escapeHtml(opt.label)}</option>`;
-      }).join("");
-      return `<div class="ap-round-row" data-index="${index}">
-        <label class="field ap-round-type">Round ${index + 1}
-          <select data-round-kind>${options}</select>
-        </label>
-        <label class="field ap-round-len">Length (min)
-          <input type="number" min="1" max="180" value="${Number(row.minutes) || 10}" data-round-minutes>
-        </label>
-        <button type="button" class="secondary ap-round-remove" data-round-remove ${draftRounds.length <= 1 ? "disabled" : ""}>Remove</button>
-      </div>`;
-    })
-    .join("");
-  const addBtn = $("ap-rounds-add");
-  if (addBtn) addBtn.disabled = draftRounds.length >= 3 || used.size >= 3;
+  box.innerHTML = roundEditorMarkup(draftRound, setupRoundNumber);
+  const title = $("ap-rounds-title");
+  if (title) title.textContent = `Start Round ${setupRoundNumber}`;
+  const start = $("ap-rounds-start");
+  if (start) start.textContent = `Start Round ${setupRoundNumber}`;
   updateStepSummaries();
 }
 
 $("ap-rounds-list")?.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
-  const row = target.closest(".ap-round-row");
-  if (!row) return;
-  const index = Number(row.dataset.index);
-  if (!draftRounds[index]) return;
   if (target.matches("[data-round-kind]") && target instanceof HTMLSelectElement) {
-    draftRounds[index].kind = target.value;
-    const meta = ROUND_KIND_OPTIONS.find((o) => o.kind === target.value);
-    if (meta && !row.querySelector("[data-round-minutes]")?.matches(":focus")) {
-      draftRounds[index].minutes = meta.defaultMin;
-    }
+    draftRound.kind = target.value;
+    const meta = ROUND_KIND_OPTIONS.find((option) => option.kind === target.value);
+    if (meta) draftRound.minutes = meta.defaultMin;
+    if (!isBreakRound(draftRound)) draftRound.title = "";
+    renderRoundsPanel();
+    return;
   }
   if (target.matches("[data-round-minutes]") && target instanceof HTMLInputElement) {
-    draftRounds[index].minutes = Math.max(1, Math.min(180, Number(target.value) || 1));
+    draftRound.minutes = Math.max(1, Math.min(180, Number(target.value) || 1));
   }
-  renderRoundsPanel();
 });
 
-$("ap-rounds-list")?.addEventListener("click", (event) => {
-  const btn = event.target.closest("[data-round-remove]");
-  if (!btn) return;
-  const row = btn.closest(".ap-round-row");
-  const index = Number(row?.dataset.index);
-  if (draftRounds.length <= 1 || Number.isNaN(index)) return;
-  draftRounds.splice(index, 1);
-  renderRoundsPanel();
-});
-
-$("ap-rounds-add")?.addEventListener("click", () => {
-  if (draftRounds.length >= 3) return;
-  const used = new Set(draftRounds.map((r) => r.kind));
-  const next = ROUND_KIND_OPTIONS.find((o) => !used.has(o.kind));
-  if (!next) return;
-  draftRounds.push({ kind: next.kind, minutes: next.defaultMin });
-  renderRoundsPanel();
+$("ap-rounds-list")?.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.matches("[data-round-title]")) {
+    draftRound.title = target.value;
+  }
 });
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
@@ -1316,10 +1398,7 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
   const wantEspn = pendingScoreboard && !hasLiveOverlay;
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
-    const rounds = draftRounds.map((row) => ({
-      kind: row.kind,
-      minutes: Number(row.minutes) || 10,
-    }));
+    const rounds = [roundRequestBody(draftRound)];
     overlayState = await api(`/api/classes/${classId}/game/start-rounds`, {
       method: "POST",
       body: JSON.stringify({ rounds }),
@@ -1332,6 +1411,79 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
     startLiveSessionPolling();
   } catch (err) {
     overlay?.close();
+    showError("#ap-overlay-error", err);
+  }
+});
+
+/**
+ * Paint the inline editor for the next live round.
+ */
+function renderNextRoundPanel() {
+  const fields = $("ap-next-round-fields");
+  if (fields) fields.innerHTML = roundEditorMarkup(nextDraftRound, setupRoundNumber);
+  const title = $("ap-next-round-title");
+  if (title) title.textContent = `Start Round ${setupRoundNumber}`;
+  const start = $("ap-next-round-start");
+  if (start) start.textContent = `Start Round ${setupRoundNumber}`;
+}
+
+$("ap-add-round-btn")?.addEventListener("click", () => {
+  setupRoundNumber = (Number(overlayState?.game?.round) || 1) + 1;
+  nextDraftRound = { kind: "open", minutes: 10, title: "" };
+  renderNextRoundPanel();
+  const form = $("ap-add-next-round");
+  if (form) form.hidden = false;
+  const add = $("ap-add-round-btn");
+  if (add) add.hidden = true;
+});
+
+$("ap-next-round-cancel")?.addEventListener("click", () => {
+  const form = $("ap-add-next-round");
+  if (form) form.hidden = true;
+  const add = $("ap-add-round-btn");
+  if (add) add.hidden = false;
+});
+
+$("ap-next-round-fields")?.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.matches("[data-round-kind]") && target instanceof HTMLSelectElement) {
+    nextDraftRound.kind = target.value;
+    const meta = ROUND_KIND_OPTIONS.find((option) => option.kind === target.value);
+    if (meta) nextDraftRound.minutes = meta.defaultMin;
+    if (!isBreakRound(nextDraftRound)) nextDraftRound.title = "";
+    renderNextRoundPanel();
+    return;
+  }
+  if (target.matches("[data-round-minutes]") && target instanceof HTMLInputElement) {
+    nextDraftRound.minutes = Math.max(
+      1,
+      Math.min(180, Number(target.value) || 1)
+    );
+  }
+});
+
+$("ap-next-round-fields")?.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.matches("[data-round-title]")) {
+    nextDraftRound.title = target.value;
+  }
+});
+
+$("ap-next-round-start")?.addEventListener("click", async () => {
+  try {
+    const round = roundRequestBody(nextDraftRound);
+    overlayState = await api(`/api/classes/${classId}/game/append-round`, {
+      method: "POST",
+      body: JSON.stringify(round),
+    });
+    const form = $("ap-add-next-round");
+    if (form) form.hidden = true;
+    const add = $("ap-add-round-btn");
+    if (add) add.hidden = false;
+    liveStamp = "";
+    openLiveScoring(overlayState, { stayOnScore: true });
+  } catch (err) {
     showError("#ap-overlay-error", err);
   }
 });
@@ -1412,26 +1564,6 @@ function renderLiveTeams(state) {
     meta.textContent = "Note: Team points not passed in gradebook";
   }
   const game = state.game || {};
-  const n = Number(game.round) || 1;
-  const label = $("ap-round-label");
-  if (label) label.textContent = `ROUND ${n} · ${game.round_title || ""}`;
-  roundEndsAtMs = lockRoundDeadline(roundEndsAtMs, game.round_ends_at_ms);
-  paintLiveClock();
-  const btn = $("ap-start-round");
-  if (btn) {
-    const count = Number(game.round_count) || (state.game?.rounds || []).length || 3;
-    if (n < count) {
-      btn.hidden = false;
-      const next = n + 1;
-      const nextTitle =
-        (state.game?.rounds || [])[next - 1]?.title || `Round ${next}`;
-      btn.textContent = `Start Round ${next} · ${nextTitle}`;
-      btn.dataset.round = String(next);
-    } else {
-      btn.hidden = true;
-      delete btn.dataset.round;
-    }
-  }
   const stamp = JSON.stringify({
     pending: pendingTeam,
     round: game.round,
@@ -1502,22 +1634,6 @@ function paintLiveClock() {
 }
 
 setInterval(paintLiveClock, 1000);
-
-$("ap-start-round")?.addEventListener("click", async () => {
-  const btn = $("ap-start-round");
-  const next = Number(btn?.dataset.round);
-  if (!next) return;
-  try {
-    overlayState = await api(`/api/classes/${classId}/game/round`, {
-      method: "POST",
-      body: JSON.stringify({ round: next }),
-    });
-    liveStamp = "";
-    openLiveScoring(overlayState, { stayOnScore: true });
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
-});
 
 /**
  * POST a score mutation (supports Open Question ``label``).

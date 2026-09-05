@@ -353,6 +353,14 @@ class GameShowHandler(BaseHTTPRequestHandler):
             )
             self._send_json(200, {"ok": True, **state})
             return
+        append_round = re.match(r"^/api/classes/(\d+)/game/append-round$", path)
+        if append_round:
+            spec = body.get("round") if isinstance(body.get("round"), dict) else body
+            if not isinstance(spec, dict):
+                raise ValueError("round must be an object")
+            state = db.append_and_start_round(int(append_round.group(1)), spec)
+            self._send_json(200, {"ok": True, **state})
+            return
         score = re.match(r"^/api/classes/(\d+)/game/score$", path)
         if score:
             state = db.award_points(

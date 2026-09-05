@@ -34,6 +34,7 @@ from db import (  # noqa: E402
     as_points,
     leader_periods,
     member_round_points,
+    normalize_rounds_config,
     normalize_stat_window,
     parse_codename_column_csv,
     points_label,
@@ -896,6 +897,68 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(third["game"]["round_title"], "Formative")
         with self.assertRaises(ValueError):
             self.db.start_round(class_id, 2)
+
+    def test_normalize_rounds_allows_duplicates_and_break(self) -> None:
+        """Sequential plans may repeat kinds and include titled Breaks."""
+        plan = normalize_rounds_config(
+            [
+                {"kind": "open", "minutes": 5},
+                {"kind": "open", "minutes": 8},
+                {"kind": "break", "minutes": 3, "title": "Snack"},
+            ]
+        )
+        self.assertEqual(len(plan), 3)
+        self.assertEqual(plan[0]["bucket"], 1)
+        self.assertEqual(plan[1]["bucket"], 1)
+        self.assertIsNone(plan[2]["bucket"])
+        self.assertEqual(plan[2]["title"], "Snack")
+        with self.assertRaises(ValueError):
+            normalize_rounds_config([{"kind": "break", "minutes": 3}])
+
+    def test_append_round_duplicate_open_shares_r1_bucket(self) -> None:
+        """Two Open Question rounds both credit points_r1; Break rejects awards."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:4]]
+        self.db.save_attendance(class_id, present)
+        self.db.assign_teams(class_id, 2, "random")
+        teams = self.db.game_state(class_id)["teams"]
+        self.db.rename_teams(
+            class_id,
+            [{"id": t["id"], "name": t["name"]} for t in teams],
+            go_live=False,
+        )
+        live = self.db.start_live_with_rounds(
+            class_id, [{"kind": "open", "minutes": 10}]
+        )
+        self.assertEqual(live["game"]["round"], 1)
+        self.assertEqual(live["game"]["round_count"], 1)
+        member = live["teams"][0]["members"][0]
+        self.db.award_points(class_id, kind="student", target_id=member["id"], amount=4)
+        nxt = self.db.append_and_start_round(
+            class_id, {"kind": "open", "minutes": 5}
+        )
+        self.assertEqual(nxt["game"]["round"], 2)
+        self.assertEqual(nxt["game"]["round_title"], "Open Question")
+        self.assertEqual(nxt["game"]["round_count"], 2)
+        self.db.award_points(class_id, kind="student", target_id=member["id"], amount=3)
+        phone = self.db.student_live_payload(class_id, member["id"])
+        self.assertEqual(phone["round_label"], "Round 2 · Open Question")
+        scored = self.db.game_state(class_id)
+        member_live = next(
+            m for t in scored["teams"] for m in t["members"] if m["id"] == member["id"]
+        )
+        self.assertEqual(member_live["points_r1"], 7)
+        self.assertEqual(member_live["session_points"], 7)
+        brk = self.db.append_and_start_round(
+            class_id, {"kind": "break", "minutes": 2, "title": "Water"}
+        )
+        self.assertEqual(brk["game"]["round_title"], "Water")
+        self.assertEqual(brk["game"]["round_kind"], "break")
+        with self.assertRaises(ValueError):
+            self.db.award_points(
+                class_id, kind="student", target_id=member["id"], amount=1
+            )
 
     def test_r2_awards_do_not_change_r1(self) -> None:
         """New awards tag the current round; the lesson total is the sum."""
