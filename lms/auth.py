@@ -666,8 +666,9 @@ def register_auth_routes(app: Flask) -> None:
         db = school_db()
         ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
         ip = ip.split(",")[0].strip()
-        attempts = db.record_code_attempt(ip)
-        if attempts > 5:
+        # Rate-limit failed joins only — successes must not burn the budget
+        # (shared localhost IPs hit this quickly during teacher testing).
+        if db.count_recent_code_attempts(ip, seconds=600) >= 5:
             body = {"ok": False, "error": "Too many attempts. Try again in a few minutes."}
             if request.is_json:
                 return jsonify(body), 429
@@ -690,7 +691,8 @@ def register_auth_routes(app: Flask) -> None:
         )
 
         def _fail(msg: str, status: int = 401):
-            """Return a join error for JSON or landing form posts."""
+            """Record a failed join toward the IP rate limit, then return error."""
+            db.record_code_attempt(ip)
             if request.is_json:
                 return jsonify({"ok": False, "error": msg}), status
             return render_template(
@@ -733,6 +735,7 @@ def register_auth_routes(app: Flask) -> None:
             int(student["id"]),
             codename=str(student.get("codename") or name),
         )
+        db.clear_recent_code_attempts(ip)
         bind_student_session(
             session,
             offering,

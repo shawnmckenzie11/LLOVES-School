@@ -303,6 +303,7 @@ function applyPackBusy(card, status) {
     }
   }
   card.querySelectorAll(".course-action").forEach((el) => {
+    if (el.classList.contains("course-action-end")) return;
     el.classList.toggle("is-disabled", busy);
     if (busy) {
       el.setAttribute("aria-disabled", "true");

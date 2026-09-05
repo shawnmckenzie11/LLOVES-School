@@ -96,7 +96,7 @@ export function bindSchoolDayPicker(input, logContext, opts = {}) {
  */
 export function syncOverlayPickers(logContext, iso) {
   const value = iso || defaultSchoolDay(logContext);
-  for (const id of ["ap-valid-date", "ap-meeting-date", "ap-gamify-date"]) {
+  for (const id of ["ap-valid-date", "ap-meeting-date"]) {
     const el = document.getElementById(id);
     if (el) el.value = value;
   }

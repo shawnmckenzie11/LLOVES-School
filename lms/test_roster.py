@@ -383,8 +383,26 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn("take=1", home)
         self.assertIn(f"/staff/class/{class_id}/run-live", home)
         self.assertIn("Run Live Class", home)
+        self.assertNotIn("Live Class in Progress", home)
         self.assertIn("Explore Course", home)
         self.assertIn("Edit Roster", home)
+
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live_home = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn("Live Class in Progress", live_home)
+        self.assertNotIn("Run Live Class", live_home)
+        self.assertIn(f"/staff/class/{class_id}/end-live", live_home)
+        self.assertIn(">End<", live_home)
+        ended = self.client.post(
+            f"/staff/class/{class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        self.assertIn("/staff", ended.headers.get("Location", ""))
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
+        idle_home = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn("Run Live Class", idle_home)
+        self.assertNotIn("Live Class in Progress", idle_home)
 
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
@@ -633,6 +651,12 @@ class RosterTests(unittest.TestCase):
         session_a = self.school.get_active_live_session_for_class(class_a)
         self.assertIsNotNone(session_a)
         assert session_a is not None
+        home_live = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn("Live Class in Progress", home_live)
+        self.assertIn(f"/staff/class/{class_a}/end-live", home_live)
+        self.assertNotIn(f"/staff/class/{class_b}/end-live", home_live)
+        self.assertNotIn(f"/staff/class/{class_a}/run-live", home_live)
+        self.assertNotIn(f"/staff/class/{class_b}/run-live", home_live)
         blocked = self.client.post(
             f"/staff/class/{class_b}/run-live",
             follow_redirects=False,

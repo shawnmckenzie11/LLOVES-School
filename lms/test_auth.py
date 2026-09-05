@@ -265,13 +265,64 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(len(attendees), 1)
 
     def test_student_code_rate_limit(self) -> None:
-        """More than 5 attempts per IP in 10 minutes is 429."""
+        """More than 5 *failed* joins per IP in 10 minutes is 429."""
         last = None
-        for _ in range(6):
+        for _ in range(5):
             last = self.client.post(
                 "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
             )
+            self.assertEqual(last.status_code, 401)
+        last = self.client.post(
+            "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
+        )
         self.assertEqual(last.status_code, 429)
+
+    def test_successful_joins_do_not_trip_rate_limit(self) -> None:
+        """Valid joins must not consume the failure budget (shared IP testing)."""
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple", "Birch", "Cedar", "Aspen", "Oak", "Pine"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        class_id = int(created.get_json()["class"]["id"])
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        self.client.get("/logout")
+        for name in ["Maple", "Birch", "Cedar", "Aspen", "Oak", "Pine"]:
+            student = self.app.test_client()
+            rv = student.post(
+                "/auth/student-code",
+                data={"code": live["session_code"], "name": name},
+                follow_redirects=False,
+            )
+            self.assertEqual(rv.status_code, 302, msg=name)
+        # Still not rate-limited after six successes — a bad attempt is 401.
+        bad = self.client.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Nobody"},
+        )
+        self.assertEqual(bad.status_code, 401)
 
     def test_durable_offering_code_rejected_when_idle(self) -> None:
         """Offering codes no longer admit students without an active session."""

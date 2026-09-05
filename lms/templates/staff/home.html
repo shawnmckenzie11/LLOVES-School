@@ -44,6 +44,25 @@
 
         <div class="course-card-actions">
           {% if cls %}
+          {% set live_active = active_live_session %}
+          {% set live_here = live_active and live_active.class_id == cls.id %}
+          {% if live_active %}
+          <div class="course-action-row{% if live_here %} course-action-live-row{% endif %}">
+            <button type="button" class="course-action course-action-live is-disabled" disabled aria-disabled="true" aria-label="Live Class in Progress">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M8 5v14l11-7z"/>
+              </svg>
+              <span>Live Class in Progress</span>
+            </button>
+            {% if live_here %}
+            <form class="course-action-end-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
+              <button type="submit" class="course-action course-action-end secondary" aria-label="End Live Class">
+                <span>End</span>
+              </button>
+            </form>
+            {% endif %}
+          </div>
+          {% else %}
           <form class="course-action-row" method="post" action="{{ url_for('staff_run_live_class', class_id=cls.id) }}">
             <button type="submit" class="course-action course-action-live" aria-label="Run Live Class"{% if o.pack_busy %} disabled{% endif %}>
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -52,6 +71,7 @@
               <span>Run Live Class</span>
             </button>
           </form>
+          {% endif %}
           <div class="course-action-row course-action-split">
             <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"

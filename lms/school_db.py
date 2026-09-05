@@ -1393,7 +1393,7 @@ class LovesDB:
         return [dict(row) for row in rows]
 
     def count_recent_code_attempts(self, ip: str, seconds: int = 600) -> int:
-        """Count Student Code POSTs from an IP in the last ``seconds``."""
+        """Count failed Student Code joins from an IP in the last ``seconds``."""
         cutoff = datetime.now().timestamp() - seconds
         with self._lock:
             rows = self.conn.execute(
@@ -1410,7 +1410,11 @@ class LovesDB:
         return n
 
     def record_code_attempt(self, ip: str) -> int:
-        """Log a Student Code attempt and return the recent-window count."""
+        """Log a failed Student Code join and return the recent-window count.
+
+        Only failed joins should call this — successful joins must not consume
+        the failure budget.
+        """
         with self._lock:
             self.conn.execute(
                 "INSERT INTO student_code_attempts (ip, ts) VALUES (?, ?)",
@@ -1418,6 +1422,15 @@ class LovesDB:
             )
             self.conn.commit()
         return self.count_recent_code_attempts(ip, seconds=600)
+
+    def clear_recent_code_attempts(self, ip: str) -> None:
+        """Wipe failed Student Code join records for an IP after a success."""
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM student_code_attempts WHERE ip = ?",
+                (ip,),
+            )
+            self.conn.commit()
 
     def get_library(self, library_id: int) -> dict[str, Any] | None:
         """Return one ``content_libraries`` row, or None.
@@ -2170,9 +2183,8 @@ class SchoolDB(LovesDB):
         return self.get_offering(offering_id)
 
     def record_code_attempt(self, ip: str) -> int:
-        """Log an attempt and return the count in the last 10 minutes."""
-        super().record_code_attempt(ip)
-        return self.count_recent_code_attempts(ip, seconds=600) + 0
+        """Log a failed join and return the failure count in the last 10 minutes."""
+        return super().record_code_attempt(ip)
 
     def list_offerings(
         self,

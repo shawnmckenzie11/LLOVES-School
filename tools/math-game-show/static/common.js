@@ -177,6 +177,7 @@ export function lockRoundDeadline(currentMs, nextMs) {
 }
 
 const SCOREBOARD_OVERLAY_NAME = "mgs-scoreboard";
+const LIVE_SESSION_OVERLAY_NAME = "mgs-live-session";
 
 /**
  * Popup chrome for the student-facing ESPN overlay (Zoom share window).
@@ -204,9 +205,10 @@ function liveSessionOverlayFeatures() {
  * @param {string} url
  * @param {string} features
  * @param {Window|null} [existing]
+ * @param {string} [windowName]
  * @returns {Window|null}
  */
-function openNamedOverlay(url, features, existing) {
+function openNamedOverlay(url, features, existing, windowName = SCOREBOARD_OVERLAY_NAME) {
   if (existing && !existing.closed) {
     try {
       existing.location.href = url;
@@ -216,7 +218,7 @@ function openNamedOverlay(url, features, existing) {
       existing.close();
     }
   }
-  const win = window.open(url, SCOREBOARD_OVERLAY_NAME, features);
+  const win = window.open(url, windowName, features);
   return win && !win.closed ? win : null;
 }
 
@@ -234,7 +236,7 @@ export function reserveScoreboardOverlay() {
  * @returns {Window|null}
  */
 export function reserveLiveSessionOverlay() {
-  const win = window.open("about:blank", SCOREBOARD_OVERLAY_NAME, liveSessionOverlayFeatures());
+  const win = window.open("about:blank", LIVE_SESSION_OVERLAY_NAME, liveSessionOverlayFeatures());
   return win && !win.closed ? win : null;
 }
 
@@ -244,7 +246,12 @@ export function reserveLiveSessionOverlay() {
  * @returns {Window|null}
  */
 export function openScoreboardOverlay(existing) {
-  return openNamedOverlay("/scoreboard?overlay=1", scoreboardOverlayFeatures(), existing);
+  return openNamedOverlay(
+    "/scoreboard?overlay=1",
+    scoreboardOverlayFeatures(),
+    existing,
+    SCOREBOARD_OVERLAY_NAME
+  );
 }
 
 /**
@@ -261,5 +268,10 @@ export function openLiveSessionOverlay(sessionId, existing, opts = {}) {
   const qs = new URLSearchParams({ overlay: "1" });
   if (classId > 0) qs.set("class_id", String(classId));
   const url = `/live-overlay/${id}?${qs.toString()}`;
-  return openNamedOverlay(url, liveSessionOverlayFeatures(), existing);
+  return openNamedOverlay(
+    url,
+    liveSessionOverlayFeatures(),
+    existing,
+    LIVE_SESSION_OVERLAY_NAME
+  );
 }

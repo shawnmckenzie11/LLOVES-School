@@ -1478,12 +1478,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         from flask import make_response
 
+        active_live_session = school.get_active_live_session_for_teacher(
+            int(user["id"])
+        )
         html = render_template(
             "staff/home.html",
             user=user,
             active=active,
             offerings=offerings,
             classes=classes,
+            active_live_session=active_live_session,
             nav_courses=_staff_nav_courses(int(user["id"])),
             time_options=list(TIME_OPTIONS),
             school_name=SCHOOL_NAME,
@@ -1630,6 +1634,31 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_session_id=live_session["id"],
             )
         )
+
+    @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
+    @staff_required
+    def staff_end_live_class(class_id: int):
+        """End this teacher's active live session for the given class.
+
+        Staff may only terminate their own active session, and only from the
+        course card that owns it (one-session-per-teacher rule).
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        active = school.get_active_live_session_for_teacher(int(user["id"]))
+        if active is None or int(active["class_id"]) != int(class_id):
+            return redirect(url_for("staff_home"))
+        school.end_live_class_session(int(active["id"]))
+        try:
+            school.game.end_game(class_id)
+        except Exception:  # noqa: BLE001 — no live game is fine
+            try:
+                school.game.cancel_setup(class_id)
+            except Exception:  # noqa: BLE001
+                pass
+        return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
     @staff_required

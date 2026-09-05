@@ -177,12 +177,16 @@
           </section>
           <section id="ap-panel-gamify" class="ap-panel hidden">
             <h2>How should participation be tracked?</h2>
-            <label class="field" for="ap-gamify-date">Class date</label>
-            <input type="date" id="ap-gamify-date" class="ap-date-input">
             <div class="ap-track-choice">
-              <button type="button" class="secondary ap-track-btn" id="ap-gamify-no">Individual Tracking</button>
+              <button type="button" class="ap-track-btn" id="ap-gamify-no" aria-pressed="false">
+                <span class="ap-att-name">Individual Tracking</span>
+                <span class="ap-att-check" aria-hidden="true"></span>
+              </button>
               <p class="hint">Assign points to individuals in the class list.</p>
-              <button type="button" class="ap-track-btn" id="ap-gamify-yes">Team Tracking</button>
+              <button type="button" class="ap-track-btn" id="ap-gamify-yes" aria-pressed="false">
+                <span class="ap-att-name">Team Tracking</span>
+                <span class="ap-att-check" aria-hidden="true"></span>
+              </button>
               <p class="hint">Create groups to assign points to teams or individuals.</p>
             </div>
             <div class="row-actions">

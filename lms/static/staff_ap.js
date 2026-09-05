@@ -88,6 +88,16 @@ function showPanel(name) {
   });
   dialog.classList.toggle("ap-overlay-wide", name === "live");
   hideError("#ap-overlay-error");
+  if (name === "gamify") {
+    for (const id of ["ap-gamify-no", "ap-gamify-yes"]) {
+      const btn = $(id);
+      if (!(btn instanceof HTMLElement)) continue;
+      btn.classList.remove("is-selected");
+      btn.setAttribute("aria-pressed", "false");
+      const check = btn.querySelector(".ap-att-check");
+      if (check) check.textContent = "";
+    }
+  }
   openOverlayDialog();
 }
 
@@ -330,7 +340,7 @@ async function loadContext() {
  */
 function bindAllPickers(preferred, opts = {}) {
   const onInvalid = (msg) => showError("#ap-overlay-error", new Error(msg));
-  for (const id of ["ap-valid-date", "ap-meeting-date", "ap-gamify-date"]) {
+  for (const id of ["ap-valid-date", "ap-meeting-date"]) {
     const el = $(id);
     const keep = pickerValue(el, logContext);
     const iso = opts.forceValue
@@ -468,7 +478,7 @@ function renderAttendanceList() {
     row.className = `ap-att-row${present ? " is-present" : ""}`;
     row.dataset.studentId = String(student.id);
     row.setAttribute("aria-pressed", present ? "true" : "false");
-    row.innerHTML = `<span class="ap-att-name">${nameWithMood(displayName(student), student.mood)}</span>`;
+    row.innerHTML = `<span class="ap-att-name">${nameWithMood(displayName(student), student.mood)}</span><span class="ap-att-check" aria-hidden="true">${present ? "✓" : ""}</span>`;
     list.appendChild(row);
   }
   updateAttCount();
@@ -500,26 +510,12 @@ function openLiveScoring(state) {
 }
 
 /**
- * Meeting date from the visible attendance/gamify picker (not a stale session).
+ * Meeting date from the Mark Attendance picker or the open session.
  * @returns {string}
  */
 function sessionIso() {
-  const attPanel = $("ap-panel-att");
-  const gamifyPanel = $("ap-panel-gamify");
-  const attVisible = attPanel && !attPanel.classList.contains("hidden");
-  const gamifyVisible = gamifyPanel && !gamifyPanel.classList.contains("hidden");
-  if (attVisible) {
-    const fromAtt = pickerValue($("ap-meeting-date"), logContext);
-    if (fromAtt) return fromAtt;
-  }
-  if (gamifyVisible) {
-    const fromGamify = pickerValue($("ap-gamify-date"), logContext);
-    if (fromGamify) return fromGamify;
-  }
   const fromAtt = pickerValue($("ap-meeting-date"), logContext);
   if (fromAtt) return fromAtt;
-  const fromGamify = pickerValue($("ap-gamify-date"), logContext);
-  if (fromGamify) return fromGamify;
   return overlayState?.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
 }
 
@@ -555,6 +551,8 @@ $("ap-att-list")?.addEventListener("click", (event) => {
   const next = row.getAttribute("aria-pressed") !== "true";
   row.setAttribute("aria-pressed", next ? "true" : "false");
   row.classList.toggle("is-present", next);
+  const check = row.querySelector(".ap-att-check");
+  if (check) check.textContent = next ? "✓" : "";
   if (liveSessionId > 0) {
     if (next) sessionPresentIds.add(sid);
     else sessionPresentIds.delete(sid);
@@ -574,14 +572,24 @@ $("ap-meeting-date")?.addEventListener("change", async () => {
   }
 });
 
-$("ap-gamify-date")?.addEventListener("change", async () => {
-  try {
-    hideError("#ap-overlay-error");
-    await applyMeetingFromPicker($("ap-gamify-date"));
-  } catch (err) {
-    showError("#ap-overlay-error", err);
+/**
+ * Mark one tracking-mode button selected (checkmark) and clear the other.
+ * @param {"individual"|"team"} mode
+ */
+function selectTrackMode(mode) {
+  const individual = $("ap-gamify-no");
+  const team = $("ap-gamify-yes");
+  for (const [btn, on] of [
+    [individual, mode === "individual"],
+    [team, mode === "team"],
+  ]) {
+    if (!(btn instanceof HTMLElement)) continue;
+    btn.classList.toggle("is-selected", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    const check = btn.querySelector(".ap-att-check");
+    if (check) check.textContent = on ? "✓" : "";
   }
-});
+}
 
 for (const id of ["ap-att-cancel", "ap-validate-cancel", "ap-gamify-cancel", "ap-teams-cancel", "ap-names-cancel", "ap-rounds-cancel", "ap-score-cancel", "ap-live-cancel"]) {
   $(id)?.addEventListener("click", () => cancelOverlay());
@@ -604,9 +612,7 @@ $("ap-validate-apply")?.addEventListener("click", async () => {
       body: JSON.stringify({ meeting_date: iso }),
     });
     const attDate = $("ap-meeting-date");
-    const gamifyDate = $("ap-gamify-date");
     if (attDate) attDate.value = iso;
-    if (gamifyDate) gamifyDate.value = iso;
     const fn = pendingAction;
     pendingAction = null;
     if (fn) await fn();
@@ -618,9 +624,10 @@ $("ap-validate-apply")?.addEventListener("click", async () => {
 $("ap-gamify-yes")?.addEventListener("click", async () => {
   try {
     hideError("#ap-overlay-error");
+    selectTrackMode("team");
     const meeting = sessionIso();
     await withValidatedDate(meeting, async () => {
-      await applyMeetingFromPicker($("ap-gamify-date"));
+      await ensureMeetingDate(meeting);
       const ids = await resolvePresentIds(meeting);
       const status = overlayState?.game?.status;
       if (status === "attendance") {
@@ -642,9 +649,10 @@ $("ap-gamify-yes")?.addEventListener("click", async () => {
 $("ap-gamify-no")?.addEventListener("click", async () => {
   try {
     hideError("#ap-overlay-error");
+    selectTrackMode("individual");
     const meeting = sessionIso();
     await withValidatedDate(meeting, async () => {
-      await applyMeetingFromPicker($("ap-gamify-date"));
+      await ensureMeetingDate(meeting);
       const ids = await resolvePresentIds(meeting);
       overlayState = await api(`/api/classes/${classId}/game/ungamified`, {
         method: "POST",
@@ -886,8 +894,9 @@ $("ap-rounds-add")?.addEventListener("click", () => {
 $("ap-rounds-back")?.addEventListener("click", () => showPanel("names"));
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
-  // Live-session overlay already shows teams; only open ESPN when no session.
-  const wantEspn = pendingScoreboard && !(liveSessionId || readLiveSessionId());
+  // Always open ESPN scoreboard when toggled — live-session overlay uses a
+  // separate window so both can stay open during team play.
+  const wantEspn = pendingScoreboard;
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     const rounds = draftRounds.map((row) => ({
@@ -1152,7 +1161,7 @@ export async function openLogParticipation() {
     const go = async () => {
       showPanel("gamify");
     };
-    await withValidatedDate(pickerValue($("ap-gamify-date"), logContext), go);
+    await withValidatedDate(sessionIso(), go);
   } catch (err) {
     showError("#error", err);
     showError("#ap-overlay-error", err);
@@ -1192,10 +1201,6 @@ if (new URLSearchParams(location.search).get("continue") === "gamify") {
     .then(() => api(`/api/classes/${classId}/game`))
     .then((state) => {
       overlayState = state;
-      const gamifyDate = $("ap-gamify-date");
-      if (gamifyDate && state.session?.meeting_date) {
-        gamifyDate.value = state.session.meeting_date;
-      }
       showPanel("gamify");
     })
     .catch((err) => showError("#error", err));

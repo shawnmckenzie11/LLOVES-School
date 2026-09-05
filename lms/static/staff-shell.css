@@ -184,6 +184,23 @@ body.staff-shell.staff-home .course-action.btn-populate.secondary {
 body.staff-shell.staff-home .course-action-live {
   background: #0f766e;
 }
+body.staff-shell.staff-home .course-action-live-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.55rem;
+  align-items: stretch;
+}
+body.staff-shell.staff-home .course-action-end-form {
+  display: flex;
+  margin: 0;
+  min-width: 4.75rem;
+}
+body.staff-shell.staff-home .course-action-end {
+  width: 100%;
+  background: #fff;
+  color: #0f172a;
+  border-color: #64748b;
+}
 body.staff-shell.staff-home .course-action.is-disabled {
   pointer-events: none;
   opacity: 0.55;
@@ -472,15 +489,6 @@ body.staff-shell .ap-date-input {
   padding: 0.4rem 0.5rem;
   font-size: 1rem;
 }
-body.staff-shell .ap-track-choice {
-  margin: 0.75rem 0;
-}
-body.staff-shell .ap-track-btn {
-  display: block;
-  width: 100%;
-  margin: 0.35rem 0 0.15rem;
-  text-align: left;
-}
 body.staff-shell .scoreboard-help {
   margin-bottom: 0.75rem;
 }
@@ -736,6 +744,7 @@ body.staff-shell .ap-overlay-card .check-list label {
 body.staff-shell .ap-overlay-card .ap-att-row {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   width: 100%;
   margin: 0;
   padding: 0.55rem 0.7rem;
@@ -754,18 +763,73 @@ body.staff-shell .ap-overlay-card .ap-att-row:hover {
 body.staff-shell .ap-overlay-card .ap-att-row.is-present,
 body.staff-shell .ap-overlay-card .ap-att-row[aria-pressed="true"] {
   border-color: #0f766e;
-  background: #ecfdf5;
+  background: #99f6e4;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.22);
 }
 body.staff-shell .ap-overlay-card .ap-att-name {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+body.staff-shell .ap-overlay-card .ap-att-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1;
+}
 body.staff-shell .ap-overlay-card .ap-att-name .mood-next-name {
   display: inline;
+}
+body.staff-shell .ap-track-choice {
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+body.staff-shell .ap-track-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+body.staff-shell .ap-track-btn:hover {
+  border-color: #0f766e;
+}
+body.staff-shell .ap-track-btn.is-selected,
+body.staff-shell .ap-track-btn[aria-pressed="true"] {
+  border-color: #0f766e;
+  background: #99f6e4;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.22);
+}
+body.staff-shell .ap-track-btn .ap-att-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.staff-shell .ap-track-btn .ap-att-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+body.staff-shell .ap-track-choice .hint {
+  margin: 0 0 0.35rem;
 }
 body.staff-shell .ap-score-list {
   max-height: 50vh;
