@@ -92,7 +92,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn(">Grades</a>", html)
         self.assertIn("<h1>MCF3M</h1>", html)
         self.assertNotIn("Tue/Thu/Fri", html)
-        self.assertIn("Log Participation", html)
+        self.assertNotIn("Log Participation", html)
         self.assertIn("round-view-select", html)
         self.assertNotIn("Start Live Class Tracker", html)
         self.assertNotIn(">Add Student</h2>", html)
@@ -105,20 +105,22 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(att.status_code, 200)
         att_html = att.get_data(as_text=True)
         self.assertIn("Take Attendance", att_html)
-        self.assertIn("tab=live", att_html)
+        self.assertIn("take=1", att_html)
+        self.assertIn("id=\"att-take-card\"", att_html)
         self.assertIn("id=\"attendance-grid\"", att_html)
-        # Wizard lives on Track Live Class, not the A&P grid tab.
+        self.assertIn("id=\"att-take-done\"", att_html)
+        self.assertIn(">All present<", att_html)
+        # Inline take card lives on the A&P attendance tab; wizard is on Run Live Class.
         self.assertNotIn("id=\"ap-att-log\"", att_html)
         self.assertNotIn(">Mood</a>", att_html)
         self.assertNotIn("id=\"mood-grid\"", att_html)
         self.assertNotIn("id=\"ap-att-all\"", att_html)
         self.assertNotIn("id=\"ap-att-done\"", att_html)
-        self.assertNotIn(">All present<", att_html)
 
         live = self.client.get(f"/staff/class/{class_id}?tab=live")
         self.assertEqual(live.status_code, 200)
         live_html = live.get_data(as_text=True)
-        self.assertIn("Track Live Class", live_html)
+        self.assertIn("Run Live Class", live_html)
         self.assertIn("Next →", live_html)
         self.assertIn("ap-att-log", live_html)
         self.assertIn("id=\"track-accordion\"", live_html)
@@ -371,7 +373,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("2026-09-09", live_isos)  # Wed
 
     def test_staff_home_has_ap_shortcut(self) -> None:
-        """Course cards expose Take Attendance, Log Participation, and Run Live Class."""
+        """Course cards expose Take Attendance and Run Live Class."""
         created = self.client.post(
             "/api/staff/classes",
             json={
@@ -384,15 +386,11 @@ class RosterTests(unittest.TestCase):
         class_id = created.get_json()["class"]["id"]
         home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Take Attendance", home)
-        self.assertIn("Log Participation", home)
+        self.assertNotIn("Log Participation", home)
         self.assertNotIn("Take Attendance &amp; Log Participation", home)
-        self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance", home)
-        self.assertIn(
-            f"/staff/class/{class_id}?tab=ap&amp;view=participation&amp;participate=1",
-            home,
-        )
-        self.assertNotIn("take=1", home)
-        self.assertIn(f"/staff/class/{class_id}/run-live", home)
+        self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance&amp;take=1", home)
+        self.assertIn("take=1", home)
+        self.assertIn(f"/staff/class/{class_id}?tab=live&amp;run=1", home)
         self.assertIn("Run Live Class", home)
         self.assertNotIn("Live Class in Progress", home)
         self.assertIn("Explore Course", home)

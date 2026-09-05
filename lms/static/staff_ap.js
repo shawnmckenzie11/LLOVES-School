@@ -1,5 +1,5 @@
 /**
- * Track Live Class accordion: join-only attendance, teams, dense scoring.
+ * Run Live Class accordion: join-only attendance, teams, dense scoring.
  */
 import {
   api,
@@ -16,7 +16,16 @@ import {
   showError,
   sortStudents,
 } from "/static/common.js";
-import { bindSchoolDayPicker, defaultSchoolDay, pickerValue, syncOverlayPickers } from "/static/ap_calendar.js";
+import {
+  bindSchoolDayPicker,
+  defaultSchoolDay,
+  gridSelectedIso,
+  pickerValue,
+  renderSemesterDayGrid,
+  resolveLogDate,
+  suggestedLogDay,
+  syncOverlayPickers,
+} from "/static/ap_calendar.js";
 import { moodGlyph, nameWithMood } from "/static/mood_faces.js";
 
 const root = document.getElementById("ap-root");
@@ -328,49 +337,121 @@ async function ensureMeetingDate(iso) {
 }
 
 /**
- * Begin a session for today and open join-only Attendance.
+ * Fetch whether attendance is logged for a date.
+ * @param {string} iso
+ * @returns {Promise<boolean>}
  */
-export async function openTakeAttendance() {
-  hideError("#att-error");
-  hideError("#ap-overlay-error");
-  try {
-    liveSessionId = readLiveSessionId() || liveSessionId;
-    await loadContext();
-    const meeting = defaultSchoolDay(logContext);
-    syncOverlayPickers(logContext, meeting);
-    const meetingInput = $("ap-meeting-date");
-    if (meetingInput) meetingInput.value = meeting;
-    overlayState = await api(`/api/classes/${classId}/begin`, {
-      method: "POST",
-      body: JSON.stringify({ meeting_date: meeting }),
-    });
-    if (overlayState.game?.status === "live") {
-      if (liveSessionId) {
-        openLiveScoring(overlayState);
-        ensureLiveSessionOverlay();
-        startLiveSessionPolling();
-        return;
-      }
-      showError(
-        "#ap-overlay-error",
-        new Error("End the open participation session before taking attendance for another day.")
-      );
-      return;
-    }
-    await ensureMeetingDate(meeting);
-    syncOverlayPickers(logContext, meeting);
-    if (liveSessionId) sessionPresentIds = new Set();
-    scoringLocked = false;
-    trackMode = null;
-    renderAttendanceList();
-    showPanel("att");
+async function isDateLogged(iso) {
+  if (!iso) return false;
+  const day = await api(`/api/classes/${classId}/attendance-day?date=${encodeURIComponent(iso)}`);
+  return Boolean(day.logged);
+}
+
+/**
+ * Paint the semester day-grid on the validate step.
+ * @param {string} [selected]
+ */
+function showValidateGrid(selected) {
+  const box = $("ap-day-grid");
+  if (!box || !logContext) return;
+  const iso = renderSemesterDayGrid(box, logContext, {
+    selected: selected || suggestedLogDay(logContext),
+    minIso: String(logContext.today || ""),
+    onSelect: (value) => {
+      const hidden = $("ap-valid-date");
+      if (hidden) hidden.value = value;
+    },
+  });
+  const hidden = $("ap-valid-date");
+  if (hidden) hidden.value = iso;
+}
+
+/**
+ * Begin Run Live Class for a resolved meeting date (session mint deferred).
+ * @param {string} iso
+ */
+async function proceedRunLiveBegin(iso) {
+  syncOverlayPickers(logContext, iso);
+  const meetingInput = $("ap-meeting-date");
+  if (meetingInput) meetingInput.value = iso;
+  overlayState = await api(`/api/classes/${classId}/begin`, {
+    method: "POST",
+    body: JSON.stringify({ meeting_date: iso }),
+  });
+  if (overlayState.game?.status === "live") {
+    openLiveScoring(overlayState);
     if (liveSessionId) {
       ensureLiveSessionOverlay();
       startLiveSessionPolling();
     }
+    return;
+  }
+  await ensureMeetingDate(iso);
+  syncOverlayPickers(logContext, iso);
+  if (liveSessionId) sessionPresentIds = new Set();
+  scoringLocked = false;
+  trackMode = null;
+  renderAttendanceList();
+  showPanel("att");
+  if (liveSessionId) {
+    ensureLiveSessionOverlay();
+    startLiveSessionPolling();
+  }
+}
+
+/**
+ * Open Run Live Class with semester date gating (deferred live-session mint).
+ */
+export async function openRunLiveClass() {
+  hideError("#ap-overlay-error");
+  try {
+    liveSessionId = readLiveSessionId() || liveSessionId;
+    await loadContext();
+
+    if (overlayState?.game?.status === "live") {
+      openLiveScoring(overlayState);
+      if (liveSessionId) {
+        ensureLiveSessionOverlay();
+        startLiveSessionPolling();
+      }
+      return;
+    }
+
+    const today = String(logContext.today || "").trim();
+    const todayLogged = await isDateLogged(today);
+    const decision = resolveLogDate(logContext, { todayLogged }, { flow: "run_live" });
+
+    if (decision.mode === "confirm_override") {
+      const ok = window.confirm(
+        "Stored attendance and participation for today will be overridden. Continue?"
+      );
+      if (!ok) return;
+      await proceedRunLiveBegin(decision.iso);
+      return;
+    }
+
+    if (decision.mode === "auto") {
+      await proceedRunLiveBegin(decision.iso);
+      return;
+    }
+
+    pendingAction = async () => {
+      const iso = gridSelectedIso($("ap-day-grid")) || $("ap-valid-date")?.value || decision.iso;
+      await proceedRunLiveBegin(iso);
+    };
+    fillValidateHint();
+    showValidateGrid(decision.iso);
+    showPanel("validate");
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
+}
+
+/**
+ * @deprecated Use openRunLiveClass on tab=live; inline take uses staff_attendance_take.js.
+ */
+export async function openTakeAttendance() {
+  return openRunLiveClass();
 }
 
 /**
@@ -464,10 +545,15 @@ async function withValidatedDate(iso, proceed) {
     await proceed(chosen);
     return;
   }
-  pendingAction = () => proceed(pickerValue($("ap-valid-date"), logContext) || chosen);
+  pendingAction = async () => {
+    const picked =
+      gridSelectedIso($("ap-day-grid")) ||
+      pickerValue($("ap-valid-date"), logContext) ||
+      chosen;
+    await proceed(picked);
+  };
   fillValidateHint();
-  const picker = $("ap-valid-date");
-  if (picker && chosen) picker.value = chosen;
+  showValidateGrid(chosen);
   showPanel("validate");
 }
 
@@ -590,24 +676,16 @@ function openLiveScoring(state, opts = {}) {
     }
   }
   const scoreEnd = $("ap-score-end");
-  const liveEnd = $("ap-live-end");
   const scoreCancel = $("ap-score-cancel");
-  const liveCancel = $("ap-live-cancel");
   if (isIndividual) {
-    if (scoreEnd) scoreEnd.hidden = false;
-    if (liveEnd) liveEnd.hidden = true;
-    if (scoreCancel) scoreCancel.hidden = false;
-    if (liveCancel) liveCancel.hidden = true;
     $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
     renderScoreList();
   } else {
-    if (scoreEnd) scoreEnd.hidden = true;
-    if (liveEnd) liveEnd.hidden = false;
-    if (scoreCancel) scoreCancel.hidden = true;
-    if (liveCancel) liveCancel.hidden = false;
     $("ap-score-list") && ($("ap-score-list").innerHTML = "");
     renderLiveTeams(state);
   }
+  if (scoreEnd) scoreEnd.hidden = false;
+  if (scoreCancel) scoreCancel.hidden = false;
   showPanel("score");
   renderAttendanceList();
 }
@@ -665,13 +743,9 @@ function selectTrackMode(mode) {
   updateStepSummaries();
 }
 
-for (const id of [
-  "ap-validate-cancel",
-  "ap-score-cancel",
-  "ap-live-cancel",
-]) {
+for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
   $(id)?.addEventListener("click", () => {
-    if (id === "ap-score-cancel" || id === "ap-live-cancel") {
+    if (id === "ap-score-cancel") {
       if (!window.confirm("Quit scoring? Scores already logged stay registered.")) return;
     }
     cancelOverlay();
@@ -679,7 +753,7 @@ for (const id of [
 }
 
 document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
-  if (btn.id === "ap-score-cancel" || btn.id === "ap-live-cancel" || btn.id === "ap-validate-cancel") return;
+  if (btn.id === "ap-score-cancel" || btn.id === "ap-validate-cancel") return;
   btn.addEventListener("click", () => cancelOverlay());
 });
 
@@ -747,7 +821,10 @@ $("ap-gamify-next")?.addEventListener("click", async () => {
 });
 
 $("ap-validate-apply")?.addEventListener("click", async () => {
-  const iso = pickerValue($("ap-valid-date"), logContext);
+  const iso =
+    gridSelectedIso($("ap-day-grid")) ||
+    pickerValue($("ap-valid-date"), logContext) ||
+    $("ap-valid-date")?.value;
   if (!iso) return;
   try {
     overlayState = await api(`/api/classes/${classId}/game/meeting`, {
@@ -1392,7 +1469,36 @@ $("ap-score-team-tabs")?.addEventListener("click", (event) => {
 });
 
 $("ap-score-end")?.addEventListener("click", endGame);
-$("ap-live-end")?.addEventListener("click", endGame);
+
+/**
+ * Resume an in-progress live class when returning to tab=live with a session id.
+ */
+async function resumeLiveClassIfNeeded() {
+  liveSessionId = readLiveSessionId() || liveSessionId;
+  if (!liveSessionId) return false;
+  try {
+    await loadContext();
+    overlayState = await api(`/api/classes/${classId}/begin`, {
+      method: "POST",
+      body: JSON.stringify({
+        meeting_date: defaultSchoolDay(logContext),
+      }),
+    });
+    if (overlayState.game?.status === "live") {
+      openLiveScoring(overlayState);
+      ensureLiveSessionOverlay();
+      startLiveSessionPolling();
+      return true;
+    }
+    renderAttendanceList();
+    showPanel("att");
+    ensureLiveSessionOverlay();
+    startLiveSessionPolling();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 /**
  * Log Participation shortcut (skip Mark Attendance when possible).
@@ -1458,16 +1564,11 @@ if (localStorage.getItem(scoreboardKey) === null) {
   localStorage.setItem(scoreboardKey, "1");
 }
 
-const bootStep = (root?.dataset.liveStep || "").trim();
-const wantParticipate = root?.dataset.participate === "1" || bootStep === "gamify";
-const wantTake =
-  root?.dataset.take === "1" ||
-  bootStep === "att" ||
-  Boolean(readLiveSessionId()) ||
-  (!wantParticipate && root?.dataset.apView === "live");
-
-if (wantParticipate && !wantTake) {
-  openLogParticipation().catch((err) => showError("#ap-overlay-error", err));
-} else if (root?.dataset.apView === "live") {
-  openTakeAttendance().catch((err) => showError("#ap-overlay-error", err));
+if (root?.dataset.apView === "live") {
+  (async () => {
+    const resumed = await resumeLiveClassIfNeeded();
+    if (!resumed) {
+      await openRunLiveClass();
+    }
+  })().catch((err) => showError("#ap-overlay-error", err));
 }

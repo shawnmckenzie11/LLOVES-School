@@ -30,11 +30,11 @@
 
     <nav class="tabs course-tabs" id="course-tabs" aria-label="Course sections">
       <button type="button" class="course-tabs-toggle" id="course-tabs-toggle" aria-expanded="false" aria-controls="course-tabs-panel">
-        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Track Live Class{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
+        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
         <span class="course-tabs-toggle-icon" aria-hidden="true">☰</span>
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}" class="{{ 'on' if tab == 'live' else '' }}">Track Live Class</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}" class="{{ 'on' if tab == 'live' else '' }}">Run Live Class</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
@@ -90,7 +90,8 @@
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
          data-participate="{{ '1' if log_participation or live_step == 'gamify' else '0' }}"
          data-live-session-id="{{ live_session_id or '' }}"
-         data-live-step="{{ live_step or '' }}">
+         data-live-step="{{ live_step or '' }}"
+         data-run="{{ '1' if run_live else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
       <div class="track-accordion" id="track-accordion">
         <div class="track-share-bar">
@@ -121,9 +122,9 @@
             <span class="track-step-title">Choose a class date</span>
           </div>
           <div class="track-step-body">
-            <p class="hint" id="ap-validate-hint">This is not a live class day for this course. Pick a valid date to continue.</p>
-            <label class="field" for="ap-valid-date">Class date</label>
-            <input type="date" id="ap-valid-date" class="ap-date-input">
+            <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
+            <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
+            <input type="hidden" id="ap-valid-date" class="ap-date-input">
             <div class="track-step-footer">
               <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
               <button type="button" id="ap-validate-apply">Use this date</button>
@@ -290,9 +291,7 @@
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
-              <button type="button" class="secondary track-nav-quit" id="ap-live-cancel" data-track-nav="quit" hidden>Quit</button>
               <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
-              <button type="button" class="danger track-nav-next" id="ap-live-end" data-track-nav="end" hidden>End Game</button>
             </div>
           </div>
         </section>
@@ -312,12 +311,37 @@
       <div id="attendance-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
           <div class="row-actions ap-toolbar">
-            <a class="btn" id="take-attendance" href="{{ url_for('staff_course', class_id=cls.id, tab='live', step='att') }}{% if live_session_id %}&live_session_id={{ live_session_id }}{% endif %}">Take Attendance</a>
+            <a class="btn" id="take-attendance" href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance', take=1) }}">Take Attendance</a>
             <button type="button" class="secondary" id="att-clear">Clear</button>
             <button type="button" class="secondary" id="att-sort">Sort: A–Z</button>
           </div>
         </div>
         <div id="att-error" class="error" hidden></div>
+        <div id="att-take-error" class="error" hidden></div>
+        <section id="att-take-card" class="track-step att-take-card" hidden>
+          <div class="track-step-body">
+            <h2 class="track-step-title">Mark Attendance <span id="att-take-count" class="att-count">Attendance: 0</span></h2>
+            <p class="hint">Click each name to mark present. Only present students can receive participation credit later.</p>
+            <input type="hidden" id="ap-meeting-date-inline" value="">
+            <p class="att-take-date-label" id="att-take-date-label"></p>
+            <div id="att-take-picker" class="att-take-picker" hidden>
+              <p class="hint compact">Choose a valid school day:</p>
+              <div id="att-day-grid"></div>
+              <div class="row-actions compact">
+                <button type="button" id="att-take-apply-date">Continue with this date</button>
+              </div>
+            </div>
+            <div class="row-actions compact">
+              <button type="button" class="secondary" id="att-take-all">All present</button>
+              <button type="button" class="secondary" id="att-take-none">All absent</button>
+            </div>
+            <div id="att-take-list" class="check-list"></div>
+            <div class="track-step-footer">
+              <button type="button" class="secondary" id="att-take-cancel">Cancel</button>
+              <button type="button" class="track-nav-next" id="att-take-done">Done</button>
+            </div>
+          </div>
+        </section>
         <p class="hint" id="att-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s attendance.</p>
         <div class="sheet-wrap attendance-wrap">
           <table class="sheet attendance-grid" id="attendance-grid">
@@ -327,11 +351,11 @@
         </div>
       </div>
       <script type="module" src="/static/staff_attendance.js"></script>
+      <script type="module" src="/static/staff_attendance_take.js"></script>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">
           <div class="row-actions ap-toolbar">
-            <a class="btn" id="begin" href="{{ url_for('staff_course', class_id=cls.id, tab='live', step='gamify') }}{% if live_session_id %}&live_session_id={{ live_session_id }}{% endif %}">Log Participation</a>
             <button type="button" class="secondary" id="part-clear">Clear</button>
             <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
             <label class="field ap-view-field" for="round-view-select">
@@ -356,14 +380,6 @@
             </thead>
           </table>
         </div>
-        <section class="card grades-panel">
-          <h2>Scoreboard period</h2>
-          <div class="view-toggle" id="stat-window-toggle" role="group" aria-label="Scoreboard stats period">
-            <button type="button" class="on" data-stat-window="last_class" aria-pressed="true">Last class</button>
-            <button type="button" data-stat-window="last_week" aria-pressed="false">Last week</button>
-            <button type="button" data-stat-window="year" aria-pressed="false">This year</button>
-          </div>
-        </section>
         <section class="card grades-panel">
           <h2>Log TOTAL</h2>
           <form id="freeze-sub" class="tool-form">

@@ -1742,6 +1742,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ap_view=ap_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
+            run_live=request.args.get("run") == "1",
             live_session_id=live_session_id,
             live_step=live_step,
             school_name=SCHOOL_NAME,

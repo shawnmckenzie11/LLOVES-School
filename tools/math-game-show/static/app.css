@@ -1287,15 +1287,26 @@ body.live-overlay.overlay .live-overlay-stage {
 }
 
 .live-overlay-round {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.15rem;
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #f5c518;
 }
 
+.live-overlay-round-clock {
+  margin: 0 0 0.35rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: clamp(1rem, 3.5vw, 1.35rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: #f5c518;
+}
+
 .live-overlay-round.hidden,
-.live-overlay-round[hidden] {
+.live-overlay-round[hidden],
+.live-overlay-round-clock.hidden,
+.live-overlay-round-clock[hidden] {
   display: none !important;
 }
 

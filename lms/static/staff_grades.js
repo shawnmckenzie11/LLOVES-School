@@ -5,7 +5,6 @@ const classId = Number(root?.dataset.classId || 0);
 const sortKey = `lloves-sort-${classId}`;
 const roundViewKey = `mgs-round-view-${classId}`;
 const ROUND_VIEWS = ["total", "r1", "r2", "r3"];
-const STAT_WINDOWS = ["last_class", "last_week", "year"];
 const SLICE_KEYS = { total: "points", r1: "points_r1", r2: "points_r2", r3: "points_r3" };
 const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
 
@@ -41,16 +40,6 @@ async function refresh() {
   hideError("#error");
   const data = await api(`/api/classes/${classId}/participation-grid?sort=${sort}`);
   paint(data);
-}
-
-/**
- * Saved scoreboard stats period from the dashboard payload.
- * @param {any} data
- * @returns {"last_class"|"last_week"|"year"}
- */
-function payloadStatWindow(data) {
-  const raw = data?.stat_window;
-  return STAT_WINDOWS.includes(raw) ? raw : "last_class";
 }
 
 /**
@@ -346,16 +335,6 @@ document.getElementById("round-view-select")?.addEventListener("change", (event)
   roundView = next;
   localStorage.setItem(roundViewKey, roundView);
   if (latest) paint(latest);
-});
-
-document.getElementById("stat-window-toggle")?.addEventListener("click", (event) => {
-  const btn = event.target instanceof Element ? event.target.closest("[data-stat-window]") : null;
-  if (!btn) return;
-  const next = btn.dataset.statWindow;
-  if (!STAT_WINDOWS.includes(next)) return;
-  mutate(`/api/classes/${classId}/stat-window`, { window: next }).catch((err) =>
-    showError("#error", err)
-  );
 });
 
 document.getElementById("freeze-sub").addEventListener("submit", (event) => {

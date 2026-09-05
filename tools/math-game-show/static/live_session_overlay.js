@@ -1,7 +1,7 @@
 /**
  * Narrow Zoom-share overlay: session code, join count, roster, optional teams.
  */
-import { escapeHtml, formatPoints } from "./common.js";
+import { escapeHtml, formatPoints, formatCountdown, remainingUntilMs } from "./common.js";
 import { moodGlyph } from "/static/mood_faces.js";
 
 const params = new URLSearchParams(location.search);
@@ -18,6 +18,7 @@ const codeEl = document.getElementById("live-code");
 const copyBtn = document.getElementById("live-copy-code");
 const copyFeedback = document.getElementById("live-copy-feedback");
 const roundEl = document.getElementById("live-round");
+const roundClockEl = document.getElementById("live-round-clock");
 const countEl = document.getElementById("live-count");
 const rosterBody = document.getElementById("live-roster-body");
 const emptyEl = document.getElementById("live-empty");
@@ -30,6 +31,7 @@ let tickBusy = false;
 let lastRosterKey = "";
 let lastTeamKey = "";
 let lastRoundKey = "";
+let roundEndsAtMs = 0;
 let lastPresent = [];
 /** @type {any|null} */
 let lastBoard = null;
@@ -170,19 +172,37 @@ function paintRoster() {
 }
 
 /**
- * Show current round title for Team Tracking; hide when individual / idle.
+ * Show current round title and countdown for Team Tracking; hide when individual / idle.
  * @param {any} board
  */
 function paintRound(board) {
-  if (!roundEl) return;
   const title = String(board?.round_title || "").trim();
   const show = hasTeamScoreboard(board) && Boolean(title);
-  const key = show ? title : "";
-  if (key === lastRoundKey && roundEl.hidden === !show) return;
-  lastRoundKey = key;
-  roundEl.textContent = title;
-  roundEl.hidden = !show;
-  roundEl.classList.toggle("hidden", !show);
+  const key = show ? `${title}:${board?.round_ends_at_ms || ""}` : "";
+  if (roundEl) {
+    if (key === lastRoundKey && roundEl.hidden === !show) {
+      paintRoundClock(board);
+      return;
+    }
+    lastRoundKey = key;
+    roundEl.textContent = show ? `Round: ${title}` : "";
+    roundEl.hidden = !show;
+    roundEl.classList.toggle("hidden", !show);
+  }
+  roundEndsAtMs = Number(board?.round_ends_at_ms) || 0;
+  paintRoundClock(board);
+}
+
+/**
+ * Paint the round countdown under the round label.
+ * @param {any} board
+ */
+function paintRoundClock(board) {
+  if (!roundClockEl) return;
+  const show = hasTeamScoreboard(board) && Boolean(board?.round_ends_at_ms);
+  roundClockEl.textContent = show ? formatCountdown(remainingUntilMs(roundEndsAtMs)) : "";
+  roundClockEl.hidden = !show;
+  roundClockEl.classList.toggle("hidden", !show);
 }
 
 /**
@@ -351,4 +371,7 @@ if (!sessionId) {
 } else {
   tick();
   setInterval(tick, 2000);
+  setInterval(() => {
+    if (lastBoard) paintRoundClock(lastBoard);
+  }, 1000);
 }
