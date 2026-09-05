@@ -72,7 +72,7 @@
             </button>
           </form>
           {% endif %}
-          <div class="course-action-row course-action-split">
+          <div class="course-action-row">
             <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
                aria-label="Take Attendance"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
@@ -81,6 +81,8 @@
               </svg>
               <span>Take Attendance</span>
             </a>
+          </div>
+          <div class="course-action-row">
             <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation', participate=1) }}"
                aria-label="Log Participation"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
@@ -90,7 +92,7 @@
               <span>Log Participation</span>
             </a>
           </div>
-          <div class="course-action-row course-action-split">
+          <div class="course-action-row">
             <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id) }}"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -98,6 +100,8 @@
               </svg>
               <span>Explore Course</span>
             </a>
+          </div>
+          <div class="course-action-row">
             <button type="button" class="course-action btn-populate secondary"
                     data-offering-id="{{ o.id }}"
                     data-class-id="{{ cls.id }}"

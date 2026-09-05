@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS session_scores (
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     present INTEGER NOT NULL DEFAULT 0,
+    late INTEGER NOT NULL DEFAULT 0,
     points REAL NOT NULL DEFAULT 0,
     points_r1 REAL NOT NULL DEFAULT 0,
     points_r2 REAL NOT NULL DEFAULT 0,
@@ -171,7 +172,17 @@ SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
 STAT_WINDOW_KEY_PREFIX = "stat_window:"
 SHOW_RANK_KEY_PREFIX = "show_rank:"
-STUDENT_MOODS = ("good", "ok", "low")
+STUDENT_MOODS = (
+    "good",
+    "ok",
+    "low",
+    "tired",
+    "energetic",
+    "focused",
+    "anxious",
+    "confused",
+    "excited",
+)
 STUDENT_CHARACTERS = ("char_a", "char_b", "char_c", "char_d")
 STAT_WINDOWS = ("last_class", "last_week", "year")
 DEFAULT_STAT_WINDOW = "last_class"
@@ -597,6 +608,7 @@ class GameShowDB:
         self._migrate_lloves_roster()
         self._migrate_class_live_access_code()
         self._migrate_student_portal()
+        self._migrate_session_scores_late()
 
     def _migrate_rounds(self) -> None:
         """Add round/timer columns and copy legacy points into Round 1.
@@ -723,6 +735,17 @@ class GameShowDB:
             WHERE live_access_code IS NOT NULL AND TRIM(live_access_code) != ''
             """
         )
+
+    def _migrate_session_scores_late(self) -> None:
+        """Add ``late`` flag for mid-scoring joiners (attendance grid ``L``)."""
+        score_cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(session_scores)").fetchall()
+        }
+        if "late" not in score_cols:
+            self.conn.execute(
+                "ALTER TABLE session_scores ADD COLUMN late INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_real_points(self, table: str) -> None:
         """Rebuild a scores table if ``points`` still has INTEGER affinity.
@@ -1156,18 +1179,19 @@ class GameShowDB:
     def mark_student_present_on_open_session(
         self, class_id: int, student_id: int
     ) -> bool:
-        """Best-effort: set ``present=1`` on the open game's meeting column.
+        """Best-effort: set present on the open game's meeting column.
 
-        Used when a student joins a live class session while Mark Attendance
-        (or a later setup/live phase) is already open. No-op when there is no
-        open game.
+        During Mark Attendance / setup, marks ordinary present (``P``).
+        After scoring has started (``live``), delegates to
+        :meth:`admit_late_joiner` so the student gets Late (``L``) plus a
+        race-safe random team (or the Class list for individual tracking).
 
         Args:
             class_id: Classes primary key.
             student_id: Students primary key.
 
         Returns:
-            True when a present flag was written; False when skipped.
+            True when a present/late flag was written; False when skipped.
         """
         with self._lock:
             game = self.conn.execute(
@@ -1181,25 +1205,135 @@ class GameShowDB:
             ).fetchone()
             if game is None:
                 return False
-            if str(game["status"] or "") not in {
-                "attendance",
-                "teams",
-                "names",
-                "live",
-            }:
+            status = str(game["status"] or "")
+            if status == "live":
+                try:
+                    self.admit_late_joiner(int(class_id), int(student_id))
+                    return True
+                except (ValueError, KeyError):
+                    return False
+            if status not in {"attendance", "teams", "names", "rounds"}:
                 return False
             session_id = int(game["session_id"])
             self._ensure_session_scores(session_id, int(class_id))
             self.conn.execute(
                 """
                 UPDATE session_scores
-                SET present = 1
+                SET present = 1, late = 0
                 WHERE session_id = ? AND student_id = ?
                 """,
                 (session_id, int(student_id)),
             )
             self.conn.commit()
         return True
+
+    def admit_late_joiner(
+        self,
+        class_id: int,
+        student_id: int,
+        *,
+        rng: Any | None = None,
+    ) -> dict[str, Any]:
+        """Admit a rostered student who joins after live scoring started.
+
+        Marks attendance Late (``present=1``, ``late=1``), assigns them to a
+        random existing team (or the sole Class team for individual tracking),
+        and is race-safe under the DB lock (idempotent if already a member).
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key on this roster.
+            rng: Optional ``random.Random`` for deterministic tests.
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When there is no live game or no teams to join.
+            KeyError: When the student is not on the class roster.
+        """
+        import random as random_mod
+
+        picker = rng if rng is not None else random_mod
+        with self._lock:
+            game = self._game_row(class_id)
+            if game["status"] != "live":
+                raise ValueError("Late join requires a live scoring session")
+            student = self.conn.execute(
+                "SELECT id FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+            if student is None:
+                raise KeyError(f"student {student_id}")
+            game_id = int(game["id"])
+            session_id = int(game["session_id"])
+            already = self.conn.execute(
+                """
+                SELECT student_id FROM game_memberships
+                WHERE game_id = ? AND student_id = ?
+                """,
+                (game_id, int(student_id)),
+            ).fetchone()
+            self._ensure_session_scores(session_id, int(class_id))
+            score = self.conn.execute(
+                """
+                SELECT present, late FROM session_scores
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (session_id, int(student_id)),
+            ).fetchone()
+            if already is not None:
+                # Already on a team (on-time or previously admitted) — no-op.
+                return self.game_state(class_id, game_id=game_id)
+
+            teams = [
+                dict(row)
+                for row in self.conn.execute(
+                    """
+                    SELECT id, name FROM game_teams
+                    WHERE game_id = ?
+                    ORDER BY sort_order, id
+                    """,
+                    (game_id,),
+                )
+            ]
+            if not teams:
+                raise ValueError("No teams available for late join")
+            if len(teams) == 1 and str(teams[0].get("name") or "") == "Class":
+                team_id = int(teams[0]["id"])
+            else:
+                team_id = int(picker.choice(teams)["id"])
+
+            if score is None:
+                self.conn.execute(
+                    """
+                    INSERT INTO session_scores (
+                        session_id, student_id, present, late,
+                        points, points_r1, points_r2, points_r3
+                    )
+                    VALUES (?, ?, 1, 1, 0, 0, 0, 0)
+                    """,
+                    (session_id, int(student_id)),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET present = 1, late = 1,
+                        points = 0, points_r1 = 0, points_r2 = 0, points_r3 = 0
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (session_id, int(student_id)),
+                )
+            self.conn.execute(
+                """
+                INSERT INTO game_memberships (game_id, team_id, student_id)
+                VALUES (?, ?, ?)
+                """,
+                (game_id, team_id, int(student_id)),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
 
     def get_mood(
         self,
@@ -2538,7 +2672,7 @@ class GameShowDB:
             self.conn.execute(
                 """
                 UPDATE session_scores
-                SET present = 0, points = 0, points_r1 = 0, points_r2 = 0, points_r3 = 0
+                SET present = 0, late = 0, points = 0, points_r1 = 0, points_r2 = 0, points_r3 = 0
                 WHERE session_id = ?
                 """,
                 (session_id,),
@@ -2673,6 +2807,7 @@ class GameShowDB:
                 """
                 UPDATE session_scores
                 SET present = ?,
+                    late = 0,
                     points = CASE WHEN ? = 0 THEN 0 ELSE points END,
                     points_r1 = CASE WHEN ? = 0 THEN 0 ELSE points_r1 END,
                     points_r2 = CASE WHEN ? = 0 THEN 0 ELSE points_r2 END,
@@ -2769,7 +2904,7 @@ class GameShowDB:
                 dict(row)
                 for row in self.conn.execute(
                     """
-                    SELECT ss.session_id, ss.student_id, ss.present
+                    SELECT ss.session_id, ss.student_id, ss.present, ss.late
                     FROM session_scores ss
                     JOIN sessions se ON se.id = ss.session_id
                     WHERE se.class_id = ?
@@ -3176,10 +3311,10 @@ class GameShowDB:
                 self.conn.execute(
                     """
                     INSERT INTO session_scores (
-                        session_id, student_id, present,
+                        session_id, student_id, present, late,
                         points, points_r1, points_r2, points_r3
                     )
-                    VALUES (?, ?, 1, 0, 0, 0, 0)
+                    VALUES (?, ?, 1, 1, 0, 0, 0, 0)
                     """,
                     (session_id, student_id),
                 )
@@ -3187,7 +3322,7 @@ class GameShowDB:
                 self.conn.execute(
                     """
                     UPDATE session_scores
-                    SET present = 1, points = 0,
+                    SET present = 1, late = 1, points = 0,
                         points_r1 = 0, points_r2 = 0, points_r3 = 0
                     WHERE session_id = ? AND student_id = ?
                     """,
@@ -3388,6 +3523,7 @@ class GameShowDB:
         target_id: int,
         amount: int,
         team_rule: str | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
         """Apply a teacher award as an immutable event plus live caches.
 
@@ -3412,6 +3548,8 @@ class GameShowDB:
             target_id: Student id or team id.
             amount: Signed integer (negative team awards require ``team_only``).
             team_rule: Required for team awards.
+            label: Optional human action label (Open Question chips) stored on
+                ``last_event`` for overlay/feedback.
 
         Returns:
             Updated game state (includes last_event for the scoreboard).
@@ -3430,6 +3568,7 @@ class GameShowDB:
                 raise ValueError("Team penalties must use the team-only bucket")
         else:
             rule = None
+        action_label = (label or "").strip() or None
         with self._lock:
             game = self._game_row(class_id)
             if game["status"] != "live":
@@ -3467,6 +3606,9 @@ class GameShowDB:
                 ).fetchone()
                 first_name = str(student["first_name"] if student else "").strip()
                 signed = f"+{amount}" if amount > 0 else str(amount)
+                default_label = (
+                    f"{first_name} {signed}".strip() or f"{team['name']} {signed}"
+                )
                 last_event = {
                     "kind": "student",
                     "student_id": target_id,
@@ -3476,7 +3618,8 @@ class GameShowDB:
                     "amount": amount,
                     "team_rule": None,
                     "celebrate": amount > 0,
-                    "label": f"{first_name} {signed}".strip() or f"{team['name']} {signed}",
+                    "label": action_label or default_label,
+                    "action_label": action_label,
                 }
                 self._insert_event(
                     session_id=session_id,
@@ -3522,7 +3665,8 @@ class GameShowDB:
                     "team_rule": rule,
                     "celebrate": amount > 0,
                     "caption": caption,
-                    "label": caption,
+                    "label": action_label or caption,
+                    "action_label": action_label,
                 }
                 self._insert_event(
                     session_id=session_id,
@@ -3621,6 +3765,7 @@ class GameShowDB:
             scores = {
                 int(r["student_id"]): {
                     "present": bool(r["present"]),
+                    "late": bool(r["late"]),
                     "points": as_points(r["points"]),
                     "points_r1": as_points(r["points_r1"]),
                     "points_r2": as_points(r["points_r2"]),
@@ -3628,7 +3773,7 @@ class GameShowDB:
                 }
                 for r in self.conn.execute(
                     """
-                    SELECT student_id, present, points,
+                    SELECT student_id, present, late, points,
                            points_r1, points_r2, points_r3
                     FROM session_scores WHERE session_id = ?
                     """,
@@ -3686,6 +3831,7 @@ class GameShowDB:
                         **student,
                         **credited,
                         "career_total": as_points(totals.get(sid, 0)),
+                        "late": bool(scores.get(sid, {}).get("late")),
                     }
                 )
             bucket = as_points(team["bucket"])
@@ -3716,6 +3862,7 @@ class GameShowDB:
                 {
                     **s,
                     "present": scores.get(int(s["id"]), {}).get("present", False),
+                    "late": scores.get(int(s["id"]), {}).get("late", False),
                     **member_round_points(scores.get(int(s["id"]))),
                     "career_total": totals.get(int(s["id"]), 0),
                 }
@@ -3941,21 +4088,27 @@ class GameShowDB:
             (SCOREBOARD_GAME_KEY, str(int(game_id))),
         )
 
-    def _scoreboard_players(self, team: dict[str, Any]) -> list[dict[str, str]]:
-        """First names on a team for the public scoreboard.
+    def _scoreboard_players(self, team: dict[str, Any]) -> list[dict[str, Any]]:
+        """First names (and student ids) on a team for the public scoreboard.
 
         Args:
             team: A ``game_state`` team dict (may include full member rows).
 
         Returns:
-            ``[{first_name}]`` sorted by first name. No last names or IDs.
+            ``[{first_name, student_id}]`` sorted by first name. No last names.
+            ``student_id`` is additive for live-overlay In-class grouping.
         """
-        names: list[dict[str, str]] = []
+        names: list[dict[str, Any]] = []
         for member in team.get("members") or []:
             first = str(member.get("first_name") or "").strip()
-            if first:
-                names.append({"first_name": first})
-        names.sort(key=lambda row: row["first_name"].lower())
+            if not first:
+                continue
+            row: dict[str, Any] = {"first_name": first}
+            sid = int(member.get("id") or 0)
+            if sid > 0:
+                row["student_id"] = sid
+            names.append(row)
+        names.sort(key=lambda row: str(row["first_name"]).lower())
         return names
 
     def _ticker_first_name(self, student: dict[str, Any], roster: list[dict[str, Any]]) -> str:

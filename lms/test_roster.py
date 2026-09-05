@@ -105,13 +105,24 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(att.status_code, 200)
         att_html = att.get_data(as_text=True)
         self.assertIn("Take Attendance", att_html)
+        self.assertIn("tab=live", att_html)
         self.assertIn("id=\"attendance-grid\"", att_html)
-        self.assertIn("Begin Class Tracking", att_html)
+        # Wizard lives on Track Live Class, not the A&P grid tab.
+        self.assertNotIn("id=\"ap-att-log\"", att_html)
         self.assertNotIn(">Mood</a>", att_html)
         self.assertNotIn("id=\"mood-grid\"", att_html)
         self.assertNotIn("id=\"ap-att-all\"", att_html)
         self.assertNotIn("id=\"ap-att-done\"", att_html)
         self.assertNotIn(">All present<", att_html)
+
+        live = self.client.get(f"/staff/class/{class_id}?tab=live")
+        self.assertEqual(live.status_code, 200)
+        live_html = live.get_data(as_text=True)
+        self.assertIn("Track Live Class", live_html)
+        self.assertIn("Next →", live_html)
+        self.assertIn("ap-att-log", live_html)
+        self.assertIn("id=\"track-accordion\"", live_html)
+        self.assertIn("id=\"ap-att-log\"", live_html)
 
         grades = self.client.get(f"/staff/class/{class_id}?tab=gradebook")
         self.assertEqual(grades.status_code, 200)
@@ -573,9 +584,9 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(run.status_code, 302)
         location = run.headers.get("Location", "")
         self.assertIn(f"/staff/class/{class_id}", location)
-        self.assertIn("tab=ap", location)
-        self.assertIn("take=1", location)
+        self.assertIn("tab=live", location)
         self.assertIn("live_session_id=", location)
+        self.assertNotIn("tab=ap", location)
         session_one = self.school.get_active_live_session_for_class(class_id)
         self.assertIsNotNone(session_one)
         assert session_one is not None
@@ -872,6 +883,72 @@ class RosterTests(unittest.TestCase):
         self.assertIsNotNone(row)
         assert row is not None
         self.assertEqual(int(row["present"]), 1)
+
+    def test_late_join_after_scoring_marks_l_and_assigns_team(self) -> None:
+        """Mid-scoring join marks Late and places the student on a random team."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple", "Birch", "Cedar", "Oak"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        birch = self.school.game.find_student_by_codename(class_id, "Birch")
+        cedar = self.school.game.find_student_by_codename(class_id, "Cedar")
+        oak = self.school.game.find_student_by_codename(class_id, "Oak")
+        assert maple and birch and cedar and oak
+        present_ids = [int(maple["id"]), int(birch["id"]), int(cedar["id"])]
+        self.school.game.begin_game(
+            class_id, meeting_date=__import__("datetime").date(2026, 9, 9)
+        )
+        self.school.game.save_attendance(class_id, present_ids)
+        self.school.game.assign_teams(class_id, 2, "random")
+        rename = self.school.game.game_state(class_id)
+        self.school.game.rename_teams(
+            class_id,
+            [{"id": t["id"], "name": t["name"]} for t in rename["teams"]],
+            go_live=False,
+        )
+        self.school.game.start_live_with_rounds(
+            class_id,
+            [{"kind": "open", "minutes": 20}],
+        )
+        before_teams = {
+            int(m["id"]): int(t["id"])
+            for t in self.school.game.game_state(class_id)["teams"]
+            for m in t["members"]
+        }
+        self.assertNotIn(int(oak["id"]), before_teams)
+
+        marked = self.school.game.admit_late_joiner(
+            class_id, int(oak["id"]), rng=__import__("random").Random(0)
+        )
+        members = {
+            int(m["id"]): int(t["id"])
+            for t in marked["teams"]
+            for m in t["members"]
+        }
+        self.assertIn(int(oak["id"]), members)
+        oak_student = next(s for s in marked["students"] if int(s["id"]) == int(oak["id"]))
+        self.assertTrue(oak_student["present"])
+        self.assertTrue(oak_student["late"])
+
+        grid = self.school.attendance_week_grid(class_id)
+        cell = grid["cells"].get(f"{int(oak['id'])}:2026-09-09")
+        self.assertEqual(cell, "L")
+
+        # Idempotent on second call (already a member).
+        again = self.school.game.admit_late_joiner(class_id, int(oak["id"]))
+        self.assertIn(int(oak["id"]), {
+            int(m["id"]) for t in again["teams"] for m in t["members"]
+        })
 
 
 if __name__ == "__main__":

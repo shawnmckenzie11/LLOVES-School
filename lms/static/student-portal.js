@@ -1,10 +1,15 @@
 /**
- * Phone-first student live-class home: personal stats + class scoreboard.
+ * Phone-first student live-class home: Live response shell + chrome boards.
  */
 const waitEl = document.getElementById("student-wait");
 const meEl = document.getElementById("me-board");
 const boardEl = document.getElementById("class-board");
+const promptShell = document.getElementById("prompt-shell");
+const promptAck = document.getElementById("prompt-ack");
 const body = document.body;
+
+/** @type {number | null} */
+let lastPromptId = null;
 
 /**
  * Format a points value for the student boards.
@@ -73,15 +78,155 @@ function escapeText(value) {
 }
 
 /**
- * Apply live vs waiting layout.
+ * Apply live vs waiting layout for the response shell chrome.
  * @param {any} payload
  */
 function applyLayout(payload) {
   const live = Boolean(payload.scoring);
   body.classList.toggle("is-live", live);
+  const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
-    waitEl.hidden = live;
-    waitEl.textContent = live ? "" : "Waiting for your teacher to start scoring.";
+    if (hasPrompt) {
+      waitEl.hidden = true;
+      waitEl.textContent = "";
+    } else {
+      waitEl.hidden = false;
+      waitEl.textContent = live
+        ? "Waiting for the next question…"
+        : "Waiting for your teacher to start scoring.";
+    }
+  }
+}
+
+/**
+ * Render placeholder widgets for mc / numeric / share prompts.
+ * @param {any} payload
+ */
+function paintPrompt(payload) {
+  if (!promptShell) return;
+  const prompt = payload.prompt;
+  const answered = Boolean(payload.my_response);
+  if (!prompt || !prompt.kind || prompt.kind === "idle") {
+    promptShell.hidden = true;
+    promptShell.innerHTML = "";
+    lastPromptId = null;
+    if (promptAck) promptAck.hidden = true;
+    return;
+  }
+  if (answered) {
+    promptShell.hidden = true;
+    promptShell.innerHTML = "";
+    if (promptAck) {
+      promptAck.hidden = false;
+      promptAck.textContent = "Response received.";
+    }
+    lastPromptId = Number(prompt.id);
+    return;
+  }
+  if (promptAck) promptAck.hidden = true;
+  const kind = String(prompt.kind);
+  const data = prompt.payload || {};
+  const title = escapeText(data.prompt || data.question || "Live response");
+  let controls = "";
+  if (kind === "mc") {
+    const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];
+    controls = choices
+      .map(
+        (choice, index) =>
+          `<button type="button" class="prompt-choice" data-choice="${escapeText(choice)}">${escapeText(
+            typeof choice === "string" ? choice : `Option ${index + 1}`
+          )}</button>`
+      )
+      .join("");
+  } else if (kind === "numeric") {
+    controls = `
+      <label class="prompt-numeric">
+        <span>Your answer</span>
+        <input type="number" inputmode="decimal" id="prompt-numeric-input" />
+      </label>
+      <button type="button" class="prompt-submit" id="prompt-numeric-submit">Submit</button>
+    `;
+  } else if (kind === "share") {
+    controls = `
+      <label class="prompt-share">
+        <span>Share your work</span>
+        <textarea id="prompt-share-input" rows="3" maxlength="2000" placeholder="Type a short note…"></textarea>
+      </label>
+      <button type="button" class="prompt-submit" id="prompt-share-submit">Share</button>
+    `;
+  } else {
+    controls = `<p class="prompt-idle">Unsupported prompt kind.</p>`;
+  }
+  promptShell.hidden = false;
+  promptShell.innerHTML = `
+    <p class="prompt-kind">${escapeText(kind.toUpperCase())} · slide ${escapeText(prompt.slide_index)}</p>
+    <h2 class="prompt-title">${title}</h2>
+    <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
+  `;
+  lastPromptId = Number(prompt.id);
+  wirePromptControls(prompt);
+}
+
+/**
+ * Bind placeholder submit handlers for the active prompt widgets.
+ * @param {any} prompt
+ */
+function wirePromptControls(prompt) {
+  const root = promptShell && promptShell.querySelector(".prompt-controls");
+  if (!root) return;
+  root.querySelectorAll(".prompt-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      submitResponse(prompt.id, { choice: btn.getAttribute("data-choice") });
+    });
+  });
+  const numSubmit = root.querySelector("#prompt-numeric-submit");
+  if (numSubmit) {
+    numSubmit.addEventListener("click", () => {
+      const input = root.querySelector("#prompt-numeric-input");
+      const raw = input && "value" in input ? String(input.value) : "";
+      submitResponse(prompt.id, { value: raw === "" ? null : Number(raw) });
+    });
+  }
+  const shareSubmit = root.querySelector("#prompt-share-submit");
+  if (shareSubmit) {
+    shareSubmit.addEventListener("click", () => {
+      const input = root.querySelector("#prompt-share-input");
+      const text = input && "value" in input ? String(input.value) : "";
+      submitResponse(prompt.id, { text });
+    });
+  }
+}
+
+/**
+ * POST a student response for the active prompt.
+ * @param {number} promptId
+ * @param {Record<string, unknown>} response
+ */
+async function submitResponse(promptId, response) {
+  try {
+    const res = await fetch("/api/student/live-prompt/response", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ prompt_id: promptId, response }),
+    });
+    const data = await res.json();
+    if (data.redirect) {
+      location.href = data.redirect;
+      return;
+    }
+    if (data.ok && data.ack) {
+      if (promptShell) {
+        promptShell.hidden = true;
+        promptShell.innerHTML = "";
+      }
+      if (promptAck) {
+        promptAck.hidden = false;
+        promptAck.textContent = "Response received.";
+      }
+    }
+  } catch (_err) {
+    /* keep UI; next poll retries */
   }
 }
 
@@ -99,6 +244,12 @@ async function tick() {
     applyLayout(data);
     paintMe(data);
     paintBoard(data);
+    const promptId = data.prompt && data.prompt.id != null ? Number(data.prompt.id) : null;
+    if (promptId !== lastPromptId || (data.my_response && promptShell && !promptShell.hidden)) {
+      paintPrompt(data);
+    } else if (!data.prompt) {
+      paintPrompt(data);
+    }
   } catch (_err) {
     /* keep last paint */
   }

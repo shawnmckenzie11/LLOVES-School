@@ -96,7 +96,10 @@ function paint(data) {
         const marked = data.cells[`${sid}:${iso}`];
         let kind = "unset";
         let text = "";
-        if (marked === true) {
+        if (marked === "L") {
+          kind = "late";
+          text = "L";
+        } else if (marked === true) {
           kind = "present";
           text = "P";
         } else if (marked === false) {

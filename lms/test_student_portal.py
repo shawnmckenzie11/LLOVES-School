@@ -127,6 +127,124 @@ class StudentPortalTests(unittest.TestCase):
         ranked = self.student.get("/api/student/state").get_json()
         self.assertTrue(ranked["show_rank"])
 
+    def test_home_rejects_ended_session(self) -> None:
+        """Ending the live session clears student access on home/state."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"})
+        home_ok = self.student.get("/student/home")
+        self.assertEqual(home_ok.status_code, 200)
+
+        attendees = self.school.list_live_session_attendees(self.live_session_id)
+        token = attendees[0].get("visit_token")
+        self.assertTrue(token)
+
+        self.school.end_live_class_session(self.live_session_id)
+        home_gone = self.student.get("/student/home", follow_redirects=False)
+        self.assertEqual(home_gone.status_code, 302)
+        self.assertIn("/", home_gone.headers.get("Location", ""))
+        self.assertNotIn("/student/home", home_gone.headers.get("Location", ""))
+
+        # Fresh client: visit token no longer resumes an ended session.
+        other = self.app.test_client()
+        visit = other.get(f"/student/s/{token}", follow_redirects=False)
+        self.assertEqual(visit.status_code, 302)
+        self.assertNotIn("/student/", visit.headers.get("Location", ""))
+
+    def test_visit_token_resumes_home(self) -> None:
+        """Opaque /student/s/<token> rebinds cookie and reaches home."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"})
+        attendees = self.school.list_live_session_attendees(self.live_session_id)
+        token = str(attendees[0]["visit_token"])
+
+        fresh = self.app.test_client()
+        visit = fresh.get(f"/student/s/{token}", follow_redirects=False)
+        self.assertEqual(visit.status_code, 302)
+        self.assertIn("/student/home", visit.headers.get("Location", ""))
+        home = fresh.get("/student/home")
+        self.assertEqual(home.status_code, 200)
+        self.assertIn("live-response", home.get_data(as_text=True))
+
+    def test_prompt_stub_round_trip(self) -> None:
+        """Staff sets MC prompt; student polls and submits a response."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"})
+
+        set_prompt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/prompts",
+            json={
+                "slide_index": 2,
+                "kind": "mc",
+                "payload": {"prompt": "Pick one", "choices": ["A", "B"]},
+            },
+        )
+        self.assertEqual(set_prompt.status_code, 200, set_prompt.get_json())
+        prompt = set_prompt.get_json()["prompt"]
+        self.assertEqual(prompt["kind"], "mc")
+        self.assertEqual(prompt["slide_index"], 2)
+
+        state = self.student.get("/api/student/state").get_json()
+        self.assertIsNotNone(state.get("prompt"))
+        self.assertEqual(state["prompt"]["id"], prompt["id"])
+        self.assertIsNone(state.get("my_response"))
+
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": prompt["id"], "response": {"choice": "B"}},
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        self.assertTrue(submit.get_json().get("ack"))
+
+        again = self.student.get("/api/student/live-prompt").get_json()
+        self.assertEqual(again["my_response"]["response"]["choice"], "B")
+
+    def test_pick_preserves_live_session_id(self) -> None:
+        """student_pick rebind keeps the live session + visit token keys."""
+        from student_portal import bind_student_session
+
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        with self.student.session_transaction() as sess:
+            live_id = sess.get("student_live_session_id")
+            token = sess.get("student_visit_token")
+            offering_id = sess.get("student_offering_id")
+            code = sess.get("student_live_code")
+        self.assertEqual(live_id, self.live_session_id)
+        self.assertTrue(token)
+
+        cls = self.school.game.get_class(self.class_id)
+        student = self.school.game.find_student_by_codename(self.class_id, "Maple")
+        assert student is not None
+        offering = self.school.get_offering(int(offering_id))
+        # Rebind the way student_pick does after section choice.
+        with self.student.session_transaction() as sess:
+            bind_student_session(
+                sess,
+                offering,
+                cls,
+                student,
+                live_session_id=int(live_id),
+                session_code=str(code),
+                visit_token=str(token),
+            )
+            self.assertEqual(sess.get("student_live_session_id"), self.live_session_id)
+            self.assertEqual(sess.get("student_visit_token"), token)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

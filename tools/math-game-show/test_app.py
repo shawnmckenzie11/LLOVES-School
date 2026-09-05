@@ -440,8 +440,11 @@ class GamePersistTests(unittest.TestCase):
             self.assertNotIn("members", team)
             self.assertTrue(team["players"])
             for player in team["players"]:
-                self.assertEqual(set(player.keys()), {"first_name"})
+                self.assertIn("first_name", player)
                 self.assertTrue(player["first_name"])
+                self.assertIn("student_id", player)
+                self.assertGreater(int(player["student_id"]), 0)
+                self.assertEqual(set(player.keys()), {"first_name", "student_id"})
         winner = max(final["teams"], key=lambda t: t["score"])
         self.assertIn(member["first_name"], [p["first_name"] for p in winner["players"]])
 
@@ -1535,7 +1538,7 @@ class HttpApiTests(unittest.TestCase):
             self.assertNotIn("members", team)
             self.assertNotIn("points_r1", team)
             for player in team.get("players") or []:
-                self.assertEqual(set(player.keys()), {"first_name"})
+                self.assertEqual(set(player.keys()), {"first_name", "student_id"})
 
     def test_stat_window_post_persists_on_dashboard(self) -> None:
         """POST /stat-window stores the period for this class and paints the dashboard."""

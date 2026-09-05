@@ -10,6 +10,12 @@ MOOD_LABELS = {
     "good": "Good",
     "ok": "Okay",
     "low": "Not great",
+    "tired": "Tired",
+    "energetic": "Energetic",
+    "focused": "Focused",
+    "anxious": "Anxious",
+    "confused": "Confused",
+    "excited": "Excited",
 }
 
 CHARACTER_LABELS = {
@@ -18,6 +24,31 @@ CHARACTER_LABELS = {
     "char_c": "Samira",
     "char_d": "Kenji",
 }
+
+# Flask session keys owned by the student-code join path.
+STUDENT_SESSION_KEYS = (
+    "student_offering_id",
+    "student_live_code",
+    "student_course",
+    "student_class_id",
+    "student_id",
+    "student_codename",
+    "student_live_session_id",
+    "student_visit_token",
+    "student_mood_done",
+)
+
+
+def clear_student_session_keys(session: Any) -> None:
+    """Remove student-code keys without wiping a same-browser staff login.
+
+    Args:
+        session: Flask session mapping.
+    """
+    for key in STUDENT_SESSION_KEYS:
+        session.pop(key, None)
+    if session.get("role") == "student":
+        session.pop("role", None)
 
 
 def bind_student_session(
@@ -28,12 +59,16 @@ def bind_student_session(
     *,
     live_session_id: int | None = None,
     session_code: str | None = None,
+    visit_token: str | None = None,
 ) -> None:
     """Store a roster-bound student-code session.
 
     Preserves an existing staff/IT Google login in the same browser cookie so
     a teacher testing student join in another tab does not lose Mark Attendance
     API auth (Begin Class Tracking).
+
+    Student keys are non-permanent: access is gated on an active live
+    attendee row, and ending the live session clears them on the next request.
 
     Args:
         session: Flask session mapping.
@@ -43,6 +78,7 @@ def bind_student_session(
         live_session_id: Active ``live_class_sessions.id`` when joining live.
         session_code: Ephemeral join code for this meeting (preferred over
             the durable offering code when provided).
+        visit_token: Opaque attendee token for ``/student/s/<token>``.
     """
     preserved: dict[str, Any] = {}
     if session.get("logged_in") and session.get("user_id"):
@@ -72,13 +108,21 @@ def bind_student_session(
     )
     if live_session_id is not None:
         session["student_live_session_id"] = int(live_session_id)
+    token = (visit_token or "").strip()
+    if token:
+        session["student_visit_token"] = token
     if "role" not in preserved:
         session["role"] = "student"
-    session.permanent = True
+    # Live student access must not outlive the browser session as a permanent
+    # cookie; the active-attendee gate clears keys when class ends.
+    session.permanent = False
 
 
 def next_student_endpoint(school: Any, class_id: int, student_id: int) -> str:
-    """Return the Flask endpoint for the next unfinished student step.
+    """Return the Flask endpoint after join / mood / legacy redirects.
+
+    Mood is optional. After pick/skip (``student_mood_done``) or when a mood
+    is already stored, continue to home.
 
     Args:
         school: SchoolDB.
@@ -86,12 +130,17 @@ def next_student_endpoint(school: Any, class_id: int, student_id: int) -> str:
         student_id: Students primary key.
 
     Returns:
-        ``student_mood`` or ``student_home`` (character pick retired).
+        ``student_mood`` or ``student_home``.
     """
+    from flask import session
+
+    if session.get("student_mood_done"):
+        return "student_home"
     student = school.game.get_student(class_id, student_id)
-    if not student.get("mood"):
-        return "student_mood"
-    return "student_home"
+    if student.get("mood"):
+        session["student_mood_done"] = True
+        return "student_home"
+    return "student_mood"
 
 
 def character_choices() -> list[dict[str, str]]:
@@ -100,5 +149,5 @@ def character_choices() -> list[dict[str, str]]:
 
 
 def mood_choices() -> list[dict[str, str]]:
-    """Three mood faces for the check-in screen."""
+    """Mood faces for the optional check-in screen."""
     return [{"key": key, "label": MOOD_LABELS[key]} for key in STUDENT_MOODS]

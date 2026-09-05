@@ -253,15 +253,17 @@ def build_attendance_week_grid(
 ) -> dict[str, Any]:
     """Build the slim M–T–W–T–F attendance grid payload.
 
-    Present mark for a day is true when any non-template session on that date
-    has ``present=1`` for the student. Total = count of present school days.
-    The grid spans semester start through last instructional day and greys
-    holidays / PD.
+    present mark for a day is true when any non-template session on that date
+    has ``present=1`` for the student. Late joiners (``late=1``) surface as the
+    string ``"L"`` instead of ``True``. Total = count of present school days
+    (including late). The grid spans semester start through last instructional
+    day and greys holidays / PD.
 
     Args:
         students: Roster rows with ``id`` and display fields.
         sessions: Class sessions (``id``, ``starts_at``, ``status``).
-        score_rows: ``session_scores`` dicts with session_id, student_id, present.
+        score_rows: ``session_scores`` dicts with session_id, student_id, present,
+            and optional ``late``.
         instructional_days: Optional school-day list; loads semester.json if omitted.
         span_days: Optional Mon–Fri span including closed days.
         closed: Map of non-school dates to a reason label.
@@ -290,7 +292,7 @@ def build_attendance_week_grid(
             continue
         session_dates[int(sess["id"])] = meeting
 
-    present_by_student_day: dict[tuple[int, str], bool] = {}
+    present_by_student_day: dict[tuple[int, str], bool | str] = {}
     for row in score_rows:
         sid = int(row["student_id"])
         sess_id = int(row["session_id"])
@@ -299,11 +301,14 @@ def build_attendance_week_grid(
             continue
         key = (sid, meeting.isoformat())
         if int(row.get("present") or 0) == 1:
-            present_by_student_day[key] = True
+            if int(row.get("late") or 0) == 1:
+                present_by_student_day[key] = "L"
+            elif present_by_student_day.get(key) != "L":
+                present_by_student_day[key] = True
         else:
             present_by_student_day.setdefault(key, False)
 
-    cells: dict[str, bool | None] = {}
+    cells: dict[str, bool | str | None] = {}
     totals: dict[str, int] = {}
     day_meta: list[list[dict[str, Any] | None]] = []
     for week in weeks:
@@ -339,7 +344,7 @@ def build_attendance_week_grid(
                     continue
                 marked = present_by_student_day.get((sid, iso))
                 cells[key] = marked
-                if marked is True:
+                if marked is True or marked == "L":
                     present_count += 1
                     day_totals[iso] = day_totals.get(iso, 0) + 1
         totals[str(sid)] = present_count

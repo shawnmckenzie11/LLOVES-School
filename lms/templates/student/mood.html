@@ -11,19 +11,20 @@
   <div class="student-wrap">
     <p class="kicker">{{ offering.ontario_code if offering else 'Course' }}</p>
     <h1>How are you feeling?</h1>
-    <p class="sub">Pick one face, then join class. Your teacher can see this next to your name.</p>
+    <p class="sub">Optional — pick a face if you like, or skip and join class.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form class="mood-form" method="post" id="mood-form">
-      <div class="mood-row" role="radiogroup" aria-label="How are you feeling?">
+      <div class="mood-row" role="radiogroup" aria-label="How are you feeling? (optional)">
         {% for mood in moods %}
         <label class="mood-btn mood-{{ mood.key }}">
-          <input type="radio" name="mood" value="{{ mood.key }}" required>
-          <span class="mood-face" aria-hidden="true">{% if mood.key == 'good' %}😊{% elif mood.key == 'ok' %}😐{% else %}😞{% endif %}</span>
+          <input type="radio" name="mood" value="{{ mood.key }}">
+          <span class="mood-face" aria-hidden="true">{% if mood.key == 'good' %}😊{% elif mood.key == 'ok' %}😐{% elif mood.key == 'low' %}😞{% elif mood.key == 'tired' %}😴{% elif mood.key == 'energetic' %}⚡{% elif mood.key == 'focused' %}🎯{% elif mood.key == 'anxious' %}😰{% elif mood.key == 'confused' %}😕{% elif mood.key == 'excited' %}🤩{% else %}🙂{% endif %}</span>
           <span class="mood-label">{{ mood.label }}</span>
         </label>
         {% endfor %}
       </div>
       <div class="row-actions mood-join">
+        <button type="submit" name="skip" value="1" class="secondary">Skip</button>
         <button type="submit">Join Class</button>
       </div>
     </form>

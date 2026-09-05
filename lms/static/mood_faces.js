@@ -17,10 +17,19 @@ export function nameWithMood(name, mood) {
  * @returns {string}
  */
 export function moodGlyph(mood) {
-  if (mood === "good") return "😊";
-  if (mood === "ok") return "😐";
-  if (mood === "low") return "😞";
-  return "";
+  const key = String(mood || "").trim();
+  const map = {
+    good: "😊",
+    ok: "😐",
+    low: "😞",
+    tired: "😴",
+    energetic: "⚡",
+    focused: "🎯",
+    anxious: "😰",
+    confused: "😕",
+    excited: "🤩",
+  };
+  return map[key] || "";
 }
 
 /**
@@ -28,10 +37,19 @@ export function moodGlyph(mood) {
  * @returns {string}
  */
 export function moodLabel(mood) {
-  if (mood === "good") return "Good";
-  if (mood === "ok") return "Okay";
-  if (mood === "low") return "Not great";
-  return "";
+  const key = String(mood || "").trim();
+  const map = {
+    good: "Good",
+    ok: "Okay",
+    low: "Not great",
+    tired: "Tired",
+    energetic: "Energetic",
+    focused: "Focused",
+    anxious: "Anxious",
+    confused: "Confused",
+    excited: "Excited",
+  };
+  return map[key] || "";
 }
 
 /**

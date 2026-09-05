@@ -7,14 +7,20 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
 </head>
-<body class="student-portal student-home{% if payload.scoring %} is-live{% endif %}" data-scoring="{{ '1' if payload.scoring else '0' }}">
-  <section class="student-tools" aria-label="Class tools">
+<body class="student-portal student-home{% if payload.scoring %} is-live{% endif %}"
+      data-scoring="{{ '1' if payload.scoring else '0' }}"
+      data-visit-token="{{ visit_token or '' }}">
+  <header class="student-chrome student-chrome-top" aria-label="Your stats">
+    <div id="me-board" class="student-me"></div>
+  </header>
+  <main class="student-live-response" id="live-response" aria-live="polite">
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting for your teacher to start scoring.{% endif %}</p>
-  </section>
-  <section class="student-boards">
-    <div id="me-board" class="student-me" aria-label="Your stats"></div>
-    <div id="class-board" class="student-scoreboard" aria-label="Class scoreboard"></div>
-  </section>
+    <div id="prompt-shell" class="prompt-shell" hidden></div>
+    <p id="prompt-ack" class="prompt-ack" hidden>Response received.</p>
+  </main>
+  <footer class="student-chrome student-chrome-bottom" aria-label="Class scoreboard">
+    <div id="class-board" class="student-scoreboard"></div>
+  </footer>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>
 </body>

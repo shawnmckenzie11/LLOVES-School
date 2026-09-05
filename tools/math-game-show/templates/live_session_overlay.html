@@ -11,15 +11,22 @@
     <header class="live-overlay-header">
       <p class="live-overlay-kicker">Class code</p>
       <p class="live-overlay-code" id="live-code">····</p>
+      <div class="live-overlay-code-actions no-drag">
+        <button type="button" class="live-overlay-copy" id="live-copy-code">Copy Code</button>
+        <span class="live-overlay-copy-feedback" id="live-copy-feedback" hidden>Copied</span>
+      </div>
+      <p class="live-overlay-round hidden" id="live-round" hidden></p>
       <p class="live-overlay-count" id="live-count">0 logged in</p>
     </header>
     <section class="live-overlay-roster" aria-label="Logged-in students">
       <h2 class="live-overlay-section-title">In class</h2>
-      <ul class="live-overlay-list" id="live-roster"></ul>
+      <div class="live-overlay-roster-body" id="live-roster-body">
+        <ul class="live-overlay-list" id="live-roster"></ul>
+      </div>
       <p class="live-overlay-empty" id="live-empty">Waiting for students…</p>
     </section>
     <section class="live-overlay-teams hidden" id="live-teams" aria-label="Team scores" hidden>
-      <h2 class="live-overlay-section-title">Teams</h2>
+      <h2 class="live-overlay-section-title">Scores</h2>
       <div class="live-overlay-team-board" id="live-team-board"></div>
     </section>
     <p class="live-overlay-ended hidden" id="live-ended" hidden>Session ended</p>

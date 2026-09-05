@@ -25,7 +25,11 @@ from flask import (
 import email_service
 from school_db import SchoolDB
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT
-from student_portal import bind_student_session, next_student_endpoint
+from student_portal import (
+    bind_student_session,
+    clear_student_session_keys,
+    next_student_endpoint,
+)
 
 
 def google_client_id() -> str:
@@ -647,11 +651,7 @@ def register_auth_routes(app: Flask) -> None:
         from flask import Response
 
         _disconnect_student_live_if_bound()
-        for key in list(session.keys()):
-            if key.startswith("student_") or key == "role" and session.get("role") == "student":
-                session.pop(key, None)
-        if session.get("role") == "student":
-            session.pop("role", None)
+        clear_student_session_keys(session)
         return Response(status=204)
 
     @app.route("/auth/student-code", methods=["POST"])
@@ -730,12 +730,13 @@ def register_auth_routes(app: Flask) -> None:
         if offering is None:
             return _fail(mismatch_msg)
 
-        db.join_live_class_session(
+        join_result = db.join_live_class_session(
             int(live_session["id"]),
             int(student["id"]),
             codename=str(student.get("codename") or name),
         )
         db.clear_recent_code_attempts(ip)
+        attendee = join_result.get("attendee") or {}
         bind_student_session(
             session,
             offering,
@@ -743,6 +744,7 @@ def register_auth_routes(app: Flask) -> None:
             student,
             live_session_id=int(live_session["id"]),
             session_code=str(live_session.get("session_code") or code),
+            visit_token=str(attendee.get("visit_token") or ""),
         )
         return redirect(
             url_for(

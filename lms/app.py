@@ -119,6 +119,7 @@ from paths import (  # noqa: E402
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
+    clear_student_session_keys,
     mood_choices,
     next_student_endpoint,
 )
@@ -1628,9 +1629,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             url_for(
                 "staff_course",
                 class_id=class_id,
-                tab="ap",
-                view="attendance",
-                take=1,
+                tab="live",
                 live_session_id=live_session["id"],
             )
         )
@@ -1678,6 +1677,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if offering:
             expectations = school.list_expectations(str(offering["ontario_code"]))
         tab = (request.args.get("tab") or "modules").strip().lower()
+        if tab in {"track-live", "track_live"}:
+            tab = "live"
         # Old tracker lived at ?tab=grades; send those bookmarks to A&P.
         if tab == "grades":
             return redirect(
@@ -1716,12 +1717,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "question-banks",
             "syllabus",
             "ap",
+            "live",
             "gradebook",
             "expectations",
         }:
             tab = "modules"
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
+        live_step = (request.args.get("step") or "").strip().lower()
+        if live_step not in {"", "att", "gamify", "teams", "names", "rounds", "score", "live"}:
+            live_step = ""
+        active_live = school.get_active_live_session_for_class(class_id)
+        live_session_id = request.args.get("live_session_id") or ""
+        if not live_session_id and active_live is not None:
+            live_session_id = str(active_live["id"])
         return render_template(
             "staff/course.html",
             user=user,
@@ -1733,7 +1742,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ap_view=ap_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
-            live_session_id=request.args.get("live_session_id") or "",
+            live_session_id=live_session_id,
+            live_step=live_step,
             school_name=SCHOOL_NAME,
             show_module_pack_upload=False,
             pack_error=pack_error,
@@ -2128,14 +2138,89 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         offering = school.get_offering(int(offering_id))
         return offering, int(class_id), int(student_id)
 
+    def _require_active_live_attendee(
+        *,
+        as_json: bool = False,
+    ):
+        """Gate student home/mood/state on an active live attendee.
+
+        Requires ``student_live_session_id``, session ``status='active'``, and
+        attendee ``left_at IS NULL``. On failure, clears student keys.
+
+        Args:
+            as_json: When True, return a JSON landing redirect instead of HTML.
+
+        Returns:
+            ``None`` when access is allowed; otherwise a Flask response.
+        """
+        live_session_id = session.get("student_live_session_id")
+        student_id = session.get("student_id")
+        if (
+            live_session_id
+            and student_id
+            and school.student_is_active_live_attendee(
+                int(live_session_id), int(student_id)
+            )
+        ):
+            return None
+        clear_student_session_keys(session)
+        if as_json:
+            return jsonify(
+                {
+                    "ok": True,
+                    "status": "ended",
+                    "redirect": url_for("landing"),
+                }
+            )
+        return redirect(url_for("landing"))
+
     def _student_advance():
         """Redirect to pick, landing, or the next unfinished student step."""
         ident = _student_identity()
         if ident is None:
             if session.get("student_offering_id") and session.get("student_codename"):
                 return redirect(url_for("student_pick"))
+            clear_student_session_keys(session)
             return redirect(url_for("landing"))
+        denied = _require_active_live_attendee()
+        if denied is not None:
+            return denied
         _offering, class_id, student_id = ident
+        return redirect(
+            url_for(next_student_endpoint(school, class_id, student_id))
+        )
+
+    @app.route("/student/s/<token>")
+    def student_visit_token(token: str):
+        """Bookmarkable join resume: resolve opaque token, then cookie home.
+
+        Does not put ``student_id`` in the URL; the cookie remains the source
+        of truth after this redirect.
+        """
+        resolved = school.resolve_student_visit_token(token)
+        if resolved is None:
+            clear_student_session_keys(session)
+            return redirect(url_for("landing"))
+        session_row = resolved["session"]
+        attendee = resolved["attendee"]
+        class_id = int(resolved["class_id"])
+        student_id = int(resolved["student_id"])
+        try:
+            cls = school.game.get_class(class_id)
+            student = school.game.get_student(class_id, student_id)
+            offering = school.get_offering(int(session_row["offering_id"]))
+        except (KeyError, TypeError):
+            clear_student_session_keys(session)
+            return redirect(url_for("landing"))
+        bind_student_session(
+            session,
+            offering,
+            cls,
+            student,
+            live_session_id=int(resolved["live_session_id"]),
+            session_code=str(session_row.get("session_code") or ""),
+            visit_token=str(attendee.get("visit_token") or token),
+        )
         return redirect(
             url_for(next_student_endpoint(school, class_id, student_id))
         )
@@ -2155,27 +2240,32 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/mood", methods=["GET", "POST"])
     @student_required
     def student_mood():
-        """Mood check-in; Join Class completes the live join (no character pick)."""
+        """Optional mood check-in; Join Class / Skip continue without requiring a face."""
+        denied = _require_active_live_attendee()
+        if denied is not None:
+            return denied
         ident = _student_identity()
         if ident is None:
             return _student_advance()
         offering, class_id, student_id = ident
         if request.method == "POST":
             mood = (request.form.get("mood") or "").strip()
-            try:
-                school.game.set_mood(class_id, student_id, mood)
-            except ValueError as exc:
-                return render_template(
-                    "student/mood.html",
-                    offering=offering,
-                    moods=mood_choices(),
-                    error=str(exc),
-                    school_name=SCHOOL_NAME,
-                )
-            return _student_advance()
-        student = school.game.get_student(class_id, student_id)
-        if student.get("mood"):
-            return _student_advance()
+            skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
+            if mood and not skip:
+                try:
+                    school.game.set_mood(class_id, student_id, mood)
+                except ValueError as exc:
+                    return render_template(
+                        "student/mood.html",
+                        offering=offering,
+                        moods=mood_choices(),
+                        error=str(exc),
+                        school_name=SCHOOL_NAME,
+                    )
+            session["student_mood_done"] = True
+            return redirect(url_for("student_home"))
+        if session.get("student_mood_done"):
+            return redirect(url_for("student_home"))
         return render_template(
             "student/mood.html",
             offering=offering,
@@ -2194,6 +2284,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @student_required
     def student_home():
         """Student live-class boards after mood check-in."""
+        denied = _require_active_live_attendee()
+        if denied is not None:
+            return denied
         ident = _student_identity()
         if ident is None:
             return _student_advance()
@@ -2201,11 +2294,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if next_student_endpoint(school, class_id, student_id) != "student_home":
             return _student_advance()
         payload = school.game.student_live_payload(class_id, student_id)
+        live_session_id = int(session["student_live_session_id"])
+        prompt_frag = school.student_live_prompt_payload(
+            live_session_id, student_id
+        )
+        payload.update(prompt_frag)
         return render_template(
             "student/home.html",
             offering=offering,
             payload=payload,
             school_name=SCHOOL_NAME,
+            visit_token=session.get("student_visit_token") or "",
         )
 
     @app.route("/student/pick", methods=["GET", "POST"])
@@ -2214,6 +2313,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Disambiguate overlapping sections that share the same Codename."""
         code = session.get("student_live_code") or ""
         name = session.get("student_codename") or ""
+        preserved_live_id = session.get("student_live_session_id")
+        preserved_token = session.get("student_visit_token")
         matches = school.find_roster_matches(code, name)
         error = None
         if request.method == "POST":
@@ -2225,7 +2326,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if chosen:
                 offering = school.get_offering(int(session["student_offering_id"]))
                 bind_student_session(
-                    session, offering, chosen["class"], chosen["student"]
+                    session,
+                    offering,
+                    chosen["class"],
+                    chosen["student"],
+                    live_session_id=(
+                        int(preserved_live_id) if preserved_live_id else None
+                    ),
+                    session_code=code,
+                    visit_token=str(preserved_token or ""),
                 )
                 return _student_advance()
             error = "That section is not available."
@@ -2240,6 +2349,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @student_required
     def student_state():
         """Live-class payload for the bound student (or a pick redirect)."""
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
         ident = _student_identity()
         if ident is None:
             if session.get("student_codename"):
@@ -2250,8 +2362,79 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 {"ok": True, "status": "waiting", "redirect": url_for("landing")}
             )
         _offering, class_id, student_id = ident
-        return jsonify(school.game.student_live_payload(class_id, student_id))
+        payload = school.game.student_live_payload(class_id, student_id)
+        live_session_id = int(session["student_live_session_id"])
+        payload.update(
+            school.student_live_prompt_payload(live_session_id, student_id)
+        )
+        return jsonify(payload)
 
+    @app.route("/api/student/live-prompt")
+    @student_required
+    def api_student_live_prompt():
+        """Active slide prompt for the bound student (poll companion)."""
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        if ident is None:
+            return jsonify(
+                {"ok": False, "error": "Not joined.", "redirect": url_for("landing")}
+            ), 401
+        _offering, _class_id, student_id = ident
+        live_session_id = int(session["student_live_session_id"])
+        frag = school.student_live_prompt_payload(live_session_id, student_id)
+        return jsonify({"ok": True, **frag})
+
+    @app.route("/api/student/live-prompt/response", methods=["POST"])
+    @student_required
+    def api_student_live_prompt_response():
+        """Submit a placeholder response for the active live prompt."""
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        if ident is None:
+            return jsonify(
+                {"ok": False, "error": "Not joined.", "redirect": url_for("landing")}
+            ), 401
+        _offering, class_id, student_id = ident
+        live_session_id = int(session["student_live_session_id"])
+        active = school.get_active_live_prompt(live_session_id)
+        if active is None or active.get("kind") == "idle":
+            return jsonify({"ok": False, "error": "No active prompt."}), 409
+        body = request.get_json(silent=True) or {}
+        response = body.get("response")
+        if not isinstance(response, dict):
+            response = {k: body[k] for k in body if k != "prompt_id"}
+        prompt_id = int(body.get("prompt_id") or active["id"])
+        if prompt_id != int(active["id"]):
+            return jsonify({"ok": False, "error": "Prompt is no longer active."}), 409
+        try:
+            saved = school.submit_live_prompt_response(
+                prompt_id, student_id, response
+            )
+        except KeyError as exc:
+            return _json_error(exc)
+        # Gradebook auto-insert stays stubbed for the slides-plugin branch.
+        school.apply_prompt_score_to_participation(
+            class_id,
+            student_id,
+            0.0,
+            prompt_id=prompt_id,
+            label=str(active.get("kind") or "prompt"),
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "ack": True,
+                "my_response": {
+                    "response": saved.get("response") or {},
+                    "awarded_points": saved.get("awarded_points"),
+                    "updated_at": saved.get("updated_at"),
+                },
+            }
+        )
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
@@ -2309,6 +2492,73 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         return jsonify({"ok": True, **state})
+
+    @app.route("/api/live-sessions/<int:session_id>/prompts/active")
+    @login_required
+    def api_live_session_prompt_active(session_id: int):
+        """Staff: read the active slide-index prompt for a live session."""
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        prompt = school.get_active_live_prompt(session_id)
+        return jsonify({"ok": True, "prompt": prompt})
+
+    @app.route("/api/live-sessions/<int:session_id>/prompts", methods=["POST"])
+    @login_required
+    def api_live_session_prompt_set(session_id: int):
+        """Staff driver stub: set/activate a slide-index prompt (mc/numeric/share).
+
+        Body JSON: ``slide_index``, ``kind``, optional ``payload``, optional
+        ``active`` (default true). ``kind=idle`` or ``active=false`` clears the
+        student Live response shell.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        kind = str(body.get("kind") or "idle").strip().lower()
+        activate = body.get("active", True)
+        if isinstance(activate, str):
+            activate = activate.strip().lower() in {"1", "true", "yes"}
+        try:
+            slide_index = int(body.get("slide_index", 0))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "slide_index must be an int"}), 400
+        payload = body.get("payload")
+        if payload is not None and not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "payload must be an object"}), 400
+        if kind == "idle" or activate is False:
+            school.clear_active_live_prompt(session_id)
+            if kind == "idle":
+                try:
+                    prompt = school.set_live_session_prompt(
+                        session_id,
+                        slide_index=slide_index,
+                        kind="idle",
+                        payload=payload or {},
+                        activate=False,
+                    )
+                except (KeyError, ValueError) as exc:
+                    return _json_error(exc)
+                return jsonify({"ok": True, "prompt": prompt, "active": None})
+            return jsonify(
+                {"ok": True, "prompt": None, "active": school.get_active_live_prompt(session_id)}
+            )
+        try:
+            prompt = school.set_live_session_prompt(
+                session_id,
+                slide_index=slide_index,
+                kind=kind,
+                payload=payload,
+                activate=True,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "prompt": prompt})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""
@@ -2757,6 +3007,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 target_id=int(body.get("id") or 0),
                 amount=int(body.get("amount") or 0),
                 team_rule=(str(body["team_rule"]) if body.get("team_rule") else None),
+                label=(str(body["label"]) if body.get("label") else None),
             )
 
         return _staff_post(class_id, run)

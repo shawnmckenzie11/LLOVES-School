@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
 from datetime import date, datetime
@@ -142,11 +143,45 @@ CREATE TABLE IF NOT EXISTS live_session_attendees (
     codename TEXT NOT NULL DEFAULT '',
     joined_at TEXT NOT NULL,
     left_at TEXT,
+    visit_token TEXT UNIQUE,
     UNIQUE(live_session_id, student_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
     ON live_session_attendees(live_session_id);
+
+CREATE TABLE IF NOT EXISTS live_session_prompts (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL
+        REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+    slide_index INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'idle',
+    payload TEXT NOT NULL DEFAULT '{}',
+    active INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_session_prompts_session
+    ON live_session_prompts(live_session_id, active);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_prompts_slide
+    ON live_session_prompts(live_session_id, slide_index);
+
+CREATE TABLE IF NOT EXISTS live_session_responses (
+    id INTEGER PRIMARY KEY,
+    prompt_id INTEGER NOT NULL
+        REFERENCES live_session_prompts(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL,
+    response_json TEXT NOT NULL DEFAULT '{}',
+    awarded_points REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(prompt_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
+    ON live_session_responses(prompt_id);
 """
 
 
@@ -576,11 +611,12 @@ class LovesDB:
             )
 
     def _ensure_live_session_schema(self) -> None:
-        """Create live-class session + attendee tables on existing DBs.
+        """Create live-class session + attendee + prompt tables on existing DBs.
 
         ``CREATE TABLE IF NOT EXISTS`` in ``SCHEMA`` covers new files; this
         helper re-runs the same DDL so older Fly sqlite volumes pick up the
-        session tracking tables without a recreate.
+        session tracking tables without a recreate. Also adds ``visit_token``
+        on attendees when missing.
         """
         self.conn.executescript(
             """
@@ -608,12 +644,60 @@ class LovesDB:
                 codename TEXT NOT NULL DEFAULT '',
                 joined_at TEXT NOT NULL,
                 left_at TEXT,
+                visit_token TEXT UNIQUE,
                 UNIQUE(live_session_id, student_id)
             );
             CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
                 ON live_session_attendees(live_session_id);
+            CREATE TABLE IF NOT EXISTS live_session_prompts (
+                id INTEGER PRIMARY KEY,
+                live_session_id INTEGER NOT NULL
+                    REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+                slide_index INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'idle',
+                payload TEXT NOT NULL DEFAULT '{}',
+                active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_session_prompts_session
+                ON live_session_prompts(live_session_id, active);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_prompts_slide
+                ON live_session_prompts(live_session_id, slide_index);
+            CREATE TABLE IF NOT EXISTS live_session_responses (
+                id INTEGER PRIMARY KEY,
+                prompt_id INTEGER NOT NULL
+                    REFERENCES live_session_prompts(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL,
+                response_json TEXT NOT NULL DEFAULT '{}',
+                awarded_points REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(prompt_id, student_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
+                ON live_session_responses(prompt_id);
             """
         )
+        attendee_cols = {
+            str(row[1])
+            for row in self.conn.execute(
+                "PRAGMA table_info(live_session_attendees)"
+            ).fetchall()
+        }
+        if "visit_token" not in attendee_cols:
+            self.conn.execute(
+                "ALTER TABLE live_session_attendees ADD COLUMN visit_token TEXT"
+            )
+            self.conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_live_session_attendees_visit_token
+                ON live_session_attendees(visit_token)
+                WHERE visit_token IS NOT NULL
+                """
+            )
+            self.conn.commit()
 
     def _seed(self) -> None:
         """Insert IT user, curriculum catalog, MCF3M expectations, default semester."""
@@ -2621,6 +2705,9 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Upsert a student into the live session roster (join / rejoin).
 
+        Mints a fresh opaque ``visit_token`` on every join so bookmarkable
+        ``/student/s/<token>`` URLs stay tied to this visit.
+
         Args:
             session_id: ``live_class_sessions.id``.
             student_id: Game-show ``students.id``.
@@ -2639,18 +2726,21 @@ class SchoolDB(LovesDB):
             raise KeyError(f"live session {session_id} is not active")
         name = (codename or "").strip()
         now = _now()
+        visit_token = secrets.token_urlsafe(24)
         with self._lock:
             self.conn.execute(
                 """
                 INSERT INTO live_session_attendees (
-                    live_session_id, student_id, codename, joined_at, left_at
-                ) VALUES (?, ?, ?, ?, NULL)
+                    live_session_id, student_id, codename, joined_at, left_at,
+                    visit_token
+                ) VALUES (?, ?, ?, ?, NULL, ?)
                 ON CONFLICT(live_session_id, student_id) DO UPDATE SET
                     codename = excluded.codename,
                     joined_at = excluded.joined_at,
-                    left_at = NULL
+                    left_at = NULL,
+                    visit_token = excluded.visit_token
                 """,
-                (int(session_id), int(student_id), name, now),
+                (int(session_id), int(student_id), name, now, visit_token),
             )
             self.conn.commit()
             row = self.conn.execute(
@@ -2661,6 +2751,347 @@ class SchoolDB(LovesDB):
                 (int(session_id), int(student_id)),
             ).fetchone()
         return dict(row) if row else {}
+
+    def get_live_session_attendee(
+        self, session_id: int, student_id: int
+    ) -> dict[str, Any] | None:
+        """Return one attendee row, or ``None`` if not joined.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (int(session_id), int(student_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def student_is_active_live_attendee(
+        self, session_id: int, student_id: int
+    ) -> bool:
+        """True when the live session is active and the attendee has not left.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None or session_row.get("status") != "active":
+            return False
+        attendee = self.get_live_session_attendee(session_id, student_id)
+        if attendee is None or attendee.get("left_at"):
+            return False
+        return True
+
+    def resolve_student_visit_token(self, token: str) -> dict[str, Any] | None:
+        """Resolve an opaque visit token to session + attendee context.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+
+        Returns:
+            Dict with ``attendee``, ``session``, ``class_id``, ``student_id``
+            when the token is valid and the session is still active with the
+            attendee present; otherwise ``None``.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+        if row is None:
+            return None
+        attendee = dict(row)
+        if attendee.get("left_at"):
+            return None
+        session_row = self.get_live_session(int(attendee["live_session_id"]))
+        if session_row is None or session_row.get("status") != "active":
+            return None
+        return {
+            "attendee": attendee,
+            "session": session_row,
+            "class_id": int(session_row["class_id"]),
+            "student_id": int(attendee["student_id"]),
+            "live_session_id": int(attendee["live_session_id"]),
+        }
+
+    def _prompt_row_to_dict(self, row: Any) -> dict[str, Any]:
+        """Normalize a ``live_session_prompts`` sqlite row for JSON APIs.
+
+        Args:
+            row: sqlite3.Row or mapping.
+        """
+        payload = dict(row)
+        raw = payload.get("payload") or "{}"
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except json.JSONDecodeError:
+            parsed = {}
+        if not isinstance(parsed, dict):
+            parsed = {}
+        payload["payload"] = parsed
+        payload["active"] = bool(payload.get("active"))
+        payload["slide_index"] = int(payload.get("slide_index") or 0)
+        return payload
+
+    def get_active_live_prompt(
+        self, session_id: int
+    ) -> dict[str, Any] | None:
+        """Return the active slide prompt for a live session, if any.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_prompts
+                WHERE live_session_id = ? AND active = 1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (int(session_id),),
+            ).fetchone()
+        return self._prompt_row_to_dict(row) if row else None
+
+    def set_live_session_prompt(
+        self,
+        session_id: int,
+        *,
+        slide_index: int,
+        kind: str = "idle",
+        payload: dict[str, Any] | None = None,
+        activate: bool = True,
+    ) -> dict[str, Any]:
+        """Upsert a slide-index prompt and optionally make it the active one.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            slide_index: Zero-based slide index from the future slides plugin.
+            kind: ``mc``, ``numeric``, ``share``, or ``idle``.
+            payload: Kind-specific JSON (choices, prompt text, etc.).
+            activate: When True, deactivate other prompts for this session.
+
+        Returns:
+            The upserted prompt row.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: If ``kind`` is unsupported.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        kind_norm = (kind or "idle").strip().lower()
+        if kind_norm not in {"mc", "numeric", "share", "idle"}:
+            raise ValueError(f"unsupported prompt kind: {kind}")
+        body = json.dumps(payload or {})
+        now = _now()
+        with self._lock:
+            if activate:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_prompts
+                    SET active = 0, updated_at = ?
+                    WHERE live_session_id = ? AND active = 1
+                    """,
+                    (now, int(session_id)),
+                )
+            self.conn.execute(
+                """
+                INSERT INTO live_session_prompts (
+                    live_session_id, slide_index, kind, payload, active,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(live_session_id, slide_index) DO UPDATE SET
+                    kind = excluded.kind,
+                    payload = excluded.payload,
+                    active = excluded.active,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(session_id),
+                    int(slide_index),
+                    kind_norm,
+                    body,
+                    1 if activate else 0,
+                    now,
+                    now,
+                ),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_prompts
+                WHERE live_session_id = ? AND slide_index = ?
+                """,
+                (int(session_id), int(slide_index)),
+            ).fetchone()
+        return self._prompt_row_to_dict(row) if row else {}
+
+    def clear_active_live_prompt(self, session_id: int) -> None:
+        """Deactivate every prompt for a live session (idle shell).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_prompts
+                SET active = 0, updated_at = ?
+                WHERE live_session_id = ? AND active = 1
+                """,
+                (now, int(session_id)),
+            )
+            self.conn.commit()
+
+    def get_live_prompt_response(
+        self, prompt_id: int, student_id: int
+    ) -> dict[str, Any] | None:
+        """Return one student's response to a prompt, if any.
+
+        Args:
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Game-show ``students.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_responses
+                WHERE prompt_id = ? AND student_id = ?
+                """,
+                (int(prompt_id), int(student_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = dict(row)
+        raw = payload.get("response_json") or "{}"
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except json.JSONDecodeError:
+            parsed = {}
+        payload["response"] = parsed if isinstance(parsed, dict) else {}
+        return payload
+
+    def submit_live_prompt_response(
+        self,
+        prompt_id: int,
+        student_id: int,
+        response: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Upsert a student response for an active-style prompt.
+
+        Does not award points yet — callers may later invoke
+        ``apply_prompt_score_to_participation``.
+
+        Args:
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Game-show ``students.id``.
+            response: Student answer JSON (choice, number, share text, …).
+
+        Returns:
+            The response row (with parsed ``response``).
+
+        Raises:
+            KeyError: If the prompt does not exist.
+        """
+        with self._lock:
+            prompt = self.conn.execute(
+                "SELECT id FROM live_session_prompts WHERE id = ?",
+                (int(prompt_id),),
+            ).fetchone()
+        if prompt is None:
+            raise KeyError(f"prompt {prompt_id}")
+        now = _now()
+        body = json.dumps(response or {})
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO live_session_responses (
+                    prompt_id, student_id, response_json, awarded_points,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, NULL, ?, ?)
+                ON CONFLICT(prompt_id, student_id) DO UPDATE SET
+                    response_json = excluded.response_json,
+                    updated_at = excluded.updated_at
+                """,
+                (int(prompt_id), int(student_id), body, now, now),
+            )
+            self.conn.commit()
+        result = self.get_live_prompt_response(prompt_id, student_id)
+        return result or {}
+
+    def apply_prompt_score_to_participation(
+        self,
+        class_id: int,
+        student_id: int,
+        points: float,
+        *,
+        prompt_id: int | None = None,
+        label: str | None = None,
+    ) -> None:
+        """Stub: future slides plugin writes prompt scores into participation.
+
+        Intentionally a no-op in this pass so gradebook auto-insert stays
+        behind a clear hook for the Google Slides plugin branch.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_id: Game-show ``students.id``.
+            points: Points to award once grading is wired.
+            prompt_id: Optional ``live_session_prompts.id`` for audit.
+            label: Optional human label for the gradebook event.
+        """
+        # TODO(slides-plugin): insert into participation / session score path.
+        _ = (class_id, student_id, points, prompt_id, label)
+        return None
+
+    def student_live_prompt_payload(
+        self, session_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Build the student-facing active prompt + prior response fragment.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+
+        Returns:
+            Dict with ``prompt`` (or ``None``) and optional ``my_response``.
+        """
+        prompt = self.get_active_live_prompt(session_id)
+        if prompt is None or prompt.get("kind") == "idle":
+            return {"prompt": None, "my_response": None}
+        prior = self.get_live_prompt_response(int(prompt["id"]), student_id)
+        my_response = None
+        if prior is not None:
+            my_response = {
+                "response": prior.get("response") or {},
+                "awarded_points": prior.get("awarded_points"),
+                "updated_at": prior.get("updated_at"),
+            }
+        return {
+            "prompt": {
+                "id": int(prompt["id"]),
+                "slide_index": int(prompt["slide_index"]),
+                "kind": str(prompt["kind"]),
+                "payload": prompt.get("payload") or {},
+            },
+            "my_response": my_response,
+        }
 
     def mark_live_session_attendee_left(
         self, session_id: int, student_id: int

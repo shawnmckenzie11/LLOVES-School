@@ -1,6 +1,5 @@
 /**
- * Attendance & Participation overlays: mark attendance, date validation,
- * individual vs team participation scoring.
+ * Track Live Class accordion: join-only attendance, teams, dense scoring.
  */
 import {
   api,
@@ -18,7 +17,7 @@ import {
   sortStudents,
 } from "/static/common.js";
 import { bindSchoolDayPicker, defaultSchoolDay, pickerValue, syncOverlayPickers } from "/static/ap_calendar.js";
-import { nameWithMood } from "/static/mood_faces.js";
+import { moodGlyph, nameWithMood } from "/static/mood_faces.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -33,6 +32,16 @@ const TEAM_RULES = [
   { id: "team_only", label: "Small Team Bonus" },
 ];
 
+/** Open Question action chips → point deltas (staff scoring UX). */
+const OPEN_QUESTION_ACTIONS = [
+  { id: "asks_hwk", label: "Asks Q re: Hwk", amount: 2 },
+  { id: "asks_followup", label: "Asks follow-up Q", amount: 1 },
+  { id: "asks_prior_group", label: "Asks Q re: Prior Live Class Group Problem", amount: 3 },
+  { id: "asks_formative", label: "Asks Q about Teacher’s Formative Question Feedback", amount: 2 },
+  { id: "answers_peer", label: "Answers another student’s Q", amount: 2 },
+  { id: "asks_first", label: "Asks Q for first time", amount: 1 },
+];
+
 let overlayState = null;
 let pendingAction = null;
 let logContext = null;
@@ -40,11 +49,15 @@ let lastAssignMode = null;
 let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
-let overlayPopout = false;
 let pendingScoreboard = false;
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let sessionPollTimer = null;
 let sessionPresentIds = new Set();
+/** @type {Set<number>} */
+let sessionLateIds = new Set();
+let scoringLocked = false;
+let trackMode = null;
+let currentStep = "att";
 let draftRounds = [
   { kind: "open", minutes: 20 },
   { kind: "challenge", minutes: 10 },
@@ -67,46 +80,101 @@ function notifyAttendanceRefresh() {
 }
 
 /**
- * Open the overlay as modal or pop-out (non-modal, resizable).
+ * Whether the game is in live scoring (locks prior accordion steps).
+ * @returns {boolean}
  */
-function openOverlayDialog() {
-  const dialog = $("ap-overlay");
-  if (!dialog || dialog.open) return;
-  if (overlayPopout && typeof dialog.show === "function") dialog.show();
-  else if (typeof dialog.showModal === "function") dialog.showModal();
+function isScoringLive() {
+  return scoringLocked || overlayState?.game?.status === "live";
 }
 
 /**
- * Show one overlay panel and open the dialog.
+ * Expand one accordion step; collapse others; apply lock chrome.
  * @param {string} name
  */
 function showPanel(name) {
-  const dialog = $("ap-overlay");
-  if (!dialog) return;
-  document.querySelectorAll(".ap-panel").forEach((el) => {
-    el.classList.toggle("hidden", el.id !== `ap-panel-${name}`);
-  });
-  dialog.classList.toggle("ap-overlay-wide", name === "live");
+  currentStep = name === "live" ? "score" : name;
+  const locked = isScoringLive();
+  scoringLocked = locked;
   hideError("#ap-overlay-error");
+
+  document.querySelectorAll(".track-step.ap-panel").forEach((el) => {
+    const step = el.dataset.step || "";
+    const isScore = step === "score";
+    const isCurrent = step === currentStep || (currentStep === "score" && isScore);
+    const isSetup = !isScore && step !== "validate";
+    el.classList.toggle("hidden", step === "validate" && currentStep !== "validate");
+    el.classList.toggle("is-current", isCurrent);
+    el.classList.toggle("is-collapsed", !isCurrent);
+    el.classList.toggle("is-locked", locked && isSetup);
+    const body = el.querySelector(".track-step-body");
+    const summary = el.querySelector(".track-step-summary");
+    if (body) body.hidden = !isCurrent;
+    if (summary) summary.setAttribute("aria-expanded", isCurrent ? "true" : "false");
+    const lockEl = el.querySelector(".track-step-lock");
+    if (lockEl) lockEl.hidden = !(locked && isSetup);
+  });
+
   if (name === "gamify") {
     for (const id of ["ap-gamify-no", "ap-gamify-yes"]) {
       const btn = $(id);
       if (!(btn instanceof HTMLElement)) continue;
-      btn.classList.remove("is-selected");
-      btn.setAttribute("aria-pressed", "false");
-      const check = btn.querySelector(".ap-att-check");
-      if (check) check.textContent = "";
+      if (!trackMode) {
+        btn.classList.remove("is-selected");
+        btn.setAttribute("aria-pressed", "false");
+        const check = btn.querySelector(".ap-att-check");
+        if (check) check.textContent = "";
+      }
     }
   }
-  openOverlayDialog();
+  updateStepSummaries();
 }
 
 /**
- * Close the overlay dialog.
+ * Refresh collapsed-step summary labels.
+ */
+function updateStepSummaries() {
+  const att = $("ap-att-summary");
+  if (att) {
+    const n = selectedPresent().length;
+    const late = sessionLateIds.size;
+    att.textContent = n
+      ? `${n} present${late ? ` · ${late} late` : ""}`
+      : "";
+  }
+  const gamify = $("ap-gamify-summary");
+  if (gamify) {
+    gamify.textContent =
+      trackMode === "team" ? "Team" : trackMode === "individual" ? "Individual" : "";
+  }
+  const teams = $("ap-teams-summary");
+  if (teams) {
+    const n = (overlayState?.teams || []).filter((t) => t.name !== "Class").length;
+    teams.textContent = n ? `${n} teams · ${lastAssignMode || ""}` : "";
+  }
+  const names = $("ap-names-summary");
+  if (names) {
+    const list = (overlayState?.teams || []).map((t) => t.name).filter(Boolean);
+    names.textContent = list.length ? list.join(", ") : "";
+  }
+  const rounds = $("ap-rounds-summary");
+  if (rounds) {
+    rounds.textContent = draftRounds
+      .map((r) => ROUND_KIND_OPTIONS.find((o) => o.kind === r.kind)?.label || r.kind)
+      .join(" · ");
+  }
+  const score = $("ap-score-summary");
+  if (score && isScoringLive()) {
+    const game = overlayState?.game || {};
+    score.textContent = game.round_title
+      ? `Round ${game.round || 1} · ${game.round_title}`
+      : "Live";
+  }
+}
+
+/**
+ * Navigate away from Track Live Class after quit/end.
  */
 function closeOverlay() {
-  const dialog = $("ap-overlay");
-  if (dialog?.open) dialog.close();
   pendingAction = null;
   pendingTeam = null;
   liveStamp = "";
@@ -114,18 +182,20 @@ function closeOverlay() {
 }
 
 /**
- * Discard open setup/live game, end the live-class session, and close.
+ * Discard open setup/live game, end the live-class session, and leave the tab.
  */
 async function cancelOverlay() {
   try {
     await api(`/api/classes/${classId}/game/cancel`, { method: "POST", body: "{}" });
   } catch (_) {
-    /* still close */
+    /* still leave */
   }
   stopLiveSessionPolling();
   liveSessionId = 0;
   sessionPresentIds = new Set();
+  sessionLateIds = new Set();
   closeOverlay();
+  location.href = `/staff/class/${classId}?tab=ap&view=attendance`;
 }
 
 /**
@@ -151,7 +221,7 @@ function ensureLiveSessionOverlay() {
 }
 
 /**
- * Stop polling live-session attendees for Mark Attendance auto-ticks.
+ * Stop polling live-session attendees.
  */
 function stopLiveSessionPolling() {
   if (sessionPollTimer) {
@@ -161,13 +231,14 @@ function stopLiveSessionPolling() {
 }
 
 /**
- * Tick Mark Attendance rows for students currently in the live session.
- * Also refreshes mood faces from the live-session attendee payload.
+ * Tick join-only roster for students currently in the live session.
+ * After scoring starts, refresh game state so late joiners appear on teams.
  * @param {Iterable<number>} ids
  * @param {Array<{student_id?:number,mood?:string}>} [attendees]
  */
-function applySessionPresentTicks(ids, attendees) {
+async function applySessionPresentTicks(ids, attendees) {
   const next = new Set([...ids].map(Number).filter((n) => Number.isFinite(n) && n > 0));
+  const prevSize = sessionPresentIds.size;
   for (const id of next) sessionPresentIds.add(id);
   if (Array.isArray(attendees) && overlayState?.students) {
     const moodById = new Map(
@@ -181,6 +252,18 @@ function applySessionPresentTicks(ids, attendees) {
     }
   }
   renderAttendanceList();
+  updateStepSummaries();
+
+  if (isScoringLive() && next.size > prevSize) {
+    try {
+      overlayState = await api(`/api/classes/${classId}/game`);
+      liveStamp = "";
+      openLiveScoring(overlayState, { stayOnScore: true });
+      notifyAttendanceRefresh();
+    } catch (_) {
+      /* keep polling */
+    }
+  }
 }
 
 /**
@@ -198,7 +281,7 @@ async function pollLiveSessionAttendees() {
     }
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
-    applySessionPresentTicks(
+    await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
     );
@@ -254,8 +337,7 @@ async function ensureMeetingDate(iso) {
 }
 
 /**
- * Begin a session for today and open Mark Attendance.
- * When ``live_session_id`` is present, opens the dialog first, then the live overlay.
+ * Begin a session for today and open join-only Attendance.
  */
 export async function openTakeAttendance() {
   hideError("#att-error");
@@ -265,42 +347,37 @@ export async function openTakeAttendance() {
     await loadContext();
     const meeting = defaultSchoolDay(logContext);
     syncOverlayPickers(logContext, meeting);
+    const meetingInput = $("ap-meeting-date");
+    if (meetingInput) meetingInput.value = meeting;
     overlayState = await api(`/api/classes/${classId}/begin`, {
       method: "POST",
       body: JSON.stringify({ meeting_date: meeting }),
     });
     if (overlayState.game?.status === "live") {
       if (liveSessionId) {
-        await clearStuckGameForLiveSession();
-        // Re-mint meeting after clearing so attendance setup is fresh.
-        overlayState = await api(`/api/classes/${classId}/begin`, {
-          method: "POST",
-          body: JSON.stringify({ meeting_date: meeting }),
-        });
-      } else {
-        showError(
-          "#ap-overlay-error",
-          new Error("End the open participation session before taking attendance for another day.")
-        );
-        showError(
-          "#att-error",
-          new Error("End the open participation session before taking attendance for another day.")
-        );
+        openLiveScoring(overlayState);
+        ensureLiveSessionOverlay();
+        startLiveSessionPolling();
         return;
       }
+      showError(
+        "#ap-overlay-error",
+        new Error("End the open participation session before taking attendance for another day.")
+      );
+      return;
     }
     await ensureMeetingDate(meeting);
     syncOverlayPickers(logContext, meeting);
     if (liveSessionId) sessionPresentIds = new Set();
+    scoringLocked = false;
+    trackMode = null;
     renderAttendanceList();
-    // Open Mark Attendance dialog before the Zoom overlay so showModal is not blocked.
     showPanel("att");
     if (liveSessionId) {
       ensureLiveSessionOverlay();
       startLiveSessionPolling();
     }
   } catch (err) {
-    showError("#att-error", err);
     showError("#ap-overlay-error", err);
   }
 }
@@ -342,6 +419,12 @@ function bindAllPickers(preferred, opts = {}) {
   const onInvalid = (msg) => showError("#ap-overlay-error", new Error(msg));
   for (const id of ["ap-valid-date", "ap-meeting-date"]) {
     const el = $(id);
+    if (!el || el.type === "hidden") {
+      if (el && el.type === "hidden") {
+        el.value = preferred || defaultSchoolDay(logContext) || el.value;
+      }
+      continue;
+    }
     const keep = pickerValue(el, logContext);
     const iso = opts.forceValue
       ? preferred || defaultSchoolDay(logContext)
@@ -378,20 +461,6 @@ function fillValidateHint() {
 }
 
 /**
- * Prompt for a valid date, then run ``pendingAction``.
- * @param {() => Promise<void>} after
- */
-function promptValidDate(after) {
-  pendingAction = after;
-  fillValidateHint();
-  const picker = $("ap-valid-date");
-  if (picker && overlayState?.session?.meeting_date) {
-    picker.value = overlayState.session.meeting_date;
-  }
-  showPanel("validate");
-}
-
-/**
  * Ensure meeting_date is allowed, prompting if needed.
  * @param {string} iso
  * @param {() => Promise<void>} proceed
@@ -416,7 +485,7 @@ async function withValidatedDate(iso, proceed) {
  * @param {HTMLInputElement|null} input
  */
 async function applyMeetingFromPicker(input) {
-  const iso = pickerValue(input, logContext);
+  const iso = pickerValue(input, logContext) || input?.value;
   if (!iso) return;
   overlayState = await api(`/api/classes/${classId}/game/meeting`, {
     method: "POST",
@@ -425,11 +494,12 @@ async function applyMeetingFromPicker(input) {
 }
 
 /**
- * Present ids for the session date: attendance grid first, then overlay UI.
+ * Present ids for the session date: join set, then attendance grid, then state.
  * @param {string} iso
  * @returns {Promise<number[]>}
  */
 async function resolvePresentIds(iso) {
+  if (sessionPresentIds.size) return [...sessionPresentIds];
   const day = await api(
     `/api/classes/${classId}/attendance-day?date=${encodeURIComponent(iso)}`
   );
@@ -442,50 +512,52 @@ async function resolvePresentIds(iso) {
     return overlayState.present_ids.map(Number);
   }
   throw new Error(
-    "No students marked present for this date. Take attendance first, or mark at least one student present."
+    "No students have joined yet. Share the live session code, then continue when someone is present."
   );
 }
 
 /**
- * Present student ids selected in the Mark Attendance overlay.
+ * Present student ids from join-only roster (and late set).
  * @returns {number[]}
  */
 function selectedPresent() {
-  return [...document.querySelectorAll("#ap-att-list .ap-att-row[aria-pressed='true']")].map(
-    (el) => Number(el.dataset.studentId)
+  if (sessionPresentIds.size) return [...sessionPresentIds];
+  return [...document.querySelectorAll("#ap-att-list .ap-att-row.is-present")].map((el) =>
+    Number(el.dataset.studentId)
   );
 }
 
 /**
- * Draw attendance name rows from current game state (row click toggles).
+ * Draw join-only attendance rows (display-only; no click toggles).
  */
 function renderAttendanceList() {
-  const fromSession = liveSessionId > 0;
   const checked = new Set(
-    fromSession
+    sessionPresentIds.size
       ? [...sessionPresentIds]
       : (overlayState?.present_ids && overlayState.present_ids.length
           ? overlayState.present_ids
-          : overlayState?.default_present_ids) || []
+          : []) || []
   );
   const list = $("ap-att-list");
   if (!list) return;
   list.innerHTML = "";
-  for (const student of sortStudents(overlayState.students || [], nameSort)) {
+  for (const student of sortStudents(overlayState?.students || [], nameSort)) {
     const present = checked.has(student.id);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = `ap-att-row${present ? " is-present" : ""}`;
+    const late = sessionLateIds.has(student.id) || Boolean(student.late);
+    const row = document.createElement("div");
+    row.className = `ap-att-row${present ? " is-present" : ""}${late ? " is-late" : ""}`;
     row.dataset.studentId = String(student.id);
     row.setAttribute("aria-pressed", present ? "true" : "false");
-    row.innerHTML = `<span class="ap-att-name">${nameWithMood(displayName(student), student.mood)}</span><span class="ap-att-check" aria-hidden="true">${present ? "✓" : ""}</span>`;
+    const mark = late ? "L" : present ? "✓" : "";
+    const face = student.mood ? moodGlyph(student.mood) : "";
+    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
     list.appendChild(row);
   }
   updateAttCount();
 }
 
 /**
- * Live present count in the overlay heading.
+ * Live present count in the accordion heading.
  */
 function updateAttCount() {
   const el = $("ap-att-count");
@@ -493,28 +565,68 @@ function updateAttCount() {
 }
 
 /**
- * Route to the correct live scoring panel after begin/rename.
- * @param {any} state
+ * True when current round kind is Open Question.
+ * @returns {boolean}
  */
-function openLiveScoring(state) {
-  overlayState = state;
-  const teams = state.teams || [];
-  const isIndividual = teams.length === 1 && teams[0]?.name === "Class";
-  if (isIndividual) {
-    renderScoreList();
-    showPanel("score");
-    return;
-  }
-  renderLiveTeams(state);
-  showPanel("live");
+function isOpenQuestionRound() {
+  const game = overlayState?.game || {};
+  if (game.round_kind) return String(game.round_kind) === "open";
+  const rounds = game.rounds || [];
+  const n = Number(game.round) || 1;
+  const row = rounds[n - 1];
+  if (row?.kind) return row.kind === "open";
+  const title = String(game.round_title || "").toLowerCase();
+  return title.includes("open question");
 }
 
 /**
- * Meeting date from the Mark Attendance picker or the open session.
+ * Route to the scoring accordion step after begin/rename/start.
+ * @param {any} state
+ * @param {{stayOnScore?: boolean}} [opts]
+ */
+function openLiveScoring(state, opts = {}) {
+  overlayState = state;
+  scoringLocked = true;
+  const teams = state.teams || [];
+  const isIndividual = teams.length === 1 && teams[0]?.name === "Class";
+  trackMode = isIndividual ? "individual" : "team";
+  for (const s of state.students || []) {
+    if (s.late) sessionLateIds.add(Number(s.id));
+  }
+  for (const t of teams) {
+    for (const m of t.members || []) {
+      if (m.late) sessionLateIds.add(Number(m.id));
+    }
+  }
+  const scoreEnd = $("ap-score-end");
+  const liveEnd = $("ap-live-end");
+  const scoreCancel = $("ap-score-cancel");
+  const liveCancel = $("ap-live-cancel");
+  if (isIndividual) {
+    if (scoreEnd) scoreEnd.hidden = false;
+    if (liveEnd) liveEnd.hidden = true;
+    if (scoreCancel) scoreCancel.hidden = false;
+    if (liveCancel) liveCancel.hidden = true;
+    $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
+    renderScoreList();
+  } else {
+    if (scoreEnd) scoreEnd.hidden = true;
+    if (liveEnd) liveEnd.hidden = false;
+    if (scoreCancel) scoreCancel.hidden = true;
+    if (liveCancel) liveCancel.hidden = false;
+    $("ap-score-list") && ($("ap-score-list").innerHTML = "");
+    renderLiveTeams(state);
+  }
+  showPanel("score");
+  renderAttendanceList();
+}
+
+/**
+ * Meeting date from hidden field or open session.
  * @returns {string}
  */
 function sessionIso() {
-  const fromAtt = pickerValue($("ap-meeting-date"), logContext);
+  const fromAtt = $("ap-meeting-date")?.value || pickerValue($("ap-meeting-date"), logContext);
   if (fromAtt) return fromAtt;
   return overlayState?.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
 }
@@ -528,7 +640,7 @@ async function submitLogParticipation(iso) {
   const meeting =
     iso ||
     sessionMeeting ||
-    pickerValue($("ap-meeting-date"), logContext) ||
+    $("ap-meeting-date")?.value ||
     sessionIso();
   syncOverlayPickers(logContext, meeting);
   await ensureMeetingDate(meeting);
@@ -541,42 +653,12 @@ async function submitLogParticipation(iso) {
   showPanel("gamify");
 }
 
-$("ap-att-list")?.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  const row = target.closest(".ap-att-row");
-  if (!(row instanceof HTMLElement)) return;
-  const sid = Number(row.dataset.studentId);
-  if (!Number.isFinite(sid) || sid < 1) return;
-  const next = row.getAttribute("aria-pressed") !== "true";
-  row.setAttribute("aria-pressed", next ? "true" : "false");
-  row.classList.toggle("is-present", next);
-  const check = row.querySelector(".ap-att-check");
-  if (check) check.textContent = next ? "✓" : "";
-  if (liveSessionId > 0) {
-    if (next) sessionPresentIds.add(sid);
-    else sessionPresentIds.delete(sid);
-  }
-  updateAttCount();
-});
-
-$("ap-meeting-date")?.addEventListener("change", async () => {
-  try {
-    hideError("#ap-overlay-error");
-    const iso = pickerValue($("ap-meeting-date"), logContext);
-    syncOverlayPickers(logContext, iso);
-    await applyMeetingFromPicker($("ap-meeting-date"));
-    renderAttendanceList();
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
-});
-
 /**
  * Mark one tracking-mode button selected (checkmark) and clear the other.
  * @param {"individual"|"team"} mode
  */
 function selectTrackMode(mode) {
+  trackMode = mode;
   const individual = $("ap-gamify-no");
   const team = $("ap-gamify-yes");
   for (const [btn, on] of [
@@ -589,15 +671,85 @@ function selectTrackMode(mode) {
     const check = btn.querySelector(".ap-att-check");
     if (check) check.textContent = on ? "✓" : "";
   }
+  updateStepSummaries();
 }
 
-for (const id of ["ap-att-cancel", "ap-validate-cancel", "ap-gamify-cancel", "ap-teams-cancel", "ap-names-cancel", "ap-rounds-cancel", "ap-score-cancel", "ap-live-cancel"]) {
-  $(id)?.addEventListener("click", () => cancelOverlay());
+for (const id of [
+  "ap-validate-cancel",
+  "ap-score-cancel",
+  "ap-live-cancel",
+]) {
+  $(id)?.addEventListener("click", () => {
+    if (id === "ap-score-cancel" || id === "ap-live-cancel") {
+      if (!window.confirm("Quit scoring? Scores already logged stay registered.")) return;
+    }
+    cancelOverlay();
+  });
 }
+
+document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
+  if (btn.id === "ap-score-cancel" || btn.id === "ap-live-cancel" || btn.id === "ap-validate-cancel") return;
+  btn.addEventListener("click", () => cancelOverlay());
+});
+
+$("ap-share-code")?.addEventListener("click", async () => {
+  try {
+    liveSessionId = readLiveSessionId() || liveSessionId;
+    if (!liveSessionId) {
+      const res = await fetch(`/staff/class/${classId}/run-live`, {
+        method: "POST",
+        credentials: "same-origin",
+        redirect: "manual",
+      });
+      const loc = res.headers.get("Location") || "";
+      const match = /live_session_id=(\d+)/.exec(loc);
+      if (match) {
+        liveSessionId = Number(match[1]);
+        if (root) root.dataset.liveSessionId = String(liveSessionId);
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", "live");
+        url.searchParams.set("live_session_id", String(liveSessionId));
+        window.history.replaceState({}, "", url.toString());
+      } else if (res.status >= 300 && res.status < 400 && loc) {
+        window.location.assign(loc);
+        return;
+      } else {
+        const errText = await res.text();
+        throw new Error(errText.slice(0, 160) || "Could not mint a join code.");
+      }
+    }
+    ensureLiveSessionOverlay();
+    startLiveSessionPolling();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
 
 $("ap-att-log")?.addEventListener("click", async () => {
   try {
     await withValidatedDate(sessionIso(), (d) => submitLogParticipation(d));
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-gamify-next")?.addEventListener("click", async () => {
+  try {
+    if (trackMode === "team") {
+      await withValidatedDate(sessionIso(), async () => {
+        renderTeamsPanel();
+        showPanel("teams");
+      });
+      return;
+    }
+    await withValidatedDate(sessionIso(), async (meeting) => {
+      const ids = selectedPresent();
+      overlayState = await api(`/api/classes/${classId}/game/ungamified`, {
+        method: "POST",
+        body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
+      });
+      openLiveScoring(overlayState);
+    });
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -621,49 +773,14 @@ $("ap-validate-apply")?.addEventListener("click", async () => {
   }
 });
 
-$("ap-gamify-yes")?.addEventListener("click", async () => {
-  try {
-    hideError("#ap-overlay-error");
-    selectTrackMode("team");
-    const meeting = sessionIso();
-    await withValidatedDate(meeting, async () => {
-      await ensureMeetingDate(meeting);
-      const ids = await resolvePresentIds(meeting);
-      const status = overlayState?.game?.status;
-      if (status === "attendance") {
-        overlayState = await api(`/api/classes/${classId}/game/attendance`, {
-          method: "POST",
-          body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
-        });
-      } else {
-        overlayState = await api(`/api/classes/${classId}/game`);
-      }
-      renderTeamsPanel();
-      showPanel("teams");
-    });
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
+$("ap-gamify-yes")?.addEventListener("click", () => {
+  if (isScoringLive()) return;
+  selectTrackMode("team");
 });
 
-$("ap-gamify-no")?.addEventListener("click", async () => {
-  try {
-    hideError("#ap-overlay-error");
-    selectTrackMode("individual");
-    const meeting = sessionIso();
-    await withValidatedDate(meeting, async () => {
-      await ensureMeetingDate(meeting);
-      const ids = await resolvePresentIds(meeting);
-      overlayState = await api(`/api/classes/${classId}/game/ungamified`, {
-        method: "POST",
-        body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
-      });
-      renderScoreList();
-      showPanel("score");
-    });
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
+$("ap-gamify-no")?.addEventListener("click", () => {
+  if (isScoringLive()) return;
+  selectTrackMode("individual");
 });
 
 /**
@@ -671,7 +788,7 @@ $("ap-gamify-no")?.addEventListener("click", async () => {
  * @returns {{min:number, max:number}}
  */
 function nTeamsBounds() {
-  const present = (overlayState?.present_ids || []).length;
+  const present = (overlayState?.present_ids || selectedPresent()).length;
   return { min: 2, max: Math.max(2, present) };
 }
 
@@ -694,7 +811,12 @@ function setNTeams(value) {
  */
 function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
-  if (box) box.checked = localStorage.getItem(scoreboardKey) === "1";
+  if (box) {
+    const stored = localStorage.getItem(scoreboardKey);
+    box.checked = stored === null ? true : stored === "1";
+    localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
+  }
+  syncScoreboardPreview();
   const rankBox = $("ap-rank-toggle");
   if (rankBox) {
     const fromState = overlayState && typeof overlayState.show_rank === "boolean";
@@ -703,6 +825,37 @@ function renderTeamsPanel() {
       : localStorage.getItem(rankKey) === "1";
   }
   setNTeams(Number($("ap-n-teams")?.value) || 2);
+  selectAssignMode(lastAssignMode || "balanced");
+}
+
+/**
+ * Show/hide the scoreboard mock preview from the checkbox.
+ */
+function syncScoreboardPreview() {
+  const box = $("ap-scoreboard-toggle");
+  const wrap = $("ap-scoreboard-preview-wrap");
+  if (wrap) wrap.hidden = !(box instanceof HTMLInputElement && box.checked);
+}
+
+/**
+ * Highlight Assign Balanced / Random / Manual choice.
+ * @param {"random"|"balanced"|"manual"} mode
+ */
+function selectAssignMode(mode) {
+  lastAssignMode = mode;
+  for (const [id, key] of [
+    ["ap-assign-balanced", "balanced"],
+    ["ap-assign-random", "random"],
+    ["ap-assign-manual", "manual"],
+  ]) {
+    const btn = $(id);
+    if (!(btn instanceof HTMLElement)) continue;
+    const on = key === mode;
+    btn.classList.toggle("is-selected", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    const check = btn.querySelector(".ap-att-check");
+    if (check) check.textContent = on ? "✓" : "";
+  }
 }
 
 $("ap-n-teams-down")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) - 1));
@@ -711,6 +864,7 @@ $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
   const box = event.target;
   if (box instanceof HTMLInputElement) {
     localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
+    syncScoreboardPreview();
   }
 });
 $("ap-rank-toggle")?.addEventListener("change", (event) => {
@@ -724,7 +878,7 @@ $("ap-rank-toggle")?.addEventListener("change", (event) => {
 });
 
 /**
- * Assign teams in the overlay.
+ * Assign teams and show roster preview with prior participation.
  * @param {"random"|"balanced"|"manual"} mode
  */
 async function assign(mode) {
@@ -745,11 +899,18 @@ async function assign(mode) {
   showPanel("names");
 }
 
-$("ap-assign-random")?.addEventListener("click", () => assign("random").catch((err) => showError("#ap-overlay-error", err)));
-$("ap-assign-balanced")?.addEventListener("click", () => assign("balanced").catch((err) => showError("#ap-overlay-error", err)));
+$("ap-assign-random")?.addEventListener("click", () => {
+  selectAssignMode("random");
+  $("ap-manual-assign")?.classList.add("hidden");
+});
+$("ap-assign-balanced")?.addEventListener("click", () => {
+  selectAssignMode("balanced");
+  $("ap-manual-assign")?.classList.add("hidden");
+});
 $("ap-assign-manual")?.addEventListener("click", () => {
+  selectAssignMode("manual");
   const nTeams = Number($("ap-n-teams").value);
-  const present = new Set(overlayState.present_ids || []);
+  const present = new Set(overlayState.present_ids || selectedPresent());
   const students = sortStudents(
     (overlayState.students || []).filter((s) => present.has(s.id)),
     nameSort
@@ -760,7 +921,7 @@ $("ap-assign-manual")?.addEventListener("click", () => {
     .map((student, index) => {
       const teamIndex = index % Math.max(1, nTeams);
       return `<div class="manual-row">
-        <span>${nameWithMood(displayName(student), student.mood)}</span>
+        <span>${escapeHtml(displayName(student))}</span>
         <div class="team-step" data-student-id="${student.id}" data-team-index="${teamIndex}">
           <button type="button" data-step="-1">−</button>
           <span class="team-n">Team ${teamIndex + 1}</span>
@@ -771,8 +932,23 @@ $("ap-assign-manual")?.addEventListener("click", () => {
     .join("");
   $("ap-manual-assign")?.classList.remove("hidden");
 });
+$("ap-teams-next")?.addEventListener("click", () => {
+  const mode = lastAssignMode || "balanced";
+  if (mode === "manual") {
+    const open = $("ap-manual-assign");
+    if (open && !open.classList.contains("hidden")) {
+      assign("manual").catch((err) => showError("#ap-overlay-error", err));
+      return;
+    }
+    showError("#ap-overlay-error", new Error("Choose Assign Manually and set teams, then Next."));
+    return;
+  }
+  assign(mode).catch((err) => showError("#ap-overlay-error", err));
+});
 $("ap-manual-cancel")?.addEventListener("click", () => $("ap-manual-assign")?.classList.add("hidden"));
-$("ap-manual-confirm")?.addEventListener("click", () => assign("manual").catch((err) => showError("#ap-overlay-error", err)));
+$("ap-manual-confirm")?.addEventListener("click", () =>
+  assign("manual").catch((err) => showError("#ap-overlay-error", err))
+);
 $("ap-manual-list")?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-step]");
   if (!btn) return;
@@ -784,21 +960,45 @@ $("ap-manual-list")?.addEventListener("click", (event) => {
 });
 
 /**
- * Paint team rename fields.
+ * Paint team rename fields plus roster preview with career totals.
  */
 function renderNamesPanel() {
+  const hint = $("ap-names-hint");
+  if (hint && lastAssignMode === "balanced") {
+    hint.textContent =
+      "Balanced preview — even rosters (sizes equal or off by one), inspect prior participation side by side, then rename if you want.";
+  } else if (hint && lastAssignMode === "random") {
+    hint.textContent =
+      "Random preview — inspect names and prior participation, then rename teams if you want.";
+  } else if (hint) {
+    hint.textContent =
+      "Rename teams and inspect roster strength (prior participation) before creating teams.";
+  }
   const box = $("ap-name-list");
   if (!box) return;
   box.innerHTML = "";
   for (const team of overlayState.teams || []) {
+    const members = sortStudents(team.members || [], nameSort);
+    const strength = members.reduce((sum, row) => sum + (Number(row.career_total) || 0), 0);
     const wrap = document.createElement("div");
     wrap.className = "team-preview";
-    wrap.innerHTML = `<label class="field">Team ${team.sort_order + 1}<input type="text" data-team-id="${team.id}" value="${escapeHtml(team.name)}"></label>`;
+    wrap.innerHTML = `<label class="field">Team ${team.sort_order + 1}<input type="text" data-team-id="${team.id}" value="${escapeHtml(team.name)}"></label>
+      <p class="hint">Strength ${escapeHtml(formatPoints(strength))} · ${members.length} students</p>
+      <ul class="preview-roster">${members
+        .map(
+          (row) =>
+            `<li><span class="prior">${escapeHtml(formatPoints(row.career_total))}</span> ${escapeHtml(displayName(row))}</li>`
+        )
+        .join("")}</ul>`;
     box.appendChild(wrap);
   }
+  updateStepSummaries();
 }
 
-$("ap-names-back")?.addEventListener("click", () => showPanel("teams"));
+$("ap-names-back")?.addEventListener("click", () => {
+  if (isScoringLive()) return;
+  showPanel("teams");
+});
 
 $("ap-start-game")?.addEventListener("click", async () => {
   pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
@@ -850,6 +1050,7 @@ function renderRoundsPanel() {
     .join("");
   const addBtn = $("ap-rounds-add");
   if (addBtn) addBtn.disabled = draftRounds.length >= 3 || used.size >= 3;
+  updateStepSummaries();
 }
 
 $("ap-rounds-list")?.addEventListener("change", (event) => {
@@ -891,12 +1092,15 @@ $("ap-rounds-add")?.addEventListener("click", () => {
   renderRoundsPanel();
 });
 
-$("ap-rounds-back")?.addEventListener("click", () => showPanel("names"));
+$("ap-rounds-back")?.addEventListener("click", () => {
+  if (isScoringLive()) return;
+  showPanel("names");
+});
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
-  // Always open ESPN scoreboard when toggled — live-session overlay uses a
-  // separate window so both can stay open during team play.
-  const wantEspn = pendingScoreboard;
+  const hasLiveOverlay = Boolean(liveSessionId || readLiveSessionId());
+  // Live-overlay is primary for Track Live Class — skip separate ESPN window.
+  const wantEspn = pendingScoreboard && !hasLiveOverlay;
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     const rounds = draftRounds.map((row) => ({
@@ -909,9 +1113,10 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
     });
     if (wantEspn) openScoreboardOverlay(overlay);
     else overlay?.close();
-    if (liveSessionId || readLiveSessionId()) ensureLiveSessionOverlay();
+    if (hasLiveOverlay) ensureLiveSessionOverlay();
     pendingScoreboard = false;
     openLiveScoring(overlayState);
+    startLiveSessionPolling();
   } catch (err) {
     overlay?.close();
     showError("#ap-overlay-error", err);
@@ -919,7 +1124,25 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
 });
 
 /**
- * Vertical individual scoring list.
+ * Compact student point / Open Question action chips.
+ * @param {number} id
+ * @returns {string}
+ */
+function studentButtons(id) {
+  if (isOpenQuestionRound()) {
+    return OPEN_QUESTION_ACTIONS.map(
+      (action) =>
+        `<button type="button" class="ap-action-chip" data-kind="student" data-id="${id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="+${action.amount}">${escapeHtml(action.label)}</button>`
+    ).join("");
+  }
+  return STUDENT_AMOUNTS.map(
+    (n) =>
+      `<button type="button" class="ap-score-chip" data-kind="student" data-id="${id}" data-amount="${n}">${n > 0 ? "+" : ""}${n}</button>`
+  ).join("");
+}
+
+/**
+ * Dense individual scoring list (Class / ungamified).
  */
 function renderScoreList() {
   const box = $("ap-score-list");
@@ -929,21 +1152,19 @@ function renderScoreList() {
   const rows = sortStudents(members.length ? members : overlayState.students || [], nameSort);
   box.innerHTML = rows
     .map((row) => {
-      const buttons = STUDENT_AMOUNTS.map(
-        (n) =>
-          `<button type="button" data-kind="student" data-id="${row.id}" data-amount="${n}">${n > 0 ? "+" : ""}${n}</button>`
-      ).join("");
+      const late = sessionLateIds.has(row.id) || Boolean(row.late);
       return `<div class="ap-score-row">
-        <span>${nameWithMood(displayName(row), row.mood)}</span>
+        <span class="ap-score-who">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
         <span class="ap-score-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
-        <span class="pm">${buttons}</span>
+        <span class="pm">${studentButtons(row.id)}</span>
       </div>`;
     })
     .join("");
+  updateStepSummaries();
 }
 
 /**
- * +/- buttons for team scoring in the live overlay.
+ * +/- buttons for team scoring.
  * @param {number} teamId
  */
 function teamControls(teamId) {
@@ -951,7 +1172,7 @@ function teamControls(teamId) {
     const amount = pendingTeam.amount;
     const choices = TEAM_RULES.map(
       (rule) =>
-        `<button type="button" data-kind="team" data-id="${teamId}" data-amount="${amount}" data-rule="${rule.id}">${escapeHtml(rule.label)}</button>`
+        `<button type="button" class="ap-score-chip" data-kind="team" data-id="${teamId}" data-amount="${amount}" data-rule="${rule.id}">${escapeHtml(rule.label)}</button>`
     ).join("");
     return `<div class="rule-pick">
       <span>Apply +${amount} as:</span>
@@ -961,23 +1182,12 @@ function teamControls(teamId) {
   }
   return `<div class="pm">${TEAM_AMOUNTS.map(
     (n) =>
-      `<button type="button" class="team-amt" data-team-amt="1" data-id="${teamId}" data-amount="${n}">+${n}</button>`
-  ).join("")}<button type="button" data-kind="team" data-id="${teamId}" data-amount="-5" data-rule="team_only">−5</button></div>`;
+      `<button type="button" class="ap-score-chip team-amt" data-team-amt="1" data-id="${teamId}" data-amount="${n}">+${n}</button>`
+  ).join("")}<button type="button" class="ap-score-chip" data-kind="team" data-id="${teamId}" data-amount="-5" data-rule="team_only">−5</button></div>`;
 }
 
 /**
- * Student +/- buttons for live team overlay.
- * @param {number} id
- */
-function studentButtons(id) {
-  return STUDENT_AMOUNTS.map(
-    (n) =>
-      `<button type="button" data-kind="student" data-id="${id}" data-amount="${n}">${n > 0 ? "+" : ""}${n}</button>`
-  ).join("");
-}
-
-/**
- * Paint team live scoring inside the staff overlay.
+ * Paint dense team live scoring.
  * @param {any} state
  */
 function renderLiveTeams(state) {
@@ -1010,25 +1220,50 @@ function renderLiveTeams(state) {
   const stamp = JSON.stringify({
     pending: pendingTeam,
     round: game.round,
-    teams: (state.teams || []).map((t) => [t.id, t.score, t.members?.length]),
+    open: isOpenQuestionRound(),
+    activeTeam: $("ap-score-team-tabs")?.dataset.activeTeam || "",
+    teams: (state.teams || []).map((t) => [
+      t.id,
+      t.score,
+      t.members?.map((m) => [m.id, m.session_points]),
+    ]),
   });
   if (stamp === liveStamp) return;
   liveStamp = stamp;
+  const tabs = $("ap-score-team-tabs");
   const rootEl = $("ap-live-teams");
   if (!rootEl) return;
-  rootEl.innerHTML = (state.teams || [])
+  const teams = state.teams || [];
+  if (tabs) {
+    tabs.hidden = teams.length < 2;
+    if (!tabs.dataset.activeTeam && teams[0]) {
+      tabs.dataset.activeTeam = String(teams[0].id);
+    }
+    const activeId = Number(tabs.dataset.activeTeam || teams[0]?.id || 0);
+    tabs.innerHTML = teams
+      .map((team) => {
+        const on = Number(team.id) === activeId;
+        return `<button type="button" class="ap-score-team-tab${on ? " is-on" : ""}" data-team-tab="${team.id}" style="--team:${escapeHtml(team.color)}">${escapeHtml(team.name)}</button>`;
+      })
+      .join("");
+  }
+  const activeId = Number(tabs?.dataset.activeTeam || teams[0]?.id || 0);
+  const visible = teams.filter((t) => Number(t.id) === activeId);
+  const paintTeams = visible.length ? visible : teams;
+  rootEl.innerHTML = paintTeams
     .map((team) => {
       const members = sortStudents(team.members || [], nameSort);
       const playerBlocks = members
-        .map(
-          (s) => `<div class="ap-live-player">
+        .map((s) => {
+          const late = sessionLateIds.has(s.id) || Boolean(s.late);
+          return `<div class="ap-live-player">
             <div class="ap-live-row">
-              <span class="who">${nameWithMood(displayName(s), s.mood)}</span>
+              <span class="who">${nameWithMood(displayName(s), s.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
               <span class="now">${escapeHtml(formatPoints(s.session_points || 0))}</span>
             </div>
             <div class="pm">${studentButtons(s.id)}</div>
-          </div>`
-        )
+          </div>`;
+        })
         .join("");
       return `<section class="ap-live-team" style="--team:${escapeHtml(team.color)}">
         <div class="ap-live-row team-head">
@@ -1040,6 +1275,7 @@ function renderLiveTeams(state) {
       </section>`;
     })
     .join("");
+  updateStepSummaries();
 }
 
 /**
@@ -1062,11 +1298,32 @@ $("ap-start-round")?.addEventListener("click", async () => {
       body: JSON.stringify({ round: next }),
     });
     liveStamp = "";
-    renderLiveTeams(overlayState);
+    openLiveScoring(overlayState, { stayOnScore: true });
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
 });
+
+/**
+ * POST a score mutation (supports Open Question ``label``).
+ * @param {HTMLElement} btn
+ */
+async function postScoreFromButton(btn) {
+  const payload = {
+    kind: btn.dataset.kind,
+    id: Number(btn.dataset.id),
+    amount: Number(btn.dataset.amount),
+  };
+  if (btn.dataset.rule) payload.team_rule = btn.dataset.rule;
+  if (btn.dataset.label) payload.label = btn.dataset.label;
+  overlayState = await api(`/api/classes/${classId}/game/score`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  pendingTeam = null;
+  liveStamp = "";
+  openLiveScoring(overlayState, { stayOnScore: true });
+}
 
 $("ap-live-teams")?.addEventListener("click", async (event) => {
   const cancel = event.target.closest("[data-cancel-rule]");
@@ -1086,19 +1343,7 @@ $("ap-live-teams")?.addEventListener("click", async (event) => {
   const btn = event.target.closest("button[data-kind]");
   if (!btn) return;
   try {
-    const payload = {
-      kind: btn.dataset.kind,
-      id: Number(btn.dataset.id),
-      amount: Number(btn.dataset.amount),
-    };
-    if (btn.dataset.rule) payload.team_rule = btn.dataset.rule;
-    overlayState = await api(`/api/classes/${classId}/game/score`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    pendingTeam = null;
-    liveStamp = "";
-    renderLiveTeams(overlayState);
+    await postScoreFromButton(btn);
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -1108,15 +1353,7 @@ $("ap-score-list")?.addEventListener("click", async (event) => {
   const btn = event.target.closest("[data-kind]");
   if (!btn) return;
   try {
-    overlayState = await api(`/api/classes/${classId}/game/score`, {
-      method: "POST",
-      body: JSON.stringify({
-        kind: btn.dataset.kind,
-        id: Number(btn.dataset.id),
-        amount: Number(btn.dataset.amount),
-      }),
-    });
-    renderScoreList();
+    await postScoreFromButton(btn);
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -1132,28 +1369,46 @@ async function endGame() {
   stopLiveSessionPolling();
   liveSessionId = 0;
   sessionPresentIds = new Set();
+  sessionLateIds = new Set();
   closeOverlay();
   location.href = `/staff/class/${classId}?tab=ap&view=participation`;
 }
+
+$("ap-score-team-tabs")?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-team-tab]");
+  if (!btn) return;
+  const tabs = $("ap-score-team-tabs");
+  if (tabs) tabs.dataset.activeTeam = String(btn.getAttribute("data-team-tab") || "");
+  liveStamp = "";
+  if (overlayState) renderLiveTeams(overlayState);
+});
 
 $("ap-score-end")?.addEventListener("click", endGame);
 $("ap-live-end")?.addEventListener("click", endGame);
 
 /**
- * Log Participation from the Participation tab (skip Mark Attendance).
+ * Log Participation shortcut (skip Mark Attendance when possible).
  */
 export async function openLogParticipation() {
   hideError("#error");
+  hideError("#ap-overlay-error");
   try {
+    liveSessionId = readLiveSessionId() || liveSessionId;
     await loadContext();
     const meeting = defaultSchoolDay(logContext);
     syncOverlayPickers(logContext, meeting);
+    const meetingInput = $("ap-meeting-date");
+    if (meetingInput) meetingInput.value = meeting;
     overlayState = await api(`/api/classes/${classId}/begin`, {
       method: "POST",
       body: JSON.stringify({ meeting_date: meeting }),
     });
     if (overlayState.game?.status === "live") {
       openLiveScoring(overlayState);
+      if (liveSessionId) {
+        ensureLiveSessionOverlay();
+        startLiveSessionPolling();
+      }
       return;
     }
     await ensureMeetingDate(meeting);
@@ -1163,45 +1418,47 @@ export async function openLogParticipation() {
     };
     await withValidatedDate(sessionIso(), go);
   } catch (err) {
-    showError("#error", err);
     showError("#ap-overlay-error", err);
   }
 }
 
-$("ap-popout")?.addEventListener("click", () => {
-  const dialog = $("ap-overlay");
-  if (!dialog) return;
-  overlayPopout = !overlayPopout;
-  dialog.classList.toggle("ap-overlay--popout", overlayPopout);
-  $("ap-popout")?.setAttribute("aria-pressed", overlayPopout ? "true" : "false");
-  if (dialog.open) {
-    dialog.close();
-    openOverlayDialog();
-  }
+document.querySelectorAll("[data-accordion-toggle]").forEach((btn) => {
+  btn.addEventListener("click", (event) => {
+    // Accordion headers are display-only; navigate with Prev / Next footers.
+    event.preventDefault();
+  });
 });
 
-document.getElementById("take-attendance")?.addEventListener("click", () => {
-  openTakeAttendance().catch((err) => showError("#att-error", err));
+document.querySelectorAll("[data-track-nav='prev']").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.hasAttribute("disabled") || isScoringLive()) return;
+    const current = document.querySelector(".track-step.is-current")?.getAttribute("data-step");
+    const back = {
+      gamify: "att",
+      teams: "gamify",
+      names: "teams",
+      rounds: "names",
+    };
+    const target = back[current || ""];
+    if (target) showPanel(target);
+  });
 });
 
-document.getElementById("begin")?.addEventListener("click", () => {
-  openLogParticipation().catch((err) => showError("#error", err));
-});
-
-if (root?.dataset.take === "1") {
-  openTakeAttendance().catch((err) => showError("#att-error", err));
+selectTrackMode("individual");
+if (localStorage.getItem(scoreboardKey) === null) {
+  localStorage.setItem(scoreboardKey, "1");
 }
 
-if (root?.dataset.participate === "1") {
-  openLogParticipation().catch((err) => showError("#error", err));
-}
+const bootStep = (root?.dataset.liveStep || "").trim();
+const wantParticipate = root?.dataset.participate === "1" || bootStep === "gamify";
+const wantTake =
+  root?.dataset.take === "1" ||
+  bootStep === "att" ||
+  Boolean(readLiveSessionId()) ||
+  (!wantParticipate && root?.dataset.apView === "live");
 
-if (new URLSearchParams(location.search).get("continue") === "gamify") {
-  loadContext()
-    .then(() => api(`/api/classes/${classId}/game`))
-    .then((state) => {
-      overlayState = state;
-      showPanel("gamify");
-    })
-    .catch((err) => showError("#error", err));
+if (wantParticipate && !wantTake) {
+  openLogParticipation().catch((err) => showError("#ap-overlay-error", err));
+} else if (root?.dataset.apView === "live") {
+  openTakeAttendance().catch((err) => showError("#ap-overlay-error", err));
 }
