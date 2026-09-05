@@ -1080,6 +1080,127 @@ class GameShowDB:
             self.conn.commit()
         return self.get_student(class_id, student_id)
 
+    def clear_students_live_presence(
+        self, class_id: int, student_ids: list[int]
+    ) -> None:
+        """Clear character picks and mood rows for students leaving a live session.
+
+        Args:
+            class_id: Classes primary key.
+            student_ids: Students to reset for the next live visit.
+        """
+        ids = [int(sid) for sid in student_ids if sid is not None]
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock:
+            self.conn.execute(
+                f"""
+                UPDATE students
+                SET character_key = NULL
+                WHERE class_id = ? AND id IN ({placeholders})
+                """,
+                (int(class_id), *ids),
+            )
+            self.conn.execute(
+                f"""
+                DELETE FROM student_moods
+                WHERE class_id = ? AND student_id IN ({placeholders})
+                """,
+                (int(class_id), *ids),
+            )
+            self.conn.commit()
+
+    def clear_class_moods_and_characters(self, class_id: int) -> None:
+        """Wipe all mood check-ins and character picks for one class.
+
+        Used when Run Live Class starts so prior-session face icons do not
+        linger next to roster names in Mark Attendance / overlay lists.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            self.conn.execute(
+                "UPDATE students SET character_key = NULL WHERE class_id = ?",
+                (int(class_id),),
+            )
+            self.conn.execute(
+                "DELETE FROM student_moods WHERE class_id = ?",
+                (int(class_id),),
+            )
+            self.conn.commit()
+
+    def find_student_by_codename(
+        self, class_id: int, name: str
+    ) -> dict[str, Any] | None:
+        """Return the roster row whose Codename matches ``name`` (case-insensitive).
+
+        Args:
+            class_id: Classes primary key.
+            name: Student-entered roster name.
+        """
+        needle = (name or "").strip().lower()
+        if not needle:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM students
+                WHERE class_id = ? AND lower(trim(codename)) = ?
+                """,
+                (int(class_id), needle),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def mark_student_present_on_open_session(
+        self, class_id: int, student_id: int
+    ) -> bool:
+        """Best-effort: set ``present=1`` on the open game's meeting column.
+
+        Used when a student joins a live class session while Mark Attendance
+        (or a later setup/live phase) is already open. No-op when there is no
+        open game.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+
+        Returns:
+            True when a present flag was written; False when skipped.
+        """
+        with self._lock:
+            game = self.conn.execute(
+                """
+                SELECT id, session_id, status FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+            if game is None:
+                return False
+            if str(game["status"] or "") not in {
+                "attendance",
+                "teams",
+                "names",
+                "live",
+            }:
+                return False
+            session_id = int(game["session_id"])
+            self._ensure_session_scores(session_id, int(class_id))
+            self.conn.execute(
+                """
+                UPDATE session_scores
+                SET present = 1
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (session_id, int(student_id)),
+            )
+            self.conn.commit()
+        return True
+
     def get_mood(
         self,
         class_id: int,
@@ -2369,37 +2490,6 @@ class GameShowDB:
                 (meeting.isoformat(), header, game["session_id"]),
             )
             self.conn.commit()
-            # #region agent log
-            try:
-                import json as _json, time as _time
-                with open(
-                    "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
-                    "a",
-                    encoding="utf-8",
-                ) as _dbg:
-                    _dbg.write(
-                        _json.dumps(
-                            {
-                                "sessionId": "436036",
-                                "hypothesisId": "D",
-                                "location": "db.py:set_meeting_date",
-                                "message": "set_meeting_date applied",
-                                "data": {
-                                    "class_id": class_id,
-                                    "requested": meeting_date.isoformat(),
-                                    "session_id": int(game["session_id"]),
-                                    "starts_at": meeting.isoformat(),
-                                    "header": header,
-                                    "game_status": str(game["status"]),
-                                },
-                                "timestamp": int(_time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
         return self.game_state(class_id)
 
     def cancel_setup(self, class_id: int) -> dict[str, Any]:
@@ -2623,41 +2713,6 @@ class GameShowDB:
             if not present_set:
                 raise ValueError("Mark at least one student present")
             self._write_attendance_unlocked(game, present_set)
-            # #region agent log
-            try:
-                import json as _json, time as _time
-                sess = self.conn.execute(
-                    "SELECT id, starts_at, status, header_label FROM sessions WHERE id = ?",
-                    (int(game["session_id"]),),
-                ).fetchone()
-                with open(
-                    "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
-                    "a",
-                    encoding="utf-8",
-                ) as _dbg:
-                    _dbg.write(
-                        _json.dumps(
-                            {
-                                "sessionId": "436036",
-                                "hypothesisId": "E",
-                                "location": "db.py:finalize_attendance_only",
-                                "message": "finalize writing attendance",
-                                "data": {
-                                    "class_id": class_id,
-                                    "session_id": int(game["session_id"]),
-                                    "starts_at": str(sess["starts_at"]) if sess else None,
-                                    "header": str(sess["header_label"]) if sess else None,
-                                    "present_count": len(present_set),
-                                    "game_status": str(game["status"]),
-                                },
-                                "timestamp": int(_time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
             # Drop any partial team setup; attendance column stays.
             self.conn.execute(
                 "DELETE FROM point_events WHERE game_id = ?", (game["id"],)

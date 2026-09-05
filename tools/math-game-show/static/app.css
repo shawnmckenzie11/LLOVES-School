@@ -1191,3 +1191,151 @@ body.scoreboard.overlay .board-stage.is-final {
   table.sheet th.name, table.sheet td.name,
   table.sheet th.total, table.sheet td.total { position: static; }
 }
+
+/* Live session overlay — narrow vertical Zoom-share strip */
+body.live-overlay {
+  margin: 0;
+  min-height: 100vh;
+  background: #0b1020;
+  color: #f4f6fb;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body.live-overlay.overlay {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.live-overlay-stage {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 0.65rem 1rem;
+}
+
+body.live-overlay.overlay .live-overlay-stage {
+  height: 100%;
+  min-height: 100%;
+  overflow: auto;
+}
+
+.live-overlay-header {
+  text-align: center;
+  -webkit-app-region: drag;
+}
+
+.live-overlay-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9aa6c3;
+}
+
+.live-overlay-code {
+  margin: 0.35rem 0 0.25rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: clamp(1.35rem, 4.5vw, 1.85rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #f5c518;
+  word-break: break-all;
+}
+
+.live-overlay-count {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #d7deef;
+}
+
+.live-overlay-section-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9aa6c3;
+}
+
+.live-overlay-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.live-overlay-list li {
+  padding: 0.35rem 0.45rem;
+  border-left: 3px solid #3d7eff;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.live-overlay-empty {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #8b95ad;
+}
+
+.live-overlay-empty[hidden] {
+  display: none !important;
+}
+
+.live-overlay-teams {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.live-overlay-team-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.live-overlay-team {
+  display: grid;
+  grid-template-columns: 0.35rem 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.4rem 0.45rem;
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+}
+
+.live-overlay-team-swatch {
+  width: 0.35rem;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--team, #888);
+}
+
+.live-overlay-team-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.live-overlay-team-score {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.95rem;
+  color: #f5c518;
+}
+
+.live-overlay-ended {
+  margin-top: auto;
+  text-align: center;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ff8f8f;
+}
+
+body.live-overlay.is-ended .live-overlay-code {
+  color: #8b95ad;
+}

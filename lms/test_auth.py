@@ -173,12 +173,13 @@ class AuthTests(unittest.TestCase):
         self.assertIn(code, rv.get_data(as_text=True))
 
     def test_wrong_student_code_401(self) -> None:
-        """Unknown 8-char keys are rejected."""
-        rv = self.client.post("/auth/student-code", data={"code": "ABCD2345"})
+        """Unknown codes are rejected (no active session → idle message)."""
+        rv = self.client.post("/auth/student-code", data={"code": "ABCD2345", "name": "Maple"})
         self.assertEqual(rv.status_code, 401)
+        self.assertIn(b"No live class is running", rv.data)
 
     def test_unknown_student_name_401(self) -> None:
-        """A valid course key with an unknown roster name is rejected."""
+        """A valid session code with an unknown roster name is rejected."""
         self.school.activate_from_semester_json()
         teacher = self.school.register_staff("teacher@gmail.com")
         offering = self.school.assign_course(
@@ -204,15 +205,20 @@ class AuthTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200)
+        class_id = int(created.get_json()["class"]["id"])
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
         self.client.get("/logout")
         rv = self.client.post(
             "/auth/student-code",
-            data={"code": offering["live_access_code"], "name": "Birch"},
+            data={"code": live["session_code"], "name": "Birch"},
         )
         self.assertEqual(rv.status_code, 401)
+        self.assertIn(b"Double-check the code", rv.data)
 
     def test_student_code_joins_waiting_room(self) -> None:
-        """A valid course key and roster name land on the mood check-in."""
+        """An active session code and roster name land on the mood check-in."""
         self.school.activate_from_semester_json()
         teacher = self.school.register_staff("teacher@gmail.com")
         offering = self.school.assign_course(
@@ -238,21 +244,71 @@ class AuthTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 200)
+        class_id = int(created.get_json()["class"]["id"])
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
         self.client.get("/logout")
+        available = self.client.get("/api/student/live-available")
+        self.assertEqual(available.status_code, 200)
+        self.assertTrue(available.get_json()["active"])
         rv = self.client.post(
             "/auth/student-code",
-            data={"code": offering["live_access_code"], "name": "Maple"},
+            data={"code": live["session_code"], "name": "Maple"},
             follow_redirects=False,
         )
         self.assertEqual(rv.status_code, 302)
         self.assertIn("/student/mood", rv.headers.get("Location", ""))
+        attendees = self.school.list_live_session_attendees(
+            int(live["id"]), present_only=True
+        )
+        self.assertEqual(len(attendees), 1)
 
     def test_student_code_rate_limit(self) -> None:
         """More than 5 attempts per IP in 10 minutes is 429."""
         last = None
         for _ in range(6):
-            last = self.client.post("/auth/student-code", data={"code": "ZZZZZZZZ"})
+            last = self.client.post(
+                "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
+            )
         self.assertEqual(last.status_code, 429)
+
+    def test_durable_offering_code_rejected_when_idle(self) -> None:
+        """Offering codes no longer admit students without an active session."""
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.client.get("/logout")
+        idle = self.client.get("/api/student/live-available")
+        self.assertFalse(idle.get_json()["active"])
+        rv = self.client.post(
+            "/auth/student-code",
+            data={"code": offering["live_access_code"], "name": "Maple"},
+        )
+        self.assertEqual(rv.status_code, 401)
+        self.assertIn(b"No live class is running", rv.data)
 
 
 if __name__ == "__main__":

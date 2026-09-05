@@ -1,4 +1,4 @@
-"""8-character live-access codes for student join (unique per class)."""
+"""8-character live-access codes for student join and live sessions."""
 
 from __future__ import annotations
 

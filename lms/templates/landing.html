@@ -77,20 +77,55 @@
       var panel = document.getElementById("student-code-panel");
       var input = document.getElementById("code");
       if (!btn || !panel) return;
+
+      /**
+       * Close the student join panel and return to role cards.
+       */
+      function closeStudentPanel() {
+        panel.classList.add("hidden");
+        btn.classList.remove("is-open");
+        btn.setAttribute("aria-expanded", "false");
+      }
+
+      /**
+       * Open the student join panel and focus the code field.
+       */
+      function openStudentPanel() {
+        panel.classList.remove("hidden");
+        btn.classList.add("is-open");
+        btn.setAttribute("aria-expanded", "true");
+        if (input) input.focus();
+      }
+
       btn.addEventListener("click", function () {
-        var open = panel.classList.toggle("hidden") === false;
-        btn.classList.toggle("is-open", open);
-        btn.setAttribute("aria-expanded", open ? "true" : "false");
-        if (open && input) input.focus();
+        if (!panel.classList.contains("hidden")) {
+          closeStudentPanel();
+          return;
+        }
+        fetch("/api/student/live-available", { credentials: "same-origin" })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data && data.active) {
+              openStudentPanel();
+              return;
+            }
+            window.alert(
+              "No live class is running right now. Ask your teacher to start class, then try again."
+            );
+            closeStudentPanel();
+            if (location.pathname !== "/") {
+              location.href = "/";
+            }
+          })
+          .catch(function () {
+            window.alert(
+              "No live class is running right now. Ask your teacher to start class, then try again."
+            );
+            closeStudentPanel();
+          });
       });
       if (!panel.classList.contains("hidden") && input) input.focus();
     })();
-  </script>
-
-  <script>
-    // #region agent log
-    fetch('http://127.0.0.1:7424/ingest/06a65a63-e2b0-42ff-8efe-529415899763',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3d5e3c'},body:JSON.stringify({sessionId:'3d5e3c',location:'landing.html',message:'landing painted',data:{href:location.href,port:location.port,protocol:location.protocol},timestamp:Date.now(),hypothesisId:'C',runId:'pre-fix'})}).catch(function(){});
-    // #endregion
   </script>
 </body>
 </html>

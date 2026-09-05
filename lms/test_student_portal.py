@@ -61,33 +61,51 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 200)
         self.class_id = int(created.get_json()["class"]["id"])
+        run = self.staff.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        live = self.school.get_active_live_session_for_class(self.class_id)
+        self.assertIsNotNone(live)
+        assert live is not None
+        self.session_code = str(live["session_code"])
+        self.live_session_id = int(live["id"])
 
     def tearDown(self) -> None:
         """Close db and temp dir."""
         self.school.close()
         self.tmp.cleanup()
 
-    def test_join_mood_character_home_and_show_rank(self) -> None:
-        """Join → mood good → character char_a → home; rank hidden until enabled."""
+    def test_join_mood_home_and_show_rank(self) -> None:
+        """Join → mood good + Join Class → home; rank hidden until enabled."""
         join = self.student.post(
             "/auth/student-code",
-            data={"code": self.offering["live_access_code"], "name": "Maple"},
+            data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
         self.assertEqual(join.status_code, 302)
         self.assertIn("/student/mood", join.headers.get("Location", ""))
+        attendees = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(attendees), 1)
+        self.assertEqual(attendees[0]["codename"], "Maple")
+
+        mood_page = self.student.get("/student/mood")
+        self.assertEqual(mood_page.status_code, 200)
+        mood_html = mood_page.get_data(as_text=True)
+        self.assertIn("Join Class", mood_html)
+        self.assertNotIn("Choose your character", mood_html)
 
         mood = self.student.post("/student/mood", data={"mood": "good"}, follow_redirects=False)
         self.assertEqual(mood.status_code, 302)
-        self.assertIn("/student/character", mood.headers.get("Location", ""))
+        self.assertIn("/student/home", mood.headers.get("Location", ""))
+        self.assertNotIn("/student/character", mood.headers.get("Location", ""))
 
-        character = self.student.post(
-            "/student/character",
-            data={"character": "char_a"},
-            follow_redirects=False,
-        )
-        self.assertEqual(character.status_code, 302)
-        self.assertIn("/student/home", character.headers.get("Location", ""))
+        char = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(char.status_code, 302)
+        self.assertIn("/student/home", char.headers.get("Location", ""))
 
         home = self.student.get("/student/home")
         self.assertEqual(home.status_code, 200)

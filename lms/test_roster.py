@@ -106,6 +106,12 @@ class RosterTests(unittest.TestCase):
         att_html = att.get_data(as_text=True)
         self.assertIn("Take Attendance", att_html)
         self.assertIn("id=\"attendance-grid\"", att_html)
+        self.assertIn("Begin Class Tracking", att_html)
+        self.assertNotIn(">Mood</a>", att_html)
+        self.assertNotIn("id=\"mood-grid\"", att_html)
+        self.assertNotIn("id=\"ap-att-all\"", att_html)
+        self.assertNotIn("id=\"ap-att-done\"", att_html)
+        self.assertNotIn(">All present<", att_html)
 
         grades = self.client.get(f"/staff/class/{class_id}?tab=gradebook")
         self.assertEqual(grades.status_code, 200)
@@ -354,7 +360,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("2026-09-09", live_isos)  # Wed
 
     def test_staff_home_has_ap_shortcut(self) -> None:
-        """Course cards expose Take Attendance & Log Participation and Run Live Class."""
+        """Course cards expose Take Attendance, Log Participation, and Run Live Class."""
         created = self.client.post(
             "/api/staff/classes",
             json={
@@ -368,7 +374,12 @@ class RosterTests(unittest.TestCase):
         home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Take Attendance", home)
         self.assertIn("Log Participation", home)
+        self.assertNotIn("Take Attendance &amp; Log Participation", home)
         self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance", home)
+        self.assertIn(
+            f"/staff/class/{class_id}?tab=ap&amp;view=participation&amp;participate=1",
+            home,
+        )
         self.assertNotIn("take=1", home)
         self.assertIn(f"/staff/class/{class_id}/run-live", home)
         self.assertIn("Run Live Class", home)
@@ -475,7 +486,8 @@ class RosterTests(unittest.TestCase):
         self.assertIn("M | W | F | 2:00 PM", filled)
         self.assertNotIn("Schedule set when you Populate Class", filled)
         self.assertIn(f"/staff/class/{class_id}", filled)
-        self.assertIn("Student code appears when you Run Live Class", filled)
+        self.assertNotIn("Student code appears when you Run Live Class", filled)
+        self.assertNotIn('class="course-card-join">Student code', filled)
 
         dash = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
         self.assertIn("<h1>MCF3M</h1>", dash)
@@ -524,8 +536,8 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(still_post.status_code, 200)
         self.assertNotEqual(still_post.get_json()["class"]["id"], class_id)
 
-    def test_run_live_mints_unique_class_code(self) -> None:
-        """Run Live Class mints a persistent unique join code per class."""
+    def test_run_live_mints_unique_session_code(self) -> None:
+        """Run Live Class mints a session; a second Run is blocked until ended."""
         first = self.client.post(
             "/api/staff/classes",
             json={
@@ -545,23 +557,53 @@ class RosterTests(unittest.TestCase):
         self.assertIn(f"/staff/class/{class_id}", location)
         self.assertIn("tab=ap", location)
         self.assertIn("take=1", location)
-        minted = self.school.game.get_class(class_id)["live_access_code"]
+        self.assertIn("live_session_id=", location)
+        session_one = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(session_one)
+        assert session_one is not None
+        minted = str(session_one["session_code"])
         self.assertEqual(len(minted), 8)
         self.assertNotEqual(minted, self.offering["live_access_code"])
+        blocked = self.client.post(
+            f"/staff/class/{class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn(
+            b"already have a live class running",
+            blocked.get_data(),
+        )
+        still_active = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(still_active)
+        assert still_active is not None
+        self.assertEqual(int(still_active["id"]), int(session_one["id"]))
+        self.assertEqual(still_active["session_code"], minted)
+        self.school.end_live_class_session(int(session_one["id"]))
         again = self.client.post(
             f"/staff/class/{class_id}/run-live",
             follow_redirects=False,
         )
         self.assertEqual(again.status_code, 302)
-        self.assertEqual(
-            self.school.game.get_class(class_id)["live_access_code"], minted
-        )
+        session_two = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(session_two)
+        assert session_two is not None
+        self.assertNotEqual(int(session_two["id"]), int(session_one["id"]))
+        self.assertNotEqual(session_two["session_code"], minted)
+        ended = self.school.get_live_session(int(session_one["id"]))
+        assert ended is not None
+        self.assertEqual(ended["status"], "ended")
         home = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn(minted, home)
+        self.assertNotIn(minted, home)
+        self.assertNotIn(str(session_two["session_code"]), home)
         self.assertNotIn("Student code appears when you Run Live Class", home)
+        overlay = self.client.get(f"/live-overlay/{int(session_two['id'])}")
+        self.assertEqual(overlay.status_code, 200)
+        overlay_html = overlay.get_data(as_text=True)
+        self.assertIn("live-overlay", overlay_html)
+        self.assertIn("live_session_overlay.js", overlay_html)
 
-    def test_two_classes_get_distinct_student_codes(self) -> None:
-        """Concurrent sections do not share a student join code."""
+    def test_two_classes_get_distinct_session_codes(self) -> None:
+        """Same teacher cannot run two concurrent live sessions; IT can force-end."""
         first = self.client.post(
             "/api/staff/classes",
             json={
@@ -588,32 +630,224 @@ class RosterTests(unittest.TestCase):
         )
         class_b = second.get_json()["class"]["id"]
         self.client.post(f"/staff/class/{class_a}/run-live")
-        self.client.post(f"/staff/class/{class_b}/run-live")
-        code_a = self.school.game.get_class(class_a)["live_access_code"]
-        code_b = self.school.game.get_class(class_b)["live_access_code"]
-        self.assertNotEqual(code_a, code_b)
-        self.client.get("/logout")
-        join_a = self.client.post(
-            "/auth/student-code", data={"code": code_a}, follow_redirects=False
-        )
-        self.assertEqual(join_a.status_code, 302)
-        self.assertIn("/student/waiting", join_a.headers.get("Location", ""))
-        with self.client.session_transaction() as sess:
-            self.assertEqual(int(sess["student_class_id"]), int(class_a))
-            self.assertEqual(sess["student_live_code"], code_a)
-        self.client.get("/logout")
-        join_offering = self.client.post(
-            "/auth/student-code",
-            data={"code": self.offering["live_access_code"]},
+        session_a = self.school.get_active_live_session_for_class(class_a)
+        self.assertIsNotNone(session_a)
+        assert session_a is not None
+        blocked = self.client.post(
+            f"/staff/class/{class_b}/run-live",
             follow_redirects=False,
         )
-        self.assertEqual(join_offering.status_code, 401)
-        join_b = self.client.post(
-            "/auth/student-code", data={"code": code_b}, follow_redirects=False
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_b))
+        active = self.client.get("/api/live-sessions/active")
+        self.assertEqual(active.status_code, 200)
+        codes = {row["session_code"] for row in active.get_json()["sessions"]}
+        self.assertEqual(codes, {session_a["session_code"]})
+        state = self.client.get(
+            f"/api/live-sessions/{int(session_a['id'])}/state"
         )
-        self.assertEqual(join_b.status_code, 302)
-        with self.client.session_transaction() as sess:
-            self.assertEqual(int(sess["student_class_id"]), int(class_b))
+        self.assertEqual(state.status_code, 200)
+        payload = state.get_json()
+        self.assertEqual(payload["code"], session_a["session_code"])
+        self.assertEqual(payload["phase"], "live")
+        self.assertEqual(payload["count"], 0)
+
+        # Distinct codes across teachers after ending the first session.
+        other_teacher = self.school.register_staff("other-teacher@gmail.com")
+        other_offering = self.school.assign_course(
+            teacher_user_id=int(other_teacher["id"]),
+            ontario_code="MCR3U",
+        )
+        other_client = self.app.test_client()
+        other_client.get("/auth/google?portal=staff")
+        other_client.get(
+            "/auth/google/callback?email=other-teacher@gmail.com&name=O"
+        )
+        other_user = self.school.get_user_by_email("other-teacher@gmail.com")
+        assert other_user is not None
+        other_client.post(
+            "/verify-email",
+            data={"code": other_user["verification_code"]},
+        )
+        other_class_rv = other_client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": other_offering["id"],
+                "days": "M/W/F",
+                "time": "10:40am",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(other_class_rv.status_code, 200, other_class_rv.get_json())
+        other_class = other_class_rv.get_json()["class"]["id"]
+        other_client.post(f"/staff/class/{other_class}/run-live")
+        session_b = self.school.get_active_live_session_for_class(other_class)
+        self.assertIsNotNone(session_b)
+        assert session_b is not None
+        self.assertNotEqual(session_a["session_code"], session_b["session_code"])
+
+        # IT force-end clears stuck sessions.
+        it = self.app.test_client()
+        it.get("/auth/google?portal=it")
+        it.get("/auth/google/callback?email=solutions@mckenzian.com&name=IT")
+        it_user = self.school.get_user_by_email("solutions@mckenzian.com")
+        assert it_user is not None
+        it.post("/verify-email", data={"code": it_user["verification_code"]})
+        end_one = it.post(f"/api/it/live-sessions/{int(session_a['id'])}/end")
+        self.assertEqual(end_one.status_code, 200)
+        self.assertTrue(end_one.get_json()["ok"])
+        ended_state = self.client.get(
+            f"/api/live-sessions/{int(session_a['id'])}/state"
+        )
+        self.assertEqual(ended_state.get_json()["phase"], "ended")
+        self.assertIsNone(
+            self.school.get_active_live_session_by_code(session_a["session_code"])
+        )
+        end_all = it.post("/api/it/live-sessions/end-all")
+        self.assertEqual(end_all.status_code, 200)
+        self.assertGreaterEqual(end_all.get_json()["ended_count"], 1)
+        self.assertIsNone(self.school.get_active_live_session_for_class(other_class))
+
+        # Original teacher can start class B after the block is cleared.
+        retry_b = self.client.post(
+            f"/staff/class/{class_b}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(retry_b.status_code, 302)
+        session_b2 = self.school.get_active_live_session_for_class(class_b)
+        self.assertIsNotNone(session_b2)
+
+    def test_student_join_records_attendee_and_leave_wipes_mood(self) -> None:
+        """Active session join binds attendee; leave sets left_at and clears mood."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        self.client.get("/logout")
+        student = self.app.test_client()
+        join = student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(join.status_code, 302)
+        attendees = self.school.list_live_session_attendees(
+            int(live["id"]), present_only=True
+        )
+        self.assertEqual(len(attendees), 1)
+        student.post("/student/mood", data={"mood": "good"})
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        self.assertEqual(
+            self.school.game.get_mood(class_id, int(maple["id"])), "good"
+        )
+        leave = student.post("/api/student/leave")
+        self.assertEqual(leave.status_code, 204)
+        left = self.school.list_live_session_attendees(int(live["id"]))
+        self.assertEqual(len(left), 1)
+        self.assertIsNotNone(left[0].get("left_at"))
+        self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
+        self.assertTrue(self.school.has_active_live_sessions())
+
+    def test_run_live_wipes_prior_moods(self) -> None:
+        """Run Live Class clears leftover mood faces before Mark Attendance."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        self.school.game.set_mood(class_id, int(maple["id"]), "good")
+        self.assertEqual(self.school.game.get_mood(class_id, int(maple["id"])), "good")
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
+
+    def test_begin_class_tracking_stays_authed_after_student_join(self) -> None:
+        """Same-browser student join must not wipe staff Begin Class Tracking auth."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        begin = self.client.post(
+            f"/api/classes/{class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(begin.status_code, 200)
+        # Same test client joins as student (shared cookie jar).
+        self.client.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+        )
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        att = self.client.post(
+            f"/api/classes/{class_id}/game/attendance",
+            json={"present_ids": [int(maple["id"])], "meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(att.status_code, 200, att.get_data(as_text=True))
+        self.assertNotIn("Authentication required", att.get_data(as_text=True))
+        self.assertEqual(att.get_json()["game"]["status"], "teams")
+
+    def test_join_auto_marks_present_when_attendance_open(self) -> None:
+        """Join marks present on the open Mark Attendance meeting column."""
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple", "Birch"],
+            },
+        )
+        class_id = first.get_json()["class"]["id"]
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        self.school.game.begin_game(class_id)
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        self.client.get("/logout")
+        student = self.app.test_client()
+        student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+        )
+        game = self.school.game._game_row(class_id)
+        with self.school.game._lock:
+            row = self.school.game.conn.execute(
+                """
+                SELECT present FROM session_scores
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (int(game["session_id"]), int(maple["id"])),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(int(row["present"]), 1)
 
 
 if __name__ == "__main__":

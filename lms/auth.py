@@ -14,6 +14,7 @@ import requests
 from flask import (
     Flask,
     current_app,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -183,6 +184,16 @@ def current_user() -> dict[str, Any] | None:
     return user
 
 
+def _api_auth_error(message: str = "Authentication required.", status: int = 401):
+    """Return a JSON auth failure for staff/IT API routes.
+
+    Args:
+        message: Error string shown in the UI.
+        status: HTTP status (401 or 403).
+    """
+    return jsonify({"ok": False, "error": message}), status
+
+
 def login_required(f: Callable) -> Callable:
     """Require a staff/IT Google session."""
 
@@ -190,7 +201,7 @@ def login_required(f: Callable) -> Callable:
     def decorated(*args, **kwargs):
         if current_user() is None:
             if request.path.startswith("/api/"):
-                return {"ok": False, "error": "Authentication required."}, 401
+                return _api_auth_error()
             return redirect(url_for("landing"))
         return f(*args, **kwargs)
 
@@ -205,7 +216,7 @@ def staff_required(f: Callable) -> Callable:
         user = current_user()
         if user is None:
             if request.path.startswith("/api/"):
-                return {"ok": False, "error": "Authentication required."}, 401
+                return _api_auth_error()
             return redirect(url_for("auth_google", portal="staff"))
         portal = session.get("portal")
         if portal == "it" and user["role"] == "it":
@@ -213,7 +224,7 @@ def staff_required(f: Callable) -> Callable:
             return f(*args, **kwargs)
         if portal != "staff" and user["role"] != "it":
             if request.path.startswith("/api/"):
-                return {"ok": False, "error": "Ask Admin to grant access."}, 403
+                return _api_auth_error("Ask Admin to grant access.", 403)
             return render_template(
                 "forbidden.html",
                 message="Ask Admin to grant access.",
@@ -231,7 +242,7 @@ def it_required(f: Callable) -> Callable:
         user = current_user()
         if user is None:
             if request.path.startswith("/api/"):
-                return {"ok": False, "error": "Authentication required."}, 401
+                return _api_auth_error()
             return redirect(url_for("auth_google", portal="it"))
         email = str(user.get("email") or "").lower()
         if user["role"] != "it" and email not in it_emails():
@@ -266,7 +277,7 @@ def staff_or_student_scoreboard(f: Callable) -> Callable:
         if session.get("student_offering_id") or session.get("student_class_id"):
             return f(*args, **kwargs)
         if request.path.startswith("/api/"):
-            return {"ok": False, "error": "Authentication required."}, 401
+            return _api_auth_error()
         return redirect(url_for("landing"))
 
     return decorated
@@ -375,6 +386,25 @@ def _post_login_redirect(portal: str):
     if portal == "it":
         return redirect(url_for("it_dashboard"))
     return redirect(url_for("staff_home"))
+
+
+def _disconnect_student_live_if_bound() -> None:
+    """Best-effort: mark the bound student left and wipe mood/character.
+
+    No-op when the Flask session is not a live-session student join.
+    """
+    live_session_id = session.get("student_live_session_id")
+    student_id = session.get("student_id")
+    if not live_session_id or not student_id:
+        return
+    try:
+        school_db().disconnect_live_session_student(
+            int(live_session_id),
+            int(student_id),
+            clear_mood=True,
+        )
+    except Exception:  # noqa: BLE001 - disconnect must never block logout
+        return
 
 
 def register_auth_routes(app: Flask) -> None:
@@ -591,12 +621,46 @@ def register_auth_routes(app: Flask) -> None:
     @app.route("/logout")
     def logout():
         """Clear staff, IT, and student sessions."""
+        _disconnect_student_live_if_bound()
         session.clear()
         return redirect(url_for("landing"))
 
+    @app.route("/api/student/live-available")
+    def api_student_live_available():
+        """Public check: whether any live class session is currently joinable."""
+        from flask import jsonify
+
+        active = school_db().has_active_live_sessions()
+        return jsonify({"ok": True, "active": active})
+
+    @app.route("/api/student/leave", methods=["POST"])
+    def api_student_leave():
+        """Best-effort student disconnect (tab close / End Game client path).
+
+        Sets ``left_at`` and wipes mood/character for the bound live session
+        attendee. Safe to call with sendBeacon; always returns 204 when the
+        cookie session is incomplete.
+
+        Only clears student session keys so a same-browser staff login (used
+        during local testing) is not wiped by a student tab close/beacon.
+        """
+        from flask import Response
+
+        _disconnect_student_live_if_bound()
+        for key in list(session.keys()):
+            if key.startswith("student_") or key == "role" and session.get("role") == "student":
+                session.pop(key, None)
+        if session.get("role") == "student":
+            session.pop("role", None)
+        return Response(status=204)
+
     @app.route("/auth/student-code", methods=["POST"])
     def auth_student_code():
-        """Join via per-class code (mobile) or course key + roster name (portal)."""
+        """Join an active live class session via ephemeral code + roster name.
+
+        Landing Student join is active-session-only: durable offering/class
+        codes do not admit students when idle.
+        """
         from flask import jsonify
 
         db = school_db()
@@ -616,91 +680,73 @@ def register_auth_routes(app: Flask) -> None:
         name = (request.form.get("name") or payload.get("name") or "").strip()
         code = str(raw).strip().upper()
 
-        cls = db.get_class_by_live_code(code)
-        offering = db.get_offering_by_code(code)
-        if cls and not offering and cls.get("offering_id"):
+        no_session_msg = (
+            "No live class is running right now. Ask your teacher to start "
+            "class, then try again."
+        )
+        mismatch_msg = (
+            "Double-check the code with your teacher, or make sure your "
+            "username matches the roster for this course."
+        )
+
+        def _fail(msg: str, status: int = 401):
+            """Return a join error for JSON or landing form posts."""
+            if request.is_json:
+                return jsonify({"ok": False, "error": msg}), status
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=msg)
+            ), status
+
+        if not db.has_active_live_sessions():
+            return _fail(no_session_msg)
+
+        if not name:
+            return _fail("Enter the name on your class roster.")
+
+        live_session = db.get_active_live_session_by_code(code)
+        if live_session is None:
+            return _fail(mismatch_msg)
+
+        student = db.find_roster_student_for_live_session(
+            int(live_session["id"]), name
+        )
+        if student is None:
+            return _fail(mismatch_msg)
+
+        class_id = int(live_session["class_id"])
+        try:
+            cls = db.game.get_class(class_id)
+        except KeyError:
+            return _fail(mismatch_msg)
+
+        offering = None
+        if cls.get("offering_id"):
             try:
                 offering = db.get_offering(int(cls["offering_id"]))
             except KeyError:
                 offering = None
+        if offering is None:
+            return _fail(mismatch_msg)
 
-        if not cls and not offering:
-            msg = "That student code was not recognized."
-            if request.is_json:
-                return jsonify({"ok": False, "error": msg}), 401
-            return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
-            ), 401
-
-        # Mobile: unique class code alone joins waiting/game
-        if cls and not name:
-            session.clear()
-            session["student_class_id"] = int(cls["id"])
-            if cls.get("offering_id"):
-                session["student_offering_id"] = int(cls["offering_id"])
-            session["student_live_code"] = cls["live_access_code"]
-            session["student_course"] = cls.get("ontario_code") or cls.get("course_code")
-            session["role"] = "student"
-            session.permanent = True
-            live = db.game.live_game_for_class(int(cls["id"]))
-            if live:
-                return redirect(url_for("student_game"))
-            return redirect(url_for("student_waiting"))
-
-        if not name:
-            msg = "Enter the name on your class roster."
-            if request.is_json:
-                return jsonify({"ok": False, "error": msg}), 401
-            return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
-            ), 401
-
-        matches = db.find_roster_matches(code, name)
-        if not matches:
-            msg = "That name was not found on the course roster."
-            if request.is_json:
-                return jsonify({"ok": False, "error": msg}), 401
-            return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
-            ), 401
-
-        if len(matches) > 1:
-            if not offering:
-                msg = "That student code was not recognized."
-                if request.is_json:
-                    return jsonify({"ok": False, "error": msg}), 401
-                return render_template(
-                    "landing.html", **landing_kwargs(student_error=msg)
-                ), 401
-            session.clear()
-            session["student_offering_id"] = int(offering["id"])
-            session["student_live_code"] = offering["live_access_code"]
-            session["student_course"] = offering["ontario_code"]
-            session["student_codename"] = name
-            session["role"] = "student"
-            session.permanent = True
-            return redirect(url_for("student_pick"))
-
-        chosen = matches[0]
-        if not offering and chosen["class"].get("offering_id"):
-            try:
-                offering = db.get_offering(int(chosen["class"]["offering_id"]))
-            except KeyError:
-                offering = None
-        if not offering:
-            msg = "That student code was not recognized."
-            if request.is_json:
-                return jsonify({"ok": False, "error": msg}), 401
-            return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
-            ), 401
-        bind_student_session(session, offering, chosen["class"], chosen["student"])
+        db.join_live_class_session(
+            int(live_session["id"]),
+            int(student["id"]),
+            codename=str(student.get("codename") or name),
+        )
+        bind_student_session(
+            session,
+            offering,
+            cls,
+            student,
+            live_session_id=int(live_session["id"]),
+            session_code=str(live_session.get("session_code") or code),
+        )
         return redirect(
             url_for(
                 next_student_endpoint(
                     db,
-                    int(chosen["class"]["id"]),
-                    int(chosen["student"]["id"]),
+                    class_id,
+                    int(student["id"]),
                 )
             )
         )

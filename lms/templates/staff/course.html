@@ -65,12 +65,10 @@
     </p>
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'ap' %}
-    <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="{{ '1' if take_attendance else '0' }}">
+    <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="{{ '1' if take_attendance else '0' }}" data-participate="{{ '1' if log_participation else '0' }}" data-live-session-id="{{ live_session_id or '' }}">
       <nav class="ap-subtabs" aria-label="Attendance and Participation">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='mood') }}"
-           class="{{ 'on' if ap_view == 'mood' else '' }}">Mood</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
       </nav>
@@ -88,22 +86,6 @@
         <p class="hint" id="att-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s attendance.</p>
         <div class="sheet-wrap attendance-wrap">
           <table class="sheet attendance-grid" id="attendance-grid">
-            <thead><tr><th class="name">Student</th><th class="total">Total</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      {% elif ap_view == 'mood' %}
-      <div id="mood-root" data-class-id="{{ cls.id }}">
-        <div class="topbar">
-          <div class="row-actions ap-toolbar">
-            <button type="button" class="secondary" id="mood-sort">Sort: A–Z</button>
-          </div>
-        </div>
-        <div id="mood-error" class="error" hidden></div>
-        <p class="hint">Same calendar as Attendance. Faces are what students tapped at join.</p>
-        <div class="sheet-wrap attendance-wrap">
-          <table class="sheet attendance-grid" id="mood-grid">
             <thead><tr><th class="name">Student</th><th class="total">Total</th></tr></thead>
             <tbody></tbody>
           </table>
@@ -174,21 +156,13 @@
           <div id="ap-overlay-error" class="error" hidden></div>
           <section id="ap-panel-att" class="ap-panel hidden">
             <h2 id="ap-overlay-title">Mark Attendance <span id="ap-att-count" class="att-count">Attendance: 0</span></h2>
-            {% if cls.live_access_code %}
-            <p class="hint">Student code <code class="live-code">{{ cls.live_access_code }}</code></p>
-            {% endif %}
             <label class="field" for="ap-meeting-date">Class date</label>
             <input type="date" id="ap-meeting-date" class="ap-date-input">
-            <p class="hint">Defaults from the previous session (all absent on the first log). Only present students go to participation.</p>
-            <div class="row-actions">
-              <button type="button" class="secondary" id="ap-att-all">All present</button>
-              <button type="button" class="secondary" id="ap-att-none">All absent</button>
-            </div>
+            <p class="hint">Students who join the live session are marked present automatically. Only present students go to participation.</p>
             <div id="ap-att-list" class="check-list"></div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-att-cancel">Cancel</button>
-              <button type="button" class="secondary" id="ap-att-done">Done</button>
-              <button type="button" id="ap-att-log">Log Participation</button>
+              <button type="button" class="secondary" id="ap-att-cancel">Quit</button>
+              <button type="button" id="ap-att-log">Begin Class Tracking</button>
             </div>
           </section>
           <section id="ap-panel-validate" class="ap-panel hidden">
@@ -197,7 +171,7 @@
             <label class="field" for="ap-valid-date">Class date</label>
             <input type="date" id="ap-valid-date" class="ap-date-input">
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-validate-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-validate-cancel">Quit</button>
               <button type="button" id="ap-validate-apply">Use this date</button>
             </div>
           </section>
@@ -212,7 +186,7 @@
               <p class="hint">Create groups to assign points to teams or individuals.</p>
             </div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-gamify-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-gamify-cancel">Quit</button>
             </div>
           </section>
           <section id="ap-panel-teams" class="ap-panel hidden">
@@ -278,14 +252,14 @@
               </div>
             </div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-teams-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-teams-cancel">Quit</button>
             </div>
           </section>
           <section id="ap-panel-names" class="ap-panel hidden">
             <h2>Create Teams</h2>
             <div id="ap-name-list"></div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-names-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-names-cancel">Quit</button>
               <button type="button" class="secondary" id="ap-names-back">Back</button>
               <button type="button" id="ap-start-game">Create Teams</button>
             </div>
@@ -298,7 +272,7 @@
               <button type="button" class="secondary" id="ap-rounds-add">Add round</button>
             </div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-rounds-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-rounds-cancel">Quit</button>
               <button type="button" class="secondary" id="ap-rounds-back">Back</button>
               <button type="button" id="ap-rounds-start">Start Scoring</button>
             </div>
@@ -307,8 +281,8 @@
             <h2>Log Participation</h2>
             <div id="ap-score-list" class="ap-score-list"></div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-score-cancel">Cancel</button>
-              <button type="button" class="danger" id="ap-score-end">End Game</button>
+              <button type="button" class="secondary" id="ap-score-cancel">Quit</button>
+              <button type="button" class="danger" id="ap-score-end">End Class</button>
             </div>
           </section>
           <section id="ap-panel-live" class="ap-panel hidden">
@@ -321,7 +295,7 @@
             </div>
             <div id="ap-live-teams" class="ap-live-teams"></div>
             <div class="row-actions">
-              <button type="button" class="secondary" id="ap-live-cancel">Cancel</button>
+              <button type="button" class="secondary" id="ap-live-cancel">Quit</button>
               <button type="button" class="danger" id="ap-live-end">End Game</button>
             </div>
           </section>
@@ -330,8 +304,6 @@
       <script type="module" src="/static/staff_ap.js"></script>
       {% if ap_view == 'attendance' %}
       <script type="module" src="/static/staff_attendance.js"></script>
-      {% elif ap_view == 'mood' %}
-      <script type="module" src="/static/staff_mood.js"></script>
       {% else %}
       <script type="module" src="/static/staff_grades.js"></script>
       {% endif %}

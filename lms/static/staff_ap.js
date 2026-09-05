@@ -10,6 +10,7 @@ import {
   formatPoints,
   hideError,
   lockRoundDeadline,
+  openLiveSessionOverlay,
   openScoreboardOverlay,
   remainingUntilMs,
   reserveScoreboardOverlay,
@@ -41,6 +42,9 @@ let roundEndsAtMs = 0;
 let liveStamp = "";
 let overlayPopout = false;
 let pendingScoreboard = false;
+let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
+let sessionPollTimer = null;
+let sessionPresentIds = new Set();
 let draftRounds = [
   { kind: "open", minutes: 20 },
   { kind: "challenge", minutes: 10 },
@@ -96,10 +100,11 @@ function closeOverlay() {
   pendingAction = null;
   pendingTeam = null;
   liveStamp = "";
+  stopLiveSessionPolling();
 }
 
 /**
- * Discard open setup/live game and close without saving.
+ * Discard open setup/live game, end the live-class session, and close.
  */
 async function cancelOverlay() {
   try {
@@ -107,7 +112,187 @@ async function cancelOverlay() {
   } catch (_) {
     /* still close */
   }
+  stopLiveSessionPolling();
+  liveSessionId = 0;
+  sessionPresentIds = new Set();
   closeOverlay();
+}
+
+/**
+ * Resolve live_session_id from the page URL or ap-root dataset.
+ * @returns {number}
+ */
+function readLiveSessionId() {
+  const fromData = Number(root?.dataset.liveSessionId || 0);
+  if (Number.isFinite(fromData) && fromData > 0) return fromData;
+  const fromQuery = Number(new URLSearchParams(location.search).get("live_session_id") || 0);
+  return Number.isFinite(fromQuery) && fromQuery > 0 ? fromQuery : 0;
+}
+
+/**
+ * Open the narrow Zoom-share live overlay for the current session.
+ * @returns {Window|null}
+ */
+function ensureLiveSessionOverlay() {
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return null;
+  liveSessionId = id;
+  return openLiveSessionOverlay(id, null, { classId });
+}
+
+/**
+ * Stop polling live-session attendees for Mark Attendance auto-ticks.
+ */
+function stopLiveSessionPolling() {
+  if (sessionPollTimer) {
+    clearInterval(sessionPollTimer);
+    sessionPollTimer = null;
+  }
+}
+
+/**
+ * Tick Mark Attendance rows for students currently in the live session.
+ * Also refreshes mood faces from the live-session attendee payload.
+ * @param {Iterable<number>} ids
+ * @param {Array<{student_id?:number,mood?:string}>} [attendees]
+ */
+function applySessionPresentTicks(ids, attendees) {
+  const next = new Set([...ids].map(Number).filter((n) => Number.isFinite(n) && n > 0));
+  for (const id of next) sessionPresentIds.add(id);
+  if (Array.isArray(attendees) && overlayState?.students) {
+    const moodById = new Map(
+      attendees
+        .map((row) => [Number(row.student_id), row.mood || null])
+        .filter(([sid]) => Number.isFinite(sid) && sid > 0)
+    );
+    for (const student of overlayState.students) {
+      const sid = Number(student.id);
+      if (moodById.has(sid)) student.mood = moodById.get(sid);
+    }
+  }
+  renderAttendanceList();
+}
+
+/**
+ * Fetch live-session state and auto-mark present attendees on the roster.
+ */
+async function pollLiveSessionAttendees() {
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return;
+  liveSessionId = id;
+  try {
+    const payload = await api(`/api/live-sessions/${id}/state`);
+    if (payload?.phase === "ended" || payload?.session?.status === "ended") {
+      stopLiveSessionPolling();
+      return;
+    }
+    const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
+    const present = rows.filter((row) => !row?.left_at);
+    applySessionPresentTicks(
+      present.map((row) => Number(row.student_id)),
+      present
+    );
+  } catch (_) {
+    /* keep polling */
+  }
+}
+
+/**
+ * Begin polling session joins until End Game / cancel.
+ */
+function startLiveSessionPolling() {
+  stopLiveSessionPolling();
+  pollLiveSessionAttendees();
+  sessionPollTimer = window.setInterval(pollLiveSessionAttendees, 2000);
+}
+
+/**
+ * Clear leftover MGS live/setup so Mark Attendance can open for a live session.
+ * Always preserves the live_class_sessions row — never ends the join code.
+ */
+async function clearStuckGameForLiveSession() {
+  const preserveBody = JSON.stringify({ preserve_live_session: true });
+  try {
+    await api(`/api/classes/${classId}/game/end`, {
+      method: "POST",
+      body: preserveBody,
+    });
+    return;
+  } catch (_) {
+    /* end only works while MGS status is live — fall through to cancel */
+  }
+  try {
+    await api(`/api/classes/${classId}/game/cancel`, {
+      method: "POST",
+      body: preserveBody,
+    });
+  } catch (_) {
+    /* ignore — no open game is fine */
+  }
+}
+
+/**
+ * Persist the picker date on the open setup game before saving attendance.
+ * @param {string} iso
+ */
+async function ensureMeetingDate(iso) {
+  if (!iso) return;
+  overlayState = await api(`/api/classes/${classId}/game/meeting`, {
+    method: "POST",
+    body: JSON.stringify({ meeting_date: iso }),
+  });
+}
+
+/**
+ * Begin a session for today and open Mark Attendance.
+ * When ``live_session_id`` is present, opens the dialog first, then the live overlay.
+ */
+export async function openTakeAttendance() {
+  hideError("#att-error");
+  hideError("#ap-overlay-error");
+  try {
+    liveSessionId = readLiveSessionId() || liveSessionId;
+    await loadContext();
+    const meeting = defaultSchoolDay(logContext);
+    syncOverlayPickers(logContext, meeting);
+    overlayState = await api(`/api/classes/${classId}/begin`, {
+      method: "POST",
+      body: JSON.stringify({ meeting_date: meeting }),
+    });
+    if (overlayState.game?.status === "live") {
+      if (liveSessionId) {
+        await clearStuckGameForLiveSession();
+        // Re-mint meeting after clearing so attendance setup is fresh.
+        overlayState = await api(`/api/classes/${classId}/begin`, {
+          method: "POST",
+          body: JSON.stringify({ meeting_date: meeting }),
+        });
+      } else {
+        showError(
+          "#ap-overlay-error",
+          new Error("End the open participation session before taking attendance for another day.")
+        );
+        showError(
+          "#att-error",
+          new Error("End the open participation session before taking attendance for another day.")
+        );
+        return;
+      }
+    }
+    await ensureMeetingDate(meeting);
+    syncOverlayPickers(logContext, meeting);
+    if (liveSessionId) sessionPresentIds = new Set();
+    renderAttendanceList();
+    // Open Mark Attendance dialog before the Zoom overlay so showModal is not blocked.
+    showPanel("att");
+    if (liveSessionId) {
+      ensureLiveSessionOverlay();
+      startLiveSessionPolling();
+    }
+  } catch (err) {
+    showError("#att-error", err);
+    showError("#ap-overlay-error", err);
+  }
 }
 
 /**
@@ -252,33 +437,39 @@ async function resolvePresentIds(iso) {
 }
 
 /**
- * Checked present student ids in the Mark Attendance overlay.
+ * Present student ids selected in the Mark Attendance overlay.
  * @returns {number[]}
  */
 function selectedPresent() {
-  return [...document.querySelectorAll("#ap-att-list input:checked")].map((el) =>
-    Number(el.value)
+  return [...document.querySelectorAll("#ap-att-list .ap-att-row[aria-pressed='true']")].map(
+    (el) => Number(el.dataset.studentId)
   );
 }
 
 /**
- * Draw attendance checkboxes from current game state.
+ * Draw attendance name rows from current game state (row click toggles).
  */
 function renderAttendanceList() {
+  const fromSession = liveSessionId > 0;
   const checked = new Set(
-    (overlayState?.present_ids && overlayState.present_ids.length
-      ? overlayState.present_ids
-      : overlayState?.default_present_ids) || []
+    fromSession
+      ? [...sessionPresentIds]
+      : (overlayState?.present_ids && overlayState.present_ids.length
+          ? overlayState.present_ids
+          : overlayState?.default_present_ids) || []
   );
   const list = $("ap-att-list");
   if (!list) return;
   list.innerHTML = "";
   for (const student of sortStudents(overlayState.students || [], nameSort)) {
-    const id = `ap-att-${student.id}`;
-    const row = document.createElement("label");
-    row.innerHTML = `<input type="checkbox" id="${id}" value="${student.id}"> ${nameWithMood(displayName(student), student.mood)}`;
+    const present = checked.has(student.id);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `ap-att-row${present ? " is-present" : ""}`;
+    row.dataset.studentId = String(student.id);
+    row.setAttribute("aria-pressed", present ? "true" : "false");
+    row.innerHTML = `<span class="ap-att-name">${nameWithMood(displayName(student), student.mood)}</span>`;
     list.appendChild(row);
-    row.querySelector("input").checked = checked.has(student.id);
   }
   updateAttCount();
 }
@@ -309,49 +500,6 @@ function openLiveScoring(state) {
 }
 
 /**
- * Persist the picker date on the open setup game before saving attendance.
- * @param {string} iso
- */
-async function ensureMeetingDate(iso) {
-  if (!iso) return;
-  overlayState = await api(`/api/classes/${classId}/game/meeting`, {
-    method: "POST",
-    body: JSON.stringify({ meeting_date: iso }),
-  });
-}
-
-/**
- * Begin a session for today and open Mark Attendance.
- */
-export async function openTakeAttendance() {
-  hideError("#att-error");
-  hideError("#ap-overlay-error");
-  try {
-    await loadContext();
-    const meeting = defaultSchoolDay(logContext);
-    syncOverlayPickers(logContext, meeting);
-    overlayState = await api(`/api/classes/${classId}/begin`, {
-      method: "POST",
-      body: JSON.stringify({ meeting_date: meeting }),
-    });
-    if (overlayState.game?.status === "live") {
-      showError(
-        "#ap-overlay-error",
-        new Error("End the open participation session before taking attendance for another day.")
-      );
-      return;
-    }
-    await ensureMeetingDate(meeting);
-    syncOverlayPickers(logContext, meeting);
-    renderAttendanceList();
-    showPanel("att");
-  } catch (err) {
-    showError("#att-error", err);
-    showError("#ap-overlay-error", err);
-  }
-}
-
-/**
  * Meeting date from the visible attendance/gamify picker (not a stale session).
  * @returns {string}
  */
@@ -376,34 +524,6 @@ function sessionIso() {
 }
 
 /**
- * Finalize attendance only (Done).
- * @param {string} [iso]
- */
-async function submitDone(iso) {
-  const sessionMeeting = overlayState?.session?.meeting_date || null;
-  // Prefer explicit iso (from Done before loadContext), then live session (picker may be rebound).
-  const meeting =
-    iso ||
-    sessionMeeting ||
-    pickerValue($("ap-meeting-date"), logContext) ||
-    sessionIso();
-  syncOverlayPickers(logContext, meeting);
-  await ensureMeetingDate(meeting);
-  if (overlayState?.session?.meeting_date && overlayState.session.meeting_date !== meeting) {
-    throw new Error(
-      `Could not set meeting date to ${meeting} (session is ${overlayState.session.meeting_date}).`
-    );
-  }
-  await api(`/api/classes/${classId}/game/finalize-attendance`, {
-    method: "POST",
-    body: JSON.stringify({ present_ids: selectedPresent(), meeting_date: meeting }),
-  });
-  closeOverlay();
-  await loadContext();
-  notifyAttendanceRefresh();
-}
-
-/**
  * Save attendance and open the tracking choice.
  * @param {string} [iso]
  */
@@ -425,19 +545,22 @@ async function submitLogParticipation(iso) {
   showPanel("gamify");
 }
 
-$("ap-att-all")?.addEventListener("click", () => {
-  document.querySelectorAll("#ap-att-list input").forEach((el) => {
-    el.checked = true;
-  });
+$("ap-att-list")?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const row = target.closest(".ap-att-row");
+  if (!(row instanceof HTMLElement)) return;
+  const sid = Number(row.dataset.studentId);
+  if (!Number.isFinite(sid) || sid < 1) return;
+  const next = row.getAttribute("aria-pressed") !== "true";
+  row.setAttribute("aria-pressed", next ? "true" : "false");
+  row.classList.toggle("is-present", next);
+  if (liveSessionId > 0) {
+    if (next) sessionPresentIds.add(sid);
+    else sessionPresentIds.delete(sid);
+  }
   updateAttCount();
 });
-$("ap-att-none")?.addEventListener("click", () => {
-  document.querySelectorAll("#ap-att-list input").forEach((el) => {
-    el.checked = false;
-  });
-  updateAttCount();
-});
-$("ap-att-list")?.addEventListener("change", updateAttCount);
 
 $("ap-meeting-date")?.addEventListener("change", async () => {
   try {
@@ -463,15 +586,6 @@ $("ap-gamify-date")?.addEventListener("change", async () => {
 for (const id of ["ap-att-cancel", "ap-validate-cancel", "ap-gamify-cancel", "ap-teams-cancel", "ap-names-cancel", "ap-rounds-cancel", "ap-score-cancel", "ap-live-cancel"]) {
   $(id)?.addEventListener("click", () => cancelOverlay());
 }
-
-$("ap-att-done")?.addEventListener("click", async () => {
-  try {
-    // Capture date before withValidatedDate → loadContext rebinds pickers.
-    await withValidatedDate(sessionIso(), (d) => submitDone(d));
-  } catch (err) {
-    showError("#ap-overlay-error", err);
-  }
-});
 
 $("ap-att-log")?.addEventListener("click", async () => {
   try {
@@ -772,7 +886,9 @@ $("ap-rounds-add")?.addEventListener("click", () => {
 $("ap-rounds-back")?.addEventListener("click", () => showPanel("names"));
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
-  const overlay = pendingScoreboard ? reserveScoreboardOverlay() : null;
+  // Live-session overlay already shows teams; only open ESPN when no session.
+  const wantEspn = pendingScoreboard && !(liveSessionId || readLiveSessionId());
+  const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     const rounds = draftRounds.map((row) => ({
       kind: row.kind,
@@ -782,8 +898,9 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ rounds }),
     });
-    if (pendingScoreboard) openScoreboardOverlay(overlay);
+    if (wantEspn) openScoreboardOverlay(overlay);
     else overlay?.close();
+    if (liveSessionId || readLiveSessionId()) ensureLiveSessionOverlay();
     pendingScoreboard = false;
     openLiveScoring(overlayState);
   } catch (err) {
@@ -1003,6 +1120,9 @@ async function endGame() {
     showError("#ap-overlay-error", err);
     return;
   }
+  stopLiveSessionPolling();
+  liveSessionId = 0;
+  sessionPresentIds = new Set();
   closeOverlay();
   location.href = `/staff/class/${classId}?tab=ap&view=participation`;
 }
@@ -1061,6 +1181,10 @@ document.getElementById("begin")?.addEventListener("click", () => {
 
 if (root?.dataset.take === "1") {
   openTakeAttendance().catch((err) => showError("#att-error", err));
+}
+
+if (root?.dataset.participate === "1") {
+  openLogParticipation().catch((err) => showError("#error", err));
 }
 
 if (new URLSearchParams(location.search).get("continue") === "gamify") {

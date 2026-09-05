@@ -114,6 +114,39 @@ CREATE TABLE IF NOT EXISTS student_code_attempts (
     ip TEXT NOT NULL,
     ts TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS live_class_sessions (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    offering_id INTEGER NOT NULL,
+    teacher_user_id INTEGER NOT NULL,
+    session_code TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    mgs_session_id INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_code_active
+    ON live_class_sessions(session_code)
+    WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_live_sessions_class_status
+    ON live_class_sessions(class_id, status);
+
+CREATE TABLE IF NOT EXISTS live_session_attendees (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL
+        REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL,
+    codename TEXT NOT NULL DEFAULT '',
+    joined_at TEXT NOT NULL,
+    left_at TEXT,
+    UNIQUE(live_session_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
+    ON live_session_attendees(live_session_id);
 """
 
 
@@ -232,6 +265,7 @@ class LovesDB:
         self._ensure_library_schema()
         self._ensure_archived_column()
         self._ensure_gradebook_schema()
+        self._ensure_live_session_schema()
         self._seed()
         self.conn.commit()
 
@@ -540,6 +574,46 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE course_offerings ADD COLUMN live_time TEXT"
             )
+
+    def _ensure_live_session_schema(self) -> None:
+        """Create live-class session + attendee tables on existing DBs.
+
+        ``CREATE TABLE IF NOT EXISTS`` in ``SCHEMA`` covers new files; this
+        helper re-runs the same DDL so older Fly sqlite volumes pick up the
+        session tracking tables without a recreate.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS live_class_sessions (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                offering_id INTEGER NOT NULL,
+                teacher_user_id INTEGER NOT NULL,
+                session_code TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                mgs_session_id INTEGER
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_code_active
+                ON live_class_sessions(session_code)
+                WHERE status = 'active';
+            CREATE INDEX IF NOT EXISTS idx_live_sessions_class_status
+                ON live_class_sessions(class_id, status);
+            CREATE TABLE IF NOT EXISTS live_session_attendees (
+                id INTEGER PRIMARY KEY,
+                live_session_id INTEGER NOT NULL
+                    REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL,
+                codename TEXT NOT NULL DEFAULT '',
+                joined_at TEXT NOT NULL,
+                left_at TEXT,
+                UNIQUE(live_session_id, student_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
+                ON live_session_attendees(live_session_id);
+            """
+        )
 
     def _seed(self) -> None:
         """Insert IT user, curriculum catalog, MCF3M expectations, default semester."""
@@ -2367,10 +2441,11 @@ class SchoolDB(LovesDB):
         return bool(self.offerings_for_live_code(code))
 
     def ensure_class_live_access_code(self, class_id: int) -> dict[str, Any]:
-        """Mint a unique per-class student join code, or return the existing one.
+        """Mint a unique durable per-class join code, or return the existing one.
 
-        Run Live Class is idempotent: a class keeps the same 8-character code
-        across meetings so students can reuse it.
+        Prefer ``start_live_class_session`` for Run Live Class: meeting join
+        codes are ephemeral session rows. This helper remains for legacy class
+        codes that may still exist on older rows.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -2412,6 +2487,565 @@ class SchoolDB(LovesDB):
         if cls is None:
             return None
         return self.enrich_class(cls)
+
+    def active_session_code_taken(self, session_code: str) -> bool:
+        """True when another active live session already uses this code.
+
+        Args:
+            session_code: Candidate 8-character session join code.
+        """
+        code = (session_code or "").strip().upper()
+        if not code:
+            return True
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE session_code = ? AND status = 'active'
+                LIMIT 1
+                """,
+                (code,),
+            ).fetchone()
+        return row is not None
+
+    def mint_unique_active_session_code(self) -> str:
+        """Generate an 8-character code unused by any active live session.
+
+        Also avoids colliding with durable offering or class join codes so
+        later join resolution stays unambiguous.
+
+        Returns:
+            Uppercase 8-character code from ``codes.generate_live_access_code``.
+        """
+        code = generate_live_access_code()
+        while self.active_session_code_taken(code) or self.class_live_code_taken(code):
+            code = generate_live_access_code()
+        return code
+
+    def get_live_session(self, session_id: int) -> dict[str, Any] | None:
+        """Return one live-class session row by id.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_active_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
+        """Return the active live session for a class, if any.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE class_id = ? AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_active_live_session_by_code(
+        self, session_code: str
+    ) -> dict[str, Any] | None:
+        """Resolve an active session by its ephemeral join code.
+
+        Args:
+            session_code: Raw or normalized 8-character code.
+        """
+        try:
+            from codes import normalize_live_access_code
+        except ImportError:
+            from lms.codes import normalize_live_access_code
+        try:
+            code = normalize_live_access_code(session_code)
+        except ValueError:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE session_code = ? AND status = 'active'
+                LIMIT 1
+                """,
+                (code,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_live_session_attendees(
+        self, session_id: int, *, present_only: bool = False
+    ) -> list[dict[str, Any]]:
+        """Return attendee rows for a live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            present_only: When True, omit attendees with ``left_at`` set.
+        """
+        sql = """
+            SELECT * FROM live_session_attendees
+            WHERE live_session_id = ?
+        """
+        if present_only:
+            sql += " AND left_at IS NULL"
+        sql += " ORDER BY joined_at ASC, id ASC"
+        with self._lock:
+            rows = self.conn.execute(sql, (int(session_id),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_live_session_attendee(
+        self,
+        session_id: int,
+        student_id: int,
+        *,
+        codename: str = "",
+    ) -> dict[str, Any]:
+        """Upsert a student into the live session roster (join / rejoin).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+            codename: Display name for overlay / IT listings.
+
+        Returns:
+            The attendee row after upsert.
+
+        Raises:
+            KeyError: If the session does not exist or is not active.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        if session_row.get("status") != "active":
+            raise KeyError(f"live session {session_id} is not active")
+        name = (codename or "").strip()
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO live_session_attendees (
+                    live_session_id, student_id, codename, joined_at, left_at
+                ) VALUES (?, ?, ?, ?, NULL)
+                ON CONFLICT(live_session_id, student_id) DO UPDATE SET
+                    codename = excluded.codename,
+                    joined_at = excluded.joined_at,
+                    left_at = NULL
+                """,
+                (int(session_id), int(student_id), name, now),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (int(session_id), int(student_id)),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def mark_live_session_attendee_left(
+        self, session_id: int, student_id: int
+    ) -> dict[str, Any] | None:
+        """Set ``left_at`` for one attendee without ending the session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+        """
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = ?
+                WHERE live_session_id = ? AND student_id = ? AND left_at IS NULL
+                """,
+                (now, int(session_id), int(student_id)),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE live_session_id = ? AND student_id = ?
+                """,
+                (int(session_id), int(student_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def clear_attendee_moods_and_characters(self, session_id: int) -> int:
+        """Wipe mood check-ins and character picks for session attendees.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Number of distinct students cleared.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return 0
+        class_id = int(session_row["class_id"])
+        attendees = self.list_live_session_attendees(session_id)
+        student_ids = [int(row["student_id"]) for row in attendees]
+        if not student_ids:
+            return 0
+        self.game.clear_students_live_presence(class_id, student_ids)
+        return len(student_ids)
+
+    def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
+        """Mark a session ended so its code is no longer joinable.
+
+        Idempotent: already-ended sessions are returned unchanged.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return None
+        if session_row.get("status") == "ended":
+            return session_row
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET status = 'ended', ended_at = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (now, int(session_id)),
+            )
+            self.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = COALESCE(left_at, ?)
+                WHERE live_session_id = ? AND left_at IS NULL
+                """,
+                (now, int(session_id)),
+            )
+            self.conn.commit()
+        return self.get_live_session(session_id)
+
+    def end_live_class_session(
+        self, session_id: int, *, clear_moods: bool = True
+    ) -> dict[str, Any] | None:
+        """End a live session, invalidate its code, and optionally wipe moods.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            clear_moods: When True, clear mood/character for attendees.
+
+        Returns:
+            The ended session row, or ``None`` if missing.
+        """
+        if clear_moods:
+            self.clear_attendee_moods_and_characters(session_id)
+        return self.invalidate_live_session_code(session_id)
+
+    def end_active_live_sessions_for_class(
+        self, class_id: int, *, clear_moods: bool = True
+    ) -> list[dict[str, Any]]:
+        """End every active live session for a class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            clear_moods: Forwarded to ``end_live_class_session``.
+
+        Returns:
+            List of ended session rows (may be empty).
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE class_id = ? AND status = 'active'
+                ORDER BY id ASC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        ended: list[dict[str, Any]] = []
+        for row in rows:
+            result = self.end_live_class_session(
+                int(row["id"]), clear_moods=clear_moods
+            )
+            if result:
+                ended.append(result)
+        return ended
+
+    def get_active_live_session_for_teacher(
+        self, teacher_user_id: int
+    ) -> dict[str, Any] | None:
+        """Return the teacher's active live session, if any.
+
+        Args:
+            teacher_user_id: Staff ``users.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE teacher_user_id = ? AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(teacher_user_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def end_all_active_live_sessions(
+        self, *, clear_moods: bool = True
+    ) -> list[dict[str, Any]]:
+        """End every active live session (ops / stuck cleanup).
+
+        Args:
+            clear_moods: Forwarded to ``end_live_class_session``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE status = 'active'
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        ended: list[dict[str, Any]] = []
+        for row in rows:
+            result = self.end_live_class_session(
+                int(row["id"]), clear_moods=clear_moods
+            )
+            if result:
+                ended.append(result)
+        return ended
+
+    def start_live_class_session(
+        self, class_id: int, teacher_user_id: int
+    ) -> dict[str, Any]:
+        """Mint a new active live session for this teacher.
+
+        A teacher may have only one active session at a time (any course).
+        End Class / End Game / Quit must finish the current session before
+        Run Live Class can start another.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            teacher_user_id: Staff user starting the meeting.
+
+        Returns:
+            The newly created active session row.
+
+        Raises:
+            KeyError: If the class is missing or has no offering link.
+            ValueError: If this teacher already has an active live session.
+        """
+        cls = self.game.get_class(class_id)
+        offering_id = cls.get("offering_id")
+        if offering_id is None:
+            raise KeyError(f"class {class_id} has no offering_id")
+        existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
+        if existing is not None:
+            raise ValueError(
+                "You already have a live class running. "
+                "Use End Class, End Game, or Quit to finish it before starting another."
+            )
+        # Drop prior-run mood/character so Mark Attendance starts clean.
+        self.game.clear_class_moods_and_characters(int(class_id))
+        code = self.mint_unique_active_session_code()
+        now = _now()
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT INTO live_class_sessions (
+                    class_id, offering_id, teacher_user_id, session_code,
+                    status, started_at, ended_at, mgs_session_id
+                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL)
+                """,
+                (
+                    int(class_id),
+                    int(offering_id),
+                    int(teacher_user_id),
+                    code,
+                    now,
+                ),
+            )
+            self.conn.commit()
+            session_id = int(cur.lastrowid)
+        session_row = self.get_live_session(session_id)
+        assert session_row is not None
+        return session_row
+
+
+    def list_active_live_sessions(self) -> list[dict[str, Any]]:
+        """Return enriched active sessions for IT / overlay polling.
+
+        Each row includes ``attendee_count``, teacher display name, and course
+        section labels when available.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT s.*,
+                       u.display_name AS teacher_display_name,
+                       u.email AS teacher_email,
+                       o.ontario_code AS ontario_code,
+                       o.section_index AS section_index,
+                       (
+                           SELECT COUNT(*)
+                           FROM live_session_attendees a
+                           WHERE a.live_session_id = s.id AND a.left_at IS NULL
+                       ) AS attendee_count
+                FROM live_class_sessions s
+                LEFT JOIN users u ON u.id = s.teacher_user_id
+                LEFT JOIN course_offerings o ON o.id = s.offering_id
+                WHERE s.status = 'active'
+                ORDER BY s.started_at DESC, s.id DESC
+                """
+            ).fetchall()
+        payload: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["section_code"] = section_code(
+                str(item.get("ontario_code") or ""),
+                item.get("section_index"),
+            )
+            item["attendee_count"] = int(item.get("attendee_count") or 0)
+            payload.append(item)
+        return payload
+
+    def get_live_session_state(self, session_id: int) -> dict[str, Any]:
+        """Return overlay/IT state for one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Dict with ``session``, ``code``, ``count``, ``attendees``, ``phase``.
+
+        Raises:
+            KeyError: If the session id is unknown.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        attendees = self.list_live_session_attendees(session_id)
+        moods = self.game.today_moods(int(session_row["class_id"]))
+        for row in attendees:
+            sid = int(row["student_id"])
+            row["mood"] = moods.get(sid)
+        present = [row for row in attendees if not row.get("left_at")]
+        phase = "ended" if session_row.get("status") == "ended" else "live"
+        return {
+            "session": session_row,
+            "code": session_row.get("session_code"),
+            "count": len(present),
+            "attendees": attendees,
+            "phase": phase,
+        }
+
+    def has_active_live_sessions(self) -> bool:
+        """True when at least one live class session is currently joinable."""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1 FROM live_class_sessions
+                WHERE status = 'active'
+                LIMIT 1
+                """
+            ).fetchone()
+        return row is not None
+
+    def find_roster_student_for_live_session(
+        self, session_id: int, name: str
+    ) -> dict[str, Any] | None:
+        """Match a Codename against the class roster for one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            name: Student-entered roster username / Codename.
+
+        Returns:
+            Student row dict, or ``None`` when the session is missing/ended
+            or the name is not on that class roster.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None or session_row.get("status") != "active":
+            return None
+        return self.game.find_student_by_codename(
+            int(session_row["class_id"]), name
+        )
+
+    def join_live_class_session(
+        self,
+        session_id: int,
+        student_id: int,
+        *,
+        codename: str = "",
+    ) -> dict[str, Any]:
+        """Record a student join and best-effort auto-mark attendance.
+
+        Upserts ``live_session_attendees`` (feeds the live overlay) and, when
+        an open Mark Attendance / live game exists for the class, sets that
+        student present on the meeting column.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+            codename: Display name for overlay / IT listings.
+
+        Returns:
+            Dict with ``attendee``, ``session``, and ``attendance_marked``.
+
+        Raises:
+            KeyError: If the session does not exist or is not active.
+        """
+        attendee = self.record_live_session_attendee(
+            session_id, student_id, codename=codename
+        )
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        marked = self.game.mark_student_present_on_open_session(
+            int(session_row["class_id"]), int(student_id)
+        )
+        return {
+            "attendee": attendee,
+            "session": session_row,
+            "attendance_marked": marked,
+        }
+
+    def disconnect_live_session_student(
+        self,
+        session_id: int,
+        student_id: int,
+        *,
+        clear_mood: bool = True,
+    ) -> dict[str, Any] | None:
+        """Mark one attendee left and optionally wipe mood/character.
+
+        Used on student tab close / logout while the teacher session continues.
+        End Game still wipes all attendees via ``end_live_class_session``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Game-show ``students.id``.
+            clear_mood: When True, clear this student's mood and character.
+
+        Returns:
+            Updated attendee row, or ``None`` if unknown.
+        """
+        session_row = self.get_live_session(session_id)
+        attendee = self.mark_live_session_attendee_left(session_id, student_id)
+        if clear_mood and session_row is not None:
+            self.game.clear_students_live_presence(
+                int(session_row["class_id"]), [int(student_id)]
+            )
+        return attendee
 
     def upsert_document(self, **fields: Any) -> int:
         """Insert or update a curriculum PDF registry row."""
@@ -2896,39 +3530,6 @@ class SchoolDB(LovesDB):
         )
         grid["class"] = self.enrich_class(dash["class"])
         grid["ok"] = True
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            marked = {
-                k: v
-                for k, v in (grid.get("cells") or {}).items()
-                if v is True
-            }
-            with open(
-                "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-436036.log",
-                "a",
-                encoding="utf-8",
-            ) as _dbg:
-                _dbg.write(
-                    _json.dumps(
-                        {
-                            "sessionId": "436036",
-                            "hypothesisId": "E",
-                            "location": "school_db.py:attendance_week_grid",
-                            "message": "grid present cells",
-                            "data": {
-                                "class_id": class_id,
-                                "present_cells": marked,
-                                "day_totals": grid.get("day_totals") or {},
-                            },
-                            "timestamp": int(_time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion
         return grid
 
     def mood_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:

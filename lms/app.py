@@ -119,7 +119,6 @@ from paths import (  # noqa: E402
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
-    character_choices,
     mood_choices,
     next_student_endpoint,
 )
@@ -138,28 +137,6 @@ def _optional_date(value: Any) -> date | None:
 
 
 logger = logging.getLogger(__name__)
-
-def _agent_dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Append one NDJSON debug line for the Cursor debug session."""
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": "3d5e3c",
-            "timestamp": int(__import__("time").time() * 1000),
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "runId": "pre-fix",
-        }
-        log_path = Path("/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-3d5e3c.log")
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(__import__("json").dumps(payload) + "\n")
-    except Exception:
-        pass
-    # #endregion
-
-
 
 
 def _json_error(exc: BaseException):
@@ -743,23 +720,6 @@ def create_app(
     _register_game_api(app, school)
     app.jinja_env.globals["live_schedule"] = format_live_schedule_line
 
-    @app.before_request
-    def _agent_dbg_request():
-        """Log whether a browser hit actually reached this Flask process."""
-        path = request.path or ""
-        if path in {"/", "/health", "/json/version"} or path.startswith("/it") or path.startswith("/staff"):
-            _agent_dbg(
-                "C",
-                "app.py:before_request",
-                "flask received request",
-                {
-                    "path": path,
-                    "host": request.host,
-                    "remote": request.remote_addr,
-                    "pid": os.getpid(),
-                },
-            )
-
     return app
 
 
@@ -1081,6 +1041,34 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }
         school.set_only_live_class_days(flag)
         return jsonify({"ok": True, "only_live_class_days": school.only_live_class_days()})
+
+    @app.route("/api/it/live-sessions/<int:session_id>/end", methods=["POST"])
+    @it_required
+    def api_it_end_live_session(session_id: int):
+        """Force-end one stuck live class session from the IT dashboard.
+
+        Args:
+            session_id: ``live_class_sessions.id`` to terminate.
+        """
+        ended = school.end_live_class_session(int(session_id))
+        if ended is None:
+            return jsonify(
+                {"ok": False, "error": "Session not found or already ended"}
+            ), 404
+        return jsonify({"ok": True, "session": ended})
+
+    @app.route("/api/it/live-sessions/end-all", methods=["POST"])
+    @it_required
+    def api_it_end_all_live_sessions():
+        """Force-end every active live class session (stuck cleanup)."""
+        ended = school.end_all_active_live_sessions()
+        return jsonify(
+            {
+                "ok": True,
+                "ended_count": len(ended),
+                "sessions": ended,
+            }
+        )
 
     @app.route("/it/staff", methods=["POST"])
     @it_required
@@ -1615,12 +1603,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/run-live", methods=["POST"])
     @staff_required
     def staff_run_live_class(class_id: int):
-        """Mint a unique per-class student code and open the live A&P overlay."""
+        """Mint a live session (one per teacher) and open Mark Attendance."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
-        school.ensure_class_live_access_code(class_id)
+        try:
+            live_session = school.start_live_class_session(class_id, int(user["id"]))
+        except ValueError as exc:
+            return render_template("forbidden.html", message=str(exc)), 400
+        # Clear any leftover MGS setup/live game so Mark Attendance can open.
+        try:
+            school.game.end_game(class_id)
+        except Exception:  # noqa: BLE001 — not live is fine
+            try:
+                school.game.cancel_setup(class_id)
+            except Exception:  # noqa: BLE001
+                pass
         return redirect(
             url_for(
                 "staff_course",
@@ -1628,6 +1627,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 tab="ap",
                 view="attendance",
                 take=1,
+                live_session_id=live_session["id"],
             )
         )
 
@@ -1668,7 +1668,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 url_for("staff_course", class_id=class_id, tab="ap", view=view)
             )
         ap_view = (request.args.get("view") or "attendance").strip().lower()
-        if ap_view not in {"attendance", "participation", "mood"}:
+        if ap_view == "mood":
+            return redirect(
+                url_for(
+                    "staff_course",
+                    class_id=class_id,
+                    tab="ap",
+                    view="attendance",
+                )
+            )
+        if ap_view not in {"attendance", "participation"}:
             ap_view = "attendance"
         if tab not in {
             "modules",
@@ -1694,6 +1703,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             tab=tab,
             ap_view=ap_view,
             take_attendance=request.args.get("take") == "1",
+            log_participation=request.args.get("participate") == "1",
+            live_session_id=request.args.get("live_session_id") or "",
             school_name=SCHOOL_NAME,
             show_module_pack_upload=False,
             pack_error=pack_error,
@@ -2059,6 +2070,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """ESPN board: staff overlay or student join."""
         return send_from_directory(MGS_TEMPLATES, "scoreboard.html")
 
+    @app.route("/live-overlay/<int:session_id>")
+    @staff_required
+    def live_session_overlay_page(session_id: int):
+        """Narrow Zoom-share overlay for an active live class session."""
+        user = current_user()
+        assert user is not None
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            abort(404)
+        if user.get("role") != "it" and not school.teacher_owns_class(
+            int(user["id"]), int(session_row["class_id"])
+        ):
+            abort(403)
+        return send_from_directory(MGS_TEMPLATES, "live_session_overlay.html")
+
     def _student_identity() -> tuple[dict[str, Any], int, int] | None:
         """Return offering and roster ids when the student session is bound.
 
@@ -2100,7 +2126,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/mood", methods=["GET", "POST"])
     @student_required
     def student_mood():
-        """Daily mood check-in before the character / home boards."""
+        """Mood check-in; Join Class completes the live join (no character pick)."""
         ident = _student_identity()
         if ident is None:
             return _student_advance()
@@ -2132,41 +2158,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/character", methods=["GET", "POST"])
     @student_required
     def student_character():
-        """Join-class character pick after mood check-in."""
-        ident = _student_identity()
-        if ident is None:
-            return _student_advance()
-        offering, class_id, student_id = ident
-        student = school.game.get_student(class_id, student_id)
-        if not student.get("mood"):
-            return _student_advance()
-        if request.method == "POST":
-            character = (request.form.get("character") or "").strip()
-            try:
-                school.game.set_character(class_id, student_id, character)
-            except ValueError as exc:
-                return render_template(
-                    "student/character.html",
-                    offering=offering,
-                    characters=character_choices(),
-                    error=str(exc),
-                    school_name=SCHOOL_NAME,
-                )
-            return _student_advance()
-        if (student.get("character_key") or "").strip():
-            return _student_advance()
-        return render_template(
-            "student/character.html",
-            offering=offering,
-            characters=character_choices(),
-            error=None,
-            school_name=SCHOOL_NAME,
-        )
+        """Character pick retired — advance to mood or home."""
+        return _student_advance()
 
     @app.route("/student/home")
     @student_required
     def student_home():
-        """Student live-class boards after mood and character."""
+        """Student live-class boards after mood check-in."""
         ident = _student_identity()
         if ident is None:
             return _student_advance()
@@ -2237,6 +2235,51 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         return None
+
+    def _can_view_live_session(session_row: dict[str, Any]) -> bool:
+        """True when the current user may poll this live session.
+
+        Args:
+            session_row: ``live_class_sessions`` dict.
+        """
+        user = current_user()
+        if user is None:
+            return False
+        if user.get("role") == "it":
+            return True
+        return school.teacher_owns_class(
+            int(user["id"]), int(session_row["class_id"])
+        )
+
+    @app.route("/api/live-sessions/active")
+    @login_required
+    def api_live_sessions_active():
+        """List active live-class sessions (IT dashboard + overlay poll)."""
+        user = current_user()
+        assert user is not None
+        sessions = school.list_active_live_sessions()
+        if user.get("role") != "it":
+            sessions = [
+                row
+                for row in sessions
+                if school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
+            ]
+        return jsonify({"ok": True, "sessions": sessions})
+
+    @app.route("/api/live-sessions/<int:session_id>/state")
+    @login_required
+    def api_live_session_state(session_id: int):
+        """Return code, attendee count, roster, and phase for one live session."""
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            state = school.get_live_session_state(session_id)
+        except KeyError:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        return jsonify({"ok": True, **state})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""
@@ -2418,13 +2461,26 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/cancel", methods=["POST"])
     @login_required
     def api_cancel(class_id: int):
-        """Quit setup without starting."""
-        return _staff_post(class_id, lambda _b: school.game.cancel_setup(class_id))
+        """Quit setup / live session without completing scoring."""
+
+        def run(body):
+            """Cancel MGS setup; end live-class session unless preserved."""
+            result = school.game.cancel_setup(class_id)
+            preserve = bool((body or {}).get("preserve_live_session"))
+            if preserve:
+                ended: list[dict[str, Any]] = []
+            else:
+                ended = school.end_active_live_sessions_for_class(class_id)
+            if isinstance(result, dict):
+                result = {**result, "live_sessions_ended": [row["id"] for row in ended]}
+            return result
+
+        return _staff_post(class_id, run)
 
     @app.route("/api/classes/<int:class_id>/game/attendance", methods=["POST"])
     @login_required
     def api_attendance(class_id: int):
-        """Save who is present and advance to teams (Log Participation)."""
+        """Save who is present and advance to teams (Begin Class Tracking)."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
@@ -2694,8 +2750,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/end", methods=["POST"])
     @login_required
     def api_end(class_id: int):
-        """End the live game."""
-        return _staff_post(class_id, lambda _b: school.game.end_game(class_id))
+        """End the live game; tear down live-class session unless preserved."""
+
+        def run(body):
+            """Apply End Game then optionally invalidate the ephemeral join code."""
+            result = school.game.end_game(class_id)
+            preserve = bool((body or {}).get("preserve_live_session"))
+            if not preserve:
+                ended = school.end_active_live_sessions_for_class(class_id)
+                result["live_sessions_ended"] = [row["id"] for row in ended]
+            else:
+                result["live_sessions_ended"] = []
+            return result
+
+        return _staff_post(class_id, run)
 
     @app.route("/api/classes/<int:class_id>/students", methods=["POST"])
     @login_required
@@ -2853,10 +2921,4 @@ if __name__ == "__main__":
     print(f"LLOVES LMS: http://{host}:{port}/")
     print(f"Database: {application.config['SCHOOL_DB'].db_path}")
     print(f"Ontario catalog: {catalog_n} courses")
-    _agent_dbg(
-        "A",
-        "app.py:__main__",
-        "flask starting",
-        {"host": host, "port": port, "pid": os.getpid()},
-    )
     application.run(host=host, port=port, debug=os.getenv("FLASK_DEBUG") == "1")

@@ -38,11 +38,7 @@
         {% else %}
         <p class="course-card-schedule is-placeholder">Schedule set when you Populate Class</p>
         {% endif %}
-        {% if cls and cls.live_access_code %}
-        <p class="course-card-join">Student code <code class="live-code">{{ cls.live_access_code }}</code></p>
-        {% elif cls %}
-        <p class="course-card-join hint">Student code appears when you Run Live Class</p>
-        {% else %}
+        {% if not cls %}
         <p class="course-card-join hint">No roster yet — Populate Class to add Codenames.</p>
         {% endif %}
 
@@ -56,14 +52,22 @@
               <span>Run Live Class</span>
             </button>
           </form>
-          <div class="course-action-row">
+          <div class="course-action-row course-action-split">
             <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
                href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
-               aria-label="Take Attendance and Log Participation"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
+               aria-label="Take Attendance"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
               </svg>
-              <span>Take Attendance &amp; Log Participation</span>
+              <span>Take Attendance</span>
+            </a>
+            <a class="course-action{% if o.pack_busy %} is-disabled{% endif %}"
+               href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation', participate=1) }}"
+               aria-label="Log Participation"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M3 5h18v2H3V5zm0 6h12v2H3v-2zm0 6h18v2H3v-2z"/>
+              </svg>
+              <span>Log Participation</span>
             </a>
           </div>
           <div class="course-action-row course-action-split">

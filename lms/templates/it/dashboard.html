@@ -19,6 +19,7 @@
     <div class="row-actions it-tab-bar" role="tablist">
       <button class="it-tab-btn" data-tab="staff" role="tab" aria-selected="true">Staff</button>
       <button class="it-tab-btn" data-tab="offerings" role="tab" aria-selected="false">Course Offerings</button>
+      <button class="it-tab-btn" data-tab="live-classes" role="tab" aria-selected="false">Live Classes</button>
       <button class="it-tab-btn" data-tab="semester" role="tab" aria-selected="false">Semester</button>
       <button class="it-tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
     </div>
@@ -217,6 +218,38 @@
           </table>
         </div>
         {% endif %}
+      </section>
+    </div>
+
+    <div class="it-tab-panel" id="tab-live-classes" role="tabpanel" hidden>
+      <section class="card">
+        <div class="it-section-head">
+          <h2>Live Classes</h2>
+          <p class="hint" id="live-classes-status" aria-live="polite">Loading…</p>
+        </div>
+        <p class="hint">Active Run Live Class sessions across the school. Refreshes every few seconds. Use End to clear a stuck session so the teacher can start again.</p>
+        <div class="row-actions" style="margin-bottom: 0.75rem">
+          <button type="button" class="secondary" id="live-classes-end-all">End all stuck sessions</button>
+        </div>
+        <div class="it-table-wrap">
+          <table class="data" id="live-classes-table">
+            <thead>
+              <tr>
+                <th>Teacher</th>
+                <th>Course / Section</th>
+                <th>Session Code</th>
+                <th>Started</th>
+                <th>Attendees</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="live-classes-tbody">
+              <tr>
+                <td colspan="6" class="hint">Loading…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
 

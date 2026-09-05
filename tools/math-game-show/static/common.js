@@ -29,16 +29,24 @@ export function classIdFromPath() {
 
 /**
  * JSON fetch with {ok:false,error} handling.
+ * Always sends same-origin cookies (staff session) and prefers JSON.
  * @param {string} url
  * @param {RequestInit} [options]
  * @returns {Promise<any>}
  */
 export async function api(url, options = {}) {
-  const headers = { ...(options.headers || {}) };
+  const headers = {
+    Accept: "application/json",
+    ...(options.headers || {}),
+  };
   if (options.body && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+    headers,
+  });
   const text = await response.text();
   let data = {};
   if (text) {
@@ -182,22 +190,23 @@ function scoreboardOverlayFeatures() {
 }
 
 /**
- * Reserve a popup during a click, before any ``await`` (avoids blockers).
- * @returns {Window|null}
+ * Narrow vertical strip (~10% viewport width) for the live-session overlay.
+ * @returns {string}
  */
-export function reserveScoreboardOverlay() {
-  const win = window.open("about:blank", SCOREBOARD_OVERLAY_NAME, scoreboardOverlayFeatures());
-  return win && !win.closed ? win : null;
+function liveSessionOverlayFeatures() {
+  const width = Math.max(160, Math.round((Number(screen.availWidth) || 1280) * 0.1));
+  const height = Math.max(480, Math.round(Number(screen.availHeight) || 900));
+  return `popup=yes,width=${width},height=${height},left=0,top=0`;
 }
 
 /**
- * Point the reserved (or a new) window at the overlay scoreboard.
+ * Navigate a reserved/named popup to a URL with given window features.
+ * @param {string} url
+ * @param {string} features
  * @param {Window|null} [existing]
  * @returns {Window|null}
  */
-export function openScoreboardOverlay(existing) {
-  const url = "/scoreboard?overlay=1";
-  const features = scoreboardOverlayFeatures();
+function openNamedOverlay(url, features, existing) {
   if (existing && !existing.closed) {
     try {
       existing.location.href = url;
@@ -209,4 +218,48 @@ export function openScoreboardOverlay(existing) {
   }
   const win = window.open(url, SCOREBOARD_OVERLAY_NAME, features);
   return win && !win.closed ? win : null;
+}
+
+/**
+ * Reserve a popup during a click, before any ``await`` (avoids blockers).
+ * @returns {Window|null}
+ */
+export function reserveScoreboardOverlay() {
+  const win = window.open("about:blank", SCOREBOARD_OVERLAY_NAME, scoreboardOverlayFeatures());
+  return win && !win.closed ? win : null;
+}
+
+/**
+ * Reserve the narrow live-session overlay during a user click (avoids blockers).
+ * @returns {Window|null}
+ */
+export function reserveLiveSessionOverlay() {
+  const win = window.open("about:blank", SCOREBOARD_OVERLAY_NAME, liveSessionOverlayFeatures());
+  return win && !win.closed ? win : null;
+}
+
+/**
+ * Point the reserved (or a new) window at the overlay scoreboard.
+ * @param {Window|null} [existing]
+ * @returns {Window|null}
+ */
+export function openScoreboardOverlay(existing) {
+  return openNamedOverlay("/scoreboard?overlay=1", scoreboardOverlayFeatures(), existing);
+}
+
+/**
+ * Open the vertical live-session overlay (code + roster + optional teams).
+ * @param {number} sessionId
+ * @param {Window|null} [existing]
+ * @param {{classId?: number}} [opts]
+ * @returns {Window|null}
+ */
+export function openLiveSessionOverlay(sessionId, existing, opts = {}) {
+  const id = Number(sessionId);
+  if (!Number.isFinite(id) || id < 1) return null;
+  const classId = Number(opts.classId || 0);
+  const qs = new URLSearchParams({ overlay: "1" });
+  if (classId > 0) qs.set("class_id", String(classId));
+  const url = `/live-overlay/${id}?${qs.toString()}`;
+  return openNamedOverlay(url, liveSessionOverlayFeatures(), existing);
 }

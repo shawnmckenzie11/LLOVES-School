@@ -99,6 +99,7 @@ body.staff-shell.staff-home .course-card-code {
   font-size: 1.85rem;
   line-height: 1.15;
   overflow-wrap: anywhere;
+  text-align: center;
 }
 body.staff-shell.staff-home .course-card-schedule {
   margin: 0.35rem 0 0;
@@ -107,6 +108,7 @@ body.staff-shell.staff-home .course-card-schedule {
   font-size: 0.925rem; /* 50% of the course-code size */
   font-weight: 650;
   letter-spacing: 0.02em;
+  text-align: center;
 }
 body.staff-shell.staff-home .course-card-schedule.is-placeholder {
   font-weight: 500;
@@ -115,6 +117,7 @@ body.staff-shell.staff-home .course-card-schedule.is-placeholder {
 body.staff-shell.staff-home .course-card-join {
   margin: 0.45rem 0 0;
   min-height: 1.4em;
+  text-align: center;
 }
 body.staff-shell.staff-home .course-card-join .live-code {
   font-size: 1rem;
@@ -135,7 +138,7 @@ body.staff-shell.staff-home form.course-action-row {
 }
 body.staff-shell.staff-home .course-action-split {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 0.55rem;
 }
 body.staff-shell.staff-home .course-action {
@@ -191,9 +194,9 @@ body.staff-shell.staff-home .course-card-pack-progress {
 body.staff-shell.staff-home .course-card-pack-bar {
   width: 100%;
 }
-@container course-card (min-width: 22rem) {
+@container course-card (max-width: 21.99rem) {
   body.staff-shell.staff-home .course-action-split {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 }
 body.staff-shell.staff-home .ap-shortcut-note {
@@ -722,10 +725,47 @@ body.staff-shell .ap-overlay-card .check-list {
   max-height: 40vh;
   overflow: auto;
   margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 body.staff-shell .ap-overlay-card .check-list label {
   display: block;
   margin: 0.25rem 0;
+}
+body.staff-shell .ap-overlay-card .ap-att-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+body.staff-shell .ap-overlay-card .ap-att-row:hover {
+  border-color: #0f766e;
+}
+body.staff-shell .ap-overlay-card .ap-att-row.is-present,
+body.staff-shell .ap-overlay-card .ap-att-row[aria-pressed="true"] {
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+body.staff-shell .ap-overlay-card .ap-att-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.staff-shell .ap-overlay-card .ap-att-name .mood-next-name {
+  display: inline;
 }
 body.staff-shell .ap-score-list {
   max-height: 50vh;
