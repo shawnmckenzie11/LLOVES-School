@@ -110,10 +110,47 @@ export function resolveLogDate(logContext, dayState, opts = {}) {
 }
 
 /**
+ * Build day-cell HTML for one calendar month inside the semester grid.
+ * @param {number} year
+ * @param {number} month Zero-based month index
+ * @param {{ first: string, last: string, today: string, minIso: string, selected: string, allowedSet: Set<string>, logged: Set<string> }} ctx
+ * @returns {string}
+ */
+function monthDayCells(year, month, ctx) {
+  const firstOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const lead = firstOfMonth.getDay();
+  let cells = "";
+  for (let i = 0; i < lead; i += 1) {
+    cells += `<span class="ap-day-cell is-empty" aria-hidden="true"></span>`;
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const iso = formatIsoLocal(new Date(year, month, day));
+    const inSemester = iso >= ctx.first && iso <= ctx.last;
+    const isValid = ctx.allowedSet.has(iso);
+    const isFutureOrToday = iso >= ctx.minIso;
+    const selectable = inSemester && isValid && isFutureOrToday;
+    const classes = ["ap-day-cell"];
+    if (!inSemester || !isValid) classes.push("is-disabled");
+    else if (!isFutureOrToday) classes.push("is-disabled");
+    else classes.push("is-valid");
+    if (ctx.logged.has(iso)) classes.push("is-logged");
+    if (iso === ctx.selected) classes.push("is-selected");
+    if (iso === ctx.today) classes.push("is-today");
+    const label = ctx.logged.has(iso) ? `${day} (logged)` : String(day);
+    cells += `<button type="button" class="${classes.join(" ")}" data-day-iso="${iso}" ${
+      selectable ? "" : "disabled"
+    } aria-pressed="${iso === ctx.selected ? "true" : "false"}">${label}</button>`;
+  }
+  return cells;
+}
+
+/**
  * Render a semester-bounded month grid of selectable school days.
+ * Shows one month at a time with prev/next controls.
  * @param {HTMLElement|null} container
  * @param {any} logContext
- * @param {{ selected?: string, onSelect?: (iso: string) => void, minIso?: string, loggedDates?: Set<string> }} [opts]
+ * @param {{ selected?: string, onSelect?: (iso: string) => void, minIso?: string, loggedDates?: Set<string>, viewYear?: number, viewMonth?: number }} [opts]
  * @returns {string} Selected ISO after render
  */
 export function renderSemesterDayGrid(container, logContext, opts = {}) {
@@ -139,45 +176,67 @@ export function renderSemesterDayGrid(container, logContext, opts = {}) {
     months.push({ year: cursor.getFullYear(), month: cursor.getMonth() });
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
   }
+  if (!months.length) return selected;
+
+  const selectedParts = parseIso(selected);
+  let viewIndex = months.findIndex(
+    (m) => m.year === selectedParts.y && m.month === selectedParts.m - 1
+  );
+  if (opts.viewYear != null && opts.viewMonth != null) {
+    const idx = months.findIndex(
+      (m) => m.year === opts.viewYear && m.month === opts.viewMonth
+    );
+    if (idx >= 0) viewIndex = idx;
+  }
+  if (viewIndex < 0) viewIndex = 0;
 
   const weekdayLabels = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-  const parts = months.map(({ year, month }) => {
-    const firstOfMonth = new Date(year, month, 1);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const lead = firstOfMonth.getDay();
-    let cells = "";
-    for (let i = 0; i < lead; i += 1) {
-      cells += `<span class="ap-day-cell is-empty" aria-hidden="true"></span>`;
-    }
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const iso = formatIsoLocal(new Date(year, month, day));
-      const inSemester = iso >= first && iso <= last;
-      const isValid = allowedSet.has(iso);
-      const isFutureOrToday = iso >= minIso;
-      const selectable = inSemester && isValid && isFutureOrToday;
-      const classes = ["ap-day-cell"];
-      if (!inSemester || !isValid) classes.push("is-disabled");
-      else if (!isFutureOrToday) classes.push("is-disabled");
-      else classes.push("is-valid");
-      if (logged.has(iso)) classes.push("is-logged");
-      if (iso === selected) classes.push("is-selected");
-      if (iso === today) classes.push("is-today");
-      const label = logged.has(iso) ? `${day} (logged)` : String(day);
-      cells += `<button type="button" class="${classes.join(" ")}" data-day-iso="${iso}" ${
-        selectable ? "" : "disabled"
-      } aria-pressed="${iso === selected ? "true" : "false"}">${label}</button>`;
-    }
-    return `<section class="ap-day-month">
-      <h3 class="ap-day-month-title">${monthLabel(year, month)}</h3>
-      <div class="ap-day-weekdays">${weekdayLabels.map((w) => `<span>${w}</span>`).join("")}</div>
-      <div class="ap-day-month-grid">${cells}</div>
-    </section>`;
+  const { year, month } = months[viewIndex];
+  const atStart = viewIndex <= 0;
+  const atEnd = viewIndex >= months.length - 1;
+  const cells = monthDayCells(year, month, {
+    first,
+    last,
+    today,
+    minIso,
+    selected,
+    allowedSet,
+    logged,
   });
 
-  container.innerHTML = `<div class="ap-day-grid">${parts.join("")}</div>`;
+  container.innerHTML = `<div class="ap-day-grid">
+    <section class="ap-day-month">
+      <div class="ap-day-month-nav">
+        <button type="button" class="ap-day-month-prev" data-month-nav="prev" aria-label="Previous month" ${
+          atStart ? "disabled" : ""
+        }>&lt;</button>
+        <h3 class="ap-day-month-title">${monthLabel(year, month)}</h3>
+        <button type="button" class="ap-day-month-next" data-month-nav="next" aria-label="Next month" ${
+          atEnd ? "disabled" : ""
+        }>&gt;</button>
+      </div>
+      <div class="ap-day-weekdays">${weekdayLabels.map((w) => `<span>${w}</span>`).join("")}</div>
+      <div class="ap-day-month-grid">${cells}</div>
+    </section>
+  </div>`;
   container.dataset.selectedIso = selected;
+  container.dataset.viewYear = String(year);
+  container.dataset.viewMonth = String(month);
 
   container.onclick = (event) => {
+    const nav = event.target.closest("[data-month-nav]");
+    if (nav instanceof HTMLButtonElement && !nav.disabled) {
+      const dir = nav.getAttribute("data-month-nav") === "prev" ? -1 : 1;
+      const next = months[viewIndex + dir];
+      if (!next) return;
+      renderSemesterDayGrid(container, logContext, {
+        ...opts,
+        selected,
+        viewYear: next.year,
+        viewMonth: next.month,
+      });
+      return;
+    }
     const btn = event.target.closest("[data-day-iso]");
     if (!(btn instanceof HTMLButtonElement) || btn.disabled) return;
     const iso = btn.getAttribute("data-day-iso") || "";

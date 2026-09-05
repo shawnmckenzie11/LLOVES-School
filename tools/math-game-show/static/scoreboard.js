@@ -304,14 +304,14 @@ function displayedRemaining() {
 }
 
 /**
- * Show ROUND N · title and countdown above the ESPN bar.
+ * Show Round N · title and countdown above the ESPN bar.
  * @param {any} data
  */
 function paintRoundBanner(data) {
   if (!roundBanner) return;
   const n = Number(data.round) || 1;
   const title = String(data.round_title || "");
-  if (roundTitleEl) roundTitleEl.textContent = `ROUND ${n} · ${title}`;
+  if (roundTitleEl) roundTitleEl.textContent = `Round ${n} · ${title}`;
   roundEndsAtMs = lockRoundDeadline(roundEndsAtMs, data.round_ends_at_ms);
   paintRoundClock();
   roundBanner.hidden = false;

@@ -129,6 +129,24 @@ body.student-home .student-chrome-top {
   border-bottom: 1px solid #1e3348;
 }
 
+.student-round-banner {
+  margin: 0.45rem 0 0;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(245, 197, 24, 0.55);
+  border-radius: 6px;
+  background: rgba(245, 197, 24, 0.12);
+  color: #f5c518;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.student-round-banner[hidden] {
+  display: none !important;
+}
+
 body.student-home .student-chrome-bottom {
   border-top: 1px solid #1e3348;
   padding-bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));

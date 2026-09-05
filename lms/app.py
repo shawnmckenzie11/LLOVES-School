@@ -3136,7 +3136,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/start-rounds", methods=["POST"])
     @login_required
     def api_start_rounds(class_id: int):
-        """Save the rounds plan and open live team scoring."""
+        """Save the first round(s) and open live team scoring."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
@@ -3144,6 +3144,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if rounds is not None and not isinstance(rounds, list):
                 raise ValueError("rounds must be a list")
             return school.game.start_live_with_rounds(class_id, rounds)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/append-round", methods=["POST"])
+    @login_required
+    def api_append_round(class_id: int):
+        """Append one sequential round to the live plan and start it."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            if not isinstance(body, dict):
+                raise ValueError("round body must be an object")
+            spec = body.get("round") if isinstance(body.get("round"), dict) else body
+            if not isinstance(spec, dict):
+                raise ValueError("round must be an object")
+            return school.game.append_and_start_round(class_id, spec)
 
         return _staff_post(class_id, run)
 

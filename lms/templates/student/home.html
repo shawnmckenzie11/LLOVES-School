@@ -13,6 +13,7 @@
       data-codename="{{ codename or '' }}">
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
     <div id="me-board" class="student-me"></div>
+    <p class="student-round-banner" id="student-round-banner" hidden></p>
   </header>
   <main class="student-live-response" id="live-response" aria-live="polite">
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting for your teacher to start scoring.{% endif %}</p>

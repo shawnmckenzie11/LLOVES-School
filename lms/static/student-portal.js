@@ -4,6 +4,7 @@
 const waitEl = document.getElementById("student-wait");
 const meEl = document.getElementById("me-board");
 const boardEl = document.getElementById("class-board");
+const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
 const promptAck = document.getElementById("prompt-ack");
 const body = document.body;
@@ -95,6 +96,17 @@ function paintBoard(payload) {
         )
         .join("")}
     </div>`;
+}
+
+/**
+ * Show the active round label while scoring and clear it otherwise.
+ * @param {any} payload
+ */
+function paintRoundBanner(payload) {
+  if (!roundBannerEl) return;
+  const label = payload.scoring ? String(payload.round_label || "").trim() : "";
+  roundBannerEl.textContent = label;
+  roundBannerEl.hidden = !label;
 }
 
 /**
@@ -280,6 +292,7 @@ async function tick() {
     applyLayout(data);
     paintMe(data);
     paintBoard(data);
+    paintRoundBanner(data);
     const promptId = data.prompt && data.prompt.id != null ? Number(data.prompt.id) : null;
     if (promptId !== lastPromptId || (data.my_response && promptShell && !promptShell.hidden)) {
       paintPrompt(data);

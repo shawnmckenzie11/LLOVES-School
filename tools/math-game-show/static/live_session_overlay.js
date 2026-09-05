@@ -31,6 +31,7 @@ const celebrateEl = document.getElementById("live-celebrate");
 const celebrateTeamEl = document.getElementById("live-celebrate-team");
 const celebrateMembersEl = document.getElementById("live-celebrate-members");
 const confettiEl = document.getElementById("live-confetti");
+const fireworksEl = document.getElementById("live-fireworks");
 
 let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
@@ -44,9 +45,7 @@ let lastBoard = null;
 let copyFeedbackTimer = 0;
 let lastPhase = "";
 let celebrationDone = false;
-/** @type {AudioContext|null} */
-let audioCtx = null;
-let anticipationBeepTimer = 0;
+let anticipationVisualTimer = 0;
 let anticipationIntensity = 0;
 
 /**
@@ -208,15 +207,22 @@ function paintRound(board) {
     return;
   }
   const title = String(board?.round_title || "").trim();
+  const n = Number(board?.round) || 0;
   const show = hasTeamScoreboard(board) && Boolean(title);
-  const key = show ? `${title}:${board?.round_ends_at_ms || ""}` : "";
+  const label =
+    phase === "meet_teams"
+      ? title
+      : n > 0
+        ? `Round ${n} · ${title}`
+        : title;
+  const key = show ? `${label}:${board?.round_ends_at_ms || ""}` : "";
   if (roundEl) {
     if (key === lastRoundKey && roundEl.hidden === !show) {
       paintRoundClock(board);
       return;
     }
     lastRoundKey = key;
-    roundEl.textContent = show ? (phase === "meet_teams" ? title : `Round: ${title}`) : "";
+    roundEl.textContent = show ? label : "";
     roundEl.hidden = !show;
     roundEl.classList.toggle("hidden", !show);
   }
@@ -320,41 +326,8 @@ function paintTeamScores(board) {
 }
 
 /**
- * Ensure a shared AudioContext for original anticipation beeps.
- * @returns {AudioContext|null}
- */
-function getAudioContext() {
-  if (audioCtx) return audioCtx;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  if (!Ctx) return null;
-  audioCtx = new Ctx();
-  return audioCtx;
-}
-
-/**
- * Play one short original beep (not copyrighted theme audio).
- * @param {number} intensity 0–1
- */
-function playAnticipationBeep(intensity) {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  const freq = 220 + intensity * 440;
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(freq, now);
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.045 + intensity * 0.06, now + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + 0.2);
-}
-
-/**
- * Start CSS + Web Audio anticipation sequence (~2 minutes).
+ * Start CSS-only anticipation visuals if a legacy client still sets the phase.
+ * Web Audio beeps are intentionally omitted.
  * @param {any} board
  */
 function startAnticipation(board) {
@@ -365,8 +338,8 @@ function startAnticipation(board) {
   anticipationIntensity = 0;
   if (anticipationTitleEl) anticipationTitleEl.textContent = "Rounds incoming";
   paintAnticipationClock(board);
-  if (anticipationBeepTimer) window.clearInterval(anticipationBeepTimer);
-  anticipationBeepTimer = window.setInterval(() => {
+  if (anticipationVisualTimer) window.clearInterval(anticipationVisualTimer);
+  anticipationVisualTimer = window.setInterval(() => {
     anticipationIntensity = Math.min(1, anticipationIntensity + 0.03);
     document.body.style.setProperty("--anticipation-intensity", String(anticipationIntensity));
     if (anticipationTitleEl) {
@@ -374,17 +347,16 @@ function startAnticipation(board) {
       const idx = Math.min(stings.length - 1, Math.floor(anticipationIntensity * stings.length));
       anticipationTitleEl.textContent = stings[idx];
     }
-    playAnticipationBeep(anticipationIntensity);
   }, 3500);
 }
 
 /**
- * Stop anticipation visuals and audio loop.
+ * Stop anticipation visuals.
  */
 function stopAnticipation() {
-  if (anticipationBeepTimer) {
-    window.clearInterval(anticipationBeepTimer);
-    anticipationBeepTimer = 0;
+  if (anticipationVisualTimer) {
+    window.clearInterval(anticipationVisualTimer);
+    anticipationVisualTimer = 0;
   }
   if (anticipationEl) {
     anticipationEl.hidden = true;
@@ -419,8 +391,6 @@ function rankedTeams(board) {
  * @param {any} board
  */
 function maybeCelebrateWinner(board) {
-  const isFinal =
-    Boolean(board?.final) || board?.status === "ended" || String(board?.overlay_phase || "") === "";
   if (!board || !hasTeamScoreboard(board)) return;
   if (!(Boolean(board.final) || board.status === "ended")) return;
   if (celebrationDone) return;
@@ -442,31 +412,60 @@ function maybeCelebrateWinner(board) {
       })
       .join("");
   }
+  spawnFireworks();
   spawnConfetti();
+  window.setTimeout(() => {
+    if (fireworksEl) fireworksEl.innerHTML = "";
+  }, 10000);
   window.setTimeout(() => {
     document.body.classList.remove("is-celebrating");
     if (celebrateEl) {
       celebrateEl.classList.add("is-settled");
     }
-  }, 8000);
-  void isFinal;
+    if (confettiEl) confettiEl.innerHTML = "";
+  }, 20000);
 }
 
 /**
- * Create lightweight CSS confetti particles in the celebration layer.
+ * Full-viewport confetti fall for the end-class celebration window.
  */
 function spawnConfetti() {
   if (!confettiEl) return;
   confettiEl.innerHTML = "";
-  const colors = ["#f5c518", "#3d7eff", "#9dffb0", "#ff8f8f", "#d7deef"];
-  for (let i = 0; i < 36; i += 1) {
+  const colors = ["#f5c518", "#3d7eff", "#9dffb0", "#ff8f8f", "#d7deef", "#ffd27a"];
+  for (let i = 0; i < 72; i += 1) {
     const bit = document.createElement("span");
     bit.className = "live-overlay-confetti-bit";
     bit.style.setProperty("--i", String(i));
     bit.style.setProperty("--c", colors[i % colors.length]);
     bit.style.setProperty("--x", `${(Math.random() * 100).toFixed(1)}%`);
-    bit.style.setProperty("--d", `${(0.8 + Math.random() * 1.4).toFixed(2)}s`);
+    bit.style.setProperty("--d", `${(2.4 + Math.random() * 3.6).toFixed(2)}s`);
+    bit.style.setProperty("--delay", `${(Math.random() * 2.5).toFixed(2)}s`);
     confettiEl.appendChild(bit);
+  }
+}
+
+/**
+ * Short fireworks bursts layered over the start of the celebration (no audio).
+ */
+function spawnFireworks() {
+  if (!fireworksEl) return;
+  fireworksEl.innerHTML = "";
+  const colors = ["#f5c518", "#3d7eff", "#ff8f8f", "#9dffb0", "#ffffff"];
+  for (let i = 0; i < 10; i += 1) {
+    const burst = document.createElement("span");
+    burst.className = "live-overlay-firework";
+    burst.style.setProperty("--x", `${8 + Math.random() * 84}%`);
+    burst.style.setProperty("--y", `${12 + Math.random() * 55}%`);
+    burst.style.setProperty("--c", colors[i % colors.length]);
+    burst.style.setProperty("--delay", `${(Math.random() * 6).toFixed(2)}s`);
+    fireworksEl.appendChild(burst);
+    for (let s = 0; s < 8; s += 1) {
+      const spark = document.createElement("i");
+      spark.className = "live-overlay-firework-spark";
+      spark.style.setProperty("--a", `${s * 45}deg`);
+      burst.appendChild(spark);
+    }
   }
 }
 
