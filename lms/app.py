@@ -790,6 +790,73 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         # Validation happens in set_offering_schedule.
         return live_days, live_time
 
+    def _roster_codenames_from_assign_form() -> list[str] | None:
+        """Parse an optional Admin assign-form roster CSV (first column only).
+
+        Returns:
+            ``None`` when no file was uploaded; otherwise a validated Codename list.
+
+        Raises:
+            ValueError: Empty file, no names, invalid/duplicate Codenames, or commas.
+        """
+        uploaded = request.files.get("roster_csv")
+        if uploaded is None or not getattr(uploaded, "filename", None):
+            return None
+        if not str(uploaded.filename).strip():
+            return None
+        raw = uploaded.read()
+        if not raw:
+            raise ValueError("Roster CSV is empty.")
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        from db import parse_codename_column_csv, roster_from_codenames
+
+        names = parse_codename_column_csv(text)
+        roster_from_codenames(names)  # normalize + reject commas/duplicates early
+        return names
+
+    def _populate_offering_class(
+        offering: dict[str, Any],
+        *,
+        teacher_user_id: int,
+        codenames: list[str],
+    ) -> dict[str, Any]:
+        """Create the Attendance & Participation class for a newly assigned offering.
+
+        Args:
+            offering: ``course_offerings`` row (must already have live schedule).
+            teacher_user_id: Staff ``users.id`` who owns the class.
+            codenames: Validated Codename roster.
+
+        Returns:
+            Enriched class payload from ``create_class``.
+
+        Raises:
+            ValueError: Missing semester/schedule or invalid roster.
+        """
+        semester = school.get_semester(int(offering["semester_id"]))
+        if not semester:
+            raise ValueError("Semester is missing.")
+        days = str(offering.get("live_days") or "").strip()
+        time_label = str(offering.get("live_time") or "").strip()
+        if not days or not time_label:
+            raise ValueError(
+                "Set live-class days and start time before populating the class."
+            )
+        created = school.game.create_class(
+            year=str(semester["year_display"]),
+            semester=str(semester["term"]),
+            course_code=str(offering["ontario_code"]),
+            days_preset=days,
+            time_label=time_label,
+            codenames=codenames,
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(teacher_user_id),
+        )
+        return school.enrich_class(created)
+
     def _owned_offering_for_pack(class_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
         """Return the class and offering for a staff module-pack route, or abort.
 
@@ -1189,6 +1256,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         dest_root = None
         stored = None
         try:
+            roster_names = _roster_codenames_from_assign_form()
             if uploaded is not None:
                 created = school.store_upload_library(code, uploaded)
                 library_id = int(created["library"]["id"])
@@ -1211,6 +1279,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_days=live_days,
                 live_time=live_time,
             )
+            if roster_names:
+                _populate_offering_class(
+                    offering,
+                    teacher_user_id=teacher_id,
+                    codenames=roster_names,
+                )
         except (ValueError, KeyError) as exc:
             return _assign_error(str(exc))
         return _pack_upload_success(
@@ -1408,6 +1482,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         dest_root = None
         stored = None
         try:
+            roster_names = _roster_codenames_from_assign_form()
             if uploaded is not None:
                 created = school.store_upload_library(code, uploaded)
                 library_id = int(created["library"]["id"])
@@ -1430,6 +1505,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_days=live_days,
                 live_time=live_time,
             )
+            if roster_names:
+                _populate_offering_class(
+                    offering,
+                    teacher_user_id=staff_id,
+                    codenames=roster_names,
+                )
         except (ValueError, KeyError) as exc:
             return _assign_error(str(exc))
         return _pack_upload_success(

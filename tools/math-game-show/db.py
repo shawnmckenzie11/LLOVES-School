@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sqlite3
 import threading
@@ -551,6 +553,54 @@ def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
     if not roster:
         raise ValueError("Add at least one Codename")
     return roster
+
+
+_CODENAME_CSV_HEADERS = frozenset(
+    {
+        "name",
+        "names",
+        "codename",
+        "codenames",
+        "student",
+        "students",
+        "first name",
+        "firstname",
+        "display name",
+        "displayname",
+    }
+)
+
+
+def parse_codename_column_csv(text: str) -> list[str]:
+    """Extract Codenames from the first column of a simple roster CSV.
+
+    Skips blank rows and a header row when the first cell is a known label
+    (``Name``, ``Codename``, ``Student``, …). Extra columns are ignored.
+    Does not parse Canvas gradebook exports — use ``parse_canvas_grades_csv``.
+
+    Args:
+        text: Raw CSV contents (UTF-8).
+
+    Returns:
+        Non-empty list of first-column values (not yet normalized).
+
+    Raises:
+        ValueError: When no student names remain after skipping empties/header.
+    """
+    reader = csv.reader(io.StringIO(text or ""))
+    names: list[str] = []
+    for index, row in enumerate(reader):
+        if not row:
+            continue
+        cell = (row[0] or "").strip()
+        if not cell:
+            continue
+        if index == 0 and cell.lower() in _CODENAME_CSV_HEADERS:
+            continue
+        names.append(cell)
+    if not names:
+        raise ValueError("Roster CSV has no student names in the first column.")
+    return names
 
 
 class GameShowDB:
