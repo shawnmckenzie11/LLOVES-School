@@ -6,7 +6,7 @@ import json
 import secrets
 import sqlite3
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -182,6 +182,90 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
+
+CREATE TABLE IF NOT EXISTS google_api_tokens (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    refresh_token TEXT NOT NULL,
+    access_token TEXT,
+    access_token_expires_at TEXT,
+    scopes TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS live_problems (
+    id INTEGER PRIMARY KEY,
+    ontario_code TEXT NOT NULL,
+    module_hint TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    stem_html TEXT NOT NULL DEFAULT '',
+    task_html TEXT NOT NULL DEFAULT '',
+    diagram_note TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    license TEXT NOT NULL DEFAULT '',
+    expectation_codes_json TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS live_problem_processes (
+    problem_id INTEGER NOT NULL
+        REFERENCES live_problems(id) ON DELETE CASCADE,
+    process_key TEXT NOT NULL,
+    PRIMARY KEY (problem_id, process_key)
+);
+
+CREATE TABLE IF NOT EXISTS math_processes (
+    process_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    statement TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS quick_phrases (
+    id INTEGER PRIMARY KEY,
+    process_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS observations (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL
+        REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+    class_id INTEGER NOT NULL,
+    observer_user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    team_id INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    evidence_strength TEXT,
+    follow_up_required INTEGER NOT NULL DEFAULT 0,
+    visibility TEXT NOT NULL DEFAULT 'staff',
+    source TEXT NOT NULL DEFAULT 'manual',
+    quick_phrase_id INTEGER REFERENCES quick_phrases(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_observations_session
+    ON observations(live_session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS observation_subjects (
+    observation_id INTEGER NOT NULL
+        REFERENCES observations(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL,
+    PRIMARY KEY (observation_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS observation_processes (
+    observation_id INTEGER NOT NULL
+        REFERENCES observations(id) ON DELETE CASCADE,
+    process_key TEXT NOT NULL,
+    PRIMARY KEY (observation_id, process_key)
+);
 """
 
 
@@ -301,7 +385,9 @@ class LovesDB:
         self._ensure_archived_column()
         self._ensure_gradebook_schema()
         self._ensure_live_session_schema()
+        self._ensure_live_class_feature_schema()
         self._seed()
+        self._seed_live_class_features()
         self.conn.commit()
 
     def close(self) -> None:
@@ -698,6 +784,126 @@ class LovesDB:
                 """
             )
             self.conn.commit()
+
+    def _ensure_live_class_feature_schema(self) -> None:
+        """Add slides columns, Google API tokens, problem bank, and evidence tables.
+
+        Live-migrates existing Fly sqlite files. Also adds ``meeting_date`` and
+        presentation fields on ``live_class_sessions``.
+        """
+        self.conn.executescript(SCHEMA)
+        cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(live_class_sessions)")
+        }
+        if "meeting_date" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN meeting_date TEXT"
+            )
+        if "presentation_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN presentation_id TEXT"
+            )
+        if "presentation_url" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN presentation_url TEXT"
+            )
+        if "slides_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN slides_json TEXT"
+            )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_sessions_class_date
+            ON live_class_sessions(class_id, meeting_date)
+            """
+        )
+        self.conn.commit()
+
+    def _seed_live_class_features(self) -> None:
+        """Seed Ontario processes, default phrases, and the MCF3M live bank."""
+        self.seed_math_processes()
+        self.seed_quick_phrases()
+        self.seed_live_problems()
+
+    def seed_math_processes(self) -> None:
+        """Upsert the seven Ontario mathematical processes from the MCF3M seed."""
+        try:
+            from live_class_constants import process_key_from_name
+            from paths import MCF3M_EXPECTATIONS
+        except ImportError:
+            from lms.live_class_constants import process_key_from_name
+            from lms.paths import MCF3M_EXPECTATIONS
+        if not MCF3M_EXPECTATIONS.is_file():
+            return
+        payload = json.loads(MCF3M_EXPECTATIONS.read_text(encoding="utf-8"))
+        processes = (payload.get("mathematical_processes") or {}).get("processes") or []
+        with self._lock:
+            for index, proc in enumerate(processes, start=1):
+                key = process_key_from_name(str(proc.get("name") or ""))
+                if not key:
+                    continue
+                self.conn.execute(
+                    """
+                    INSERT INTO math_processes (process_key, name, statement, sort_order)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(process_key) DO UPDATE SET
+                        name = excluded.name,
+                        statement = excluded.statement,
+                        sort_order = excluded.sort_order
+                    """,
+                    (
+                        key,
+                        str(proc.get("name") or key),
+                        str(proc.get("statement") or ""),
+                        index,
+                    ),
+                )
+            self.conn.commit()
+
+    def seed_quick_phrases(self) -> None:
+        """Insert default evidence phrases when the table is empty."""
+        try:
+            from live_problem_seed import default_quick_phrases
+        except ImportError:
+            from lms.live_problem_seed import default_quick_phrases
+        with self._lock:
+            count = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM quick_phrases"
+            ).fetchone()["n"]
+            if int(count) > 0:
+                return
+            for row in default_quick_phrases():
+                self.conn.execute(
+                    """
+                    INSERT INTO quick_phrases (
+                        process_key, label, description, category, active, sort_order
+                    ) VALUES (?, ?, ?, ?, 1, ?)
+                    """,
+                    (
+                        row["process_key"],
+                        row["label"],
+                        row["description"],
+                        row["category"],
+                        int(row["sort_order"]),
+                    ),
+                )
+            self.conn.commit()
+
+    def seed_live_problems(self) -> None:
+        """Insert the starter MCF3M live-problem bank when empty."""
+        try:
+            from live_problem_seed import default_live_problems
+        except ImportError:
+            from lms.live_problem_seed import default_live_problems
+        with self._lock:
+            count = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM live_problems"
+            ).fetchone()["n"]
+        if int(count) > 0:
+            return
+        for row in default_live_problems():
+            self.upsert_live_problem(row)
 
     def _seed(self) -> None:
         """Insert IT user, curriculum catalog, MCF3M expectations, default semester."""
@@ -1700,6 +1906,720 @@ class LovesDB:
             ).fetchone()
         return dict(row) if row else None
 
+    def list_module_outlines(self, library_id: int) -> list[dict[str, Any]]:
+        """Return module outlines for a content library in position order.
+
+        Args:
+            library_id: ``content_libraries.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM module_outlines
+                WHERE library_id = ?
+                ORDER BY position, id
+                """,
+                (int(library_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_google_api_token(self, user_id: int) -> dict[str, Any] | None:
+        """Return stored Slides/Drive tokens for a user, if any.
+
+        Args:
+            user_id: ``users.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM google_api_tokens WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def store_google_api_token(
+        self,
+        user_id: int,
+        *,
+        refresh_token: str,
+        scopes: str,
+        access_token: str | None = None,
+        expires_in: int | None = None,
+    ) -> dict[str, Any]:
+        """Insert or update Google API tokens for deck creation.
+
+        Args:
+            user_id: Operator ``users.id``.
+            refresh_token: Offline refresh token (or mock marker).
+            scopes: Space-separated OAuth scopes.
+            access_token: Optional short-lived token.
+            expires_in: Seconds until access token expiry.
+
+        Returns:
+            Stored token row.
+        """
+        expires_at = None
+        if expires_in:
+            expires_at = (
+                datetime.now().replace(microsecond=0)
+                + timedelta(seconds=int(expires_in))
+            ).isoformat()
+        now = _now()
+        with self._lock:
+            existing = self.conn.execute(
+                "SELECT refresh_token FROM google_api_tokens WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+            keep_refresh = refresh_token or (
+                str(existing["refresh_token"]) if existing else ""
+            )
+            self.conn.execute(
+                """
+                INSERT INTO google_api_tokens (
+                    user_id, refresh_token, access_token,
+                    access_token_expires_at, scopes, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    refresh_token = excluded.refresh_token,
+                    access_token = excluded.access_token,
+                    access_token_expires_at = excluded.access_token_expires_at,
+                    scopes = excluded.scopes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(user_id),
+                    keep_refresh,
+                    access_token,
+                    expires_at,
+                    scopes,
+                    now,
+                ),
+            )
+            self.conn.commit()
+        row = self.get_google_api_token(user_id)
+        assert row is not None
+        return row
+
+    def delete_google_api_token(self, user_id: int) -> None:
+        """Drop stored Slides/Drive tokens for a user.
+
+        Args:
+            user_id: ``users.id``.
+        """
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM google_api_tokens WHERE user_id = ?",
+                (int(user_id),),
+            )
+            self.conn.commit()
+
+    def _live_problem_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        """Attach process keys and parsed expectation codes to a problem row.
+
+        Args:
+            row: ``live_problems`` sqlite row.
+        """
+        item = dict(row)
+        item["expectation_codes"] = json.loads(
+            item.get("expectation_codes_json") or "[]"
+        )
+        with self._lock:
+            procs = self.conn.execute(
+                """
+                SELECT process_key FROM live_problem_processes
+                WHERE problem_id = ? ORDER BY process_key
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+        item["processes"] = [str(p["process_key"]) for p in procs]
+        return item
+
+    def list_live_problems(
+        self,
+        *,
+        ontario_code: str | None = None,
+        active_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List curated live problems, optionally filtered by course.
+
+        Args:
+            ontario_code: Course code filter.
+            active_only: When True, hide deactivated items.
+        """
+        sql = "SELECT * FROM live_problems WHERE 1=1"
+        args: list[Any] = []
+        if ontario_code:
+            sql += " AND ontario_code = ?"
+            args.append(str(ontario_code).strip().upper())
+        if active_only:
+            sql += " AND active = 1"
+        sql += " ORDER BY sort_order, id"
+        with self._lock:
+            rows = self.conn.execute(sql, args).fetchall()
+        return [self._live_problem_from_row(row) for row in rows]
+
+    def get_live_problem(self, problem_id: int) -> dict[str, Any] | None:
+        """Return one live problem with process tags.
+
+        Args:
+            problem_id: ``live_problems.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_problems WHERE id = ?",
+                (int(problem_id),),
+            ).fetchone()
+        return self._live_problem_from_row(row) if row else None
+
+    def upsert_live_problem(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create or update a live problem and replace its process tags.
+
+        Args:
+            payload: Problem fields including optional ``id`` and ``processes``.
+
+        Returns:
+            Stored problem dict.
+        """
+        now = _now()
+        codes = payload.get("expectation_codes") or []
+        if isinstance(codes, str):
+            codes = [part.strip() for part in codes.split(",") if part.strip()]
+        processes = payload.get("processes") or []
+        problem_id = payload.get("id")
+        fields = (
+            str(payload.get("ontario_code") or "MCF3M").strip().upper(),
+            str(payload.get("module_hint") or "").strip(),
+            str(payload.get("kind") or "standard").strip().lower(),
+            str(payload.get("title") or "").strip() or "Untitled",
+            str(payload.get("stem_html") or ""),
+            str(payload.get("task_html") or ""),
+            str(payload.get("diagram_note") or ""),
+            str(payload.get("source") or ""),
+            str(payload.get("license") or ""),
+            json.dumps(list(codes)),
+            1 if payload.get("active", True) else 0,
+            int(payload.get("sort_order") or 0),
+        )
+        with self._lock:
+            if problem_id:
+                self.conn.execute(
+                    """
+                    UPDATE live_problems SET
+                        ontario_code = ?, module_hint = ?, kind = ?, title = ?,
+                        stem_html = ?, task_html = ?, diagram_note = ?,
+                        source = ?, license = ?, expectation_codes_json = ?,
+                        active = ?, sort_order = ?
+                    WHERE id = ?
+                    """,
+                    (*fields, int(problem_id)),
+                )
+                pid = int(problem_id)
+            else:
+                cur = self.conn.execute(
+                    """
+                    INSERT INTO live_problems (
+                        ontario_code, module_hint, kind, title, stem_html,
+                        task_html, diagram_note, source, license,
+                        expectation_codes_json, active, sort_order, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (*fields, now),
+                )
+                pid = int(cur.lastrowid)
+            self.conn.execute(
+                "DELETE FROM live_problem_processes WHERE problem_id = ?",
+                (pid,),
+            )
+            for key in processes:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO live_problem_processes
+                        (problem_id, process_key) VALUES (?, ?)
+                    """,
+                    (pid, str(key)),
+                )
+            self.conn.commit()
+        row = self.get_live_problem(pid)
+        assert row is not None
+        return row
+
+    def set_live_problem_active(self, problem_id: int, active: bool) -> dict[str, Any]:
+        """Activate or deactivate a live problem.
+
+        Args:
+            problem_id: ``live_problems.id``.
+            active: When False, hide from the generator.
+
+        Returns:
+            Updated problem.
+
+        Raises:
+            KeyError: Unknown id.
+        """
+        if self.get_live_problem(problem_id) is None:
+            raise KeyError(f"live problem {problem_id}")
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_problems SET active = ? WHERE id = ?",
+                (1 if active else 0, int(problem_id)),
+            )
+            self.conn.commit()
+        row = self.get_live_problem(problem_id)
+        assert row is not None
+        return row
+
+    def list_math_processes(self) -> list[dict[str, Any]]:
+        """Return seeded Ontario mathematical processes."""
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM math_processes ORDER BY sort_order, process_key"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_quick_phrases(
+        self,
+        *,
+        category: str | None = None,
+        active_only: bool = True,
+        process_keys: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """List evidence phrases, optionally filtered.
+
+        Args:
+            category: ``team_problem``, ``consolidation``, or ``general``.
+            active_only: Hide deactivated phrases.
+            process_keys: Restrict to these process keys.
+        """
+        sql = "SELECT * FROM quick_phrases WHERE 1=1"
+        args: list[Any] = []
+        if active_only:
+            sql += " AND active = 1"
+        if category:
+            sql += " AND category = ?"
+            args.append(str(category))
+        if process_keys:
+            placeholders = ",".join("?" for _ in process_keys)
+            sql += f" AND process_key IN ({placeholders})"
+            args.extend(process_keys)
+        sql += " ORDER BY sort_order, id"
+        with self._lock:
+            rows = self.conn.execute(sql, args).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_quick_phrase(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create or update a quick-evidence phrase.
+
+        Args:
+            payload: Phrase fields; ``id`` updates an existing row.
+
+        Returns:
+            Stored phrase dict.
+        """
+        phrase_id = payload.get("id")
+        fields = (
+            str(payload.get("process_key") or "").strip(),
+            str(payload.get("label") or "").strip() or "Untitled",
+            str(payload.get("description") or ""),
+            str(payload.get("category") or "general").strip(),
+            1 if payload.get("active", True) else 0,
+            int(payload.get("sort_order") or 0),
+        )
+        with self._lock:
+            if phrase_id:
+                self.conn.execute(
+                    """
+                    UPDATE quick_phrases SET
+                        process_key = ?, label = ?, description = ?,
+                        category = ?, active = ?, sort_order = ?
+                    WHERE id = ?
+                    """,
+                    (*fields, int(phrase_id)),
+                )
+                pid = int(phrase_id)
+            else:
+                cur = self.conn.execute(
+                    """
+                    INSERT INTO quick_phrases (
+                        process_key, label, description, category, active, sort_order
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    fields,
+                )
+                pid = int(cur.lastrowid)
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM quick_phrases WHERE id = ?", (pid,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"quick phrase {pid}")
+        return dict(row)
+
+    def preselect_quick_phrases_for_processes(
+        self, process_keys: list[str]
+    ) -> list[int]:
+        """Return phrase ids whose process matches contest/consolidation tags.
+
+        Args:
+            process_keys: Process keys from the generated deck.
+        """
+        if not process_keys:
+            return []
+        rows = self.list_quick_phrases(active_only=True, process_keys=process_keys)
+        return [int(row["id"]) for row in rows]
+
+    def get_live_session_for_class_date(
+        self, class_id: int, meeting_date: str
+    ) -> dict[str, Any] | None:
+        """Return the newest live session for a class on a given date.
+
+        Args:
+            class_id: MGS class id.
+            meeting_date: ISO date.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE class_id = ? AND meeting_date = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(class_id), str(meeting_date)[:10]),
+            ).fetchone()
+        if row:
+            return dict(row)
+        active = self.get_active_live_session_for_class(class_id)
+        if active and (
+            not active.get("meeting_date")
+            or str(active.get("meeting_date")) == str(meeting_date)[:10]
+        ):
+            return dict(active)
+        return None
+
+    def set_live_session_slides(
+        self,
+        session_id: int,
+        *,
+        meeting_date: str,
+        presentation_id: str,
+        presentation_url: str,
+        slides_json: Any = None,
+    ) -> dict[str, Any]:
+        """Persist deck ids and timeline snapshot on a live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            meeting_date: ISO class date.
+            presentation_id: Google id or mock id.
+            presentation_url: View URL or local preview path.
+            slides_json: Selected problem ids and process keys.
+
+        Returns:
+            Updated session row.
+
+        Raises:
+            KeyError: Unknown session.
+        """
+        blob = slides_json
+        if blob is not None and not isinstance(blob, str):
+            blob = json.dumps(blob)
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET meeting_date = ?, presentation_id = ?,
+                    presentation_url = ?, slides_json = ?
+                WHERE id = ?
+                """,
+                (
+                    str(meeting_date)[:10],
+                    presentation_id,
+                    presentation_url,
+                    blob,
+                    int(session_id),
+                ),
+            )
+            self.conn.commit()
+            if cur.rowcount == 0:
+                raise KeyError(f"live session {session_id}")
+        row = self.get_live_session(session_id)
+        assert row is not None
+        return row
+
+    def _observation_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        """Attach subject ids and process keys to an observation.
+
+        Args:
+            row: ``observations`` sqlite row.
+        """
+        item = dict(row)
+        oid = int(item["id"])
+        with self._lock:
+            subjects = self.conn.execute(
+                """
+                SELECT student_id FROM observation_subjects
+                WHERE observation_id = ? ORDER BY student_id
+                """,
+                (oid,),
+            ).fetchall()
+            processes = self.conn.execute(
+                """
+                SELECT process_key FROM observation_processes
+                WHERE observation_id = ? ORDER BY process_key
+                """,
+                (oid,),
+            ).fetchall()
+        item["student_ids"] = [int(s["student_id"]) for s in subjects]
+        item["process_keys"] = [str(p["process_key"]) for p in processes]
+        item["follow_up_required"] = bool(item.get("follow_up_required"))
+        return item
+
+    def list_observations(self, live_session_id: int) -> list[dict[str, Any]]:
+        """List observations for a live session, newest last.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM observations
+                WHERE live_session_id = ?
+                ORDER BY created_at, id
+                """,
+                (int(live_session_id),),
+            ).fetchall()
+        return [self._observation_dict(row) for row in rows]
+
+    def get_observation(self, observation_id: int) -> dict[str, Any] | None:
+        """Return one observation with subjects and processes.
+
+        Args:
+            observation_id: ``observations.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM observations WHERE id = ?",
+                (int(observation_id),),
+            ).fetchone()
+        return self._observation_dict(row) if row else None
+
+    def create_observation(
+        self,
+        *,
+        live_session_id: int,
+        class_id: int,
+        observer_user_id: int,
+        scope: str,
+        note: str,
+        student_ids: list[int] | None = None,
+        team_id: int | None = None,
+        process_keys: list[str] | None = None,
+        evidence_strength: str | None = None,
+        follow_up_required: bool = False,
+        source: str = "manual",
+        quick_phrase_id: int | None = None,
+        visibility: str = "staff",
+    ) -> dict[str, Any]:
+        """Insert an evidence observation (not a point event).
+
+        Args:
+            live_session_id: Owning live session.
+            class_id: MGS class id.
+            observer_user_id: Staff user recording evidence.
+            scope: ``student``, ``students``, ``team``, or ``class``.
+            note: Observation text (often from a phrase).
+            student_ids: MGS student ids when scope is student(s).
+            team_id: MGS ``game_teams.id`` when scope is team.
+            process_keys: Ontario process keys.
+            evidence_strength: ``emerging``, ``developing``, ``clear``, or None.
+            follow_up_required: Teacher flag.
+            source: ``quick_phrase`` or ``manual``.
+            quick_phrase_id: Phrase used, if any.
+            visibility: Default ``staff``.
+
+        Returns:
+            Stored observation.
+
+        Raises:
+            ValueError: Invalid scope or empty note.
+        """
+        scope_key = (scope or "").strip().lower()
+        if scope_key not in {"student", "students", "team", "class"}:
+            raise ValueError("scope must be student, students, team, or class")
+        text = (note or "").strip()
+        if not text:
+            raise ValueError("note is required")
+        ids = [int(sid) for sid in (student_ids or [])]
+        if scope_key == "student" and len(ids) != 1:
+            raise ValueError("student scope requires exactly one student_id")
+        if scope_key == "students" and len(ids) < 2:
+            raise ValueError("students scope requires at least two student_ids")
+        if scope_key == "team" and team_id is None:
+            raise ValueError("team scope requires team_id")
+        strength = (evidence_strength or "").strip().lower() or None
+        if strength and strength not in {"emerging", "developing", "clear"}:
+            raise ValueError("invalid evidence_strength")
+        keys = [str(k) for k in (process_keys or [])]
+        now = _now()
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT INTO observations (
+                    live_session_id, class_id, observer_user_id, created_at,
+                    scope, team_id, note, evidence_strength, follow_up_required,
+                    visibility, source, quick_phrase_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(live_session_id),
+                    int(class_id),
+                    int(observer_user_id),
+                    now,
+                    scope_key,
+                    int(team_id) if team_id is not None else None,
+                    text,
+                    strength,
+                    1 if follow_up_required else 0,
+                    visibility or "staff",
+                    source or "manual",
+                    int(quick_phrase_id) if quick_phrase_id else None,
+                ),
+            )
+            oid = int(cur.lastrowid)
+            for sid in ids:
+                self.conn.execute(
+                    """
+                    INSERT INTO observation_subjects (observation_id, student_id)
+                    VALUES (?, ?)
+                    """,
+                    (oid, sid),
+                )
+            for key in keys:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO observation_processes
+                        (observation_id, process_key) VALUES (?, ?)
+                    """,
+                    (oid, key),
+                )
+            self.conn.commit()
+        row = self.get_observation(oid)
+        assert row is not None
+        return row
+
+    def update_observation(
+        self, observation_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Edit note, strength, follow-up, subjects, or processes.
+
+        Args:
+            observation_id: ``observations.id``.
+            payload: Partial fields to update.
+
+        Returns:
+            Updated observation.
+
+        Raises:
+            KeyError: Unknown id.
+        """
+        existing = self.get_observation(observation_id)
+        if existing is None:
+            raise KeyError(f"observation {observation_id}")
+        note = payload.get("note", existing["note"])
+        strength = payload.get("evidence_strength", existing.get("evidence_strength"))
+        follow = payload.get("follow_up_required", existing.get("follow_up_required"))
+        if strength == "":
+            strength = None
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE observations
+                SET note = ?, evidence_strength = ?, follow_up_required = ?
+                WHERE id = ?
+                """,
+                (
+                    str(note),
+                    strength,
+                    1 if follow else 0,
+                    int(observation_id),
+                ),
+            )
+            if "student_ids" in payload:
+                self.conn.execute(
+                    "DELETE FROM observation_subjects WHERE observation_id = ?",
+                    (int(observation_id),),
+                )
+                for sid in payload.get("student_ids") or []:
+                    self.conn.execute(
+                        """
+                        INSERT INTO observation_subjects
+                            (observation_id, student_id) VALUES (?, ?)
+                        """,
+                        (int(observation_id), int(sid)),
+                    )
+            if "process_keys" in payload:
+                self.conn.execute(
+                    "DELETE FROM observation_processes WHERE observation_id = ?",
+                    (int(observation_id),),
+                )
+                for key in payload.get("process_keys") or []:
+                    self.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO observation_processes
+                            (observation_id, process_key) VALUES (?, ?)
+                        """,
+                        (int(observation_id), str(key)),
+                    )
+            self.conn.commit()
+        row = self.get_observation(observation_id)
+        assert row is not None
+        return row
+
+    def delete_observation(self, observation_id: int) -> None:
+        """Delete an observation and its subject/process rows.
+
+        Args:
+            observation_id: ``observations.id``.
+
+        Raises:
+            KeyError: Unknown id.
+        """
+        if self.get_observation(observation_id) is None:
+            raise KeyError(f"observation {observation_id}")
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM observations WHERE id = ?",
+                (int(observation_id),),
+            )
+            self.conn.commit()
+
+    def observation_coverage(self, live_session_id: int) -> dict[str, Any]:
+        """Count observations per student × process for one live session.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{student_id: {process_key: count}}`` plus class-level counts.
+        """
+        observations = self.list_observations(live_session_id)
+        by_student: dict[str, dict[str, int]] = {}
+        class_counts: dict[str, int] = {}
+        for obs in observations:
+            keys = obs.get("process_keys") or []
+            if obs.get("scope") == "class":
+                for key in keys:
+                    class_counts[key] = class_counts.get(key, 0) + 1
+            for sid in obs.get("student_ids") or []:
+                bucket = by_student.setdefault(str(sid), {})
+                for key in keys:
+                    bucket[key] = bucket.get(key, 0) + 1
+        return {
+            "live_session_id": int(live_session_id),
+            "by_student": by_student,
+            "class_counts": class_counts,
+            "observation_count": len(observations),
+        }
+
 
 class SchoolDB(LovesDB):
     """LLOVES facade: school tables plus a GameShowDB on the same sqlite file."""
@@ -2629,7 +3549,16 @@ class SchoolDB(LovesDB):
                 "SELECT * FROM live_class_sessions WHERE id = ?",
                 (int(session_id),),
             ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        item = dict(row)
+        raw = item.get("slides_json")
+        if isinstance(raw, str) and raw:
+            try:
+                item["slides_json"] = json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+        return item
 
     def get_active_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
         """Return the active live session for a class, if any.

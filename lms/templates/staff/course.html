@@ -103,6 +103,13 @@
             <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
             <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
             <input type="hidden" id="ap-valid-date" class="ap-date-input">
+            <p class="hint compact" id="ap-slides-status" hidden>Preparing slides…</p>
+            <p class="row-actions compact" id="ap-slides-actions" hidden>
+              <a class="btn secondary" id="ap-open-slides" href="#" target="_blank" rel="noopener">Open slides</a>
+              <button type="button" class="secondary" id="ap-regenerate-slides">Regenerate slides</button>
+              <a class="btn secondary" id="ap-connect-slides" href="/auth/google/slides">Connect Google Slides</a>
+            </p>
+            <p class="hint compact" id="ap-slides-console-hint">If Google shows <strong>redirect_uri_mismatch</strong>, add this exact URI under the Web client → Authorized redirect URIs, then Save: <code>http://127.0.0.1:8787/auth/google/slides/callback</code></p>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
@@ -130,6 +137,11 @@
               <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
               <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
             </div>
+            <p class="hint compact" id="ap-slides-status-att" hidden></p>
+            <p class="row-actions compact" id="ap-slides-actions-att" hidden>
+              <a class="btn secondary" id="ap-open-slides-att" href="#" target="_blank" rel="noopener">Open slides</a>
+              <button type="button" class="secondary" id="ap-regenerate-slides-att">Regenerate slides</button>
+            </p>
           </div>
         </section>
 
@@ -306,6 +318,33 @@
               <div class="ap-score-body">
                 <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
                 <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
+                <aside id="ap-evidence-panel" class="ap-evidence-panel" hidden>
+                  <h3>Team Challenge Evidence</h3>
+                  <p class="hint compact">Process observations (not participation points). Open Question chips stay separate.</p>
+                  <div class="ap-evidence-scope" id="ap-evidence-scope"></div>
+                  <div class="ap-evidence-processes" id="ap-evidence-processes"></div>
+                  <div class="ap-evidence-phrases" id="ap-evidence-phrases"></div>
+                  <label class="field" for="ap-evidence-note">Note</label>
+                  <textarea id="ap-evidence-note" rows="3"></textarea>
+                  <div class="ap-evidence-meta">
+                    <label class="field" for="ap-evidence-strength">Strength
+                      <select id="ap-evidence-strength">
+                        <option value="">—</option>
+                        <option value="emerging">emerging</option>
+                        <option value="developing">developing</option>
+                        <option value="clear">clear</option>
+                      </select>
+                    </label>
+                    <label class="it-toggle">
+                      <input type="checkbox" id="ap-evidence-followup"> Follow-up
+                    </label>
+                  </div>
+                  <div class="row-actions compact">
+                    <button type="button" id="ap-evidence-save">Save</button>
+                    <button type="button" class="secondary" id="ap-evidence-undo">Undo last</button>
+                  </div>
+                  <ul class="ap-evidence-log" id="ap-evidence-log"></ul>
+                </aside>
               </div>
             </div>
             <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
@@ -326,6 +365,7 @@
         </section>
       </div>
       <script type="module" src="/static/staff_ap.js"></script>
+      <script type="module" src="/static/staff_evidence.js"></script>
     </div>
     {% elif tab == 'ap' %}
     <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="0" data-participate="0" data-live-session-id="">
@@ -400,6 +440,12 @@
         </div>
         <div id="error" class="error" hidden></div>
         <p class="hint" id="part-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s participation and attendance.</p>
+        <section class="card ap-evidence-coverage" id="ap-evidence-coverage">
+          <h2>Process evidence (this live session)</h2>
+          <p class="hint compact">Qualitative observations from Team Challenge. Not written to participation points.</p>
+          <div id="ap-coverage-matrix"></div>
+          <ul id="ap-coverage-log" class="ap-evidence-log"></ul>
+        </section>
         <div class="sheet-wrap">
           <table class="sheet" id="sheet">
             <thead>
@@ -428,6 +474,7 @@
         </form>
       </dialog>
       <script type="module" src="/static/staff_grades.js"></script>
+      <script type="module" src="/static/staff_evidence.js"></script>
       {% endif %}
     </div>
     {% elif tab == 'gradebook' %}

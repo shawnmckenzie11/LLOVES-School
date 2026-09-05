@@ -554,6 +554,100 @@ async function applyValidateDateChoice(opts = {}) {
 }
 
 /**
+ * Paint Open slides / Connect / Regenerating status on Class Date and Attendance.
+ * @param {{status?: string, url?: string, connectUrl?: string, hidden?: boolean}} opts
+ */
+function paintSlidesChrome(opts = {}) {
+  const statusEls = [$("ap-slides-status"), $("ap-slides-status-att")].filter(Boolean);
+  const actionEls = [$("ap-slides-actions"), $("ap-slides-actions-att")].filter(Boolean);
+  const openEls = [$("ap-open-slides"), $("ap-open-slides-att")].filter(Boolean);
+  const connect = $("ap-connect-slides");
+  for (const el of statusEls) {
+    if (opts.hidden) {
+      el.hidden = true;
+      continue;
+    }
+    el.hidden = !opts.status;
+    el.textContent = opts.status || "";
+  }
+  for (const wrap of actionEls) {
+    wrap.hidden = Boolean(opts.hidden);
+  }
+  for (const link of openEls) {
+    if (opts.url) {
+      link.href = opts.url;
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+    }
+  }
+  if (connect) {
+    connect.hidden = Boolean(opts.hidden);
+    if (opts.connectUrl) connect.href = opts.connectUrl;
+    else if (!connect.getAttribute("href") || connect.getAttribute("href") === "#") {
+      connect.href = "/auth/google/slides";
+    }
+  }
+}
+
+const slidesReturn = new URLSearchParams(window.location.search).get("slides");
+if (slidesReturn === "connected") {
+  paintSlidesChrome({
+    status: "Google Slides connected. Pick a Class Date (or click Next) to generate a deck.",
+  });
+} else if (slidesReturn === "mock") {
+  paintSlidesChrome({
+    status: "Slides connected in mock mode (no Google). Real connect needs GOOGLE_CLIENT_ID in .env.",
+  });
+}
+
+/**
+ * After Class Date is confirmed, create or reuse the four-slide deck.
+ * @param {string} iso
+ * @param {{force?: boolean}} [opts]
+ */
+async function prepareLiveClassSlides(iso, opts = {}) {
+  if (!iso) return;
+  paintSlidesChrome({ status: "Preparing slides…" });
+  try {
+    const res = await fetch(`/api/classes/${classId}/live-slides`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        meeting_date: iso,
+        force_regenerate: Boolean(opts.force),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.needs_slides_connect) {
+      paintSlidesChrome({
+        status: "Connect Google Slides to create a deck.",
+        connectUrl: data.connect_url,
+      });
+      return;
+    }
+    if (res.status === 403 && data.skipped) {
+      paintSlidesChrome({ hidden: true });
+      return;
+    }
+    if (!res.ok) {
+      paintSlidesChrome({
+        status: data.error || "Could not prepare slides.",
+      });
+      return;
+    }
+    const url = data.presentation_url;
+    paintSlidesChrome({
+      status: data.reused ? "Slides ready (reused)." : "Slides ready.",
+      url,
+    });
+  } catch (err) {
+    paintSlidesChrome({ status: err?.message || "Could not prepare slides." });
+  }
+}
+
+/**
  * Begin Run Live Class for a resolved meeting date, then mint the join code.
  * @param {string} iso
  * @param {{ reservedWin?: Window|null }} [opts]
@@ -569,6 +663,7 @@ async function proceedRunLiveBegin(iso, opts = {}) {
   if (overlayState.game?.status === "live") {
     openLiveScoring(overlayState);
     await ensureLiveSessionMinted(opts);
+    await prepareLiveClassSlides(iso);
     return;
   }
   if (liveSessionId) sessionPresentIds = new Set();
@@ -577,6 +672,7 @@ async function proceedRunLiveBegin(iso, opts = {}) {
   renderAttendanceList();
   showPanel("att");
   await ensureLiveSessionMinted(opts);
+  await prepareLiveClassSlides(iso);
 }
 
 /**
@@ -923,6 +1019,17 @@ function renderScoringRoundChrome(state) {
     tabs.hidden = true;
     tabs.innerHTML = "";
   }
+  window.dispatchEvent(
+    new CustomEvent("lloves-score-round", {
+      detail: {
+        roundKind: game.round_kind || currentRound?.kind || "",
+        liveSessionId: liveSessionId || Number(root?.dataset.liveSessionId || 0),
+        classId,
+        overlayState: state,
+        breakRound,
+      },
+    })
+  );
   return breakRound;
 }
 
@@ -1104,6 +1211,15 @@ $("ap-gamify-next")?.addEventListener("click", async () => {
 $("ap-validate-apply")?.addEventListener("click", () => {
   const reservedWin = reserveLiveSessionOverlay();
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
+});
+
+$("ap-regenerate-slides")?.addEventListener("click", () => {
+  const iso = sessionIso();
+  prepareLiveClassSlides(iso, { force: true }).catch((err) => showError("#ap-overlay-error", err));
+});
+$("ap-regenerate-slides-att")?.addEventListener("click", () => {
+  const iso = sessionIso();
+  prepareLiveClassSlides(iso, { force: true }).catch((err) => showError("#ap-overlay-error", err));
 });
 
 $("ap-open-overlay")?.addEventListener("click", (event) => {

@@ -3,6 +3,19 @@
  * Plain vanilla ES2020; no external dependencies.
  */
 
+/**
+ * Escape text for table cells.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /* ── Tab switching ── */
 
 /**
@@ -337,6 +350,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initSettingsTab();
   initPackStatusLines();
   initLiveClassesTab();
+  initLiveProblemsTab();
+  initQuickPhrasesTab();
 });
 
 /**
@@ -602,4 +617,127 @@ function initSettingsTab() {
       if (status) status.textContent = String(err.message || err);
     }
   });
+}
+
+/**
+ * Load and mutate the curated live-problem bank.
+ */
+function initLiveProblemsTab() {
+  const table = document.querySelector("#it-problems-table tbody");
+  const form = document.getElementById("it-problem-form");
+  if (!table || !form) return;
+
+  async function refresh() {
+    const rv = await fetch("/api/it/live-problems");
+    const data = await rv.json();
+    table.innerHTML = (data.problems || [])
+      .map((p) => {
+        const procs = (p.processes || []).join(", ");
+        const active = Number(p.active) === 1;
+        return `<tr>
+          <td>${escapeHtml(p.title)}</td>
+          <td>${escapeHtml(p.kind)}</td>
+          <td>${escapeHtml(p.module_hint || "")}</td>
+          <td>${escapeHtml(procs)}</td>
+          <td><button type="button" class="btn secondary" data-toggle-problem="${p.id}" data-active="${active ? "0" : "1"}">${active ? "Deactivate" : "Activate"}</button></td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  table.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-toggle-problem]");
+    if (!btn) return;
+    await fetch(`/api/it/live-problems/${btn.dataset.toggleProblem}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: btn.dataset.active === "1" }),
+    });
+    await refresh();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const processes = (document.getElementById("it-p-proc")?.value || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await fetch("/api/it/live-problems", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: document.getElementById("it-p-title").value,
+        kind: document.getElementById("it-p-kind").value,
+        module_hint: document.getElementById("it-p-hint").value,
+        stem_html: document.getElementById("it-p-stem").value,
+        task_html: document.getElementById("it-p-task").value,
+        processes,
+        ontario_code: "MCF3M",
+      }),
+    });
+    form.reset();
+    await refresh();
+  });
+
+  refresh().catch(() => {});
+}
+
+/**
+ * Load and mutate quick-evidence phrases.
+ */
+function initQuickPhrasesTab() {
+  const table = document.querySelector("#it-phrases-table tbody");
+  const form = document.getElementById("it-phrase-form");
+  if (!table || !form) return;
+
+  async function refresh() {
+    const rv = await fetch("/api/it/quick-phrases");
+    const data = await rv.json();
+    table.innerHTML = (data.phrases || [])
+      .map((p) => {
+        const active = Number(p.active) === 1;
+        return `<tr>
+          <td>${escapeHtml(p.label)}</td>
+          <td>${escapeHtml(p.process_key)}</td>
+          <td>${escapeHtml(p.category)}</td>
+          <td>${active ? "yes" : "no"}</td>
+          <td><button type="button" class="btn secondary" data-toggle-phrase="${p.id}" data-active="${active ? "0" : "1"}">${active ? "Deactivate" : "Activate"}</button></td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  table.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-toggle-phrase]");
+    if (!btn) return;
+    const id = btn.dataset.togglePhrase;
+    const rv = await fetch("/api/it/quick-phrases");
+    const data = await rv.json();
+    const existing = (data.phrases || []).find((p) => String(p.id) === String(id));
+    if (!existing) return;
+    await fetch(`/api/it/quick-phrases/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...existing, active: btn.dataset.active === "1" }),
+    });
+    await refresh();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await fetch("/api/it/quick-phrases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: document.getElementById("it-ph-label").value,
+        process_key: document.getElementById("it-ph-key").value,
+        category: document.getElementById("it-ph-cat").value,
+        description: document.getElementById("it-ph-desc").value,
+      }),
+    });
+    form.reset();
+    await refresh();
+  });
+
+  refresh().catch(() => {});
 }

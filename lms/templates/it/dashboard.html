@@ -22,6 +22,8 @@
       <button class="it-tab-btn" data-tab="live-classes" role="tab" aria-selected="false">Live Classes</button>
       <button class="it-tab-btn" data-tab="semester" role="tab" aria-selected="false">Semester</button>
       <button class="it-tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
+      <button class="it-tab-btn" data-tab="live-problems" role="tab" aria-selected="false">Live problems</button>
+      <button class="it-tab-btn" data-tab="quick-phrases" role="tab" aria-selected="false">Quick phrases</button>
     </div>
 
     <div class="it-tab-panel" id="tab-staff" role="tabpanel">
@@ -291,6 +293,82 @@
           </span>
         </label>
         <p id="settings-status" class="hint" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div class="it-tab-panel" id="tab-live-problems" role="tabpanel" hidden>
+      <section class="card">
+        <h2>Live problems</h2>
+        <p class="hint">Curated warmup / contest / standard items for live-class slides. Ministry examples plus original contest-style items — not IMSCC question banks.</p>
+        <form id="it-problem-form" class="it-add-staff">
+          <div class="it-add-staff-fields">
+            <div>
+              <label class="field" for="it-p-title">Title</label>
+              <input id="it-p-title" name="title" required>
+            </div>
+            <div>
+              <label class="field" for="it-p-kind">Kind</label>
+              <select id="it-p-kind" name="kind">
+                <option value="warmup">warmup</option>
+                <option value="contest">contest</option>
+                <option value="standard" selected>standard</option>
+              </select>
+            </div>
+            <div>
+              <label class="field" for="it-p-hint">Module hint</label>
+              <input id="it-p-hint" name="module_hint" placeholder="A / B / C">
+            </div>
+          </div>
+          <label class="field" for="it-p-stem">Stem HTML</label>
+          <textarea id="it-p-stem" name="stem_html" rows="3"></textarea>
+          <label class="field" for="it-p-task">Task HTML</label>
+          <textarea id="it-p-task" name="task_html" rows="2"></textarea>
+          <label class="field" for="it-p-proc">Process keys (comma)</label>
+          <input id="it-p-proc" name="processes" placeholder="problem_solving, representing">
+          <div class="row-actions"><button type="submit">Add problem</button></div>
+        </form>
+        <div class="it-table-wrap">
+          <table class="data" id="it-problems-table">
+            <thead><tr><th>Title</th><th>Kind</th><th>Hint</th><th>Processes</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="it-tab-panel" id="tab-quick-phrases" role="tabpanel" hidden>
+      <section class="card">
+        <h2>Quick phrases</h2>
+        <p class="hint">Clickable Ontario-process evidence labels for Team Challenge. Deactivate instead of deleting.</p>
+        <form id="it-phrase-form" class="it-add-staff">
+          <div class="it-add-staff-fields">
+            <div>
+              <label class="field" for="it-ph-label">Label</label>
+              <input id="it-ph-label" name="label" required>
+            </div>
+            <div>
+              <label class="field" for="it-ph-key">Process key</label>
+              <input id="it-ph-key" name="process_key" placeholder="problem_solving" required>
+            </div>
+            <div>
+              <label class="field" for="it-ph-cat">Category</label>
+              <select id="it-ph-cat" name="category">
+                <option value="team_problem">team_problem</option>
+                <option value="consolidation">consolidation</option>
+                <option value="general">general</option>
+              </select>
+            </div>
+          </div>
+          <label class="field" for="it-ph-desc">Description</label>
+          <input id="it-ph-desc" name="description">
+          <div class="row-actions"><button type="submit">Add phrase</button></div>
+        </form>
+        <div class="it-table-wrap">
+          <table class="data" id="it-phrases-table">
+            <thead><tr><th>Label</th><th>Process</th><th>Category</th><th>Active</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </div>
 

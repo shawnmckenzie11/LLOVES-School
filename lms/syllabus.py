@@ -245,6 +245,24 @@ def save_placements(
         content=modules,
         included=included,
     )
+    placements_path = out_dir / f"{slug}.placements.json"
+    serializable = {
+        "placements": {
+            day.isoformat(): {
+                "module": slot.module_number,
+                "lesson": slot.lesson,
+                "lesson_id": slot.lesson_id,
+                "review": slot.review,
+                "live": slot.live,
+                "assessment_kind": slot.assessment_kind,
+                "assessment_title": slot.assessment_title,
+            }
+            for day, slot in placements.items()
+        }
+    }
+    placements_path.write_text(
+        json.dumps(serializable, indent=2) + "\n", encoding="utf-8"
+    )
 
     def _rel(path: Path) -> str:
         """Repo-relative POSIX path when possible."""

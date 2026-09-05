@@ -23,6 +23,11 @@ from flask import (
 )
 
 import email_service
+from live_class_constants import (
+    MOCK_SLIDES_REFRESH_TOKEN,
+    SLIDES_SCOPES,
+    is_slides_operator_email,
+)
 from school_db import SchoolDB
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT
 from student_portal import (
@@ -83,6 +88,16 @@ def _local_dev_accounts(portal: str) -> list[dict[str, Any]]:
     return out
 
 
+def google_credentials_present() -> bool:
+    """True when the Web OAuth client id and secret are configured.
+
+    Unlike ``google_oauth_ready``, this ignores ``LOCAL_DEV_LOGIN``. Login can
+    stay on the offline picker while Connect Google Slides still talks to
+    Google.
+    """
+    return bool(google_client_id() and google_client_secret())
+
+
 def google_oauth_ready() -> bool:
     """True when this process should redirect to real Google accounts.
 
@@ -91,7 +106,7 @@ def google_oauth_ready() -> bool:
     """
     if mock_login_enabled():
         return False
-    return bool(google_client_id() and google_client_secret())
+    return google_credentials_present()
 
 
 def landing_kwargs(**extra: Any) -> dict[str, Any]:
@@ -134,6 +149,42 @@ def _safe_next_url(next_url: str | None) -> str | None:
     return next_url
 
 
+def _with_query(path: str, **params: str) -> str:
+    """Append query params to a relative path.
+
+    Args:
+        path: Same-site path, possibly already with a query string.
+        params: Keys to set or replace.
+
+    Returns:
+        Path with the extra query pairs.
+    """
+    parsed = urllib.parse.urlsplit(path)
+    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    query.update({key: value for key, value in params.items() if value})
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def slides_connect_uses_mock() -> bool:
+    """True when Connect Google Slides should skip accounts.google.com.
+
+    Unit tests stay offline. Local ``LOCAL_DEV_LOGIN`` still uses real Slides
+    OAuth when ``GOOGLE_CLIENT_ID`` / ``SECRET`` are set, so Shawn can connect
+    Drive without turning off the offline sign-in picker.
+    """
+    if current_app.config.get("TESTING"):
+        return True
+    return not google_credentials_present()
+
+
 def _google_redirect_uri() -> str:
     """OAuth callback URL from env or the current host."""
     configured = (os.getenv("GOOGLE_REDIRECT_URI") or "").strip()
@@ -141,6 +192,15 @@ def _google_redirect_uri() -> str:
         return configured
     scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
     return f"{scheme}://{request.host}/auth/google/callback"
+
+
+def _google_slides_redirect_uri() -> str:
+    """OAuth callback for incremental Slides/Drive connect (not login)."""
+    configured = (os.getenv("GOOGLE_SLIDES_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    return f"{scheme}://{request.host}/auth/google/slides/callback"
 
 
 def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
@@ -638,6 +698,135 @@ def register_auth_routes(app: Flask) -> None:
         _disconnect_student_live_if_bound()
         session.clear()
         return redirect(url_for("landing"))
+
+    @app.route("/auth/google/slides")
+    @login_required
+    def auth_google_slides():
+        """Start incremental Slides/Drive OAuth for allowlisted Shawn accounts."""
+        user = current_user()
+        assert user is not None
+        if not is_slides_operator_email(user.get("email")):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+            ), 403
+        next_url = _safe_next_url(request.args.get("next")) or url_for("staff_home")
+        session["slides_oauth_next"] = next_url
+        if slides_connect_uses_mock():
+            school_db().store_google_api_token(
+                int(user["id"]),
+                refresh_token=MOCK_SLIDES_REFRESH_TOKEN,
+                scopes=" ".join(SLIDES_SCOPES),
+                access_token="mock-access",
+                expires_in=3600,
+            )
+            return redirect(_with_query(next_url, slides="mock"))
+        if not google_credentials_present():
+            return render_template(
+                "google_setup.html",
+                portal=session.get("portal") or "staff",
+                school=SCHOOL_SHORT,
+                school_name=SCHOOL_NAME,
+                redirect_uri=_google_slides_redirect_uri(),
+            ), 503
+        from live_class_slides import slides_oauth_url
+
+        state = f"{random.randint(100000, 999999)}"
+        session["slides_oauth_state"] = state
+        return redirect(
+            slides_oauth_url(
+                client_id=google_client_id(),
+                redirect_uri=_google_slides_redirect_uri(),
+                state=state,
+            )
+        )
+
+    @app.route("/auth/google/slides/callback")
+    @login_required
+    def auth_google_slides_callback():
+        """Store a refresh token for deck creation; does not change login identity."""
+        user = current_user()
+        assert user is not None
+        if not is_slides_operator_email(user.get("email")):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+            ), 403
+        next_url = _safe_next_url(session.pop("slides_oauth_next", None)) or url_for(
+            "staff_home"
+        )
+        if slides_connect_uses_mock():
+            school_db().store_google_api_token(
+                int(user["id"]),
+                refresh_token=MOCK_SLIDES_REFRESH_TOKEN,
+                scopes=" ".join(SLIDES_SCOPES),
+            )
+            return redirect(_with_query(next_url, slides="mock"))
+        code = request.args.get("code")
+        state = request.args.get("state")
+        stored_state = session.pop("slides_oauth_state", None)
+        if not code or (stored_state and state != stored_state):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect failed: state mismatch.",
+            ), 401
+        try:
+            token_resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": google_client_id(),
+                    "client_secret": google_client_secret(),
+                    "redirect_uri": _google_slides_redirect_uri(),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+            )
+            token_resp.raise_for_status()
+            payload = token_resp.json()
+            refresh = payload.get("refresh_token")
+            if not refresh:
+                existing = school_db().get_google_api_token(int(user["id"]))
+                refresh = (existing or {}).get("refresh_token")
+            if not refresh:
+                return render_template(
+                    "forbidden.html",
+                    message="Google did not return a refresh token. Reconnect with consent.",
+                ), 401
+            school_db().store_google_api_token(
+                int(user["id"]),
+                refresh_token=str(refresh),
+                scopes=str(payload.get("scope") or " ".join(SLIDES_SCOPES)),
+                access_token=payload.get("access_token"),
+                expires_in=int(payload.get("expires_in") or 3500),
+            )
+            return redirect(_with_query(next_url, slides="connected"))
+        except requests.RequestException as exc:
+            app.logger.exception("Google Slides token exchange failed")
+            return render_template(
+                "forbidden.html",
+                message=f"Google Slides connect failed: {exc}",
+            ), 401
+
+    @app.route("/api/auth/slides-status")
+    @login_required
+    def api_slides_status():
+        """JSON: whether this user can connect and already has a token."""
+        user = current_user()
+        assert user is not None
+        allowed = is_slides_operator_email(user.get("email"))
+        token = school_db().get_google_api_token(int(user["id"])) if allowed else None
+        return jsonify(
+            {
+                "ok": True,
+                "allowed": allowed,
+                "connected": bool(token),
+                "mock": mock_login_enabled(),
+                "connect_url": url_for(
+                    "auth_google_slides", next=request.args.get("next") or ""
+                ),
+            }
+        )
 
     @app.route("/api/student/live-available")
     def api_student_live_available():

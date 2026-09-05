@@ -1120,6 +1120,73 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         school.set_only_live_class_days(flag)
         return jsonify({"ok": True, "only_live_class_days": school.only_live_class_days()})
 
+    @app.route("/api/it/live-problems", methods=["GET", "POST"])
+    @it_required
+    def api_it_live_problems():
+        """List or create curated live-class problems."""
+        if request.method == "GET":
+            code = (request.args.get("ontario_code") or "").strip() or None
+            return jsonify(
+                {
+                    "ok": True,
+                    "problems": school.list_live_problems(
+                        ontario_code=code, active_only=False
+                    ),
+                    "processes": school.list_math_processes(),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        row = school.upsert_live_problem(body)
+        return jsonify({"ok": True, "problem": row})
+
+    @app.route("/api/it/live-problems/<int:problem_id>", methods=["PATCH", "DELETE"])
+    @it_required
+    def api_it_live_problem_one(problem_id: int):
+        """Update, deactivate, or replace one live problem."""
+        existing = school.get_live_problem(problem_id)
+        if existing is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        if request.method == "DELETE":
+            school.set_live_problem_active(problem_id, False)
+            return jsonify({"ok": True, "problem": school.get_live_problem(problem_id)})
+        body = request.get_json(silent=True) or {}
+        body["id"] = problem_id
+        if "active" in body and len(body) == 2:
+            row = school.set_live_problem_active(problem_id, bool(body["active"]))
+            return jsonify({"ok": True, "problem": row})
+        merged = {**existing, **body}
+        return jsonify({"ok": True, "problem": school.upsert_live_problem(merged)})
+
+    @app.route("/api/it/quick-phrases", methods=["GET", "POST"])
+    @it_required
+    def api_it_quick_phrases():
+        """List or create process-evidence phrases."""
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "phrases": school.list_quick_phrases(active_only=False),
+                    "processes": school.list_math_processes(),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        return jsonify({"ok": True, "phrase": school.upsert_quick_phrase(body)})
+
+    @app.route("/api/it/quick-phrases/<int:phrase_id>", methods=["PATCH"])
+    @it_required
+    def api_it_quick_phrase_one(phrase_id: int):
+        """Update or deactivate one quick-evidence phrase."""
+        body = request.get_json(silent=True) or {}
+        body["id"] = phrase_id
+        existing = next(
+            (p for p in school.list_quick_phrases(active_only=False) if int(p["id"]) == phrase_id),
+            None,
+        )
+        if existing is None:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        merged = {**existing, **body}
+        return jsonify({"ok": True, "phrase": school.upsert_quick_phrase(merged)})
+
     @app.route("/api/it/live-sessions/<int:session_id>/end", methods=["POST"])
     @it_required
     def api_it_end_live_session(session_id: int):
@@ -2858,6 +2925,189 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/live-slides", methods=["GET", "POST"])
+    @staff_required
+    def api_class_live_slides(class_id: int):
+        """Generate or fetch the four-slide deck for a Class Date."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id) and user["role"] != "it":
+            abort(403)
+        from live_class_constants import is_slides_operator_email
+        from live_class_slides import (
+            SlidesConnectRequired,
+            SlidesOperatorDenied,
+            generate_live_class_slides,
+        )
+
+        if request.method == "GET":
+            iso = (request.args.get("date") or "")[:10]
+            row = (
+                school.get_live_session_for_class_date(class_id, iso)
+                if iso
+                else school.get_active_live_session_for_class(class_id)
+            )
+            if row is None:
+                return jsonify({"ok": True, "presentation_url": None})
+            return jsonify(
+                {
+                    "ok": True,
+                    "presentation_id": row.get("presentation_id"),
+                    "presentation_url": row.get("presentation_url"),
+                    "meeting_date": row.get("meeting_date"),
+                    "slides_json": row.get("slides_json"),
+                    "live_session_id": row.get("id"),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        iso = str(body.get("meeting_date") or "")[:10]
+        if not iso:
+            return jsonify({"ok": False, "error": "meeting_date is required"}), 400
+        if not is_slides_operator_email(user.get("email")):
+            return jsonify(
+                {
+                    "ok": False,
+                    "skipped": True,
+                    "error": "Slides connect is limited to solutions@ and Shawn's Gmail.",
+                }
+            ), 403
+        try:
+            result = generate_live_class_slides(
+                school,
+                class_id=class_id,
+                meeting_date=date.fromisoformat(iso),
+                user=user,
+                force_regenerate=bool(body.get("force_regenerate")),
+            )
+            return jsonify(result)
+        except SlidesConnectRequired:
+            return jsonify(
+                {
+                    "ok": False,
+                    "needs_slides_connect": True,
+                    "connect_url": url_for(
+                        "auth_google_slides",
+                        next=url_for("staff_course", class_id=class_id, tab="live"),
+                    ),
+                }
+            ), 409
+        except SlidesOperatorDenied as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/staff/offerings/<int:offering_id>/slides/<date_iso>.html")
+    @staff_required
+    def staff_mock_slides(offering_id: int, date_iso: str):
+        """Serve a localhost HTML deck preview written under the offering instance."""
+        user = current_user()
+        assert user is not None
+        offering = school.get_offering(offering_id)
+        if int(offering["teacher_user_id"]) != int(user["id"]) and user["role"] != "it":
+            abort(403)
+        offering = school.ensure_offering_instance(offering)
+        rel = offering.get("instance_relpath") or f"instances/{offering_id}"
+        dest = Path(school.data_dir) / str(rel) / "slides"
+        filename = f"{date_iso}.html"
+        if not (dest / filename).is_file():
+            abort(404)
+        return send_from_directory(dest, filename)
+
+    @app.route("/api/quick-phrases")
+    @staff_required
+    def api_quick_phrases():
+        """Staff list of active evidence phrases (optional category filter)."""
+        category = (request.args.get("category") or "").strip() or None
+        return jsonify(
+            {
+                "ok": True,
+                "phrases": school.list_quick_phrases(category=category, active_only=True),
+                "processes": school.list_math_processes(),
+            }
+        )
+
+    def _owned_live_session(session_id: int):
+        """Return a live session the current teacher owns, or an error response.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        user = current_user()
+        assert user is not None
+        row = school.get_live_session(session_id)
+        if row is None:
+            return None, (jsonify({"ok": False, "error": "Session not found"}), 404)
+        owns = school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
+        if not owns and user["role"] != "it":
+            return None, (jsonify({"ok": False, "error": "Ask Admin to grant access."}), 403)
+        return row, None
+
+    @app.route("/api/live-sessions/<int:session_id>/observations", methods=["GET", "POST"])
+    @staff_required
+    def api_live_session_observations(session_id: int):
+        """List or create qualitative process-evidence observations."""
+        row, err = _owned_live_session(session_id)
+        if err:
+            return err
+        user = current_user()
+        assert user is not None
+        if request.method == "GET":
+            return jsonify(
+                {"ok": True, "observations": school.list_observations(session_id)}
+            )
+        body = request.get_json(silent=True) or {}
+        try:
+            obs = school.create_observation(
+                live_session_id=session_id,
+                class_id=int(row["class_id"]),
+                observer_user_id=int(user["id"]),
+                scope=str(body.get("scope") or "student"),
+                note=str(body.get("note") or ""),
+                student_ids=body.get("student_ids") or [],
+                team_id=body.get("team_id"),
+                process_keys=body.get("process_keys") or [],
+                evidence_strength=body.get("evidence_strength"),
+                follow_up_required=bool(body.get("follow_up_required")),
+                source=str(body.get("source") or "manual"),
+                quick_phrase_id=body.get("quick_phrase_id"),
+            )
+            return jsonify({"ok": True, "observation": obs})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/observations/<int:observation_id>",
+        methods=["PATCH", "DELETE"],
+    )
+    @staff_required
+    def api_live_session_observation_one(session_id: int, observation_id: int):
+        """Edit or delete one observation on a session the teacher owns."""
+        _row, err = _owned_live_session(session_id)
+        if err:
+            return err
+        obs = school.get_observation(observation_id)
+        if obs is None or int(obs["live_session_id"]) != int(session_id):
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        if request.method == "DELETE":
+            school.delete_observation(observation_id)
+            return jsonify({"ok": True})
+        try:
+            updated = school.update_observation(
+                observation_id, request.get_json(silent=True) or {}
+            )
+            return jsonify({"ok": True, "observation": updated})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.route("/api/live-sessions/<int:session_id>/observations/coverage")
+    @staff_required
+    def api_live_session_observation_coverage(session_id: int):
+        """Student × process coverage counts for after-class review."""
+        _row, err = _owned_live_session(session_id)
+        if err:
+            return err
+        return jsonify({"ok": True, **school.observation_coverage(session_id)})
 
     def _staff_post(class_id: int, handler):
         """Run a GameShowDB mutation for a staff-owned class."""

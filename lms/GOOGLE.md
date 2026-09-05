@@ -20,7 +20,7 @@ This is **Google Cloud Console** work (APIs & Services), not Google Workspace Ad
 | App logo | optional |
 | App domain / home page | `http://127.0.0.1:8787` for local; `https://alc.mckenzian.com` in production |
 | Developer contact | `solutions@mckenzian.com` |
-| Scopes | `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` (non-sensitive) |
+| Scopes | `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` (non-sensitive). For **live-class decks only**, also add `https://www.googleapis.com/auth/presentations` and `https://www.googleapis.com/auth/drive.file` (sensitive — Testing + test users is enough). Enable **Google Slides API** and **Google Drive API**. |
 | Publishing status | **Testing** until you are ready to publish |
 
 While **Testing**:
@@ -48,6 +48,13 @@ APIs & Services → Credentials → **Create credentials** → **OAuth client ID
 - `http://127.0.0.1:8787/auth/google/callback`
 - `http://localhost:8787/auth/google/callback` (if you added that origin)
 - `https://alc.mckenzian.com/auth/google/callback`
+
+Add the same hosts for **incremental Slides connect** (login OAuth stays identity-only):
+
+- `http://127.0.0.1:8787/auth/google/slides/callback`
+- `https://alc.mckenzian.com/auth/google/slides/callback`
+
+Allowlisted operator accounts: `solutions@mckenzian.com` and `shawnmckenzie11.sm@gmail.com`. **Connect Google Slides** (`/auth/google/slides`) uses real Google when `GOOGLE_CLIENT_ID` / `SECRET` are set, even if `LOCAL_DEV_LOGIN=1` (that flag only skips *login*). Unit tests and a missing client secret still store a mock token.
 
 Google treats `localhost` and `127.0.0.1` as different. This repo’s default for local is **http://127.0.0.1:8787**. Production is **https://alc.mckenzian.com** (not a `.fly.dev` placeholder).
 
