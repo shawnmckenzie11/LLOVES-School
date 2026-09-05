@@ -167,7 +167,7 @@
           <div class="track-step-body">
             <label class="scoreboard-opt">
               <input type="checkbox" id="ap-scoreboard-toggle" checked>
-              Scoreboard
+              Show scoreboard for Game Show or Team Challenge
             </label>
             <div class="scoreboard-help" id="ap-scoreboard-preview-wrap">
               <div class="scoreboard-preview" aria-hidden="true">
@@ -193,10 +193,10 @@
             </div>
             <label class="scoreboard-opt">
               <input type="checkbox" id="ap-rank-toggle">
-              Rank
+              Allow students to privately see their rank in class
             </label>
             <label class="field" for="ap-n-teams">Number of teams</label>
-            <div class="stepper">
+            <div class="stepper ap-teams-stepper">
               <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
               <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric">
               <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
@@ -220,10 +220,6 @@
             </div>
             <div id="ap-manual-assign" class="hidden">
               <div id="ap-manual-list" class="manual-list"></div>
-              <div class="row-actions">
-                <button type="button" class="secondary" id="ap-manual-cancel">Cancel</button>
-                <button type="button" id="ap-manual-confirm">Confirm assignment</button>
-              </div>
             </div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
@@ -276,15 +272,21 @@
             <span class="track-step-meta" id="ap-score-summary"></span>
           </div>
           <div class="track-step-body">
-            <p id="ap-live-meta" class="hint compact"></p>
-            <div class="ap-round-bar">
-              <span id="ap-round-label"></span>
-              <span id="ap-round-clock"></span>
-              <button type="button" class="secondary" id="ap-start-round" hidden>Start Round 2</button>
+            <div class="ap-score-shell">
+              <header class="ap-score-header">
+                <p id="ap-live-meta" class="hint compact"></p>
+                <div class="ap-round-bar">
+                  <span id="ap-round-label"></span>
+                  <span id="ap-round-clock"></span>
+                  <button type="button" class="secondary" id="ap-start-round" hidden>Start Round 2</button>
+                </div>
+                <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
+              </header>
+              <div class="ap-score-body">
+                <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
+                <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
+              </div>
             </div>
-            <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
-            <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
-            <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>

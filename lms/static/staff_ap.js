@@ -28,8 +28,8 @@ const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
 const TEAM_RULES = [
   { id: "each_member", label: "Each member" },
-  { id: "split_members", label: "Split" },
-  { id: "team_only", label: "Small Team Bonus" },
+  { id: "split_members", label: "Split across team" },
+  { id: "team_only", label: "Team bonus only" },
 ];
 
 /** Open Question action chips → point deltas (staff scoring UX). */
@@ -114,17 +114,8 @@ function showPanel(name) {
     if (lockEl) lockEl.hidden = !(locked && isSetup);
   });
 
-  if (name === "gamify") {
-    for (const id of ["ap-gamify-no", "ap-gamify-yes"]) {
-      const btn = $(id);
-      if (!(btn instanceof HTMLElement)) continue;
-      if (!trackMode) {
-        btn.classList.remove("is-selected");
-        btn.setAttribute("aria-pressed", "false");
-        const check = btn.querySelector(".ap-att-check");
-        if (check) check.textContent = "";
-      }
-    }
+  if (name === "gamify" && !trackMode) {
+    selectTrackMode("individual");
   }
   updateStepSummaries();
 }
@@ -932,23 +923,48 @@ $("ap-assign-manual")?.addEventListener("click", () => {
     .join("");
   $("ap-manual-assign")?.classList.remove("hidden");
 });
+/**
+ * True when manual team picker sizes differ by at most one student.
+ * @returns {boolean}
+ */
+function manualTeamsBalanced() {
+  const nTeams = Math.max(2, Number($("ap-n-teams")?.value) || 2);
+  const counts = Array.from({ length: nTeams }, () => 0);
+  for (const el of document.querySelectorAll("#ap-manual-list .team-step")) {
+    const idx = Number(el.dataset.teamIndex);
+    if (idx >= 0 && idx < nTeams) counts[idx] += 1;
+  }
+  if (!counts.some((n) => n > 0)) return false;
+  const min = Math.min(...counts);
+  const max = Math.max(...counts);
+  return max - min <= 1;
+}
+
 $("ap-teams-next")?.addEventListener("click", () => {
   const mode = lastAssignMode || "balanced";
   if (mode === "manual") {
     const open = $("ap-manual-assign");
-    if (open && !open.classList.contains("hidden")) {
-      assign("manual").catch((err) => showError("#ap-overlay-error", err));
+    if (!open || open.classList.contains("hidden")) {
+      showError(
+        "#ap-overlay-error",
+        new Error("Choose Assign Manually and set each student's team, then Next.")
+      );
       return;
     }
-    showError("#ap-overlay-error", new Error("Choose Assign Manually and set teams, then Next."));
+    if (!manualTeamsBalanced()) {
+      showError(
+        "#ap-overlay-error",
+        new Error(
+          "Balance teams so sizes are equal or off by one, or pick Assign Balanced / Assign Randomly."
+        )
+      );
+      return;
+    }
+    assign("manual").catch((err) => showError("#ap-overlay-error", err));
     return;
   }
   assign(mode).catch((err) => showError("#ap-overlay-error", err));
 });
-$("ap-manual-cancel")?.addEventListener("click", () => $("ap-manual-assign")?.classList.add("hidden"));
-$("ap-manual-confirm")?.addEventListener("click", () =>
-  assign("manual").catch((err) => showError("#ap-overlay-error", err))
-);
 $("ap-manual-list")?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-step]");
   if (!btn) return;
@@ -995,11 +1011,6 @@ function renderNamesPanel() {
   updateStepSummaries();
 }
 
-$("ap-names-back")?.addEventListener("click", () => {
-  if (isScoringLive()) return;
-  showPanel("teams");
-});
-
 $("ap-start-game")?.addEventListener("click", async () => {
   pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
   localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
@@ -1038,13 +1049,13 @@ function renderRoundsPanel() {
         return `<option value="${opt.kind}" ${opt.kind === row.kind ? "selected" : ""} ${taken ? "disabled" : ""}>${escapeHtml(opt.label)}</option>`;
       }).join("");
       return `<div class="ap-round-row" data-index="${index}">
-        <label class="field">Round ${index + 1}
+        <label class="field ap-round-type">Round ${index + 1}
           <select data-round-kind>${options}</select>
         </label>
-        <label class="field">Length (minutes)
+        <label class="field ap-round-len">Length (min)
           <input type="number" min="1" max="180" value="${Number(row.minutes) || 10}" data-round-minutes>
         </label>
-        <button type="button" class="secondary" data-round-remove ${draftRounds.length <= 1 ? "disabled" : ""}>Remove</button>
+        <button type="button" class="secondary ap-round-remove" data-round-remove ${draftRounds.length <= 1 ? "disabled" : ""}>Remove</button>
       </div>`;
     })
     .join("");
@@ -1090,11 +1101,6 @@ $("ap-rounds-add")?.addEventListener("click", () => {
   if (!next) return;
   draftRounds.push({ kind: next.kind, minutes: next.defaultMin });
   renderRoundsPanel();
-});
-
-$("ap-rounds-back")?.addEventListener("click", () => {
-  if (isScoringLive()) return;
-  showPanel("names");
 });
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
@@ -1172,12 +1178,14 @@ function teamControls(teamId) {
     const amount = pendingTeam.amount;
     const choices = TEAM_RULES.map(
       (rule) =>
-        `<button type="button" class="ap-score-chip" data-kind="team" data-id="${teamId}" data-amount="${amount}" data-rule="${rule.id}">${escapeHtml(rule.label)}</button>`
+        `<button type="button" class="ap-score-chip rule-pick-btn" data-kind="team" data-id="${teamId}" data-amount="${amount}" data-rule="${rule.id}">${escapeHtml(rule.label)}</button>`
     ).join("");
     return `<div class="rule-pick">
-      <span>Apply +${amount} as:</span>
-      ${choices}
-      <button type="button" class="secondary" data-cancel-rule="1">Cancel</button>
+      <p class="rule-pick-label">Apply +${amount} as</p>
+      <div class="rule-pick-actions">
+        ${choices}
+        <button type="button" class="secondary rule-pick-cancel" data-cancel-rule="1">Cancel</button>
+      </div>
     </div>`;
   }
   return `<div class="pm">${TEAM_AMOUNTS.map(
@@ -1432,12 +1440,13 @@ document.querySelectorAll("[data-accordion-toggle]").forEach((btn) => {
 document.querySelectorAll("[data-track-nav='prev']").forEach((btn) => {
   btn.addEventListener("click", () => {
     if (btn.hasAttribute("disabled") || isScoringLive()) return;
-    const current = document.querySelector(".track-step.is-current")?.getAttribute("data-step");
+    const current = btn.closest(".track-step.ap-panel")?.getAttribute("data-step");
     const back = {
       gamify: "att",
       teams: "gamify",
       names: "teams",
       rounds: "names",
+      validate: "att",
     };
     const target = back[current || ""];
     if (target) showPanel(target);

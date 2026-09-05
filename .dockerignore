@@ -14,3 +14,4 @@ agent-transcripts
 tools/math-game-show/data
 *.tmp
 _preserve/
+.local-data/

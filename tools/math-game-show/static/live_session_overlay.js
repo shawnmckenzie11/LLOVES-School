@@ -186,17 +186,38 @@ function paintRound(board) {
 }
 
 /**
+ * Format join code for display (grouped for manual reading).
+ * @param {string} code
+ * @returns {string}
+ */
+function formatDisplayCode(code) {
+  const raw = String(code || "").trim().toUpperCase();
+  if (!raw || raw === "····") return raw;
+  if (raw.length === 8) return `${raw.slice(0, 4)} ${raw.slice(4)}`;
+  return raw.replace(/(.{4})/g, "$1 ").trim();
+}
+
+/**
+ * Raw code text suitable for clipboard copy.
+ * @param {string} code
+ * @returns {string}
+ */
+function copyableCode(code) {
+  return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+/**
  * Paint code, count, and roster from live-session state.
  * @param {any} state
  */
 function paintSession(state) {
   const code = String(state?.code || state?.session?.session_code || "").trim() || "····";
-  if (codeEl) codeEl.textContent = code;
+  if (codeEl) codeEl.textContent = formatDisplayCode(code);
   lastPresent = presentAttendees(state);
   if (countEl) {
     const n = Number(state?.count);
     const count = Number.isFinite(n) ? n : lastPresent.length;
-    countEl.textContent = `${count} logged in`;
+    countEl.textContent = `(${count})`;
   }
   paintRoster();
   const ended = state?.phase === "ended" || state?.session?.status === "ended";
@@ -258,7 +279,7 @@ function paintTeams(board) {
  * Copy the displayed class code to the clipboard with brief feedback.
  */
 async function copyClassCode() {
-  const code = String(codeEl?.textContent || "").trim();
+  const code = copyableCode(codeEl?.textContent || "");
   if (!code || code === "····" || code === "—") return;
   try {
     await navigator.clipboard.writeText(code);

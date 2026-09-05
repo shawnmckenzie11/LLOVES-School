@@ -3,8 +3,9 @@
 body.student-portal {
   margin: 0;
   min-height: 100dvh;
-  background: #071018;
-  color: #e8f1f8;
+  background: #0b1020;
+  color: #f4f6fb;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 body.student-portal .student-wrap {
@@ -229,49 +230,107 @@ body.student-home.is-live .student-live-response {
 
 .student-me,
 .student-scoreboard {
-  background: #122033;
-  border: 1px solid #1e3348;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
   padding: 0.7rem 0.8rem;
+}
+
+.student-me .me-kicker,
+.student-scoreboard .sb-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9aa6c3;
 }
 
 .student-me .me-name {
   font-weight: 700;
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
 }
 
-.student-me .stat {
-  margin: 0.15rem 0;
-  color: #9fb3c8;
+.student-me .me-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.student-me .me-stat {
+  margin: 0;
+  color: #9aa6c3;
   font-size: 0.92rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.student-me .stat strong {
-  color: #e8f1f8;
-  float: right;
+.student-me .me-stat strong {
+  color: #f4f6fb;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .student-scoreboard {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.45rem;
 }
 
 .sb-idle {
   margin: 0;
-  color: #9fb3c8;
+  color: #9aa6c3;
 }
 
-.sb-team {
+.sb-espn-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sb-espn {
+  display: flex;
+  align-items: stretch;
+  min-height: 3rem;
+  background: #0c0d10;
+  border-top: 3px solid #f5c518;
+  overflow: hidden;
+}
+
+.sb-espn-swatch {
+  width: 0.45rem;
+  flex: 0 0 0.45rem;
+  background: var(--team, #888);
+}
+
+.sb-espn-meta {
+  flex: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-left: 4px solid var(--team, #0f766e);
-  padding: 0.25rem 0.45rem;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  min-width: 0;
 }
 
-.sb-score {
+.sb-espn-name {
+  font-size: 0.85rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-espn-score {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: clamp(1.15rem, 4.5vw, 1.65rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #f5c518;
 }
 
 @media (min-width: 720px) {

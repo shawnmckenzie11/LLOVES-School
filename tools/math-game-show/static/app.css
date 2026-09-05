@@ -1233,21 +1233,19 @@ body.live-overlay.overlay .live-overlay-stage {
 }
 
 .live-overlay-kicker {
-  margin: 0;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #9aa6c3;
+  display: none;
 }
 
 .live-overlay-code {
   margin: 0.35rem 0 0.25rem;
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
   font-size: clamp(1.35rem, 4.5vw, 1.85rem);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  font-variant-numeric: slashed-zero;
+  letter-spacing: 0.16em;
   color: #f5c518;
   word-break: break-all;
+  text-transform: uppercase;
 }
 
 .live-overlay-code-actions {
@@ -1302,9 +1300,8 @@ body.live-overlay.overlay .live-overlay-stage {
 }
 
 .live-overlay-count {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #d7deef;
+  /* Count now lives in the In class heading as (N). */
+  display: none;
 }
 
 .live-overlay-section-title {
@@ -1313,6 +1310,12 @@ body.live-overlay.overlay .live-overlay-stage {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #9aa6c3;
+}
+
+.live-overlay-att-count {
+  color: #d7deef;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 .live-overlay-roster-body {

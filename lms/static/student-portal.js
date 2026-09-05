@@ -31,13 +31,16 @@ function paintMe(payload) {
   const me = payload.me || {};
   const rankLine =
     payload.show_rank && me.rank
-      ? `<p class="stat">Rank <strong>${me.rank}</strong>${me.rank_of ? ` / ${me.rank_of}` : ""}</p>`
+      ? `<p class="me-stat me-rank">Rank <strong>${me.rank}</strong>${me.rank_of ? ` / ${me.rank_of}` : ""}</p>`
       : "";
   meEl.innerHTML = `
+    <p class="me-kicker">You</p>
     <p class="me-name">${escapeText(me.codename || "You")}</p>
-    <p class="stat">My points <strong>${escapeText(pts(me.points))}</strong></p>
-    <p class="stat">Team ${escapeText(me.team_name || "—")} <strong>${escapeText(pts(me.team_points))}</strong></p>
-    ${rankLine}
+    <div class="me-stats">
+      <p class="me-stat">My points <strong>${escapeText(pts(me.points))}</strong></p>
+      <p class="me-stat">Team ${escapeText(me.team_name || "—")} <strong>${escapeText(pts(me.team_points))}</strong></p>
+      ${rankLine}
+    </div>
   `;
 }
 
@@ -53,15 +56,22 @@ function paintBoard(payload) {
     boardEl.innerHTML = `<p class="sb-idle">${sb.live ? "Scores coming…" : "Scoreboard idle"}</p>`;
     return;
   }
-  boardEl.innerHTML = teams
-    .map(
-      (team) =>
-        `<div class="sb-team" style="--team:${escapeText(team.color || "#0f766e")}">
-          <span class="sb-name">${escapeText(team.name)}</span>
-          <span class="sb-score">${escapeText(pts(team.score))}</span>
-        </div>`
-    )
-    .join("");
+  boardEl.innerHTML = `
+    <p class="sb-kicker">Scores</p>
+    <div class="sb-espn-board">
+      ${teams
+        .map(
+          (team) =>
+            `<div class="sb-espn" style="--team:${escapeText(team.color || "#0f766e")}">
+              <span class="sb-espn-swatch" aria-hidden="true"></span>
+              <div class="sb-espn-meta">
+                <span class="sb-espn-name">${escapeText(team.name)}</span>
+                <span class="sb-espn-score">${escapeText(pts(team.score))}</span>
+              </div>
+            </div>`
+        )
+        .join("")}
+    </div>`;
 }
 
 /**
