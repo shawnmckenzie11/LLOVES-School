@@ -89,15 +89,15 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Select your role:", body)
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
-        self.assertIn("alc-logo.png", body)
+        self.assertIn("Attendance", body)
+        self.assertIn("Live Lessons", body)
         self.assertIn("Take attendance and log participation", body)
+        self.assertNotIn("alc-logo.png", body)
         self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
         self.assertNotIn("What ALC includes", body)
         self.assertNotIn("I already have an account", body)
-        self.assertIn("Built by McKenzian Solutions", body)
-        self.assertIn("utm_source=alc", body)
-        self.assertIn("utm_campaign=built_by_credit", body)
+        self.assertNotIn("Built by McKenzian Solutions", body)
         self.assertNotIn("LLOVES", body)
         self.assertNotIn("Stripe", body)
         self.assertNotIn("checkout", body.lower())
@@ -196,6 +196,8 @@ class AuthTests(unittest.TestCase):
         with patch("email_service.send_verification_email", return_value=True):
             second = self._callback("teacher@gmail.com", "staff")
         self.assertIn("/verify-email", second.headers.get("Location", ""))
+
+    def test_every_sign_in_2fa_mode_emails_each_google_login(self) -> None:
         """Admin 'Every sign in' re-sends Resend 2SV after logout."""
         self.school.set_staff_2fa_mode("every_sign_in")
         self.school.register_staff("teacher@gmail.com")

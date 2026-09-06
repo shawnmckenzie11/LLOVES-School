@@ -48,17 +48,23 @@ body.landing-page .admin-lock:hover {
   color: var(--accent-2);
   border-color: var(--accent);
 }
-body.landing-page .landing-logo {
+body.landing-page .landing-brand {
   display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100vw;
   margin: 0;
-  padding: min(8vh, 3rem) 1rem 0.5rem;
+  padding: min(14vh, 5.5rem) 1rem 1.5rem;
   text-align: center;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: clamp(0.65rem, 2.6vw, 1.75rem);
 }
-body.landing-page .landing-logo img {
-  display: block;
-  width: min(22rem, 82vw);
-  height: auto;
-  margin: 0 auto;
+body.landing-page .landing-brand .brand-edge {
+  color: #ef4444;
 }
 body.landing-page .landing-wrap {
   max-width: min(44rem, 100%);
@@ -196,7 +202,7 @@ body.landing-page .mkt-footer {
     padding-right: 3.5rem;
   }
   body.landing-page .mkt-feature-grid { grid-template-columns: 1fr; }
-  body.landing-page .landing-logo {
+  body.landing-page .landing-brand {
     padding-top: 1.25rem;
   }
 }
