@@ -73,7 +73,7 @@ let nextDraftRound = { kind: "open", minutes: 10, title: "" };
 let setupRoundNumber = 1;
 
 const ROUND_KIND_OPTIONS = [
-  { kind: "open", label: "Open Question", defaultMin: 20 },
+  { kind: "open", label: "Open Question Round", defaultMin: 20 },
   { kind: "challenge", label: "Team Challenge", defaultMin: 10 },
   { kind: "formative", label: "Formative", defaultMin: 10 },
   { kind: "break", label: "Break", defaultMin: 5 },
@@ -1451,8 +1451,24 @@ function renderNamesPanel() {
         )
         .join("")}</ul>`;
     box.appendChild(wrap);
+    const input = wrap.querySelector("input[data-team-id]");
+    if (input instanceof HTMLInputElement) {
+      wireDefaultTeamNameClear(input);
+    }
   }
   updateStepSummaries();
+}
+
+/**
+ * Clear default ``Team N`` placeholder text when the teacher focuses to rename.
+ * @param {HTMLInputElement} input
+ */
+function wireDefaultTeamNameClear(input) {
+  input.addEventListener("focus", () => {
+    if (/^Team\s+\d+$/i.test(String(input.value || "").trim())) {
+      input.value = "";
+    }
+  });
 }
 
 $("ap-start-game")?.addEventListener("click", async () => {
@@ -1544,8 +1560,8 @@ function roundEditorMarkup(round, roundNumber) {
     .join("");
   const kindLocked = trackMode === "individual";
   const breakTitle = isBreakRound({ ...round, kind: selectedKind })
-    ? `<label class="field ap-round-title">Break title
-        <input type="text" maxlength="80" value="${escapeHtml(round.title || "")}" data-round-title required>
+    ? `<label class="field ap-round-title">Break title (optional)
+        <input type="text" maxlength="80" value="${escapeHtml(round.title || "")}" placeholder="Break" data-round-title>
       </label>`
     : "";
   return `<div class="ap-round-row${isBreakRound({ ...round, kind: selectedKind }) ? " has-title" : ""}">
@@ -1572,8 +1588,7 @@ function roundRequestBody(round) {
   };
   if (isBreakRound({ ...round, kind })) {
     const title = String(round.title || "").trim();
-    if (!title) throw new Error("Enter a title for the break.");
-    body.title = title;
+    if (title) body.title = title;
   }
   return body;
 }
@@ -1596,8 +1611,8 @@ function renderRoundsPanel() {
   if (hint) {
     hint.textContent =
       trackMode === "individual"
-        ? "Individual tracking uses Open Question rounds only. Set the length, then Start Round."
-        : "Set up one round at a time. Open Question uses action chips when scoring.";
+        ? "Individual tracking uses Open Question Round only. Set the length, then Start Round."
+        : "Set up one round at a time. Open Question Round uses action chips when scoring.";
   }
   updateStepSummaries();
 }
