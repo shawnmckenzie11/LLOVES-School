@@ -4037,6 +4037,41 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return {"key": str(key), "value": str(value)}
 
+    def bump_school_setting_int(self, key: str, delta: int = 1) -> int:
+        """Add ``delta`` to an integer school setting, starting from 0.
+
+        Args:
+            key: Settings primary key.
+            delta: Amount to add (may be negative).
+
+        Returns:
+            The value after the update.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT value FROM school_settings WHERE key = ?",
+                (str(key),),
+            ).fetchone()
+            current = 0
+            if row is not None:
+                try:
+                    current = int(str(row["value"]).strip() or "0")
+                except ValueError:
+                    current = 0
+            next_value = current + int(delta)
+            self.conn.execute(
+                """
+                INSERT INTO school_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (str(key), str(next_value), _now()),
+            )
+            self.conn.commit()
+        return next_value
+
     def only_live_class_days(self) -> bool:
         """True when Admin requires live-class-day log validation."""
         try:
