@@ -35,4 +35,5 @@ ELC follows the same semester schedule as traditional in-person Ontario schools 
 | [`class-structure.md`](class-structure.md) | 2×75 live + Friday office hours + async |
 | [`semester.json`](semester.json) / [`semester.md`](semester.md) | Phase & calendar |
 | [`canvas-lms.md`](canvas-lms.md) | LMS constraints |
+| [`next-positioning.md`](next-positioning.md) | Future ALC vs VHS contrast (not implemented) |
 | [`textbook-question-bank.md`](textbook-question-bank.md) | Textbook PDF → curated reference bank → promote into live Canvas items |

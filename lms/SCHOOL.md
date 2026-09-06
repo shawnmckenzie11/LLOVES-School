@@ -1,6 +1,6 @@
-# Learning Live Online Virtually & Explicitly School (LLOVES)
+# ALC (internal alias: LLOVES)
 
-This folder is a **new school product**, not a rename of ELC. ELC identity stays in `frameworks/school.md`.
+Public product name is **ALC**. `LLOVES` stays the internal alias (`SCHOOL_SHORT`, repo, Fly app `lloves-lms`) for a later A/B. This folder is a **new school product**, not a rename of ELC. ELC identity stays in `frameworks/school.md`.
 
 Shawn is IT at `solutions@mckenzian.com`.
 

@@ -441,11 +441,6 @@
     </div>
     {% elif tab == 'gradebook' %}
     <div id="gradebook-root" data-class-id="{{ cls.id }}">
-      <section class="card grades-panel">
-        <h2>Grades</h2>
-        <p class="hint">Weighted categories (editable later via API). Participation rolls up live-class credits; Exam is a placeholder.</p>
-        <div id="gradebook-weights" class="grade-weights" aria-live="polite"></div>
-      </section>
       <div id="gradebook-error" class="error" hidden></div>
       <div class="sheet-wrap">
         <table class="sheet" id="gradebook-sheet">
@@ -453,6 +448,56 @@
           <tbody></tbody>
         </table>
       </div>
+      <section class="card grades-panel" id="gradebook-scheme">
+        <h2>Grading Scheme</h2>
+        <p class="hint">Course-level weights must add to 100%. Term Mark holds each module’s portfolio rubric — pick a module to edit its rules.</p>
+        <form id="gradebook-scheme-form" class="gb-scheme-form">
+          <h3>Course weights</h3>
+          <div class="gb-scheme-grid">
+            <label class="field">Term
+              <input id="scheme-weight-term" name="term" type="number" min="0" max="100" step="0.5" required>
+            </label>
+            <label class="field">Exam
+              <input id="scheme-weight-exam" name="exam" type="number" min="0" max="100" step="0.5" required>
+            </label>
+            <label class="field">Att &amp; Participation
+              <input id="scheme-weight-participation" name="participation" type="number" min="0" max="100" step="0.5" required>
+            </label>
+          </div>
+          <p id="scheme-weight-sum" class="hint compact" aria-live="polite"></p>
+          <section class="gb-scheme-term" aria-labelledby="scheme-term-heading">
+            <h3 id="scheme-term-heading">Term Mark</h3>
+            <label class="field gb-scheme-module-pick">Module
+              <select id="scheme-term-module" name="module_number">
+                {% for n in range(1, 9) %}
+                <option value="{{ n }}">Module {{ n }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <p id="scheme-term-window" class="hint compact"></p>
+            <h4>Portfolio</h4>
+            <div class="gb-scheme-grid">
+              <label class="field">Min live / office sessions
+                <input id="scheme-term-sessions" name="min_sessions" type="number" min="0" step="1" required>
+              </label>
+              <label class="field">Min Open Question points
+                <input id="scheme-term-r1" name="min_r1" type="number" min="0" step="0.5" required>
+              </label>
+              <label class="field">Min Formative points
+                <input id="scheme-term-r3" name="min_r3" type="number" min="0" step="0.5" required>
+              </label>
+            </div>
+            <label class="gb-scheme-check">
+              <input id="scheme-term-reflections" name="require_reflections" type="checkbox">
+              <span>Require all reflection questions after group activities</span>
+            </label>
+          </section>
+          <div class="row-actions">
+            <button type="submit">Save scheme</button>
+          </div>
+        </form>
+        <p id="gradebook-scheme-status" class="hint compact" hidden></p>
+      </section>
     </div>
     <script type="module" src="/static/staff_gradebook.js"></script>
     {% elif tab == 'expectations' %}

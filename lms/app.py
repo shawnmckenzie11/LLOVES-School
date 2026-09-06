@@ -33,8 +33,11 @@ from dotenv import load_dotenv
 load_dotenv(LMS_DIR / ".env")
 load_dotenv(REPO_ROOT / ".env")
 
+import email_service  # noqa: E402
+
 from flask import (  # noqa: E402
     Flask,
+    Response,
     abort,
     jsonify,
     redirect,
@@ -53,6 +56,7 @@ from auth import (  # noqa: E402
     landing_kwargs,
     login_required,
     register_auth_routes,
+    request_client_ip,
     staff_or_student_scoreboard,
     staff_required,
     student_required,
@@ -116,6 +120,7 @@ from paths import (  # noqa: E402
     MGS_DIR as MGS_PATH,
     SCHOOL_NAME,
     SCHOOL_SHORT,
+    public_brand,
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
@@ -724,11 +729,73 @@ def create_app(
     _register_game_api(app, school)
     app.jinja_env.globals["live_schedule"] = format_live_schedule_line
 
+    @app.context_processor
+    def inject_public_brand() -> dict[str, str]:
+        """Expose ALC display names and McKenzian credit on every template."""
+        return public_brand()
+
+    @app.after_request
+    def add_security_headers(response: Response) -> Response:
+        """Browser isolation headers. HSTS only behind production TLS."""
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Referrer-Policy", "strict-origin-when-cross-origin"
+        )
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://accounts.google.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self' https://accounts.google.com; "
+            "frame-src https://accounts.google.com; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self' https://accounts.google.com",
+        )
+        if secure:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
     return app
 
 
 def _register_pages(app: Flask, school: SchoolDB) -> None:
     """Landing, IT, staff, student, static, and module/syllabus routes."""
+
+    def _audit(
+        action: str,
+        resource_type: str,
+        *,
+        resource_id: str | int | None = None,
+        student_id: int | None = None,
+        detail: dict[str, Any] | None = None,
+        actor: dict[str, Any] | None = None,
+    ) -> None:
+        """Write an access/admin audit row; never raise to the request."""
+        user = actor if actor is not None else current_user()
+        try:
+            school.record_access_event(
+                action=action,
+                resource_type=resource_type,
+                actor_user_id=int(user["id"]) if user else None,
+                actor_role=str((user or {}).get("role") or "unknown"),
+                tenant_id=school.tenant_id_of(user) if user else None,
+                resource_id=resource_id,
+                student_id=student_id,
+                ip=request_client_ip(),
+                detail=detail,
+            )
+        except Exception:  # noqa: BLE001 - pages must still render
+            app.logger.exception("access audit write failed")
 
     def _staff_nav_courses(teacher_user_id: int) -> list[dict[str, Any]]:
         """Build top-menu quicklinks for a teacher's active-semester courses.
@@ -1039,11 +1106,54 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/")
     def landing():
-        """Public landing: Teacher / Student roles and Admin lock."""
-        returning = request.cookies.get("lloves_seen") == "1"
+        """Public ALC logo, then Teacher / Student / Admin entry."""
         return render_template(
             "landing.html",
             **landing_kwargs(one_tap_auto=False),
+        )
+
+    @app.route("/request-access", methods=["GET", "POST"])
+    def request_access():
+        """Capture a signup request. Never collects payment or auto-allowlists."""
+        error = None
+        submitted = False
+        form = {
+            "name": "",
+            "email": "",
+            "role": "parent",
+            "organization": "",
+            "context": "",
+        }
+        if request.method == "POST":
+            honeypot = (request.form.get("website") or "").strip()
+            form["name"] = (request.form.get("name") or "").strip()
+            form["email"] = (request.form.get("email") or "").strip()
+            form["role"] = (request.form.get("role") or "parent").strip()
+            form["organization"] = (request.form.get("organization") or "").strip()
+            form["context"] = (request.form.get("context") or "").strip()
+            if honeypot:
+                submitted = True
+            else:
+                try:
+                    row = school.create_access_request(
+                        name=form["name"],
+                        email=form["email"],
+                        role=form["role"],
+                        organization=form["organization"],
+                        context=form["context"],
+                    )
+                    try:
+                        email_service.send_access_request_notice(row)
+                    except Exception:  # noqa: BLE001 - form still succeeds
+                        logger.exception("Access-request notice email failed")
+                    submitted = True
+                except ValueError as exc:
+                    error = str(exc)
+        return render_template(
+            "request_access.html",
+            error=error,
+            submitted=submitted,
+            form=form,
         )
 
     @app.route("/health")
@@ -1058,8 +1168,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         semesters = school.list_semesters()
         active = school.get_active_semester()
-        offerings = school.list_offerings(semester_id=active["id"] if active else None)
-        all_offerings = school.list_offerings()
+        tenant_id = school.tenant_id_of(user)
+        offerings = school.list_offerings(
+            semester_id=active["id"] if active else None,
+            tenant_id=tenant_id,
+        )
+        all_offerings = school.list_offerings(tenant_id=tenant_id)
         offerings = [
             annotate_offering_pack(row, _library_dest(row)) for row in offerings
         ]
@@ -1074,9 +1188,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             semesters=semesters,
             semesters_all=semesters,
             active=active,
-            staff=school.list_staff(include_archived=True),
+            staff=school.list_staff(include_archived=True, tenant_id=tenant_id),
             offerings=offerings,
             all_offerings=all_offerings,
+            audit_events=school.list_access_events(tenant_id=tenant_id, limit=100),
+            access_requests=school.list_access_requests(status="pending"),
             courses=school.search_ontario_courses("", limit=300),
             school_name=SCHOOL_NAME,
             only_live_class_days=school.only_live_class_days(),
@@ -1084,6 +1200,54 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    @app.route("/it/audit.csv")
+    @it_required
+    def it_audit_csv():
+        """Download recent access/admin events for the signed-in IT tenant."""
+        import csv
+        from io import StringIO
+
+        user = current_user()
+        rows = school.list_access_events(
+            tenant_id=school.tenant_id_of(user), limit=2000
+        )
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            [
+                "created_at",
+                "actor_email",
+                "actor_role",
+                "action",
+                "resource_type",
+                "resource_id",
+                "student_id",
+                "ip",
+                "detail_json",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("created_at") or "",
+                    row.get("actor_email") or "",
+                    row.get("actor_role") or "",
+                    row.get("action") or "",
+                    row.get("resource_type") or "",
+                    row.get("resource_id") or "",
+                    row.get("student_id") or "",
+                    row.get("ip") or "",
+                    row.get("detail_json") or "",
+                ]
+            )
+        return Response(
+            buf.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": "attachment; filename=lloves-access-audit.csv"
+            },
+        )
 
     @app.route("/it/semesters/activate", methods=["POST"])
     @it_required
@@ -1153,14 +1317,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_register_staff():
         """Allowlist a personal Google email as staff."""
         try:
-            school.register_staff(
+            actor = current_user()
+            created = school.register_staff(
                 request.form.get("email") or "",
                 request.form.get("display_name") or None,
+                tenant_id=school.tenant_id_of(actor),
+            )
+            _audit(
+                "staff.register",
+                "staff",
+                resource_id=created.get("id"),
+                detail={"email": created.get("email")},
             )
         except ValueError as exc:
             return render_template(
                 "forbidden.html", message=str(exc)
             ), 400
+        return redirect(url_for("it_dashboard"))
+
+    @app.route("/it/access-requests/<int:request_id>/review", methods=["POST"])
+    @it_required
+    def it_review_access_request(request_id: int):
+        """Mark a signup request reviewed without creating a user."""
+        actor = current_user()
+        school.mark_access_request_reviewed(request_id, int(actor["id"]))
         return redirect(url_for("it_dashboard"))
 
     @app.route("/it/courses")
@@ -1255,6 +1435,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         (``MCF3M-2``) rather than silently reusing the first one.
         """
         teacher_id = int(request.form.get("teacher_user_id") or 0)
+        actor = current_user()
+        teacher = school.get_user(teacher_id)
+        if not actor or not teacher or not school.same_tenant(actor, teacher):
+            return _assign_error("Ask Admin to grant access.", 403)
         code = (request.form.get("ontario_code") or "").strip().upper()
         raw_base = (request.form.get("copied_from_offering_id") or "").strip()
         copied_from = int(raw_base) if raw_base else None
@@ -1279,6 +1463,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 copied_from_offering_id=copied_from,
                 library_id=library_id,
                 new_section=True,
+            )
+            _audit(
+                "offering.assign",
+                "offering",
+                resource_id=int(offering["id"]),
+                detail={"ontario_code": code, "teacher_user_id": teacher_id},
             )
             live_days, live_time = _assign_schedule_from_form()
             offering = school.set_offering_schedule(
@@ -1428,9 +1618,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             Redirect to ``it_dashboard?tab=staff`` on success, or 400 on error.
         """
         actor = current_user()
-        actor_id = int(actor["id"]) if actor else 0
+        target = school.get_user(staff_id)
+        if not actor or not target or not school.same_tenant(actor, target):
+            abort(403)
+        actor_id = int(actor["id"])
         try:
             school.deactivate_staff(staff_id, actor_id)
+            _audit("staff.deactivate", "staff", resource_id=staff_id)
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(url_for("it_dashboard", tab="staff"))
@@ -1443,8 +1637,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Returns:
             Redirect to ``it_dashboard?tab=staff`` on success, or 400 on error.
         """
+        actor = current_user()
+        target = school.get_user(staff_id)
+        if not actor or not target or not school.same_tenant(actor, target):
+            abort(403)
         try:
             school.reactivate_staff(staff_id)
+            _audit("staff.reactivate", "staff", resource_id=staff_id)
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(url_for("it_dashboard", tab="staff"))
@@ -1464,6 +1663,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         actor = current_user()
         actor_id = int(actor["id"]) if actor else 0
         target = school.get_user(staff_id)
+        if not actor or not target or not school.same_tenant(actor, target):
+            abort(403)
         confirm = (request.form.get("confirm_email") or "").strip().lower()
         expected = str((target or {}).get("email") or "").strip().lower()
         if not target or not expected or confirm != expected:
@@ -1476,6 +1677,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         try:
             school.delete_staff_permanently(staff_id, actor_id)
+            _audit("staff.delete", "staff", resource_id=staff_id)
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(url_for("it_dashboard", tab="staff"))
@@ -1494,7 +1696,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             Rendered ``it/assign.html`` on GET or error; redirect on POST success.
         """
         staff_member = school.get_user(staff_id)
-        if staff_member is None or staff_member.get("role") != "staff":
+        actor = current_user()
+        if (
+            staff_member is None
+            or staff_member.get("role") != "staff"
+            or not actor
+            or not school.same_tenant(actor, staff_member)
+        ):
             from flask import abort
             abort(404)
 
@@ -1854,6 +2062,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
+        _audit(
+            "student.record.view",
+            "class",
+            resource_id=class_id,
+            detail={"tab": tab},
+        )
         return render_template(
             "staff/course.html",
             user=user,
@@ -2633,8 +2847,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         if user is None:
             return False
-        if user.get("role") == "it":
-            return True
         return school.teacher_owns_class(
             int(user["id"]), int(session_row["class_id"])
         )
@@ -2646,12 +2858,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         assert user is not None
         sessions = school.list_active_live_sessions()
-        if user.get("role") != "it":
-            sessions = [
-                row
-                for row in sessions
-                if school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
-            ]
+        sessions = [
+            row
+            for row in sessions
+            if school.teacher_owns_class(int(user["id"]), int(row["class_id"]))
+        ]
         return jsonify({"ok": True, "sessions": sessions})
 
     @app.route("/api/live-sessions/<int:session_id>/state")
@@ -3124,7 +3335,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/gradebook")
     @login_required
     def api_gradebook(class_id: int):
-        """Weighted gradebook scaffold (Participation / Term / Exam)."""
+        """Weighted gradebook (Ontario 15/65/20) with Module 1 portfolio auto-score."""
         denied = _require_class_staff(class_id)
         if denied:
             return denied
@@ -3154,6 +3365,62 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             raw = body.get("weights") if isinstance(body.get("weights"), dict) else body
             weights = school.set_grade_weights(class_id, raw or {})
             return {"weights": weights}
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/grade-scheme", methods=["GET", "POST"])
+    @login_required
+    def api_grade_scheme(class_id: int):
+        """Read or save course weights plus Term Mark portfolio rules."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        if request.method == "GET":
+            try:
+                book = school.gradebook_for_class(class_id, sort="az")
+                return jsonify({"ok": True, "scheme": book.get("scheme")})
+            except Exception as exc:  # noqa: BLE001
+                return _json_error(exc)
+
+        def run(body):
+            """Persist the staff grading scheme and return the full book."""
+            saved = school.set_grade_scheme(class_id, body or {})
+            book = school.gradebook_for_class(class_id, sort="az")
+            return {"scheme": saved, "gradebook": book}
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/module-reflections", methods=["POST"])
+    @login_required
+    def api_module_reflections(class_id: int):
+        """Staff-log whether a student answered all module reflection questions."""
+
+        def run(body):
+            """Persist one student/module reflections-complete flag."""
+            try:
+                student_id = int(body.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("student_id is required") from exc
+            try:
+                module_number = int(body.get("module_number") or body.get("module") or 1)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("module_number must be an integer") from exc
+            if module_number < 1:
+                raise ValueError("module_number must be 1 or greater")
+            roster = {
+                int(row["id"])
+                for row in school.game.dashboard(class_id, sort="az").get("students") or []
+            }
+            if student_id not in roster:
+                raise ValueError("Student is not on this class roster")
+            complete = body.get("complete")
+            if isinstance(complete, str):
+                complete = complete.strip().lower() in {"1", "true", "yes", "on"}
+            saved = school.set_module_reflection(
+                class_id, student_id, module_number, bool(complete)
+            )
+            book = school.gradebook_for_class(class_id, sort="az")
+            return {"reflection": saved, "gradebook": book}
 
         return _staff_post(class_id, run)
 
