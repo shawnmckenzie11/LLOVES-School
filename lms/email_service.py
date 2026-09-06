@@ -1,4 +1,4 @@
-"""Transactional email helpers for LLOVES first-login verification."""
+"""Transactional email helpers for ALC first-login verification and access notices."""
 
 from __future__ import annotations
 
@@ -63,12 +63,14 @@ def _sender_address() -> str:
 
 
 def _build_verification_message(username: str, code: str) -> Tuple[str, str, str]:
-    """Build subject/text/html bodies for a LLOVES verification email."""
-    subject = "Email verification | Learning Live Online Virtually & Explicitly School"
+    """Build subject/text/html bodies for an ALC verification email."""
+    from paths import SCHOOL_DISPLAY, SCHOOL_NAME
+
+    subject = f"Email verification | {SCHOOL_NAME}"
     text = (
         f"Hello {username},\n\n"
-        f"Your LLOVES verification code is: {code}\n\n"
-        "Enter this code to finish your first sign-in. You will not need it again.\n"
+        f"Your {SCHOOL_DISPLAY} verification code is: {code}\n\n"
+        "Enter this code to finish signing in. Staff and admin must verify every session that can see student records.\n"
     )
     html = f"""
     <html>
@@ -76,7 +78,7 @@ def _build_verification_message(username: str, code: str) -> Tuple[str, str, str
         <div style="max-width: 500px; margin: 0 auto; background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 30px;">
           <h2 style="color: #67e8f9;">Verify your email</h2>
           <p style="color: #94a3b8;">Hello <strong>{username}</strong>,</p>
-          <p style="color: #94a3b8;">Use this code to finish your first LLOVES login:</p>
+          <p style="color: #94a3b8;">Use this code to finish signing in:</p>
           <div style="background-color: rgba(103, 232, 249, 0.1); border: 1px dashed #67e8f9; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; letter-spacing: 4px; text-align: center; color: #f8fafc; margin: 25px 0;">
             {code}
           </div>
@@ -183,6 +185,36 @@ def send_email(recipient_email: str, subject: str, text: str, html: str) -> bool
             recipient_email,
         )
     return False
+
+
+def send_access_request_notice(request_row: dict) -> bool:
+    """Email IT that someone asked for ALC access (no auto-provision)."""
+    from paths import DEFAULT_IT_EMAIL, SCHOOL_DISPLAY
+
+    name = str(request_row.get("name") or "").strip()
+    email = str(request_row.get("email") or "").strip()
+    role = str(request_row.get("role") or "").strip()
+    organization = str(request_row.get("organization") or "").strip() or "—"
+    context = str(request_row.get("context") or "").strip()
+    subject = f"{SCHOOL_DISPLAY} access request from {name or email}"
+    text = (
+        f"{name} ({email}) asked for {SCHOOL_DISPLAY} access.\n"
+        f"Role: {role}\n"
+        f"School or family: {organization}\n\n"
+        f"{context}\n\n"
+        "This does not create an account. Allowlist them in Admin if you approve.\n"
+    )
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #0f172a;">
+        <p><strong>{name}</strong> ({email}) asked for {SCHOOL_DISPLAY} access.</p>
+        <p>Role: {role}<br>School or family: {organization}</p>
+        <p>{context}</p>
+        <p>This does not create an account. Allowlist them in Admin if you approve.</p>
+      </body>
+    </html>
+    """
+    return send_email(DEFAULT_IT_EMAIL, subject, text, html)
 
 
 def send_verification_email(recipient_email: str, username: str, code: str) -> bool:

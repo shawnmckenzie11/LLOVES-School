@@ -32,8 +32,27 @@ These apply to **all ELC courses and all semesters**. Derive real school days fr
 - Office hours are support, not a third mandatory class; do not require new mandatory content only available Fridays.
 - Content modules fill the instructional span **after** the two intro days and **before** the review week.
 
+## Assessment weights (Ontario)
+
+Final grades use the Ministry split (not the older 65 / 25 / 10 syllabus draft):
+
+| Category | Weight | What it is |
+|----------|--------|------------|
+| Att & Participation | **15%** | Live-class engagement (separate from term work) |
+| Term | **65%** | Tests and assignments, including module portfolios |
+| Exam | **20%** | Final exam |
+
+Math courses have **8 modules** (~2 weeks each after the 2 intro days and before review week). A student earns **100% on that module’s portfolio** (and is exempt from the portfolio conference) when, during the module window, they:
+
+- attend 3+ live classes, or a mix of live classes and Friday open offices
+- answer all reflection questions after group activities
+- accumulate 10+ Open Question (Round 1) points
+- accumulate 10+ Formative (Round 3) points
+
+Otherwise the conference remains required; the portfolio is not auto-zeroed.
+
 ## Assessment / LMS notes
 
-- Primary delivery and submission surface: **Canvas**
+- Primary delivery and submission surface: **Canvas** (async packs) plus the LLOVES staff gradebook for live-class evidence
 - Honorlock or similar may be used for secured assessments when configured in Canvas
 - Keep student-facing instructions LMS-native (pages, assignments, modules) rather than external-only docs

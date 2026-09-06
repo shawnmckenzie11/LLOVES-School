@@ -25,7 +25,7 @@ from flask import (
 
 import email_service
 from school_db import SchoolDB
-from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT
+from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, public_brand
 from student_portal import (
     bind_student_session,
     clear_student_session_keys,
@@ -34,6 +34,33 @@ from student_portal import (
 
 VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
+
+
+def _env_flag(name: str) -> bool:
+    """True when an env var is a common truthy string."""
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def privileged_mfa_required() -> bool:
+    """True when staff/IT must complete email 2SV on this login.
+
+    Always on when ``FLASK_ENV=production`` or ``REQUIRE_PRIVILEGED_MFA=1``.
+    Local/tests without those flags keep first-login-only 2SV.
+    """
+    if _env_flag("REQUIRE_PRIVILEGED_MFA"):
+        return True
+    return (os.getenv("FLASK_ENV") or "").strip().lower() == "production"
+
+
+def request_client_ip() -> str:
+    """Best-effort client IP for audit rows (first X-Forwarded-For hop)."""
+    try:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()[:120]
+        return (request.remote_addr or "")[:120]
+    except RuntimeError:
+        return ""
 
 
 def _verification_age_seconds(user: dict[str, Any]) -> float | None:
@@ -114,8 +141,7 @@ def google_oauth_ready() -> bool:
 def landing_kwargs(**extra: Any) -> dict[str, Any]:
     """Template context for the public landing page."""
     ctx = {
-        "school_name": SCHOOL_NAME,
-        "school_short": SCHOOL_SHORT,
+        **public_brand(),
         "google_client_id": google_client_id() if google_oauth_ready() else "",
         "one_tap_auto": False,
         "student_error": None,
@@ -175,7 +201,20 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
     session["portal"] = portal
     session["display_name"] = user.get("display_name") or user["email"]
     session.permanent = True
-    school_db().record_login(int(user["id"]))
+    db = school_db()
+    db.record_login(int(user["id"]))
+    try:
+        db.record_access_event(
+            action="login.success",
+            resource_type="session",
+            actor_user_id=int(user["id"]),
+            actor_role=str(user.get("role") or portal),
+            tenant_id=db.tenant_id_of(user),
+            resource_id=portal,
+            ip=request_client_ip(),
+        )
+    except Exception:  # noqa: BLE001 - login must not fail if audit write fails
+        pass
 
 
 def begin_pending_2sv(user: dict[str, Any], *, portal: str) -> None:
@@ -385,7 +424,7 @@ def _finish_google_identity(
     if not user:
         return render_template(
             "forbidden.html",
-            message="This Google account is not registered. Ask IT.",
+            message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
     if user.get("archived_at"):
         session.clear()
@@ -407,10 +446,11 @@ def _finish_google_identity(
     if portal_key == "staff" and user["role"] not in {"staff", "it"} and not is_it:
         return render_template(
             "forbidden.html",
-            message="This Google account is not registered. Ask IT.",
+            message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
 
-    if not user.get("verified_at"):
+    needs_mfa = privileged_mfa_required() or not user.get("verified_at")
+    if needs_mfa:
         _code, emailed = _send_first_login_code(user)
         begin_pending_2sv(user, portal=portal_key)
         return redirect(url_for("verify_email", sent="1" if emailed else "0"))
@@ -481,7 +521,7 @@ def register_auth_routes(app: Flask) -> None:
                 return render_template(
                     "google_auth.html",
                     portal=portal,
-                    school=SCHOOL_SHORT,
+                    school=public_brand()["school_display"],
                     known_accounts=_local_dev_accounts(portal),
                 )
             app.logger.warning(
@@ -490,7 +530,7 @@ def register_auth_routes(app: Flask) -> None:
             return render_template(
                 "google_setup.html",
                 portal=portal,
-                school=SCHOOL_SHORT,
+                school=public_brand()["school_display"],
                 school_name=SCHOOL_NAME,
                 redirect_uri=_google_redirect_uri(),
             ), 503
@@ -605,7 +645,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/verify-email", methods=["GET", "POST"])
     def verify_email():
-        """First-login 6-digit code (skipped on later visits)."""
+        """Email 6-digit code: first login always; every privileged session in prod."""
         if not session.get("pending_2sv"):
             if current_user():
                 return _post_login_redirect(session.get("portal") or "staff")
@@ -638,6 +678,7 @@ def register_auth_routes(app: Flask) -> None:
         if email_service.show_on_page_verification_code():
             dev_code = user.get("verification_code")
 
+        session_mfa = bool(user.get("verified_at")) or privileged_mfa_required()
         return render_template(
             "verify.html",
             email=user["email"],
@@ -645,6 +686,7 @@ def register_auth_routes(app: Flask) -> None:
             info=info,
             dev_code=dev_code,
             email_configured=email_service.is_email_delivery_configured(),
+            session_mfa=session_mfa,
         )
 
     @app.route("/resend-verification", methods=["POST"])
@@ -654,7 +696,7 @@ def register_auth_routes(app: Flask) -> None:
             return redirect(url_for("landing"))
         db = school_db()
         user = db.get_user_by_id(int(session["pending_user_id"]))
-        if not user or user.get("verified_at"):
+        if not user:
             return redirect(url_for("landing"))
         _code, emailed = _send_first_login_code(user, force=True)
         return redirect(url_for("verify_email", sent="1" if emailed else "0"))
@@ -789,6 +831,18 @@ def register_auth_routes(app: Flask) -> None:
             codename=str(student.get("codename") or name),
         )
         db.clear_recent_code_attempts(ip)
+        try:
+            db.record_access_event(
+                action="student.join",
+                resource_type="live_session",
+                actor_role="student",
+                tenant_id=db.tenant_id_of(offering),
+                resource_id=int(live_session["id"]),
+                student_id=int(student["id"]),
+                ip=ip,
+            )
+        except Exception:  # noqa: BLE001 - join must not fail on audit write
+            pass
         attendee = join_result.get("attendee") or {}
         visit_token = str(attendee.get("visit_token") or "")
         bind_student_session(

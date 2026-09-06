@@ -13,14 +13,33 @@ try:
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.paths import SEMESTER_JSON
 
-# Default category weights (percent). Extension point: persist + later edit UI.
+# Ontario Ministry split: 15% Att & Participation, 65% Term, 20% Exam.
 DEFAULT_GRADE_WEIGHTS: dict[str, float] = {
+    "participation": 15.0,
+    "term": 65.0,
+    "exam": 20.0,
+}
+
+# Pre-Ministry scaffold; rewrite stored rows that still match this exactly.
+LEGACY_DEFAULT_GRADE_WEIGHTS: dict[str, float] = {
     "participation": 15.0,
     "term": 60.0,
     "exam": 25.0,
 }
 
 GRADE_CATEGORIES = ("participation", "term", "exam")
+GRADE_CATEGORY_LABELS: dict[str, str] = {
+    "participation": "Att & Participation",
+    "term": "Term",
+    "exam": "Exam",
+}
+
+# Math courses: 8 content modules, even split of school days after intro
+# and before the last instructional week (review).
+MATH_MODULE_COUNT = 8
+PORTFOLIO_MIN_SESSIONS = 3
+PORTFOLIO_MIN_R1 = 10.0
+PORTFOLIO_MIN_R3 = 10.0
 
 WEEKDAY_HEADERS = ("M", "T", "W", "T", "F")
 
@@ -71,6 +90,121 @@ def normalize_grade_weights(raw: dict[str, Any] | None) -> dict[str, float]:
             continue
         out[key] = val
     return out
+
+
+def assert_weights_sum_100(weights: dict[str, float]) -> None:
+    """Raise when category percents do not add to 100.
+
+    Args:
+        weights: Normalized participation / term / exam map.
+
+    Raises:
+        ValueError: When the three percents are not 100±0.05.
+    """
+    total = sum(float(weights[key]) for key in GRADE_CATEGORIES)
+    if abs(total - 100.0) > 0.05:
+        raise ValueError(
+            f"Term, Exam, and Att & Participation must add to 100% (now {total:g}%)."
+        )
+
+
+def default_module_portfolio_rules() -> dict[str, Any]:
+    """Return Module 1 welcome-page portfolio thresholds."""
+    return {
+        "min_sessions": int(PORTFOLIO_MIN_SESSIONS),
+        "min_r1": float(PORTFOLIO_MIN_R1),
+        "min_r3": float(PORTFOLIO_MIN_R3),
+        "require_reflections": True,
+    }
+
+
+def normalize_module_portfolio_rules(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Coerce one module's portfolio thresholds; fill missing from defaults.
+
+    Args:
+        raw: Partial rule map.
+
+    Returns:
+        ``min_sessions``, ``min_r1``, ``min_r3``, ``require_reflections``.
+    """
+    out = default_module_portfolio_rules()
+    if not raw:
+        return out
+    if "min_sessions" in raw:
+        try:
+            sessions = int(raw["min_sessions"])
+        except (TypeError, ValueError):
+            sessions = out["min_sessions"]
+        if sessions >= 0:
+            out["min_sessions"] = sessions
+    for key in ("min_r1", "min_r3"):
+        if key not in raw:
+            continue
+        try:
+            val = float(raw[key])
+        except (TypeError, ValueError):
+            continue
+        if val >= 0:
+            out[key] = val
+    if "require_reflections" in raw:
+        flag = raw["require_reflections"]
+        if isinstance(flag, str):
+            out["require_reflections"] = flag.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            out["require_reflections"] = bool(flag)
+    return out
+
+
+def gradebook_overview_text(
+    *,
+    weights: dict[str, float],
+    window: dict[str, Any] | None,
+    rules: dict[str, Any],
+) -> str:
+    """Staff-facing paragraph of the current course grading scheme.
+
+    Args:
+        weights: Category percents.
+        window: Module 1 even-split window, if known.
+        rules: Module 1 portfolio thresholds.
+
+    Returns:
+        Plain-language overview for the Grades tab.
+    """
+    term = weights.get("term", 65)
+    exam = weights.get("exam", 20)
+    ap = weights.get("participation", 15)
+    start = (window or {}).get("start") or ""
+    end = (window or {}).get("end") or ""
+    if start and end:
+        span = f"Module 1 runs {start} through {end}"
+    else:
+        span = "Module 1 uses the even two-week content window"
+    reflections = (
+        "answer every reflection after group activities"
+        if rules.get("require_reflections", True)
+        else "reflections are not required"
+    )
+    sessions = int(rules.get("min_sessions") or PORTFOLIO_MIN_SESSIONS)
+    r1 = rules.get("min_r1", PORTFOLIO_MIN_R1)
+    r3 = rules.get("min_r3", PORTFOLIO_MIN_R3)
+    r1_s = str(int(r1)) if float(r1) == int(r1) else str(r1)
+    r3_s = str(int(r3)) if float(r3) == int(r3) else str(r3)
+    return (
+        f"The course mark is {term:g}% Term (tests and module portfolios), "
+        f"{exam:g}% Exam, and {ap:g}% Attendance & Participation. "
+        f"{span}. A student earns 100% on the Module 1 portfolio — and skips "
+        f"the conference — when they attend {sessions}+ live classes or Friday "
+        f"open offices, {reflections}, and accumulate {r1_s}+ Open Question "
+        f"(Round 1) points and {r3_s}+ Formative (Round 3) points. The Module 1 "
+        f"test is a placeholder until you enter it. Missing the portfolio rules "
+        f"does not write a zero; the conference remains required."
+    )
 
 
 def short_day_label(day: date) -> str:
@@ -220,6 +354,238 @@ def group_weekdays_into_weeks(days: list[date]) -> list[list[date | None]]:
     for key in order:
         weeks.append(by_iso[key])
     return weeks
+
+
+def weights_match(stored: dict[str, float], expected: dict[str, float]) -> bool:
+    """True when every category percent matches ``expected``.
+
+    Args:
+        stored: Persisted category → percent map.
+        expected: Comparison map (defaults or legacy defaults).
+
+    Returns:
+        Whether all three category values agree.
+    """
+    return all(
+        abs(float(stored.get(key, -1)) - float(expected[key])) < 0.001
+        for key in GRADE_CATEGORIES
+    )
+
+
+def review_flex_start(calendar: Any) -> date | None:
+    """Monday of the last instructional week before the exam window.
+
+    Exam week leftover instructional days (e.g. Mon Jan 25) stay review/flex
+    with that week. Used so content modules stop before review.
+
+    Args:
+        calendar: ``SemesterCalendar`` from the syllabus packer.
+
+    Returns:
+        Review-week Monday, or None when exam days are missing.
+    """
+    exam_days = list(getattr(calendar, "exam_days", None) or [])
+    if not exam_days:
+        return None
+    exam_start = min(exam_days)
+    exam_week_monday = exam_start - timedelta(days=exam_start.weekday())
+    return exam_week_monday - timedelta(days=7)
+
+
+def math_content_days(semester_json: Path | None = None) -> list[date]:
+    """Instructional days after the 2 intro days and before review week.
+
+    Args:
+        semester_json: Optional override path.
+
+    Returns:
+        Sorted school days that even-split across math modules.
+    """
+    cal = load_semester_calendar(semester_json)
+    instructional = list(cal.instructional_days)
+    intro = set(instructional[:2])
+    review_start = review_flex_start(cal)
+    out: list[date] = []
+    for day in instructional:
+        if day in intro:
+            continue
+        if review_start is not None and day >= review_start:
+            continue
+        out.append(day)
+    return out
+
+
+def even_module_windows(
+    days: list[date] | None = None,
+    *,
+    n_modules: int = MATH_MODULE_COUNT,
+    semester_json: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Split content days evenly across math modules (~2 weeks each).
+
+    Extra leftover days go to the first modules, matching
+    ``leftover_day_shares`` in the syllabus packer.
+
+    Args:
+        days: Optional precomputed content-span days.
+        n_modules: Module count (8 for MCF3M and other math courses).
+        semester_json: Optional calendar override when ``days`` is omitted.
+
+    Returns:
+        One dict per module: number, start, end, days (ISO strings + dates).
+    """
+    span = list(days) if days is not None else math_content_days(semester_json)
+    if n_modules <= 0:
+        return []
+    leftover = max(0, len(span))
+    base, extra = divmod(leftover, n_modules)
+    shares = [base + (1 if i < extra else 0) for i in range(n_modules)]
+    windows: list[dict[str, Any]] = []
+    cursor = 0
+    for index, share in enumerate(shares):
+        chunk = span[cursor : cursor + share]
+        cursor += share
+        start = chunk[0] if chunk else None
+        end = chunk[-1] if chunk else None
+        windows.append(
+            {
+                "number": index + 1,
+                "start": start.isoformat() if start else None,
+                "end": end.isoformat() if end else None,
+                "days": [d.isoformat() for d in chunk],
+                "day_count": len(chunk),
+            }
+        )
+    return windows
+
+
+def module_window_for(
+    module_number: int,
+    *,
+    n_modules: int = MATH_MODULE_COUNT,
+    semester_json: Path | None = None,
+) -> dict[str, Any] | None:
+    """Return one even-split module window.
+
+    Args:
+        module_number: 1-based module index.
+        n_modules: Course module count.
+        semester_json: Optional calendar override.
+
+    Returns:
+        Window dict, or None when the number is out of range.
+    """
+    if module_number < 1 or module_number > n_modules:
+        return None
+    windows = even_module_windows(n_modules=n_modules, semester_json=semester_json)
+    if module_number > len(windows):
+        return None
+    return windows[module_number - 1]
+
+
+def _session_date_map(sessions: list[dict[str, Any]]) -> dict[int, date]:
+    """Map non-template session ids to meeting dates.
+
+    Args:
+        sessions: Class session rows.
+
+    Returns:
+        ``session_id`` → calendar date.
+    """
+    out: dict[int, date] = {}
+    for sess in sessions:
+        if str(sess.get("status") or "") == "template":
+            continue
+        meeting = session_meeting_date(sess.get("starts_at"))
+        if meeting is None:
+            continue
+        out[int(sess["id"])] = meeting
+    return out
+
+
+def evaluate_module_portfolio(
+    *,
+    student_id: int,
+    window: dict[str, Any],
+    days_label: str | None,
+    instructional: set[date],
+    sessions: list[dict[str, Any]],
+    score_rows: list[dict[str, Any]],
+    reflections_complete: bool,
+    rules: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score one student's module portfolio from A&P tracker evidence.
+
+    100% uses the class grading scheme (defaults: 3+ live or Friday office
+    sessions, all reflections, 10+ Round 1 Open Question points, and 10+
+    Round 3 Formative points).
+
+    Args:
+        student_id: Game-show student primary key.
+        window: Even-split module window (``days`` as ISO strings).
+        days_label: Course live-day preset (``M/W/F`` or ``T/Th/F``).
+        instructional: School-day set.
+        sessions: Class sessions.
+        score_rows: ``session_scores`` with present/late and round points.
+        reflections_complete: Staff-logged flag for post-activity reflections.
+        rules: Optional stored thresholds; defaults to welcome-page values.
+
+    Returns:
+        Criteria breakdown and ``score`` (100 or None).
+    """
+    scheme = normalize_module_portfolio_rules(rules)
+    min_sessions = int(scheme["min_sessions"])
+    min_r1 = float(scheme["min_r1"])
+    min_r3 = float(scheme["min_r3"])
+    require_reflections = bool(scheme["require_reflections"])
+    window_days = {date.fromisoformat(iso) for iso in (window.get("days") or [])}
+    session_dates = _session_date_map(sessions)
+    present_days: set[date] = set()
+    points_r1 = 0.0
+    points_r3 = 0.0
+    sid = int(student_id)
+    for row in score_rows:
+        if int(row.get("student_id") or 0) != sid:
+            continue
+        meeting = session_dates.get(int(row["session_id"]))
+        if meeting is None or meeting not in window_days:
+            continue
+        if not is_live_class_date(
+            meeting, days_label=days_label, instructional=instructional
+        ):
+            continue
+        present = int(row.get("present") or 0) == 1
+        late = int(row.get("late") or 0) == 1
+        if present or late:
+            present_days.add(meeting)
+        points_r1 += float(row.get("points_r1") or 0)
+        points_r3 += float(row.get("points_r3") or 0)
+    sessions_n = len(present_days)
+    sessions_met = sessions_n >= min_sessions
+    r1_met = points_r1 + 1e-9 >= min_r1
+    r3_met = points_r3 + 1e-9 >= min_r3
+    reflections_met = True if not require_reflections else bool(reflections_complete)
+    earned = sessions_met and r1_met and r3_met and reflections_met
+    return {
+        "module": int(window.get("number") or 0),
+        "sessions": sessions_n,
+        "sessions_needed": min_sessions,
+        "sessions_met": sessions_met,
+        "points_r1": round(points_r1, 1),
+        "r1_needed": min_r1,
+        "r1_met": r1_met,
+        "points_r3": round(points_r3, 1),
+        "r3_needed": min_r3,
+        "r3_met": r3_met,
+        "reflections_complete": bool(reflections_complete),
+        "reflections_met": reflections_met,
+        "require_reflections": require_reflections,
+        "earned_100": earned,
+        "score": 100.0 if earned else None,
+        "pending_reason": None
+        if earned
+        else "Conference required until all four criteria are met",
+    }
 
 
 def session_meeting_date(starts_at: str | None) -> date | None:

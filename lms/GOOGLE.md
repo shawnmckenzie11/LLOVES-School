@@ -1,6 +1,6 @@
-# Google OAuth for LLOVES
+# Google OAuth for ALC
 
-Staff and IT sign in with a **personal Google account**, the same way the Cannabis Paper Scraper does: Google Cloud **OAuth 2.0 Web client** + Flask code exchange at `/auth/google/callback`. LLOVES does **not** auto-create accounts. IT allowlists staff emails first.
+Staff and IT sign in with a **personal Google account**, the same way the Cannabis Paper Scraper does: Google Cloud **OAuth 2.0 Web client** + Flask code exchange at `/auth/google/callback`. ALC does **not** auto-create accounts. IT allowlists staff emails first. The internal code name remains LLOVES (`SCHOOL_SHORT`) for a later A/B.
 
 This is **Google Cloud Console** work (APIs & Services), not Google Workspace Admin “SSO / SAML”. Workspace can own the Cloud project; teachers still use `@gmail.com` (or any Google login) unless you switch the consent screen to Internal.
 
@@ -14,8 +14,8 @@ This is **Google Cloud Console** work (APIs & Services), not Google Workspace Ad
 
 | Setting | Value |
 | --- | --- |
-| User type | **External** (Internal would only allow your Workspace domain; LLOVES staff use personal Gmail) |
-| App name | Learning Live Online Virtually & Explicitly School |
+| User type | **External** (Internal would only allow your Workspace domain; ALC staff use personal Gmail) |
+| App name | ALC |
 | User support email | `solutions@mckenzian.com` |
 | App logo | optional |
 | App domain / home page | `http://127.0.0.1:8787` for local; `https://alc.mckenzian.com` in production |
@@ -26,7 +26,7 @@ This is **Google Cloud Console** work (APIs & Services), not Google Workspace Ad
 While **Testing**:
 
 - Add **Test users**: `solutions@mckenzian.com`, `rspercival10@gmail.com`, and every personal Gmail that should be able to click Sign in with Google.
-- Anyone not on that list sees Google’s “app hasn’t been verified” / access denied screen. That is Google, not LLOVES.
+- Anyone not on that list sees Google’s “app hasn’t been verified” / access denied screen. That is Google, not ALC.
 
 Do **not** turn on “Google Workspace domain only” or pass `hd=` — that would block personal Gmail.
 
@@ -80,11 +80,17 @@ lms/.venv/bin/python lms/app.py
 
 Open **http://127.0.0.1:8787** → IT Login. You should go to `accounts.google.com`, not “Simulated Google Sign-In”.
 
-## 5. First login on LLOVES (after Google)
+## 5. Privileged login on ALC (after Google)
 
 1. Google account must match an allowlisted user (`solutions@mckenzian.com` is seeded as IT).
-2. First LLOVES login emails a 6-digit code to that Google account (later Google logins skip that code). Production never displays the code on the verify page. Configure `RESEND_API_KEY` + `EMAIL_FROM`, or SMTP, in `.env` locally and as Fly secrets in production. `ALLOW_DEV_VERIFICATION_CODE=1` may show the code locally only when email is not configured.
-3. Unknown Google accounts get **403** and are not created.
+2. **Staff and IT (anyone who can see student records)** must enter a 6-digit email code on **every** production sign-in (`FLASK_ENV=production` / `REQUIRE_PRIVILEGED_MFA=1`). This extends the existing first-login 2SV; it is not a new IdP. Local/dev without that flag still skips the code after the first successful verify.
+3. **Students do not use Google.** They join with a live-session course code + roster name. See [`COMPLIANCE.md`](COMPLIANCE.md) for the minors / MFA policy.
+4. Production never displays the code on the verify page. Configure `RESEND_API_KEY` + `EMAIL_FROM`, or SMTP. `ALLOW_DEV_VERIFICATION_CODE=1` may show the code locally only when email is not configured.
+5. Unknown Google accounts get **403** and are not created. They can use **Request access** on the public site; that queue does not auto-allowlist.
+
+**Scopes:** `openid email profile` only. Do not add Classroom, Drive, or contacts. External homeschool families are not Google-signed-in on the student path.
+
+**Consent screen** should stay **External** (personal Gmail). Customer-facing ALC naming is Workstream 3.1. Google’s age gating is Google’s; ALC does not collect parental OAuth consent because students never start OAuth.
 
 ## 6. Common Google errors
 
@@ -93,7 +99,7 @@ Open **http://127.0.0.1:8787** → IT Login. You should go to `accounts.google.c
 | `redirect_uri_mismatch` | URI in Console must equal `GOOGLE_REDIRECT_URI` and the URL in the address bar (127.0.0.1 vs localhost). |
 | `origin_mismatch` / One Tap silent fail | Add the exact origin (`http://127.0.0.1:8787`) under JavaScript origins. |
 | Access blocked: app in testing | Add the Google account under Consent screen → Test users. |
-| 403 “not registered” on LLOVES after Google | IT must register that Gmail on `/it` first (except the bootstrap IT email). |
+| 403 “not registered” on ALC after Google | IT must register that Gmail on `/it` first (except the bootstrap IT email). |
 | Consent screen Internal | Switch to External or you cannot use personal Gmail. |
 
 The mock email form is **only** used when Flask `TESTING=1` (unit tests). If you still see “Simulated Google Sign-In” in the browser, `.env` is missing, empty, or the server was started before you saved it.

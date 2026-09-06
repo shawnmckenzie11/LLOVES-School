@@ -50,7 +50,7 @@ Do not turn the consent screen **Internal**.
 
 Production sqlite starts empty. Log in as IT (`solutions@mckenzian.com`) at https://alc.mckenzian.com → activate 2026–2027 S1 → register `rspercival10@gmail.com` → assign MCF3M.
 
-First Google login emails a 6-digit LLOVES code to that Google account (later logins skip 2SV). Production never shows the code on the verify page (`FLASK_ENV=production`). Set Resend or SMTP **secrets** before anyone needs first login:
+First Google login emails a 6-digit code. **Production requires that code on every staff/IT sign-in** (`FLASK_ENV=production`). Production never shows the code on the verify page. Set Resend or SMTP **secrets** before anyone needs login:
 
 ```bash
 # Resend (preferred) — paste the key at the prompt; do not echo it into shell history if you can avoid it.

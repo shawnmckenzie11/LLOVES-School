@@ -22,13 +22,14 @@
       <button class="it-tab-btn" data-tab="live-classes" role="tab" aria-selected="false">Live Classes</button>
       <button class="it-tab-btn" data-tab="semester" role="tab" aria-selected="false">Semester</button>
       <button class="it-tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
+      <button class="it-tab-btn" data-tab="audit" role="tab" aria-selected="false">Audit</button>
     </div>
 
     <div class="it-tab-panel" id="tab-staff" role="tabpanel">
 
       <section class="card">
         <h2>Add staff</h2>
-        <p class="hint">Personal Google accounts only. They stay pending until first login + email code.</p>
+        <p class="hint">Personal Google accounts only. Production requires an email code on every staff/admin sign-in.</p>
         <form method="post" action="{{ url_for('it_register_staff') }}" class="it-add-staff">
           <div class="it-add-staff-fields">
             <div>
@@ -43,6 +44,43 @@
           <div class="row-actions"><button type="submit">Add staff</button></div>
         </form>
       </section>
+
+      {% if access_requests %}
+      <section class="card">
+        <h2>Access requests</h2>
+        <p class="hint">Public signup requests. Reviewing does not create an account — add them under Add staff if you approve.</p>
+        <div class="it-table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>School or family</th>
+                <th>Context</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in access_requests %}
+              <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.email }}</td>
+                <td>{{ item.role }}</td>
+                <td>{{ item.organization or "—" }}</td>
+                <td>{{ item.context }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('it_review_access_request', request_id=item.id) }}">
+                    <button type="submit" class="btn secondary">Mark reviewed</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
 
       <section class="card it-staff-card">
         <div class="it-section-head">
@@ -316,6 +354,40 @@
           </span>
         </label>
         <p id="settings-status" class="hint" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div class="it-tab-panel" id="tab-audit" role="tabpanel" hidden>
+      <section class="card">
+        <h2>Access audit</h2>
+        <p class="hint">Staff/IT views of student records and admin actions in this school. Export for Ministry-style requests. This is an operational log, not a legal certification.</p>
+        <p class="row-actions"><a class="btn" href="{{ url_for('it_audit_csv') }}">Download CSV</a></p>
+        <div class="it-table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in audit_events or [] %}
+              <tr>
+                <td>{{ event.created_at }}</td>
+                <td>{{ event.actor_email or event.actor_role }}</td>
+                <td>{{ event.action }}</td>
+                <td>{{ event.resource_type }} {{ event.resource_id or "" }}</td>
+                <td>{{ event.ip or "—" }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5">No events yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
 

@@ -19,14 +19,24 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
+DEFAULT_TENANT_SLUG = "elc"
+DEFAULT_TENANT_NAME = "ELC (single school)"
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS tenants (
+    id INTEGER PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     google_sub TEXT UNIQUE,
     display_name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL,
+    tenant_id INTEGER NOT NULL DEFAULT 1,
     verified_at TEXT,
     verification_code TEXT,
     verification_sent_at TEXT,
@@ -83,6 +93,7 @@ CREATE TABLE IF NOT EXISTS course_offerings (
     semester_id INTEGER NOT NULL REFERENCES semesters(id),
     ontario_code TEXT NOT NULL REFERENCES ontario_courses(code),
     teacher_user_id INTEGER NOT NULL REFERENCES users(id),
+    tenant_id INTEGER NOT NULL DEFAULT 1,
     live_access_code TEXT NOT NULL,
     imscc_path TEXT,
     expectations_status TEXT NOT NULL DEFAULT 'unverified',
@@ -185,6 +196,41 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
+
+CREATE TABLE IF NOT EXISTS access_audit_log (
+    id INTEGER PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    actor_user_id INTEGER,
+    actor_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    student_id INTEGER,
+    ip TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_created
+    ON access_audit_log(tenant_id, created_at);
+
+CREATE TABLE IF NOT EXISTS access_requests (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    context TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    reviewed_by_user_id INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_requests_email
+    ON access_requests(email);
+CREATE INDEX IF NOT EXISTS idx_access_requests_status
+    ON access_requests(status);
 """
 
 
@@ -296,16 +342,19 @@ class LovesDB:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
+        self._ensure_tenant_and_audit_schema()
         self._ensure_offering_columns()
         self._ensure_offering_sections()
         # Section rebuild may recreate course_offerings; re-apply additive columns.
         self._ensure_offering_columns()
+        self._ensure_tenant_and_audit_schema()
         self._ensure_offering_archived_column()
         self._ensure_offering_schedule_columns()
         self._ensure_library_schema()
         self._ensure_archived_column()
         self._ensure_gradebook_schema()
         self._ensure_live_session_schema()
+        self._ensure_access_request_schema()
         self._seed()
         self.conn.commit()
 
@@ -313,6 +362,222 @@ class LovesDB:
         """Close the sqlite connection."""
         with self._lock:
             self.conn.close()
+
+    def _ensure_tenant_and_audit_schema(self) -> None:
+        """Add tenant + audit tables/columns on DBs created before this schema.
+
+        The product is still one school (ELC). ``tenants`` is the seam for a
+        second homeschool later — not a claim that the live app is multi-tenant.
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tenants (
+                id INTEGER PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS access_audit_log (
+                id INTEGER PRIMARY KEY,
+                tenant_id INTEGER NOT NULL,
+                actor_user_id INTEGER,
+                actor_role TEXT NOT NULL,
+                action TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT,
+                student_id INTEGER,
+                ip TEXT,
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_audit_tenant_created
+            ON access_audit_log(tenant_id, created_at)
+            """
+        )
+        existing = self.conn.execute(
+            "SELECT id FROM tenants WHERE slug = ?",
+            (DEFAULT_TENANT_SLUG,),
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                "INSERT INTO tenants (slug, name, created_at) VALUES (?, ?, ?)",
+                (DEFAULT_TENANT_SLUG, DEFAULT_TENANT_NAME, _now()),
+            )
+        default_id = int(
+            self.conn.execute(
+                "SELECT id FROM tenants WHERE slug = ?",
+                (DEFAULT_TENANT_SLUG,),
+            ).fetchone()["id"]
+        )
+        user_cols = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(users)")
+        }
+        if "tenant_id" not in user_cols:
+            self.conn.execute(
+                "ALTER TABLE users ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 1"
+            )
+        offering_cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(course_offerings)")
+        }
+        if "tenant_id" not in offering_cols:
+            self.conn.execute(
+                "ALTER TABLE course_offerings "
+                "ADD COLUMN tenant_id INTEGER NOT NULL DEFAULT 1"
+            )
+        self.conn.execute(
+            "UPDATE users SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = 0",
+            (default_id,),
+        )
+        self.conn.execute(
+            """
+            UPDATE course_offerings
+            SET tenant_id = ?
+            WHERE tenant_id IS NULL OR tenant_id = 0
+            """,
+            (default_id,),
+        )
+
+    def default_tenant_id(self) -> int:
+        """Return the ELC tenant id (always present after schema ensure)."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM tenants WHERE slug = ? LIMIT 1",
+                (DEFAULT_TENANT_SLUG,),
+            ).fetchone()
+            if row is None:
+                row = self.conn.execute(
+                    "SELECT id FROM tenants ORDER BY id LIMIT 1"
+                ).fetchone()
+        if row is None:
+            raise RuntimeError("School database has no tenants row")
+        return int(row["id"])
+
+    def tenant_id_of(self, row: dict[str, Any] | None) -> int:
+        """Return ``tenant_id`` from a user/offering dict, or the ELC default."""
+        if row and row.get("tenant_id") not in (None, ""):
+            return int(row["tenant_id"])
+        return self.default_tenant_id()
+
+    def same_tenant(
+        self, left: dict[str, Any] | None, right: dict[str, Any] | None
+    ) -> bool:
+        """True when two rows belong to the same tenant."""
+        return self.tenant_id_of(left) == self.tenant_id_of(right)
+
+    def create_tenant(self, slug: str, name: str) -> dict[str, Any]:
+        """Insert a tenant seam row (tests / future second school).
+
+        Args:
+            slug: Stable key (``homeschool-a``).
+            name: Human label.
+
+        Returns:
+            The new ``tenants`` dict.
+        """
+        key = (slug or "").strip().lower()
+        label = (name or "").strip()
+        if not key or not label:
+            raise ValueError("Tenant slug and name are required")
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO tenants (slug, name, created_at) VALUES (?, ?, ?)",
+                (key, label, _now()),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM tenants WHERE slug = ?", (key,)
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def record_access_event(
+        self,
+        *,
+        action: str,
+        resource_type: str,
+        actor_user_id: int | None = None,
+        actor_role: str = "",
+        tenant_id: int | None = None,
+        resource_id: str | int | None = None,
+        student_id: int | None = None,
+        ip: str | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Append one access/admin event for Ministry-style production.
+
+        Args:
+            action: Verb such as ``login.success`` or ``student.record.view``.
+            resource_type: ``session``, ``class``, ``staff``, ``offering``.
+            actor_user_id: Staff/IT ``users.id``, or None for student joins.
+            actor_role: ``it``, ``staff``, or ``student``.
+            tenant_id: Defaults to the ELC tenant.
+            resource_id: Offering/class/user id as text.
+            student_id: Optional roster student id.
+            ip: Client IP when known.
+            detail: Small JSON payload (no secrets).
+        """
+        tid = int(tenant_id or self.default_tenant_id())
+        blob = json.dumps(detail or {}, default=str)
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO access_audit_log (
+                    tenant_id, actor_user_id, actor_role, action,
+                    resource_type, resource_id, student_id, ip,
+                    detail_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tid,
+                    int(actor_user_id) if actor_user_id is not None else None,
+                    (actor_role or "unknown")[:32],
+                    (action or "unknown")[:80],
+                    (resource_type or "unknown")[:80],
+                    None if resource_id is None else str(resource_id)[:80],
+                    int(student_id) if student_id is not None else None,
+                    (ip or "")[:120],
+                    blob,
+                    _now(),
+                ),
+            )
+            self.conn.commit()
+
+    def list_access_events(
+        self,
+        *,
+        tenant_id: int | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Return recent audit rows for one tenant (newest first).
+
+        Args:
+            tenant_id: Defaults to the ELC tenant.
+            limit: Max rows (capped at 2000).
+        """
+        tid = int(tenant_id or self.default_tenant_id())
+        cap = max(1, min(int(limit), 2000))
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT a.*, u.email AS actor_email
+                FROM access_audit_log a
+                LEFT JOIN users u ON u.id = a.actor_user_id
+                WHERE a.tenant_id = ?
+                ORDER BY a.id DESC
+                LIMIT ?
+                """,
+                (tid, cap),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def _ensure_offering_columns(self) -> None:
         """Add instance columns on live DBs created before this schema.
@@ -581,7 +846,7 @@ class LovesDB:
         """Create per-class grade category weight storage (editable later).
 
         Seeds are applied lazily in ``grade_weights_for_class`` so empty classes
-        still get Participation 15% / Term 60% / Exam 25% defaults.
+        still get Att & Participation 15% / Term 65% / Exam 20% defaults.
         """
         self.conn.executescript(
             """
@@ -596,6 +861,24 @@ class LovesDB:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS module_reflection_flags (
+                class_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                module_number INTEGER NOT NULL,
+                complete INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, student_id, module_number)
+            );
+            CREATE TABLE IF NOT EXISTS grade_module_rules (
+                class_id INTEGER NOT NULL,
+                module_number INTEGER NOT NULL,
+                min_sessions INTEGER NOT NULL,
+                min_r1 REAL NOT NULL,
+                min_r3 REAL NOT NULL,
+                require_reflections INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, module_number)
             );
             """
         )
@@ -713,6 +996,33 @@ class LovesDB:
             )
             self.conn.commit()
 
+    def _ensure_access_request_schema(self) -> None:
+        """Create the public signup-request table on existing sqlite files.
+
+        Requests are a queue for IT. Submitting one never creates a user,
+        tenant, or allowlist row.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL,
+                organization TEXT NOT NULL DEFAULT '',
+                context TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                reviewed_by_user_id INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_requests_email
+                ON access_requests(email);
+            CREATE INDEX IF NOT EXISTS idx_access_requests_status
+                ON access_requests(status);
+            """
+        )
+
     def _seed(self) -> None:
         """Insert IT user, curriculum catalog, MCF3M expectations, default semester."""
         with self._lock:
@@ -720,12 +1030,15 @@ class LovesDB:
                 "SELECT id FROM users WHERE email = ?", (self.it_email,)
             ).fetchone()
             if row is None:
+                tenant_id = self.default_tenant_id()
                 self.conn.execute(
                     """
-                    INSERT INTO users (email, display_name, role, created_at)
-                    VALUES (?, ?, 'it', ?)
+                    INSERT INTO users (
+                        email, display_name, role, tenant_id, created_at
+                    )
+                    VALUES (?, ?, 'it', ?, ?)
                     """,
-                    (self.it_email, "Shawn", _now()),
+                    (self.it_email, "Shawn", tenant_id, _now()),
                 )
             if SEMESTER_JSON.is_file() and self.conn.execute(
                 "SELECT COUNT(*) AS n FROM semesters"
@@ -865,12 +1178,19 @@ class LovesDB:
             ).fetchone()
         return dict(row) if row else None
 
-    def register_staff(self, email: str, display_name: str = "") -> dict[str, Any]:
+    def register_staff(
+        self,
+        email: str,
+        display_name: str = "",
+        *,
+        tenant_id: int | None = None,
+    ) -> dict[str, Any]:
         """Add a staff Google email to the allowlist.
 
         Args:
             email: Personal Google account.
             display_name: Optional label.
+            tenant_id: School seam id; defaults to the ELC tenant.
 
         Returns:
             User dict.
@@ -884,36 +1204,192 @@ class LovesDB:
         existing = self.get_user_by_email(key)
         if existing:
             return existing
+        tid = int(tenant_id or self.default_tenant_id())
         with self._lock:
             cur = self.conn.execute(
                 """
-                INSERT INTO users (email, display_name, role, created_at)
-                VALUES (?, ?, 'staff', ?)
+                INSERT INTO users (email, display_name, role, tenant_id, created_at)
+                VALUES (?, ?, 'staff', ?, ?)
                 """,
-                (key, (display_name or key.split("@")[0]).strip(), _now()),
+                (key, (display_name or key.split("@")[0]).strip(), tid, _now()),
             )
             self.conn.commit()
             user_id = int(cur.lastrowid)
         return self.get_user(user_id) or {}
 
-    def list_staff(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+    ACCESS_REQUEST_ROLES = frozenset(
+        {"parent", "teacher", "school_admin", "other"}
+    )
+
+    def create_access_request(
+        self,
+        *,
+        name: str,
+        email: str,
+        role: str,
+        organization: str = "",
+        context: str = "",
+    ) -> dict[str, Any]:
+        """Store a public signup request without creating a user.
+
+        A second submit from the same email while still pending updates the
+        existing row so IT is not flooded with duplicates.
+
+        Args:
+            name: Contact name.
+            email: Contact email (not auto-allowlisted).
+            role: One of ``ACCESS_REQUEST_ROLES``.
+            organization: School or family name.
+            context: Why they want access.
+
+        Returns:
+            The access_requests row.
+
+        Raises:
+            ValueError: If required fields are missing or the role is unknown.
+        """
+        label = (name or "").strip()
+        key = (email or "").strip().lower()
+        kind = (role or "").strip().lower()
+        org = (organization or "").strip()
+        note = (context or "").strip()
+        if not label:
+            raise ValueError("Enter your name")
+        if "@" not in key:
+            raise ValueError("Enter a contact email")
+        if kind not in self.ACCESS_REQUEST_ROLES:
+            raise ValueError("Choose how you would use ALC")
+        if not note:
+            raise ValueError("Tell us a little about your school or family")
+        now = _now()
+        with self._lock:
+            pending = self.conn.execute(
+                """
+                SELECT * FROM access_requests
+                WHERE lower(email) = ? AND status = 'pending'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (key,),
+            ).fetchone()
+            if pending:
+                self.conn.execute(
+                    """
+                    UPDATE access_requests
+                    SET name = ?, role = ?, organization = ?, context = ?,
+                        created_at = ?
+                    WHERE id = ?
+                    """,
+                    (label, kind, org, note, now, int(pending["id"])),
+                )
+                self.conn.commit()
+                row = self.conn.execute(
+                    "SELECT * FROM access_requests WHERE id = ?",
+                    (int(pending["id"]),),
+                ).fetchone()
+            else:
+                cur = self.conn.execute(
+                    """
+                    INSERT INTO access_requests (
+                        name, email, role, organization, context, status,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                    """,
+                    (label, key, kind, org, note, now),
+                )
+                self.conn.commit()
+                row = self.conn.execute(
+                    "SELECT * FROM access_requests WHERE id = ?",
+                    (int(cur.lastrowid),),
+                ).fetchone()
+        return dict(row) if row else {}
+
+    def list_access_requests(
+        self, *, status: str | None = "pending"
+    ) -> list[dict[str, Any]]:
+        """Return access requests, newest first.
+
+        Args:
+            status: Filter by status, or ``None`` for every row.
+        """
+        with self._lock:
+            if status:
+                rows = self.conn.execute(
+                    """
+                    SELECT * FROM access_requests
+                    WHERE status = ?
+                    ORDER BY id DESC
+                    """,
+                    (status,),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    "SELECT * FROM access_requests ORDER BY id DESC"
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_access_request_reviewed(
+        self, request_id: int, by_user_id: int
+    ) -> dict[str, Any] | None:
+        """Mark a request seen. Does not allowlist or provision anyone.
+
+        Args:
+            request_id: ``access_requests.id``.
+            by_user_id: IT user who reviewed it.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE access_requests
+                SET status = 'reviewed',
+                    reviewed_at = ?,
+                    reviewed_by_user_id = ?
+                WHERE id = ?
+                """,
+                (_now(), int(by_user_id), int(request_id)),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM access_requests WHERE id = ?",
+                (int(request_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_staff(
+        self,
+        *,
+        include_archived: bool = False,
+        tenant_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Return IT and staff users ordered by role then email.
 
         Args:
             include_archived: When False (default), users whose ``archived_at``
                 is non-NULL are excluded.
+            tenant_id: Restrict to one school seam. ``None`` means the ELC
+                default tenant (not every tenant).
 
         Returns:
             List of user dicts. Each dict contains all ``users`` columns.
         """
+        tid = int(tenant_id or self.default_tenant_id())
         with self._lock:
             if include_archived:
                 rows = self.conn.execute(
-                    "SELECT * FROM users ORDER BY role, email"
+                    """
+                    SELECT * FROM users WHERE tenant_id = ?
+                    ORDER BY role, email
+                    """,
+                    (tid,),
                 ).fetchall()
             else:
                 rows = self.conn.execute(
-                    "SELECT * FROM users WHERE archived_at IS NULL ORDER BY role, email"
+                    """
+                    SELECT * FROM users
+                    WHERE tenant_id = ? AND archived_at IS NULL
+                    ORDER BY role, email
+                    """,
+                    (tid,),
                 ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1332,16 +1808,17 @@ class LovesDB:
             cur = self.conn.execute(
                 """
                 INSERT INTO course_offerings (
-                    semester_id, ontario_code, teacher_user_id, live_access_code,
-                    imscc_path, expectations_status, created_at,
+                    semester_id, ontario_code, teacher_user_id, tenant_id,
+                    live_access_code, imscc_path, expectations_status, created_at,
                     copied_from_offering_id, instance_relpath, section_index
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     semester_id,
                     code,
                     teacher_user_id,
+                    self.tenant_id_of(teacher),
                     live_code,
                     None,
                     status,
@@ -1581,6 +2058,7 @@ class LovesDB:
         semester_id: int | None = None,
         teacher_user_id: int | None = None,
         include_archived: bool = True,
+        tenant_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """List offerings, optionally filtered.
 
@@ -1589,9 +2067,10 @@ class LovesDB:
             teacher_user_id: Restrict to one teacher.
             include_archived: When False, rows with a non-NULL ``archived_at``
                 are excluded (used by the staff dashboard).
+            tenant_id: Restrict to one school seam. ``None`` means ELC default.
         """
-        clauses: list[str] = []
-        args: list[Any] = []
+        clauses: list[str] = ["o.tenant_id = ?"]
+        args: list[Any] = [int(tenant_id or self.default_tenant_id())]
         if semester_id is not None:
             clauses.append("o.semester_id = ?")
             args.append(semester_id)
@@ -1917,18 +2396,26 @@ class SchoolDB(LovesDB):
         """Alias for ``expectations_for``."""
         return self.expectations_for(course_code)
 
-    def list_staff(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+    def list_staff(
+        self,
+        *,
+        include_archived: bool = False,
+        tenant_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Staff list with pending/active/archived status and assigned codes.
 
         Args:
             include_archived: When False (default), archived users are excluded.
+            tenant_id: Restrict to one school seam.
 
         Returns:
             List of enriched user dicts each with ``status``, ``assigned_codes``,
             and ``last_login_at`` keys populated.
         """
         active_sem = self.get_active_semester()
-        people = super().list_staff(include_archived=include_archived)
+        people = super().list_staff(
+            include_archived=include_archived, tenant_id=tenant_id
+        )
         out = []
         for person in people:
             item = dict(person)
@@ -2516,6 +3003,7 @@ class SchoolDB(LovesDB):
         teacher_user_id: int | None = None,
         semester_id: int | None = None,
         include_archived: bool = True,
+        tenant_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """Offerings with class sections and roster sizes.
 
@@ -2524,11 +3012,13 @@ class SchoolDB(LovesDB):
             semester_id: Restrict to one semester.
             include_archived: Pass False to hide archived offerings (used by
                 the staff dashboard so archived courses disappear for the teacher).
+            tenant_id: Restrict to one school seam.
         """
         rows = super().list_offerings(
             semester_id=semester_id,
             teacher_user_id=teacher_user_id,
             include_archived=include_archived,
+            tenant_id=tenant_id,
         )
         out = []
         for item in rows:
@@ -2622,20 +3112,32 @@ class SchoolDB(LovesDB):
         return out
 
     def teacher_owns_class(self, teacher_user_id: int, class_id: int) -> bool:
-        """True when the class belongs to this teacher (IT may open any class)."""
+        """True when the class belongs to this teacher in the same tenant.
+
+        IT may open any class **in their tenant**, not every class on the
+        sqlite file. That is the second-school isolation seam.
+        """
         user = self.get_user(teacher_user_id)
-        if user and user["role"] == "it":
+        if not user:
+            return False
+        try:
+            cls = self.game.get_class(int(class_id))
+        except KeyError:
+            return False
+        offering_id = cls.get("offering_id")
+        if offering_id:
             try:
-                self.game.get_class(class_id)
+                offering = self.get_offering(int(offering_id))
             except KeyError:
                 return False
+            if not self.same_tenant(user, offering):
+                return False
+            if user.get("role") == "it":
+                return True
+            return int(offering["teacher_user_id"]) == int(teacher_user_id)
+        if user.get("role") == "it":
             return True
-        with self.game._lock:
-            row = self.game.conn.execute(
-                "SELECT teacher_user_id FROM classes WHERE id = ?",
-                (int(class_id),),
-            ).fetchone()
-        return bool(row) and int(row["teacher_user_id"] or 0) == int(teacher_user_id)
+        return int(cls.get("teacher_user_id") or 0) == int(teacher_user_id)
 
     def live_games_for_access_code(self, live_access_code: str) -> list[dict[str, Any]]:
         """Live games for a class join code or shared offering course key."""
@@ -3917,12 +4419,20 @@ class SchoolDB(LovesDB):
             Map of category → weight percent (participation / term / exam).
         """
         try:
-            from gradebook import GRADE_CATEGORIES, default_grade_weights, normalize_grade_weights
+            from gradebook import (
+                GRADE_CATEGORIES,
+                LEGACY_DEFAULT_GRADE_WEIGHTS,
+                default_grade_weights,
+                normalize_grade_weights,
+                weights_match,
+            )
         except ImportError:
             from lms.gradebook import (
                 GRADE_CATEGORIES,
+                LEGACY_DEFAULT_GRADE_WEIGHTS,
                 default_grade_weights,
                 normalize_grade_weights,
+                weights_match,
             )
 
         defaults = default_grade_weights()
@@ -3948,6 +4458,22 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
                 return defaults
             raw = {str(r["category"]): float(r["weight_pct"]) for r in rows}
+            if weights_match(raw, LEGACY_DEFAULT_GRADE_WEIGHTS):
+                now = _now()
+                for category, weight in defaults.items():
+                    self.conn.execute(
+                        """
+                        INSERT INTO grade_category_weights (
+                            class_id, category, weight_pct, updated_at
+                        ) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(class_id, category) DO UPDATE SET
+                            weight_pct = excluded.weight_pct,
+                            updated_at = excluded.updated_at
+                        """,
+                        (int(class_id), category, float(weight), now),
+                    )
+                    raw[category] = float(weight)
+                self.conn.commit()
             # Backfill any category added in a later schema revision.
             missing = [c for c in GRADE_CATEGORIES if c not in raw]
             if missing:
@@ -4000,6 +4526,200 @@ class SchoolDB(LovesDB):
                 )
             self.conn.commit()
         return normalized
+
+    def module_portfolio_rules_for_class(
+        self, class_id: int, module_number: int = 1
+    ) -> dict[str, Any]:
+        """Return stored portfolio thresholds for one module, seeding defaults.
+
+        Args:
+            class_id: Class primary key.
+            module_number: 1-based module index.
+
+        Returns:
+            ``min_sessions``, ``min_r1``, ``min_r3``, ``require_reflections``.
+        """
+        try:
+            from gradebook import (
+                default_module_portfolio_rules,
+                normalize_module_portfolio_rules,
+            )
+        except ImportError:
+            from lms.gradebook import (
+                default_module_portfolio_rules,
+                normalize_module_portfolio_rules,
+            )
+
+        defaults = default_module_portfolio_rules()
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT min_sessions, min_r1, min_r3, require_reflections
+                FROM grade_module_rules
+                WHERE class_id = ? AND module_number = ?
+                """,
+                (int(class_id), int(module_number)),
+            ).fetchone()
+            if row is None:
+                now = _now()
+                self.conn.execute(
+                    """
+                    INSERT INTO grade_module_rules (
+                        class_id, module_number, min_sessions, min_r1, min_r3,
+                        require_reflections, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(class_id),
+                        int(module_number),
+                        int(defaults["min_sessions"]),
+                        float(defaults["min_r1"]),
+                        float(defaults["min_r3"]),
+                        1 if defaults["require_reflections"] else 0,
+                        now,
+                    ),
+                )
+                self.conn.commit()
+                return defaults
+        return normalize_module_portfolio_rules(
+            {
+                "min_sessions": row["min_sessions"],
+                "min_r1": row["min_r1"],
+                "min_r3": row["min_r3"],
+                "require_reflections": bool(int(row["require_reflections"] or 0)),
+            }
+        )
+
+    def set_module_portfolio_rules(
+        self, class_id: int, module_number: int, rules: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist portfolio thresholds for one module.
+
+        Args:
+            class_id: Class primary key.
+            module_number: 1-based module index.
+            rules: Partial or full threshold map.
+
+        Returns:
+            Normalized stored rules.
+        """
+        try:
+            from gradebook import normalize_module_portfolio_rules
+        except ImportError:
+            from lms.gradebook import normalize_module_portfolio_rules
+
+        normalized = normalize_module_portfolio_rules(rules)
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO grade_module_rules (
+                    class_id, module_number, min_sessions, min_r1, min_r3,
+                    require_reflections, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, module_number) DO UPDATE SET
+                    min_sessions = excluded.min_sessions,
+                    min_r1 = excluded.min_r1,
+                    min_r3 = excluded.min_r3,
+                    require_reflections = excluded.require_reflections,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(class_id),
+                    int(module_number),
+                    int(normalized["min_sessions"]),
+                    float(normalized["min_r1"]),
+                    float(normalized["min_r3"]),
+                    1 if normalized["require_reflections"] else 0,
+                    now,
+                ),
+            )
+            self.conn.commit()
+        return normalized
+
+    def _assert_module_number(self, module_number: int) -> None:
+        """Raise when a scheme module index is outside 1–8.
+
+        Args:
+            module_number: 1-based module index.
+
+        Raises:
+            ValueError: When the index is not a math-course module.
+        """
+        try:
+            from gradebook import MATH_MODULE_COUNT
+        except ImportError:
+            from lms.gradebook import MATH_MODULE_COUNT
+
+        if int(module_number) < 1 or int(module_number) > int(MATH_MODULE_COUNT):
+            raise ValueError(f"module_number must be 1–{MATH_MODULE_COUNT}")
+
+    def set_grade_scheme(
+        self, class_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Save course weights and per-module Term Mark portfolio rules.
+
+        Args:
+            class_id: Class primary key.
+            payload: ``weights`` plus optional ``modules`` map, or
+                ``module_number`` with ``module`` / ``module_1``.
+
+        Returns:
+            ``{weights, modules, module_1}`` after persist.
+
+        Raises:
+            ValueError: When category percents do not add to 100, or a
+                module number is out of range.
+        """
+        try:
+            from gradebook import assert_weights_sum_100, normalize_grade_weights
+        except ImportError:
+            from lms.gradebook import assert_weights_sum_100, normalize_grade_weights
+
+        raw_weights = payload.get("weights")
+        if not isinstance(raw_weights, dict):
+            raw_weights = payload
+        weights = normalize_grade_weights(raw_weights)
+        assert_weights_sum_100(weights)
+        self.set_grade_weights(class_id, weights)
+        written: dict[int, dict[str, Any]] = {}
+        raw_modules = payload.get("modules")
+        if isinstance(raw_modules, dict):
+            for key, rules in raw_modules.items():
+                try:
+                    number = int(key)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("modules keys must be module numbers") from exc
+                self._assert_module_number(number)
+                if isinstance(rules, dict):
+                    written[number] = self.set_module_portfolio_rules(
+                        class_id, number, rules
+                    )
+        module_raw = payload.get("module")
+        if isinstance(module_raw, dict):
+            try:
+                number = int(
+                    payload.get("module_number")
+                    or module_raw.get("number")
+                    or module_raw.get("module_number")
+                    or 1
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("module_number must be an integer") from exc
+            self._assert_module_number(number)
+            written[number] = self.set_module_portfolio_rules(
+                class_id, number, module_raw
+            )
+        elif isinstance(payload.get("module_1"), dict) and 1 not in written:
+            written[1] = self.set_module_portfolio_rules(
+                class_id, 1, payload["module_1"]
+            )
+        return {
+            "weights": weights,
+            "modules": {str(key): written[key] for key in sorted(written)},
+            "module_1": written.get(1)
+            or self.module_portfolio_rules_for_class(class_id, 1),
+        }
 
     def get_school_setting(self, key: str, default: str = "") -> str:
         """Return one school-wide setting value.
@@ -4455,11 +5175,113 @@ class SchoolDB(LovesDB):
         grid["ok"] = True
         return grid
 
-    def gradebook_for_class(self, class_id: int, sort: str = "az") -> dict[str, Any]:
-        """Weighted gradebook scaffold: Participation / Term / Exam.
+    def _class_tracker_rows(
+        self, class_id: int
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Sessions plus present/late/round-point rows for portfolio criteria.
 
-        Participation rolls up credited live-class session points. Term and Exam
-        are placeholders (empty items) until assignments/exams are wired.
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            ``(sessions, score_rows)`` from the live-class tracker DB.
+        """
+        with self.game._lock:
+            sessions = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    """
+                    SELECT id, starts_at, status FROM sessions
+                    WHERE class_id = ?
+                    ORDER BY starts_at ASC, id ASC
+                    """,
+                    (int(class_id),),
+                )
+            ]
+            scores = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    """
+                    SELECT ss.session_id, ss.student_id, ss.present, ss.late,
+                           ss.points, ss.points_r1, ss.points_r2, ss.points_r3
+                    FROM session_scores ss
+                    JOIN sessions se ON se.id = ss.session_id
+                    WHERE se.class_id = ?
+                    """,
+                    (int(class_id),),
+                )
+            ]
+        return sessions, scores
+
+    def module_reflections_for_class(
+        self, class_id: int, module_number: int
+    ) -> dict[int, bool]:
+        """Return per-student reflection-complete flags for one module.
+
+        Args:
+            class_id: Class primary key.
+            module_number: 1-based module index.
+
+        Returns:
+            Map of student_id → complete.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, complete FROM module_reflection_flags
+                WHERE class_id = ? AND module_number = ?
+                """,
+                (int(class_id), int(module_number)),
+            ).fetchall()
+        return {int(r["student_id"]): bool(int(r["complete"] or 0)) for r in rows}
+
+    def set_module_reflection(
+        self,
+        class_id: int,
+        student_id: int,
+        module_number: int,
+        complete: bool,
+    ) -> dict[str, Any]:
+        """Persist the post-activity reflections flag for one student/module.
+
+        Args:
+            class_id: Class primary key.
+            student_id: Game-show student id.
+            module_number: 1-based module index.
+            complete: Whether all reflection questions are answered.
+
+        Returns:
+            Stored flag row.
+        """
+        now = _now()
+        flag = 1 if complete else 0
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO module_reflection_flags (
+                    class_id, student_id, module_number, complete, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, student_id, module_number) DO UPDATE SET
+                    complete = excluded.complete,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), int(student_id), int(module_number), flag, now),
+            )
+            self.conn.commit()
+        return {
+            "class_id": int(class_id),
+            "student_id": int(student_id),
+            "module_number": int(module_number),
+            "complete": bool(flag),
+        }
+
+    def gradebook_for_class(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Ontario-weighted gradebook with Module 1 portfolio auto-score.
+
+        Term 65% includes the Module 1 portfolio (100% when live-class
+        criteria are met) and a placeholder Module 1 test. Att &
+        Participation 15% and Exam 20% stay placeholders until those
+        marks are entered. Live-class point totals remain as diagnostics.
 
         Args:
             class_id: Class primary key.
@@ -4468,45 +5290,201 @@ class SchoolDB(LovesDB):
         Returns:
             Gradebook JSON for the staff Grades tab.
         """
+        try:
+            from gradebook import (
+                GRADE_CATEGORY_LABELS,
+                evaluate_module_portfolio,
+                even_module_windows,
+                gradebook_overview_text,
+                load_instructional_weekdays,
+                module_window_for,
+            )
+        except ImportError:
+            from lms.gradebook import (
+                GRADE_CATEGORY_LABELS,
+                evaluate_module_portfolio,
+                even_module_windows,
+                gradebook_overview_text,
+                load_instructional_weekdays,
+                module_window_for,
+            )
+
         weights = self.grade_weights_for_class(class_id)
+        m1_rules = self.module_portfolio_rules_for_class(class_id, 1)
         dash = self.game.dashboard(class_id, sort=sort)
         students = list(dash.get("students") or [])
+        cls = self.enrich_class(dash["class"])
+        days_label = str(cls.get("days") or "")
+        instructional = set(load_instructional_weekdays())
+        sessions, score_rows = self._class_tracker_rows(class_id)
+        windows = even_module_windows()
+        m1 = module_window_for(1) or (windows[0] if windows else None)
+        reflections = self.module_reflections_for_class(class_id, 1)
         career = self.game.career_totals(class_id)
-        participation_scores: dict[str, float] = {}
+
+        portfolio_by_student: dict[str, dict[str, Any]] = {}
+        portfolio_scores: dict[str, float | None] = {}
+        term_scores: dict[str, float | None] = {}
         for student in students:
             sid = int(student["id"])
-            participation_scores[str(sid)] = float(career.get(sid) or 0)
+            key = str(sid)
+            if m1 is None:
+                detail = {
+                    "module": 1,
+                    "earned_100": False,
+                    "score": None,
+                    "pending_reason": "Module window is not available",
+                }
+            else:
+                detail = evaluate_module_portfolio(
+                    student_id=sid,
+                    window=m1,
+                    days_label=days_label,
+                    instructional=instructional,
+                    sessions=sessions,
+                    score_rows=score_rows,
+                    reflections_complete=bool(reflections.get(sid)),
+                    rules=m1_rules,
+                )
+            portfolio_by_student[key] = detail
+            portfolio_scores[key] = detail.get("score")
+            term_scores[key] = detail.get("score")
+
+        test_scores = {str(int(s["id"])): None for s in students}
+        participation_points = {
+            str(int(s["id"])): float(career.get(int(s["id"])) or 0) for s in students
+        }
+        participation_pct = {str(int(s["id"])): None for s in students}
+        exam_scores = {str(int(s["id"])): None for s in students}
+        overview = gradebook_overview_text(
+            weights=weights, window=m1, rules=m1_rules
+        )
+        scheme_modules = []
+        for win in windows:
+            number = int(win.get("number") or 0)
+            if number < 1:
+                continue
+            rules = (
+                m1_rules
+                if number == 1
+                else self.module_portfolio_rules_for_class(class_id, number)
+            )
+            scheme_modules.append(
+                {
+                    "number": number,
+                    "start": win.get("start"),
+                    "end": win.get("end"),
+                    "window": win,
+                    **rules,
+                    "editable": True,
+                }
+            )
+
         return {
             "ok": True,
-            "class": self.enrich_class(dash["class"]),
+            "class": cls,
             "students": students,
             "weights": weights,
+            "overview": overview,
+            "scheme": {
+                "weights": weights,
+                "module_1": {
+                    **m1_rules,
+                    "window": m1,
+                    "editable": True,
+                },
+                "modules": scheme_modules,
+            },
+            "policy": {
+                "source": "Ontario Ministry of Education",
+                "term_pct": weights["term"],
+                "exam_pct": weights["exam"],
+                "participation_pct": weights["participation"],
+                "term_includes": "Tests and assignments (module portfolios)",
+            },
+            "modules": windows,
+            "module_1": {
+                "window": m1,
+                "rules": m1_rules,
+                "criteria": [
+                    {
+                        "id": "sessions",
+                        "label": (
+                            f"{int(m1_rules['min_sessions'])}+ live classes or "
+                            "Friday open offices"
+                        ),
+                        "threshold": int(m1_rules["min_sessions"]),
+                    },
+                    {
+                        "id": "reflections",
+                        "label": "All reflection questions after group activities",
+                    },
+                    {
+                        "id": "r1",
+                        "label": (
+                            f"{m1_rules['min_r1']:g}+ Open Question (Round 1) points"
+                        ),
+                        "threshold": m1_rules["min_r1"],
+                    },
+                    {
+                        "id": "r3",
+                        "label": (
+                            f"{m1_rules['min_r3']:g}+ Formative (Round 3) points"
+                        ),
+                        "threshold": m1_rules["min_r3"],
+                    },
+                ],
+                "students": portfolio_by_student,
+            },
+            "term_items": [
+                {
+                    "id": "m1_portfolio",
+                    "label": "M1 Portfolio",
+                    "module": 1,
+                    "kind": "portfolio",
+                    "auto": True,
+                    "scores": portfolio_scores,
+                },
+                {
+                    "id": "m1_test",
+                    "label": "M1 Test",
+                    "module": 1,
+                    "kind": "test",
+                    "placeholder": True,
+                    "scores": test_scores,
+                },
+            ],
             "categories": [
                 {
                     "id": "participation",
-                    "label": "Participation",
+                    "label": GRADE_CATEGORY_LABELS["participation"],
                     "weight_pct": weights["participation"],
-                    "scores": participation_scores,
+                    "scores": participation_pct,
+                    "points": participation_points,
+                    "placeholder": True,
                     "editable_weights": True,
                 },
                 {
                     "id": "term",
-                    "label": "Term",
+                    "label": GRADE_CATEGORY_LABELS["term"],
                     "weight_pct": weights["term"],
-                    "scores": {str(int(s["id"])): None for s in students},
-                    "items": [],
+                    "scores": term_scores,
+                    "incomplete": True,
                     "editable_weights": True,
                 },
                 {
                     "id": "exam",
-                    "label": "Exam",
+                    "label": GRADE_CATEGORY_LABELS["exam"],
                     "weight_pct": weights["exam"],
-                    "scores": {str(int(s["id"])): None for s in students},
+                    "scores": exam_scores,
                     "items": [],
                     "placeholder": True,
                     "editable_weights": True,
                 },
             ],
-            # Explicit hook for a later weight-edit UI (POST /grade-weights).
             "weight_edit_endpoint": f"/api/classes/{int(class_id)}/grade-weights",
+            "scheme_edit_endpoint": f"/api/classes/{int(class_id)}/grade-scheme",
+            "reflection_edit_endpoint": (
+                f"/api/classes/{int(class_id)}/module-reflections"
+            ),
         }

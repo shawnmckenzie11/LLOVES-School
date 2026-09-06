@@ -88,14 +88,53 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Select your role:", body)
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
-        self.assertIn("Attendance", body)
-        self.assertIn("Live Classes", body)
-        self.assertIn('class="brand-edge"', body)
-        self.assertIn("brand-edge\">Attendance", body)
-        self.assertIn("brand-edge\">Live Classes", body)
+        self.assertIn("alc-logo.png", body)
         self.assertIn("Take attendance and log participation", body)
         self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
+        self.assertNotIn("What ALC includes", body)
+        self.assertNotIn("I already have an account", body)
+        self.assertIn("Built by McKenzian Solutions", body)
+        self.assertIn("utm_source=alc", body)
+        self.assertIn("utm_campaign=built_by_credit", body)
+        self.assertNotIn("LLOVES", body)
+        self.assertNotIn("Stripe", body)
+        self.assertNotIn("checkout", body.lower())
+
+    def test_request_access_stores_without_allowlisting(self) -> None:
+        """Signup requests persist for IT and never create a user."""
+        get = self.client.get("/request-access")
+        self.assertEqual(get.status_code, 200)
+        page = get.get_data(as_text=True)
+        self.assertIn("Request access", page)
+        self.assertIn("Built by McKenzian Solutions", page)
+        self.assertNotIn("card number", page.lower())
+        self.assertNotIn("stripe", page.lower())
+        self.assertNotIn('name="price"', page)
+        rv = self.client.post(
+            "/request-access",
+            data={
+                "name": "Pat Homeschool",
+                "email": "pat@example.com",
+                "role": "parent",
+                "organization": "Homeschool co-op",
+                "context": "Grade 11 functions for two learners.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 200)
+        self.assertIn("We received your request", rv.get_data(as_text=True))
+        self.assertIsNone(self.school.get_user_by_email("pat@example.com"))
+        rows = self.school.list_access_requests(status="pending")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["email"], "pat@example.com")
+        self.assertEqual(rows[0]["role"], "parent")
+
+    def test_health_keeps_internal_lloves_alias(self) -> None:
+        """/health still reports the internal SCHOOL_SHORT alias."""
+        rv = self.client.get("/health")
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.get_json()["school"], "LLOVES")
 
     def test_unknown_google_403(self) -> None:
         """Unknown Google accounts are not auto-created."""

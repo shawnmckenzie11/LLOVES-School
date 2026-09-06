@@ -48,24 +48,17 @@ body.landing-page .admin-lock:hover {
   color: var(--accent-2);
   border-color: var(--accent);
 }
-body.landing-page .landing-brand {
+body.landing-page .landing-logo {
   display: block;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100vw;
   margin: 0;
-  padding: min(14vh, 5.5rem) 1rem 1.5rem;
+  padding: min(8vh, 3rem) 1rem 0.5rem;
   text-align: center;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  /* Full-viewport fallback before JS fit (not the 44rem card column). */
-  font-size: clamp(0.65rem, 2.6vw, 1.75rem);
 }
-body.landing-page .landing-brand .brand-edge {
-  color: #ef4444;
+body.landing-page .landing-logo img {
+  display: block;
+  width: min(22rem, 82vw);
+  height: auto;
+  margin: 0 auto;
 }
 body.landing-page .landing-wrap {
   max-width: min(44rem, 100%);
@@ -119,6 +112,94 @@ body.landing-page .student-code-panel {
   padding: 1.1rem 1.2rem;
 }
 body.landing-page .error { margin-bottom: 1rem; text-align: left; }
+
+body.landing-page .mkt-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 3.5rem 0 1.25rem;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+body.landing-page .mkt-logo {
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  color: var(--ink);
+}
+body.landing-page .mkt-links {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+body.landing-page .mkt-links a { color: var(--muted); text-decoration: none; }
+body.landing-page .mkt-links a:hover { color: var(--accent-2); }
+body.landing-page .mkt-hero {
+  max-width: min(44rem, 100%);
+  margin: 0 auto;
+  padding: 0.25rem 1.25rem 0;
+  text-align: center;
+}
+body.landing-page .mkt-lede {
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  margin: 0 0 1.25rem;
+}
+body.landing-page .mkt-cta {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+body.landing-page .mkt-features {
+  text-align: left;
+  padding-top: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+body.landing-page .mkt-features h2 {
+  font-size: 1.15rem;
+  margin: 0 0 0.85rem;
+}
+body.landing-page .mkt-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+}
+body.landing-page .mkt-footer {
+  max-width: min(44rem, 100%);
+  margin: 2rem auto 0;
+  padding: 1.5rem 1.25rem 2.5rem;
+  text-align: center;
+}
+.mckenzian-credit {
+  margin: 1.5rem 0 0;
+  font-size: 0.88rem;
+}
+.mckenzian-credit a { color: var(--muted); }
+.request-access-wrap { text-align: left; }
+.request-access-form { text-align: left; }
+.hp-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+@media (max-width: 640px) {
+  body.landing-page .mkt-nav {
+    flex-direction: column;
+    align-items: flex-start;
+    padding-right: 3.5rem;
+  }
+  body.landing-page .mkt-feature-grid { grid-template-columns: 1fr; }
+  body.landing-page .landing-logo {
+    padding-top: 1.25rem;
+  }
+}
 
 .card, .choice {
   background: var(--card);

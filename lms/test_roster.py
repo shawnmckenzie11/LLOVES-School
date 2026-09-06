@@ -130,7 +130,11 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(grades.status_code, 200)
         grades_html = grades.get_data(as_text=True)
         self.assertIn("gradebook-root", grades_html)
-        self.assertIn("Participation", grades_html)
+        self.assertNotIn(">Overview</h2>", grades_html)
+        self.assertIn("Grading Scheme", grades_html)
+        self.assertIn("Term Mark", grades_html)
+        self.assertIn("scheme-term-module", grades_html)
+        self.assertIn("Module 1", grades_html)
 
         legacy_tab = self.client.get(
             f"/staff/class/{class_id}?tab=grades", follow_redirects=False
@@ -550,7 +554,7 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
 
     def test_gradebook_weights_defaults_and_persist(self) -> None:
-        """Grades scaffold seeds 15/60/25 and persists weight edits."""
+        """Grades scaffold seeds 15/65/20 and persists weight edits."""
         rv = self.client.post(
             "/api/staff/classes",
             json={
@@ -565,12 +569,20 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(book.status_code, 200)
         body = book.get_json()
         self.assertEqual(body["weights"]["participation"], 15.0)
-        self.assertEqual(body["weights"]["term"], 60.0)
-        self.assertEqual(body["weights"]["exam"], 25.0)
+        self.assertEqual(body["weights"]["term"], 65.0)
+        self.assertEqual(body["weights"]["exam"], 20.0)
         ids = [c["id"] for c in body["categories"]]
         self.assertEqual(ids, ["participation", "term", "exam"])
+        self.assertEqual(body["categories"][0]["label"], "Att & Participation")
+        self.assertTrue(body["categories"][0]["placeholder"])
         self.assertTrue(body["categories"][2]["placeholder"])
         self.assertIn("weight_edit_endpoint", body)
+        self.assertEqual(body["module_1"]["window"]["start"], "2026-09-10")
+        self.assertEqual(body["module_1"]["window"]["end"], "2026-09-23")
+        cedar = next(s for s in body["students"] if s["codename"] == "Cedar")
+        detail = body["module_1"]["students"][str(cedar["id"])]
+        self.assertFalse(detail["earned_100"])
+        self.assertIsNone(detail["score"])
         updated = self.client.post(
             f"/api/classes/{class_id}/grade-weights",
             json={"participation": 20, "term": 55, "exam": 25},

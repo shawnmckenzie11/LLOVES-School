@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Request access · {{ school_display }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body class="landing-page">
+  <div class="wrap landing-wrap request-access-wrap">
+    <p class="kicker">{{ school_display }}</p>
+    <h1>Request access</h1>
+    {% if submitted %}
+    <p class="sub">Thanks. We received your request. Admin still allowlists accounts — this form does not create a login or collect payment.</p>
+    <p><a class="btn" href="{{ url_for('landing') }}">Back to {{ school_display }}</a></p>
+    {% else %}
+    <p class="sub">For families and schools outside the original roster. Tell us who you are. We do not ask for a card, and we do not auto-provision an account.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" class="request-access-form" action="{{ url_for('request_access') }}">
+      <label class="hp-field" for="website">Website</label>
+      <input class="hp-field" id="website" name="website" tabindex="-1" autocomplete="off">
+      <label class="field" for="name">Your name</label>
+      <input id="name" name="name" required autocomplete="name" value="{{ form.name }}">
+      <label class="field" for="email">Email</label>
+      <input id="email" name="email" type="email" required autocomplete="email" value="{{ form.email }}">
+      <label class="field" for="role">I am a</label>
+      <select id="role" name="role" required>
+        <option value="parent"{% if form.role == 'parent' %} selected{% endif %}>Parent / guardian (homeschool or family)</option>
+        <option value="teacher"{% if form.role == 'teacher' %} selected{% endif %}>Teacher</option>
+        <option value="school_admin"{% if form.role == 'school_admin' %} selected{% endif %}>School administrator</option>
+        <option value="other"{% if form.role == 'other' %} selected{% endif %}>Other</option>
+      </select>
+      <label class="field" for="organization">School or family name</label>
+      <input id="organization" name="organization" value="{{ form.organization }}" placeholder="Optional but helpful">
+      <label class="field" for="context">How you would use {{ school_display }}</label>
+      <textarea id="context" name="context" rows="5" required placeholder="Grade band, courses, number of learners, anything Admin should know.">{{ form.context }}</textarea>
+      <div class="row-actions" style="margin-top:1rem">
+        <button type="submit">Send request</button>
+        <a class="btn secondary" href="{{ url_for('landing') }}">Cancel</a>
+      </div>
+    </form>
+    {% endif %}
+    <p class="mckenzian-credit">
+      <a href="{{ mckenzian_credit_url }}" rel="noopener noreferrer">{{ mckenzian_credit_label }}</a>
+    </p>
+  </div>
+</body>
+</html>

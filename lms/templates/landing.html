@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ school_name|safe }}</title>
+  <title>{{ school_display }}</title>
+  <meta name="description" content="ALC is the online live-class, attendance, and module workspace for Ontario courses — built for teachers, students, and homeschool families.">
   <link rel="stylesheet" href="/static/lloves.css">
 </head>
 <body class="landing-page">
@@ -12,10 +13,17 @@
       <path fill="currentColor" d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 0 1 4 0v2h-4V6zm7 14H7V10h10v10zm-5-3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
     </svg>
   </a>
-  <h1 class="landing-brand">
-    <span class="brand-edge">Attendance</span> &amp; <span class="brand-edge">Live Classes</span>
-  </h1>
-  <div class="wrap landing-wrap">
+  <section class="mkt-hero" aria-label="{{ school_display }}">
+    <h1 class="landing-logo">
+      <img
+        src="{{ url_for('static_files', filename='alc-logo.png') }}"
+        alt="{{ school_display }}"
+        width="1024"
+        height="1024"
+      >
+    </h1>
+  </section>
+  <div class="wrap landing-wrap" id="sign-in">
     <p class="role-prompt">Select your role:</p>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <div class="role-cards" id="role-cards">
@@ -38,28 +46,13 @@
       </div>
     </form>
   </div>
+  <footer class="mkt-footer">
+    <p class="mckenzian-credit">
+      <a href="{{ mckenzian_credit_url }}" rel="noopener noreferrer">{{ mckenzian_credit_label }}</a>
+    </p>
+  </footer>
   <script>
     (function () {
-      function fitBrand() {
-        var el = document.querySelector(".landing-brand");
-        if (!el) return;
-        var avail = Math.max(0, window.innerWidth - 32);
-        var maxPx = Math.min(28, avail * 0.028);
-        var minPx = 10;
-        el.style.fontSize = maxPx + "px";
-        var guard = 0;
-        while (el.scrollWidth > avail && maxPx > minPx && guard < 60) {
-          maxPx -= 0.4;
-          el.style.fontSize = maxPx + "px";
-          guard += 1;
-        }
-      }
-      fitBrand();
-      window.addEventListener("resize", fitBrand);
-      if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(fitBrand).catch(function () {});
-      }
-
       var btn = document.getElementById("student-role-btn");
       var panel = document.getElementById("student-code-panel");
       var input = document.getElementById("code");
