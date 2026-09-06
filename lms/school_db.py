@@ -19,6 +19,38 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
+
+SETTING_STAFF_2FA_MODE = "staff_admin_2fa_mode"
+STAFF_2FA_FIRST_LOGIN = "first_login"
+STAFF_2FA_DAILY = "daily"
+STAFF_2FA_EVERY_SIGN_IN = "every_sign_in"
+STAFF_2FA_MODES: tuple[str, ...] = (
+    STAFF_2FA_FIRST_LOGIN,
+    STAFF_2FA_DAILY,
+    STAFF_2FA_EVERY_SIGN_IN,
+)
+STAFF_2FA_MODE_LABELS: dict[str, str] = {
+    STAFF_2FA_FIRST_LOGIN: "Only on first log in",
+    STAFF_2FA_DAILY: "Only on first log in each day",
+    STAFF_2FA_EVERY_SIGN_IN: "Every sign in",
+}
+
+
+def normalize_staff_2fa_mode(raw: str | None) -> str:
+    """Return a valid staff/admin 2FA mode, defaulting to first login.
+
+    Args:
+        raw: Stored or posted value.
+
+    Returns:
+        One of ``STAFF_2FA_MODES``.
+    """
+    value = (raw or "").strip()
+    if value in STAFF_2FA_MODES:
+        return value
+    return STAFF_2FA_FIRST_LOGIN
+
+
 DEFAULT_TENANT_SLUG = "elc"
 DEFAULT_TENANT_NAME = "ELC (single school)"
 
@@ -4788,6 +4820,35 @@ class SchoolDB(LovesDB):
             from lms.gradebook import SETTING_ONLY_LIVE_CLASS_DAYS
         self.set_school_setting(SETTING_ONLY_LIVE_CLASS_DAYS, "1" if enabled else "0")
         return enabled
+
+    def staff_2fa_mode(self) -> str:
+        """How often staff/IT must complete Resend email 2SV.
+
+        Defaults to first login when the setting has never been saved.
+        """
+        return normalize_staff_2fa_mode(
+            self.get_school_setting(SETTING_STAFF_2FA_MODE, STAFF_2FA_FIRST_LOGIN)
+        )
+
+    def set_staff_2fa_mode(self, mode: str) -> str:
+        """Persist the staff/admin 2FA cadence.
+
+        Args:
+            mode: ``first_login``, ``daily``, or ``every_sign_in``.
+
+        Returns:
+            The stored mode.
+
+        Raises:
+            ValueError: Unknown mode string.
+        """
+        value = str(mode or "").strip()
+        if value not in STAFF_2FA_MODES:
+            raise ValueError(
+                "staff_2fa_mode must be first_login, daily, or every_sign_in"
+            )
+        self.set_school_setting(SETTING_STAFF_2FA_MODE, value)
+        return value
 
     def log_context_for_class(self, class_id: int) -> dict[str, Any]:
         """Calendar + schedule payload for attendance/participation overlays.

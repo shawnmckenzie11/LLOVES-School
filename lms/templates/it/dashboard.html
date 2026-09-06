@@ -355,6 +355,16 @@
         </label>
         <p id="settings-status" class="hint" aria-live="polite"></p>
       </section>
+      <section class="card">
+        <h2>Sign-in verification</h2>
+        <p class="hint">Use 2FA with Resend to verify staff and admin sign in. Default is first login so Resend is not used on every Google return.</p>
+        <label class="field" for="staff-2fa-mode">Use 2FA with Resend to verify staff and admin sign in</label>
+        <select id="staff-2fa-mode" data-saved="{{ staff_2fa_mode }}">
+          {% for value, label in staff_2fa_modes.items() %}
+          <option value="{{ value }}" {% if staff_2fa_mode == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </section>
     </div>
 
     <div class="it-tab-panel" id="tab-audit" role="tabpanel" hidden>

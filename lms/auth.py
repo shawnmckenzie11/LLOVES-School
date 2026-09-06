@@ -7,7 +7,8 @@ import json
 import os
 import random
 import urllib.parse
-from datetime import datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from functools import wraps
 from typing import Any, Callable
 
@@ -24,7 +25,11 @@ from flask import (
 )
 
 import email_service
-from school_db import SchoolDB
+from school_db import (
+    STAFF_2FA_DAILY,
+    STAFF_2FA_EVERY_SIGN_IN,
+    SchoolDB,
+)
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, public_brand
 from student_portal import (
     bind_student_session,
@@ -42,14 +47,57 @@ def _env_flag(name: str) -> bool:
 
 
 def privileged_mfa_required() -> bool:
-    """True when staff/IT must complete email 2SV on this login.
+    """True when env forces email 2SV on every staff/IT sign-in.
 
-    Always on when ``FLASK_ENV=production`` or ``REQUIRE_PRIVILEGED_MFA=1``.
-    Local/tests without those flags keep first-login-only 2SV.
+    Admin Settings own the usual cadence (default: first login). This flag is
+    an emergency override; ``FLASK_ENV=production`` no longer implies it.
     """
-    if _env_flag("REQUIRE_PRIVILEGED_MFA"):
+    return _env_flag("REQUIRE_PRIVILEGED_MFA")
+
+
+def _toronto_today() -> date:
+    """Calendar date in America/Toronto for daily 2FA windows."""
+    return datetime.now(ZoneInfo("America/Toronto")).date()
+
+
+def _stamp_toronto_date(raw: str | None) -> date | None:
+    """Parse a stored ISO timestamp into an America/Toronto calendar date.
+
+    Args:
+        raw: ``users.last_login_at`` or similar.
+
+    Returns:
+        The school-local date, or None when missing/invalid.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    zone = ZoneInfo("America/Toronto")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=zone)
+    return parsed.astimezone(zone).date()
+
+
+def staff_2fa_challenge_required(user: dict[str, Any]) -> bool:
+    """True when this Google login must complete the Resend email code.
+
+    Args:
+        user: Allowlisted staff/IT row.
+    """
+    if not user.get("verified_at"):
         return True
-    return (os.getenv("FLASK_ENV") or "").strip().lower() == "production"
+    if privileged_mfa_required():
+        return True
+    mode = school_db().staff_2fa_mode()
+    if mode == STAFF_2FA_EVERY_SIGN_IN:
+        return True
+    if mode == STAFF_2FA_DAILY:
+        last = _stamp_toronto_date(user.get("last_login_at"))
+        return last is None or last < _toronto_today()
+    return False
 
 
 def request_client_ip() -> str:
@@ -449,7 +497,7 @@ def _finish_google_identity(
             message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
 
-    needs_mfa = privileged_mfa_required() or not user.get("verified_at")
+    needs_mfa = staff_2fa_challenge_required(user)
     if needs_mfa:
         _code, emailed = _send_first_login_code(user)
         begin_pending_2sv(user, portal=portal_key)
@@ -645,7 +693,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/verify-email", methods=["GET", "POST"])
     def verify_email():
-        """Email 6-digit code: first login always; every privileged session in prod."""
+        """Email 6-digit code: first login, daily, or every sign-in per Admin Settings."""
         if not session.get("pending_2sv"):
             if current_user():
                 return _post_login_redirect(session.get("portal") or "staff")
@@ -678,7 +726,7 @@ def register_auth_routes(app: Flask) -> None:
         if email_service.show_on_page_verification_code():
             dev_code = user.get("verification_code")
 
-        session_mfa = bool(user.get("verified_at")) or privileged_mfa_required()
+        session_mfa = bool(user.get("verified_at"))
         return render_template(
             "verify.html",
             email=user["email"],
@@ -687,6 +735,7 @@ def register_auth_routes(app: Flask) -> None:
             dev_code=dev_code,
             email_configured=email_service.is_email_delivery_configured(),
             session_mfa=session_mfa,
+            staff_2fa_mode=school_db().staff_2fa_mode(),
         )
 
     @app.route("/resend-verification", methods=["POST"])

@@ -614,22 +614,46 @@ function initPermanentDeleteForms() {
  */
 function initSettingsTab() {
   const box = document.getElementById("only-live-class-days");
+  const modeSelect = document.getElementById("staff-2fa-mode");
   const status = document.getElementById("settings-status");
-  if (!box) return;
-  box.addEventListener("change", async () => {
+  if (!box && !modeSelect) return;
+
+  /**
+   * POST Admin settings and show status.
+   * @param {object} payload
+   * @param {() => void} [revert]
+   */
+  async function saveSettings(payload, revert) {
     if (status) status.textContent = "Saving…";
     try {
       const rv = await fetch("/api/it/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ only_live_class_days: box.checked }),
+        body: JSON.stringify(payload),
       });
       const data = await rv.json();
       if (!rv.ok || !data.ok) throw new Error(data.error || "Save failed");
       if (status) status.textContent = "Saved.";
+      return data;
     } catch (err) {
-      box.checked = !box.checked;
+      if (typeof revert === "function") revert();
       if (status) status.textContent = String(err.message || err);
+      return null;
+    }
+  }
+
+  box?.addEventListener("change", async () => {
+    await saveSettings({ only_live_class_days: box.checked }, () => {
+      box.checked = !box.checked;
+    });
+  });
+  modeSelect?.addEventListener("change", async () => {
+    const previous = modeSelect.dataset.saved || "first_login";
+    const data = await saveSettings({ staff_2fa_mode: modeSelect.value }, () => {
+      modeSelect.value = previous;
+    });
+    if (data && data.staff_2fa_mode) {
+      modeSelect.dataset.saved = data.staff_2fa_mode;
     }
   });
 }
