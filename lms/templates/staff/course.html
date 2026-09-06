@@ -44,6 +44,7 @@
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>
       </div>
     </nav>
     <script>
@@ -296,7 +297,15 @@
             <div id="ap-break-banner" class="ap-break-banner" hidden></div>
             <div class="ap-score-shell">
               <header class="ap-score-header">
-                <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                <div class="ap-score-header-top">
+                  <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                  <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
+                    <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
+                      <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
+                    </label>
+                    <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
+                  </div>
+                </div>
                 <div class="ap-round-bar">
                   <span id="ap-round-label"></span>
                   <span id="ap-round-clock"></span>
@@ -462,6 +471,45 @@
       <p class="hint">No inherited expectations are on file for this course code yet.</p>
       {% endif %}
     </section>
+    {% elif tab == 'profiles' %}
+    <section class="card ap-profiles-panel" id="ap-profiles-root" data-class-id="{{ cls.id }}">
+      <h2>Open Question action profiles</h2>
+      <p class="hint">Profiles control the action buttons available while scoring Open Question rounds. Changes apply to this course section only.</p>
+      <div id="ap-profiles-error" class="error" hidden></div>
+      <div id="ap-profiles-status" class="hint compact" hidden></div>
+      <div class="ap-profiles-toolbar row-actions compact">
+        <label class="field">Profile
+          <select id="ap-profiles-select"></select>
+        </label>
+        <button type="button" class="secondary" id="ap-profiles-new">New</button>
+        <button type="button" class="secondary" id="ap-profiles-duplicate">Duplicate</button>
+        <button type="button" class="secondary" id="ap-profiles-delete">Delete</button>
+        <button type="button" id="ap-profiles-save">Save</button>
+      </div>
+      <label class="field">Profile name
+        <input type="text" id="ap-profiles-name" maxlength="80">
+      </label>
+      <label class="field ap-profiles-active-check">
+        <input type="checkbox" id="ap-profiles-active"> Use as active scoring profile
+      </label>
+      <div class="sheet-wrap ap-profiles-actions-wrap">
+        <table class="sheet ap-profiles-actions-table" id="ap-profiles-actions">
+          <thead>
+            <tr>
+              <th>Id</th>
+              <th>Label</th>
+              <th>Points</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row-actions compact">
+        <button type="button" class="secondary" id="ap-profiles-add-action">Add action</button>
+      </div>
+    </section>
+    <script type="module" src="/static/staff_ap_profiles.js"></script>
     {% endif %}
   </div>
 </body>

@@ -1811,6 +1811,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "live",
             "gradebook",
             "expectations",
+            "profiles",
         }:
             tab = "modules"
         pack_error = session.pop("pack_error", None)
@@ -3061,6 +3062,31 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         sort = request.args.get("sort") or "az"
         try:
             return jsonify(school.participation_week_grid(class_id, sort=sort))
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/ap-round-profiles", methods=["GET", "PUT"])
+    @login_required
+    def api_ap_round_profiles(class_id: int):
+        """Read or replace Open Question action profiles for this course section."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        cls = school.game.get_class(int(class_id))
+        offering_id = cls.get("offering_id")
+        if not offering_id:
+            return _json_error(ValueError("This class has no course offering"))
+        if request.method == "GET":
+            try:
+                doc = school.get_offering_ap_round_profiles(int(offering_id))
+                return jsonify({"ok": True, "document": doc})
+            except Exception as exc:  # noqa: BLE001
+                return _json_error(exc)
+        payload = request.get_json(silent=True) or {}
+        document = payload.get("document", payload)
+        try:
+            saved = school.set_offering_ap_round_profiles(int(offering_id), document)
+            return jsonify({"ok": True, "document": saved})
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 

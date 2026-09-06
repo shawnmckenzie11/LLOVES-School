@@ -42,7 +42,7 @@ const TEAM_RULES = [
   { id: "team_only", label: "Team bonus only" },
 ];
 
-/** Open Question action chips → point deltas (staff scoring UX). */
+/** Builtin Open Question actions (fallback when profiles API is unavailable). */
 const OPEN_QUESTION_ACTIONS = [
   { id: "asks_hwk", label: "Asks Q re: Hwk", amount: 2 },
   { id: "asks_followup", label: "Asks follow-up Q", amount: 1 },
@@ -51,6 +51,10 @@ const OPEN_QUESTION_ACTIONS = [
   { id: "answers_peer", label: "Answers another student’s Q", amount: 2 },
   { id: "asks_first", label: "Asks Q for first time", amount: 1 },
 ];
+
+/** @type {{open: {active_id: string, profiles: Array<{id: string, name: string, actions: Array<{id: string, label: string, amount: number}>}>}} | null} */
+let openProfilesDoc = null;
+let openProfilesLoadPromise = null;
 
 let overlayState = null;
 let pendingAction = null;
@@ -931,9 +935,10 @@ function renderScoringRoundChrome(state) {
  * @param {any} state
  * @param {{stayOnScore?: boolean}} [opts]
  */
-function openLiveScoring(state, opts = {}) {
+async function openLiveScoring(state, opts = {}) {
   overlayState = state;
   scoringLocked = true;
+  await ensureOpenProfilesLoaded();
   const teams = state.teams || [];
   const isIndividual = teams.length === 1 && teams[0]?.name === "Class";
   trackMode = isIndividual ? "individual" : "team";
@@ -953,6 +958,7 @@ function openLiveScoring(state, opts = {}) {
     liveStamp = "";
     $("ap-score-list") && ($("ap-score-list").innerHTML = "");
     $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
+    renderOpenProfileBar();
   } else if (isIndividual) {
     $("ap-live-teams") && ($("ap-live-teams").innerHTML = "");
     renderScoreList();
@@ -1749,16 +1755,18 @@ $("ap-next-round-start")?.addEventListener("click", async () => {
 });
 
 /**
- * Compact student point / Open Question action chips.
+ * Compact student point chips, or Open Question matrix cell buttons.
  * @param {number} id
  * @returns {string}
  */
 function studentButtons(id) {
   if (isOpenQuestionRound()) {
-    return OPEN_QUESTION_ACTIONS.map(
-      (action) =>
-        `<button type="button" class="ap-action-chip" data-kind="student" data-id="${id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="+${action.amount}">${escapeHtml(action.label)}</button>`
-    ).join("");
+    return getActiveOpenActions()
+      .map(
+        (action) =>
+          `<button type="button" class="ap-action-chip" data-kind="student" data-id="${id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="+${action.amount}">${escapeHtml(action.label)}</button>`
+      )
+      .join("");
   }
   return STUDENT_AMOUNTS.map(
     (n) =>
@@ -1767,24 +1775,151 @@ function studentButtons(id) {
 }
 
 /**
+ * Builtin profiles document matching historical Open Question chips.
+ * @returns {{open: {active_id: string, profiles: object[]}}}
+ */
+function builtinOpenProfilesDoc() {
+  return {
+    open: {
+      active_id: "default",
+      profiles: [{ id: "default", name: "Default", actions: OPEN_QUESTION_ACTIONS.map((a) => ({ ...a })) }],
+    },
+  };
+}
+
+/**
+ * Actions for the active Open Question profile.
+ * @returns {Array<{id: string, label: string, amount: number}>}
+ */
+function getActiveOpenActions() {
+  const doc = openProfilesDoc || builtinOpenProfilesDoc();
+  const section = doc.open || {};
+  const profiles = Array.isArray(section.profiles) ? section.profiles : [];
+  const activeId = String(section.active_id || "");
+  const active = profiles.find((p) => p.id === activeId) || profiles[0];
+  const actions = active && Array.isArray(active.actions) ? active.actions : OPEN_QUESTION_ACTIONS;
+  return actions.length ? actions : OPEN_QUESTION_ACTIONS;
+}
+
+/**
+ * Load offering Open Question profiles (once per page; refreshable).
+ * @param {{force?: boolean}} [opts]
+ * @returns {Promise<void>}
+ */
+async function ensureOpenProfilesLoaded(opts = {}) {
+  if (!opts.force && openProfilesDoc) return;
+  if (!opts.force && openProfilesLoadPromise) {
+    await openProfilesLoadPromise;
+    return;
+  }
+  openProfilesLoadPromise = (async () => {
+    try {
+      const data = await api(`/api/classes/${classId}/ap-round-profiles`);
+      if (data && data.document && data.document.open) {
+        openProfilesDoc = data.document;
+      } else {
+        openProfilesDoc = builtinOpenProfilesDoc();
+      }
+    } catch (_err) {
+      openProfilesDoc = builtinOpenProfilesDoc();
+    } finally {
+      openProfilesLoadPromise = null;
+    }
+  })();
+  await openProfilesLoadPromise;
+}
+
+/**
+ * Show/hide and populate the Scoring profile dropdown for Open Question.
+ */
+function renderOpenProfileBar() {
+  const bar = $("ap-oq-profile-bar");
+  const select = $("ap-oq-profile-select");
+  if (!bar || !select) return;
+  const show = isOpenQuestionRound() && !isBreakRound();
+  bar.hidden = !show;
+  if (!show) return;
+  const doc = openProfilesDoc || builtinOpenProfilesDoc();
+  const section = doc.open || {};
+  const profiles = Array.isArray(section.profiles) ? section.profiles : [];
+  const activeId = String(section.active_id || profiles[0]?.id || "default");
+  select.innerHTML = profiles
+    .map(
+      (profile) =>
+        `<option value="${escapeHtml(profile.id)}"${profile.id === activeId ? " selected" : ""}>${escapeHtml(profile.name)}</option>`
+    )
+    .join("");
+}
+
+/**
+ * Build a student × action scoring matrix for Open Question.
+ * @param {any[]} rows
+ * @returns {string}
+ */
+function openActionMatrixHtml(rows) {
+  const actions = getActiveOpenActions();
+  if (!actions.length) {
+    return `<p class="hint compact">No actions in this Open Question profile. <a href="/staff/class/${classId}?tab=profiles" target="_blank" rel="noopener">Edit Profiles</a></p>`;
+  }
+  const head = actions
+    .map(
+      (action) =>
+        `<th scope="col" class="ap-oq-col" title="+${escapeHtml(String(action.amount))}">
+          <span class="ap-oq-col-label">${escapeHtml(action.label)}</span>
+          <span class="ap-oq-col-pts">+${escapeHtml(String(action.amount))}</span>
+        </th>`
+    )
+    .join("");
+  const body = rows
+    .map((row) => {
+      const late = sessionLateIds.has(row.id) || Boolean(row.late);
+      const cells = actions
+        .map(
+          (action) =>
+            `<td><button type="button" class="ap-oq-cell" data-kind="student" data-id="${row.id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="${escapeHtml(action.label)} (+${action.amount})">+${escapeHtml(String(action.amount))}</button></td>`
+        )
+        .join("");
+      return `<tr>
+        <th scope="row" class="ap-oq-who">
+          <span class="ap-oq-name">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
+          <span class="ap-oq-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
+        </th>
+        ${cells}
+      </tr>`;
+    })
+    .join("");
+  return `<div class="ap-oq-matrix-wrap">
+    <table class="ap-oq-matrix">
+      <thead><tr><th scope="col" class="ap-oq-corner">Student</th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+}
+
+/**
  * Dense individual scoring list (Class / ungamified).
  */
 function renderScoreList() {
   const box = $("ap-score-list");
   if (!box) return;
+  renderOpenProfileBar();
   const teams = overlayState.teams || [];
   const members = teams.flatMap((t) => t.members || []);
   const rows = sortStudents(members.length ? members : overlayState.students || [], nameSort);
-  box.innerHTML = rows
-    .map((row) => {
-      const late = sessionLateIds.has(row.id) || Boolean(row.late);
-      return `<div class="ap-score-row">
-        <span class="ap-score-who">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
-        <span class="ap-score-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
-        <span class="pm">${studentButtons(row.id)}</span>
-      </div>`;
-    })
-    .join("");
+  if (isOpenQuestionRound()) {
+    box.innerHTML = openActionMatrixHtml(rows);
+  } else {
+    box.innerHTML = rows
+      .map((row) => {
+        const late = sessionLateIds.has(row.id) || Boolean(row.late);
+        return `<div class="ap-score-row">
+          <span class="ap-score-who">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
+          <span class="ap-score-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
+          <span class="pm">${studentButtons(row.id)}</span>
+        </div>`;
+      })
+      .join("");
+  }
   updateStepSummaries();
 }
 
@@ -1823,11 +1958,13 @@ function renderLiveTeams(state) {
   if (meta) {
     meta.textContent = "Note: Team points not passed in gradebook";
   }
+  renderOpenProfileBar();
   const game = state.game || {};
   const stamp = JSON.stringify({
     pending: pendingTeam,
     round: game.round,
     open: isOpenQuestionRound(),
+    profile: openProfilesDoc?.open?.active_id || "",
     activeTeam: $("ap-score-team-tabs")?.dataset.activeTeam || "",
     teams: (state.teams || []).map((t) => [
       t.id,
@@ -1869,18 +2006,20 @@ function renderLiveTeams(state) {
   rootEl.innerHTML = paintTeams
     .map((team) => {
       const members = sortStudents(team.members || [], nameSort);
-      const playerBlocks = members
-        .map((s) => {
-          const late = sessionLateIds.has(s.id) || Boolean(s.late);
-          return `<div class="ap-live-player">
+      const playerBlocks = isOpenQuestionRound()
+        ? openActionMatrixHtml(members)
+        : members
+            .map((s) => {
+              const late = sessionLateIds.has(s.id) || Boolean(s.late);
+              return `<div class="ap-live-player">
             <div class="ap-live-row">
               <span class="who">${nameWithMood(displayName(s), s.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
               <span class="now">${escapeHtml(formatPoints(s.session_points || 0))}</span>
             </div>
             <div class="pm">${studentButtons(s.id)}</div>
           </div>`;
-        })
-        .join("");
+            })
+            .join("");
       return `<section class="ap-live-team" style="--team:${escapeHtml(team.color)}">
         <div class="ap-live-row team-head">
           <span class="who">${escapeHtml(team.name)}</span>
@@ -1957,6 +2096,29 @@ $("ap-score-list")?.addEventListener("click", async (event) => {
     await postScoreFromButton(btn);
   } catch (err) {
     showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-oq-profile-select")?.addEventListener("change", async (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  const nextId = select.value;
+  const doc = openProfilesDoc || builtinOpenProfilesDoc();
+  if (!doc.open) return;
+  doc.open.active_id = nextId;
+  openProfilesDoc = doc;
+  try {
+    const saved = await api(`/api/classes/${classId}/ap-round-profiles`, {
+      method: "PUT",
+      body: JSON.stringify({ document: doc }),
+    });
+    if (saved?.document) openProfilesDoc = saved.document;
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+  liveStamp = "";
+  if (overlayState) {
+    await openLiveScoring(overlayState, { stayOnScore: true });
   }
 });
 
