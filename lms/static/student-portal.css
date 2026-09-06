@@ -265,15 +265,18 @@ body.student-home.is-live .student-live-response {
 
 .student-me .me-name {
   font-weight: 700;
-  margin: 0 0 0.45rem;
+  margin: 0 0 0.55rem;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
+  text-align: center;
 }
 
 .student-me .me-stats {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  align-items: center;
+  gap: 0.45rem;
+  text-align: center;
 }
 
 .student-me .me-stat {
@@ -281,20 +284,70 @@ body.student-home.is-live .student-live-response {
   color: #9aa6c3;
   font-size: 0.92rem;
   display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+}
+
+.student-me .me-stat-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa6c3;
 }
 
 .student-me .me-stat strong {
   color: #f4f6fb;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.student-me .me-stat-of {
+  color: #9aa6c3;
+  font-size: 0.85rem;
+  font-weight: 500;
 }
 
 .student-scoreboard {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.student-wait {
+  margin: 0;
+  text-align: left;
+  color: #d6deef;
+  line-height: 1.45;
+}
+
+.student-wait-copy {
+  max-width: 36rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.student-wait-copy p {
+  margin: 0 0 0.75rem;
+}
+
+.student-wait-copy ul {
+  margin: 0 0 0.85rem;
+  padding-left: 1.2rem;
+}
+
+.student-wait-copy li {
+  margin: 0.25rem 0;
+}
+
+body.is-live .student-wait.is-paused,
+body.is-live .student-wait.is-plain {
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e2e8f0;
 }
 
 .sb-idle {

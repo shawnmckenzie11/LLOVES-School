@@ -484,7 +484,7 @@ class RosterTests(unittest.TestCase):
         state = live.get_json()
         self.assertEqual(state["game"]["status"], "live")
         self.assertEqual(len(state["teams"]), 1)
-        self.assertEqual(state["game"]["round_title"], "Open Question")
+        self.assertEqual(state["game"]["round_title"], "Open Question Round")
         self.assertEqual(state["game"]["round_count"], 1)
         award = self.client.post(
             f"/api/classes/{class_id}/game/score",
@@ -534,7 +534,7 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(live.status_code, 200)
         state = live.get_json()
         self.assertEqual(state["game"]["status"], "live")
-        self.assertEqual(state["game"]["round_title"], "Open Question")
+        self.assertEqual(state["game"]["round_title"], "Open Question Round")
         self.assertEqual(state["game"]["round_count"], 1)
         self.assertEqual(state["game"]["round_duration_sec"], 15 * 60)
         nxt = self.client.post(
