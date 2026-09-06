@@ -87,104 +87,16 @@ def staff_2fa_challenge_required(user: dict[str, Any]) -> bool:
     Args:
         user: Allowlisted staff/IT row.
     """
-    # #region agent log
-    def _dbg2fa(hid: str, message: str, data: dict[str, Any]) -> None:
-        rec = {
-            "sessionId": "33d408",
-            "hypothesisId": hid,
-            "location": "lms/auth.py:staff_2fa_challenge_required",
-            "message": message,
-            "data": data,
-            "timestamp": int(datetime.now().timestamp() * 1000),
-        }
-        try:
-            with open(
-                "/Users/shawnscomputer/Documents/LLOVES-School/.cursor/debug-33d408.log",
-                "a",
-                encoding="utf-8",
-            ) as _df:
-                _df.write(json.dumps(rec) + "\n")
-        except OSError:
-            pass
-        try:
-            current_app.logger.info("DBG2FA %s %s", message, data)
-        except Exception:  # noqa: BLE001
-            pass
-
-    # #endregion
-    has_verified = bool(user.get("verified_at"))
-    priv = privileged_mfa_required()
-    if not has_verified:
-        # #region agent log
-        _dbg2fa(
-            "C",
-            "challenge: missing verified_at",
-            {
-                "has_verified_at": False,
-                "privileged_mfa": priv,
-                "require_env": (os.getenv("REQUIRE_PRIVILEGED_MFA") or ""),
-                "flask_env": (os.getenv("FLASK_ENV") or ""),
-                "role": str(user.get("role") or ""),
-            },
-        )
-        # #endregion
+    if not user.get("verified_at"):
         return True
-    if priv:
-        # #region agent log
-        _dbg2fa(
-            "A",
-            "challenge: REQUIRE_PRIVILEGED_MFA",
-            {
-                "has_verified_at": True,
-                "privileged_mfa": True,
-                "require_env": (os.getenv("REQUIRE_PRIVILEGED_MFA") or ""),
-                "flask_env": (os.getenv("FLASK_ENV") or ""),
-                "role": str(user.get("role") or ""),
-            },
-        )
-        # #endregion
+    if privileged_mfa_required():
         return True
     mode = school_db().staff_2fa_mode()
     if mode == STAFF_2FA_EVERY_SIGN_IN:
-        # #region agent log
-        _dbg2fa(
-            "B",
-            "challenge: staff_2fa_mode every_sign_in",
-            {
-                "has_verified_at": True,
-                "mode": mode,
-                "privileged_mfa": False,
-                "role": str(user.get("role") or ""),
-            },
-        )
-        # #endregion
         return True
     if mode == STAFF_2FA_DAILY:
         last = _stamp_toronto_date(user.get("last_login_at"))
-        today = _toronto_today()
-        needed = last is None or last < today
-        # #region agent log
-        _dbg2fa(
-            "D",
-            "challenge: daily window",
-            {
-                "has_verified_at": True,
-                "mode": mode,
-                "needed": needed,
-                "last_login_date": str(last) if last else "",
-                "today": str(today),
-                "role": str(user.get("role") or ""),
-            },
-        )
-        # #endregion
-        return needed
-    # #region agent log
-    _dbg2fa(
-        "E",
-        "skip: first_login mode",
-        {"has_verified_at": True, "mode": mode, "privileged_mfa": False, "role": str(user.get("role") or "")},
-    )
-    # #endregion
+        return last is None or last < _toronto_today()
     return False
 
 
