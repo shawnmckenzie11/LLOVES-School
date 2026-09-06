@@ -18,7 +18,6 @@ primary_region = 'yyz'
 
 [env]
   FLASK_ENV = 'production'
-  REQUIRE_PRIVILEGED_MFA = '1'
   IT_EMAILS = 'solutions@mckenzian.com'
   GOOGLE_REDIRECT_URI = 'https://alc.mckenzian.com/auth/google/callback'
   PUBLIC_APP_URL = 'https://alc.mckenzian.com'

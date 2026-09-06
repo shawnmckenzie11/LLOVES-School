@@ -186,7 +186,16 @@ class AuthTests(unittest.TestCase):
         second = self._callback("teacher@gmail.com", "staff")
         self.assertIn("/staff", second.headers.get("Location", ""))
 
-    def test_every_sign_in_2fa_mode_emails_each_google_login(self) -> None:
+    def test_require_privileged_mfa_env_still_forces_every_login(self) -> None:
+        """REQUIRE_PRIVILEGED_MFA=1 keeps every-sign-in even in first-login mode."""
+        os.environ["REQUIRE_PRIVILEGED_MFA"] = "1"
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        with patch("email_service.send_verification_email", return_value=True):
+            second = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/verify-email", second.headers.get("Location", ""))
         """Admin 'Every sign in' re-sends Resend 2SV after logout."""
         self.school.set_staff_2fa_mode("every_sign_in")
         self.school.register_staff("teacher@gmail.com")
