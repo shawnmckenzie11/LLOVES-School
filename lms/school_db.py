@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL,
     verified_at TEXT,
     verification_code TEXT,
+    verification_sent_at TEXT,
     created_at TEXT NOT NULL,
     last_login_at TEXT,
     archived_at TEXT
@@ -573,6 +574,8 @@ class LovesDB:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(users)")}
         if "archived_at" not in cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
+        if "verification_sent_at" not in cols:
+            self.conn.execute("ALTER TABLE users ADD COLUMN verification_sent_at TEXT")
 
     def _ensure_gradebook_schema(self) -> None:
         """Create per-class grade category weight storage (editable later).
@@ -1147,11 +1150,15 @@ class LovesDB:
         return self.get_user(user_id) or {}
 
     def set_verification_code(self, user_id: int, code: str) -> None:
-        """Store a first-login email code."""
+        """Store a first-login email code and when it was issued."""
         with self._lock:
             self.conn.execute(
-                "UPDATE users SET verification_code = ? WHERE id = ?",
-                (code, user_id),
+                """
+                UPDATE users
+                SET verification_code = ?, verification_sent_at = ?
+                WHERE id = ?
+                """,
+                (code, _now(), user_id),
             )
             self.conn.commit()
 

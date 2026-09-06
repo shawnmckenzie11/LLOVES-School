@@ -38,14 +38,6 @@
       </div>
     </form>
   </div>
-  {% if google_client_id %}
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <div id="g_id_onload"
-       data-client_id="{{ google_client_id }}"
-       data-login_uri="{{ request.scheme }}://{{ request.host }}/auth/google/callback"
-       data-auto_select="{{ 'true' if one_tap_auto else 'false' }}"
-       data-itp_support="true"></div>
-  {% endif %}
   <script>
     (function () {
       function fitBrand() {

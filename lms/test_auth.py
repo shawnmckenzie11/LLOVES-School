@@ -136,6 +136,20 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(second.status_code, 302)
         self.assertIn("/staff", second.headers.get("Location", ""))
 
+    def test_unverified_login_retries_do_not_resend_email(self) -> None:
+        """Repeated Google callbacks reuse the same code instead of bursting Resend."""
+        self.school.register_staff("teacher@gmail.com")
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            first = self._callback("teacher@gmail.com", "staff")
+            self.assertIn("/verify-email", first.headers.get("Location", ""))
+            for _ in range(7):
+                again = self._callback("teacher@gmail.com", "staff")
+                self.assertIn("/verify-email", again.headers.get("Location", ""))
+            mocked.assert_called_once()
+        user = self.school.get_user_by_email("teacher@gmail.com")
+        assert user is not None
+        self.assertRegex(str(user["verification_code"]), r"^\d{6}$")
+
     def test_production_never_shows_verification_code(self) -> None:
         """FLASK_ENV=production hides the on-page code even if ALLOW_DEV is on."""
         self.school.register_staff("teacher@gmail.com")

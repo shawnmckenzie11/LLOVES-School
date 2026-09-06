@@ -1043,7 +1043,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         returning = request.cookies.get("lloves_seen") == "1"
         return render_template(
             "landing.html",
-            **landing_kwargs(one_tap_auto=returning),
+            **landing_kwargs(one_tap_auto=False),
         )
 
     @app.route("/health")

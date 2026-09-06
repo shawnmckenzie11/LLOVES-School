@@ -7,6 +7,7 @@ import json
 import os
 import random
 import urllib.parse
+from datetime import datetime
 from functools import wraps
 from typing import Any, Callable
 
@@ -30,6 +31,22 @@ from student_portal import (
     clear_student_session_keys,
     next_student_endpoint,
 )
+
+VERIFY_SEND_COOLDOWN_SEC = 15 * 60
+VERIFY_RESEND_COOLDOWN_SEC = 90
+
+
+def _verification_age_seconds(user: dict[str, Any]) -> float | None:
+    """Seconds since the last verification email was recorded, if known."""
+    raw = user.get("verification_sent_at")
+    if not raw:
+        return None
+    try:
+        sent = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return max(0.0, (datetime.now() - sent).total_seconds())
+
 
 
 def google_client_id() -> str:
@@ -297,21 +314,31 @@ def staff_or_student_scoreboard(f: Callable) -> Callable:
     return decorated
 
 
-def _send_first_login_code(user: dict[str, Any]) -> tuple[str, bool]:
+def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tuple[str, bool]:
     """Generate and store a 6-digit code; email it when delivery is configured.
 
     Args:
         user: Allowlisted user row.
+        force: When True (Resend button), mint a new code unless the
+            shorter resend cooldown is still running.
 
     Returns:
-        ``(code, emailed)``. ``emailed`` is True only when Resend or SMTP
-        accepted the message. The code is stored on the user row; production
-        never puts it on the verify page.
+        ``(code, emailed)``. ``emailed`` is True when Resend/SMTP accepted
+        the message, or when an existing code is reused inside the cooldown
+        so the verify page still says to check email. Production never puts
+        the code on the verify page.
     """
+    db = school_db()
+    fresh = db.get_user_by_id(int(user["id"])) or user
+    existing = str(fresh.get("verification_code") or "")
+    age = _verification_age_seconds(fresh)
+    cooldown = VERIFY_RESEND_COOLDOWN_SEC if force else VERIFY_SEND_COOLDOWN_SEC
+    if existing and age is not None and age < cooldown:
+        return existing, True
     code = f"{random.randint(100000, 999999)}"
-    school_db().set_verification_code(int(user["id"]), code)
-    name = user.get("display_name") or user["email"].split("@")[0]
-    emailed = email_service.send_verification_email(user["email"], name, code)
+    db.set_verification_code(int(fresh["id"]), code)
+    name = fresh.get("display_name") or fresh["email"].split("@")[0]
+    emailed = email_service.send_verification_email(fresh["email"], name, code)
     return code, emailed
 
 
@@ -629,7 +656,7 @@ def register_auth_routes(app: Flask) -> None:
         user = db.get_user_by_id(int(session["pending_user_id"]))
         if not user or user.get("verified_at"):
             return redirect(url_for("landing"))
-        _code, emailed = _send_first_login_code(user)
+        _code, emailed = _send_first_login_code(user, force=True)
         return redirect(url_for("verify_email", sent="1" if emailed else "0"))
 
     @app.route("/logout")
