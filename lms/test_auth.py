@@ -96,21 +96,6 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Take attendance and log participation", body)
         self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
-        self.assertIn('class="landing-credit"', body)
-        self.assertIn("/out/mckenzian", body)
-        self.assertIn(">McKenzian</a>", body)
-
-    def test_mckenzian_footer_redirect_counts_clicks(self) -> None:
-        """ALC footer goes to mckenzian.com with utm and increments the counter."""
-        first = self.client.get("/out/mckenzian", follow_redirects=False)
-        self.assertEqual(first.status_code, 302)
-        location = first.headers.get("Location", "")
-        self.assertTrue(location.startswith("https://mckenzian.com/"))
-        self.assertIn("utm_source=alc", location)
-        self.assertIn("utm_medium=footer", location)
-        self.assertEqual(self.school.get_school_setting("mckenzian_footer_clicks"), "1")
-        self.client.get("/out/mckenzian", follow_redirects=False)
-        self.assertEqual(self.school.get_school_setting("mckenzian_footer_clicks"), "2")
 
     def test_unknown_google_403(self) -> None:
         """Unknown Google accounts are not auto-created."""

@@ -119,31 +119,6 @@ body.landing-page .student-code-panel {
   padding: 1.1rem 1.2rem;
 }
 body.landing-page .error { margin-bottom: 1rem; text-align: left; }
-body.landing-page .landing-credit {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0.85rem;
-  z-index: 4;
-  text-align: center;
-  pointer-events: none;
-}
-body.landing-page .landing-credit a {
-  pointer-events: auto;
-  color: var(--muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  text-decoration: none;
-  opacity: 0.55;
-}
-body.landing-page .landing-credit a:hover,
-body.landing-page .landing-credit a:focus-visible {
-  opacity: 0.9;
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 
 .card, .choice {
   background: var(--card);

@@ -1046,17 +1046,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             **landing_kwargs(one_tap_auto=returning),
         )
 
-    SETTING_MCKENZIAN_FOOTER_CLICKS = "mckenzian_footer_clicks"
-    MCKENZIAN_LANDING_URL = (
-        "https://mckenzian.com/?utm_source=alc&utm_medium=footer"
-    )
-
-    @app.route("/out/mckenzian")
-    def out_mckenzian():
-        """Count an ALC footer click, then open the McKenzian landing page."""
-        school.bump_school_setting_int(SETTING_MCKENZIAN_FOOTER_CLICKS)
-        return redirect(MCKENZIAN_LANDING_URL)
-
     @app.route("/health")
     def health():
         """Fly / DNS liveness — no auth."""
@@ -1091,10 +1080,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             courses=school.search_ontario_courses("", limit=300),
             school_name=SCHOOL_NAME,
             only_live_class_days=school.only_live_class_days(),
-            mckenzian_footer_clicks=int(
-                school.get_school_setting(SETTING_MCKENZIAN_FOOTER_CLICKS, "0")
-                or "0"
-            ),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
