@@ -1121,6 +1121,171 @@ body.staff-shell .ap-score-chip:hover,
 body.staff-shell .ap-action-chip:hover {
   background: #e2e8f0;
 }
+body.staff-shell .ap-score-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.85rem;
+}
+body.staff-shell .ap-oq-profile-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+body.staff-shell .ap-oq-profile-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+body.staff-shell .ap-oq-profile-select {
+  font: inherit;
+  font-size: 0.82rem;
+  max-width: 11rem;
+  padding: 0.2rem 0.35rem;
+}
+body.staff-shell .ap-oq-profiles-link {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #0f766e;
+  white-space: nowrap;
+}
+body.staff-shell .ap-oq-matrix-wrap {
+  width: 100%;
+  overflow: auto;
+  max-height: min(58vh, 36rem);
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  background: #fff;
+}
+body.staff-shell .ap-oq-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  font-size: 0.82rem;
+}
+body.staff-shell .ap-oq-matrix th,
+body.staff-shell .ap-oq-matrix td {
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #eef2f7;
+  padding: 0.28rem 0.35rem;
+  vertical-align: middle;
+  text-align: center;
+}
+body.staff-shell .ap-oq-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  font-weight: 650;
+  min-width: 4.5rem;
+  max-width: 7.5rem;
+}
+body.staff-shell .ap-oq-corner,
+body.staff-shell .ap-oq-who {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #fff;
+  text-align: left;
+  min-width: 9.5rem;
+  max-width: 14rem;
+}
+body.staff-shell .ap-oq-matrix thead .ap-oq-corner {
+  z-index: 4;
+  background: #e2e8f0;
+}
+body.staff-shell .ap-oq-col-label {
+  display: block;
+  line-height: 1.2;
+  white-space: normal;
+  font-size: 0.72rem;
+}
+body.staff-shell .ap-oq-col-pts {
+  display: block;
+  margin-top: 0.15rem;
+  color: #0f766e;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+body.staff-shell .ap-oq-who {
+  background: #f8fafc;
+}
+body.staff-shell .ap-oq-name {
+  display: block;
+  font-weight: 650;
+  color: #0f172a;
+  line-height: 1.25;
+}
+body.staff-shell .ap-oq-pts {
+  display: block;
+  margin-top: 0.1rem;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+body.staff-shell .ap-oq-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6rem;
+  min-height: 2.2rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #0f766e;
+  border-radius: 0.35rem;
+  background: #ecfdf5;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+body.staff-shell .ap-oq-cell:hover {
+  background: #ccfbf1;
+}
+body.staff-shell .ap-oq-cell:active {
+  background: #99f6e4;
+}
+body.staff-shell .ap-profiles-toolbar {
+  margin: 0.75rem 0;
+  align-items: end;
+}
+body.staff-shell .ap-profiles-active-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.75rem;
+  font-weight: 600;
+}
+body.staff-shell .ap-profiles-actions-wrap {
+  margin-top: 0.5rem;
+}
+body.staff-shell .ap-profiles-actions-table input[type="text"],
+body.staff-shell .ap-profiles-actions-table input[type="number"] {
+  width: 100%;
+  min-width: 4rem;
+  font: inherit;
+}
+@media (max-width: 720px) {
+  body.staff-shell .ap-oq-matrix thead th {
+    min-width: 3.6rem;
+    max-width: 5.5rem;
+  }
+  body.staff-shell .ap-oq-corner,
+  body.staff-shell .ap-oq-who {
+    min-width: 7.5rem;
+  }
+  body.staff-shell .ap-oq-cell {
+    min-width: 2.2rem;
+    min-height: 2rem;
+    padding: 0.2rem 0.3rem;
+  }
+}
 body.staff-shell .ap-late-tag {
   display: inline-block;
   margin-left: 0.25rem;

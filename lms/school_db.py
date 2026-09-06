@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS course_offerings (
     archived_at TEXT,
     live_days TEXT,
     live_time TEXT,
+    ap_round_profiles_json TEXT,
     UNIQUE(semester_id, ontario_code, teacher_user_id, section_index)
 );
 
@@ -295,6 +296,8 @@ class LovesDB:
         self.conn.executescript(SCHEMA)
         self._ensure_offering_columns()
         self._ensure_offering_sections()
+        # Section rebuild may recreate course_offerings; re-apply additive columns.
+        self._ensure_offering_columns()
         self._ensure_offering_archived_column()
         self._ensure_offering_schedule_columns()
         self._ensure_library_schema()
@@ -334,6 +337,10 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE course_offerings "
                 "ADD COLUMN section_index INTEGER NOT NULL DEFAULT 1"
+            )
+        if "ap_round_profiles_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE course_offerings ADD COLUMN ap_round_profiles_json TEXT"
             )
 
     def _legacy_offering_unique_index(self) -> str | None:
@@ -392,18 +399,21 @@ class LovesDB:
                     instance_relpath TEXT,
                     library_id INTEGER,
                     section_index INTEGER NOT NULL DEFAULT 1,
+                    ap_round_profiles_json TEXT,
                     UNIQUE(semester_id, ontario_code, teacher_user_id, section_index)
                 );
                 INSERT INTO course_offerings_sections (
                     id, semester_id, ontario_code, teacher_user_id,
                     live_access_code, imscc_path, expectations_status,
                     student_options_json, created_at, copied_from_offering_id,
-                    instance_relpath, library_id, section_index
+                    instance_relpath, library_id, section_index,
+                    ap_round_profiles_json
                 )
                 SELECT id, semester_id, ontario_code, teacher_user_id,
                        live_access_code, imscc_path, expectations_status,
                        student_options_json, created_at, copied_from_offering_id,
-                       instance_relpath, library_id, COALESCE(section_index, 1)
+                       instance_relpath, library_id, COALESCE(section_index, 1),
+                       ap_round_profiles_json
                 FROM course_offerings;
                 DROP TABLE course_offerings;
                 ALTER TABLE course_offerings_sections RENAME TO course_offerings;
@@ -2026,7 +2036,97 @@ class SchoolDB(LovesDB):
                 (library_id, source, int(offering_id)),
             )
             self.conn.commit()
+        offering = self.get_offering(int(offering_id))
+        # New pack attach: re-seed profiles from pack when offering has none yet.
+        if not (offering.get("ap_round_profiles_json") or "").strip():
+            self.ensure_offering_ap_round_profiles(int(offering_id))
         return self.get_offering(int(offering_id))
+
+    def ensure_offering_ap_round_profiles(self, offering_id: int) -> dict[str, Any]:
+        """Return Open Question profiles for an offering, seeding when empty.
+
+        Prefers existing offering JSON, else pack ``ap_round_profiles.json``,
+        else the builtin Default profile.
+
+        Args:
+            offering_id: ``course_offerings.id``.
+
+        Returns:
+            Normalized profiles document.
+        """
+        try:
+            from ap_round_profiles import dump_profiles_json, seed_document_for_offering
+        except ImportError:
+            from lms.ap_round_profiles import (
+                dump_profiles_json,
+                seed_document_for_offering,
+            )
+
+        offering = self.get_offering(int(offering_id))
+        existing = offering.get("ap_round_profiles_json")
+        library_id = offering.get("library_id")
+        data_dir = Path(getattr(self, "data_dir", self.db_path.parent))
+        doc = seed_document_for_offering(
+            data_dir,
+            int(library_id) if library_id else None,
+            existing if isinstance(existing, str) else None,
+        )
+        serialized = dump_profiles_json(doc)
+        if (existing or "").strip() != serialized:
+            with self._lock:
+                self.conn.execute(
+                    """
+                    UPDATE course_offerings
+                    SET ap_round_profiles_json = ?
+                    WHERE id = ?
+                    """,
+                    (serialized, int(offering_id)),
+                )
+                self.conn.commit()
+        return doc
+
+    def get_offering_ap_round_profiles(self, offering_id: int) -> dict[str, Any]:
+        """Load (and seed if needed) AP round action profiles for an offering."""
+        return self.ensure_offering_ap_round_profiles(int(offering_id))
+
+    def set_offering_ap_round_profiles(
+        self, offering_id: int, document: Any
+    ) -> dict[str, Any]:
+        """Validate and persist AP round action profiles on an offering.
+
+        Args:
+            offering_id: ``course_offerings.id``.
+            document: Profiles JSON object (must include ``open`` profiles).
+
+        Returns:
+            Normalized saved document.
+
+        Raises:
+            ValueError: When validation fails.
+            KeyError: Unknown offering.
+        """
+        try:
+            from ap_round_profiles import dump_profiles_json, normalize_profiles_document
+        except ImportError:
+            from lms.ap_round_profiles import (
+                dump_profiles_json,
+                normalize_profiles_document,
+            )
+
+        self.get_offering(int(offering_id))
+        normalized = normalize_profiles_document(document)
+        serialized = dump_profiles_json(normalized)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE course_offerings
+                SET ap_round_profiles_json = ?
+                WHERE id = ?
+                """,
+                (serialized, int(offering_id)),
+            )
+            self.conn.commit()
+        return normalized
 
     def _attach_leftover_or_template(
         self, offering: dict[str, Any]
@@ -2097,6 +2197,7 @@ class SchoolDB(LovesDB):
                 peer_count=len(peers_after),
                 all_peers_have_instance=all(p.get("instance_relpath") for p in peers_after),
             )
+            self.ensure_offering_ap_round_profiles(offering_id)
             return self.get_offering(offering_id)
         course = self.get_course(str(offering["ontario_code"]))
         teacher = self.get_user(int(offering["teacher_user_id"])) or {}
@@ -2141,7 +2242,8 @@ class SchoolDB(LovesDB):
             peer_count=len(peers),
             all_peers_have_instance=all(p.get("instance_relpath") for p in peers_after),
         )
-        return updated
+        self.ensure_offering_ap_round_profiles(offering_id)
+        return self.get_offering(offering_id)
 
     def list_prior_instances(self, ontario_code: str) -> list[dict[str, Any]]:
         """Offerings of this code (any semester, any teacher) for the IT picker.
