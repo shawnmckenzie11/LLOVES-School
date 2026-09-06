@@ -1449,6 +1449,37 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(url_for("it_dashboard", tab="staff"))
 
+    @app.route("/it/staff/<int:staff_id>/delete", methods=["POST"])
+    @it_required
+    def it_staff_delete(staff_id: int):
+        """Permanently delete a staff member and their offerings.
+
+        Frees the email for re-registration. Shared module packs stay. Cannot
+        delete IT accounts or the signed-in actor. Requires ``confirm_email``
+        in the form body to match the staff member's email.
+
+        Returns:
+            Redirect to ``it_dashboard?tab=staff`` on success, or 400 on error.
+        """
+        actor = current_user()
+        actor_id = int(actor["id"]) if actor else 0
+        target = school.get_user(staff_id)
+        confirm = (request.form.get("confirm_email") or "").strip().lower()
+        expected = str((target or {}).get("email") or "").strip().lower()
+        if not target or not expected or confirm != expected:
+            return (
+                render_template(
+                    "forbidden.html",
+                    message="Type the staff email exactly to confirm permanent delete.",
+                ),
+                400,
+            )
+        try:
+            school.delete_staff_permanently(staff_id, actor_id)
+        except ValueError as exc:
+            return render_template("forbidden.html", message=str(exc)), 400
+        return redirect(url_for("it_dashboard", tab="staff"))
+
     @app.route("/it/staff/<int:staff_id>/assign", methods=["GET", "POST"])
     @it_required
     def it_staff_assign(staff_id: int):

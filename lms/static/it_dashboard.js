@@ -337,6 +337,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSettingsTab();
   initPackStatusLines();
   initLiveClassesTab();
+  initPermanentDeleteForms();
 });
 
 /**
@@ -577,6 +578,35 @@ function initLiveClassesTab() {
   });
 
   tick().catch(() => {});
+}
+
+/**
+ * Require typing the staff email, then a browser confirm, before permanent delete.
+ */
+function initPermanentDeleteForms() {
+  document.querySelectorAll("form.it-delete-form").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const expected = String(form.dataset.confirmEmail || "")
+        .trim()
+        .toLowerCase();
+      const input = form.querySelector('input[name="confirm_email"]');
+      const typed = String(input?.value || "")
+        .trim()
+        .toLowerCase();
+      if (!expected || typed !== expected) {
+        event.preventDefault();
+        window.alert(
+          "Type the staff email exactly to confirm permanent delete."
+        );
+        input?.focus();
+        return;
+      }
+      const ok = window.confirm(
+        `Permanently delete ${expected}? This cannot be undone.`
+      );
+      if (!ok) event.preventDefault();
+    });
+  });
 }
 
 /**

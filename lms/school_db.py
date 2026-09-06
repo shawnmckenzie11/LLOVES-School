@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shutil
 import sqlite3
 import threading
 from datetime import date, datetime
@@ -964,6 +965,136 @@ class LovesDB:
             )
             self.conn.commit()
         return self.get_user(user_id) or {}
+
+    def delete_staff_permanently(self, user_id: int, by_user_id: int) -> dict[str, Any]:
+        """Hard-delete a staff user and their offerings / live-class data.
+
+        Frees the email for re-registration. Shared content libraries are kept.
+        Offering instance directories under the data volume are removed when present.
+
+        Args:
+            user_id: Primary key of the staff user to delete.
+            by_user_id: Primary key of the requesting IT user (cannot equal user_id).
+
+        Returns:
+            Snapshot of the deleted user row (before delete).
+
+        Raises:
+            ValueError: Self-delete, IT target, missing user, or non-staff role.
+        """
+        if user_id == by_user_id:
+            raise ValueError("You cannot permanently delete your own account.")
+        target = self.get_user(user_id)
+        if target is None:
+            raise ValueError(f"User {user_id} not found.")
+        if target.get("role") == "it":
+            raise ValueError("IT accounts cannot be permanently deleted.")
+        if target.get("role") != "staff":
+            raise ValueError("Only staff accounts can be permanently deleted.")
+
+        snapshot = dict(target)
+        uid = int(user_id)
+        data_dir = Path(getattr(self, "data_dir", self.db_path.parent))
+
+        with self._lock:
+            offering_rows = self.conn.execute(
+                "SELECT id, instance_relpath FROM course_offerings WHERE teacher_user_id = ?",
+                (uid,),
+            ).fetchall()
+            offering_ids = [int(row["id"]) for row in offering_rows]
+            instance_paths = [
+                str(row["instance_relpath"] or "").strip()
+                for row in offering_rows
+                if str(row["instance_relpath"] or "").strip()
+            ]
+
+            class_ids: list[int] = []
+            has_classes = self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='classes'"
+            ).fetchone()
+            if has_classes:
+                if offering_ids:
+                    placeholders = ",".join("?" * len(offering_ids))
+                    class_rows = self.conn.execute(
+                        f"""
+                        SELECT id FROM classes
+                        WHERE teacher_user_id = ?
+                           OR offering_id IN ({placeholders})
+                        """,
+                        (uid, *offering_ids),
+                    ).fetchall()
+                else:
+                    class_rows = self.conn.execute(
+                        "SELECT id FROM classes WHERE teacher_user_id = ?",
+                        (uid,),
+                    ).fetchall()
+                class_ids = [int(row["id"]) for row in class_rows]
+
+            if offering_ids:
+                placeholders = ",".join("?" * len(offering_ids))
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_class_sessions
+                    WHERE teacher_user_id = ?
+                       OR offering_id IN ({placeholders})
+                    """,
+                    (uid, *offering_ids),
+                )
+            else:
+                self.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE teacher_user_id = ?",
+                    (uid,),
+                )
+
+            if class_ids:
+                placeholders = ",".join("?" * len(class_ids))
+                has_weights = self.conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='grade_category_weights'"
+                ).fetchone()
+                if has_weights:
+                    self.conn.execute(
+                        f"DELETE FROM grade_category_weights WHERE class_id IN ({placeholders})",
+                        class_ids,
+                    )
+                self.conn.execute(
+                    f"DELETE FROM classes WHERE id IN ({placeholders})",
+                    class_ids,
+                )
+            elif has_classes:
+                self.conn.execute(
+                    "DELETE FROM classes WHERE teacher_user_id = ?",
+                    (uid,),
+                )
+
+            if offering_ids:
+                placeholders = ",".join("?" * len(offering_ids))
+                self.conn.execute(
+                    f"""
+                    UPDATE course_offerings
+                    SET copied_from_offering_id = NULL
+                    WHERE copied_from_offering_id IN ({placeholders})
+                    """,
+                    offering_ids,
+                )
+                self.conn.execute(
+                    f"DELETE FROM course_offerings WHERE id IN ({placeholders})",
+                    offering_ids,
+                )
+
+            self.conn.execute("DELETE FROM users WHERE id = ?", (uid,))
+            self.conn.commit()
+
+        for rel in instance_paths:
+            path = (data_dir / rel).resolve()
+            try:
+                path.relative_to(data_dir.resolve())
+            except ValueError:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+
+        return snapshot
 
     def rename_staff(self, user_id: int, display_name: str) -> dict[str, Any]:
         """Update display_name for any non-IT user.

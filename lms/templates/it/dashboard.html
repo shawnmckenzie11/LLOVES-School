@@ -108,6 +108,31 @@
                       <button type="submit" class="btn secondary">Reactivate</button>
                     </form>
                     {% endif %}
+
+                    {% if person.id != user.id %}
+                    <details class="it-action-details delete-details">
+                      <summary class="btn danger">Permanently delete</summary>
+                      <form method="post"
+                            action="/it/staff/{{ person.id }}/delete"
+                            class="it-inline-form it-delete-form"
+                            data-confirm-email="{{ person.email }}">
+                        <p class="it-delete-warn">
+                          This cannot be undone. Removes their account and course offerings
+                          so the email can be re-added. Shared module packs are kept.
+                        </p>
+                        <label class="it-delete-label">
+                          Type <strong>{{ person.email }}</strong> to confirm
+                          <input type="text"
+                                 name="confirm_email"
+                                 autocomplete="off"
+                                 spellcheck="false"
+                                 placeholder="{{ person.email }}"
+                                 required>
+                        </label>
+                        <button type="submit" class="btn danger">Confirm permanent delete</button>
+                      </form>
+                    </details>
+                    {% endif %}
                   </div>
                   {% else %}
                   <span class="hint">—</span>

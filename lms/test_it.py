@@ -520,6 +520,54 @@ class ItTests(unittest.TestCase):
         self.assertEqual(first["library_id"], second["library_id"])
         self.assertEqual(list(Path(self.school.data_dir).rglob("*.imscc")), [])
 
+    def test_permanent_delete_removes_staff_and_frees_email(self) -> None:
+        """IT can hard-delete staff so the same email can be registered again."""
+        self._login_it()
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("stuck@gmail.com", "Stuck Teacher")
+        tid = int(teacher["id"])
+        offering = self.school.assign_course(
+            teacher_user_id=tid, ontario_code="MCF3M"
+        )
+        offering_id = int(offering["id"])
+        instance = Path(self.school.data_dir) / offering["instance_relpath"]
+        instance.mkdir(parents=True, exist_ok=True)
+        (instance / "marker.txt").write_text("x", encoding="utf-8")
+
+        rv = self.client.post(f"/it/staff/{tid}/delete", follow_redirects=False)
+        self.assertEqual(rv.status_code, 400)
+        self.assertIsNotNone(self.school.get_user(tid))
+
+        rv = self.client.post(
+            f"/it/staff/{tid}/delete",
+            data={"confirm_email": "stuck@gmail.com"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 302)
+        self.assertIsNone(self.school.get_user(tid))
+        self.assertIsNone(self.school.get_user_by_email("stuck@gmail.com"))
+        with self.assertRaises(KeyError):
+            self.school.get_offering(offering_id)
+        self.assertFalse(instance.exists())
+
+        again = self.school.register_staff("stuck@gmail.com", "Fresh")
+        self.assertEqual(again["email"], "stuck@gmail.com")
+        self.assertIsNone(again.get("verified_at"))
+        self.assertIsNone(again.get("archived_at"))
+
+    def test_permanent_delete_blocks_self_and_it(self) -> None:
+        """Cannot permanently delete yourself or an IT account."""
+        self._login_it()
+        it_user = self.school.get_user_by_email("solutions@mckenzian.com")
+        assert it_user is not None
+        rv = self.client.post(
+            f"/it/staff/{int(it_user['id'])}/delete", follow_redirects=True
+        )
+        self.assertEqual(rv.status_code, 400)
+        self.assertIsNotNone(
+            self.school.get_user_by_email("solutions@mckenzian.com")
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -272,6 +272,27 @@ body.it-dashboard .it-inline-form {
   min-width: 14rem;
 }
 body.it-dashboard .it-inline-form input { width: auto; flex: 1; min-width: 8rem; }
+body.it-dashboard .it-delete-form {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 18rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(185, 28, 28, 0.35);
+  border-radius: 8px;
+  background: rgba(185, 28, 28, 0.06);
+}
+body.it-dashboard .it-delete-warn {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #7f1d1d;
+}
+body.it-dashboard .it-delete-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+}
 body.it-dashboard .history-body { margin-top: 0.5rem; max-width: 22rem; }
 body.it-dashboard .filter-row {
   display: flex;
