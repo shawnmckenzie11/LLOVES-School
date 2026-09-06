@@ -62,7 +62,7 @@ from auth import (  # noqa: E402
     student_required,
 )
 from curriculum import seed_curriculum  # noqa: E402
-from school_db import SchoolDB  # noqa: E402
+from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -1196,6 +1196,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             courses=school.search_ontario_courses("", limit=300),
             school_name=SCHOOL_NAME,
             only_live_class_days=school.only_live_class_days(),
+            staff_2fa_mode=school.staff_2fa_mode(),
+            staff_2fa_modes=STAFF_2FA_MODE_LABELS,
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -1269,20 +1271,43 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 {
                     "ok": True,
                     "only_live_class_days": school.only_live_class_days(),
+                    "staff_2fa_mode": school.staff_2fa_mode(),
                 }
             )
         body = request.get_json(silent=True) or {}
         enabled = body.get("only_live_class_days")
-        if enabled is None:
-            return jsonify({"ok": False, "error": "only_live_class_days is required"}), 400
-        flag = bool(enabled) if not isinstance(enabled, str) else enabled.strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        school.set_only_live_class_days(flag)
-        return jsonify({"ok": True, "only_live_class_days": school.only_live_class_days()})
+        mode_raw = body.get("staff_2fa_mode")
+        if enabled is None and mode_raw is None:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "only_live_class_days or staff_2fa_mode is required",
+                }
+            ), 400
+        if enabled is not None:
+            flag = (
+                bool(enabled)
+                if not isinstance(enabled, str)
+                else enabled.strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                }
+            )
+            school.set_only_live_class_days(flag)
+        if mode_raw is not None:
+            try:
+                school.set_staff_2fa_mode(str(mode_raw))
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(
+            {
+                "ok": True,
+                "only_live_class_days": school.only_live_class_days(),
+                "staff_2fa_mode": school.staff_2fa_mode(),
+            }
+        )
 
     @app.route("/api/it/live-sessions/<int:session_id>/end", methods=["POST"])
     @it_required

@@ -397,6 +397,9 @@ body.it-dashboard .it-setting-check input {
   width: auto;
   margin-top: 0.2rem;
 }
+body.it-dashboard #tab-settings select {
+  max-width: 28rem;
+}
 
 .pack-progress {
   margin: 0.75rem 0 0.25rem;

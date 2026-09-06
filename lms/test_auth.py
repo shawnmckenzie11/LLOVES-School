@@ -31,6 +31,7 @@ class AuthTests(unittest.TestCase):
             key: os.environ.get(key)
             for key in (
                 "FLASK_ENV",
+                "REQUIRE_PRIVILEGED_MFA",
                 "RESEND_API_KEY",
                 "SMTP_SERVER",
                 "SMTP_USERNAME",
@@ -174,6 +175,56 @@ class AuthTests(unittest.TestCase):
         second = self._callback("teacher@gmail.com", "staff")
         self.assertEqual(second.status_code, 302)
         self.assertIn("/staff", second.headers.get("Location", ""))
+
+    def test_production_no_longer_forces_every_sign_in_2fa(self) -> None:
+        """FLASK_ENV=production uses the first-login default unless Admin changes it."""
+        os.environ["FLASK_ENV"] = "production"
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        second = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/staff", second.headers.get("Location", ""))
+
+    def test_every_sign_in_2fa_mode_emails_each_google_login(self) -> None:
+        """Admin 'Every sign in' re-sends Resend 2SV after logout."""
+        self.school.set_staff_2fa_mode("every_sign_in")
+        self.school.register_staff("teacher@gmail.com")
+        with patch("email_service.send_verification_email", return_value=True):
+            self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            second = self._callback("teacher@gmail.com", "staff")
+            mocked.assert_called_once()
+        self.assertIn("/verify-email", second.headers.get("Location", ""))
+
+    def test_daily_2fa_skips_same_day_and_requires_next_day(self) -> None:
+        """Daily mode asks for a code once per America/Toronto calendar day."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        self.school.set_staff_2fa_mode("daily")
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        same = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/staff", same.headers.get("Location", ""))
+        self.client.get("/logout")
+        yesterday = (
+            datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=1)
+        ).replace(tzinfo=None).isoformat(timespec="seconds")
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE users SET last_login_at = ? WHERE email = ?",
+                (yesterday, "teacher@gmail.com"),
+            )
+            self.school.conn.commit()
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            next_day = self._callback("teacher@gmail.com", "staff")
+            mocked.assert_called_once()
+        self.assertIn("/verify-email", next_day.headers.get("Location", ""))
 
     def test_unverified_login_retries_do_not_resend_email(self) -> None:
         """Repeated Google callbacks reuse the same code instead of bursting Resend."""

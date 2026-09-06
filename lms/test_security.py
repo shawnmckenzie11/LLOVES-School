@@ -132,8 +132,8 @@ class SecurityTests(unittest.TestCase):
         self._login(self.client, "a@gmail.com")
         self.assertEqual(self.client.get(f"/staff/class/{cls['id']}").status_code, 403)
 
-    def test_production_requires_mfa_every_staff_login(self) -> None:
-        """FLASK_ENV=production cannot skip email 2SV on later Google logins."""
+    def test_production_defaults_to_first_login_2fa(self) -> None:
+        """FLASK_ENV=production no longer emails a code on every later Google login."""
         os.environ["FLASK_ENV"] = "production"
         self.school.register_staff("mfa@gmail.com")
         client = self.app.test_client()
@@ -149,6 +149,22 @@ class SecurityTests(unittest.TestCase):
         second = client.get("/auth/google?portal=staff")
         second = client.get("/auth/google/callback?email=mfa@gmail.com&name=T")
         self.assertEqual(second.status_code, 302)
+        self.assertIn("/staff", second.headers.get("Location", ""))
+
+    def test_every_sign_in_mode_still_requires_mfa(self) -> None:
+        """Admin every-sign-in cadence still blocks skip-2SV Google returns."""
+        self.school.set_staff_2fa_mode("every_sign_in")
+        self.school.register_staff("mfa@gmail.com")
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        first = client.get("/auth/google/callback?email=mfa@gmail.com&name=T")
+        self.assertIn("/verify-email", first.headers.get("Location", ""))
+        user = self.school.get_user_by_email("mfa@gmail.com")
+        assert user is not None
+        client.post("/verify-email", data={"code": user["verification_code"]})
+        client.get("/logout")
+        client.get("/auth/google?portal=staff")
+        second = client.get("/auth/google/callback?email=mfa@gmail.com&name=T")
         self.assertIn("/verify-email", second.headers.get("Location", ""))
         self.assertNotIn("/staff", second.headers.get("Location", ""))
 

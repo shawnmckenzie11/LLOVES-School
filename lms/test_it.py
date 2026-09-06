@@ -335,11 +335,14 @@ class ItTests(unittest.TestCase):
         html = dash.get_data(as_text=True)
         self.assertIn("tab-settings", html)
         self.assertIn("only-live-class-days", html)
+        self.assertIn("staff-2fa-mode", html)
+        self.assertIn("Only on first log in", html)
         self.assertIn("it-wrap", html)
         self.assertIn("it-dashboard", html)
         self.assertIn("Today · ", html)
         before = self.client.get("/api/it/settings").get_json()
         self.assertFalse(before["only_live_class_days"])
+        self.assertEqual(before["staff_2fa_mode"], "first_login")
         updated = self.client.post(
             "/api/it/settings",
             json={"only_live_class_days": True},
@@ -347,7 +350,23 @@ class ItTests(unittest.TestCase):
         self.assertEqual(updated.status_code, 200)
         self.assertTrue(updated.get_json()["only_live_class_days"])
         self.assertTrue(self.school.only_live_class_days())
+        twofa = self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "daily"},
+        )
+        self.assertEqual(twofa.status_code, 200)
+        self.assertEqual(twofa.get_json()["staff_2fa_mode"], "daily")
+        self.assertEqual(self.school.staff_2fa_mode(), "daily")
+        bad = self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "never"},
+        )
+        self.assertEqual(bad.status_code, 400)
         self.client.post("/api/it/settings", json={"only_live_class_days": False})
+        self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "first_login"},
+        )
 
     def test_syllabus_editor_needs_imscc_gracefully(self) -> None:
         """Editor route does not crash when the teacher has a class."""
