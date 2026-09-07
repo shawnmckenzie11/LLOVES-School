@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from db import STUDENT_CHARACTERS, STUDENT_MOODS
+from db import STUDENT_CHARACTERS
+
+# Faces shown on /student/mood (one row). Other stored mood keys stay valid in the DB.
+CHECKIN_MOODS = ("good", "ok", "low")
 
 MOOD_LABELS = {
     "good": "Good",
@@ -263,5 +266,5 @@ def character_choices() -> list[dict[str, str]]:
 
 
 def mood_choices() -> list[dict[str, str]]:
-    """Mood faces for the optional check-in screen."""
-    return [{"key": key, "label": MOOD_LABELS[key]} for key in STUDENT_MOODS]
+    """Top-row mood faces for the check-in screen (good / okay / not great)."""
+    return [{"key": key, "label": MOOD_LABELS[key]} for key in CHECKIN_MOODS]

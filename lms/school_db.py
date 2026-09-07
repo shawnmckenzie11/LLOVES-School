@@ -4943,8 +4943,8 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Upsert a student into the live session roster (join / rejoin).
 
-        Mints a fresh opaque ``visit_token`` on every join so bookmarkable
-        ``/student/s/<token>`` URLs stay tied to this visit.
+        Refuses a second join while this student is still present (``left_at``
+        is null). After they leave, a new visit token is minted.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -4956,6 +4956,7 @@ class SchoolDB(LovesDB):
 
         Raises:
             KeyError: If the session does not exist or is not active.
+            ValueError: If this roster name is already signed in to the session.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
@@ -4965,14 +4966,11 @@ class SchoolDB(LovesDB):
         name = (codename or "").strip()
         now = _now()
         existing = self.get_live_session_attendee(session_id, student_id)
-        if (
-            existing
-            and not existing.get("left_at")
-            and (existing.get("visit_token") or "").strip()
-        ):
-            visit_token = str(existing["visit_token"]).strip()
-        else:
-            visit_token = secrets.token_urlsafe(24)
+        if existing and not existing.get("left_at"):
+            raise ValueError(
+                "This name is already signed in to the live class."
+            )
+        visit_token = secrets.token_urlsafe(24)
         with self._lock:
             self.conn.execute(
                 """
@@ -5694,6 +5692,7 @@ class SchoolDB(LovesDB):
 
         Raises:
             KeyError: If the session does not exist or is not active.
+            ValueError: If this roster name is already signed in to the session.
         """
         attendee = self.record_live_session_attendee(
             session_id, student_id, codename=codename

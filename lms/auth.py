@@ -1063,11 +1063,19 @@ def register_auth_routes(app: Flask) -> None:
         if offering is None:
             return _fail(mismatch_msg)
 
-        join_result = db.join_live_class_session(
-            int(live_session["id"]),
-            int(student["id"]),
-            codename=str(student.get("codename") or name),
-        )
+        try:
+            join_result = db.join_live_class_session(
+                int(live_session["id"]),
+                int(student["id"]),
+                codename=str(student.get("codename") or name),
+            )
+        except ValueError as exc:
+            msg = str(exc) or "This name is already signed in to the live class."
+            if request.is_json:
+                return jsonify({"ok": False, "error": msg}), 409
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=msg)
+            ), 409
         db.clear_recent_code_attempts(ip)
         try:
             db.record_access_event(

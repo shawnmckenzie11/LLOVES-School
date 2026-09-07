@@ -97,6 +97,18 @@ class StudentPortalTests(unittest.TestCase):
         mood_html = mood_page.get_data(as_text=True)
         self.assertIn("Join Class", mood_html)
         self.assertNotIn("Choose your character", mood_html)
+        self.assertNotIn("Optional — pick a face", mood_html)
+        self.assertNotIn("mood-label", mood_html)
+        self.assertEqual(mood_html.count('name="mood"'), 3)
+        self.assertIn('value="good"', mood_html)
+        self.assertIn('value="ok"', mood_html)
+        self.assertIn('value="low"', mood_html)
+        self.assertNotIn('value="tired"', mood_html)
+        self.assertNotIn("Energetic", mood_html)
+        self.assertIn("/static/mood/good.svg", mood_html)
+        self.assertIn("/static/mood/ok.svg", mood_html)
+        self.assertIn("/static/mood/low.svg", mood_html)
+        self.assertNotIn("😊", mood_html)
 
         mood = self.student.post("/student/mood", data={"mood": "good"}, follow_redirects=False)
         self.assertEqual(mood.status_code, 302)
@@ -322,23 +334,59 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(aspen_state_after.status_code, 200)
         self.assertEqual(aspen_state_after.get_json()["me"]["codename"], "Aspen")
 
-    def test_rejoin_preserves_visit_token(self) -> None:
-        """Rejoining while still active keeps the same opaque visit token."""
-        self.student.post(
+    def test_second_join_same_name_rejected(self) -> None:
+        """A name already present in the live class cannot sign in again."""
+        first = self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
-        first = self.school.list_live_session_attendees(self.live_session_id)[0]
-        first_token = str(first["visit_token"])
+        self.assertEqual(first.status_code, 302)
+        attendees = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(attendees), 1)
+        first_token = str(attendees[0]["visit_token"])
 
+        other = self.app.test_client()
+        second = other.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(second.status_code, 409)
+        self.assertIn("already signed in", second.get_data(as_text=True).lower())
+        still = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(still), 1)
+        self.assertEqual(str(still[0]["visit_token"]), first_token)
+
+    def test_rejoin_after_leave_allowed(self) -> None:
+        """After leaving, the same name may join the live class again."""
         self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
-        second = self.school.list_live_session_attendees(self.live_session_id)[0]
-        self.assertEqual(str(second["visit_token"]), first_token)
+        first_token = str(
+            self.school.list_live_session_attendees(self.live_session_id)[0][
+                "visit_token"
+            ]
+        )
+        leave = self.student.post("/api/student/leave")
+        self.assertEqual(leave.status_code, 204)
+        again = self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(again.status_code, 302)
+        second = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(str(second[0]["visit_token"]), first_token)
 
 
 if __name__ == "__main__":
