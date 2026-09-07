@@ -24,13 +24,14 @@
       <button class="it-tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
       <button class="it-tab-btn" data-tab="live-problems" role="tab" aria-selected="false">Live problems</button>
       <button class="it-tab-btn" data-tab="quick-phrases" role="tab" aria-selected="false">Quick phrases</button>
+      <button class="it-tab-btn" data-tab="audit" role="tab" aria-selected="false">Audit</button>
     </div>
 
     <div class="it-tab-panel" id="tab-staff" role="tabpanel">
 
       <section class="card">
         <h2>Add staff</h2>
-        <p class="hint">Personal Google accounts only. They stay pending until first login + email code.</p>
+        <p class="hint">Personal Google accounts only. Production requires an email code on every staff/admin sign-in.</p>
         <form method="post" action="{{ url_for('it_register_staff') }}" class="it-add-staff">
           <div class="it-add-staff-fields">
             <div>
@@ -45,6 +46,43 @@
           <div class="row-actions"><button type="submit">Add staff</button></div>
         </form>
       </section>
+
+      {% if access_requests %}
+      <section class="card">
+        <h2>Access requests</h2>
+        <p class="hint">Public signup requests. Reviewing does not create an account — add them under Add staff if you approve.</p>
+        <div class="it-table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>School or family</th>
+                <th>Context</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in access_requests %}
+              <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.email }}</td>
+                <td>{{ item.role }}</td>
+                <td>{{ item.organization or "—" }}</td>
+                <td>{{ item.context }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('it_review_access_request', request_id=item.id) }}">
+                    <button type="submit" class="btn secondary">Mark reviewed</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
 
       <section class="card it-staff-card">
         <div class="it-section-head">
@@ -109,6 +147,31 @@
                     <form method="post" action="/it/staff/{{ person.id }}/reactivate" class="it-action-form">
                       <button type="submit" class="btn secondary">Reactivate</button>
                     </form>
+                    {% endif %}
+
+                    {% if person.id != user.id %}
+                    <details class="it-action-details delete-details">
+                      <summary class="btn danger">Permanently delete</summary>
+                      <form method="post"
+                            action="/it/staff/{{ person.id }}/delete"
+                            class="it-inline-form it-delete-form"
+                            data-confirm-email="{{ person.email }}">
+                        <p class="it-delete-warn">
+                          This cannot be undone. Removes their account and course offerings
+                          so the email can be re-added. Shared module packs are kept.
+                        </p>
+                        <label class="it-delete-label">
+                          Type <strong>{{ person.email }}</strong> to confirm
+                          <input type="text"
+                                 name="confirm_email"
+                                 autocomplete="off"
+                                 spellcheck="false"
+                                 placeholder="{{ person.email }}"
+                                 required>
+                        </label>
+                        <button type="submit" class="btn danger">Confirm permanent delete</button>
+                      </form>
+                    </details>
                     {% endif %}
                   </div>
                   {% else %}
@@ -293,6 +356,57 @@
           </span>
         </label>
         <p id="settings-status" class="hint" aria-live="polite"></p>
+      </section>
+      <section class="card">
+        <h2>Sign-in verification</h2>
+        <p class="hint">Use 2FA with Resend to verify staff and admin sign in. Default is first login so Resend is not used on every Google return.</p>
+        <label class="field" for="staff-2fa-mode">Use 2FA with Resend to verify staff and admin sign in</label>
+        <select id="staff-2fa-mode" data-saved="{{ staff_2fa_mode }}">
+          {% for value, label in staff_2fa_modes.items() %}
+          <option value="{{ value }}" {% if staff_2fa_mode == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </section>
+      <section class="card">
+        <h2>Curriculum dump (internal)</h2>
+        <p class="hint">Specific expectations extracted from the Grades 11–12 math PDF. Author and review in Drive course folders; question banks stay in Drive <code>banks/</code> (ingest to the LMS library for class-time Build). Nothing of that payload belongs in git.</p>
+        <p class="row-actions">
+          <a class="btn secondary" href="{{ url_for('it_curriculum_expectations') }}">Math 11–12 specifics</a>
+        </p>
+      </section>
+    </div>
+
+    <div class="it-tab-panel" id="tab-audit" role="tabpanel" hidden>
+      <section class="card">
+        <h2>Access audit</h2>
+        <p class="hint">Staff/IT views of student records and admin actions in this school. Export for Ministry-style requests. This is an operational log, not a legal certification.</p>
+        <p class="row-actions"><a class="btn" href="{{ url_for('it_audit_csv') }}">Download CSV</a></p>
+        <div class="it-table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>IP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in audit_events or [] %}
+              <tr>
+                <td>{{ event.created_at }}</td>
+                <td>{{ event.actor_email or event.actor_role }}</td>
+                <td>{{ event.action }}</td>
+                <td>{{ event.resource_type }} {{ event.resource_id or "" }}</td>
+                <td>{{ event.ip or "—" }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5">No events yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
 

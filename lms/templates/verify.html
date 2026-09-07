@@ -8,12 +8,16 @@
 </head>
 <body>
   <div class="wrap" style="max-width:28rem">
-    <p class="kicker">First login</p>
+    <p class="kicker">{% if session_mfa %}Sign-in verification{% else %}First login{% endif %}</p>
     <h1>Check your email</h1>
-    {% if email_configured %}
-    <p class="sub">We sent a 6-digit code to <strong>{{ email }}</strong>. You will only need this once.</p>
+    {% if session_mfa and staff_2fa_mode == "daily" %}
+    <p class="sub">We sent a 6-digit code to <strong>{{ email }}</strong>. Staff and admin verify the first sign-in of each school day.</p>
+    {% elif session_mfa %}
+    <p class="sub">We sent a 6-digit code to <strong>{{ email }}</strong>. Staff and admin must verify every sign-in that can see student records.</p>
+    {% elif email_configured %}
+    <p class="sub">We sent a 6-digit code to <strong>{{ email }}</strong>. You will only need this once on this development server.</p>
     {% else %}
-    <p class="sub">Enter the 6-digit code for <strong>{{ email }}</strong>. You will only need this once.</p>
+    <p class="sub">Enter the 6-digit code for <strong>{{ email }}</strong>. You will only need this once on this development server.</p>
     {% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     {% if info %}<p>{{ info }}</p>{% endif %}

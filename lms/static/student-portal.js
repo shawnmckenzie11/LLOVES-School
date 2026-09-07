@@ -12,6 +12,19 @@ const body = document.body;
 /** @type {number | null} */
 let lastPromptId = null;
 
+/** Open Question waiting copy shown on the Phone during that round. */
+const OPEN_QUESTION_WAIT_HTML = `
+  <div class="student-wait-copy">
+    <p>Use this time to ask any questions you have to make sure you're clear on the key ideas and skills from the module. Your questions could be about:</p>
+    <ul>
+      <li>module lessons you've completed independently</li>
+      <li>team challenge questions from past classes</li>
+      <li>formatives or my feedback on past questions you've attempted</li>
+    </ul>
+    <p>Honest, relevant questions about the math or the problem solving process earn points for you — and your team — by showing that you've made an effort to understand. Bonus points for answering peers' questions or asking ones when you don't normally speak up!</p>
+  </div>
+`;
+
 /**
  * Fetch init with per-tab visit token header when available.
  * @param {RequestInit} [init]
@@ -54,14 +67,13 @@ function paintMe(payload) {
   const me = payload.me || {};
   const rankLine =
     payload.show_rank && me.rank
-      ? `<p class="me-stat me-rank">Rank <strong>${me.rank}</strong>${me.rank_of ? ` / ${me.rank_of}` : ""}</p>`
+      ? `<p class="me-stat me-rank"><span class="me-stat-label">Rank</span><strong>${me.rank}</strong>${me.rank_of ? ` <span class="me-stat-of">/ ${me.rank_of}</span>` : ""}</p>`
       : "";
   meEl.innerHTML = `
-    <p class="me-kicker">You</p>
-    <p class="me-name">${escapeText(me.codename || "You")}</p>
+    <p class="me-name">${escapeText(me.codename || "Student")}</p>
     <div class="me-stats">
-      <p class="me-stat">My points <strong>${escapeText(pts(me.points))}</strong></p>
-      <p class="me-stat">Team ${escapeText(me.team_name || "—")} <strong>${escapeText(pts(me.team_points))}</strong></p>
+      <p class="me-stat"><span class="me-stat-label">My points</span><strong>${escapeText(pts(me.points))}</strong></p>
+      <p class="me-stat"><span class="me-stat-label">${escapeText(me.team_name || "Team")}</span><strong>${escapeText(pts(me.team_points))}</strong></p>
       ${rankLine}
     </div>
   `;
@@ -77,7 +89,7 @@ function paintBoard(payload) {
   const sb = payload.scoreboard || {};
   const teams = sb.teams || [];
   if (!teams.length) {
-    boardEl.innerHTML = `<p class="sb-idle">${sb.live ? "Scores coming…" : "Scoreboard idle"}</p>`;
+    boardEl.innerHTML = "";
     return;
   }
   boardEl.innerHTML = `
@@ -123,6 +135,25 @@ function escapeText(value) {
 }
 
 /**
+ * Waiting / guidance copy for the live response shell.
+ * @param {any} payload
+ * @returns {{html?: string, text?: string}}
+ */
+function waitCopyFor(payload) {
+  if (!payload.scoring) {
+    return { text: "Waiting for your teacher to start scoring." };
+  }
+  const kind = String(payload.round_kind || "").toLowerCase();
+  if (kind === "break") {
+    return { text: "Scoring paused" };
+  }
+  if (kind === "open") {
+    return { html: OPEN_QUESTION_WAIT_HTML };
+  }
+  return { text: "Waiting for the next question…" };
+}
+
+/**
  * Apply live vs waiting layout for the response shell chrome.
  * @param {any} payload
  */
@@ -134,11 +165,19 @@ function applyLayout(payload) {
     if (hasPrompt) {
       waitEl.hidden = true;
       waitEl.textContent = "";
+      waitEl.innerHTML = "";
     } else {
       waitEl.hidden = false;
-      waitEl.textContent = live
-        ? "Waiting for the next question…"
-        : "Waiting for your teacher to start scoring.";
+      const copy = waitCopyFor(payload);
+      waitEl.classList.remove("is-paused", "is-plain");
+      if (copy.html) {
+        waitEl.innerHTML = copy.html;
+      } else {
+        waitEl.textContent = copy.text || "";
+        const kind = String(payload.round_kind || "").toLowerCase();
+        if (kind === "break") waitEl.classList.add("is-paused");
+        else if (payload.scoring) waitEl.classList.add("is-plain");
+      }
     }
   }
 }

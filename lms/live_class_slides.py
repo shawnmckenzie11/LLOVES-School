@@ -26,6 +26,45 @@ from paths import MCF3M_EXPECTATIONS
 SLIDE_TITLES = ("Intro", "Open Question", "Team Breakout", "Consolidation")
 
 
+def is_mock_presentation(
+    presentation_id: str | None, presentation_url: str | None = None
+) -> bool:
+    """True when the stored deck is the local HTML mock, not a Google file.
+
+    Args:
+        presentation_id: Stored id (``mock-…`` for HTML).
+        presentation_url: Stored open URL.
+    """
+    pid = str(presentation_id or "")
+    url = str(presentation_url or "")
+    return pid.startswith("mock-") or url.endswith(".html")
+
+
+def should_reuse_stored_deck(
+    *,
+    presentation_id: str | None,
+    presentation_url: str | None = None,
+    force_regenerate: bool,
+    use_mock: bool,
+) -> bool:
+    """Whether Create Lesson Slides should skip Drive copy and reopen the file.
+
+    Mock HTML ids are not reused when this process is talking to Google, so a
+    leftover localhost preview cannot block the first real copy.
+
+    Args:
+        presentation_id: Id on ``live_class_sessions``.
+        presentation_url: Open URL on that session.
+        force_regenerate: Staff clicked Regenerating slides.
+        use_mock: Tests / mock refresh token — keep HTML decks.
+    """
+    if force_regenerate or not str(presentation_id or "").strip():
+        return False
+    if use_mock:
+        return True
+    return not is_mock_presentation(presentation_id, presentation_url)
+
+
 def mock_slides_enabled() -> bool:
     """True when decks should be local HTML instead of Google Slides.
 
@@ -42,29 +81,180 @@ def mock_slides_enabled() -> bool:
     return False
 
 
-def strand_from_module(title: str | None, module_number: int | None) -> str:
-    """Guess MCF3M strand letter from a module title or number.
+def _ontario_course_code(course_code: str | None) -> str:
+    """Normalize an Ontario course code for cache paths.
+
+    Args:
+        course_code: Raw offering code (e.g. ``MCF3M``).
+    """
+    return "".join(ch for ch in (course_code or "").upper() if ch.isalnum())
+
+
+def _strand_letter(value: Any) -> str:
+    """Return a single A–E letter from a map field, or empty.
+
+    Args:
+        value: Strand letter or longer label starting with that letter.
+    """
+    letter = str(value or "").strip().upper()[:1]
+    return letter if letter.isalpha() else ""
+
+
+def _load_module_strand_map(
+    course_code: str,
+    cache_root: Path | None = None,
+) -> dict[str, Any] | None:
+    """Read ``{CODE}/module-strand-map.json`` from the local curriculum cache.
+
+    Args:
+        course_code: Normalized Ontario course code.
+        cache_root: Override of ``.local-data/curriculum`` (tests).
+    """
+    if not course_code:
+        return None
+    try:
+        from math_expectations_pdf import default_local_dest
+    except ImportError:
+        from lms.math_expectations_pdf import default_local_dest
+    root = cache_root if cache_root is not None else default_local_dest()
+    path = Path(root) / course_code / "module-strand-map.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _strand_from_module_map(
+    payload: dict[str, Any],
+    module_number: int,
+) -> str:
+    """Resolve ``modules[].module_number`` → ``strand`` (and dict / specifics).
+
+    Args:
+        payload: ``module-strand-map.json`` object.
+        module_number: 1-based ELC module outline position.
+    """
+    modules = payload.get("modules")
+    if isinstance(modules, list):
+        for row in modules:
+            if not isinstance(row, dict):
+                continue
+            num = int(row.get("module_number") or row.get("module") or 0)
+            if num != module_number:
+                continue
+            letter = _strand_letter(row.get("strand"))
+            if letter:
+                return letter
+    elif isinstance(modules, dict):
+        for key in (str(module_number), f"M{module_number}", module_number):
+            if key not in modules:
+                continue
+            val = modules[key]
+            if isinstance(val, dict):
+                letter = _strand_letter(val.get("strand"))
+            else:
+                letter = _strand_letter(val)
+            if letter:
+                return letter
+    letters: set[str] = set()
+    for field in ("specifics", "items"):
+        rows = payload.get(field)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            raw_mods = row.get("module_numbers") or row.get("modules") or []
+            if isinstance(raw_mods, int):
+                raw_mods = [raw_mods]
+            if not isinstance(raw_mods, list):
+                continue
+            nums: set[int] = set()
+            for n in raw_mods:
+                try:
+                    nums.add(int(n))
+                except (TypeError, ValueError):
+                    continue
+            if module_number not in nums:
+                continue
+            letter = _strand_letter(row.get("strand") or str(row.get("code") or ""))
+            if letter:
+                letters.add(letter)
+    if len(letters) == 1:
+        return next(iter(letters))
+    return ""
+
+
+def _elc_pack_strand(course_code: str, module_number: int) -> str:
+    """Documented numeric fallback when title keywords and the map are silent.
+
+    ELC MCF3M (Functions and Applications) packing — not Ministry strand order:
+
+    * M1–M4 quadratic → ``A``
+    * M5–M6 trig / sinusoidal → ``C``
+    * M7–M8 exponential / finance → ``B``
+
+    MCR3U uses the same ``module-strand-map.json`` contract. Without a map or
+    title keywords, MCR3U (and other codes) default to ``A`` so we do not
+    invent a packing.
+
+    Args:
+        course_code: Normalized Ontario course code (empty treated as MCF3M).
+        module_number: 1-based module outline position.
+    """
+    code = course_code or "MCF3M"
+    if code == "MCF3M":
+        if module_number <= 4:
+            return "A"
+        if module_number <= 6:
+            return "C"
+        return "B"
+    return "A"
+
+
+def strand_from_module(
+    title: str | None,
+    module_number: int | None,
+    course_code: str | None = None,
+    *,
+    cache_root: Path | None = None,
+) -> str:
+    """Guess strand letter from title keywords, then the local module map.
+
+    Order: distinctive title keywords; then
+    ``.local-data/curriculum/{CODE}/module-strand-map.json``
+    (``modules[].module_number`` → ``strand``) for MCF3M and MCR3U; then the
+    documented ELC numeric fallback. Does not invent expectation wording.
 
     Args:
         title: Module outline title.
         module_number: 1-based module index when known.
+        course_code: Ontario course code (``MCF3M``, ``MCR3U``, …).
+        cache_root: Optional ``.local-data/curriculum`` override (tests).
 
     Returns:
         ``A``, ``B``, or ``C`` (default ``A``).
     """
-    blob = f"{title or ''} {module_number or ''}".lower()
+    blob = str(title or "").lower()
     if any(word in blob for word in ("exponential", "finance", "interest", "strand b")):
         return "B"
-    if any(word in blob for word in ("sine", "trig", "periodic", "strand c")):
+    if any(
+        word in blob
+        for word in ("sine", "trig", "periodic", "sinusoidal", "strand c")
+    ):
         return "C"
     if any(word in blob for word in ("quadratic", "strand a")):
         return "A"
+    code = _ontario_course_code(course_code)
     if module_number is not None:
-        if module_number <= 3:
-            return "A"
-        if module_number <= 6:
-            return "B"
-        return "C"
+        mapped = ""
+        payload = _load_module_strand_map(code, cache_root=cache_root)
+        if payload is not None:
+            mapped = _strand_from_module_map(payload, int(module_number))
+        if mapped:
+            return mapped
+        return _elc_pack_strand(code, int(module_number))
     return "A"
 
 
@@ -73,6 +263,7 @@ def build_timeline(
     meeting: date,
     placements: dict[str, dict[str, Any]],
     module_titles: dict[int, str],
+    course_code: str | None = None,
 ) -> dict[str, Any]:
     """Compute Live Class Y of N and so-far / by-the-end copy.
 
@@ -80,6 +271,7 @@ def build_timeline(
         meeting: Class date.
         placements: ISO date → ``{module, live, assessment_kind, lesson}``.
         module_titles: Module number → title.
+        course_code: Ontario course code for strand map / ELC pack fallback.
 
     Returns:
         Timeline snapshot used on the intro slide and stored in ``slides_json``.
@@ -130,8 +322,62 @@ def build_timeline(
         "so_far": prior_titles,
         "remaining_live_dates": remaining_live,
         "next_assessment": next_assessment,
-        "strand": strand_from_module(module_title, module_num or None),
+        "strand": strand_from_module(
+            module_title, module_num or None, course_code=course_code
+        ),
     }
+
+
+def lesson_key_from_timeline(timeline: dict[str, Any]) -> str:
+    """Return ``M{module}C{live_index}`` from a timeline snapshot.
+
+    Args:
+        timeline: ``build_timeline`` result (needs ``module_number``, ``live_index``).
+
+    Returns:
+        Lesson key such as ``M1C1``, or ``""`` when module or live index is missing.
+    """
+    module_num = int(timeline.get("module_number") or 0)
+    live_index = int(timeline.get("live_index") or 0)
+    if module_num <= 0 or live_index <= 0:
+        return ""
+    return f"M{module_num}C{live_index}"
+
+
+def _module_hint_parts(row: dict[str, Any]) -> list[str]:
+    """Split ``module_hint`` on ``/`` for lesson-key and strand matching.
+
+    Args:
+        row: Live-problem bank row.
+    """
+    hint = str(row.get("module_hint") or "").replace(" ", "").upper()
+    return [part for part in hint.split("/") if part]
+
+
+def _hint_has_lesson_key(row: dict[str, Any], lesson_key: str) -> bool:
+    """True when ``module_hint`` encodes this lesson (e.g. ``A/M1C1``).
+
+    Args:
+        row: Live-problem bank row.
+        lesson_key: ``M1C1``-style key.
+    """
+    key = (lesson_key or "").replace(" ", "").upper()
+    if not key:
+        return False
+    return key in _module_hint_parts(row)
+
+
+def _hint_has_strand(row: dict[str, Any], strand_key: str) -> bool:
+    """True when the hint is this strand or starts with it (legacy ``A`` hints).
+
+    Args:
+        row: Live-problem bank row.
+        strand_key: ``A`` / ``B`` / ``C``.
+    """
+    parts = _module_hint_parts(row)
+    if not parts:
+        return False
+    return strand_key in parts or parts[0].startswith(strand_key)
 
 
 def select_live_problems(
@@ -139,22 +385,24 @@ def select_live_problems(
     *,
     strand: str,
     warmup_fallback: str = "",
+    lesson_key: str = "",
 ) -> dict[str, Any]:
     """Pick warmup, contest, and 3–5 standard items for one live class.
+
+    Prefers rows whose ``module_hint`` contains ``lesson_key`` (e.g. ``A/M1C1``),
+    then falls back to strand letter as before.
 
     Args:
         problems: Active bank rows (with ``processes`` lists).
         strand: ``A`` / ``B`` / ``C`` (matched to ``module_hint``).
         warmup_fallback: Page title used when the bank has no warmup.
+        lesson_key: Optional ``M1C1``-style key from the syllabus timeline.
 
     Returns:
         Selected problem ids plus process keys for contest/consolidation.
     """
     strand_key = (strand or "A").upper()[:1]
-
-    def _hint_match(row: dict[str, Any]) -> bool:
-        hint = str(row.get("module_hint") or "").upper()
-        return strand_key in hint or hint.startswith(strand_key)
+    key = (lesson_key or "").replace(" ", "").upper()
 
     def _kind(kind: str) -> list[dict[str, Any]]:
         return [
@@ -163,13 +411,20 @@ def select_live_problems(
             if str(row.get("kind") or "") == kind and int(row.get("active") or 1)
         ]
 
-    warmups = [row for row in _kind("warmup") if _hint_match(row)] or _kind("warmup")
-    contests = [
-        row
-        for row in _kind("contest")
-        if _hint_match(row) and "problem_solving" in (row.get("processes") or [])
-    ] or [row for row in _kind("contest") if _hint_match(row)] or _kind("contest")
-    standards = [row for row in _kind("standard") if _hint_match(row)] or _kind("standard")
+    def _prefer(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        keyed = [row for row in rows if _hint_has_lesson_key(row, key)] if key else []
+        stranded = [row for row in rows if _hint_has_strand(row, strand_key)]
+        return keyed or stranded or rows
+
+    warmups = _prefer(_kind("warmup"))
+    contests = _prefer(
+        [
+            row
+            for row in _kind("contest")
+            if "problem_solving" in (row.get("processes") or [])
+        ]
+    ) or _prefer(_kind("contest"))
+    standards = _prefer(_kind("standard"))
     warmup = warmups[0] if warmups else None
     contest = contests[0] if contests else None
     contest_processes = list(contest.get("processes") or []) if contest else ["problem_solving"]
@@ -296,6 +551,12 @@ def _slide_bodies(
     if timeline.get("next_assessment"):
         end_bits.append(str(timeline["next_assessment"]))
     by_end = "By the end: " + ("; ".join(end_bits) if end_bits else "wrap this module.")
+    live_index = int(timeline.get("live_index") or 0)
+    module_title = str(timeline.get("module_title") or "this module")
+    if live_index == 1:
+        today_line = f"Today: first {module_title} live problem-solving."
+    else:
+        today_line = f"Today: {timeline.get('headline')}."
     warmup = selection.get("warmup")
     warmup_text = (
         _plain_from_html(warmup.get("stem_html") or warmup.get("title") or "")
@@ -314,21 +575,30 @@ def _slide_bodies(
     std_lines = []
     for row in standards:
         tags = ", ".join(process_labels.get(k, k) for k in (row.get("processes") or [])[:2])
-        std_lines.append(f"• {row.get('title') or 'Problem'} ({tags})")
+        stem = _plain_from_html(row.get("stem_html") or "")
+        line = f"• {row.get('title') or 'Problem'}"
+        if tags:
+            line += f" ({tags})"
+        if stem:
+            line += f"\n  {stem}"
+        task = _plain_from_html(row.get("task_html") or "")
+        if task:
+            line += f"\n  Your task: {task}"
+        std_lines.append(line)
     consol_tags = ", ".join(
         process_labels.get(k, k)
         for k in (selection.get("consolidation_process_keys") or [])
     )
     roles = (
         "Roles: recorder · explainer · skeptic · reporter. "
-        "Reminders: " + (consol_tags or "problem solving, communicating")
+        "Reminders: " + (contest_tags or "problem solving, communicating")
     )
     return [
         {
             "title": "Intro",
             "body": (
-                f"{timeline.get('headline')}\n{so_far_line}\n{by_end}\n\n"
-                f"Open question / warmup:\n{warmup_text}"
+                f"{module_title}\n{timeline.get('headline')}\n"
+                f"{so_far_line}\n{today_line}\n{by_end}"
             ),
         },
         {
@@ -341,9 +611,7 @@ def _slide_bodies(
             "title": "Team Breakout",
             "body": (
                 f"{contest_title}\nProcesses: {contest_tags or 'Problem Solving'}\n\n"
-                f"{contest_stem}\n{contest_task}\n\nRelated practice:\n"
-                + ("\n".join(std_lines) or "• Use today's standard items")
-                + f"\n\n{roles}"
+                f"{contest_stem}\nYour task: {contest_task}\n\n{roles}"
             ),
         },
         {
@@ -351,7 +619,8 @@ def _slide_bodies(
             "body": (
                 f"Share one strategy and one representation.\n"
                 f"Process focus: {consol_tags or 'Communicating'}\n\n"
-                "Which approach would you reuse? What still feels unfinished?"
+                + ("\n".join(std_lines) or "• Use today's standard items")
+                + "\n\nWhich approach would you reuse? What still feels unfinished?"
             ),
         },
     ]
@@ -363,8 +632,10 @@ def _plain_from_html(raw: str) -> str:
     Args:
         raw: HTML or plain text.
     """
-    text = raw.replace("<p>", "").replace("</p>", "\n").replace("<em>", "").replace("</em>", "")
-    text = text.replace("<br>", "\n").replace("<br/>", "\n")
+    text = raw.replace("<p>", "").replace("</p>", "\n")
+    for tag in ("em", "strong", "sup", "sub"):
+        text = text.replace(f"<{tag}>", "").replace(f"</{tag}>", "")
+    text = text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
     return " ".join(text.split())
 
 
@@ -421,7 +692,10 @@ def generate_live_class_slides(
     placements: dict[str, dict[str, Any]] | None = None,
     http: Any | None = None,
 ) -> dict[str, Any]:
-    """Create or reuse a four-slide deck for one class meeting.
+    """Create or reuse a live-class deck for one class meeting.
+
+    Mock/tests write four-slide HTML. Real Google copies the 7-layout
+    theme template into the ALC Drive tree and fills named layouts.
 
     Args:
         school: ``SchoolDB``.
@@ -467,6 +741,7 @@ def generate_live_class_slides(
         meeting=meeting_date,
         placements=place,
         module_titles=module_titles,
+        course_code=ontario,
     )
     bank = school.list_live_problems(ontario_code=ontario, active_only=True)
     fallback = ""
@@ -476,6 +751,7 @@ def generate_live_class_slides(
         bank,
         strand=str(timeline.get("strand") or "A"),
         warmup_fallback=fallback,
+        lesson_key=lesson_key_from_timeline(timeline),
     )
     process_labels = load_process_labels()
     slides = _slide_bodies(timeline, selection, process_labels)
@@ -485,10 +761,15 @@ def generate_live_class_slides(
     )
     existing = school.get_live_session_for_class_date(class_id, meeting_date.isoformat())
     live_session = school.get_active_live_session_for_class(class_id) or existing
-    if (
-        existing
-        and existing.get("presentation_id")
-        and not force_regenerate
+    token_row = school.get_google_api_token(int(user["id"]))
+    use_mock = mock_slides_enabled() or (
+        token_row and token_row.get("refresh_token") == MOCK_SLIDES_REFRESH_TOKEN
+    )
+    if should_reuse_stored_deck(
+        presentation_id=existing.get("presentation_id") if existing else None,
+        presentation_url=existing.get("presentation_url") if existing else None,
+        force_regenerate=force_regenerate,
+        use_mock=bool(use_mock),
     ):
         school.set_live_session_slides(
             int((live_session or existing)["id"]),
@@ -509,10 +790,10 @@ def generate_live_class_slides(
         }
 
     old_id = str((existing or {}).get("presentation_id") or "") if force_regenerate else ""
-    token_row = school.get_google_api_token(int(user["id"]))
-    use_mock = mock_slides_enabled() or (
-        token_row and token_row.get("refresh_token") == MOCK_SLIDES_REFRESH_TOKEN
-    )
+    if not use_mock and existing and is_mock_presentation(
+        existing.get("presentation_id"), existing.get("presentation_url")
+    ):
+        old_id = ""
     if not use_mock and not token_row:
         raise SlidesConnectRequired()
 
@@ -526,9 +807,30 @@ def generate_live_class_slides(
         )
     else:
         client = GoogleSlidesClient(school, user=user, http=http)
-        if old_id:
-            client.archive_presentation(old_id, meeting_date)
-        created = client.create_four_slide_deck(title, slides)
+        join_code = str((live_session or existing or {}).get("session_code") or "")
+        lesson_key = lesson_key_from_timeline(timeline)
+        from slides_template import deck_drive_name
+
+        drive_title = deck_drive_name(ontario, lesson_key, meeting_date.isoformat())
+        team_names: list[str] = []
+        try:
+            for team in (school.game.dashboard(class_id) or {}).get("teams") or []:
+                label = team.get("name") or team.get("label")
+                if label:
+                    team_names.append(str(label))
+        except Exception:  # noqa: BLE001
+            team_names = []
+        overwrite_id = old_id if old_id and not old_id.startswith("mock-") else ""
+        created = client.copy_template_and_fill(
+            offering=offering,
+            meeting_date=meeting_date,
+            drive_title=drive_title,
+            selection=selection,
+            join_code=join_code,
+            timeline=timeline,
+            team_names=team_names,
+            overwrite_presentation_id=overwrite_id,
+        )
         pres_id = created["presentation_id"]
         pres_url = created["presentation_url"]
 
@@ -625,7 +927,7 @@ def _write_mock_deck(
 
 
 class GoogleSlidesClient:
-    """Thin REST client for presentations + drive.file sharing."""
+    """Thin REST client for presentations + Drive copy into the ALC tree."""
 
     def __init__(self, school: Any, *, user: dict[str, Any], http: Any | None = None) -> None:
         """Store school DB, operator user, and optional HTTP session.
@@ -689,6 +991,104 @@ class GoogleSlidesClient:
         """Authorization header for Slides/Drive REST."""
         return {"Authorization": f"Bearer {self._access_token()}"}
 
+    def _drive_params(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        """Query params so copies work in My Drive and shared drives.
+
+        Args:
+            extra: Additional Drive query fields.
+        """
+        params = {
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        }
+        if extra:
+            params.update(extra)
+        return params
+
+    def _escape_drive_name(self, name: str) -> str:
+        """Escape a folder/file name for Drive ``q`` syntax."""
+        return str(name).replace("\\", "\\\\").replace("'", "\\'")
+
+    def find_or_create_folder(self, name: str, parent_id: str) -> str:
+        """Return a child folder id, creating it under ``parent_id`` if missing.
+
+        Args:
+            name: Folder title.
+            parent_id: Parent Drive folder id.
+
+        Returns:
+            Folder file id.
+        """
+        query = (
+            f"name = '{self._escape_drive_name(name)}' and "
+            f"'{parent_id}' in parents and "
+            "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        )
+        listed = self.http.get(
+            "https://www.googleapis.com/drive/v3/files",
+            headers=self._headers(),
+            params=self._drive_params(
+                {"q": query, "fields": "files(id,name)", "pageSize": "5"}
+            ),
+            timeout=20,
+        )
+        listed.raise_for_status()
+        files = (listed.json() or {}).get("files") or []
+        if files:
+            return str(files[0]["id"])
+        created = self.http.post(
+            "https://www.googleapis.com/drive/v3/files",
+            headers=self._headers(),
+            params=self._drive_params(),
+            json={
+                "name": name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [parent_id],
+            },
+            timeout=20,
+        )
+        created.raise_for_status()
+        folder_id = str((created.json() or {}).get("id") or "")
+        if not folder_id:
+            raise RuntimeError(f"Drive did not return an id for folder {name}")
+        return folder_id
+
+    def ensure_module_folder(
+        self,
+        *,
+        ontario_code: str,
+        module_number: int,
+        semester_label: str = "",
+    ) -> str:
+        """Create ``ALC / year / semester / course / Module n`` as needed.
+
+        Year and semester come from ``frameworks/semester.json`` via
+        ``drive_year_semester``, not ``year_display``.
+
+        Args:
+            ontario_code: Course code folder name.
+            module_number: 1-based module index.
+            semester_label: Optional label override for tests.
+
+        Returns:
+            Module folder id.
+        """
+        from live_class_constants import (
+            ALC_DRIVE_FOLDER_ID,
+            SETTING_ALC_DRIVE_FOLDER_ID,
+        )
+        from slides_template import drive_year_semester
+
+        alc = self.school.get_school_setting(
+            SETTING_ALC_DRIVE_FOLDER_ID, ALC_DRIVE_FOLDER_ID
+        ) or ALC_DRIVE_FOLDER_ID
+        year, term = drive_year_semester(semester_label)
+        module_name = f"Module {max(int(module_number or 1), 1)}"
+        year_id = self.find_or_create_folder(year, alc)
+        term_id = self.find_or_create_folder(term, year_id)
+        course_id = self.find_or_create_folder(str(ontario_code).upper(), term_id)
+        return self.find_or_create_folder(module_name, course_id)
+
     def archive_presentation(self, presentation_id: str, meeting: date) -> None:
         """Rename an existing Drive file as archived.
 
@@ -701,112 +1101,343 @@ class GoogleSlidesClient:
         self.http.patch(
             f"https://www.googleapis.com/drive/v3/files/{presentation_id}",
             headers=self._headers(),
+            params=self._drive_params(),
             json={"name": name},
             timeout=15,
         )
 
-    def create_four_slide_deck(
-        self, title: str, slides: list[dict[str, str]]
+    def copy_template_and_fill(
+        self,
+        *,
+        offering: dict[str, Any],
+        meeting_date: date,
+        drive_title: str,
+        selection: dict[str, Any],
+        join_code: str,
+        timeline: dict[str, Any],
+        team_names: list[str] | None = None,
+        overwrite_presentation_id: str = "",
     ) -> dict[str, str]:
-        """Create a presentation, fill four slides, and share view-with-link.
+        """Copy Lesson Theme Template #1 into the ALC tree and fill layouts.
+
+        Regenerating with ``overwrite_presentation_id`` re-fills that file
+        instead of minting a second deck for the same class date.
 
         Args:
-            title: Presentation title.
-            slides: Four title/body pairs.
+            offering: Offering row (template id + Ontario code).
+            meeting_date: Class date.
+            drive_title: Drive file name (``MCF3M M1C1 2026-09-11``).
+            selection: Live-problem pick.
+            join_code: Session join code for ``TITLE_CLASS``.
+            timeline: ``build_timeline`` snapshot (module number).
+            team_names: Optional names for ``TEAM_INTRO``.
+            overwrite_presentation_id: Existing Google id to fill in place.
 
         Returns:
             ``presentation_id`` and ``presentation_url``.
         """
-        created = self.http.post(
-            "https://slides.googleapis.com/v1/presentations",
-            headers=self._headers(),
-            json={"title": title},
-            timeout=20,
+        from slides_template import layout_fill_values, resolved_template_id
+
+        ontario = str(offering.get("ontario_code") or "MCF3M")
+        lesson_key = lesson_key_from_timeline(timeline)
+        values = layout_fill_values(
+            ontario_code=ontario,
+            lesson_key=lesson_key,
+            join_code=join_code,
+            selection=selection,
+            team_names=team_names,
         )
-        created.raise_for_status()
-        body = created.json()
-        pres_id = str(body.get("presentationId") or "")
-        if not pres_id:
-            raise RuntimeError("Slides API did not return presentationId")
-        default_slides = body.get("slides") or []
-        first_id = (default_slides[0] or {}).get("objectId") if default_slides else None
-        requests_body: list[dict[str, Any]] = []
-        object_ids = []
-        if first_id:
-            object_ids.append(str(first_id))
-        for index in range(max(0, 4 - len(object_ids))):
-            oid = f"liveSlide{index + 2}"
-            object_ids.append(oid)
-            requests_body.append(
-                {
-                    "createSlide": {
-                        "objectId": oid,
-                        "insertionIndex": len(object_ids) - 1,
-                        "slideLayoutReference": {"predefinedLayout": "BLANK"},
-                    }
-                }
-            )
-        for index, slide in enumerate(slides[:4]):
-            slide_id = object_ids[index] if index < len(object_ids) else f"liveSlide{index}"
-            box_id = f"box{index + 1}"
-            requests_body.append(
-                {
-                    "createShape": {
-                        "objectId": box_id,
-                        "shapeType": "TEXT_BOX",
-                        "elementProperties": {
-                            "pageObjectId": slide_id,
-                            "size": {
-                                "width": {"magnitude": 6000000, "unit": "EMU"},
-                                "height": {"magnitude": 4000000, "unit": "EMU"},
-                            },
-                            "transform": {
-                                "scaleX": 1,
-                                "scaleY": 1,
-                                "translateX": 200000,
-                                "translateY": 200000,
-                                "unit": "EMU",
-                            },
-                        },
-                    }
-                }
-            )
-            requests_body.append(
-                {
-                    "insertText": {
-                        "objectId": box_id,
-                        "text": f"{slide['title']}\n\n{slide['body']}",
-                    }
-                }
-            )
-        if requests_body:
-            batch = self.http.post(
-                f"https://slides.googleapis.com/v1/presentations/{pres_id}:batchUpdate",
+        pres_id = (overwrite_presentation_id or "").strip()
+        if pres_id:
+            got = self.http.get(
+                f"https://slides.googleapis.com/v1/presentations/{pres_id}",
                 headers=self._headers(),
-                json={"requests": requests_body},
                 timeout=20,
             )
-            batch.raise_for_status()
+            if got.status_code == 404:
+                pres_id = ""
+            else:
+                got.raise_for_status()
+                self._apply_fill(pres_id, got.json(), values)
+                self.http.patch(
+                    f"https://www.googleapis.com/drive/v3/files/{pres_id}",
+                    headers=self._headers(),
+                    params=self._drive_params(),
+                    json={"name": drive_title},
+                    timeout=15,
+                )
+                return {
+                    "presentation_id": pres_id,
+                    "presentation_url": (
+                        f"https://docs.google.com/presentation/d/{pres_id}/edit"
+                    ),
+                }
+        template_id = resolved_template_id(offering, self.school)
+        semester = self.school.get_active_semester() or {}
+        folder_id = self.ensure_module_folder(
+            ontario_code=ontario,
+            module_number=int(timeline.get("module_number") or 1),
+            semester_label=str(semester.get("label") or ""),
+        )
+        copied = self.http.post(
+            f"https://www.googleapis.com/drive/v3/files/{template_id}/copy",
+            headers=self._headers(),
+            params=self._drive_params(),
+            json={"name": drive_title, "parents": [folder_id]},
+            timeout=30,
+        )
+        copied.raise_for_status()
+        pres_id = str((copied.json() or {}).get("id") or "")
+        if not pres_id:
+            raise RuntimeError("Drive copy did not return a presentation id")
+        got = self.http.get(
+            f"https://slides.googleapis.com/v1/presentations/{pres_id}",
+            headers=self._headers(),
+            timeout=20,
+        )
+        got.raise_for_status()
+        self._apply_fill(pres_id, got.json(), values)
         self.http.post(
             f"https://www.googleapis.com/drive/v3/files/{pres_id}/permissions",
             headers=self._headers(),
+            params=self._drive_params(),
             json={"role": "reader", "type": "anyone"},
             timeout=15,
         )
         meta = self.http.get(
             f"https://www.googleapis.com/drive/v3/files/{pres_id}",
             headers=self._headers(),
-            params={"fields": "webViewLink,id"},
+            params=self._drive_params({"fields": "webViewLink,id"}),
             timeout=15,
         )
         url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-        if meta.ok:
-            url = str(meta.json().get("webViewLink") or url)
+        if getattr(meta, "ok", False):
+            url = str((meta.json() or {}).get("webViewLink") or url)
         return {"presentation_id": pres_id, "presentation_url": url}
+
+    def _apply_fill(
+        self,
+        presentation_id: str,
+        presentation: dict[str, Any],
+        values: dict[str, str],
+    ) -> None:
+        """POST ``batchUpdate`` fill requests when any were built.
+
+        Args:
+            presentation_id: Google presentation id.
+            presentation: GET presentations JSON.
+            values: Placeholder map from ``layout_fill_values``.
+        """
+        from slides_template import build_template_fill_requests
+
+        requests_body = build_template_fill_requests(presentation, values)
+        if not requests_body:
+            return
+        batch = self.http.post(
+            f"https://slides.googleapis.com/v1/presentations/{presentation_id}:batchUpdate",
+            headers=self._headers(),
+            json={"requests": requests_body},
+            timeout=20,
+        )
+        batch.raise_for_status()
+
+    def upload_public_png(self, *, folder_id: str, name: str, png_path: Path) -> str:
+        """Upload a PNG into the module folder and return a public image URL.
+
+        Args:
+            folder_id: Drive folder id.
+            name: File title.
+            png_path: Local PNG path.
+
+        Returns:
+            URL usable with Slides ``createImage``.
+        """
+        metadata = {
+            "name": name,
+            "parents": [folder_id],
+            "mimeType": "image/png",
+        }
+        with png_path.open("rb") as handle:
+            payload = handle.read()
+        boundary = "lesson-slide-png"
+        body = (
+            f"--{boundary}\r\n"
+            "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            f"{json.dumps(metadata)}\r\n"
+            f"--{boundary}\r\n"
+            "Content-Type: image/png\r\n\r\n"
+        ).encode("utf-8") + payload + f"\r\n--{boundary}--".encode("utf-8")
+        uploaded = self.http.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            headers={
+                **self._headers(),
+                "Content-Type": f"multipart/related; boundary={boundary}",
+            },
+            params=self._drive_params({"uploadType": "multipart"}),
+            data=body,
+            timeout=30,
+        )
+        uploaded.raise_for_status()
+        file_id = str((uploaded.json() or {}).get("id") or "")
+        if not file_id:
+            raise RuntimeError("Drive did not return an id for a question PNG")
+        self.http.post(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
+            headers=self._headers(),
+            params=self._drive_params(),
+            json={"role": "reader", "type": "anyone"},
+            timeout=15,
+        )
+        return f"https://drive.google.com/uc?id={file_id}&export=download"
+
+    def copy_template_and_fill_by_index(
+        self,
+        *,
+        offering: dict[str, Any],
+        drive_title: str,
+        module_number: int,
+        values_by_index: dict[int, dict[str, str]],
+        png_paths: list[Path] | None = None,
+        overwrite_presentation_id: str = "",
+    ) -> dict[str, Any]:
+        """Copy Lesson Theme Template #1 and fill by slide order.
+
+        Args:
+            offering: Offering row (template + Ontario code).
+            drive_title: Drive filename such as ``MCF3M M1C1``.
+            module_number: Folder ``Module n``.
+            values_by_index: Index fill map from ``lesson_fill_values``.
+            png_paths: Optional consolidation PNGs for slide 7.
+            overwrite_presentation_id: Existing Google id to refill.
+
+        Returns:
+            ``presentation_id``, ``presentation_url``, ``image_mode``,
+            ``request_count``.
+        """
+        from slide_builder import build_index_fill_requests
+        from slides_template import resolved_template_id
+
+        ontario = str(offering.get("ontario_code") or "MCF3M")
+        semester = self.school.get_active_semester() or {}
+        folder_id = self.ensure_module_folder(
+            ontario_code=ontario,
+            module_number=int(module_number or 1),
+            semester_label=str(semester.get("label") or ""),
+        )
+        pres_id = (overwrite_presentation_id or "").strip()
+        if pres_id:
+            got = self.http.get(
+                f"https://slides.googleapis.com/v1/presentations/{pres_id}",
+                headers=self._headers(),
+                timeout=20,
+            )
+            if got.status_code == 404:
+                pres_id = ""
+            else:
+                got.raise_for_status()
+        if not pres_id:
+            template_id = resolved_template_id(offering, self.school)
+            copied = self.http.post(
+                f"https://www.googleapis.com/drive/v3/files/{template_id}/copy",
+                headers=self._headers(),
+                params=self._drive_params(),
+                json={"name": drive_title, "parents": [folder_id]},
+                timeout=30,
+            )
+            copied.raise_for_status()
+            pres_id = str((copied.json() or {}).get("id") or "")
+            if not pres_id:
+                raise RuntimeError("Drive copy did not return a presentation id")
+            got = self.http.get(
+                f"https://slides.googleapis.com/v1/presentations/{pres_id}",
+                headers=self._headers(),
+                timeout=20,
+            )
+            got.raise_for_status()
+            self.http.post(
+                f"https://www.googleapis.com/drive/v3/files/{pres_id}/permissions",
+                headers=self._headers(),
+                params=self._drive_params(),
+                json={"role": "reader", "type": "anyone"},
+                timeout=15,
+            )
+        else:
+            self.http.patch(
+                f"https://www.googleapis.com/drive/v3/files/{pres_id}",
+                headers=self._headers(),
+                params=self._drive_params(),
+                json={"name": drive_title},
+                timeout=15,
+            )
+        presentation = got.json()
+        requests_body = build_index_fill_requests(presentation, values_by_index)
+        image_mode = "text"
+        slides = list(presentation.get("slides") or [])
+        if png_paths and len(slides) >= 7:
+            consol = slides[6]
+            page_id = str(consol.get("objectId") or "")
+            try:
+                urls: list[str] = []
+                for index, png in enumerate(png_paths, start=1):
+                    urls.append(
+                        self.upload_public_png(
+                            folder_id=folder_id,
+                            name=f"{drive_title} Q{index}.png",
+                            png_path=png,
+                        )
+                    )
+                for index, url in enumerate(urls):
+                    requests_body.append(
+                        {
+                            "createImage": {
+                                "url": url,
+                                "elementProperties": {
+                                    "pageObjectId": page_id,
+                                    "size": {
+                                        "width": {"magnitude": 2500000, "unit": "EMU"},
+                                        "height": {"magnitude": 1400000, "unit": "EMU"},
+                                    },
+                                    "transform": {
+                                        "scaleX": 1,
+                                        "scaleY": 1,
+                                        "translateX": 400000,
+                                        "translateY": 400000 + index * 1500000,
+                                        "unit": "EMU",
+                                    },
+                                },
+                            }
+                        }
+                    )
+                image_mode = "png"
+            except Exception:  # noqa: BLE001 — keep text fill if Drive image fails
+                image_mode = "text"
+        if requests_body:
+            batch = self.http.post(
+                f"https://slides.googleapis.com/v1/presentations/{pres_id}:batchUpdate",
+                headers=self._headers(),
+                json={"requests": requests_body},
+                timeout=30,
+            )
+            batch.raise_for_status()
+        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+        meta = self.http.get(
+            f"https://www.googleapis.com/drive/v3/files/{pres_id}",
+            headers=self._headers(),
+            params=self._drive_params({"fields": "webViewLink,id"}),
+            timeout=15,
+        )
+        if getattr(meta, "ok", False):
+            url = str((meta.json() or {}).get("webViewLink") or url)
+        return {
+            "presentation_id": pres_id,
+            "presentation_url": url,
+            "image_mode": image_mode,
+            "request_count": len(requests_body),
+        }
 
 
 def slides_oauth_url(*, client_id: str, redirect_uri: str, state: str) -> str:
-    """Build the incremental Google consent URL for Slides + Drive file.
+    """Build the incremental Google consent URL for Slides + Drive.
 
     Args:
         client_id: Web OAuth client id.

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ payload.course_code }} specifics · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <p class="kicker"><a href="{{ url_for('it_curriculum_expectations') }}">Math 11–12 specifics</a></p>
+        <h1>{{ payload.course_code }}</h1>
+        <p class="sub">{{ payload.course_title }}</p>
+        {% if drive_folder_url %}
+        <p class="hint"><a href="{{ drive_folder_url }}" target="_blank" rel="noopener">Open {{ payload.course_code }} Drive folder</a></p>
+        {% endif %}
+      </div>
+    </div>
+    <section class="card">
+      <p class="hint">{{ payload.notes }}</p>
+      {% for row in payload.specific %}
+      <p><strong>{{ row.code }}</strong> — {{ row.statement }}</p>
+      {% endfor %}
+    </section>
+  </div>
+</body>
+</html>

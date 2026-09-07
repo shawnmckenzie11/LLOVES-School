@@ -225,6 +225,10 @@ class SectionTests(unittest.TestCase):
         self.assertIn(">Dashboard</a>", course_html)
         self.assertNotIn("Staff home", course_html)
         self.assertIn(">Expectations</a>", course_html)
+        self.assertIn(">Profiles</a>", course_html)
+        exp_at = course_html.find(">Expectations</a>")
+        profiles_at = course_html.find(">Profiles</a>")
+        self.assertGreater(profiles_at, exp_at)
         self.assertIn("Attendance &amp; Participation", course_html)
         # A&P and Grades sit beside Modules in the tab row.
         modules_at = course_html.find(">Modules</a>")

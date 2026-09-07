@@ -1,0 +1,959 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 4,
+  "strand": "A",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-CK-p153-Q1",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "1.\n\nExplain how you know.\n\na) \\(y = 2x - 1 7x c) f (x) = 24(x + 2)(x - 3)\\)\n\nb) f (x) 3(x 1)2 4 d) g(x) 4x - 3x = 5 - 2 = 1 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-CK-p153-Q2",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "2. State the vertex of each parabola and indicate the maximum or minimum\n\nvalue of the function.\n\na) b)\n\ny y\n\n8 8\n\n6 6\n\n4 4 - 2\n\nx x\n\n0 0 - 8 !6 - 4 !2 2 - 2 - 4 6 8 - 2 !2 - 4 !4 - 6\n\n!8",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p163_q2_3.2_1.png",
+        "nelson_assets/ch3/p163_q2_3.2_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-CK-p153-Q3",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "3. Determine the maximum or minimum value for each.\n\n24(x 1)2 (x) 22x(x 4)\n\na) \\(y = 1 + 6 c) f = 2\\)\n\nb) \\(f (x) = (x - 5)2 d) g(x) = 2x - 2 7\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p153-Q4",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "4.\n\nK methods.\n\na) \\(y = x - 2 4x - 1 d) y = 23x - 2 12x + 15\\)\n\nf (x) x - 8x 12 y 3x(x 2) = b) = 2 1 e) = 2 1 - 1)2\n\nc) \\(y = 2x + 12x f) g(x) = 22(x 1 - 5\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p153-Q5",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "5. Each function is the demand function of some item, where x is the number\n\nof items sold, in thousands. Determine\n\ni) the revenue function\n\nii) the maximum revenue in thousands of dollars\n\na) \\(p(x) = 2x 1 = c) p(x) = 20.6x + 15\\)\n\np(x) p(x)\n\nb) = 24x + 12 d) = 21.2x + 4.8",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p153-Q6",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "6. Use a graphing calculator to determine the maximum or minimum value.\n\nRound to two decimal places where necessary.\n\n(x) - (x) 2\n\na) \\(f = 2x - 6.5x + 3.2 b) f = 23.6x + 4.8x\\)\n\nQuadratic Functions 153",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q7",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "7. For each pair of revenue and cost functions, determine\n\ni) the profit function\n\nii) the value of x that maximizes profit\n\na) \\(R(x) = 2x - 1 24x\\), \\(C(x) = 12x + 28\\)\n\nR(x) 2 C(x)\n\nb) = 22x + 32x, 5 14x + 45\n\nc) \\(R(x) = 23x - 1 26x\\), \\(C(x) = 8x + 18\\)\n\nR(x) 22x - 25x, C(x) 3x 17\n\nd) = 1 5 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q8",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "8. The height of a ball thrown vertically upward from a rooftop is modelled by\n\n\\(h(t) = 25t2 + 20t 1 50\\), where h(t) is the ball's height above the ground,\n\nin metres, at time t seconds after the throw.\n\na) Determine the maximum height of the ball.\n\nb) How long does it take for the ball to reach its maximum height?\n\nHow high is the rooftop?\n\nc)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p164_q8_3.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q9",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "9. The cost function in a computer manufacturing plant is\n\n\\(C(x) = 0.28x - 2 0.7x + 1\\), where C(x) is the cost per hour in millions of\n\ndollars and x is the number of items produced per hour in thousands.\n\nDetermine the minimum production cost.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p164_q9_3.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q10",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "10. Show that the value of 3x - 2 6x 1 = cannot be less than 1.\n\nThe profit P(x) of a cosmetics company, in thousands of dollars, is given by",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p164_q10_3.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q11",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "11.\n\nP(x) 2\n\n\\(A = 25x + 400x - 2550\\), where x is the amount spent on advertising,\n\nin thousands of dollars.\n\nDetermine the maximum profit the company can make.\n\na)\n\nb) Determine the amount spent on advertising that will result in the\n\nmaximum profit.\n\nWhat amount must be spent on advertising to obtain a profit of at least\n\nc)\n\n$4 000 000?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p164_q11_3.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q12",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "12. A high school is planning to build a new playing field surrounded by a\n\nT running track. The track coach wants two laps around the track to be 1000 m.\n\nThe football coach wants the rectangular infield area to be as large as possible.\n\nCan both coaches be satisfied? Explain your answer.\n\nCompare the methods for finding the minimum value of the quadratic",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p164_q12_3.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-PR-p154-Q13",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "13.\n\nC (x) 2\n\nfunction \\(f = 3x - 7x + 2. Which method would you choose for thi\\)s\n\nparticular function? Give a reason for your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-EX-p154-Q14",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "14. A rock is thrown straight up in the air from an initial height h0, in metres,\n\nwith initial velocity v0, in metres per second. The height in metres above the\n\nground after t seconds is given by \\(h(t) = 24.9t2 1 v0t 1 h0. Find an\\)\n\nexpression for the time it takes the rock to reach its maximum height.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-32-EX-p154-Q15",
+      "chapter": 3,
+      "section": "3.2",
+      "stem": "15. A ticket to a school dance is $8. Usually, 300 students attend. The dance\n\ncommittee knows that for every $1 increase in the price of a ticket, 30 fewer\n\nstudents attend the dance. What ticket price will maximize the revenue?\n\n154 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-CK-p185-Q1",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "1.\n\nfunction. Then state the number of zeros.\n\na) \\(f (x) = 3x - 2 = d) f (x) = 3(x + 2)2\\)\n\nf (x) 24x2 7 f (x) 24(x 3)2 = b) = 1 e) = 1 - 2 4)2\n\nc) \\(f (x) = 5x + 3 f) f (x) = 0.5(x - 2 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-CK-p185-Q2",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "2. Factor each quadratic function to determine the number of zeros.\n\n(x) - (x) 2\n\na) \\(f = x - 6x - 16 c) f = 4x - 1\\)\n\nb) \\(f (x) = 2x2 - 6x d) f (x) = 9x - 1 6x + 1\\)\n\nb^2 4ac",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-CK-p185-Q3",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "3. Calculate the value of 2 to determine the number of zeros.\n\na) \\(f (x) = 2x - 2 6x - 7 c) f (x) = x - 1 8x + 16\\)\n\nf (x) 3x - 2x 7 f (x) 9x - 14.4x 5.76\n\nb) = 1 1 d) = 2 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q4",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "4. Determine the number of zeros. Do not use the same method for all\n\nK four parts.\n\n(x) 23(x 2)2 (x) 2\n\na) \\(f = 2 + 4 c) f = 4x - 2x\\)\n\nb) \\(f (x) = 5(x - 3)(x + 4) d) f (x) = 3x - 2 x 1 = For each profit func\\)tion, determine whether the company can break even. If",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q5",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "5.\n\nA the company can break even, determine in how many ways it can do so.\n\na) \\(P(x) = 22.1x - 1 9.06x - 5.4\\)\n\nP(x) 2\n\nb) = 20.3x + 2x - 7.8\n\nc) \\(P(x) = 22x - 1 6.4x - 5.12\\)\n\nd) P(x) 22.4x - x 1.2 = 1 - (x) 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q6",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "6. For what value(s) of k will the function \\(f = 3x - 4x 1 k have one\\)\n\nx-intercept?\n\nFor what value(s) of k will the function f (x) kx - 4x k have no zeros?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q8",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "8. For what values of k will the function \\(f (x) = 3x - 1 4x 1 k = 0 have no\\)\n\nzeros? one zero? two zeros?\n\n(x) 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q9",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "9. The graph of the function \\(f = x 2 kx 1 k 1 8 touches the\\)\n\nx-axis at one point. What are the possible values of k?\n\nIs it possible for n^2 25 to equal 28n? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p185-Q11",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "11. Write the equation of a quadratic function that meets each of the given\n\nconditions.\n\na) The parabola opens down and has two zeros.\n\nb) The parabola opens up and has no zeros.\n\nc) The parabola opens down and the vertex is also the zero of the function.\n\nQuadratic Functions 185\n\np(x)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p186-Q12",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "12. The demand function for a new product is = 24x + 42.5, where x is\n\nthe quantity sold in thousands and p is the price in dollars. The company that\n\nmanufactures the product is planning to buy a new machine for the plant.\n\nThere are three different types of machine. The cost function for each\n\nmachine is shown.\n\nMachine A: C(x) 4.1x 92.16 = 1\n\nMachine B: \\(C(x) = 17.9x + 19.36\\)\n\nMachine C: \\(C(x) = 8.8x + 55.4\\)\n\nInvestigate the break-even quantities for each machine. Which machine\n\nwould you recommend to the company?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p186-Q13",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "13. Describe how each transformation or sequence of transformations\n\nof the function f (x) = 3x will affect the number of zeros the function has.\n\na) a vertical stretch of factor 2\n\nb) a horizontal translation 3 units to the left\n\nc) a horizontal compression of factor 2 and then a reflection\n\nin the x-axis\n\nd) a vertical translation 3 units down\n\ne) a horizontal translation 4 units to the right and then a vertical translation\n\n3 units up\n\nf) a reflection in the x-axis, then a horizontal translation 1 unit to the left,\n\nand then a vertical translation = units up",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p186-Q14",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "14. If f (x) = x^2 - 6x + 14 and g(x) = 2x2 - 20x 2 k, determine\n\nT\n\nthe value of k so that there is exactly one point of intersection between\n\nthe two parabolas.\n\nDetermine the number of zeros of the function f (x) 4 (x 3)(3x 1)\n\nwithout solving the related quadratic equation or graphing. Explain\n\nyour thinking.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-PR-p186-Q16",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "16. Describe how you can determine the number of zeros of a quadratic function\n\nC if the equation of the function is in\n\nvertex form factored form standard form\n\na) b) c)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-EX-p186-Q17",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "17. Show that 2 = 2 has one solution for only one value of k.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-36-EX-p186-Q18",
+      "chapter": 3,
+      "section": "3.6",
+      "stem": "18. Investigate the number of zeros of the function \\(f (x) = (k 1 1)x - 1\\)\n\n2kx k 1 for different values of k. For what values of k does the function\n\n1 2\n\nhave no zeros? one zero? two zeros?\n\n186 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-CK-p192-Q1",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "1.\n\n(x) a(x 3) (x 4)\n\n\\(f = 2 1 share?\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-CK-p192-Q2",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "2. How are the parabolas \\(f (x) = 23(x - 2)2 - 4 and\\)\n\ng(x) 6(x 2)2 4 the same? How are they different?\n\n5 - 2\n\n(x) 22x2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-CK-p192-Q3",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "3. What point do the parabolas \\(f = 1 3x - 7 and\\)\n\n\\(g(x) = 5x2 + 3x - 7 have in common?\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q4",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "4. Determine the equation of the parabola with x-intercepts\n\na) 24 and 3, and that passes through (2, 7)\n\nb) 0 and 8, and that passes through (23, 26)\n\nc) and , and that passes through (25, 3)\n\nd) + 2 and 1 1 and that passes through (2, 4)\n\nDetermine the equation of the parabola with vertex",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q5",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "5.\n\n(22, 5) (4, 28)\n\na) and that passes through\n\nb) (1, 6) and that passes through (0, 27)\n\n(4, 25) (21, 23)\n\nc) and that passes through\n\nd) (4, 0) and that passes through (11, 8)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q6",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "6. Determine the equation of the quadratic function\n\n(x) ax2 (2)\n\n\\(f = 2 6x - 7 if f = 3.\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q7",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "7. a) Sketch the graph of \\(f (x) = (x - 2)(x + 6).\\)\n\nUse your graph to sketch the graph of g(x) 22(x 2)(x 6).\n\nb) = 2 1\n\nc) Sketch the graph of \\(h(x) = 3(x - 2)(x + 6).\\)\n\n!3 - 3.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q8",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "8. Determine the equation of the parabola with x-intercepts 64 and passing\n\nK\n\nthrough (3, 6).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q9",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "9. Determine the equation of the quadratic function that passes through\n\n(24, 5) if its zeros are 2 1 and 2 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q10",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "10. A tunnel with a parabolic arch is 12 m wide. If the height of the arch 4 m\n\nT from the left edge is 6 m, can a truck that is = m tall and 3.5 m wide pass\n\nthrough the tunnel? Justify your decision.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p192-Q11",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "11. A projectile is launched off the top of a platform. The table gives the height\n\nA of the projectile at different times during its flight.\n\nTime (s) 0 1 - 3 4 = 6\n\nHeight (m) 11 36 51 56 51 36 11\n\na) Draw a scatter plot of the data.\n\nb) Draw a curve of good fit.\n\nc) Determine the equation that will model this set of data.\n\n192 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p193-Q12",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "12. Jason tossed a ball over a motion detector and it recorded these data.\n\nTime (s) 0 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00\n\nHeight above\n\n0 2.1875 3.75 4.6875 = 4.6875 3.75 2.1875 0\n\nGround (m)\n\na) Draw a scatter plot of the data.\n\nb) Draw a curve of good fit.\n\nc) Determine an algebraic expression that models the data. Express the\n\nfunction in standard form.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p203_q12_3.7_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p193-Q13",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "13. Students at an agricultural school collected data showing the effect of\n\ndifferent annual amounts of water (rainfall plus irrigation), x, in hectare-\n\nmetres (ha ? m), on the yield of broccoli, y, in hundreds of kilograms per\n\nhectare (100 kg/ha).\n\nAmount of\n\nWater, x 0.30 0.45 0.60 0.75 0.90 1.05 1.20 1.35 1.50\n\n(ha m)\n\n•\n\nYield, y\n\n35 104 198 287 348 401 427 442 418\n\n(100 kg/ha)\n\na) Draw a scatter plot and a curve of good fit.\n\nb) Estimate the location of the vertex.\n\nc) Determine an algebraic model for the data.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p203_q13_3.7_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p193-Q14",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "14. What is the equation of the parabola at the right if the point (24, 29) is on y\n\nthe graph?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p203_q14_3.7_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-PR-p193-Q15",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "15. Complete the chart shown. Include what you know about families of\n\nx\n\nC parabolas in standard, vertex, and factored form.\n\n!8 - 6 !4 - 2 2 - 2\n\nDefinition: Characteristics:\n\n!4\n\nFamilies of !6\n\nParabolas Non-examples:\n\nExamples:\n\n!8",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p203_q15_3.7_1.png",
+        "nelson_assets/ch3/p203_q15_3.7_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-EX-p193-Q16",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "16.\n\nfrom the outside edge, if the height = m in from the outside edge is 8 m.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-37-EX-p193-Q17",
+      "chapter": 3,
+      "section": "3.7",
+      "stem": "17. A family of cubic equations with zeros 23, 1, and = can be represented by\n\nthe function f (x) a(x 3)(x 1)(x 5). Which equation describes = 1 - 2\n\nthe cubic in the family that passes through the point (3, 6)?\n\nQuadratic Functions 193",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.2"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-CK-p198-Q1",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "1. Find the point(s) of intersection by graphing.\n\na) \\(f (x) = x^2\\), \\(g(x) = x + 6\\)\n\nb) \\(f (x) = 22x2 + 3\\), \\(g(x) = 0.5x + 3\\)\n\n(x) (x 3)2 g(x)\n\nc) \\(f = 2 + 1\\), 5 22x - 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-CK-p198-Q2",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "2. Determine the point(s) of intersection algebraically.\n\na) \\(f (x) = 2x2 + 6x - 5\\), \\(g(x) = 24x + 19\\)\n\n(x) 2x2 g(x)\n\nb) \\(f = 2 1\\), 5 3x + 1\n\nc) \\(f (x) = 3x2 - 2x - 1\\), \\(g(x) = 2x - 6\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-CK-p198-Q3",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "3. Determine the number of points of intersection of \\(f (x) = 4x2 + x - 3 and\\)\n\n\\(g(x) = 5x - 4 without solving.\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p198-Q4",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "4. Determine the point(s) of intersection of each pair of functions.\n\nK f (x) 22x2 5x 20, g(x) 6x 1\n\na) = 2 1 = 2\n\n(x) 3x2 g(x)\n\nb) \\(f = 2 2\\), 5 x + 7\n\nc) \\(f (x) = 5x2 + x - 2\\), \\(g(x) = 23x - 6\\)\n\nf (x) 24x2 2x 3, g(x) 5x 4\n\nd) = 2 1 = 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p198-Q5",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "5. An integer is two more than another integer. Twice the larger integer is one\n\nmore than the square of the smaller integer. Find the two integers.\n\n198 Chapter 3\n\ny",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q6",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "6. The revenue function for a production by a theatre group is\n\n\\(R(t) = 250t2 + 300t\\), where t is the ticket price in dollars. The cost\n\nfunction for the production is C(t) = 600 - 50t. Determine the ticket\n\nprice that will allow the production to break even.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q6_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q7",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "7. a) Copy the graph of \\(f (x) = (x - 2)2 - 3. Then draw lines with slope\\)\n\n24 that intersect the parabola at (i) one point, (ii) two points, and 2\n\nx\n\n(iii) no points.\n\nb) Write the equations of the lines from part (a). !2 - 4 6 - 2\n\nc) How are all of the lines with slope 24 that do not intersect the parabola\n\n\\(f(x) = (x 2)2 3\\)\n\nrelated? !4 ! !",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q7_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q8",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "8. Determine the value of k such that g(x) = 3x 1 k intersects the quadratic\n\nfunction \\(f (x) = 2x2 - 5x + 3 at exactly one point.\\)\n\ng(x)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q9",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "9. Determine the value(s) of k such that the linear function = 4x 1 k does\n\nnot intersect the parabola \\(f (x) = 23x2 - x + 4.\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q9_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q10",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "10. A daredevil jumps off the CN Tower and falls freely for several seconds before\n\nA h(t)\n\nreleasing his parachute. His height, , in metres, t seconds after jumping\n\ncan be modelled by\n\nh1(t) = 24.9t 2 1 t 1 360 before he released his parachute; and\n\nh^2(t) = 24t 1 142 after he released his parachute.\n\nHow long after jumping did the daredevil release his parachute?\n\n(x) 3x2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q10_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q11",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "11. A quadratic function is defined by \\(f = 1 4x - 2. A linear function\\)\n\nT is defined by g(x) = mx - 5. What value(s) of the slope of the line would\n\nmake it a tangent to the parabola?\n\nh(t)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q11_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q12",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "12. A punter kicks a football. Its height, , in metres, t seconds after the\n\nkick is given by the equation h(t) = 24.9t2 + 18.24t 1 0.8. The height\n\nof an approaching blocker's hands is modelled by the equation\n\n\\(g(t) = 21.43t 1 4.26\\), using the same t. Can the blocker knock down the\n\npunt? If so, at what point will it happen?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q12_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-PR-p199-Q13",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "13. Given a quadratic function f (x) and a linear function g(x), describe two\n\nC\n\nways you could determine the number of points of intersection of the two\n\nfunctions without solving for them.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p209_q13_3.8_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-EX-p199-Q14",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "14. Determine the coordinates of any points of intersection of the functions\n\nx - 2x 3y 6 0 and 2x 3y 6 0.\n\n2 + 1 = 1 + 5",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-EX-p199-Q15",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "15. In how many ways could the graphs of two parabolas intersect? Draw a\n\nsketch to illustrate each possibility.\n\nDetermine the equation of the line that passes through the points of",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-38-EX-p199-Q16",
+      "chapter": 3,
+      "section": "3.8",
+      "stem": "16.\n\n(x) x^2\n\nintersection of the graphs of the quadratic functions \\(f = 2 4 and\\)\n\n\\(g(x) = 23x2 + 2x + 8.\\)\n\nQuadratic Functions 199",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A3.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    }
+  ]
+}

@@ -451,6 +451,86 @@ def list_questions(db: Any, library_id: int, bank_id: int) -> list[dict[str, Any
     return out
 
 
+def list_questions_matching_codes(
+    db: Any,
+    library_id: int,
+    codes: list[str],
+    *,
+    module_number: int | None = None,
+    strand: str = "",
+) -> list[dict[str, Any]]:
+    """Return questions in **one** library whose text mentions expectation codes.
+
+    One SQL query keyed by ``library_id`` plus code LIKE clauses — does not
+    scan other courses. Banks whose title or import_key mention ``M{n}`` or
+    ``M{n}/{strand}`` sort first when those keys are provided.
+
+    Args:
+        db: School database.
+        library_id: Offering content library (already course-scoped).
+        codes: Connected specific expectation codes (e.g. ``A2.1``).
+        module_number: Optional module N used only to rank matching banks.
+        strand: Optional strand letter used only to rank matching banks.
+    """
+    if not library_id:
+        return []
+    needles = []
+    for raw in codes:
+        code = str(raw or "").strip().upper()
+        if not code or code in needles:
+            continue
+        needles.append(code)
+    if not needles:
+        return []
+    clauses: list[str] = []
+    params: list[Any] = [int(library_id)]
+    for code in needles:
+        like = f"%{code}%"
+        clauses.append(
+            "(q.title LIKE ? OR q.payload_json LIKE ? OR q.import_key LIKE ?"
+            " OR b.title LIKE ? OR b.import_key LIKE ?)"
+        )
+        params.extend([like, like, like, like, like])
+    module_like = f"%M{int(module_number)}%" if module_number else ""
+    strand_like = ""
+    if module_number and (strand or "").strip():
+        letter = str(strand).strip().upper()[:1]
+        if letter.isalpha():
+            strand_like = f"%M{int(module_number)}/{letter}%"
+    rank_sql = "0"
+    if strand_like:
+        rank_sql = (
+            "CASE WHEN b.title LIKE ? OR b.import_key LIKE ? THEN 0 "
+            "WHEN b.title LIKE ? OR b.import_key LIKE ? THEN 1 ELSE 2 END"
+        )
+        params.extend([strand_like, strand_like, module_like, module_like])
+    elif module_like:
+        rank_sql = (
+            "CASE WHEN b.title LIKE ? OR b.import_key LIKE ? THEN 0 ELSE 1 END"
+        )
+        params.extend([module_like, module_like])
+    rows = db.conn.execute(
+        f"""
+        SELECT q.id, q.import_key, q.item_type, q.title, q.payload_json
+        FROM questions q
+        JOIN question_banks b ON b.id = q.bank_id
+        WHERE b.library_id = ?
+          AND ({' OR '.join(clauses)})
+        ORDER BY {rank_sql}, q.id
+        """,
+        params,
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        data = dict(row)
+        try:
+            data["payload"] = json.loads(data.pop("payload_json") or "{}")
+        except json.JSONDecodeError:
+            data["payload"] = {}
+        out.append(data)
+    return out
+
+
 def library_counts(db: Any, library_id: int) -> dict[str, int]:
     """Return component counts used for staff tab badges.
 

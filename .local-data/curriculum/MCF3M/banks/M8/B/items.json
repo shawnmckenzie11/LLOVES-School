@@ -1,0 +1,2063 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 8,
+  "strand": "B",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q1",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "For each sequence, determine i) the next two terms ii) the general term iii) the recursive formula.\n\na) \\(7, 11, 15, 19, \\dots\\)\n\nb) \\(58, 31, 4, -23, \\dots\\)\n\nc) \\(5, 20, 80, 320, \\dots\\)\n\nd) \\(1000, -500, 250, \\dots\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q3",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "The 4th, 5th, and 6th terms of a sequence are \\(9261\\), \\(9724.05\\), and \\(10\\,210.2525\\), respectively.\n\na) What type of sequence is this? Justify your reasoning.\n\nb) Determine the recursive formula.\n\nc) State the general term.\n\nd) Determine the 10th term.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q4",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "Determine the sum of the first 10 terms of each series.\n\na) \\(3 + 5 + 7 + \\dots\\)\n\nb) \\(-27 - 21 - 15 - \\dots\\)\n\nc) \\(48 + 31 + 14 + \\dots\\)\n\nd) \\(8\\,192\\,000 - 4\\,096\\,000 + 2\\,048\\,000 - \\dots\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q5",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "The population of a city is \\(200\\,000\\) and increases by \\(5\\%\\) per year.\n\na) Determine the expected population at the end of each of the next 3 years.\n\nb) What will be the expected population 10 years from now?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q6",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "Determine the value of \\(x\\) that makes the equation \\(2^x = 4096\\) true.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q7",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "Solve each equation by graphing the corresponding functions on a graphing calculator. Round your answers to two decimal places.\n\na) \\(2^x = 1\\,000\\,000\\)\n\nb) \\(5 \\times 3^x = 228\\)\n\nc) \\(14\\,000 \\times 1.07^x = 30\\,000\\)\n\nd) \\(250 \\times 1.0045^{12x} = 400\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q8",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "Complete the chart by writing what you know about exponential functions.\n\nExample:Visual representation:Definition in your own words:Personal association:",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-CK-p481-Q1",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Each situation represents an investment earning simple interest. Calculate the total amount at the end of each period: i) 1st, 2nd, and 3rd years; ii) 15 years.\n\na) $500 at \\(6.4\\%/\\mathrm{a}\\)\n\nb) $1250 at \\(4.1\\%/\\mathrm{a}\\)\n\nc) $25\\,000 at \\(5\\%/\\mathrm{a}\\)\n\nd) $1700 at \\(2.3\\%/\\mathrm{a}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-CK-p481-Q2",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "The graph represents the total amount of an investment of principal $\\(P\\) earning a fixed rate of simple interest over a period of 5 years.\n\na) What is the principal?\n\nb) How much interest is earned in 5 years?\n\nc) What interest rate is being applied?\n\nd) State the equation that represents the amount as a function of time.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p491_q2_8.1_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-CK-p481-Q3",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Michel invests $850 at \\(7\\%/\\mathrm{a}\\) simple interest. How long will he have to leave his investment in the bank before earning $200 in interest?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-CK-p481-Q4",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Sally has a balance of $2845 on her credit card. What rate of simple interest is she being charged if she must pay $26.19 interest for the 12 days her payment is late?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p481-Q5",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "For each investment, calculate the interest earned and the total amount.\n\nPrincipalRate of Simple Interest per YearTimea)$500\\(4.8\\%\\)8 yearsb)$3\\,200\\(9.8\\%\\)12 yearsc)$5\\,000\\(3.9\\%\\)16 monthsd)$128\\(18\\%\\)5 monthse)$50\\,000\\(24\\%\\)17 weeksf)$4\\,500\\(12\\%\\)100 days",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q6",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Mario borrows $4800 for \\(8.5\\) years at a fixed rate of simple interest. At the end of that time, he owes $8000. What interest rate is he being charged?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q7",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "How much money must be invested at \\(6.3\\%/\\mathrm{a}\\) simple interest to earn $250 in interest each month?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q8",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Nina deposits $3500 into a savings account. The rate of simple interest is \\(5.5\\%/\\mathrm{a}\\).\n\na) By how much does the amount in her account increase each year?\n\nb) Determine the amount in her account at the end of each of the first 5 years.\n\nc) State the total amount as the general term of a sequence.\n\nd) Graph this sequence.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q9",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Ahmad deposits an amount on September 1, 2005, into an account that earns simple interest quarterly. His bank sends him statements after each quarter. The amounts for the first four quarters are shown.\n\nStatementDateBalance1Dec. 1, 2005$3994.322Mar. 1, 2006$4248.643Jun. 1, 2006$4502.964Sept. 1, 2006$4757.28\na) How much did Ahmad invest?\n\nb) What rate of simple interest is he earning?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q10",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Anita borrows some money at a fixed rate of simple interest. The amount she owes at the end of each of the first five years is shown.\n\nYearAmount Owed1$2081.252$2312.503$2543.754$2775.005$3006.25\na) How much did Anita borrow?\n\nb) State the total amount as the general term of a sequence.\n\nc) How much time will have passed before Anita owes $7500?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q11",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Len invests $5200 at \\(3\\%/\\mathrm{a}\\) simple interest, while his friend Dave invests $3600 at \\(5\\%/\\mathrm{a}\\) simple interest. How long will it take for Dave’s investment to be worth more than Len’s?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-PR-p482-Q12",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Lotti invests some money at a fixed rate of simple interest. She uses the function \\(A(t) = 750 + 27.75t\\) to calculate how much her investment will be worth after \\(t\\) years. How much did she invest and what interest rate is she earning? Explain your reasoning.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-EX-p482-Q13",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "The doubling time of an investment is the length of time it takes for the total amount invested to become double the original amount invested. Determine a formula for the doubling time, \\(D\\), of an investment of principal $\\(P\\) earning a rate of simple interest of \\(r\\%/\\mathrm{a}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-81-EX-p482-Q14",
+      "chapter": 8,
+      "section": "8.1",
+      "stem": "Sara’s parents decide to invest $500 on each of her birthdays from the day she is born until she becomes 25. Each investment earns \\(6.4\\%/\\mathrm{a}\\) simple interest. What will be the total amount of the investments when Sara is 25?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-CK-p490-Q1",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Copy and complete the table.\n\nRate of Compound Interest per YearCompounding PeriodTimeInterest Rate per Compounding Period, \\(i\\)Number of Compounding Periods, \\(n\\)a) \\(5.4\\%\\)semi-annually5 yearsb) \\(3.6\\%\\)monthly3 yearsc) \\(2.9\\%\\)quarterly7 yearsd) \\(2.6\\%\\)weekly10 months",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-CK-p490-Q2",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "i) Determine the amount owed at the end of each of the first five compounding periods. ii) Determine the general term for the amount owed at the end of the \\(n\\)th compounding period.\n\nAmount BorrowedRate of Compound Interest per YearCompounding Perioda)$10\\,000\\(7.2\\%\\)annuallyb)$10\\,000\\(3.8\\%\\)semi-annuallyc)$10\\,000\\(6.8\\%\\)quarterlyd)$10\\,000\\(10.8\\%\\)monthly",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-CK-p490-Q3",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Calculate the future value of each investment. Draw a timeline for each.\n\nPrincipalRate of Compound Interest per YearCompounding PeriodTimea)$258\\(3.5\\%\\)annually10 yearsb)$5\\,000\\(6.4\\%\\)semi-annually20 yearsc)$1\\,200\\(2.8\\%\\)quarterly6 yearsd)$45\\,000\\(6\\%\\)monthly25 years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p490-Q4",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "For each investment, determine the future value and the total interest earned.\n\nPrincipalRate of Compound Interest per YearCompounding PeriodTimea)$4\\,000\\(3\\%\\)annually4 yearsb)$7\\,500\\(6\\%\\)monthly6 yearsc)$15\\,000\\(2.4\\%\\)quarterly5 yearsd)$28\\,200\\(5.5\\%\\)semi-annually10 yearse)$850\\(3.65\\%\\)daily1 yearf)$2\\,225\\(5.2\\%\\)weekly47 weeks",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q5",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Sima invests some money in an account that earns a fixed rate of interest compounded annually. The amounts of the investment at the end of the first three years are shown.\n\na) Determine the annual rate of compound interest earned.\n\nb) How much did Sima invest?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p501_q5_8.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q6",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Chris invests $10\\,000 at \\(7.2\\%/\\mathrm{a}\\) compounded monthly. How long will it take for his investment to grow to $25\\,000?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q7",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Serena wants to borrow $15\\,000 and pay it back in 10 years. Interest rates are high, so the bank makes her two offers:\n\nOption 1: Borrow the money at \\(10\\%/\\mathrm{a}\\) compounded quarterly for the full term.\nOption 2: Borrow the money at \\(12\\%/\\mathrm{a}\\) compounded quarterly for 5 years and then renegotiate the loan based on the new balance for the last 5 years.\nIf, in 5 years, the interest rate will be \\(6\\%/\\mathrm{a}\\) compounded quarterly, how much will Serena save by choosing the second option?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q8",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Ted used an exponential function to represent the future value, \\(A\\), in dollars, of an investment. Determine the principal, the annual interest rate, and the compounding period. Explain your reasoning.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p501_q8_8.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q9",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Margaret can finance the purchase of a $949.99 refrigerator one of two ways:\n\nPlan A: \\(10\\%/\\mathrm{a}\\) simple interest for 2 years\nPlan B: \\(5\\%/\\mathrm{a}\\) compounded quarterly for 2 years\nWhich plan should she choose? Justify your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q10",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Eric bought a $1000 Canada Savings Bond that earns \\(5\\%/\\mathrm{a}\\) compounded annually. Eric can redeem the bond in 7 years. Determine the future value of the bond.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q11",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Dieter deposits $9000 into an account that pays \\(10\\%/\\mathrm{a}\\) compounded quarterly. After three years, the interest rate changes to \\(9\\%/\\mathrm{a}\\) compounded semi-annually. Calculate the value of his investment two years after this change.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q12",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Cliff has some money he wants to invest for his retirement. He is offered two options:\n\n\\(10\\%/\\mathrm{a}\\) simple interest\n\\(5\\%/\\mathrm{a}\\) compounded annually\nUnder what conditions should he choose the first option?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p491-Q13",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Noreen used her graphing calculator to investigate two sequences. Three screenshots from her investigation are shown. Create a problem for this situation and solve it.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p501_q13_8.2_1.png",
+        "nelson_assets/ch8/p501_q13_8.2_2.png",
+        "nelson_assets/ch8/p501_q13_8.2_3.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p492-Q14",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "You are searching different banks for the best interest rate on an investment, and you find these rates:\n\n\\(6.6\\%/\\mathrm{a}\\) compounded annually\n\\(6.55\\%/\\mathrm{a}\\) compounded semi-annually\n\\(6.5\\%/\\mathrm{a}\\) compounded quarterly\n\\(6.45\\%/\\mathrm{a}\\) compounded monthly\nRank the rates from most to least return on your investment.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p492-Q15",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "On July 1, 1996, Anna invested $2000 in an account that earned \\(6\\%/\\mathrm{a}\\) compounded monthly. On July 1, 2001, she moved the total amount to a new account that paid \\(8\\%/\\mathrm{a}\\) compounded quarterly. Determine the balance in her account on January 1, 2008.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p492-Q16",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Bernie deposited $4000 into an account that pays \\(4\\%/\\mathrm{a}\\) compounded quarterly during the first year. The interest rate on this account is then increased by \\(0.2\\%\\) each year. Calculate the balance in Bernie’s account after three years.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p492-Q17",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "On the day Rachel was born, her grandparents deposited $500 into a savings account that earns \\(4.8\\%/\\mathrm{a}\\) compounded monthly. They deposited the same amount on her 5th, 10th, and 15th birthdays. Determine the balance in the account on Rachel’s 18th birthday.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-PR-p492-Q18",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Create a mind map for the concept of interest. Show how the calculations of simple and compound interest are related to functions and sequences.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-EX-p492-Q19",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "Liz decides to save money to buy an electric car. She invests $500 every 6 months at \\(6.8\\%/\\mathrm{a}\\) compounded semi-annually. What total amount of money will she have at the end of the 10th year?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-82-EX-p492-Q20",
+      "chapter": 8,
+      "section": "8.2",
+      "stem": "An effective annual interest rate is the interest rate that is equivalent to the given one, assuming that compounding occurs annually. Calculate the effective annual interest rate for each loan. Round to two decimal places.\n\nRate of Compound Interest per YearCompounding Period\na)\\(6.3\\%\\)semi-annually\nb)\\(4.2\\%\\)monthly\nc)\\(3.2\\%\\)quarterly",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-CK-p498-Q1",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Calculate the present value of each investment.\n\nRate of Compound Interest per YearCompounding PeriodTimeFuture Valuea)\\(4\\%\\)annually10 years$10\\,000b)\\(6.2\\%\\)semi-annually5 years$100\\,000c)\\(5.2\\%\\)quarterly15 years$23\\,000d)\\(6.6\\%\\)monthly100 years$2\\,500",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-CK-p498-Q2",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Kevin and Lui both want to have $10\\,000 in 20 years. Kevin can invest at \\(5\\%/\\mathrm{a}\\) compounded annually and Lui can invest at \\(4.8\\%/\\mathrm{a}\\) compounded monthly. Who has to invest more money to reach his goal?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p498-Q3",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "For each investment, determine the present value and the interest earned.\n\nRate of Compound Interest per YearCompounding PeriodTimeFuture Valuea)\\(6\\%\\)annually4 years$10\\,000b)\\(8.2\\%\\)semi-annually3 years$6\\,200c)\\(5.6\\%\\)quarterly15 years$20\\,000d)\\(4.2\\%\\)monthly9 years$12\\,800",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p498-Q4",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Chandra borrows some money at \\(7.2\\%/\\mathrm{a}\\) compounded annually. After 5 years, she repays $12\\,033.52 for the principal and the interest. How much money did Chandra borrow?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p498-Q5",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Nazir saved $900 to buy a plasma TV. He borrowed the rest at an interest rate of \\(18\\%/\\mathrm{a}\\) compounded monthly. Two years later, he paid $1429.50 for the principal and the interest. How much did the TV originally cost?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p498-Q6",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Rico can invest money at \\(10\\%/\\mathrm{a}\\) compounded quarterly. He would like $15\\,000 in 10 years. How much does he need to invest now?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p498-Q7",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Colin borrowed some money at \\(7.16\\%/\\mathrm{a}\\) compounded quarterly. Three years later, he paid $5000 toward the principal and the interest. After another two years, he paid another $5000. After another five years, he paid the remainder of the principal and the interest, which totalled $5000. How much money did he originally borrow?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p499-Q8",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Tia is investing $2500 that she would like to grow to $6000 in 10 years. At what annual interest rate, compounded quarterly, must Tia invest her money? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p499-Q9",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Franco invests some money at \\(6.9\\%/\\mathrm{a}\\) compounded annually and David invests some money at \\(6.9\\%/\\mathrm{a}\\) compounded monthly. After 30 years, each investment is worth $25\\,000. Who made the greater original investment and by how much?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p499-Q10",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Sally invests some money at \\(6\\%/\\mathrm{a}\\) compounded annually. After 5 years, she takes the principal and interest and reinvests it all at \\(7.2\\%/\\mathrm{a}\\) compounded quarterly for 6 more years. At the end of this time, her investment is worth $14\\,784.56. How much did Sally originally invest?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p499-Q11",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Steve wants to have $25\\,000 in 25 years. He can get only \\(3.2\\%/\\mathrm{a}\\) interest compounded quarterly. His bank will guarantee the rate for either 5 years or 8 years.\n\nIn 5 years, he will probably get \\(4\\%/\\mathrm{a}\\) compounded quarterly for the remainder of the term.\nIn 8 years, he will probably get \\(5\\%/\\mathrm{a}\\) compounded quarterly for the remainder of the term.\na) Which guarantee should Steve choose, the 5-year one or the 8-year one?\n\nb) How much does he need to invest?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-PR-p499-Q12",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Describe how determining the present value of an investment is similar to solving a radioactive decay problem.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-EX-p499-Q13",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Louise invests $5000 at \\(5.4\\%/\\mathrm{a}\\) compounded semi-annually. She would like the money to grow to $12\\,000. How long will she have to wait?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-EX-p499-Q14",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "What annual interest rate, compounded quarterly, would cause an investment to triple every 10 years? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-EX-p499-Q15",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "You buy a home entertainment system on credit. You make monthly payments of $268.17 for \\(2\\tfrac{1}{2}\\) years and are charged \\(19.2\\%/\\mathrm{a}\\) interest compounded monthly. How much interest will you have paid on your purchase?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p509_q15_8.3_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-83-EX-p499-Q16",
+      "chapter": 8,
+      "section": "8.3",
+      "stem": "Determine a formula for the present value of an investment with future value \\(A\\), earning simple interest at a rate of \\(i\\%\\) per interest period for \\(n\\) interest periods.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q5",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "George invests $15\\,000 at \\(7.2\\%/\\mathrm{a}\\) compounded monthly. How long will it take for his investment to grow to $34\\,000?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q1",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "Each situation represents a loan being charged simple interest. Calculate the interest being charged and the total amount.\n\nPrincipalRate of Simple Interest per YearTime\na)$5\\,400\\(6.7\\%\\)15 years\nb)$400\\(9.6\\%\\)16 months\nc)$15\\,000\\(14.3\\%\\)80 weeks\nd)$2\\,500\\(27.1\\%\\)150 days",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q6",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "Sara buys a washer and dryer for $2112. She pays $500 and borrows the remaining amount. A year and a half later, she pays off the loan, which amounted to $2112. What annual interest rate, compounded semi-annually, was Sara being charged? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q7",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "How much money does Maria need to invest at \\(9.2\\%/\\mathrm{a}\\) compounded quarterly in order to have $25\\,000 after 25 years?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q2",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "How long would you have to invest $5300 at \\(7.2\\%/\\mathrm{a}\\) simple interest to earn $1200 interest?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q8",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "Clive inherits an investment that his grandparents made at \\(7.4\\%/\\mathrm{a}\\) compounded semi-annually. The investment was worth $39\\,382.78 when they took it out 65 years ago. How much did Clive’s grandparents invest?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q3",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "Tom borrows some money and is charged simple interest on the principal. The balances from his statements for the first three months are shown.\n\nStatementBalance\n1$1014.60\n2$1079.20\n3$1143.80\n\na) How much interest is he being charged each month?\n\nb) How much did Tom borrow?\n\nc) What interest rate is he being charged?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q9",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "Iris borrowed some money at a fixed rate of compound interest, but she forgot what the interest rate was. She knew that the interest was compounded semi-annually. The balances of her first two statements are shown.\n\nStatementTimeBalance\n16 months$8715.91\n21 year$9125.56\n\na) What interest rate is she being charged? Round your answer to two decimal places.\n\nb) How much did Iris borrow?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-MCR-p503-Q4",
+      "chapter": 8,
+      "section": "8.Mid-Chapter Review",
+      "stem": "For each investment, calculate the future value and the total interest earned.\n\nPrincipalRate of Compound Interest per YearCompounding PeriodTime\na)$6\\,300\\(4.9\\%\\)annually7 years\nb)$14\\,000\\(8.8\\%\\)semi-annually10.5 years\nc)$120\\,000\\(4.4\\%\\)quarterly44 years\nd)$298\\(22.8\\%\\)monthly1.5 years",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-CK-p511-Q1",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Each year, Eric invests $2500 at \\(8.2\\%/\\mathrm{a}\\) compounded annually for 25 years.\n\na) Calculate the value of each of the first four investments at the end of 25 years.\n\nb) What type of sequence do the values form?\n\nc) Determine the total amount of all of Eric’s investments.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-CK-p511-Q2",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Calculate the future value of each annuity.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$100 per month\\(3.6\\%\\)monthly50 yearsb)$1500 per quarter\\(6.2\\%\\)quarterly15 yearsc)$500 every 6 months\\(5.6\\%\\)semi-annually8 yearsd)$4000 per year\\(4.5\\%\\)annually10 years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-CK-p511-Q3",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Lois invests $650 every 6 months at \\(4.6\\%/\\mathrm{a}\\) compounded semi-annually for 25 years. How much interest will she earn after the 25th year?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-CK-p511-Q4",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Josh borrows some money on which he makes monthly payments of $125.43 for 3 years. If the interest rate is \\(5.4\\%/\\mathrm{a}\\) compounded monthly, what will be the total amount of all of the payments at the end of the 3 years?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p511-Q5",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Calculate the future value of each annuity.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$1500 per year\\(6.3\\%\\)annually10 yearsb)$250 every 6 months\\(3.6\\%\\)semi-annually3 yearsc)$2400 per quarter\\(4.8\\%\\)quarterly7 yearsd)$25 per month\\(8\\%\\)monthly35 years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p511-Q6",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Mike wants to invest money every month for 40 years. He would like to have $1\\,000\\,000 at the end of the 40 years. For each investment option, how much does he need to invest each month?\n\na) \\(10.2\\%/\\mathrm{a}\\) compounded monthly\n\nb) \\(5.1\\%/\\mathrm{a}\\) compounded monthly",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p512-Q7",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Kiki has several options for investing $1200 per year:\n\nRegular PaymentRate of Compound Interest per YearCompounding Perioda)$100 per month\\(7.2\\%\\)monthlyb)$300 per quarter\\(7.2\\%\\)quarterlyc)$600 every 6 months\\(7.2\\%\\)semi-annuallyd)$1200 per year\\(7.2\\%\\)annually\nWithout doing any calculations, which investment would be best? Justify your reasoning.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p512-Q8",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Kenny wants to invest $250 every three months at \\(5.2\\%/\\mathrm{a}\\) compounded quarterly. He would like to have at least $6500 at the end of his investment. How long will he need to make regular payments?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p512-Q9",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Sonja and Anita want to make equal monthly payments for the next 35 years. At the end of that time, each person would like to have $500\\,000. Sonja’s bank will give her \\(6.6\\%/\\mathrm{a}\\) compounded monthly. Anita can invest through her work and earn \\(10.8\\%/\\mathrm{a}\\) compounded monthly.\n\na) How much more per month does Sonja have to invest?\n\nb) If Anita decides to invest the same monthly amount as Sonja, how much more money will she have at the end of 35 years?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p512-Q10",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Jamal wants to invest $150 every month for 10 years. At the end of that time, he would like to have $25\\,000. At what annual interest rate, compounded monthly, does Jamal need to invest to reach his goal? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-PR-p512-Q11",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Draw a mind map for the concept of future value of annuities. Show how it is related to interest, sequences, and series.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-EX-p512-Q12",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Carmen borrows $10\\,000 at \\(4.8\\%/\\mathrm{a}\\) compounded monthly. She decides to make monthly payments of $250.\n\na) How long will it take her to pay off the loan?\n\nb) How much interest will she pay over the term of the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-EX-p512-Q13",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "Greg borrows $123\\,000 for the purchase of a house. He plans to make regular monthly payments over the next 20 years to pay off the loan. The bank is charging Greg \\(6.6\\%/\\mathrm{a}\\) compounded monthly. What monthly payments will Greg have to make?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-84-EX-p512-Q14",
+      "chapter": 8,
+      "section": "8.4",
+      "stem": "How many equal monthly payments would you have to make to get 100 times the amount you are investing each month if you are earning \\(8.4\\%/\\mathrm{a}\\) compounded monthly?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-CK-p520-Q1",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Each situation represents a loan.\n\ni) Draw a timeline to represent the amount of the original loan.\n\nii) Write the series that represents the amount of the original loan.\n\niii) Calculate the amount of the original loan.\n\niv) Calculate the interest paid.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$650 per year\\(3.7\\%\\)annually5 yearsb)$1200 every 6 months\\(9.4\\%\\)semi-annually9 yearsc)$84.73 per quarter\\(3.6\\%\\)quarterly\\(3\\tfrac{1}{2}\\) yearsd)$183.17 per month\\(6.6\\%\\)monthly10 years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-CK-p520-Q2",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Each situation represents a simple, ordinary annuity.\n\ni) Calculate the present value of each payment.\n\nii) Write the present values of the payments as a series.\n\niii) Calculate the present value of the annuity.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$5000 per year\\(7.2\\%\\)annually5 yearsb)$250 every 6 months\\(4.8\\%\\)semi-annually12 yearsc)$25.50 per week\\(5.2\\%\\)weekly100 weeksd)$48.50 per month\\(23.4\\%\\)monthly\\(2\\tfrac{1}{2}\\) years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p520-Q3",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Calculate the present value of each annuity.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$5000 per year\\(7.2\\%\\)annually5 yearsb)$250 every 6 months\\(4.8\\%\\)semi-annually12 yearsc)$25.50 per week\\(5.2\\%\\)weekly100 weeksd)$48.50 per month\\(23.4\\%\\)monthly\\(2\\tfrac{1}{2}\\) years",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q4",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "You want to buy a $1300 stereo on credit and make monthly payments over 2 years. If the store is charging you \\(18\\%/\\mathrm{a}\\) compounded monthly, what will be your monthly payments?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q5",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Lily wants to buy a snowmobile. She can borrow $7500 at \\(10\\%/\\mathrm{a}\\) compounded quarterly if she repays the loan by making equal quarterly payments for 4 years.\n\na) Draw a timeline to represent the annuity.\n\nb) Write the series that represents the present value of the annuity.\n\nc) Calculate the quarterly payment that Lily must make.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q6",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Rocco pays $50 for a DVD/CD player and borrows the remaining amount. He plans to make 10 monthly payments of $40 each. The first payment is due next month.\n\na) The interest rate is \\(18\\%/\\mathrm{a}\\) compounded monthly. What was the selling price of the player?\n\nb) How much interest will he have paid over the term of the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q7",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Emily is investing $128\\,000 at \\(7.8\\%/\\mathrm{a}\\) compounded monthly. She wants to withdraw an equal amount from this investment each month for the next 25 years as spending money. What is the most she can take out each month?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q8",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "The Peca family wants to buy a cottage for $69\\,000. The Pecas can pay $5000 and finance the remaining amount with a loan at \\(9\\%/\\mathrm{a}\\) compounded monthly. The loan payments are monthly, and they may choose either a 7-year or a 10-year term.\n\na) Calculate the monthly payment for each term.\n\nb) How much would they save in interest by choosing the shorter term?\n\nc) What other factors should the Pecas consider before making their financing decision?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q9",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Charles would like to buy a new car that costs $32\\,000. The dealership offers to finance the car at \\(2.4\\%/\\mathrm{a}\\) compounded monthly for five years with monthly payments. The dealer will reduce the selling price by $3000 if Charles pays cash. Charles can get a loan from his bank at \\(5.4\\%/\\mathrm{a}\\) compounded monthly. Which is the best way to buy the car? Justify your answer with calculations.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q10",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "To pay off $35\\,000 in loans, Nina’s bank offers her a rate of \\(8.4\\%/\\mathrm{a}\\) compounded monthly. She has a choice between a 5-, 10-, or 15-year term.\n\na) Determine the monthly payment for each term.\n\nb) Calculate how much interest Nina would pay in each case.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p521-Q11",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Pedro pays $45 for a portable stereo and borrows the remaining amount. The loan payments are $25 per month for 1 year. The interest rate is \\(18.6\\%/\\mathrm{a}\\) compounded monthly.\n\na) What was the selling price of the stereo?\n\nb) How much interest will Pedro have paid over the term of the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p522-Q12",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Suzie buys a new computer for $2500. She pays $700 and finances the rest at $75.84 per month for \\(2\\tfrac{1}{2}\\) years. What annual interest rate, compounded monthly, is Suzie being charged? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p522-Q13",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Leo invests $50\\,000 at \\(11.2\\%/\\mathrm{a}\\) compounded quarterly for his retirement. Leo’s financial advisor tells him that he should take out a regular amount quarterly when he retires. If Leo has 20 years until he retires and wants to use the investment for recreation for the first 10 years of retirement, what is the maximum quarterly withdrawal he can make?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p522-Q14",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Charmaine calculates that she will require about $2500 per month for the first 15 years of her retirement. If she has 25 years until she retires, how much should she invest each month at \\(9\\%/\\mathrm{a}\\) compounded monthly for the next 25 years if she plans to withdraw $2500 per month for the 15 years after that?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p522-Q15",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "A lottery has two options for winners collecting their prize:\n\nOption A: $1000 each week for life\nOption B: $660\\,000 in one lump sum\nThe current interest rate is \\(6.76\\%/\\mathrm{a}\\) compounded weekly.\n\na) Which option would you suggest to a winner who expects to live for another 25 years?\n\nb) When is option A better than option B?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-PR-p522-Q16",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Classify situations and factors that show the differences between each pair of terms. Give examples.\n\na) a lump sum or an annuity\n\nb) future value or present value",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-EX-p522-Q17",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Stefan claims that he has found a different method for calculating the present value of an annuity. Instead of calculating the present value of each payment, he calculates the future value of each payment. Then he calculates the sum of the future values of the payments. Finally, he calculates the present value of this total sum.\n\nExample 1 (a) from the lesson: How much would you need to invest now at \\(8.3\\%/\\mathrm{a}\\) compounded annually to provide \\(\\$500\\) per year for the next 10 years?\n\na) Use Stefan’s method to solve Example 1 (a).\n\nb) Create another example to show that his claim is true. Include timelines.\n\nc) Use the formula for present value to prove that Stefan’s claim works for all annuities.\n\nCheck (a): Ordinary PV of annuity: \\(PV = 500\\dfrac{1-(1.083)^{-10}}{0.083} \\approx \\$3310.11\\). Stefan’s FV-then-discount approach yields the same present value.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-EX-p522-Q18",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Kyla must repay student loans that total $17\\,000. She can afford to make $325 monthly payments. The bank is charging an interest rate of \\(7.2\\%/\\mathrm{a}\\) compounded monthly. How long will it take Kyla to repay her loans?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-85-EX-p522-Q19",
+      "chapter": 8,
+      "section": "8.5",
+      "stem": "Charmaine invested a fixed amount per month so that her annuity would provide her with another monthly amount in her retirement (see the earlier Charmaine problem: $2500/month for 15 years after 25 years of deposits at \\(9\\%/\\mathrm{a}\\) compounded monthly). Derive a formula for the regular payment \\(R\\) that must be made for \\(m\\) payments at an interest rate of \\(i\\) per compounding period to provide for a regular withdrawal of \\(W\\) after all the payments are made for \\(n\\) withdrawals.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.5",
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-CK-p530-Q1",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Use technology to determine how long it will take to reach each investment goal.\n\nPrincipalRate of Compound Interest per YearCompounding PeriodFuture Valuea)$5\\,000\\(8.3\\%\\)annually$13\\,000b)$2\\,500\\(6.8\\%\\)semi-annually$4\\,000c)$450\\(12.4\\%\\)quarterly$4\\,500d)$15\\,000\\(3.6\\%\\)monthly$20\\,000",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-CK-p530-Q2",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Use technology to determine the annual interest rate, to two decimal places, being charged in each loan. The compounding period corresponds to when the payments are made.\n\nPrincipalRegular PaymentTimea)$2\\,500$357.59 per year10 yearsb)$15\\,000$1497.95 every 6 months6 yearsc)$3\\,500$374.56 per quarter3 yearsd)$450$29.62 per month18 months",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p530-Q3",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Trevor wants to save $3500. How much will he have to put away each month at \\(12.6\\%/\\mathrm{a}\\) compounded monthly in order to have enough money in \\(2\\tfrac{1}{2}\\) years?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p530-Q4",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Nadia borrows $120\\,000 to buy a house. The current interest rate is \\(6.6\\%/\\mathrm{a}\\) compounded monthly, and Nadia negotiates the term of the loan to be 25 years.\n\na) What will be each monthly payment?\n\nb) After paying for 3 years, Nadia receives an inheritance and makes a one-time payment of $15\\,000 against the outstanding balance of the loan. How much earlier can she pay off the loan because of this payment?\n\nc) How much will she save in interest charges by making the $15\\,000 payment?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p530-Q5",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Lisa and Karl are deciding to invest $750 per month for the next 7 years.\n\nBank A: \\(6.6\\%/\\mathrm{a}\\) compounded monthly\nBank B: \\(7.8\\%/\\mathrm{a}\\) compounded monthly\nHow much more will they end up with by choosing the second offer?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p530-Q6",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Mario decides to pay $250 per month at \\(5\\%/\\mathrm{a}\\) compounded monthly to pay off a $25\\,000 loan. After 2 years, he decides to increase the monthly payment. If he pays $50 extra per month at the end of each 2-year period, how long will it take him to pay off the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p531-Q7",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Natalie borrows $150\\,000 at \\(4.2\\%/\\mathrm{a}\\) compounded monthly for a period of 20 years to start a business. She is guaranteed that interest rate for 5 years and makes monthly payments of $924.86. After 5 years, she renegotiates her loan, but interest rates have gone up to \\(7.5\\%/\\mathrm{a}\\) compounded monthly.\n\na) If Natalie would like to have the loan paid off after the original 20-year period, what should her new monthly payment be?\n\nb) If she keeps her payments the same, how much extra time will it take her to pay off the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p531-Q8",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Peter buys a ski vacation package priced at $2754. He pays $350 down and finances the balance at $147 per month for \\(1\\tfrac{1}{2}\\) years. Determine the annual interest rate, compounded monthly, being charged. Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p531-Q9",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "a) Suppose you have a loan where the interest rate doubles. If you want to keep the same amortization period, should you double the payment? Justify your reasoning with examples.\n\nb) Suppose you are borrowing money. If you decide to double the amount borrowed, should you double the payment if you want to keep the same amortization period? Justify your reasoning with examples.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p531-Q10",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Laurie borrows $50\\,000 for 10 years at \\(6.6\\%/\\mathrm{a}\\) compounded monthly. How much sooner can she pay off the loan if she doubles the monthly payment after 4 years?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-PR-p531-Q11",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "What are the advantages and disadvantages of using each technology to solve financial problems?\n\na spreadsheet\na graphing calculator",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-EX-p531-Q12",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "A music store will finance the purchase of a rare guitar at \\(3.6\\%/\\mathrm{a}\\) compounded monthly over 5 years, but offers a $250 reduction if the payment is cash. If you can get a loan from a bank at \\(4.8\\%/\\mathrm{a}\\) compounded annually, how much would the guitar have to sell for to make it worthwhile to take out the loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-EX-p531-Q13",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "The interest on all mortgages is charged semi-annually. You are given a choice of monthly, semi-monthly, bi-weekly, and weekly payments. Suppose you have a mortgage at \\(8\\%/\\mathrm{a}\\), the monthly payments are $1000, and the amortization period is 20 years. Investigate the effect on the time to pay off the mortgage if you made each of these payments.\n\na) $500 semi-monthly\n\nb) $500 bi-weekly\n\nc) $250 weekly",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-86-EX-p531-Q14",
+      "chapter": 8,
+      "section": "8.6",
+      "stem": "Steve decides to pay $150 per month to pay off a $6800 loan. In the beginning, the interest rate is \\(13\\%/\\mathrm{a}\\) compounded monthly. The bank guarantees the interest rate for one year at a time. The rate for the next year is determined by the going rate at the time. Assuming that each year the rate drops by \\(0.5\\%/\\mathrm{a}\\), how long will it take Steve to pay off his loan?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B3.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q5",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Each situation represents a loan being charged compound interest. Calculate the total amount and the interest being charged.\n\nPrincipalRate of Compound Interest per YearCompounding PeriodTimea)$4300\\(9.1\\%\\)annually8 yearsb)$500\\(10.4\\%\\)semi-annually11.5 yearsc)$25\\,000\\(6.4\\%\\)quarterly3 yearsd)$307\\(27.6\\%\\)monthly2.5 years",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q1",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Each situation represents an investment earning simple interest. Calculate the interest earned and the total amount.\n\nPrincipalRate of Simple Interest per YearTimea)$3500\\(6\\%\\)10 yearsb)$15\\,000\\(11\\%\\)3 yearsc)$280\\(3.2\\%\\)34 monthsd)$850\\(29\\%\\)100 weekse)$21\\,000\\(7.3\\%\\)42 days",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q6",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Deana invests some money that earns interest compounded annually. At the end of the first year, she earns $400 in interest. At the end of the second year, she earns $432 in interest.\n\na) What interest rate, compounded annually, is Deana earning? Round your answer to two decimal places.\n\nb) How much did she invest?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q2",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Pia invests $2500 in an account that earns simple interest. At the end of each month, she earns $11.25 in interest.\n\na) What annual rate of simple interest is Pia earning? Round your answer to two decimal places.\n\nb) How much money will be in her account after 7 years?\n\nc) How long will it take for her money to double?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q7",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Vlad purchased some furniture for his apartment. The total cost was $2942.37. He paid $850 down and financed the rest for 18 months. At the end of the finance period, Vlad owed $2147.48. What annual interest rate, compounded monthly, was he being charged? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q3",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Karl borrows some money and is charged simple interest. The graph shows how the amount he owes grows over time.\n\na) How much did Karl borrow?\n\nb) What annual interest rate is he being charged?\n\nc) How long will it take before he owes $20\\,000?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch8/p544_q3_8.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q8",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Calculate the present value of each investment.\n\nRate of Compound Interest per YearCompounding PeriodTimeFuture Valuea)\\(6.7\\%\\)annually5 years$8000b)\\(8.8\\%\\)semi-annually2.5 years$1280c)\\(5.6\\%\\)quarterly8 years$100\\,000d)\\(24.6\\%\\)monthly1.5 years$850",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p534-Q4",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Isabelle invests $4350 at \\(7.6\\%/\\mathrm{a}\\) compounded quarterly. How long will it take for her investment to grow to $10\\,000?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q10",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Marisa invests $1650 for 3 years, at which time her investment is worth $2262.70. What interest rate, compounded annually, would yield the same results? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q11",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "For each annuity, calculate the future value and the interest earned.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$2500 per year\\(7.6\\%\\)annually12 yearsb)$500 every 6 months\\(7.2\\%\\)semi-annually9.5 yearsc)$2500 per quarter\\(4.3\\%\\)quarterly3 years",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q16",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Eden finances a purchase of $611.03 by making monthly payments of $26.17 for \\(2\\tfrac{1}{2}\\) years. What annual interest rate, compounded monthly, is she being charged? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q17",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Chantal purchases a moped for $1875.47 with $650 down. She finances the balance at \\(6.6\\%/\\mathrm{a}\\) compounded monthly over 4 years. How much will Chantal have to pay each month?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q18",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Starting at age 20, Ken invests $100 per month in an account that earns \\(5.4\\%/\\mathrm{a}\\) compounded monthly. Starting at age 37, his twin brother, Adam, starts saving money in an account that pays \\(7.2\\%/\\mathrm{a}\\) compounded monthly. How much more money will Adam need to invest each month if he wants his investment to be worth the same as Ken’s by the time they are 55 years old?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q12",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Naomi wants to save $100\\,000, so she makes quarterly payments of $1500 into an account that earns \\(4.4\\%/\\mathrm{a}\\) compounded quarterly. How long will it take her to reach her goal?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q13",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Ernie wants to invest some money each month at \\(9\\%/\\mathrm{a}\\) compounded monthly for 6 years. At the end of that time, he would like to have $25\\,000. How much money does he have to put away each month?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q19",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "Jenny starts a business and borrows $100\\,000 at \\(4.2\\%/\\mathrm{a}\\) compounded monthly. She can afford to make payments between $1000 and $1500 per month. How much sooner can she pay off the loan if she pays the maximum amount compared with the minimum amount?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-CR-p535-Q14",
+      "chapter": 8,
+      "section": "8.Chapter Review",
+      "stem": "For each loan, calculate the amount of the loan and the interest being charged.\n\nRegular PaymentRate of Compound Interest per YearCompounding PeriodTimea)$450 per year\\(5.1\\%\\)annually6 yearsb)$2375 every 6 months\\(9.2\\%\\)semi-annually4.5 yearsc)$185.73 per quarter\\(12.8\\%\\)quarterly3.5 yearsd)$105.27 per month\\(19.2\\%\\)monthly1.5 years",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q1",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "For each investment, determine the total amount and the interest earned.\n\nPrincipalRate of Interest per YearTimea)$850\\(9\\%\\) simple interest6 yearsb)$5460\\(8.4\\%\\) compounded semi-annually13 yearsc)$230 per month\\(4.8\\%\\) compounded monthly\\(6\\tfrac{1}{2}\\) years",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q2",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "The amounts owed for two different loans are shown.\n\nLoan #1 YearAmount Owed1$37962$39423$4088\nLoan #2 YearAmount Owed2$977.533$1036.184$1098.35\na) For each loan, determine whether simple interest or compound interest is being charged. Justify your answer.\n\nb) What annual interest rate is each loan being charged? Round your answer to two decimal places.\n\nc) How much was each loan originally?\n\nd) Determine the future value of each loan after 10 years.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q3",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "Betsy inherits $15\\,000 and would like to put some of it away for a down payment on a house in 8 years. If she would like to have $25\\,000 for the down payment, how much of her inheritance must she invest at \\(9.2\\%/\\mathrm{a}\\) compounded quarterly?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q4",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "Derek invests $250 per month for \\(6\\tfrac{1}{2}\\) years at \\(4.8\\%/\\mathrm{a}\\) compounded monthly. How much will his investment be worth at the end of the \\(6\\tfrac{1}{2}\\) years?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q5",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "Simone wants to save money for her retirement. Her two best options are \\(5.88\\%/\\mathrm{a}\\) compounded monthly or \\(6\\%/\\mathrm{a}\\) compounded annually. Which option should she choose? Why?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q6",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "Anand’s parents have been paying $450 per month into a retirement fund for the last 30 years. The fund is now worth $450\\,000. What annual interest rate, compounded monthly, are Anand’s parents earning? Round your answer to two decimal places.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-ST-p536-Q7",
+      "chapter": 8,
+      "section": "8.Chapter Self-Test",
+      "stem": "Yvette wants to invest some money under these conditions:\n\nEach quarter for the next 17 years, she wants to earn \\(8.4\\%/\\mathrm{a}\\) compounded quarterly.\nAfter 17 years, she plans to reinvest the money at \\(7.2\\%/\\mathrm{a}\\) compounded monthly.\nShe wants to withdraw $5000 per month for the 10 years after the initial 17 years.\nHow much more would she have to invest per quarter if she earned \\(7.2\\%/\\mathrm{a}\\) compounded quarterly for the first 17 years and \\(8.4\\%/\\mathrm{a}\\) compounded monthly for the next 10 years?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QA",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nA. What strategies will you use to solve this problem? Justify your strategies.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QB",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nB. How much money will Steve have accumulated by the time he is 55?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QC",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nC. For how many months will Carol and Lisa be making payments?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QD",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nD. How much will Carol and Lisa have to put away each month to meet their goals?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QE",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nE. For how many months will each person withdraw money?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p537-QF",
+      "chapter": 8,
+      "section": "8.Chapter Task",
+      "stem": "Saving for Retirement. Steve, Carol, and Lisa get their first full-time jobs and talk about saving for retirement. They are each 22 years old and plan to work until they are 55.\n\nSteve starts investing immediately and puts aside $150 per month. Carol wants to enjoy life a bit and decides to start contributing when she is 30. Lisa thinks that they are both starting too early and decides to wait until she is 42 before starting to save.\n\nAssume that Steve, Carol, and Lisa are each earning \\(9\\%/\\mathrm{a}\\) compounded monthly. Carol and Lisa want to accumulate the same amount as Steve upon retirement. When they retire, Steve wants his investment to last 10 years, Carol wants hers to last 15 years, and Lisa wants hers to last 20 years.\n\nHow much will Steve, Carol, and Lisa be able to withdraw monthly upon retirement?\n\nF. How much will each person be able to withdraw from his or her nest egg each month?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q1",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Determine \\(S_{21}\\) for the series \\(2.8 + 3.2 + 3.6 + 4.0 + \\cdots\\).\n\n142.810410.8142.4",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q2",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Identify the sequence that is not geometric.\n\n\\(4, 16, 64, 256, \\ldots\\)\\(30, 6, 1.2, 0.24, \\ldots\\)\\(2, 6, 7, 21, 22, \\ldots\\)\\(5, 5, 5, 5, \\ldots\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q3",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Consider the sequence \\(1, -\\dfrac{2}{3}, \\dfrac{4}{9}, -\\dfrac{8}{27}, \\ldots\\). Determine \\(t_8\\).\n\n\\(\\dfrac{128}{2187}\\)\\(\\dfrac{64}{79}\\)\\(-\\dfrac{128}{2187}\\)\\(-\\dfrac{64}{79}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q11",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Marisa has just won a contest. She must decide between two prize options.\n\nCollect a lump-sum payment of $50\\,000.\nReceive $800 at the end of every quarter for 10 years from an investment.\nThe investment earns \\(8\\%/\\mathrm{a}\\), compounded quarterly. How much more money would she have if she chooses the lump sum?\n\n$3009.89$1678.41$348.92$30.99",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q4",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "The first three terms of the sequence \\(8, a, b, 36\\) form an arithmetic sequence, but the last three terms form a geometric sequence. Determine all possible values of \\(a\\) and \\(b\\).\n\n\\((a, b) = (1, -6)\\)\\((a, b) = (-1, 6)\\)\\((a, b) = (16, 24)\\)\\((a, b) = (12, 24)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q5",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "The fifth term of a geometric series is 405 and the sixth term is 1215. Calculate the sum of the first nine terms.\n\n147\\,615810049\\,20536\\,705",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q12",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "An annuity written as a geometric series has common ratio \\(r = 1.005\\). Determine the annual interest rate for the annuity if the interest is compounded monthly.\n\n\\(12\\%\\)\\(0.5\\%\\)\\(5\\%\\)\\(6\\%\\)\nSolution: For a geometric growth factor \\(r = 1 + i\\) per month, \\(i = 0.005 = 0.5\\%\\) per month, so the nominal annual rate is \\(12 \\times 0.5\\% = 6\\%\\) (choice d). Note: the printed cumulative-review key lists (c); that conflicts with the stem mathematics, so this bank records d.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q6",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Determine the first six terms of the sequence defined by \\(t_1 = -5\\) and \\(t_n = -3t_{n-1} + 8\\).\n\n\\(-5, 23, -61, 191, -565, 1703\\)\\(-5, 26, -70, 202, -598, 1786\\)\\(-5, 23, 61, 191, 565, 1703\\)\\(-5, 9, -51, 129, -411, 1209\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q13",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Lee wants to buy a plasma television. The selling price is $1894. The finance plan includes $150 down with payments of $113 at the end of each month for \\(1\\tfrac{1}{2}\\) years. Determine the annual interest rate being charged, if the interest is compounded monthly.\n\n\\(3.25\\%\\)\\(1\\%\\)\\(20.06\\%\\)\\(24\\%\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q7",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Choose the correct simplified expansion for the binomial \\((x - 3)^5\\).\n\n\\(x^5 - 15x^4 + 90x^3 - 270x^2 + 405x - 243\\)\\(x^4 - 15x^3 + 90x^2 - 270x + 405\\)\\(x^6 - 15x^5 + 90x^4 - 270x^3 + 405x^2 - 243x\\)\\(x^5 - 15x^4 + 90x^3 - 270x^2 + 405x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p539-Q14",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Mr. Los is planning to buy a sailboat. He decides to deposit $300 at the end of each month into an account that earns \\(6\\%/\\mathrm{a}\\) interest, compounded monthly. At the end of four years, he uses the balance in the account as a down payment on a $56\\,000 sailboat. He gets financing for the balance at a rate of \\(8\\%/\\mathrm{a}\\), compounded monthly. He can afford payments of $525 per month. If interest rates remain constant, how long will it take him to repay the loan?\n\n10 years and 6 months12 years and 9 months9 years8 years and 10 months",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p539-Q16",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Determine which best describes the regular payment on an amortized loan.\n\nthe average of all interest paymentsthe fixed periodic payment made up of interest and principalthe average of all principal paymentsthe payment of principal only",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p539-Q17",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Medicine Dosage. Marcus has a bacterial infection and must take 350 mg of medication every 6 h. By the time he takes his next dose, 32% of the medication remains in his body.\n\na) Determine a recursive formula that models this situation.\n\nb) What will the amount of medication in his body level off to?\n\nc) How long will it take for the medication to reach this level?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-GS-p474-Q2",
+      "chapter": 8,
+      "section": "8.Getting Started",
+      "stem": "The fourth term of an arithmetic sequence is \\(46\\) and the sixth term is \\(248\\). Determine\na) the 5th term\nb) the common difference\nc) the 1st term\nd) the 100th term",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q8",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "After 15 days, \\(90\\%\\) of a radioactive material has decayed. What is the half-life of the material?\n1.45 days4.52 days7.5 days11.45 days",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q9",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Determine the annual interest rate, compounded annually, that would result in an investment doubling in seven years.\n10.4%14%7%11.45%",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p538-Q10",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "How long will it take for $5000 invested at \\(6\\%/\\mathrm{a}\\) compounded monthly to grow to $6546.42?\n4.5 years3 years40 months48 months",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C8-TASK-p539-Q15",
+      "chapter": 8,
+      "section": "8.Cumulative Review",
+      "stem": "Which option, if any, would allow you to repay a loan in less time?\n\ndecrease the regular paymentincrease the regular payment and decrease the interest ratedecrease the regular payment and increase the interest ratenone of the above",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    }
+  ]
+}

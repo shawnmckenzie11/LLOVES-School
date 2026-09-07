@@ -10,6 +10,7 @@ import re
 import sys
 import time
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,13 @@ PACK_BUSY_STAGES = frozenset(
         "ingest",
         "syllabus",
     }
+)
+# Last heartbeat older than this ⇒ treat a busy status as a dead installer.
+PACK_STALE_SECONDS = 20 * 60
+CORRUPT_CARTRIDGE_MESSAGE = (
+    "That module pack is damaged or incomplete (zip decompress failed). "
+    "Re-export a fresh .imscc from Canvas and upload again. A truncated "
+    "upload or a renamed non-zip file will not unpack."
 )
 
 PLACEHOLDER_TYPES = {
@@ -141,6 +149,7 @@ def write_pack_status(
         "error": error,
         "busy": stage in PACK_BUSY_STAGES,
         "updated_at": time.time(),
+        "pid": os.getpid(),
     }
     path = pack_status_path(dest_root)
     tmp = path.with_suffix(".json.tmp")
@@ -180,14 +189,100 @@ def read_pack_status(dest_root: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         return idle
     stage = str(data.get("stage") or "idle")
-    return {
+    status = {
         "ok": bool(data.get("ok", stage != "error")),
         "stage": stage,
         "detail": str(data.get("detail") or ""),
         "error": data.get("error"),
         "busy": stage in PACK_BUSY_STAGES,
         "updated_at": data.get("updated_at"),
+        "pid": data.get("pid"),
     }
+    if status["busy"] and _pack_install_abandoned(status):
+        message = (
+            "Module pack install stopped before it finished. "
+            "Upload the .imscc again."
+        )
+        write_pack_status(
+            Path(dest_root), stage="error", detail=message, error=message
+        )
+        return {
+            "ok": False,
+            "stage": "error",
+            "detail": message,
+            "error": message,
+            "busy": False,
+            "updated_at": time.time(),
+            "pid": os.getpid(),
+        }
+    return status
+
+
+def _pid_is_running(pid: int) -> bool:
+    """Return True when ``pid`` still exists on this machine.
+
+    Args:
+        pid: Process id written by ``write_pack_status``.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
+def _pack_install_abandoned(status: dict[str, Any]) -> bool:
+    """True when a busy pack job's process is gone or heartbeats stopped.
+
+    Args:
+        status: Payload from ``install_status.json``.
+    """
+    if str(status.get("stage") or "") not in PACK_BUSY_STAGES:
+        return False
+    pid_raw = status.get("pid")
+    if pid_raw is not None:
+        try:
+            pid = int(pid_raw)
+        except (TypeError, ValueError):
+            pid = None
+        if pid is not None and not _pid_is_running(pid):
+            return True
+    updated = status.get("updated_at")
+    try:
+        updated_at = float(updated)
+    except (TypeError, ValueError):
+        return False
+    return (time.time() - updated_at) > PACK_STALE_SECONDS
+
+
+def is_corrupt_zip_error(exc: BaseException) -> bool:
+    """Return True when ``exc`` is a damaged/truncated ZIP decompress failure.
+
+    Args:
+        exc: Exception raised while opening or extracting an IMSCC.
+    """
+    if isinstance(exc, (zipfile.BadZipFile, zlib.error)):
+        return True
+    text = str(exc).lower()
+    return (
+        "decompress" in text
+        or "invalid lengths" in text
+        or "bad zip" in text
+        or "truncated" in text
+    )
+
+
+def explain_pack_exception(exc: BaseException) -> str:
+    """Teacher-facing message for a failed pack install.
+
+    Args:
+        exc: Exception from unpack, inventory, or ingest.
+    """
+    if is_corrupt_zip_error(exc):
+        return CORRUPT_CARTRIDGE_MESSAGE
+    return str(exc) or "Could not install that module pack."
 
 
 def pack_ui_state(
@@ -406,13 +501,20 @@ def inventory_path_for_code(
     return template_pack_paths(ontario_code, content_root).inventory
 
 
-def ensure_unpacked(imscc: Path, out_dir: Path, *, force: bool = False) -> dict[str, Any]:
+def ensure_unpacked(
+    imscc: Path,
+    out_dir: Path,
+    *,
+    force: bool = False,
+    dest_root: Path | None = None,
+) -> dict[str, Any]:
     """Unpack the cartridge when the working tree is missing.
 
     Args:
         imscc: ``.imscc`` archive.
         out_dir: Destination (gitignored / volume).
         force: If True, replace an existing unpack (used after staff upload).
+        dest_root: Library folder for unpack progress heartbeats, if known.
 
     Returns:
         Status dict: ``ok``, ``unpacked``, ``error``.
@@ -427,11 +529,33 @@ def ensure_unpacked(imscc: Path, out_dir: Path, *, force: bool = False) -> dict[
     except ImportError:
         logger.exception("canvas_unpack import failed")
         return {"ok": False, "unpacked": False, "error": "Unpack tool is missing."}
+    last_beat = [0.0]
+
+    def progress(done: int, total: int, _name: str) -> None:
+        """Refresh unpack status so a long extract is not treated as stalled."""
+        if dest_root is None:
+            return
+        now = time.time()
+        if done < total and now - last_beat[0] < 8:
+            return
+        last_beat[0] = now
+        write_pack_status(
+            dest_root,
+            stage="unpacking",
+            detail=f"Unpacking Common Cartridge… {done}/{total} files",
+        )
+
     try:
-        canvas_unpack.unpack_imscc(imscc, out_dir, clean=force)
+        canvas_unpack.unpack_imscc(
+            imscc, out_dir, clean=force, progress=progress
+        )
     except Exception as exc:  # noqa: BLE001 — surface to the Modules empty state
         logger.exception("IMSCC unpack failed")
-        return {"ok": False, "unpacked": False, "error": str(exc)}
+        return {
+            "ok": False,
+            "unpacked": False,
+            "error": explain_pack_exception(exc),
+        }
     return {"ok": True, "unpacked": True, "error": None}
 
 
@@ -496,7 +620,7 @@ def install_uploaded_module_pack(imscc: Path, dest_root: Path) -> dict[str, Any]
         stage="unpacking",
         detail="Unpacking Common Cartridge… this can take a few minutes",
     )
-    status = ensure_unpacked(imscc, unpacked, force=True)
+    status = ensure_unpacked(imscc, unpacked, force=True, dest_root=dest_root)
     if not status.get("ok"):
         err = str(status.get("error") or "Could not unpack that module pack.")
         write_pack_status(dest_root, stage="error", detail=err, error=err)
@@ -506,11 +630,12 @@ def install_uploaded_module_pack(imscc: Path, dest_root: Path) -> dict[str, Any]
         write_pack_inventory(imscc, unpacked, inventory_path)
     except Exception as exc:  # noqa: BLE001
         logger.exception("inventory after IMSCC upload failed")
-        write_pack_status(dest_root, stage="error", detail=str(exc), error=str(exc))
+        err = explain_pack_exception(exc)
+        write_pack_status(dest_root, stage="error", detail=err, error=err)
         return {
             "ok": False,
             "unpacked": True,
-            "error": str(exc),
+            "error": err,
             "inventory": None,
         }
     return {
@@ -566,8 +691,8 @@ def validate_imscc_upload(
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
-    except zipfile.BadZipFile as exc:
-        raise ValueError("That file is not a readable ZIP/IMSCC archive.") from exc
+    except (zipfile.BadZipFile, zlib.error, RuntimeError) as exc:
+        raise ValueError(explain_pack_exception(exc)) from exc
     if not any(n.rstrip("/").endswith("imsmanifest.xml") for n in names):
         raise ValueError(
             "That archive is missing imsmanifest.xml (not a Common Cartridge)."

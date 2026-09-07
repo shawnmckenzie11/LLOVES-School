@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ school_name|safe }}</title>
+  <title>{{ school_display }}</title>
+  <meta name="description" content="ALC is the online live-class, attendance, and module workspace for Ontario courses — built for teachers, students, and homeschool families.">
   <link rel="stylesheet" href="/static/lloves.css">
 </head>
 <body class="landing-page">
@@ -13,9 +14,9 @@
     </svg>
   </a>
   <h1 class="landing-brand">
-    <span class="brand-edge">Attendance</span> &amp; <span class="brand-edge">Live Classes</span>
+    <span class="brand-edge">Attendance</span> &amp; <span class="brand-edge">Live Lessons</span>
   </h1>
-  <div class="wrap landing-wrap">
+  <div class="wrap landing-wrap" id="sign-in">
     <p class="role-prompt">Select your role:</p>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <div class="role-cards" id="role-cards">
@@ -38,36 +39,8 @@
       </div>
     </form>
   </div>
-  {% if google_client_id %}
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <div id="g_id_onload"
-       data-client_id="{{ google_client_id }}"
-       data-login_uri="{{ request.scheme }}://{{ request.host }}/auth/google/callback"
-       data-auto_select="{{ 'true' if one_tap_auto else 'false' }}"
-       data-itp_support="true"></div>
-  {% endif %}
   <script>
     (function () {
-      function fitBrand() {
-        var el = document.querySelector(".landing-brand");
-        if (!el) return;
-        var avail = Math.max(0, window.innerWidth - 32);
-        var maxPx = Math.min(28, avail * 0.028);
-        var minPx = 10;
-        el.style.fontSize = maxPx + "px";
-        var guard = 0;
-        while (el.scrollWidth > avail && maxPx > minPx && guard < 60) {
-          maxPx -= 0.4;
-          el.style.fontSize = maxPx + "px";
-          guard += 1;
-        }
-      }
-      fitBrand();
-      window.addEventListener("resize", fitBrand);
-      if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(fitBrand).catch(function () {});
-      }
-
       var btn = document.getElementById("student-role-btn");
       var panel = document.getElementById("student-code-panel");
       var input = document.getElementById("code");

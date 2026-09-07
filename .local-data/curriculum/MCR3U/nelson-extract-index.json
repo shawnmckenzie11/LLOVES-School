@@ -1,0 +1,38 @@
+{
+  "course_code": "MCR3U",
+  "source": "Nelson Functions 11 sqlite (read-only; Ch1 curated bank, Ch2–3 legacy nelson_ch1_3)",
+  "nelson_ch7_included": true,
+  "nelson_ch8_mapped_to": "M4/C (Discrete C3; not strand B)",
+  "counts": {
+    "M1/A": {
+      "total": 158,
+      "verified": 143,
+      "tagged_to_code": 113
+    },
+    "M2/A": {
+      "total": 308,
+      "verified": 0,
+      "tagged_to_code": 203
+    },
+    "M3/B": {
+      "total": 115,
+      "verified": 106,
+      "tagged_to_code": 80
+    },
+    "M4/C": {
+      "total": 304,
+      "verified": 304,
+      "tagged_to_code": 192
+    },
+    "M5/D": {
+      "total": 132,
+      "verified": 127,
+      "tagged_to_code": 90
+    },
+    "M6/D": {
+      "total": 135,
+      "verified": 135,
+      "tagged_to_code": 72
+    }
+  }
+}

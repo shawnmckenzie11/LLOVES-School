@@ -1,0 +1,47 @@
+{
+  "course_code": "MCF3M",
+  "source": "Nelson Functions 11 sqlite (read-only; Ch1 curated bank, Ch2–3 legacy nelson_ch1_3)",
+  "mcf3m_skipped_nelson_ch7": true,
+  "counts": {
+    "M1/A": {
+      "total": 143,
+      "verified": 143,
+      "tagged_to_code": 80
+    },
+    "M2/A": {
+      "total": 144,
+      "verified": 0,
+      "tagged_to_code": 45
+    },
+    "M3/A": {
+      "total": 81,
+      "verified": 0,
+      "tagged_to_code": 29
+    },
+    "M4/A": {
+      "total": 63,
+      "verified": 0,
+      "tagged_to_code": 63
+    },
+    "M5/C": {
+      "total": 132,
+      "verified": 127,
+      "tagged_to_code": 90
+    },
+    "M6/C": {
+      "total": 135,
+      "verified": 135,
+      "tagged_to_code": 72
+    },
+    "M7/B": {
+      "total": 115,
+      "verified": 106,
+      "tagged_to_code": 80
+    },
+    "M8/B": {
+      "total": 161,
+      "verified": 161,
+      "tagged_to_code": 97
+    }
+  }
+}

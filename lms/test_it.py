@@ -335,11 +335,14 @@ class ItTests(unittest.TestCase):
         html = dash.get_data(as_text=True)
         self.assertIn("tab-settings", html)
         self.assertIn("only-live-class-days", html)
+        self.assertIn("staff-2fa-mode", html)
+        self.assertIn("Only on first log in", html)
         self.assertIn("it-wrap", html)
         self.assertIn("it-dashboard", html)
         self.assertIn("Today · ", html)
         before = self.client.get("/api/it/settings").get_json()
         self.assertFalse(before["only_live_class_days"])
+        self.assertEqual(before["staff_2fa_mode"], "first_login")
         updated = self.client.post(
             "/api/it/settings",
             json={"only_live_class_days": True},
@@ -347,7 +350,23 @@ class ItTests(unittest.TestCase):
         self.assertEqual(updated.status_code, 200)
         self.assertTrue(updated.get_json()["only_live_class_days"])
         self.assertTrue(self.school.only_live_class_days())
+        twofa = self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "daily"},
+        )
+        self.assertEqual(twofa.status_code, 200)
+        self.assertEqual(twofa.get_json()["staff_2fa_mode"], "daily")
+        self.assertEqual(self.school.staff_2fa_mode(), "daily")
+        bad = self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "never"},
+        )
+        self.assertEqual(bad.status_code, 400)
         self.client.post("/api/it/settings", json={"only_live_class_days": False})
+        self.client.post(
+            "/api/it/settings",
+            json={"staff_2fa_mode": "first_login"},
+        )
 
     def test_syllabus_editor_needs_imscc_gracefully(self) -> None:
         """Editor route does not crash when the teacher has a class."""
@@ -519,6 +538,69 @@ class ItTests(unittest.TestCase):
         self.assertFalse((second_root / "pack" / "course.imscc").exists())
         self.assertEqual(first["library_id"], second["library_id"])
         self.assertEqual(list(Path(self.school.data_dir).rglob("*.imscc")), [])
+
+    def test_permanent_delete_removes_staff_and_frees_email(self) -> None:
+        """IT can hard-delete staff so the same email can be registered again."""
+        self._login_it()
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("stuck@gmail.com", "Stuck Teacher")
+        tid = int(teacher["id"])
+        offering = self.school.assign_course(
+            teacher_user_id=tid, ontario_code="MCF3M"
+        )
+        offering_id = int(offering["id"])
+        instance = Path(self.school.data_dir) / offering["instance_relpath"]
+        instance.mkdir(parents=True, exist_ok=True)
+        (instance / "marker.txt").write_text("x", encoding="utf-8")
+
+        rv = self.client.post(f"/it/staff/{tid}/delete", follow_redirects=False)
+        self.assertEqual(rv.status_code, 400)
+        self.assertIsNotNone(self.school.get_user(tid))
+
+        rv = self.client.post(
+            f"/it/staff/{tid}/delete",
+            data={"confirm_email": "stuck@gmail.com"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 302)
+        self.assertIsNone(self.school.get_user(tid))
+        self.assertIsNone(self.school.get_user_by_email("stuck@gmail.com"))
+        with self.assertRaises(KeyError):
+            self.school.get_offering(offering_id)
+        self.assertFalse(instance.exists())
+
+        again = self.school.register_staff("stuck@gmail.com", "Fresh")
+        self.assertEqual(again["email"], "stuck@gmail.com")
+        self.assertIsNone(again.get("verified_at"))
+        self.assertIsNone(again.get("archived_at"))
+
+    def test_permanent_delete_blocks_self_and_it(self) -> None:
+        """Cannot permanently delete yourself or an IT account."""
+        self._login_it()
+        it_user = self.school.get_user_by_email("solutions@mckenzian.com")
+        assert it_user is not None
+        rv = self.client.post(
+            f"/it/staff/{int(it_user['id'])}/delete", follow_redirects=True
+        )
+        self.assertEqual(rv.status_code, 400)
+        self.assertIsNotNone(
+            self.school.get_user_by_email("solutions@mckenzian.com")
+        )
+
+    def test_curriculum_expectations_page_lists_math_courses(self) -> None:
+        """IT internal dump page lists MCF3M when local extract files exist."""
+        dest = REPO_ROOT / ".local-data" / "curriculum" / "index.json"
+        if not dest.is_file():
+            self.skipTest("local math 11-12 extract is missing")
+        self._login_it()
+        rv = self.client.get("/it/curriculum-expectations")
+        self.assertEqual(rv.status_code, 200)
+        html = rv.get_data(as_text=True)
+        self.assertIn("MCF3M", html)
+        self.assertIn("Ontario Math 11–12", html)
+        course = self.client.get("/it/curriculum-expectations/MCF3M")
+        self.assertEqual(course.status_code, 200)
+        self.assertIn("A1.1", course.get_data(as_text=True))
 
 
 if __name__ == "__main__":

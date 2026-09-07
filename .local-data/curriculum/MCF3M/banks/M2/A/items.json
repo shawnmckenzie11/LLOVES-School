@@ -1,0 +1,1948 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 2,
+  "strand": "A",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q1",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "1.\n\nPolynomial Type Degree\n\nThe first one has been done for you.\n\n3x - 1 2x - 1 trinomial 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q1_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q2",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "2. Expand, where necessary, and then simplify.\n\na) 4x - 7 a) (2x 3) (7x 5) + 1 - (4x - 1) (2x - 10)\n\nb) 3 b) - 7x 1 - 2 3x 1\n\nc) (2x - 3) (4x + 5)\n\nc) 7 + 2x 2\n\nd) (2x 1) 2\n\nd) 2xy",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q2_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q3",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "3. How are expanding and factoring related to each other? Use an example in\n\ne) x^2 3xy y - 2 + your explanation.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q3_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q4",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "4. Factor, where possible.\n\na) 6 x y 3 - 8 x - y 3 d) 9 - 25x 2\n\na212 ba210 b\n\nAid b) a 2 7a 10 e) x - 5x 8\n\nStudy - 1 + 1 - 2\n\nc) 12n 1 7n 2 10 f) y - 5y - 36\n\nFor help, see Essential\n\na4 3b a22 b\n\nSkills Appendix.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q4_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q5",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "5. Simplify.\n\n3 + 4 6 25 9\n\na2x ba5x b\n\n22 1\n\nb) 2 d) 4\n\na3x b ax b",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q5_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q6",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "6. Simplify.\n\n2 3\n\na) c) (2x 2y 3)(4x y 2)\n\n3 4\n\n(25x 5y 3) (5x 2y)\n\nb) 4 d) 4 - 5",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q6_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q7",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "7. Determine where each function is undefined, then state its domain.\n\n!x \"x\n\na) \\(f (x) = x d) h(x) = x\\)\n\ng(x) 2 j(x)\n\nb) = 2x e) = x - 4\n\nc) \\(m(x) = f) n(x) = 1 10\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q7_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2GettingStarted-GS-p82-Q8",
+      "chapter": 2,
+      "section": "2.Getting Started",
+      "stem": "8. Complete the chart to show what you know about polynomials.\n\nDefinition: Characteristics:\n\nPolynomials\n\nExamples: Non-examples:\n\n82 Chapter 2\n\nGetting Getting Started Started\n\nAPPLYING What You Know\n\nDoubling Dimensions\n\nA rectangular box has dimensions x, x + 1, and x + 2.\n\nx\n\nx 1\n\n\"\n\nx 2\n\n\"\n\n?\n\nSuppose each dimension of the box is doubled.\n\nBy what factors will the surface area and volume of the box\n\nincrease?\n\nA. What are the formulas for the volume and surface area of a rectangular box of\n\nwidth w, length l, and height h?\n\nB. Use the given dimensions to write expressions for the volume and surface area\n\nof the box.\n\nC. Write expressions for the volume and surface area of the new box after the\n\ndimensions are doubled.\n\nD. By what factor has the volume increased? By what factor has the surface area\n\nincreased? Explain how you know.\n\nEquivalent Algebraic Expressions 83",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p092_q8_2.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-CK-p88-Q1",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "1.\n\n(3x - 5) (x - 3)\n\na) - 7x + 1 - x 1\n\nb) (x - 2 6x + 1) - (2x - 2 6x + 5)\n\nc) (2x - 4x 3) (x - 3x 2) (x - 1) - 1 2 - 1 1 - (x) (x)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-CK-p88-Q2",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "2. Show that f and g are equivalent by simplifying each.\n\n(x) (2x 1) (3 4x) (x 2)\n\n\\(f = 2 - 2 + 1\\)\n\ng(x) (2x 6) (6x 9) (22x 1) = 1 1 - 2 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-CK-p88-Q3",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "3. Show that f (x) and g(x) are not equivalent by evaluating each function at a\n\nsuitable value of x.\n\nf (x) 2(x 3) 3(x 3) = 2 + 2\n\ng(x) 5(2x 6) = 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p88-Q4",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "4. Simplify.\n\na) (2a 1 4c 1 8) + (7a 2 9c 2 3)\n\n(3x 5z) (2x - 6z)\n\nb) + 4y - 1 1\n\nc) (6x + 2y + 9) + (23x - 5y - 8)\n\nd) (2x - 2 7x + 6) + (x - 2 2x - 9)\n\n(24x - 2xy) (6x - 2)\n\ne) - 1 2 3xy + 2y - 2 2 2\n\nf) (x + y 1 8) + (4x - 2y - 9)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p88-Q5",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "5. Simplify.\n\n(m 2p) (3n 7)\n\na) 2 n 1 - 1 p 2\n\nb) (26m 2 2q 1 8) - (2m 1 2q 1 7)\n\nc) (4a 2 - 9) - (a 3 + 2a 2 9)\n\n(2m 2 2) (4m 2 2)\n\nd) - 6mn 1 8n 2 2 mn 2 7n\n\n2 - 2 2\n\ne) (3x + 2y + 7) - (4x - 2y - 8)\n\nf) 5x - 2 (2x - 2 30) - (220)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p88-Q6",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "6. Simplify.\n\na1 yb a1 yb\n\na) (2x - y) - (23x + 4y) + (6x - 2y)\n\nb) (3x - 2 2x) + (x - 2 7x) - (7x + 3)\n\n(2x - 2) (x - 2) (3x - 5xy)\n\nc) a3 + xy yb 2 y a^2 - 2 4xy 1b 2 y + 2\n\nd) (xy - xz 1 4yz) + (2x - 3yz) - (4y - xz)\n\ne) x 1 - x 2 - 3 = 1 1\n\nf) x 1 - x + y - 4 2 3 4",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p88-Q7",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "7. Use two different methods to show that the expressions\n\nK (3x - 2 x) - (5x - 2 x) and 22x - 2 2x are not equivalent.\n\n88 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q8",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "8. Determine whether each pair of functions is equivalent.\n\na) \\(f (x) = (2x - 1 7x - 2) - (3x + 7) and\\)\n\n\\(g(x) = (x - 1 12) 1(x - 1 4x - 17)\\)\n\ns1(t) (t 2)3 s^2(t) 3\n\nb) = 1 and = t 1 8\n\nc) y1 = (x - 1)(x)(x + 2) and y^2 = 3x (x - 2 1)\n\nd) \\(f (n) = 0.5n 2 + 2n 2 3 + (1.5n 2 - 6) and\\)\n\ng(n) - (2n 2 10) = n 2 n 1 1 - 2 3n 1\n\ne) y1 = 3p(q 2 2) + 2p(q 1 5) and y^2 = p(q 1 4)\n\nf) \\(f (m) = m(5 2 m) - 2(2m 2 m 2) and\\)\n\ng(m) 2(m 1) 2 = 4m 2 - 3m 1 5m",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q9",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "9. Determine two non-equivalent polynomials, f (x) and g(x), such that\n\nf (0) = g(0) and f (2) = g(2) .",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q10",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "10. Kosuke wrote a mathematics contest consisting of 25 multiple-choice\n\nquestions. The scoring system gave 6 points for a correct answer, 2 points for\n\nnot answering a question, and 1 point for an incorrect answer. Kosuke got\n\nx correct answers and left y questions unanswered.\n\na) Write an expression for the number of questions he answered incorrectly.\n\nb) Write an expression, in simplified form, for Kosuke's score.\n\nc) Use the expressions you wrote in parts (a) and (b) to determine Kosuke's\n\nscore if he answered 13 questions correctly and 7 incorrectly.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p099_q10_2.1_1.png",
+        "nelson_assets/ch2/p099_q10_2.1_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q11",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "11. The two equal sides of an isosceles triangle each have a length of\n\nA\n\n2x + 3y - 1. The perimeter of the triangle is 7x + 9y. Determine the\n\nlength of the third side.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q12",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "12. Tino owns a small company that produces and sells cellphone cases. The\n\nrevenue and cost functions for Tino's company are shown below, where\n\nx represents the selling price in dollars.\n\nRevenue: \\(R(x) = 250x - 1 2500x\\)\n\nCost: \\(C(x) = 150x + 9500\\)\n\na) Write the simplified form of the profit function, \\(P(x) = R(x) 2 C(x) .\\)\n\nb) What profit will the company make if it sells the cases for $12 each?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p099_q12_2.1_1.png",
+        "nelson_assets/ch2/p099_q12_2.1_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q13",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "13. For each pair of functions, label the pairs as equivalent, non-equivalent, or\n\nT cannot be determined.\n\n(2) (2) l(5) 2 m(7)\n\na) \\(f = g d)\\)\n\nb) h(3) = g(4) e) n(x) = p(x) for all values of x in\n\nc) j(8) 2 k(8) their domain",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-PR-p89-Q14",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "14. Ramy used his graphing calculator to graph three different polynomial\n\nC functions on the same axes. The equations of the functions all appeared to be\n\ndifferent, but his calculator showed only two different graphs. He concluded\n\nthat two of his functions were equivalent.\n\na) Is his conclusion correct? Explain.\n\nb) How could he determine which, if any, of the functions were equivalent\n\nwithout using his graphing calculator?\n\nEquivalent Algebraic Expressions 89",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-EX-p90-Q15",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "15. Sanya noticed an interesting property of numbers that form a five-square\n\ncapital-L pattern on a calendar page:\n\n5 6 7 1 - 3\n\n12 13 14\n\n8 9 10\n\n19 20 21 15 16 17\n\ncorner number\n\nIn each case that she checked, the sum of the five numbers was 18 less than\n\nfive times the value of the number in the corner of the L. For example, in the\n\ncalendars shown,\n\n5 + 12 + 19 + 20 + 21 = 5(19) - 18 + 8 15 16 17 5(15) 18 + 1 1 1 = 2\n\na) Show that this pattern holds for any numbers on the calendar page.\n\nb) The sum of certain numbers in this pattern is 112. Determine the value\n\nof the corner number.\n\nc) Write expressions for the sum of the five numbers, for the other three\n\norientations of the L, when x is the corner number.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p100_q15_2.1_1.png",
+        "nelson_assets/ch2/p100_q15_2.1_2.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-EX-p90-Q16",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "16. Since 70 = 5 3 14, 70 has = as a divisor. The number 70 can also be\n\nexpressed as the sum of five consecutive natural numbers:\n\n70 = 12 + 13 + 14 + 15 + 16\n\na) 105 = 5 3 21. Express 105 as the sum of five consecutive natural\n\nnumbers.\n\nb) Suppose m is a natural number that is greater than 2 and \\(n = 5m.\\)\n\nExpress n as the sum of five consecutive natural numbers.\n\nc) Express 91 as a sum of seven consecutive natural numbers.\n\n(x) (x)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p100_q16_2.1_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-21-EX-p90-Q17",
+      "chapter": 2,
+      "section": "2.1",
+      "stem": "17. a) Consider the linear functions f = ax 1 b and g = cx 1 d.\n\nSuppose that f (2) = g(2) and f (5) = g(5).\n\nShow that the functions must be equivalent.\n\n(x) 2\n\nb) Consider the two quadratic functions \\(f = ax 1 bx 1 c and\\)\n\n\\(g(x) = px - 1 q x 1 r.\\)\n\nSuppose that f (2) g(2), f (3) g(3), and f (4) g(4).\n\n5 = 5\n\nShow that the functions must be equivalent.\n\n90 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p95-Q4",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "4. Expand and simplify.\n\na) 5x(5x - 3x 4)\n\n1 - (x 6)(2x 5)\n\nb) - 1\n\nc) (x + 3)(x - 3) + (5x - 6)(3x - 7)\n\nd) 4(n 4)(3 n) 3(n 5)(n 8) - 1 2 - 1\n\n3(2x 1) - 5(4x 1) 2\n\ne) - 2 1\n\nf) 2(3a 1 4)(a 2 6) - (3 2 a) - 1 4(5 2 a)\n\nEquivalent Algebraic Expressions 95",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q5",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "5. Expand and simplify.\n\na) 4x(x + 5)(x - 5)\n\nb) 22a(a 1 4) - (x 2) (x 5)(x 2)\n\nc) 1 - 2\n\nd) (2x + 1) (3x - 5)(4 - x)\n\ne) (9a 2 5) 3\n\n(a d)(a d)\n\nf) 2 b 1 c 2 1 b 2 c 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q6",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "6. Determine whether each pair of expressions is equivalent.\n\na) (3x - 2)(2x - 1) and 3x(2x - 1) - 2(2x - 1)\n\nb) (x 4)(2x - 5x 6) and\n\n2 1 - 2(x 4) 5x(x 4) 6(x 4)\n\n2x - 1 2 - 2\n\nc) (x + 2)(3x - 1) - (1 - 2x) 2 and x - 1 9x - 3\n\nd) 2(x 3)(2x - 4x 5) and 4x 3 20x - 34x 30 - 2 1 - 1 2\n\n(4x 3) - 2 2\n\ne) + y 2 and 16x - 8xy + 24x + y - 6y + 9\n\nf) 3(y - 2x) 3 and 224x 3 + 36x 2y - 18xy - 1 3y 3\n\nIs the equation (x 1) (x 4 x 3 x - x 1) \\(x = 1 true for all\\),",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q7",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "7. 2 + 1 1 1 = 2\n\nT some, or no real numbers? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q8",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "8. Recall that the associative property of multiplication states that (ab)\\(c = a(bc).\\)\n\nK a) Verify this property for the product 19(5x 7) (3x 2) by expanding\n\n1 2\n\nand simplifying in two different ways.\n\nb) Which method did you find easier?\n\nA cylinder with a top and bottom has radius 2x 1 and height 2x 1.\n\n2x 1\n\n\"\n\nA Write a simplified expressions for its\n\n2x 1\n\n# a) surface area, where SA = 2pr 2 + 2prh\n\nb) volume, where V pr 2h\n\n(x 3)2 (3 x)2?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p106_q8_2.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q10",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "10. a) Is 2 = 2 Explain.\n\nb) Is (x - 3)3 = (3 - x)3? Explain.\n\nExpand and simplify.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q11",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "11.\n\n(x - 21)2 (x 3 - 1) (x 3 - 1)\n\na) + 2x c) + x 1 x 1 - x 2 x 2\n\nb) (2 2 a)3 d) 2(x + 1)2 - 3(2x - 1)(3x - 5)\n\nThe two sides of the right triangle shown at the left have lengths x and y.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p106_q11_2.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p96-Q12",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "12.\n\nx\n\nRepresent the change in the triangle's area if the length of one side is doubled\n\nand the length of the other side is halved.\n\nThe kinetic energy of an object is given by E 1 mv 2, where m represents\n\ny 13. 5\n\nthe mass of the object and v represents its speed. Write a simplified expression\n\nfor the kinetic energy of the object if\n\na) its mass is increased by x b) its speed is increased by y\n\n96 Chapter 2\n\n(x) g(x)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p106_q12_2.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-PR-p97-Q14",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "14. a) If f has two terms and has three terms, how many terms will\n\nC the product of f (x) and g(x) have before like terms are collected?\n\nExplain and illustrate with an example.\n\nb) In general, if two or more polynomials are to be multiplied, how can you\n\ndetermine how many terms the product will have before like terms are\n\ncollected? Explain and illustrate with an example.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p107_q14_2.2_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-EX-p97-Q16",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "16.\n\nclaims to have an easy method for squaring any two-digit number whose last\n\ndigit is 5; for example, 75. Here are her steps: Cynthie's steps for 752\n\nRemove the last digit from the number you wish to square.\n\ni)\n\nii) Add the resulting number from part (i) to its square.\n\niii) Write the digits 25 at the end of the number you obtained in part (ii).\n\n7 1 = 56\n\nThe number that results will be the answer you want.\n\n5625 = 75 2\n\na) Choose a two-digit number whose last digit is 5, and determine whether\n\nCynthie's method for squaring works for that number.\n\nShow algebraically that Cynthie's method always works.\n\nb)\n\nMath\n\nCurious\n\nPythagorean Triples a^2+ b^2 c^2\n\n=\n\nA Pythagorean triple is three natural numbers that satisfy the equation of the\n\na^2 b^2 c^2\n\nPythagorean theorem, that is, 1 5 .\n\nc^2\n\na^2\n\na1 32 2b 42 a1 52. 2b\n\nAn example of a Pythagorean triple is 3, 4, 5, since 1 = The numbers 6,\n\n8, 10 also work, since each number is just twice the corresponding number in the\n\nb^2\n\nexample 3, 4, 5.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p107_q16_2.2_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-EX-p97-Q1",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "1. Show that 5, 12, 13 and 8, 15, 17 are Pythagorean triples.\n\n1 - 1 2\n\nShow that, for any value of p, p^2 p^2 p^2 .\n\n2 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p107_q1_2.2_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-EX-p97-Q3",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "3. Use the relationship in question 2 to produce three new Pythagorean triples.\n\nShow that, for any values of p and q, (2pq)2 (p^2 q 2)2 (p^2 q 2) 2.\n\nThis relationship was known to the Babylonians about 4000 years ago!",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p107_q3_2.2_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-22-EX-p97-Q5",
+      "chapter": 2,
+      "section": "2.2",
+      "stem": "5. Use the relationship in question 4 to identify two more new Pythagorean triples.\n\nEquivalent Algebraic Expressions 97",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p107_q5_2.2_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-CK-p102-Q1",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "1.\n\nx^2 4x2\n\na) - 6x - 27 c) + 20x + 25\n\nb) 25x2 - 49 d) 6x2 - x 2 2\n\nEach expression given can be factored by grouping. Describe how you would",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-CK-p102-Q2",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "2.\n\ngroup the terms to factor each.\n\na) ac 1 bc 2 ad 2 bd\n\nb) x^2 2x + y^2 + 1 - x^2 y^2\n\nc) - 2 10y - 25",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-CK-p102-Q3",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "3. Factor.\n\na) x^2 3x 28 c) 9x2 42x 49 - 2 2 + 36x2 2x2\n\nb) - 25 d) - 7x - 15",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p102-Q4",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "4. Factor.\n\n4x3 6x2\n\na) - 1 2x\n\n3x3y2 9x2y4 3xy3\n\nb) - 1\n\nc) 4a(a 1 1) - 3(a 1 1)\n\n7x2(x 1) x(x 1) 6(x 1)\n\nd) 1 - 1 + 1\n\ne) 5x(2 - x) + 4x(2x - 5) - (3x - 4)\n\nf) 4t(t^2 + 4t 1 2) - 2t(3t2 - 6t 1 17)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p102-Q5",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "5. Factor.\n\nx^2 2y2\n\na) - 5x - 14 d) + 5y - 7\n\nb) x^2 + 4xy - 5y2 e) 8a2 - 2ab 2 21b2\n\n6m2 16x2\n\nc) - 90m 1 324 f) + 76x + 90\n\n102 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q6",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "6. Factor.\n\na) x^2 - 9 d) 9( y - 1)2 - 25\n\nb) 4n2 - 49 e) 3x2 - 27(2 - x)2\n\nx8 2p2q2\n\nc) - 1 f) + 81",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q7",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "7. Factor.\n\na) ax 1 ay 1 bx 1 by d) 1 - x^2 + 6x - 9\n\na^2 b^2\n\nb) 2ab 1 2a 2 3b 2 3 e) - 1 25 + 10a\n\nc) x3 + x^2 - x 2 1 f) 2m2 + 10m 1 10n 2 2n2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q8",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "8. Andrij claims that the following statement is true:\n\nK x3 y3 (x y)(x^2 y^2)\n\n2 = 2 1\n\nIs Andrij correct? Justify your decision.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q9",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "9. Factor.\n\n2x(x 3) 7(3 x) y^2 x^2\n\na) - 1 2 d) - 49 + 14x 2\n\nb) xy + 6x + 5y + 30 e) 6x2 - 21x - 12x + 42\n\nc) x3 - x^2 - 4x + 4 f) 12m3 - 14m2 - 30m 1 35\n\n(n) 2n3 n^2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q10",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "10. Show that the function \\(f = 1 + 6n 1 3 always produces a\\)\n\nT number that is divisible by an odd number greater than 1, for any natural\n\nnumber, n.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q11",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "11. Sedna has designed a fishpond in the shape of a right triangle with two sides\n\nof length a and b and hypotenuse of length c.\n\na) Write an expression in factored form for a^2.\n\nb) The hypotenuse is 3 m longer than b, and the sum of the lengths of the\n\nhypotenuse and b is 11 m. What are the lengths of the sides of the pond?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p103-Q12",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "12. Saturn is the ringed planet most people think of, but Uranus and Neptune\n\nA\n\nalso have rings. In addition, there are ringed planets outside our solar\n\nsystem. Consider the cross-section of the ringed planet shown.\n\nouter ring\n\ninner ring\n\nplanetr1\n\nr^2\n\nr3\n\na) Write factored expressions for\n\ni) the area of the region between the planet and the inner ring\n\nii) the area of the region between the planet and the outer ring\n\niii) the difference of the areas from parts (i) and (ii)\n\nb) What does the quantity in part (iii) represent?\n\nEquivalent Algebraic Expressions 103",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p113_q12_2.3_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-PR-p104-Q13",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "13. Create a flow chart that will describe which strategies you would use to try\n\nC to factor a polynomial. For each path through the flow chart, give an\n\nexample of a polynomial that would follow that path and show its factored\n\nform. Explain how your flow chart could describe how to factor or show\n\nthe non-factorability of any polynomial in this chapter.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-EX-p104-Q14",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "14. The polynomial x4 - 5x2 + 4 is not factorable, but it can be factored by a\n\nform of completing the square:\n\nx4 5x2 4 - 1 The first three terms form a\n\nperfect square.\n\nx4 4x2 4 4x2 5x2 = 1 1 - 2\n\n(x^2 2)2 9x2 = 1 2\n\nThis is now a difference\n\n(x^2 - 3x)(x^2 - 3x) of squares.\n\n5 1 - 1 + (x^2 3x 2)(x^2 3x 2) = 2 + 1 1 = (x - 2)(x - 1)(x + 2)(x + 1)\n\nUse this strategy to factor each polynomial by creating a perfect square.\n\na) x4 3x2 36 b) x4 23x2 49 + 1 - 1\n\nx^2 (x 1)(x 1)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-23-EX-p104-Q15",
+      "chapter": 2,
+      "section": "2.3",
+      "stem": "15. Expanding confirms that 2 1 = 2 1 and also that\n\nx3 - 1 = (x - 1) (x^2 + x 1 1).\n\nMake conjectures and determine similar factorings for each expression.\n\nx4 xn\n\na) - 1 c) - 1\n\nb) x5 - 1 d) xn 2 yn\n\nMersenne numbers are numbers of the form n 2m 1, where m is a\n\nnatural number. For example, if \\(m = 6\\), then 2 1 = 64 - 1 = 63, and if\n\n\\(m = 5\\), then 25 - 1 = 32 - 1 = 31. 63 = 3 3 21 is a Mersenne number\n\nthat is composite, and 31 + 31 is a Mersenne number that is prime.\n\n5 3\n\nThe French mathematician Mersenne was interested in finding the values of\n\nm that produced prime numbers, n.\n\na) 63 3(21) can also be expressed as (22 1)(24 22 20), and = 2 + 1\n\n7(9) (23 1)(23 20).\n\n63 = can also be expressed as 2 1 Expand the\n\nexpressions that contain powers, treating them like polynomials, to show\n\nthat you get 26 - 1.\n\n29 7(73) (23 1) (26123120).\n\nb) If \\(m = 9\\), then \\(n = 2 1 = 511 = 5 2\\)\n\nUsing these types of patterns, show that n 235 21 is composite.\n\n2m\n\nc) If m is composite, will the Mersenne number \\(n = 2 1 always be\\)\n\ncomposite? Explain.\n\n104 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q6",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "6. If the length of the rectangle shown is increased by 2\n\nSimplify. and the width is decreased by 1, determine the",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q1",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "1.\n\n2 2 change in\n\na) (4a 2 3a 1 2) - (22a 2 3a 1 9)\n\n4x35 2)4\n\nb) (2x - 2 4xy + y 2) - (4x2 + 7xy - 2y2) a) the perimeter b) the area\n\n(3x2 6y2) + 1\n\nc) 2(3d 2 2cd 1 d) 1 d(2c 2 5d) - 3c(2c 1 d)\n\n3x(2x y) (3x w\n\nd) 1 - 2 1\n\ne) 2a(3a 2 5b 1 4) - 6(3 - 2a 2 b)\n\nf) 7x(2x - 1 3y - 3) - 3x(9 - 2x + 4y)\n\nDetermine whether each pair of functions is",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p117_q1_2.Mid-Chapter_Review_1.png"
+      ],
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q2",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "2.\n\nl\n\nequivalent.\n\na) g(t) = (t 2 2)5 and h(t) = (2 2 t)5\n\nLesson 2.3\n\nf (x) (x^2 6x) (x^2 x 4)\n\nb) = 2 - 1 2 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p117_q2_2.Mid-Chapter_Review_1.png"
+      ],
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q7",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "7. Factor.\n\n(2x2 + 1) and\n\na) x(x - 2) - 3(x - 2)\n\n\\(g(x) = (4x2 - 7x - 3) - (2x2 - 8)\\)\n\nx^2\n\nb) - 11x + 28\n\nh(x) (x 4)(x 7)(x 4) and\n\nc) = 2 + 1\n\nc) 3a2 - 10a 2 8\n\n7)(x^2\n\n\\(d(x) = (x 1 - 16)\\)\n\nd) 30x2 - 9x - 3\n\nd) \\(b(t) = (3t 1 1)3 and\\)\n\n25x2\n\ne) 16 2\n\nc(t) 27t 3 27t 2 9t 1 = 1 + 2\n\nf) 4(2 2 a)2 - 81\n\nLesson 2.2 8. Factor.\n\n5n2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q3",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "3. If you multiply a linear polynomial by a quadratic a) 2n 2 6m 1 - 15mn\n\none, what is the degree of the product polynomial? b) y^2 + 9 - 6y - x^2\n\nJustify your answer. c) y 2 b 2 (y 2 b)2\n\n2x2 8y2\n\nd) - 1 8x + 8",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q4",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "4. The sum of the ages of Pam, Dion, and their three\n\ne) w^2 1 wb 2 aw 2 ab\n\nchildren, in years, is 5x - 99, where x is Dion's\n\nf) ab 1 b^2 + 6a 1 6b\n\nage. Pam is five years younger than Dion. What is\n\nthe sum of the ages of their children?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q9",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "9. What is the perimeter of the square shown?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q5",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "5. Expand and simplify.\n\n2(x 5)(3x 4)\n\na) - 2\n\n1)3\n\nb) (3x 2\n\nc) 2(x^2 - 3x + 4)(2x2 + 3x - 4)\n\nArea 25x2 20x 4\n\n! \" \"\n\n(5x 4)(3x 5) (2x 3)2\n\nd) - 2 2 2\n\ne) 3(2x - 5) - 9(4x - 5)\n\nf) 2(x - y)3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p117_q5_2.Mid-Chapter_Review_1.png"
+      ],
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2MidChapterReview-MCR-p107-Q10",
+      "chapter": 2,
+      "section": "2.Mid-Chapter Review",
+      "stem": "10. The expression 3n2 - 11n 1 k can be factored into\n\ntwo linear polynomials with integer coefficients.\n\nDetermine the possible values of k.\n\nEquivalent Algebraic Expressions 107",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-CK-p112-Q1",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "1.\n\n6 - 4t 9x - 7a 2b3\n\na) b) c) - 6x 3 21a4b",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-CK-p112-Q2",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "2. Simplify. State any restrictions on the variables.\n\n2b 2ab2\n\n5(x + 3) 6x - 9 4a 2\n\na) b) c)\n\n(x 3) (x 3) (2a b)2\n\n1 - 2x - 3 2\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-CK-p112-Q3",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "3.\n\n(x 1)(x 3) - 2 2 - 2 5x + x - 4 x - 7xy + 10y\n\na) b) c)\n\n(x 2) (x 1) - 2 2\n\n1 - 25x - 40x + 16 x + xy - 6y\n\n112 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q4",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "4.\n\n3 - 2t(5 t) - 14x - 7x + 21x - 2x + 10x\n\na) c) e)\n\n7x 5t2(t 5) 23x 15 - 2\n\n25x 3y - 5ab 2ab 2 6a\n\nb) d) f)\n\n10xy 3 15a4b 2 10a 2b 2 9a 2 3ab",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q5",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "5. Simplify. State any restrictions on the variables.\n\n2 2\n\na 1 4 x - 5x + 6 t 2 7t 1 12\n\na) c) e)\n\na^2 - 3 2 + 3a 2 4 x + 3x - 10 t 2 6t 1 9t\n\nx - 2 9 10 + 3p 2 p^2 6t 2 2 t 2 2\n\nb) d) f)\n\n15 - 5x 25 2 p^2 2t 2 2 t 2 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q6",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "6. State the domain of each function. Explain how you found each answer.\n\n2 x + (x) (x)\n\na) \\(f = d) f = x x^2 - 1\\)\n\n3 1\n\nb) \\(g(x) = e) g(x) = x(x 2) x^2 - 1 + 23 x - 1\\)\n\nh(x) h(x)\n\nc) = f) = (x + 5)(x - 5) x^2 - 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q7",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "7. Determine which pairs of functions are equivalent. Explain your reasoning.\n\n6x + 3x - 21\n\na) f (x) = 2x - 1 x - 7 and g(x) = 3 - 3x + 5x + x\n\nb) h(x) = 3x - 1 5x + 1 and j(x) 5, x - 0\n\nx",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q8",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "8. An isosceles triangle has two sides of length 9x 3. The perimeter of the\n\nA triangle is 30x + 10.\n\na) Determine the ratio of the base to the perimeter, in simplified form.\n\nState the restriction on x.\n\nb) Explain why the restriction on x in part (a) is necessary in this situation.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q9",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "9. Two cones have radii in the ratio 5:4 and heights in the ratio 2:3.\n\nDetermine the ratio of their volumes, where V pr 2h .\n\n5 4",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p123_q9_2.4_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p113-Q10",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "10. Simplify. State any restrictions on the variables.\n\nK\n\n20t 3 + 15t 2 - 5t x - 2 9x + 20\n\na) c)\n\n5t 16 - x\n\n5(4x 2) 2x - xy y - 2 2 2\n\nb) d)\n\n8(2x - 1)2 x - 2 2xy + y 2\n\nEquivalent Algebraic Expressions 113",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p114-Q11",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "11. A rectangle is six times as long as it is wide. Determine the ratio of its area to\n\nits perimeter, in simplest form, if its width is w.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p114-Q12",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "12. The quotient of two polynomials is 3x - 2. Give two examples of a rational\n\nexpression equivalent to this polynomial that has the restriction x - 4.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p114-Q13",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "13. Give an example of a rational function that could have three restrictions that\n\nare consecutive numbers.\n\n2x + 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p114-Q14",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "14. Consider the rational expression .\n\nx - 4\n\nT\n\na) Identify, if possible, a rational expression with integer coefficients that\n\n2x + 1\n\nsimplifies to , for each set of restrictions.\n\nx - 4\n\n2 21 - 2 2 2\n\ni) x 21, 4 ii) x 0, 4 iii) x 3, 4 iv) x 2, 4\n\nb) Is there a rational expression with denominator of the form\n\n2x + 1\n\nax2 1 bx 1 c, a 2 0, that simplifies to , and has only the\n\nx 4\n\nrestriction x 4? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-PR-p114-Q15",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "15. Can two different rational expressions simplify to the same polynomial?\n\nC Explain using examples.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-24-EX-p114-Q16",
+      "chapter": 2,
+      "section": "2.4",
+      "stem": "16. Mathematicians are often interested in the \"end behaviour\" of functions, that",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p124_q16_2.4_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-25-FU-p116-Q1",
+      "chapter": 2,
+      "section": "2.5",
+      "stem": "1. Identify a rational function whose graph is a horizontal line except for two\n\nholes. Graph the function.\n\nIdentify a rational function whose graph lies entirely above the x-axis and has",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "FURTHER Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-25-FU-p116-Q2",
+      "chapter": 2,
+      "section": "2.5",
+      "stem": "2.\n\na single vertical asymptote. Graph the function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "FURTHER Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-25-FU-p116-Q3",
+      "chapter": 2,
+      "section": "2.5",
+      "stem": "3. Identify a rational function whose graph has the horizontal asymptote \\(y = 2\\)\n\nand two vertical asymptotes. Graph the function.\n\n116 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "FURTHER Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-CK-p121-Q1",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "1. Simplify. State any restrictions on the variables.\n\n2 = (x + 1)(x - 5) (x + 4)\n\na) c)\n\n3 3\n\n3 8 (x + 4) 2(x - 5)\n\n6x 2y xy x - 6x 3\n\nb) 3 d) 3\n\n5y 3 8 2x + 1 5x",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-CK-p121-Q2",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "2. Simplify. State any restrictions on the variables.\n\n2x x - 3x(x 6) (x 6) - 2\n\na) 4 c) 4\n\n3 = (x 2) (x 7) (x 2)\n\n1 - 1\n\nx - 7 2x - 14 x - 2 + x 1 1\n\nb) d)\n\n4 4\n\n10 25 x - 2 12 - 6x",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-CK-p121-Q3",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "3. Simplify. State any restrictions on the variables.\n\n(x 1)2 (x 1)2 + 2\n\na) 3\n\nx - 1 2x - 3 x - 1 4x + 3\n\n2x 10 x - 25 + 2\n\nb)\n\nx - 4x + 4 x - 2\n\nEquivalent Algebraic Expressions 121",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q4",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "4.\n\n2x - 21 2x 3y 9x\n\na) 3 c) 3\n\n7 x 3xy - 4x 2y - 2b 3 2b\n\n7a 14a 3a 9a\n\nb) 4 d) 4 - 2\n\n3 = 2ab 14a",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q5",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "5. Simplify. State any restrictions on the variables.\n\n2(x 1) x + 2(x 2) 12x 4\n\n1 - 2\n\na) 3 c) 3\n\n3 6(x 1) 9x 3 - x\n\n1 - 3a 6 a 2 3(m 4) - 5(m 4) - 2 + 1\n\nb) 4 d) 4\n\na 2 a 2 2m 1 7m 14 + 1 1 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q6",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "6. Simplify. State any restrictions on the variables.\n\n(x 1)(x 3) 2(x 2)\n\n1 - 1\n\na) 3\n\n(x 2) - (x 3)(x 3)\n\n1 - 1\n\n2(n 2 12) 5(n 4) - 7n 1 2\n\nb) 4\n\nn 2 n 6 n 2 4 - 2 2\n\n2x - 2 x - 1 6x - 2 5x + 1\n\nc) - 2\n\nx - x 2 6 8x + 14x 1 = 9y - 2 4 9y - 1 12y + 4\n\nd) 4\n\n4y - 12 18 - 6y\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q7",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "7.\n\nx - 5xy 4y - x 2 2xy y - 2 + 1 1\n\na) 3\n\nx - 3xy 28y - x 2 y - 1 2 - 2 2 - 2a 2 12ab 1 18b 4a 2 12ab\n\nb) 4 - 2 2 2\n\na 2 7ab 1 10b a 2 7ab 1 10b\n\n10x - 3xy y - 6x - 3xy\n\n1 - 1\n\nc) 4\n\n9x - y 2 12x 4y - 1\n\n2 - 2 2\n\n15m 1 mn 2 2n 7m 2 8mn 1 n\n\nd) 3 - 2\n\n2n 2 14m 5m 1 7mn 1 2n",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q8",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "8. Simplify. State any restrictions on the variables.\n\nK\n\nx - 1 x - 6 x(2x - 1) - x 2 - 4\n\n3 4 - 2\n\n(2x - 1) x + 2x - 3 3x",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p122-Q9",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "9. Determine the area of the triangle in simplified form. State the restrictions.\n\nA\n\n5x 35\n\n#\n\nx 3\n\n\"\n\n4x2\n\nx^2 # 16x \" 63\n\n122 Chapter 2\n\np 1 1 p^2 - 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p123-Q10",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "10. An object has mass m = and density r = 1.\n\n3p 1 + 9p2 + 6p 1\n\nm\n\nDetermine its volume v, where r 5 . State the restrictions on any\n\nv\n\nvariables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p123-Q11",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "11. Liz claims that if \\(x = y\\), she can show that x + \\(y = 0 by following these steps:\\)\n\nT\n\nSince \\(x = y\\),\n\nx - y 2\n\nI squared both sides of the equation.\n\nSo x - 2 y 2 = 0.\n\nI rearranged terms in the equation.\n\n2 - x 2 y 0\n\nx - y x - y\n\nI divided both sides by x - y.\n\n(x y)(x y) - 1 0\n\nI factored and simplified.\n\nx - y x - y\n\nx y 0\n\n1 = Sarit says that's impossible because if x 1, then y 1, since x y.\n\n5 = 5\n\nSubstituting into Liz's final equation, x + \\(y = 0\\), gives 1 + 1 = 2,\n\nnot 0.\n\nExplain the error in Liz's reasoning.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-PR-p123-Q12",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "12. a) Why do you usually factor all numerators and denominators before\n\nC multiplying rational functions?\n\nb) Are there any exceptions to the rule in part (a)? Explain.\n\nc) Sam says that dividing two rational functions and multiplying the first\n\nfunction by the reciprocal of the second will produce the same function.\n\nIs this true? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-EX-p123-Q13",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "13. Simplify. State any restrictions on the variables.\n\n2 - 2\n\nm 2 mn m 2 n\n\n2 - 2 2\n\n6m 1 11mn 1 3n 2m 2 mn 2 6n\n\n2 - 4m 2 7mn 2 2n\n\n3m 2 7mn 2n 2 + 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-26-EX-p123-Q14",
+      "chapter": 2,
+      "section": "2.6",
+      "stem": "14. Newton's law of gravitation states that any two objects exert a gravitational force\n\nm1m2\n\non each other due to their masses, Fg = G , where F is the gravitational\n\nr^2\n\nforce, G is a constant (the universal gravitational constant), m1 and m^2 are the\n\nmasses of the objects, and r is the separation distance between the centres of\n\nobjects. The mass of Mercury is 2.2 times greater than the mass of Pluto.\n\nPluto is 102.1 times as far from the Sun as Mercury. How many times greater\n\nis the gravitational force between the Sun and Mercury than the gravitational\n\nforce between the Sun and Pluto?\n\nEquivalent Algebraic Expressions 123",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p133_q14_2.6_1.png",
+        "nelson_assets/ch2/p133_q14_2.6_2.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-CK-p128-Q1",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "1.\n\n1 = 5 1\n\na) 1 c) 1 - 3\n\n3 4 4x 7x\n\n2x 6x - 6\n\nb) 1 d) 1 = 2 x x 2\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-CK-p128-Q2",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "2.\n\n5 2 = 7\n\na) c) - 2\n\n9 3 3x = 5y y 6 = b) 2 d) - 3 2 3xy y 2\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-CK-p128-Q3",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "3.\n\n3 7\n\na)\n\nx - 3 5x - 1\n\n2 7\n\nb) + x 1 3 x^2 - 9 = 9\n\nc) - x^2 x^2 - 4x + 3 - 2x + 1 - 3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-CK-p128-Q4",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "4. a) Evaluate 1 when \\(x = 5 .\\)\n\n(x - 2 9) (x - 3)\n\nb) Simplify the original expression by adding.\n\nc) Evaluate the simplified expression when \\(x = 5 . What do you notice?\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p128-Q5",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "5. Simplify. State any restrictions on the variables.\n\n2x 3x x 2x x^2 3\n\na) + 2 c) - 1\n\n3 4 6 3y 4y3 5y4\n\n3 + 3 n m\n\nb) + 2 d) + 2 m\n\nt 4 2t 2 5t m n",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p128-Q6",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "6. Simplify. State any restrictions on the variables.\n\n7 - 6 4\n\na) 1 d) 2\n\na 2 4 a 2n 2 3 n 2 = 4 7x 3x\n\nb) + 6 e) + 3x - x 4 x 6 - 1 2 = 7 7 4\n\nc) f) + 1\n\nx + 4 x + 3 2x - 6 10x - 15\n\n128 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p129-Q7",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "7. Simplify. State any restrictions on the variables.\n\n3 4\n\na) + x 1 + x - 2 3x - 4\n\n2t 5t\n\nb) 2\n\nt 2 4 t 2 - 16\n\n3 = c) 1 - (t 3)2\n\nt 1 t 2 6 + 4x 3x\n\nd) - x 2 + 6x + 8 x - 2 3x - 10\n\nx + x 7 - 1\n\ne) + x^2 9 x^2 5x 6 - 2 + 2t 1 + 5t\n\nf) 1 - 2\n\n2t 2 14t 1 24 4t 2 8t 2 12",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p129-Q8",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "8. Simplify. State any restrictions on the variables.\n\n3 = a) - 4x - 7x 3 16x - 24x 9 + 1 1 1\n\na 2 1 a 2 2\n\nb) - 2\n\na 2 8a 1 15 2a 2 9a 2 = 3x 1 - 2x 2 = c) + 4x2 - 1 4x2 + 4x + 1\n\nSimplify. State any restrictions on the variables. Remember the order",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p129-Q9",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "9.\n\nof operations.\n\n2x3 9y 2y\n\na) 3 - 3y - 10x 3x\n\nx + 1 2(x + 1)2 11\n\nb) 4 + 2x - 6 2 - x x - 2\n\np^2 p^2\n\np 1 + 1 p 2 12 - 4p 2 12\n\nc) + 3\n\np^2 2p 35 p^2 2p 24 p^2 2p 15\n\n1 - 2 2 1 - 5m 2 n 4m2 - 4mn 1 n^2 6m2 2 mn 2 n^2\n\nd) - 4\n\n4m2 n^2\n\n2m 1 n 2 3m 1 15n",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p129-Q10",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "10. Simplify. State any restrictions on the variables.\n\n# \"\n\nK\n\n3m 1 - 4m 1 = 2 3\n\na) 1 c) - 2 = y + y - 1 2 = 3 2x = b) 2 d) + x - 4x 3 x^2 + x - 6 x - 1 2x - 8",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p139_q10_2.7_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p129-Q11",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "11. When two resistors, s and t, are connected in parallel, their combined\n\nT 1 + 1\n\ns\n\nresistance, R, is given by .\n\n5 1\n\nR s t\n\nIf s is increased by 1 unit and t is decreased by 1 unit, what is the change in R?\n\nt\n\nEquivalent Algebraic Expressions 129",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p139_q11_2.7_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p130-Q12",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "12. Fred drove his car a distance of 2x km in 3 h. Later, he drove a distance of\n\ndistance\n\nA\n\nx 100 km in 2 h. Use the equation speed .\n\n1 = time\n\na) Write a simplified expression for the difference between the first speed\n\nand the second speed.\n\nb) Determine the values of x for which the speed was greater for the\n\nsecond trip.\n\nMatthew is attending a very loud concert by The Discarded. To avoid",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p130-Q13",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "13.\n\npermanent ear damage, he decides to move farther from the stage.\n\nk\n\nSound intensity is given by the formula I where k is a constant and = 2,\n\nd\n\nd is the distance in metres from the listener to the source of the sound.\n\nDetermine an expression for the decrease in sound intensity if Matthew\n\nmoves x metres farther from the stage.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-PR-p130-Q14",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "14. a) For two rational numbers in simplified form, the lowest common\n\nC\n\ndenominator is always one of the following:\n\ni) one of the denominators\n\nii) the product of the denominators\n\niii) none of the above\n\nGive an example of each of these.\n\nb) Explain how you would determine the LCD of two simplified\n\nrational functions with different quadratic denominators. Illustrate\n\nwith examples.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-EX-p130-Q15",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "15. In question 11, you encountered an equation of the form 1 = z, which\n\nx y + 1 1\n\ncan be written as = 2 y. Suppose you want to determine natural-number\n\nx z\n\n1 + 1 1 + 1\n\nsolutions of this equation; for example, 5 2 and = 2 5.\n\n6 - 3 20 4\n\na) Show that the difference between reciprocals of consecutive positive\n\nintegers is the reciprocal of their product,\n\n1 + 1 = 2\n\nn(n 1) n n 1 + 1\n\n1 + 1\n\nb) State two more solutions of the equation = 2 y.\n\nx z",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-27-EX-p130-Q16",
+      "chapter": 2,
+      "section": "2.7",
+      "stem": "16. A Pythagorean triple is a triple of natural numbers satisfying the equation\n\na^2 1 b^2 = c^2. One way to produce a Pythagorean triple is to add the\n\nreciprocals of any two consecutive even or odd numbers. For example,\n\n1 + 12 + 5 .\n\n5 7 35\n\n122 352\n\nNow, 1 = 1369. This is a triple if 1369 is a square, which it is:\n\n372.\n\n1369 = So 12, 35, 37 is a triple.\n\na) Show that this method always produces a triple.\n\nDetermine a triple using the method.\n\nb)\n\n130 Chapter 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q7",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "7. Factor.\n\n2n 3 3n 2\n\nSimplify. a) 12m 1 18m",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q1",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "1.\n\n2 2 b) x - 2 9x + 20\n\na) (7x - 2x + 1) + (9x - 4x + 5) - (4x - 1 6x - 7) c) 3x + 24x + 45\n\n(7a 2 4ab 9b2) d) 50x - 72\n\nb) - 1 2 - 6b2) e) 9x - 2 6x + 1\n\n(2a 1 2ab 1\n\nf) 10a 1 a 2 3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q2",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "2. Determine two non-equivalent polynomials f (x) and\n\ng(x) , such that f (0) g(0) and f (1) g(1). 8. Factor.\n\n5 = a) 2x 2y4 - 6x 5y 3 + 8x 3y",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q3",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "3. Ms. Flanagan has three daughters: Astrid, Beatrice,\n\n2x(x 4) 3(x 4)\n\nb) + 1 1\n\nand Cassandra. Today, January 1, their ages are,\n\nc) x - 2 3x - 10\n\nrespectively,\n\nd) 15x - 2 53x + 42\n\nA(n) 2(n 30) (2n 5) a4 = 1 + 1 e) - 16\n\nf) (m 2 n)2 - (2m 1 3n)2\n\nB(n) (7 n) (32 2n) = 2 - 2\n\nC(n) (n 26) (n 4) (n 3) Lesson 2.4 = 2 - 1 + 2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q9",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "9. Simplify. State any restrictions on the variables.\n\nAll ages are expressed in years, and n represents\n\n2b 2\n\n10a 1 15bc\n\nMs. Flanagan's age.\n\na)\n\na) Are the daughters triplets? Explain. 25b\n\nAre any of them twins? Explain. 30x 2y 3 - 20x 2z 2 + 50x 2\n\nb)\n\nb)\n\nc) How old was Ms. Flanagan when Cassandra 10x 2\n\nwas born? xy - xyz\n\nc)\n\nxy\n\nLesson 2.2\n\n16mnr 24mnp 40kmn\n\n2 1\n\nExpand and simplify. d)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q4",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "4.\n8mn\na) 23(7x 2 5)(4x 2 7)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q10",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "10. Simplify. State any restrictions on the variables.\n\nb) 2( y^2 - 4y + 7)(3y2 - 5y - 3)\n\n6x 3\n\n2(a b)3 a) 8xy - 12x 2y\n\nc) + 1 - 2xy\n\n3(x^2 2)2(2x 3)2\n\nd) - 2\n\n7a 2 14b\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q5",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "5. The volume of a cone is given by \\(V = pr2h. 2(a 2b)\\)\n\nDetermine the volume of the cone in simplified form m 1 3\n\nc)\n\nif the radius is increased by x and the height is\n\nm^2 + 10m 1 21\n\nincreased by 2x.\n\n4x - 2 4x - 3\n\nd)\n\n4x - 2 9\n\nLesson 2.3\n\n3x2 - 21x",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q6",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "6. Simplify.\n\ne)\n\n35x 7)4 33x 2x)4\n\n7x2 - 28x + 21\n\na) (2x 4 - 3x - 2 6) + (6x 4 - x 3 + 4x - 1 5)\n\n3x2 - 2xy - y^2\n\n(x - 4)(2x - 5x 2)\n\nb) - 1 2\n\nf)\n\n3x2 + 4xy + y^2\n\nc) 27x(x - 1 x - 1) - 3x(2x - 2 5x + 6)\n\n2(3x 3 2) 3(5x 3 8)\n\nd) 22x - 7x 1 - x + 2x 2 If two rational functions have the same restrictions,",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p132-Q11",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "11.\n\ne) 22x (2x 6x (1 - 2 1 - 1 are they equivalent? Explain and illustrate with\n\nf) (x + 2)2(x - 1)2 - (x - 4)2(x + 4)2 an example.\n\n(x - 3)2\n\ng) + 5x - 132 Chapter 2\n\nLessons 2.6 and 2.7\n\n2(x - 2)2 3x + 15\n\nd) 3\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p133-Q12",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "12. x^2 + 6x 1 = (2 - x)2\n\n6x 2y\n\n(x - 2y)2 (x - 2y)(x + 3y)\n\na) 3\n\ne)\n\n8y 3x 4\n\nx^2 y^2 (x y)2 - 1\n\n10m 2 6mn\n\n2b = 3b\n\nb) 3\n\nf) + 3\n\n3n 20m 2\n\nb^2 - 2b 2 15 b^2 1 b 2 30\n\n2ab 6ac\n\nb^2 8b 12 + 1\n\nc) 4\n\n5bc 10b\n\nb 3\n\n5p 3p\n\nd)\n\n4 16. Fred's final mark in an online course was\n\n8pq 12q\n\ndetermined entirely by two exams. The mid-term",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p133-Q13",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "13. Simplify. State any restrictions on the variables.\n\nexam was out of x marks and was worth 25% of his\n\n2 (3x)2\n\nx x final mark. The final exam was out of 2x marks\n\na) 3 4 - 2 and was worth 75% of his final mark. Fred scored\n\n2xy 2y xy\n\nx - 5x 6 x - 4x = x 5 40 marks on the first exam and 60 marks on the\n\n2 1 - 2 2\n\nb) 3 4\n\nsecond exam. Determine the value of x if Fred\n\nx - 1 x - 4 x - 3x - 2 2 + 1\n\nearned a final mark of 50% in the course.\n\n1 - x 2 1 - y 2 y 3 - y\n\nc)\n\n3 4 - 2 + 1 y x + x x 17. Sam plays a game in which he selects three different\n\nnumbers from 1 to n (n . 3). After he selects his\n\nx - 2 y - 4x - 1 8xy + 3y - 2x + 3y\n\nd) 3 4 numbers, four different winning numbers from 1 to\n\n4x - 2 y - x + y 2x - y\n\nn are chosen, one at a time. Sam wins if all three of",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p133-Q14",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "14. Simplify. State any restrictions on the variables.\n\nhis numbers are among the four winning numbers.\n\n4 2\n\na) - 5x 3x = 2\n\nb) - x + x 1\n\n1 - 1 + 1\n\nc) - 2\n\nx + 3x - 4 x + x - 12 + 1\n\nd) 2 The first number chosen is one of Sam'\\(s = His\\)\n\nx - 5x 6 x - 9\n\n2 + 2\n\nprobability of winning is now given by",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p143_q14_2.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterReview-CR-p133-Q15",
+      "chapter": 2,
+      "section": "2.Chapter Review",
+      "stem": "15. Simplify and state any restrictions on the variables.\n\n24 3 + 7 4 \\(P(n) = 4\\)\n\nn3 3n2 2n n\n\na) - 1 2 + 2x 3x - x 3\n\na) Simplify P(n) and state the restrictions on n.\n\n3x 4x\n\nb) 1 What would Sam's probability of winning be if\n\nb)\n\nx 1 - x 2 6\n\ni) \\(n = 5 ? ii) n = 4?\\)\n\n6x 3x\n\nc) - x 2 5x 6 x - x 12 - 1 + 2\n\nEquivalent Algebraic Expressions 133",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q1",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "1. Simplify.\n\na) (2x - 1 2x + 7) + (2x - 2 7x - 7)\n\n(2m2 4n2) (5m2 n^2) (7m2\n\nb) 2 mn 1 - 2 1 - 2mn)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q2",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "2. Expand and simplify.\n\n2(12a 5)(3a 7) (4x 1)(5x 2) (x 3)\n\na) - 2 c) - 1 2\n\nb) (2x 2y - 3xy2) (4xy2 + 5x2y) d) (3p2 1 p 2 2)2\n\n(x) 2 g(x) (3x a)2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q3",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "3. Is there a value of a such that f = 9x + 4 and = 2 are\n\nequivalent? Explain.\n\nIf Bonnie is away from Clyde for n consecutive days, then the amount of",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q4",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "4.\n\nh(n) (2n 1)3.\n\nheartache Clyde feels is given by = 1\n\na) If Bonnie is absent, by how much does Clyde's pain increase between\n\nday n and day n 1?\n\nb) How much more pain will he feel on day 6 than on day 5?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q5",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "5. Factor.\n\n3m(m 1) 2m(1 m) (2x y 1)2 (x y 2)2\n\na) - 1 2 d) - 1 2 - 2\n\nb) x - 27x + 72 e) 5xy - 10x - 3y + 6\n\nc) 15x - 2 7xy - 2y2 f) p^2 2 m^2 + 6m 2 9",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q6",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "6. Use factoring to determine the x-intercepts of the curve\n\n\\(y = x 3 - 4x - 2 x + 4.\\)\n\nSimplify. State any restrictions on the variables.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q7",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "7.\n\n4a 2b 6a 2b = 6\n\na) 4 c) + 5ab3 35ab t 2 - 7t 2 18 t 1 - x 2 - 2x - 8 4x 3x\n\nb) 3 d) - x^2 x^2 6x2 4x2 - x 2 12 - 4x + 4 1 13x + 6 - 9\n\n(x)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q8",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "8. Mauro found that two rational functions each simplified to \\(f = 1.\\)\n\nx 1\n\nAre Mauro's two rational functions equivalent? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterSelfTest-ST-p134-Q9",
+      "chapter": 2,
+      "section": "2.Chapter Self-Test",
+      "stem": "9. Roman thinks that he has found a simple method for determining the\n\nsum of the reciprocals of any three consecutive natural numbers. He writes,\n\nfor example,\n\n1 + 1 47 + 1 1 74 37 + 1 5 , 1 1 = 120, or\n\n3 4 = 60 4 = 6 60\n\nRoman conjectures that before simplification, the numerator of the sum is\n\nthree times the product of the first and third denominators, plus 2. Also, the\n\ndenominator of the sum is the product of the three denominators. Is Roman's\n\nconjecture true?\n\n134 Chapter 2 - 4",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-Q1",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "1. Write a polynomial in each square marked P and a rational function in each\n\nsquare marked R.\n\n6P 3P 5P 7R\n\nThe expressions you write must satisfy each of these conditions:",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_q1_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-Q2",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "2.\n\n• Polynomials and numerators and denominators of each rational function\n\n6R 8P 8R 7P\n\nmust be quadratics without a constant common factor.\n\n• Restrictions on the variable of each rational function must be stated\n\nin its square.\n\n• When two polynomials are side by side, then one or both of the\n\npolynomials must be perfect squares.\n\n• When a polynomial and a different-coloured rational expression are side by\n\nside, their product must simplify.\n\n• When two rational expressions are side by side, their product\n\nmust simplify.\n\n• When a polynomial is on top of another polynomial, their quotient\n\nmust simplify.\n\n• When a polynomial is on top of a different-coloured rational expression\n\n(or vice versa), their quotient must simplify.\n\n• When a rational expression is on top of a rational expression, their\n\nquotient must simplify.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_q2_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-Q3",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "3. After you have completed the table, simplify the products and quotients\n\nwherever possible. You get one point for every different linear factor that\n\nremains in your table.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-Q4",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "4. Count the linear factors and write your score next to your table.\n\n?\n\nHow can you maximize your score? Checklist\n\nTask\n\nDoes each square contain a",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_q4_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QA",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "A. What form for the polynomials, including numerators and denominators,\n\npolynomial and rational\n\nwill make filling the table and counting your score as easy as possible?\n\nfunction of the right type?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qA_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QB",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "B. Why should you avoid reusing a factor unless it is necessary?\n\nAre all of the rules",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qB_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QC",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "C. Play the game by completing the table.\n\nsatisfied?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qC_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QD",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "D. Tally your score.\n\nDid you check to see if you\n\ncould make changes to",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qD_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QE",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "E. Check your answers. What could you do to increase your score?\n\nimprove your score?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qE_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C2-2ChapterTask-TASK-p135-QF",
+      "chapter": 2,
+      "section": "2.Chapter Task",
+      "stem": "F. List some strategies you can use to maximize your score.\n\nEquivalent Algebraic Expressions 135",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch2/p145_qF_2.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    }
+  ]
+}

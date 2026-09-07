@@ -1,0 +1,375 @@
+{
+  "course_code": "MDM4U",
+  "course_title": "Mathematics of Data Management, Grade 12, University Preparation",
+  "source_pdf": "math1112currb (Ontario Curriculum Grades 11 and 12 Mathematics)",
+  "source_pages_pdf": "113-124",
+  "verification_status": "hyphen_bleed_cleaned_exponents_unverified",
+  "notes": "Wording copied from the Ministry PDF (PyMuPDF). Line-break hyphenation and leaked overall-heading fragments removed. Superscripts that are missing from the PDF text layer are marked `<!-- check: exponent -->` rather than guessed. Spot-check the PDF before high-stakes use.",
+  "specific": [
+    {
+      "code": "A1.1",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "recognize and describe how probabilities are used to represent the likelihood of a result of an experiment (e.g., spinning spinners; drawing blocks from a bag that contains different-coloured blocks; playing a game with number cubes; playing Aboriginal stick-and-stone games) and the likelihood of a real-world event (e.g., that it will rain tomorrow, that an accident will occur, that a product will be defective)",
+      "examples": []
+    },
+    {
+      "code": "A1.2",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "describe a sample space as a set that contains all possible outcomes of an experiment, and distinguish between a discrete sample space as one whose outcomes can be counted (e.g., all possible outcomes of drawing a card or tossing a coin) and a continuous sample space as one whose outcomes can be measured (e.g., all possible outcomes of the time it takes to complete a task or the maximum distance a ball can be thrown)",
+      "examples": []
+    },
+    {
+      "code": "A1.3",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "determine the theoretical probability, P (i.e., a value from 0 to 1), of each outcome of a discrete sample space (e.g., in situations in which all outcomes are equally likely), recognize that the sum of the probabilities of the outcomes is 1 (i.e., for n outcomes, P + P + P + … + P = 1), recognize that the probabilities P form the probability distribution associated with the sample space, and solve related problems",
+      "examples": [
+        "An experiment involves rolling two number cubes and determining the sum. Calculate the theoretical probability of each outcome, and verify that the sum of the probabilities is 1."
+      ]
+    },
+    {
+      "code": "A1.4",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "determine, through investigation using class-generated data and technology-based simulation models (e.g., using a random-number generator on a spreadsheet or on a graphing calculator; using dynamic statistical software to simulate repeated trials in an experiment), the tendency of experimental probability to approach theoretical probability as the number of trials in an experiment increases (e.g., \"If I simulate tossing two coins 1000 times using technology, the experimental probability that I calculate for getting two tails on the two tosses is likely to be closer to the theoretical probability of than if I simulate tossing the coins only 10 times\")",
+      "examples": [
+        "Calculate the theoretical probability of rolling a 2 on a single roll of a number cube. Simulate rolling a number cube, and use the simulation results to calculate the experimental probabilities of rolling a 2 over 10, 20, 30, …, 200 trials. Graph the experimental probabilities versus the number of trials, and describe any trend."
+      ]
+    },
+    {
+      "code": "A1.5",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "recognize and describe an event as a set of outcomes and as a subset of a sample space, determine the complement of an event, determine whether two or more events are mutually exclusive or non-mutually exclusive (e.g., the events of getting an even number or",
+      "examples": []
+    },
+    {
+      "code": "A1.6",
+      "overall": "A1",
+      "strand": "Counting And Probability",
+      "statement": "determine whether two events are independent or dependent and whether one event is conditional on another event, and solve related probability problems [e.g., calculate P(A and B), P(A or B), P(A given B)] using a variety of strategies (e.g., tree diagrams, lists, formulas)",
+      "examples": []
+    },
+    {
+      "code": "A2.1",
+      "overall": "A2",
+      "strand": "Counting And Probability",
+      "statement": "recognize the use of permutations and combinations as counting techniques with advantages over other counting techniques (e.g., making a list; using a tree diagram; making a chart; drawing a Venn diagram), distinguish between situations that involve the use of permutations and those that involve the use of combinations (e.g., by considering whether or not order matters), and make connections between, and calculate, permutations and combinations",
+      "examples": [
+        "An organization with 10 members is considering two leadership models. One involves a steering committee with 4 members of equal standing. The other is an executive committee consisting of a president, vice-president, secretary, and treasurer. Determine the number of ways of selecting the executive committee from the 10 members and, using this number, the number of ways of selecting the steering committee from the 10 members. How are the calculations related? Use the calculations to explain the relationship between permutations and combinations."
+      ]
+    },
+    {
+      "code": "A2.2",
+      "overall": "A2",
+      "strand": "Counting And Probability",
+      "statement": "solve simple problems using techniques for counting permutations and combinations, where all objects are distinct, and express the solutions using standard combinatorial notation [e.g., n!, P(n, r), ( )]",
+      "examples": [
+        "In many Aboriginal communities, it is common practice for people to shake hands when they gather. Use combinations to determine the total number of handshakes when 7 people gather, and verify using a different strategy."
+      ]
+    },
+    {
+      "code": "A2.3",
+      "overall": "A2",
+      "strand": "Counting And Probability",
+      "statement": "solve introductory counting problems involving the additive counting principle (e.g., determining the number of ways of selecting 2 boys or 2 girls from a group of 4 boys and 5 girls) and the multiplicative counting principle (e.g., determining the number of ways of selecting 2 boys and 2 girls from a group of 4 boys and 5 girls)",
+      "examples": []
+    },
+    {
+      "code": "A2.4",
+      "overall": "A2",
+      "strand": "Counting And Probability",
+      "statement": "make connections, through investigation, between combinations (i.e., n choose r) and Pascal's triangle [e.g., between ( ) and diagonal 3 of Pascal's triangle]",
+      "examples": [
+        "A school is 5 blocks west and 3 blocks south of a student's home. Determine, in a variety of ways (e.g., by drawing the routes, by using Pascal's triangle, by using combinations), how many different routes the student can take from home to the school by going west or south at each corner."
+      ]
+    },
+    {
+      "code": "A2.5",
+      "overall": "A2",
+      "strand": "Counting And Probability",
+      "statement": "solve probability problems using counting principles for situations involving equally likely outcomes",
+      "examples": [
+        "Two marbles are drawn randomly from a bag containing 12 green marbles and 16 red marbles. What is the probability that the two marbles are both green if the first marble is replaced? If the first marble is not replaced? r n r Principles row 3 of Pascal's triangle, between ( ) and n"
+      ]
+    },
+    {
+      "code": "B1.1",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "recognize and identify a discrete random variable X (i.e., a variable that assumes a unique value for each outcome of a discrete sample space, such as the value x for the outcome of getting x heads in 10 tosses of a coin), generate a probability distribution [i.e., a function that maps each value x of a random variable X to a corresponding probability, P(X= x)] by calculating the probabilities associated with all values of a random variable, with and without technology, and represent a probability distribution numerically using a table",
+      "examples": []
+    },
+    {
+      "code": "B1.2",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "calculate the expected value for a given probability distribution [i.e., using E(X)= ∑xP(X= x)], interpret the expected value in applications, and make connections between the expected value and the weighted mean of the values of the discrete random variable",
+      "examples": [
+        "Of six cases, three each hold $1, two each hold $1000, and one holds $100 000. Calculate the expected value and interpret its meaning. Make a conjecture about what happens to the expected value if you add $10 000 to each case or if you multiply the amount in each case by 10. Verify your conjectures."
+      ]
+    },
+    {
+      "code": "B1.3",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "represent a probability distribution graphically using a probability histogram (i.e., a histogram on which each rectangle has a base of width 1, centred on the value of the discrete random variable, and a height equal to the probability associated with the value of the random variable), and make connections between the frequency histogram and the probability histogram (e.g., by comparing their shapes)",
+      "examples": [
+        "For the situation involving the rolling of two number cubes and determining the sum, identify the discrete random variable and generate the related probability histogram. Determine the total area of the bars in the histogram and explain your result."
+      ]
+    },
+    {
+      "code": "B1.4",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "recognize conditions (e.g., independent trials) that give rise to a random variable that follows a binomial probability distribution, calculate the probability associated with each value of the random variable, represent the distribution numerically using a table and graphically using a probability histogram, and make connections to the algebraic representation P(X= x)= ( )p (1 - p)",
+      "examples": [
+        "A light-bulb manufacturer estimates that 0.5% of the bulbs manufactured are defective. Generate and graph the probability distribution for the random variable that represents the number of defective bulbs in a set of 4 bulbs."
+      ]
+    },
+    {
+      "code": "B1.5",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "recognize conditions (e.g., dependent trials) that give rise to a random variable that follows a hypergeometric probability distribution, calculate the probability associated with each value of the random variable (e.g., by using a tree diagram; by using combinations), and represent the distribution numerically using a table and graphically using a probability histogram",
+      "examples": []
+    },
+    {
+      "code": "B1.6",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "compare, with technology and using numeric and graphical representations, the probability distributions of discrete random variables (e.g., compare binomial distributions with the same probability of success for increasing numbers of trials; compare the shapes of a hypergeometric distribution and a binomial distribution)",
+      "examples": [
+        "Compare the probability distributions associated with drawing 0, 1, 2, or 3 face cards when a card is drawn 3 times from a standard deck with replacement (i.e., the card is replaced after each draw) and without replacement (i.e., the card is not replaced after each draw)."
+      ]
+    },
+    {
+      "code": "B1.7",
+      "overall": "B1",
+      "strand": "Probability Distributions",
+      "statement": "solve problems involving probability distributions (e.g., uniform, binomial, hypergeometric), including problems arising from real-world applications",
+      "examples": [
+        "The probability of a business person cancelling a reservation at La Place Pascal hotel is estimated to be 8%. Generate and graph the probability distribution for the discrete random variable that represents the number of business people cancelling when there are 10 reservations. Use the probability distribution to determine the probability of at least 4 of the 10 reservations being cancelled."
+      ]
+    },
+    {
+      "code": "B2.1",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "recognize and identify a continuous random variable (i.e., a variable that assumes values from the infinite number of possible outcomes in a continuous sample space), and distinguish between situations that give rise to discrete frequency distributions (e.g., counting the number of outcomes for drawing a card or tossing three coins) and situations that give rise to continuous frequency distributions (e.g., measuring the time taken to complete a task or the maximum distance a ball can be thrown)",
+      "examples": []
+    },
+    {
+      "code": "B2.2",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "recognize standard deviation as a measure of the spread of a distribution, and determine, with and without technology, the mean and standard deviation of a sample of values of a continuous random variable",
+      "examples": []
+    },
+    {
+      "code": "B2.3",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "describe challenges associated with determining a continuous frequency distribution (e.g., the inability to capture all values of the variable, resulting in a need to sample; uncertainties in measured values of the variable), and recognize the need for mathematical models to represent continuous frequency distributions",
+      "examples": []
+    },
+    {
+      "code": "B2.4",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "represent, using intervals, a sample of values of a continuous random variable numerically using a frequency table and graphically using a frequency histogram and a frequency polygon, recognize that the frequency polygon approximates the frequency distribution, and determine, through investigation using technology (e.g., dynamic statistical software, graphing calculator), and compare the effectiveness of the frequency polygon as an approximation of the frequency distribution for different sizes of the intervals",
+      "examples": []
+    },
+    {
+      "code": "B2.5",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "recognize that theoretical probability for a continuous random variable is determined over a range of values (e.g., the probability that the life of a lightbulb is between 90 hours and 115 hours), that the probability that a continuous random variable takes any single value is zero, and that the probabilities of ranges of values form the probability distribution associated with the random variable",
+      "examples": []
+    },
+    {
+      "code": "B2.6",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "recognize that the normal distribution is commonly used to model the frequency and probability distributions of continuous random variables, describe some properties of the normal distribution (e.g., the curve has a central peak; the curve is symmetric about the mean; the mean and median are equal; approximately 68% of the data values are within one standard deviation of the mean and approximately 95% of the data values are within two standard deviations of the mean), and recognize and describe situations that can be modelled using the normal distribution (e.g., birth weights of males or of females, household incomes in a neighbourhood, baseball batting averages) Distributions for Continuous Random Variables",
+      "examples": []
+    },
+    {
+      "code": "B2.7",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "make connections, through investigation using dynamic statistical software, between the normal distribution and the binomial and hypergeometric distributions for increasing numbers of trials of the discrete distributions (e.g., recognizing that the shape of the hypergeometric distribution of the number of males on a 4-person committee selected from a group of people more closely resembles the shape of a normal distribution as the size of the group from which the committee was drawn increases)",
+      "examples": [
+        "Explain how the total area of a probability histogram for a binomial distribution allows you to predict the area under a normal probability distribution curve."
+      ]
+    },
+    {
+      "code": "B2.8",
+      "overall": "B2",
+      "strand": "Probability Distributions",
+      "statement": "recognize a z-score as the positive or negative number of standard deviations from the mean to a value of the continuous random variable, and solve probability problems involving normal distributions using a variety of tools and strategies (e.g., calculating a z-score and reading a probability from a table; using technology to determine a probability), including problems arising from real-world applications",
+      "examples": [
+        "The heights of 16-month-old maple seedlings are normally distributed with a mean of 32 cm and a standard deviation of 10.2 cm. What is the probability that the height of a randomly selected seedling will be between 24.0 cm and 38.0 cm? Functions"
+      ]
+    },
+    {
+      "code": "C1.1",
+      "overall": "C1",
+      "strand": "Organization Of Data For",
+      "statement": "recognize and describe the role of data in statistical studies (e.g., the use of statistical techniques to extract or mine knowledge of relationships from data), describe examples of applications of statistical studies (e.g., in medical research, political decision making, market research), and recognize that conclusions drawn from statistical studies of the same relationship may differ (e.g., conclusions about the effect of increasing jail sentences on crime rates)",
+      "examples": []
+    },
+    {
+      "code": "C1.2",
+      "overall": "C1",
+      "strand": "Organization Of Data For",
+      "statement": "recognize and explain reasons why variability is inherent in data (e.g., arising from limited accuracy in measurement or from variations in the conditions of an experiment; arising from differences in samples in a survey), and distinguish between situations that involve one variable and situations that involve more than one variable",
+      "examples": [
+        "Use the Census at School database to investigate variability in the median and mean of, or a proportion estimated from, equal-sized random samples of data on a topic such as the percentage of students who do not smoke or who walk to school, or the average height of people of a particular age. Compare the median and mean of, or a proportion estimated from, samples of increasing size with the median and mean of the population or the population proportion."
+      ]
+    },
+    {
+      "code": "C1.3",
+      "overall": "C1",
+      "strand": "Organization Of Data For",
+      "statement": "distinguish different types of statistical data (i.e., discrete from continuous, qualitative from quantitative, categorical from numerical, nominal from ordinal, primary from secondary, experimental from observational, microdata from aggregate data) and give examples (e.g., distinguish experimental data used to compare the effectiveness of medical treatments from observational data used to examine the relationship between obesity and type 2 diabetes or between ethnicity and type 2 diabetes)",
+      "examples": []
+    },
+    {
+      "code": "C2.1",
+      "overall": "C2",
+      "strand": "Organization Of Data For",
+      "statement": "determine and describe principles of primary data collection (e.g., the need for randomization, replication, and control in experimental studies; the need for randomization in sample surveys) and criteria that should be considered in order to collect reliable primary data (e.g., the appropriateness of survey questions; potential sources of bias; sample size)",
+      "examples": []
+    },
+    {
+      "code": "C2.2",
+      "overall": "C2",
+      "strand": "Organization Of Data For",
+      "statement": "explain the distinction between the terms population and sample, describe the characteristics of a good sample, explain why sampling is necessary (e.g., time, cost, or physical constraints), and describe and compare some sampling techniques (e.g., simple random, systematic, stratified, convenience, voluntary)",
+      "examples": [
+        "What are some factors that a manufacturer should consider when determining whether to test a sample or the entire population to ensure the quality of a product?"
+      ]
+    },
+    {
+      "code": "C2.3",
+      "overall": "C2",
+      "strand": "Organization Of Data For",
+      "statement": "describe how the use of random samples with a bias (e.g., response bias, measurement bias, non-response bias, sampling bias) or the use of non-random samples can affect the results of a study",
+      "examples": []
+    },
+    {
+      "code": "C2.4",
+      "overall": "C2",
+      "strand": "Organization Of Data For",
+      "statement": "describe characteristics of an effective survey (e.g., by giving consideration to ethics, privacy, the need for honest responses, and possible sources of bias, including cultural bias), and design questionnaires (e.g., for determining if there is a relationship between a person's age and their hours per week of Internet use, between marks and hours of study, or between income and years of education) or experiments (e.g., growth of plants under different conditions) for gathering data",
+      "examples": [
+        "Give examples of concerns that could arise from an ethical review of surveys generated by students in your school."
+      ]
+    },
+    {
+      "code": "C2.5",
+      "overall": "C2",
+      "strand": "Organization Of Data For",
+      "statement": "collect data from primary sources, through experimentation, or from secondary sources (e.g., by using the Internet to access reliable data from a well-organized database such as E-STAT; by using print sources such as newspapers and magazines), and organize data with one or more attributes (e.g., organize data about a music collection classified by artist, date of recording, and type of music using dynamic statistical software or a spreadsheet) to answer a question or solve a problem ORGANIZATION OF DATA FOR ANALYSIS Functions",
+      "examples": []
+    },
+    {
+      "code": "D1.1",
+      "overall": "D1",
+      "strand": "Statistical Analysis",
+      "statement": "recognize that the analysis of one-variable data involves the frequencies associated with one attribute, and determine, using technology, the relevant numerical summaries (i.e., mean, median, mode, range, interquartile range, variance, and standard deviation)",
+      "examples": []
+    },
+    {
+      "code": "D1.2",
+      "overall": "D1",
+      "strand": "Statistical Analysis",
+      "statement": "determine the positions of individual data points within a one-variable data set using quartiles, percentiles, and z-scores, use the normal distribution to model suitable one-variable data sets, and recognize these processes as strategies for one-variable data analysis",
+      "examples": []
+    },
+    {
+      "code": "D1.3",
+      "overall": "D1",
+      "strand": "Statistical Analysis",
+      "statement": "generate, using technology, the relevant graphical summaries of one-variable data (e.g., circle graphs, bar graphs, histograms, stem-and-leaf plots, boxplots) based on the type of data provided (e.g., categorical, ordinal, quantitative)",
+      "examples": []
+    },
+    {
+      "code": "D1.4",
+      "overall": "D1",
+      "strand": "Statistical Analysis",
+      "statement": "interpret, for a normally distributed population, the meaning of a statistic qualified by a statement describing the margin of error and the confidence level (e.g., the meaning of a statistic that is accurate to within 3 percentage points, 19 times out of 20), and make connections, through investigation using technology (e.g., dynamic statistical software), between the sample size, the margin of error, and the confidence level (e.g., larger sample sizes create higher confidence levels for a given margin of error)",
+      "examples": [
+        "Use census data from Statistics Canada to investigate, using dynamic statistical software, the minimum sample size such that the proportion of the sample opting for a particular consumer or voting choice is within 3 percentage points of the proportion of the population, 95% of the time (i.e., 19 times out of 20)."
+      ]
+    },
+    {
+      "code": "D1.5",
+      "overall": "D1",
+      "strand": "Statistical Analysis",
+      "statement": "interpret statistical summaries (e.g., graphical, numerical) to describe the characteristics of a one-variable data set and to compare two related one-variable data sets (e.g., compare the lengths of different species of trout; compare annual incomes in Canada and in a third-world country; compare Aboriginal and non-Aboriginal incomes); describe how statistical summaries (e.g., graphs, measures of central tendency) can be used to misrepresent one-variable data; and make inferences, and make and justify conclusions, from statistical summaries of one-variable data orally and in writing, using convincing arguments",
+      "examples": []
+    },
+    {
+      "code": "D2.1",
+      "overall": "D2",
+      "strand": "Statistical Analysis",
+      "statement": "recognize that the analysis of two-variable data involves the relationship between two attributes, recognize the correlation coefficient",
+      "examples": []
+    },
+    {
+      "code": "D2.2",
+      "overall": "D2",
+      "strand": "Statistical Analysis",
+      "statement": "recognize and distinguish different types of relationships between two variables that have a mathematical correlation (e.g., the cause-and-effect relationship between the age of a tree and its diameter; the common-cause relationship between ice cream sales and forest fires over the course of a year; the accidental relationship between the consumer price index and the number of known planets in the universe)",
+      "examples": []
+    },
+    {
+      "code": "D2.3",
+      "overall": "D2",
+      "strand": "Statistical Analysis",
+      "statement": "generate, using technology, the relevant graphical summaries of two-variable data (e.g., scatter plots, side-by-side boxplots) based on the type of data provided (e.g., categorical, ordinal, quantitative)",
+      "examples": []
+    },
+    {
+      "code": "D2.4",
+      "overall": "D2",
+      "strand": "Statistical Analysis",
+      "statement": "determine, by performing a linear regression using technology, the equation of a line that models a suitable two-variable data set, determine the fit of an individual data point to the linear model (e.g., by using residuals to identify outliers), and recognize these processes as strategies for two-variable data analysis",
+      "examples": []
+    },
+    {
+      "code": "D2.5",
+      "overall": "D2",
+      "strand": "Statistical Analysis",
+      "statement": "interpret statistical summaries (e.g., scatter plot, equation representing a relationship) to describe the characteristics of a two-variable data set and to compare two related two-variable data sets (e.g., compare the relationship between Grade 12 English and mathematics marks with the relationship between Grade 12 science and mathematics marks); describe how statistical summaries (e.g., graphs, linear models) can be used to misrepresent two-variable data; and make inferences, and make and justify conclusions, from statistical summaries of two-variable data orally and in writing, using convincing arguments",
+      "examples": []
+    },
+    {
+      "code": "D3.1",
+      "overall": "D3",
+      "strand": "Statistical Analysis",
+      "statement": "interpret statistics presented in the media (e.g., the UN's finding that 2% of the world's population has more than half the world's wealth, whereas half the world's population has only 1% of the world's wealth), and explain how the media, the advertising industry, and others (e.g., marketers, pollsters) use and misuse statistics (e.g., as represented in graphs) to promote a certain point of view (e.g., by making a general statement based on a weak correlation or an assumed cause-and-effect relationship; by starting the vertical scale at a value other than zero; by making statements using general population statistics without reference to data specific to minority groups)",
+      "examples": []
+    },
+    {
+      "code": "D3.2",
+      "overall": "D3",
+      "strand": "Statistical Analysis",
+      "statement": "assess the validity of conclusions presented in the media by examining sources of data, including Internet sources (i.e., to determine whether they are authoritative, reliable, unbiased, and current), methods of data collection, and possible sources of bias (e.g., sampling bias, non-response bias, cultural bias in a survey question), and by questioning the analysis of the data (e.g., whether there is any indication of the sample size in the analysis) and conclusions drawn from the data (e.g., whether any assumptions are made about cause and effect)",
+      "examples": [
+        "The headline that accompanies the following graph says \"Big Increase in Profits\". Suggest reasons why this headline may or may not be true."
+      ]
+    },
+    {
+      "code": "D3.3",
+      "overall": "D3",
+      "strand": "Statistical Analysis",
+      "statement": "gather, interpret, and describe information about applications of data management in occupations (e.g., actuary, statistician, business analyst, sociologist, medical doctor, psychologist, teacher, community planner), and about university programs that explore these applications",
+      "examples": []
+    }
+  ]
+}

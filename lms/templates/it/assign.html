@@ -112,6 +112,14 @@
         <input id="roster_csv" name="roster_csv" type="file" accept=".csv,text/csv">
         <p class="hint">First column only = Codenames (one student per row). Empty rows are skipped. No commas in names. Header row optional (Name / Codename / Student).</p>
 
+        <label class="field" for="slides_template">Slide template (Google URL or file ID)</label>
+        <input id="slides_template" name="slides_template" type="text" autocomplete="off" placeholder="Lesson Theme Template #1 (school default)">
+        <p class="hint">Optional. Empty uses the school default (Lesson Theme Template #1). Paste a Slides URL or file id.</p>
+
+        <label class="field" for="style_guide">Style guide (Google URL or file ID)</label>
+        <input id="style_guide" name="style_guide" type="text" autocomplete="off" placeholder="Optional Drive Doc / file">
+        <p class="hint">Optional provenance pointer. The generator uses the versioned copy in <code>lms/seeds/live_lesson_style_guide.md</code>.</p>
+
         <div class="row-actions" style="margin-top:0.75rem">
           <button id="module-pack-submit" type="submit">Assign</button>
           <a class="btn secondary" href="{{ url_for('it_dashboard') }}">Cancel</a>

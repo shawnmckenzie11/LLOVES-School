@@ -140,6 +140,181 @@ ORIGINAL_CONTEST: list[dict[str, Any]] = [
 ]
 
 
+# Lesson-keyed bank rows. ``staff_note`` is seed-only (not stored / not on student slides).
+ORIGINAL_LESSON_ITEMS: list[dict[str, Any]] = [
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "warmup",
+        "title": "Fair equal groups — notice and wonder",
+        "stem_html": (
+            "<p>Mr. M wants groups that feel fair: same size, nobody left over. "
+            "Attendance of 12 and 18 both “give options.” Attendance of 16 is his favourite.</p>"
+        ),
+        "task_html": (
+            "<p>What might “options” mean for 12 versus 18? What do you notice? "
+            "What do you wonder? (Do not yet invent a quick-check rule.)</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A2.1"],
+        "processes": ["connecting", "communicating"],
+        "sort_order": 40,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "contest",
+        "title": "How can Mr. M quickly check if his class is jigsaw-able?",
+        "stem_html": (
+            "<p>Mr. M likes attendance that splits into equal groups. "
+            "12 and 18 give options; 16 is his favourite because he can run 4 equal groups. "
+            "(The seating-grid visual lives on the previous slide.)</p>"
+        ),
+        "task_html": (
+            "<p>With <em>n</em> = today’s attendance, how can he <strong>quickly</strong> tell "
+            "if the class is jigsaw-able? Check <em>n</em> = 12, 16, 18. "
+            "Use function language if it helps (e.g. <em>f(n)</em>).</p>"
+        ),
+        "diagram_note": (
+            "Shawn’s 4×4 initials grid is on the previous slide; do not duplicate in this deck."
+        ),
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A2.1", "A2.2", "A1.4"],
+        "processes": ["problem_solving", "connecting", "representing"],
+        "sort_order": 41,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "standard",
+        "title": "Equal-group factorizations of 12 and 18",
+        "stem_html": (
+            "<p>List the ways 12 students can sit in equal groups of the same size "
+            "(with none left over). Do the same for 18.</p>"
+        ),
+        "task_html": (
+            "<p>Which sizes appear for both 12 and 18? Which appear for only one of them?</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A2.1"],
+        "processes": ["representing", "connecting"],
+        "sort_order": 42,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "standard",
+        "title": "Why 16 supports four equal groups",
+        "stem_html": (
+            "<p>Sixteen students can run four equal groups. Write 16 as a product that "
+            "makes those four groups obvious, and also as a square.</p>"
+        ),
+        "task_html": (
+            "<p>How does the product picture match “four groups of four”? "
+            "How does the square picture match a 4-by-4 seating grid?</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A1.4", "A2.2"],
+        "processes": ["representing", "connecting"],
+        "sort_order": 43,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "standard",
+        "title": "f(n) for number of groups of 4",
+        "stem_html": (
+            "<p>Let <em>n</em> be today’s attendance. Let <em>f(n)</em> be the number of "
+            "groups of 4 you can make if every group has exactly 4 students and nobody "
+            "is left over.</p>"
+        ),
+        "task_html": (
+            "<p>When is <em>f(n)</em> a whole number? Evaluate <em>f(12)</em>, <em>f(16)</em>, "
+            "and <em>f(18)</em> — or explain why a value is not defined.</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A2.1", "A2.2"],
+        "processes": ["representing", "problem_solving"],
+        "sort_order": 44,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "standard",
+        "title": "Both roots of x² = 16 in a seating story",
+        "stem_html": (
+            "<p>The equation <em>x</em><sup>2</sup> = 16 has two real roots. "
+            "One can describe the side length of a square seating grid. "
+            "The other is the opposite number.</p>"
+        ),
+        "task_html": (
+            "<p>Which root is a usable class-list / grid size? What does the unused root "
+            "mean (or fail to mean) in this story?</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A1.4", "A1.5"],
+        "processes": ["representing", "reasoning_proving"],
+        "sort_order": 45,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C1",
+        "kind": "standard",
+        "title": "15 versus 16: equal groups without a shortcut identity",
+        "stem_html": (
+            "<p>Can 16 students sit in equal groups of the same size with none left over? "
+            "Can 15? Check by listing group sizes (pairs, threes, …), not by rewriting "
+            "one number as a difference of squares.</p>"
+        ),
+        "task_html": (
+            "<p>What equal-group sizes work for 16? What works for 15? "
+            "Stay with factors and leftovers — do not use 16 − 1 as an algebraic trick.</p>"
+        ),
+        "diagram_note": "",
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A2.1"],
+        "processes": ["problem_solving", "representing"],
+        "sort_order": 46,
+    },
+    {
+        "ontario_code": "MCF3M",
+        "module_hint": "A/M1C2",
+        "kind": "contest",
+        "title": "Groupable after one student leaves — why?",
+        "stem_html": (
+            "<p>Some class sizes that are perfectly group-able stay groupable in a "
+            "different way when one student is absent.</p>"
+        ),
+        "task_html": (
+            "<p>Why? Try a few sizes (include 16 → 15). This is next week’s team follow-up, "
+            "not today’s contest.</p>"
+        ),
+        "diagram_note": "",
+        "staff_note": (
+            "Teacher only: non-real answers; Po-Shen Loh / 3Blue1Brown difference of "
+            "squares in week 2. Keep off student slides."
+        ),
+        "source": "original",
+        "license": "original",
+        "expectation_codes": ["A1.4", "A1.5"],
+        "processes": ["problem_solving", "reasoning_proving", "connecting"],
+        "sort_order": 70,
+    },
+]
+
+
 def _strand_processes(strand: str) -> list[str]:
     """Default supporting processes for a Ministry example in this strand.
 
@@ -224,12 +399,12 @@ def _escape_html(text: str) -> str:
 
 
 def default_live_problems(seed_path: Path | None = None) -> list[dict[str, Any]]:
-    """Return the full starter bank: Ministry examples plus original contest items.
+    """Return the starter bank: Ministry examples, lesson-keyed items, contest items.
 
     Args:
         seed_path: Optional expectations JSON override.
     """
-    return ministry_example_problems(seed_path) + ORIGINAL_CONTEST
+    return ministry_example_problems(seed_path) + ORIGINAL_LESSON_ITEMS + ORIGINAL_CONTEST
 
 
 def default_quick_phrases() -> list[dict[str, Any]]:

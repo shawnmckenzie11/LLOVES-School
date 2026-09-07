@@ -1,0 +1,1189 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 3,
+  "strand": "A",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q2",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "2. Express each function in standard form, \\(f (x) = ax - 1 bx 1 c.\\)\n\nStudy Aid\n\na) \\(f (x) = (x - 3)(x + 5) c) f (x) = 23(x + 2)2 + 3\\)\n\n• For help, see Essential Skills (x) 2x(x 6) (x) (x 1)2\n\nb) \\(f = 1 d) f = 2\\)\n\nAppendix.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q2_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q3",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "3. State the vertex, axis of symmetry, domain, and range of each parabola.\n\na) y x b) y\n\n!2 - 4\n\n3, 4, 7 A-12\n\n5, 6 A-9, A-10 - 6\n\n!8\n\nx\n\n!10 - 4 6 8",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q3_3.Getting_Started_1.png",
+        "nelson_assets/ch3/p148_q3_3.Getting_Started_2.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q4",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "4. State the vertex, axis of symmetry, and direction of opening for each\n\nparabola.\n\nx^2 20.5(x 7)2\n\na) \\(y = 1 4 c) y = 1 - 3\\)\n\nb) \\(y = 3(x - 4)2 + 1 d) y = 23(x + 2)(x - 5)\\)\n\nSolve each equation. Answer to two decimal places if necessary.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q4_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q5",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "5.\n\nx^2 3x2\n\na) - 11x + 24 = 0 c) - 2x 2 = 5 0\n\nb) x^2 - 6x + 3 = 0 d) 3x2 + 2x = x^2 + 9x - 3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q5_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q6",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "6. Determine the x-intercepts of each function. Answer to two decimal places\n\nif necessary.\n\nx^2 2\n\na) \\(f (x) = 2 9 c) f (x) = 23x + 10x - 8\\)\n\nb) \\(f (x) = x^2 - 8x - 18 d) f (x) = 6x - 2x2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q6_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q7",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "7. Sketch the graph of each function.\n\na) \\(f (x) = x + 3 c) f (x) = 2(x - 2) (x + 8)\\)\n\nb) \\(f (x) = 2x - 2 4 d) f (x) = 2(x + 2)2 + 3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q7_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3GettingStarted-GS-p138-Q8",
+      "chapter": 3,
+      "section": "3.Getting Started",
+      "stem": "8. Complete the chart by writing what you know about quadratic functions.\n\nCharacteristics:\n\nDefinition:\n\nQuadratic\n\nFunction\n\nNon-examples:\n\nExamples:\n\n138 Chapter 3\n\nGetting Getting Started Started\n\nAPPLYING What You Know\n\nBuilding Rectangles YOU WILL NEED\n\n• centimetre grid paper\n\nA set of rectangles can be formed out of 1 cm squares on centimetre grid paper.\n\n• graph paper\n\nMartina draws the first rectangle with dimensions 1 cm 3 2 cm, the second\n\n2 cm 3 4 cm, and the third 3 cm 3 6 cm.\n\n? If this pattern continues, what function can be used to model the\n\nrelationship between width and area?\n\nA. Use centimetre grid paper to draw the next four rectangles in the pattern. Use\n\nyour diagrams to extend and complete the table.\n\nPerimeter\n\nShape Width (cm) Length (cm) (cm) Area (cm)2\n\n1 - 6 2 - 4 12 8\n\n3 6 18\n\nB. Calculate the first differences for the Perimeter and Area columns.\n\nIs the relation between width and perimeter linear or nonlinear? How do you\n\nknow?\n\nC. Is the relation between width and area linear or nonlinear? How do you\n\nknow?\n\nD. Determine the second differences for the Area column. What do they tell you\n\nabout the relationship between width and area?\n\nE. Create a scatter plot of area versus width. Draw a curve of good fit. Does the\n\nshape of your graph support your answer to part D? Explain.\n\nF. What is the relationship between length and width for each rectangle?\n\nG. Write the function that models the relationship between width and area.\n\nQuadratic Functions 139",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p148_q8_3.Getting_Started_1.png"
+      ],
+      "exercise_block": "Getting Started",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-CK-p145-Q1",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "1. Determine whether each function is linear or quadratic. Give a reason for\n\nyour answer.\n\na) b) c) d)\n\nx y x y x y x y\n\n22 15 22 + 22 4 22 7\n\n21 11 21 3 21 8 21 4\n\n0 7 0 6 0 12 0 3 + 3 1 10 + 16 + 4 - 21 - 15 - 20 - 7",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p155_q1_3.1_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-CK-p145-Q2",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "2. State whether each parabola opens up or down.\n\na) \\(f (x) = 3x2 c) f (x) = 2(x + 5)2 - 1\\)\n\nb) \\(f (x) = 22(x - 3)(x + 1) d) f (x) = x - 2 2x - 1\\)\n\ny",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p155_q2_3.1_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-CK-p145-Q3",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "3. Given \\(f (x) = 23(x - 2)(x + 6)\\), state 4\n\na) the zeros\n\nb) the direction of opening\n\nx\n\nc) the equation of the axis of symmetry\n\n!8 - 6 !4 - 2 2 - 2\n\nGiven the parabola at the right, state",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p155_q3_3.1_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-CK-p145-Q4",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "4.\n\na) the vertex\n\n!4\n\nb) the equation of the axis of symmetry\n\n!6\n\nc) the domain and range\n\n!8\n\nQuadratic Functions 145",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p155_q4_3.1_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p146-Q5",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "5.\n\nequation of the axis of symmetry.\n\ny\n\na) \\(f (x) = x - 2 3 c) f (x) = 2(x - 4)(x + 2)\\)\n\n(x) 2(x 3)2 (x) 2\n\nb) \\(f = 1 - 4 d) f = x + 4\\)\n\n6 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p156_q5_3.1_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p146-Q6",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "6. Express each quadratic function in standard form. State the y-intercept of\n\neach.\n\n2 (x) 23(x 1)2 (x) 4(x 3)(x 7)\n\na) \\(f = 2 + 6 b) f = 2 + x\\)\n\n0 7. Examine the parabola at the left.\n\n!4 - 2 - 4 6\n\nK a) State the direction of opening.\n\n!2\n\nb) Name the coordinates of the vertex.\n\n!4\n\nc) List the values of the x-intercepts.\n\n!6 d) State the domain and range of the function.\n\ne) If you calculated the second differences, what would their sign be? How\n\n!8\n\ndo you know?\n\nf) Determine the algebraic model for this quadratic function.\n\ny",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p156_q6_3.1_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p146-Q8",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "8. Examine the parabola at the left.\n\na) State the direction of opening.\n\nb) Find the coordinates of the vertex.\n\nc) What is the equation of the axis of symmetry?\n\n4 d) State the domain and range of the function.\n\ne) If you calculated the second differences, what would their sign be?\n\nExplain.\n\nx\n\n!2 - 4 6 8 9. Each pair of points (x, y) are the same distance a211 from the 0b, vertex a3 0b of their\n\n!2\n\nparabola. Determine the equation of the axis of symmetry of each parabola.\n\n(22, 2), (2, 2) (25, 7), (1, 7)\n\na) d)\n\nb) (29, 1), (25, 1) e) (26, 21), (3, 21)\n\nc) (6, 3), (18, 3) f) , 4,\n\ny 10. Examine the parabola shown at the left.\n\nCopy and complete this table.\n\na) - x 22 21 0 1 - x\n\nf(x)\n\n!6 - 4 !2 - 4 6 - 2\n\nb) Calculate the second differences of the function. How could you have\n\n!4\n\npredicted their signs?\n\n!6 Determine the equation of the function.\n\nc)\n\n!8\n\n146 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p156_q8_3.1_1.png",
+        "nelson_assets/ch3/p156_q8_3.1_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p147-Q11",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "11. The height of a rocket above the ground is modelled by the quadratic\n\nA function \\(h(t) = 24t2 + 32t\\), where h(t) is the height in metres\n\nt seconds after the rocket was launched.\n\na) Graph the quadratic function.\n\nb) How long will the rocket be in the air? How do you know?\n\nc) How high will the rocket be after 3 s?\n\nd) What is the maximum height that the rocket will reach?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q11_3.1_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p147-Q12",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "12. A quadratic function has these characteristics:\n\nT • x = 21 is the equation of the axis of symmetry.\n\n• x = 3 is the x-intercept.\n\n• y = 32 is the maximum value.\n\nDetermine the y-intercept of this parabola.\n\n(x) 2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q12_3.1_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-PR-p147-Q13",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "13. Describe two ways in which the functions \\(f = 2x - 4x and\\)\n\nC \\(g(x) = 2(x - 1)2 + 2 are alike\\), and two ways in which they are different.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q13_3.1_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-EX-p147-Q14",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "14. The first differences and second differences of a quadratic function with\n\n(22)\n\ndomain ranging from \\(x = 22 to x = 3 are given. If f = 19\\), copy the\n\ntable and complete the second row by determining the missing values of the\n\nfunction.\n\nx 22 21 0 1 - 3\n\nf(x) 19\n\nFirst Differences 210 - 6 2 - 2 6\n\nSecond Differences 4 4 4 4",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q14_3.1_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-EX-p147-Q15",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "15. A company's profit, in thousands of dollars, on sales of computers is modelled\n\nby the function P(x) 22(x 3)2 50, where x is in thousands of = 2 1\n\ncomputers sold. The company's profit, in thousands of dollars, on sales of\n\nstereo systems is modelled by the function \\(P(x) = 2(x - 2)(x - 7)\\),\n\nwhere x is in thousands of stereo systems sold. Calculate the maximum profit\n\nthe business can earn.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q15_3.1_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-31-EX-p147-Q16",
+      "chapter": 3,
+      "section": "3.1",
+      "stem": "16. Jim has a difficult golf shot to make. His ball is 100 m from the hole. He\n\nwants the ball to land = m in front of the hole, so it can roll to the hole. A\n\n20 m tree is between his ball and the hole, 40 m from the hole and 60 m\n\nfrom Jim's ball. With the base of the tree as the origin, write an algebraic\n\nexpression to model the height of the ball if it just clears the top of the tree.\n\nQuadratic Functions 147",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A2.9",
+        "A2.10"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p157_q16_3.1_1.png"
+      ],
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q8",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "8. The sum of two numbers is 16. What is the largest\n\nFor each table, calculate the second differences. possible product between these numbers?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q1",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "1.\n\nDetermine whether the function is quadratic.\n\nLesson 3.3\n\na) b)\n\nx y x y",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q9",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "9. a) Determine the equation of the inverse of the\n\n22 28 22 0 (x) 2\n\nquadratic function \\(f = x - 4x + 3.\\)\n\n21 22 21 1 b) List the domain and range of f (x) and its\n\ninverse.\n\n0 0 0 4\n\n(x)\n\nc) Sketch the graphs of f and its inverse.\n\n1 22 + 9 - 28 - 16 10. The revenue for a business is modelled by the\n\nfunction \\(R(x) = 22.8(x - 10)2 + 15\\), where x is\n\nR(x)\n\nthe number of items sold, in thousands, and is",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p180_q9_3.Mid-Chapter_Review_1.png"
+      ],
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q2",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "2. Graph each function.\n\nthe revenue in thousands of dollars. Express the\n\nf (x) 23(x 2)2 = a) = 2 1\n\nnumber sold in terms of the revenue.\n\n!x\n\nb) \\(f (x) = 2(x + 4)(x - 6)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q11",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "11. Almost all linear functions have an inverse that is a",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q3",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "3. For each function in question 2, state the vertex, the\n\nfunction, but quadratic functions do not. Explain\n\nequation of the axis of symmetry, and the domain\n\nwhy?\n\nand range.\n\n(x)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q12",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "12. Graph f 5 2 1 3 and determine",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q4",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "4. Express each function in question 2 in standard form.\n\na) the !48 domain and range of f (x) 23 - 75\n\nLesson 3.2 b) the equation of f 21 - 68 5 - 98\n\nDetermine the maximum or minimum value of each !180 28 - 12",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q5",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "5.\nLesson 3.4\nquadratic function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q13",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "13. Express each radical in simplest form.\n\na) \\(f (x) = x - 2 6x + 2 - 7 !14\\)\n\na) d)\n\nf (x) 2(x 4)(x 6)\n\nb) = 2 + 3 - 5 2 - 15\n\nb) e)\n\nc) \\(f (x) = 22x + 10x\\)\n\n!12 2 - 48 5 - 27\n\nc) f)\n\nd) \\(f (x) = 3.2x - 1 15x - 7\\)\n\n3 - 28 2 - 50 - 63 3 - 18",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q14",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "14. Simplify.\n\nThe profit function for a business is given by the !3)(5 2 - 3)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q6",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "6.\n\na) 3\n\nequation \\(P(x) = 24x + 16x - 7\\), where x is the (3 - 5 2 - 10)(22 - 5 5 - 10)\n\nb) 3\n\nnumber of items sold, in thousands, and P(x) is\n\nc) + 2\n\ndollars in thousands. Calculate the maximum profit\n\nd) - 1 2\n\nand how many items must be sold to achieve it.\n\n(4\n\ne) - 1",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3MidChapterReview-MCR-p170-Q7",
+      "chapter": 3,
+      "section": "3.Mid-Chapter Review",
+      "stem": "7. The cost per hour of running an assembly line in a\n\nf) + 1\n\nmanufacturing plant is a function of the number of\n\nitems produced per hour. The cost function is\n\n\\(C(x) = 0.3x - 2 1.2x + 2\\), where C(x) is the cost\n\nper hour in thousands of dollars, and x is the number\n\nof items produced per hour, in thousands.\n\nDetermine the most economical production level.\n\n170 Chapter 3\n\nMath\n\nCurious\n\nInvestigating a Special Property of Parabolas YOU WILL NEED\n\n• ruler\n\nIn a parabolic satellite reception dish, all of the signal rays are directed to a feed\n\n• protractor\n\nhorn, which is positioned at a fixed point called the focus. You can locate this\n\npoint by using math. Let the function f (x) 4x2 model the shape of a satellite\n\ndish.\n\nThe graph of \\(f (x) = 4x2 shows four tangent lines. (Each tangent line just touche\\)s\n\nthe curve at one point.) You can use the tangent lines to determine the focus.\n\nf(x) x^2 y\n\nx\n\n!6 - 4 !2 - 4 6 - 2\n\n!4 - 6\n\ntangent lines\n\nMark these points on a copy of the graph: (24, 4), (4, 4,), (22, 1), (2, 1).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-CK-p177-Q1",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "1. Determine the roots of each equation by factoring.\n\na) x^2 + 5x + 4 = 0 c) 4x2 - 9 = 0\n\nx^2 11x 18 0 2x2 7x 4 0\n\nb) - 1 = d) - 2 5",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-CK-p177-Q2",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "2. Use the quadratic formula to determine each of the roots to\n\ntwo decimal places.\n\nx^2 4x 9 0 22x2 3x 6 0\n\na) - 2 = c) + 2 = 3x2 0.5x2\n\nb) + 2x - 8 = 0 d) - 2.2x - 4.7 = 0",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-CK-p177-Q3",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "3. Use a graphing calculator to solve each equation.\n\n0 24x2 5x + 0 2x2 11x 9\n\na) = 2 2 b) = 2 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p177-Q4",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "4. i) For each equation, decide on a strategy to solve it and explain why you\n\nK chose that strategy.\n\nii) Use your strategy to solve the equation. When appropriate, leave your\n\nanswer in simplest radical form.\n\na) 2x2 - 3x = x^2 + 7x d) (x + 3)2 = 22x\n\nb) 4x2 6x + 0 e) 3x2 5x 2x2 4x 10 + 1 = 2 5 + 1\n\nx^2 2(x 3)(x 4)\n\nc) + 4x - 3 = 0 f) + 2 = 6x + 6",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p177-Q5",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "5. Locate the x-intercepts of the graph of each function.\n\na) f (x) 3x2 7x 2 b) f (x) 24x2 25x 21 = 2 2 = 1 2\n\nQuadratic Functions 177",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q6",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "6. Determine the break-even quantities for each profit function, where x is the\n\nnumber sold, in thousands.\n\na) \\(P(x) = 2x2 + 12x + 28 c) P(x) = 22x2 + 22x - 17\\)\n\nP(x) 22x2 P(x) 20.5x2\n\nb) = 1 18x - 40 d) = 1 6x - 5",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q7",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "7. The flight of a ball hit from a tee that is 0.6 m tall can be modelled by the\n\nA function \\(h(t) = 24.9t2 + 6t 1 0.6\\), where h(t) is the height in metres at\n\ntime t seconds. How long will it take for the ball to hit the ground?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q8",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "8. The population of a region can be modelled by the function\n\n\\(P(t) = 0.4t2 + 10t 1 50\\), where P(t) is the population in thousands and\n\nt is the time in years since the year 1995.\n\na) What was the population in 1995?\n\nb) What will be the population in 2010?\n\nc) In what year will the population be at least 450 000? Explain your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p188_q8_3.5_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q9",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "9. A rectangle has an area of 330 m^2. One side is 7 m longer than the other.\n\nWhat are the dimensions of the rectangle?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p188_q9_3.5_1.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q10",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "10. The sum of the squares of two consecutive integers is 685. What could the\n\nintegers be? List all possibilities.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q11",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "11. A right triangle has a height 8 cm more than twice the length of the base. If\n\ncm2,\n\nthe area of the triangle is 96 what are the dimensions of the triangle?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q12",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "12. Jackie mows a strip of uniform width around her 25 m by 15 m rectangular\n\nT lawn and leaves a patch of lawn that is 60% of the original area. What is the\n\nwidth of the strip?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q13",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "13. A small flare is launched off the deck of a ship. The height of the flare above\n\nthe water is given by the function \\(h(t) = 24.9t2 + 92t 1 9\\), where h(t) is\n\nmeasured in metres and t is time in seconds.\n\na) When will the flare's height be 150 m?\n\nb) How long will the flare's height be above 150 m?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q14",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "14. A bus company has 4000 passengers daily, each paying a fare of $2. For each\n\n$0.15 increase, the company estimates that it will lose 40 passengers per day.\n\nIf the company needs to take in $10 450 per day to stay in business, what\n\nfare should be charged?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-PR-p178-Q15",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "15. Describe three possible ways that you could determine the zeros of the\n\nC quadratic function \\(f (x) = 22x2 + 14x - 24.\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-35-EX-p178-Q16",
+      "chapter": 3,
+      "section": "3.5",
+      "stem": "16.\n\n6 cm more than twice the length of one of the other sides. Find the lengths of\n\nall three sides.\n\nFind the zeros of the function f (x) 3x + 1.\n\nx + 178 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q7",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "7. Is the inverse of a quadratic function also a function?\n\nConsider the quadratic function Give a reason for your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q1",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "1.\n\n2)2\n\n\\(f (x) = 23(x - 1 5.\\)\n\nGiven the graph of f (x), sketch the graph of the",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q8",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "8. a)\n\nState the direction of opening, the vertex, and\n\na)\n\ninverse relation.\n\nthe axis of symmetry.\n\nb) State the domain and range of the inverse\n\nb) State the domain and range.\n\nrelation.\n\nGraph the function.\n\nc)\n\nc) Is the inverse relation a function? Why or\n\nwhy not?\n\nConsider the quadratic function",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q2",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "2.\n\n(x) 4(x 2)(x 6).\n\n\\(f = 2 + y\\)\n\nState the direction of opening and the zeros of\n\na) 6\n\nthe function.\n\n4 \\(y = f(x)\\)\n\nb) Determine the coordinates of the vertex.\n\nState the domain and range. 2\n\nc)\n\nx\n\nd) Graph the function.\n\n!2 - 4 6 8",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p212_q2_3.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q3",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "3. Determine the equation of the axis of symmetry of the !2\n\nparabola with points (25, 3) and (3, 3) equally\n\n!4\n\ndistant from the vertex on either side of it.\n\n!6\n\nLesson 3.2 - 8",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p212_q3_3.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q4",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "4. For each quadratic function, state the maximum or\n\nminimum value and where it will occur.\n\n3 - 48\n\n(x) 23(x 4)2 - 98 4 - 12\n\na) \\(f = 2 + 7\\)\n\n25 - 32 2 - 7)2\n\nb) \\(f (x) = 4x(x + 6) Lesson 3.4\\)\n\nExpress each number as a mixed radical in simplest\n\nThe height, h(t), in metres, of the trajectory of a 9.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p212_q4_3.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q5",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "5.\n\nh(t) 2, form.\n\nfootball is given by = 2 + 28t 2 4.9t where\n\na) c) 2\n\nt is the time in flight, in seconds. Determine the \"s(s\n\nmaximum height of the football and the time when b) d) (3 2\n\nthat height is reached.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q10",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "10. The area of a triangle can be calculated from Heron's\n\nformula,\n\n\\(A = 2 a)(s 2 b)(s 2 c)\\),\n\nwhere a, b, and c are the side lengths and\n\na 1 b 1 c\n\ns 5 . Calculate the area of a triangle with\n\nside lengths 5, 7, and 10. Leave your answer in\n\nsimplest radical form.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p212_q10_3.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q11",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "11. What is the perimeter of a right triangle with legs\n\n!x, 2!x.\n\n6 cm and 3 cm? Leave your answer in simplest\n\nradical form.\n\nLesson 3.3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p212_q11_3.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p202-Q6",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "6. Describe the relationship between\n\n(x) 2, g(x) h(x)\n\nf = x 5 and = 202 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q19",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "19. Describe the characteristics that the members of the\n\nDetermine the x-intercepts of the quadratic function family of parabolas \\(f (x) = a(x + 3)2 - 4 have in\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q12",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "12.\n\n2 common. Which member passes through the point\n\n\\(f (x) = 2x + x - 15.\\)\n\n(22, 6)?\n\nThe population of a Canadian city is modelled by",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q13",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "13.\n\nP(t) - 20. An engineer is designing a parabolic arch. The arch = 12t 1 800t 1 40 000, where t is the time\n\nmust be 15 m high, and 6 m wide at a height of 8 m.\n\nin years. When \\(t = 0\\), the year is 2007.\n\nAccording to the model, what will the a) Determine a quadratic function that satisfies\n\na)\n\nthese conditions.\n\npopulation be in 2020?\n\nb) What is the width of the arch at its base?\n\nb) In what year is the population predicted to be\n\n300 000?\n\nLesson 3.8\n\nm^2",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p213_q13_3.Chapter_Review_1.png",
+        "nelson_assets/ch3/p213_q13_3.Chapter_Review_2.png"
+      ],
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q14",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "14. A rectangular field with an area of 8000 is enclosed",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q21",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "21. Calculate the point(s) of intersection of\n\nby 400 m of fencing. Determine the dimensions of\n\nf (x) 2x - 4x 11 and g(x) 23x 4.\n\nthe field to the nearest tenth of a metre. 5 + 2 = 1\n\nh(t),",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q22",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "22. The height, of a baseball, in metres, at time\n\nLesson 3.6\n\nt seconds after it is tossed out of a window is modelled\n\nh(t),",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q15",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "15. The height, of a projectile, in metres, can be\n\nby the function h(t) 25t 2 20t 15. A boy = 1 1\n\nmodelled by the equation \\(h(t) = 14t 2 5t2\\), where\n\nshoots at the baseball with a paintball gun. The\n\nt is the time in seconds after the projectile is released.\n\ntrajectory of the paintball is given by the function\n\nCan the projectile ever reach a height of 9 m?\n\ng(t) 3t 3. Will the paintball hit the baseball? If = 1\n\nExplain.\n\nso, when? At what height will the baseball be?\n\nDetermine the values of k for which the function",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q16",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "16.\na) Will the parabola defined by",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q23",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "23.\n\n(x) 2\n\n\\(f = 4x - 3x + 2kx + 1 has two zeros. Check\\)\n\n(x) 2\n\nf = x - 6x + 9 intersect the line\n\nthese values in the original equation.\n\n\\(g(x) = 23x - 5? Justify your answer.\\)\n\nDetermine the break-even points of the profit b) Change the slope of the line so that it will",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q17",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "17.\n\nP(x) 22x2\n\nfunction !3 5 - 3, 1 7x + 8, where x is the intersect the parabola in two locations.\n\nnumber of dirt bikes produced, in thousands.\n\nLesson 3.7",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterReview-CR-p203-Q18",
+      "chapter": 3,
+      "section": "3.Chapter Review",
+      "stem": "18. Determine the equation of the parabola with roots\n\n2 1 and 2 2 and passing through the\n\npoint (2, 5).\n\nQuadratic Functions 203",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q1",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "1. You are given \\(f (x) = 25x2 + 10x - 5.\\)\n\nExpress the function in factored form and determine the vertex.\n\na)\n\nb) Identify the zeros, the axis of symmetry, and the direction of opening.\n\nc) State the domain and range.\n\nGraph the function.\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q2",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "2. For each function, state whether it will have a maximum or a minimum\n\nvalue. Describe the method you would choose to calculate the maximum or\n\nminimum value.\n\n(x) - (x) 3(x 1)(x 5)\n\na) \\(f = 22x - 8x + 3 b) f = 2 1\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q3",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "3. You can choose whether you are provided the equation of a quadratic\n\nfunction in standard form, factored form, or vertex form. If you needed to\n\nknow the information listed, which form would you choose and why?\n\na) the vertex\n\nthe y-intercept\n\nb)\n\nc) the zeros\n\nd) the axis of symmetry\n\nthe domain and range\n\ne)\n\n!8)(3\n\n\"2).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q4",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "4. Determine the maximum area of a rectangular field that can be enclosed by\n\n\"5)(5\n\n\"10).\n\n2400 m of fencing.\n\nDetermine the equation of the inverse of f (x) 2(x 1)2 3.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q6",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "6. a) Simplify (2 - 1\n\n(3\n\nb) Simplify + 2\n\nExplain why the answer to part (a) has fewer terms than the answer to\n\nc)\n\npart (b).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q7",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "7. Calculate the value of k such that kx - 2 4x 1 \\(k = 0 has one root.\\)\n\nDoes the linear function g(x) 6x = intersect the quadratic function\n\n\\(f (x) = 2x - 3x + 2? How can you tell? If it does intersect\\), determine the\n\npoint(s) of intersection.\n\nDetermine the equation in standard form of the parabola shown below.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q9",
+      "chapter": 3,
+      "section": "3.Chapter Self-Test",
+      "stem": "9.\n\ny\n\nx - 4 6 8\n\n–2\n\n–4\n\n–6\n\n204 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p214_q9_3.Chapter_Self-Test_1.png"
+      ],
+      "exercise_block": "Chapter Self-Test",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterTask-TASK-p205-QA",
+      "chapter": 3,
+      "section": "3.Chapter Task",
+      "stem": "A.\n\nTask Checklist\n\nwas hit.\n\nDid you state your reasons\n\na) What would h(142) be?\n\nthat the given models were\n\nb) What happens when x 0?\n\nnot reasonable?\n\nh(x)\n\nc) What are the possible values for when \\(x = 0?\\)\n\nd) What would be a good range of values for the height of the ball? Are Did you draw a well-\n\nsome values for the height unreasonable? labelled graph, including\n\nsome values?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p215_qA_3.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterTask-TASK-p205-QB",
+      "chapter": 3,
+      "section": "3.Chapter Task",
+      "stem": "B. Explain why each function is not a good model of the situation, and support\n\nyour claim with reasons and a well-labelled sketch. Did you show your work in\n\na) h(x) 20.5x(x 142) your choice of method for = 2\n\nh(x) 20.5x2 part C?\n\nb) = 1 71x + 1\n\nc) \\(h(x) = 20.0015x2 + 0.213x + 1.2\\)\n\nDid you support your choice\n\nof method in part C?\n\nDetermine an equation that models the path of the ball, given this additional",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p215_qB_3.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterTask-TASK-p205-QC",
+      "chapter": 3,
+      "section": "3.Chapter Task",
+      "stem": "C.\n\ninformation:\n\na) The ball was 1.2 m off the ground when it was hit.\n\nb) The ball reached a maximum height of 17 m when it was approximately\n\n70 m away from Vernon.\n\nExplain the method you are using to get the equation, and show all of your\n\nsteps. Why did you approach the problem this way?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p215_qC_3.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-3ChapterTask-TASK-p205-QD",
+      "chapter": 3,
+      "section": "3.Chapter Task",
+      "stem": "D. Use the model you created to graph the flight of Vernon's ball.\n\nQuadratic Functions 205\n\n1–3\n\nChapters",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p215_qD_3.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    }
+  ]
+}

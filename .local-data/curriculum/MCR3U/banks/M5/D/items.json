@@ -1,0 +1,1787 @@
+{
+  "course_code": "MCR3U",
+  "module_number": 5,
+  "strand": "D",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q1",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Use the Pythagorean theorem to determine each unknown side length.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p284_q1a_tri_abc.png",
+        "nelson_assets/ch5/p284_q1b_tri_def.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q2",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Using the triangles below, determine the sine, cosine, and tangent ratios for each given angle.\n\na) \\(\\angle A\\)\n\nb) \\(\\angle D\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p284_q1a_tri_abc.png",
+        "nelson_assets/ch5/p284_q1b_tri_def.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q3",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Using the triangles below, determine each given angle to the nearest degree.\n\na) \\(\\angle B\\)\n\nb) \\(\\angle F\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p284_q1a_tri_abc.png",
+        "nelson_assets/ch5/p284_q1b_tri_def.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q4",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Use a calculator to evaluate to the nearest thousandth.\n\na) \\(\\sin 31^\\circ\\)\n\nb) \\(\\cos 70^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q5",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Use a calculator to determine \\(\\theta\\) to the nearest degree.\n\na) \\(\\cos\\theta = 0.331\\)\n\nb) \\(\\sin\\theta = 0.711\\)\n\nc) \\(\\tan\\theta = 1.1145\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q6",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "Mario is repairing the wires on a radio broadcast tower. He is in the basket of a repair truck 40 m from the tower. When he looks up, he estimates the angle of elevation to the top of the tower as \\(42^\\circ\\). When he looks down, he estimates the angle of depression to the bottom of the tower as \\(32^\\circ\\). How high is the tower to the nearest metre?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p284_q6_tower.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-GS-p274-Q7",
+      "chapter": 5,
+      "section": "5.Getting Started",
+      "stem": "On a sunny day, a tower casts a shadow 35.2 m long. At the same time, a 1.3 m parking meter that is nearby casts a shadow 1.8 m long. How high is the tower to the nearest tenth of a metre?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p284_q7_shadow.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-CK-p280-Q1",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Given \\(\\triangle ABC\\), state the six trigonometric ratios for \\(\\angle A\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p290_q1_tri_abc.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-CK-p280-Q2",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "State the reciprocal trigonometric ratios that correspond to\n\n\\(\\sin\\theta = \\dfrac{8}{17}\\), \\(\\cos\\theta = \\dfrac{15}{17}\\), and \\(\\tan\\theta = \\dfrac{8}{15}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-CK-p280-Q3",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "For each primary trigonometric ratio, determine the corresponding reciprocal ratio.\n\na) \\(\\sin\\theta = \\dfrac{1}{2}\\)\n\nb) \\(\\cos\\theta = \\dfrac{3}{4}\\)\n\nc) \\(\\tan\\theta = \\dfrac{3}{2}\\)\n\nd) \\(\\tan\\theta = \\dfrac{1}{4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-CK-p280-Q4",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Evaluate to the nearest hundredth.\n\na) \\(\\cos 34^\\circ\\)\n\nb) \\(\\sec 10^\\circ\\)\n\nc) \\(\\cot 75^\\circ\\)\n\nd) \\(\\csc 45^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p281-Q5",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "a) For each triangle, calculate \\(\\csc\\theta\\), \\(\\sec\\theta\\), and \\(\\cot\\theta\\).\n\nb) For each triangle, use one of the reciprocal ratios from part (a) to determine \\(\\theta\\) to the nearest degree.\n\ni)\n\nii)\n\niii)\n\niv)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p291_q5a_i.png",
+        "nelson_assets/ch5/p291_q5a_ii.png",
+        "nelson_assets/ch5/p291_q5a_iii.png",
+        "nelson_assets/ch5/p291_q5a_iv.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p281-Q6",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Determine the value of \\(\\theta\\) to the nearest degree.\n\na) \\(\\cot\\theta = 3.24\\)\n\nb) \\(\\csc\\theta = 1.27\\)\n\nc) \\(\\sec\\theta = 1.45\\)\n\nd) \\(\\cot\\theta = 0.58\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p281-Q7",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "For each triangle, determine the length of the hypotenuse to the nearest tenth of a metre.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p291_q7a.png",
+        "nelson_assets/ch5/p291_q7b.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-EX-p282-Q18",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "In right \\(\\triangle PQR\\), the hypotenuse, \\(r\\), is 117 cm and \\(\\tan P = 0.51\\). Calculate side lengths \\(p\\) and \\(q\\) to the nearest centimetre and all three interior angles to the nearest degree.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-EX-p282-Q19",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Describe the appearance of a triangle that has a secant ratio that is greater than any other trigonometric ratio.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-EX-p282-Q20",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "The tangent ratio is undefined for angles whose adjacent side is equal to zero. List all the angles between \\(0^\\circ\\) and \\(90^\\circ\\) (if any) for which cosecant, secant, and cotangent are undefined.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-CK-p286-Q1",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "a) Draw a right triangle that has one angle measuring \\(30^\\circ\\). Label the sides using the lengths \\(\\sqrt{3}\\), 2, and 1. Explain your reasoning.\n\nb) Identify the adjacent and opposite sides relative to the \\(30^\\circ\\) angle.\n\nc) Identify the adjacent and opposite sides relative to the \\(60^\\circ\\) angle.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-CK-p286-Q2",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "a) Draw a right triangle that has one angle measuring \\(45^\\circ\\). Label the sides using the lengths 1, 1, and \\(\\sqrt{2}\\). Explain your reasoning.\n\nb) Identify the adjacent and opposite sides relative to one of the \\(45^\\circ\\) angles.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-CK-p286-Q3",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "State the exact values.\n\na) \\(\\sin 60^\\circ\\)\n\nb) \\(\\cos 30^\\circ\\)\n\nc) \\(\\tan 45^\\circ\\)\n\nd) \\(\\cos 45^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-EX-p288-Q13",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "If \\(\\cot\\alpha = \\sqrt{3}\\), calculate \\((\\sin\\alpha)(\\cot\\alpha) - \\cos^{2}\\alpha\\) exactly.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-EX-p288-Q14",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "If \\(\\csc\\beta = 2\\), calculate \\(\\dfrac{\\tan\\beta}{\\sec\\beta} - \\sin^{2}\\beta\\) exactly.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-EX-p288-Q15",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Using exact values, show that \\(1 + \\cot^2\\theta = \\csc^2\\theta\\) for each angle.\n\na) \\(\\theta = 30^\\circ\\)\n\nb) \\(\\theta = 45^\\circ\\)\n\nc) \\(\\theta = 60^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-53-FU-p292-Q2",
+      "chapter": 5,
+      "section": "5.3",
+      "stem": "Using the special triangles from Lesson 5.2, sketch two angles in the Cartesian plane that have the same value for each given trigonometric ratio.\n\na) sine\n\nb) cosine\n\nc) tangent",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-53-FU-p292-Q3",
+      "chapter": 5,
+      "section": "5.3",
+      "stem": "Sylvie drew a special triangle in quadrant 3 and determined that \\(\\tan(180^\\circ + \\theta) = 1\\).\n\na) What is the value of angle \\(\\theta\\)?\n\nb) What would be the exact value of \\(\\tan\\theta\\), \\(\\cos\\theta\\), and \\(\\sin\\theta\\)?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p300-Q5",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "i) For each angle \\(\\theta\\), predict which primary trigonometric ratios are positive.\n\nii) Determine the primary trigonometric ratios to the nearest hundredth.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p310_q5_5.4_1.png",
+        "nelson_assets/ch5/p310_q5_5.4_2.png",
+        "nelson_assets/ch5/p310_q5_5.4_3.png",
+        "nelson_assets/ch5/p310_q5_5.4_4.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p300-Q6",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Angle \\(\\theta\\) is a principal angle that lies in quadrant 2 such that \\(0^\\circ \\le \\theta \\le 360^\\circ\\). Given each trigonometric ratio,\n\ni) determine the exact values of \\(x\\), \\(y\\), and \\(r\\)\n\nii) sketch angle \\(\\theta\\) in standard position\n\niii) determine the principal angle \\(\\theta\\) and the related acute angle \\(\\beta\\) to the nearest degree\n\na) \\(\\sin\\theta = \\dfrac{1}{3}\\)\n\nb) \\(\\csc\\theta = 2.5\\)\n\nc) \\(\\cot\\theta = -\\dfrac{4}{3}\\)\n\nd) \\(\\tan\\theta = -1.1\\)\n\ne) \\(\\cos\\theta = -\\dfrac{1}{4}\\)\n\nf) \\(\\sec\\theta = -3.5\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p300-Q7",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "For each trigonometric ratio in question 6, determine the smallest negative angle that has the same ratio.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p300-Q8",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Use each trigonometric ratio to determine all values of \\(\\theta\\), to the nearest degree, if \\(0^\\circ \\le \\theta \\le 360^\\circ\\).\n\na) \\(\\sin\\theta = 0.4815\\)\n\nb) \\(\\tan\\theta = -0.1623\\)\n\nc) \\(\\cos\\theta = -0.8722\\)\n\nd) \\(\\cot\\theta = 8.1516\\)\n\ne) \\(\\csc\\theta = -2.3424\\)\n\nf) \\(\\sec\\theta = 0\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q9",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Given angle \\(\\theta\\), where \\(0^\\circ \\le \\theta \\le 360^\\circ\\), determine two possible values of \\(\\theta\\) where each ratio would be true. Sketch both principal angles.\n\na) \\(\\cos\\theta = 0.6951\\)\n\nb) \\(\\tan\\theta = -0.7571\\)\n\nc) \\(\\sin\\theta = 0.3154\\)\n\nd) \\(\\cos\\theta = -0.2882\\)\n\ne) \\(\\tan\\theta = 2.3151\\)\n\nf) \\(\\sin\\theta = -0.7503\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q10",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "For each point \\(P(x, y)\\) on the terminal arm of \\(\\theta\\),\n\ni) state the value of \\(\\theta\\), using both a counterclockwise and a clockwise rotation\n\nii) determine the primary trigonometric ratios associated with \\(\\theta\\)\n\na) \\(P(-1, -1)\\)\n\nb) \\(P(-1, 0)\\)\n\nc) \\(P(0, -1)\\)\n\nd) \\(P(1, 0)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q11",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Dennis doesn’t like using \\(x\\), \\(y\\), and \\(r\\) to investigate angles. He says that he is going to continue using adjacent, opposite, and hypotenuse.\n\na) Explain why Dennis’s strategy will not always work.\n\nb) For what types of angles will his strategy work?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q12",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Given \\(\\cos\\theta = \\dfrac{2}{5}\\), where \\(0^\\circ \\le \\theta \\le 360^\\circ\\),\n\na) in which quadrant could the terminal arm of \\(\\theta\\) lie?\n\nb) determine all possible values of the other five trigonometric ratios\n\nc) determine all possible values of \\(\\theta\\) to the nearest degree",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q13",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Given angle \\(\\alpha\\), where \\(0^\\circ \\le \\alpha (Use \\(\\cos\\alpha\\) equal to the unique value implied by the textbook prompt for this exercise — open justify that cosine is one-to-one on \\([0^\\circ,180^\\circ]\\).)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-PR-p301-Q14",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "How does knowing the coordinates of a point \\(P\\) in the Cartesian plane help you determine the trigonometric ratios associated with the angle formed by the positive \\(x\\)-axis and the ray \\(\\overrightarrow{OP}\\)?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-EX-p301-Q15",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Given angle \\(\\theta\\), where \\(0^\\circ \\le \\theta \\le 360^\\circ\\), solve for \\(\\theta\\) to the nearest degree.\n\na) \\(\\cos 2\\theta = 0.6420\\)\n\nb) \\(\\sin(\\theta + 20^\\circ) = 0.2045\\)\n\nc) \\(\\tan(90^\\circ - 2\\theta) = 1.6443\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-EX-p301-Q16",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "When you use the inverse trigonometric functions on a calculator, it is important to interpret the calculator result to avoid inaccurate values of \\(\\theta\\). Using these trigonometric ratios, describe what errors might result.\n\na) \\(\\sin\\theta = -0.8\\)\n\nb) \\(\\cos\\theta = -0.75\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-EX-p301-Q17",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Use sketches to explain why each statement is true.\n\na) \\(2\\sin 32^\\circ \\ne \\sin 64^\\circ\\)\n\nb) \\(\\sin 20^\\circ + \\sin 40^\\circ \\ne \\sin 60^\\circ\\)\n\nc) \\(\\tan 75^\\circ \\ne 3\\tan 25^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q1",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Evaluate each reciprocal trigonometric ratio to four decimal places.\n\na) \\(\\csc 20^\\circ\\)\n\nb) \\(\\cot 10^\\circ\\)\n\nc) \\(\\sec 75^\\circ\\)\n\nd) \\(\\csc 81^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q2",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Determine the value of \\(\\theta\\) to the nearest degree if \\(0^\\circ \\le \\theta \\le 90^\\circ\\).\n\na) \\(\\cot\\theta = 0.87\\)\n\nb) \\(\\csc\\theta = 1.64\\)\n\nc) \\(\\sec\\theta = 4.10\\)\n\nd) \\(\\sec\\theta = 2.43\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q8",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "i) Sketch each angle in standard position. Use the sketch to determine the exact value of the given trigonometric ratio.\n\nii) If \\(0^\\circ \\le \\theta \\le 360^\\circ\\), state all values of \\(\\theta\\) that have the same given trigonometric ratio.\n\na) \\(\\sin 120^\\circ\\)\n\nb) \\(\\tan 330^\\circ\\)\n\nc) \\(\\cos 225^\\circ\\)\n\nd) \\(\\cos 300^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q3",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "A trigonometric ratio is \\(\\dfrac{7}{5}\\). What ratio could it be, and what angle might it be referring to?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q4",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Claire is attaching a rope to the top of the mast of her sailboat so that she can lower the sail to the ground to do some repairs. The mast is 8.3 m long, and with her eyes level with the base of the mast, the top forms an angle of \\(31^\\circ\\) with the ground. How much rope does Claire need if 0.5 m of rope is required to tie to the mast? Round your answer to the nearest tenth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q9",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "\\(P(-9, 4)\\) lies on the terminal arm of an angle \\(\\theta\\) in standard position.\n\na) Sketch the principal angle \\(\\theta\\).\n\nb) What is the value of the related acute angle \\(\\beta\\) to the nearest degree?\n\nc) What is the value of the principal angle to the nearest degree?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q5",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "If \\(\\csc\\theta < \\sec\\theta\\) and \\(\\theta\\) is acute, what do you know about \\(\\theta\\)?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q10",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Jeff said he found three angles for which \\(\\cos\\theta = \\dfrac{4}{5}\\). Is that possible if \\(0^\\circ \\le \\theta \\le 360^\\circ\\)? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q6",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Determine the exact value of each trigonometric ratio.\n\na) \\(\\sin 60^\\circ\\)\n\nb) \\(\\csc 30^\\circ\\)\n\nc) \\(\\tan 45^\\circ\\)\n\nd) \\(\\sec 45^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q11",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Given \\(\\tan\\theta = -\\dfrac{15}{8}\\), where \\(90^\\circ \\le \\theta \\le 180^\\circ\\),\n\na) state the other five trigonometric ratios as fractions\n\nb) determine the value of \\(\\theta\\) to the nearest degree",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q12",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "If \\(\\sin\\theta = -0.8190\\) and \\(0^\\circ \\le \\theta \\le 360^\\circ\\), determine the value of \\(\\theta\\) to the nearest degree.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-MCR-p304-Q13",
+      "chapter": 5,
+      "section": "5.Mid-Chapter Review",
+      "stem": "Angle \\(\\theta\\) lies in quadrant 2. Without using a calculator, which ratios must be false? Justify your reasoning.\n\na) \\(\\cos\\theta = 2.3151\\)\n\nb) \\(\\tan\\theta = 2.3151\\)\n\nc) \\(\\csc\\theta = 2.3151\\)\n\nd) \\(\\sec\\theta = 2.3151\\)\n\ne) \\(\\cot\\theta = 2.3151\\)\n\nf) \\(\\sin\\theta = 2.3151\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-CK-p310-Q1",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Prove each identity by writing all trigonometric ratios in terms of \\(x\\), \\(y\\), and \\(r\\). State the restrictions on \\(\\theta\\).\n\na) \\(\\cot\\theta = \\dfrac{\\cos\\theta}{\\sin\\theta}\\)\n\nb) \\(\\csc\\theta = \\dfrac{1}{\\sin\\theta}\\)\n\nc) \\(\\tan\\theta\\cos\\theta = \\sin\\theta\\)\n\nd) \\(\\cos\\theta\\sec\\theta = 1\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-CK-p310-Q2",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Simplify each expression.\n\na) \\((1 - \\sin\\alpha)(1 + \\sin\\alpha)\\)\n\nb) \\(\\cos^{2}\\alpha + \\sin^{2}\\alpha\\)\n\nc) \\(\\dfrac{\\sin\\alpha}{\\tan\\alpha}\\)\n\nd) \\(\\cot\\alpha\\sin\\alpha\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-CK-p310-Q3",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Factor each expression.\n\na) \\(1 - \\cos^{2}\\theta\\)\n\nb) \\(\\sin^{2}\\theta - 2\\sin\\theta + 1\\)\n\nc) \\(\\sin^{2}\\theta - \\cos^{2}\\theta\\)\n\nd) \\(\\cos\\theta - \\cos^{2}\\theta\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p310-Q4",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Prove that \\(\\dfrac{\\cos^{2}\\phi}{1 - \\sin\\phi} = 1 + \\sin\\phi\\), where \\(\\sin\\phi \\ne 1\\), by expressing \\(\\cos^{2}\\phi\\) in terms of \\(\\sin\\phi\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p310-Q5",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Prove each identity. State any restrictions on the variables.\n\na) \\(\\dfrac{\\sin x}{\\tan x} = \\cos x\\)\n\nb) \\(\\dfrac{1}{\\cos\\alpha} + \\tan\\alpha = \\dfrac{1 + \\sin\\alpha}{\\cos\\alpha}\\)\n\nc) \\(\\dfrac{\\tan\\theta}{\\cos\\theta} = \\dfrac{\\sin\\theta}{1 - \\sin^{2}\\theta}\\)\n\nd) \\(1 - \\cos^{2}\\theta = \\sin\\theta\\cos\\theta\\tan\\theta\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p310-Q6",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Mark claimed that \\(\\dfrac{1}{\\cot\\theta} = \\tan\\theta\\) is an identity. Marcia let \\(\\theta = 30^\\circ\\) and found that both sides of the equation worked out to \\(\\dfrac{1}{\\sqrt{3}}\\). She said that this proves that the equation is an identity. Is Marcia’s reasoning correct? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p310-Q7",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Simplify each trigonometric expression.\n\na) \\(\\sin\\theta\\cot\\theta - \\sin\\theta\\cos\\theta\\)\n\nb) \\(\\cos\\theta(1 + \\sec\\theta)(\\cos\\theta - 1)\\)\n\nc) \\((\\sin x + \\cos x)(\\sin x - \\cos x) + 2\\cos^{2}x\\)\n\nd) \\(\\csc^{2}\\theta - 1\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p310-Q8",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Prove each identity. State any restrictions on the variables.\n\na) \\(\\dfrac{\\sin^{2}\\phi}{1 - \\cos\\phi} = 1 + \\cos\\phi\\)\n\nb) \\(\\dfrac{\\tan^{2}\\alpha}{1 + \\tan^{2}\\alpha} = \\sin^{2}\\alpha\\)\n\nc) \\(\\cos^{2}x = (1 - \\sin x)(1 + \\sin x)\\)\n\nd) \\(\\sin^{2}\\theta + 2\\cos^{2}\\theta - 1 = \\cos^{2}\\theta\\)\n\ne) \\(\\sin^{4}\\alpha - \\cos^{4}\\alpha = \\sin^{2}\\alpha - \\cos^{2}\\alpha\\)\n\nf) \\(\\tan\\theta + \\dfrac{1}{\\tan\\theta} = \\dfrac{1}{\\sin\\theta\\cos\\theta}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p311-Q9",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Farah claims that if you separate both sides of an equation into two functions and graph them on the same \\(xy\\)-axes on a graphing calculator, you can use the result to prove that the equation is an identity.\n\na) Is her claim correct? Justify your answer.\n\nb) Discuss the limitations of her approach.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-PR-p311-Q13",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "Show how you can create several new identities from the identity \\(\\sin^{2}\\theta + \\cos^{2}\\theta = 1\\) by adding, subtracting, multiplying, or dividing both sides of the equation by the same expression.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-EX-p311-Q14",
+      "chapter": 5,
+      "section": "5.5",
+      "stem": "a) Which equations are not identities? Justify your answers.\n\nb) For those equations that are identities, state any restrictions on the variables.\n\ni) \\((1 - \\cos^{2}x)(1 - \\tan^{2}x) = \\sin^{2}x - 2\\sin^{4}x\\)\n\nii) \\(1 - 2\\cos^{2}\\phi = \\sin^{4}\\phi - \\cos^{4}\\phi\\)\n\niii) \\(\\dfrac{\\sin\\theta\\tan\\theta}{\\sin\\theta + \\tan\\theta} = \\sin\\theta\\tan\\theta\\)\n\niv) \\(\\dfrac{1 + 2\\sin\\beta\\cos\\beta}{\\sin\\beta + \\cos\\beta} = \\sin\\beta + \\cos\\beta\\)\n\nv) \\(\\dfrac{1 - \\cos\\beta}{\\sin\\beta} = \\dfrac{\\sin\\beta}{1 + \\cos\\beta}\\)\n\nvi) \\(\\dfrac{\\sin x}{1 + \\cos x} = \\csc x - \\cot x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-CK-p318-Q1",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "Determine the measure of angle \\(\\theta\\) to the nearest degree.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p328_q1a.png",
+        "nelson_assets/ch5/p328_q1b.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-CK-p318-Q2",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "A triangular plot of land is enclosed by a fence. Two sides of the fence are 9.8 m and 6.6 m long, respectively. The other side forms an angle of \\(40^\\circ\\) with the 9.8 m side.\n\na) Draw a sketch of the situation.\n\nb) Calculate the height of the triangle to the nearest tenth. Compare it to the given sides.\n\nc) How many lengths are possible for the third side? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p318-Q5",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "Where appropriate, sketch all possible triangles, given each set of information. Label all side lengths to the nearest tenth of a centimetre and all angles to the nearest degree.\n\na) \\(a = 7.2\\) mm, \\(b = 9.3\\) mm, \\(\\angle A = 35^\\circ\\)\n\nb) \\(a = 7.3\\) m, \\(b = 14.6\\) m, \\(\\angle A = 30^\\circ\\)\n\nc) \\(a = 1.3\\) cm, \\(b = 2.8\\) cm, \\(\\angle A = 33^\\circ\\)\n\nd) \\(c = 22.2\\) cm, \\(\\angle A = 75^\\circ\\), \\(\\angle B = 43^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p319-Q6",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "The trunk of a leaning tree makes an angle of \\(12^\\circ\\) with the vertical. To prevent the tree from falling over, a 35.0 m rope is attached to the top of the tree and is pegged into level ground some distance away. If the tree is 20.0 m from its base to its top, calculate the angle the rope makes with the ground to the nearest degree.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p319-Q7",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "A building of height \\(h\\) is observed from two points, \\(P\\) and \\(Q\\), that are 105.0 m apart as shown. The angles of elevation at \\(P\\) and \\(Q\\) are \\(40^\\circ\\) and \\(32^\\circ\\), respectively. Calculate the height, \\(h\\), to the nearest tenth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p329_q7_5.6_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p319-Q8",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "A surveyor in an airplane observes that the angles of depression to two points on the opposite shores of a lake are \\(32^\\circ\\) and \\(45^\\circ\\), respectively, as shown. What is the width of the lake, to the nearest metre, at those two points?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p329_q8_5.6_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p320-Q11",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "Carol is flying a kite on level ground, and the string forms an angle of \\(50^\\circ\\) with the ground. Two friends standing some distance from Carol see the kite at angles of elevation of \\(35^\\circ\\) and \\(66^\\circ\\), respectively. One friend is 11 m from Carol. For each question below, state all possible answers to the nearest metre.\n\na) How high is the kite above the ground?\n\nb) How long is the string?\n\nc) How far is the other friend from Carol?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p320-Q13",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "Your neighbour claims that his lot is triangular, with one side 430 m long and the adjacent side 110 m long. The angle opposite one of these sides is \\(35^\\circ\\). Determine the other side length of this lot to the nearest metre and the interior angles to the nearest degree.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-PR-p320-Q14",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "In \\(\\triangle LMN\\), \\(\\angle L\\) is acute. Using a sketch, explain the relationship between sides \\(l\\) and \\(m\\), and the height of the triangle for each situation.\n\na) Only one triangle is possible.\n\nb) Two triangles are possible.\n\nc) No triangle is possible.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-EX-p320-Q15",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "A sailor out in a lake sees two lighthouses 11 km apart along the shore and gets bearings of \\(285^\\circ\\) from his present position for lighthouse A and \\(237^\\circ\\) for lighthouse B. From lighthouse B, lighthouse A has a bearing of \\(45^\\circ\\).\n\na) How far, to the nearest kilometre, is the sailor from both lighthouses?\n\nb) What is the shortest distance, to the nearest kilometre, from the sailor to the shore?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-EX-p320-Q16",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "The Algomarine is a cargo ship that is 222.5 m long. Suppose you spot the Algomarine on your starboard (right) side headed your way. The bow and stern of the carrier appear separated by \\(12^\\circ\\). The captain of the Algomarine calls you from the bridge, located at the stern, and says that you are \\(8^\\circ\\) off his bow.\n\na) How far, to the nearest metre, are you from the stern?\n\nb) Are you in danger of being swamped (within 40 m)?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p330_q16_ship.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-EX-p320-Q17",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "The Gerbrandy Tower in the Netherlands is an 80 m high concrete tower, on which a 273.5 m guyed mast is mounted. The lower guy wires form an angle of \\(36^\\circ\\) with the ground and attach to the tower 155 m above ground. The upper guy wires form an angle of \\(59^\\circ\\) with the ground and attach to the mast 350 m above ground. How long are the upper and lower guy wires? Round your answers to the nearest metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-57-CK-p325-Q1",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "Determine each unknown side length to the nearest tenth.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p335_q1_5.7_1.png",
+        "nelson_assets/ch5/p335_q1_5.7_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-57-CK-p325-Q2",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "For each triangle, determine the value of \\(\\theta\\) to the nearest degree.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p335_q2_5.7_1.png",
+        "nelson_assets/ch5/p335_q2_5.7_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-57-PR-p326-Q3",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "§5.7 PRACTISING Q3 cosine law.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p336_q3a.png",
+        "nelson_assets/ch5/p336_q3b.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-57-PR-p326-Q4",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "Determine each unknown value.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p336_q4a.png",
+        "nelson_assets/ch5/p336_q4b.png",
+        "nelson_assets/ch5/p336_q4c.png",
+        "nelson_assets/ch5/p336_q4d.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-EX-p327-Q12",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "The interior angles of a triangle are \\(120^\\circ\\), \\(40^\\circ\\), and \\(20^\\circ\\). The longest side is 10 cm longer than the shortest side. Determine the perimeter of the triangle to the nearest centimetre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-55-EX-p327-Q13",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "For each situation, determine all unknown side lengths to the nearest tenth of a centimetre and/or all unknown interior angles to the nearest degree. If more than one solution is possible, state all possible answers.\n\na) A triangle has exactly one angle measuring \\(45^\\circ\\) and sides measuring 5.0 cm, 7.4 cm, and 10.0 cm.\n\nb) An isosceles triangle has at least one interior angle of \\(70^\\circ\\) and at least one side of length 11.5 cm.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-50-EX-p327-Q14",
+      "chapter": 5,
+      "section": "5.7",
+      "stem": "Two hot-air balloons are moored to level ground below, each at a different location. An observer at each location determines the angle of elevation to the opposite balloon as shown. The observers are 2.0 km apart.\n\na) What is the distance separating the balloons, to the nearest tenth of a kilometre?\n\nb) Determine the difference in height (above the ground) between the two balloons. Round your answer to the nearest metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p337_q14_5.0_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-CK-p332-Q1",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Morana is trolling for salmon in Lake Ontario. She sets the fishing rod so that its tip is 1 m above water and the line forms an angle of \\(35^\\circ\\) with the water’s surface. She knows that there are fish at a depth of 45 m. Describe the steps you would use to calculate the length of line she must let out.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p342_q1_5.8_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-CK-p332-Q2",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Josh is building a garden shed that is 4.0 m wide. The two sides of the roof are equal in length and must meet at an angle of \\(80^\\circ\\). Determine the length of each side of the roof to the nearest tenth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p342_q2_5.8_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p332-Q3",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Determine each unknown value.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p342_q3a.png",
+        "nelson_assets/ch5/p342_q3b.png",
+        "nelson_assets/ch5/p342_q3c.png",
+        "nelson_assets/ch5/p342_q3d.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p332-Q4",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Determine the unknown value(s) for the figure.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p342_q4_5.8_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p333-Q5",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "While Travis and Bob were flying a hot-air balloon from Beamsville to Vineland in southwestern Ontario, they decided to determine the straight-line distance between the two towns. From their balloon, the angle of depression to Beamsville was \\(6^\\circ\\) and to Vineland was \\(4^\\circ\\). They estimated their altitude to be 1.2 km. How far apart are the towns to the nearest tenth of a kilometre?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p333-Q6",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "The observation deck of the Skylon Tower in Niagara Falls, Ontario, is 166 m above the Niagara River. A tourist in the observation deck sees a boat at an angle of depression of \\(28^\\circ\\) and a second boat beyond the first at an angle of depression of \\(15^\\circ\\). How far apart are the boats to the nearest metre?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch5/p343_q6_5.8_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p333-Q8",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "A coast guard helicopter hovers between an island and a damaged sailboat.\n\nFrom the island, the angle of elevation to the helicopter is \\(73^\\circ\\).\nFrom the sailboat, the angle of elevation to the helicopter is \\(62^\\circ\\).\nThe horizontal distance between the island and the sailboat is 420 m.\n\nDetermine the altitude of the helicopter to the nearest metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-PR-p334-Q9",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Brit and Tara are standing 13.5 m apart on a dock when they observe a sailboat moving parallel to the dock. When the boat is positioned so that the angles between the dock and their lines of sight to the boat are as given in the textbook figure, determine the distance from Brit to the boat to the nearest tenth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-EX-p335-Q13",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Two cars leave an intersection at the same time and travel along straight highways that are \\(70^\\circ\\) apart. The cars are travelling at speeds of 80 km/h and 100 km/h. After 2 h, a traffic helicopter that is above and between the two cars takes readings.\n\na) Calculate the straight-line distance, to the nearest kilometre, from the helicopter to the faster car. Explain your reasoning for each step of your solution.\n\nb) Determine the altitude of the helicopter to the nearest kilometre.\n\nUse the helicopter angle measurements given in the textbook figure for this exercise.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": false,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-EX-p335-Q14",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "Simone is facing north at the entrance of a tunnel through a mountain. She notices that a 1515 m high mountain in the distance has a bearing of \\(270^\\circ\\) and its peak appears at an angle of elevation of \\(35^\\circ\\). After she exits the tunnel, the same mountain has a bearing of \\(258^\\circ\\) and its peak appears at an angle of elevation of \\(31^\\circ\\). Assuming that the tunnel is perfectly level and straight, how long is it to the nearest metre?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p345_q14_5.8_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-58-EX-p335-Q15",
+      "chapter": 5,
+      "section": "5.8",
+      "stem": "An airport radar operator locates two planes flying toward the airport. The first plane, \\(P\\), is 120 km from the airport, \\(A\\), at a bearing of \\(70^\\circ\\) and with an altitude of 2.7 km. The other plane, \\(Q\\), is 180 km away on a bearing of \\(125^\\circ\\) and with an altitude of 1.8 km. Calculate the distance between the two planes to the nearest tenth of a kilometre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6",
+        "D1.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p345_q15_5.8_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p338-Q4",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Determine the primary trigonometric ratios for angle \\(\\theta\\) in simplified radical form.\n\na)\n\nb)\n\nc)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p348_q4a.png",
+        "nelson_assets/ch5/p348_q4b.png",
+        "nelson_assets/ch5/p348_q4c.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p338-Q1",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "i) For each triangle, state the reciprocal trigonometric ratios for angle \\(\\theta\\).\n\nii) Calculate the value of \\(\\theta\\) to the nearest degree.\n\na)\n\nb)\n\nc)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p348_q1a.png",
+        "nelson_assets/ch5/p348_q1b.png",
+        "nelson_assets/ch5/p348_q1c.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p338-Q2",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Determine the exact value of each trigonometric expression. Express your answers in simplified radical form.\n\na) \\((\\sin 45^\\circ)(\\cos 45^\\circ) + (\\sin 30^\\circ)(\\cos 60^\\circ)\\)\n\nb) \\((1 - \\tan 45^\\circ)(\\sin 30^\\circ)(\\cos 30^\\circ)(\\tan 60^\\circ)\\)\n\nc) \\(\\tan 30^\\circ + 2(\\sin 45^\\circ)(\\cos 60^\\circ)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p338-Q3",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "i) State the sign of each trigonometric ratio. Use a calculator to determine the value of each ratio.\n\nii) For each trigonometric ratio, determine the principal angle and, where appropriate, the related acute angle. Then sketch another angle that has the equivalent ratio.\n\na) \\(\\tan 18^\\circ\\)\n\nb) \\(\\sin 205^\\circ\\)\n\nc) \\(\\cos 255^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p338-Q5",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Given \\(\\cos\\phi = -\\dfrac{7}{\\sqrt{53}}\\), where \\(0^\\circ \\le \\phi \\le 360^\\circ\\),\n\na) in which quadrant(s) does the terminal arm of angle \\(\\phi\\) lie? Justify your answer.\n\nb) state the other five trigonometric ratios for angle \\(\\phi\\)\n\nc) calculate the value of the principal angle \\(\\phi\\) to the nearest degree",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q6",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Determine whether the equation \\(\\cos\\beta\\cot\\beta = \\dfrac{1}{\\sin\\beta} - \\sin\\beta\\) is an identity. State any restrictions on angle \\(\\beta\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q7",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Prove each identity. State any restrictions on the variables if all angles vary from \\(0^\\circ\\) to \\(360^\\circ\\).\n\na) \\(\\tan\\alpha\\cos\\alpha = \\sin\\alpha\\)\n\nb) \\(\\dfrac{1}{\\cot\\phi} = \\sin\\phi\\sec\\phi\\)\n\nc) \\(1 - \\cos^{2}x = \\sin x\\cos x\\cot x\\)\n\nd) \\(\\sec\\theta\\cos\\theta + \\sec\\theta\\sin\\theta = 1 + \\tan\\theta\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p349_q7_5.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q11",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Two spotlights, one blue and the other white, are placed 6.0 m apart on a track on the ceiling of a ballroom. A stationary observer standing on the ballroom floor notices that the angle of elevation is \\(45^\\circ\\) to the blue spotlight and \\(70^\\circ\\) to the white one. How high, to the nearest tenth of a metre, is the ceiling of the ballroom?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q8",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Determine whether it is possible to draw a triangle given each set of information. Sketch all possible triangles where appropriate. Calculate, then label, all side lengths to the nearest tenth of a centimetre and all angles to the nearest degree.\n\na) \\(b = 3.0\\) cm, \\(c = 5.5\\) cm, \\(\\angle B = 30^\\circ\\)\n\nb) \\(b = 12.2\\) cm, \\(c = 8.2\\) cm, \\(\\angle C = 34^\\circ\\)\n\nc) \\(a = 11.1\\) cm, \\(c = 5.2\\) cm, \\(\\angle C = 33^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q12",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "To determine the height of a pole across a road, Justin takes two measurements. He stands at point \\(A\\) directly across from the base of the pole and determines that the angle of elevation to the top of the pole is \\(15.3^\\circ\\). He then walks 30 m parallel to the freeway to point \\(C\\), where he sees that the base of the pole and point \\(A\\) are \\(57.5^\\circ\\) apart. From point \\(A\\), the base of the pole and point \\(C\\) are \\(90.0^\\circ\\) apart. Calculate the height of the pole to the nearest metre.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q9",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Two forest fire stations, \\(P\\) and \\(Q\\), are 20.0 km apart. A ranger at station \\(Q\\) sees a fire 15.0 km away. If the angle between the line \\(PQ\\) and the line from \\(P\\) to the fire is \\(25^\\circ\\), how far, to the nearest tenth of a kilometre, is station \\(P\\) from the fire?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p349_q9_5.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q10",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "Determine each unknown side length to the nearest tenth.\n\na)\n\nb) \\(\\triangle ABC\\) with \\(b = 8.0\\), \\(c = 6.0\\), \\(\\angle C = 72^\\circ\\) (as in textbook)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p349_q10_5.Chapter_Review_1.png",
+        "nelson_assets/ch5/p349_q10_5.Chapter_Review_2.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-CR-p339-Q13",
+      "chapter": 5,
+      "section": "5.Chapter Review",
+      "stem": "While standing at the left corner of the schoolyard in front of her school, Suzie estimates that the front face is 8.9 m wide and 4.7 m high. From her position, Suzie is 12.0 m from the base of the right exterior wall. She determines that the left and right exterior walls appear to be \\(39^\\circ\\) apart. From her position, what is the angle of elevation, to the nearest degree, to the top of the left exterior wall?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p349_q13_5.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q1",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "i) For each point, sketch the angle in standard position to determine all six trigonometric ratios.\n\nii) Determine the value of the principal angle and the related acute angle, where appropriate, to the nearest degree.\n\na) \\(P(-3, 0)\\)\n\nb) \\(S(-8, -6)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q2",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "Given angle \\(\\theta\\), where \\(0^\\circ \\le \\theta \\le 360^\\circ\\), determine all possible angles for \\(\\theta\\).\n\na) \\(\\sin\\theta = -\\dfrac{1}{2}\\)\n\nb) \\(\\cot\\theta = -1\\)\n\nc) \\(\\cos\\theta = \\dfrac{\\sqrt{3}}{2}\\)\n\nd) \\(\\sec\\theta = -2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q3",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "Given \\(\\cos\\theta = -\\dfrac{5}{13}\\), where the terminal arm of angle \\(\\theta\\) lies in quadrant 2, evaluate each trigonometric expression.\n\na) \\(\\sin\\theta\\cos\\theta\\)\n\nb) \\(\\cot\\theta\\tan\\theta\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q4",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "i) Prove each identity. Use a different method for parts (a) and (b). State any restrictions on the variables.\n\nii) Explain why these identities are called Pythagorean identities.\n\na) \\(\\tan^{2}\\phi + 1 = \\sec^{2}\\phi\\)\n\nb) \\(1 + \\cot^{2}\\alpha = \\csc^{2}\\alpha\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q5",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "a) Sketch a triangle of your own choice and label the sides and angles.\n\nb) State all forms of the cosine law that apply to your triangle.\n\nc) State all forms of the sine law that apply to your triangle.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q6",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "For each triangle, calculate the value of \\(w\\) to the nearest tenth of a metre.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch5/p350_q6_5.Chapter_Self-Test_1.png",
+        "nelson_assets/ch5/p350_q6_5.Chapter_Self-Test_2.png"
+      ],
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q7",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "Given each set of information, determine how many triangles can be drawn. Calculate, then label, all side lengths to the nearest tenth and all interior angles to the nearest degree, where appropriate.\n\na) \\(a = 1.5\\) cm, \\(b = 2.8\\) cm, and \\(\\angle A = 41^\\circ\\)\n\nb) \\(a = 2.1\\) cm, \\(c = 6.1\\) cm, and \\(\\angle A = 20^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-ST-p340-Q8",
+      "chapter": 5,
+      "section": "5.Chapter Self-Test",
+      "stem": "To estimate the amount of usable lumber in a tree, Chitra must first estimate the height of the tree. From points \\(A\\) and \\(B\\) on the ground, she determined that the angles of elevation for a certain tree were \\(41^\\circ\\) and \\(52^\\circ\\), respectively. The angle formed at the base of the tree between points \\(A\\) and \\(B\\) is \\(90^\\circ\\) and \\(A\\) and \\(B\\) are 30 m apart. If the tree is perpendicular to the ground, what is its height to the nearest metre?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q9",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Given any right triangle with an acute angle \\(\\theta\\),\n\na) explain why \\(\\csc\\theta\\) is always greater than or equal to 1\n\nb) explain why \\(\\cos\\theta\\) is always less than or equal to 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q10",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "Given a right triangle with an acute angle \\(\\theta\\), if \\(\\tan\\theta = \\cot\\theta\\), describe what this triangle would look like.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q11",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "A kite is flying 8.6 m above the ground at an angle of elevation of \\(41^\\circ\\). Calculate the length of string, to the nearest tenth of a metre, needed to fly the kite using\n\na) a primary trigonometric ratio\n\nb) a reciprocal trigonometric ratio",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q12",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "A wheelchair ramp near the door of a building has an incline of \\(15^\\circ\\) and a run of 7.11 m from the door. Calculate the length of the ramp to the nearest hundredth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q13",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "The hypotenuse, \\(c\\), of right \\(\\triangle ABC\\) is 7.0 cm long. A trigonometric ratio for angle \\(A\\) is given for four different triangles. Which of these triangles has the greatest area? Justify your decision.\n\na) \\(\\sec A = 1.71\\)\n\nb) \\(\\csc A = 2.27\\)\n\nc) \\(\\cos A = 0.75\\)\n\nd) \\(\\sin A = 0.15\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q14",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "The two guy wires supporting an 8.5 m TV antenna each form an angle of \\(55^\\circ\\) with the ground. The wires are attached to the antenna 3.71 m above ground. Using a reciprocal trigonometric ratio, calculate the length of each wire to the nearest tenth of a metre. What assumption did you make?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q15",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "From a position some distance away from the base of a flagpole, Julie estimates that the pole is 5.35 m tall at an angle of elevation of \\(25^\\circ\\). If Julie is 1.55 m tall, use a reciprocal trigonometric ratio to calculate how far she is from the base of the flagpole, to the nearest hundredth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-51-PR-p282-Q16",
+      "chapter": 5,
+      "section": "5.1",
+      "stem": "The maximum grade (slope) allowed for highways in Ontario is 12%.\n\na) Predict the angle \\(\\theta\\), to the nearest degree, associated with this slope.\n\nb) Calculate the value of \\(\\theta\\) to the nearest degree.\n\nc) Determine the six trigonometric ratios for angle \\(\\theta\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q4",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Determine the exact value of each trigonometric expression.\n\na) \\(\\sin 30^\\circ \\cdot \\tan 60^\\circ - \\cos 30^\\circ\\)\n\nb) \\(\\tan^{2} 30^\\circ - \\cos^{2} 45^\\circ\\)\n\nc) \\(2\\cos 45^\\circ \\cdot \\sin 45^\\circ\\)\n\nd) \\(\\dfrac{1 - \\sin 45^\\circ}{\\cos 45^\\circ}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q5",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Using exact values, show that \\(\\sin^{2}\\theta + \\cos^{2}\\theta = 1\\) for each angle.\n\na) \\(\\theta = 30^\\circ\\)\n\nb) \\(\\theta = 45^\\circ\\)\n\nc) \\(\\theta = 60^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q6",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Using exact values, show that \\(\\dfrac{\\sin\\theta}{\\cos\\theta} = \\tan\\theta\\) for each angle.\n\na) \\(\\theta = 30^\\circ\\)\n\nb) \\(\\theta = 45^\\circ\\)\n\nc) \\(\\theta = 60^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q7",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Using the appropriate special triangle, determine \\(\\theta\\) if \\(0^\\circ \\le \\theta \\le 90^\\circ\\).\n\na) \\(\\sin\\theta = \\dfrac{\\sqrt{3}}{2}\\)\n\nb) \\(2\\sqrt{2}\\cos\\theta = 2\\)\n\nc) \\(\\sqrt{3}\\tan\\theta = 1\\)\n\nd) \\(2\\cos\\theta = \\sqrt{3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q8",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "A 5 m stepladder propped against a classroom wall forms an angle of \\(30^\\circ\\) with the wall. Exactly how far is the top of the ladder from the floor? Express your answer in radical form. What assumption did you make?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q9",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "Show that \\(\\tan 30^\\circ + \\dfrac{1}{\\tan 30^\\circ} = \\dfrac{1}{\\sin 30^\\circ \\cos 30^\\circ}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-52-PR-p287-Q10",
+      "chapter": 5,
+      "section": "5.2",
+      "stem": "A baseball diamond forms a square of side length 27.4 m. Sarah says that she used a special triangle to calculate the distance between home plate and second base.\n\na) Describe how Sarah might calculate this distance.\n\nb) Use Sarah’s method to calculate this distance to the nearest tenth of a metre.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.2",
+        "D1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-CK-p299-Q1",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "For each trigonometric ratio, use a sketch to determine in which quadrant the terminal arm of the principal angle lies, the value of the related acute angle \\(\\beta\\), and the sign of the ratio.\n\na) \\(\\sin 315^\\circ\\)\n\nb) \\(\\tan 110^\\circ\\)\n\nc) \\(\\cos 285^\\circ\\)\n\nd) \\(\\tan 225^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-CK-p299-Q2",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Each point lies on the terminal arm of angle \\(\\theta\\) in standard position.\n\ni) Draw a sketch of each angle \\(\\theta\\).\n\nii) Determine the value of \\(r\\) to the nearest tenth.\n\niii) Determine the primary trigonometric ratios for angle \\(\\theta\\).\n\niv) Calculate the value of \\(\\theta\\) to the nearest degree.\n\na) \\(P(5, 11)\\)\n\nb) \\(P(-8, 3)\\)\n\nc) \\(P(-5, -8)\\)\n\nd) \\(P(6, -8)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-CK-p299-Q3",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Use the method in Example 3 to determine the primary trigonometric ratios for each given angle.\n\na) \\(180^\\circ\\)\n\nb) \\(270^\\circ\\)\n\nc) \\(360^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-54-CK-p299-Q4",
+      "chapter": 5,
+      "section": "5.4",
+      "stem": "Use the related acute angle to state an equivalent expression.\n\na) \\(\\sin 160^\\circ\\)\n\nb) \\(\\cos 300^\\circ\\)\n\nc) \\(\\tan 110^\\circ\\)\n\nd) \\(\\sin 350^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C5-56-CK-p318-Q3",
+      "chapter": 5,
+      "section": "5.6",
+      "stem": "Determine whether it is possible to draw a triangle, given each set of information. Sketch all possible triangles where appropriate. Label all side lengths to the nearest tenth of a centimetre and all angles to the nearest degree.\n\na) \\(a = 5.2\\) cm, \\(b = 2.8\\) cm, \\(\\angle B = 65^\\circ\\)\n\nb) \\(b = 6.7\\) cm, \\(c = 2.1\\) cm, \\(\\angle C = 63^\\circ\\)\n\nc) \\(a = 5.0\\) cm, \\(c = 8.5\\) cm, \\(\\angle A = 36^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "D1.6"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    }
+  ]
+}

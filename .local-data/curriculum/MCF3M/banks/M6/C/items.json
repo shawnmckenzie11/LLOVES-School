@@ -1,0 +1,1937 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 6,
+  "strand": "C",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-CK-p352-Q1",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Which of the following graphs are periodic? Explain why or why not.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p362_q1a.png",
+        "nelson_assets/ch6/p362_q1b.png",
+        "nelson_assets/ch6/p362_q1c.png",
+        "nelson_assets/ch6/p362_q1d.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-CK-p352-Q2",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Determine the range, period, equation of the axis, and amplitude of the function shown.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p362_q2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-CK-p352-Q3",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "The motion of an automated device for attaching bolts to a household appliance on an assembly line can be modelled by the graph shown.\n\na) What is the period of one complete cycle?\n\nb) What is the maximum distance between the device and the appliance?\n\nc) What is the range of this function?\n\nd) If the device can run for five complete cycles only before it must be turned off, determine the domain of the function.\n\ne) Determine the equation of the axis.\n\nf) Determine the amplitude.\n\ng) There are several parts to each complete cycle of the graph. Explain what each part could mean in the context of attaching the bolt.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p362_q3_bolt.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p353-Q4",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Identify which graphs are periodic. Estimate the period of the functions that you identify as periodic.\n\na)\n\nb)\n\nc)\n\nd)\n\ne)\n\nf)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p363_q4a.png",
+        "nelson_assets/ch6/p363_q4b.png",
+        "nelson_assets/ch6/p363_q4c.png",
+        "nelson_assets/ch6/p363_q4d.png",
+        "nelson_assets/ch6/p363_q4e.png",
+        "nelson_assets/ch6/p363_q4f.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p353-Q5",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Which of the following situations would produce periodic graphs?\n\na) Sasha is monitoring the height of one of the cutting teeth on a chainsaw. The saw is on the ground, and the chain is spinning.\n\n• independent variable: time\n\n• dependent variable: height of tooth above the ground\n\nb) Alex is doing jumping jacks.\n\n• independent variable: time\n\n• dependent variable: Alex's height above the ground\n\nc) The cost of riding in a taxi varies, depending on how far you travel.\n\n• independent variable: distance travelled\n\n• dependent variable: cost\n\nd) Brittany invested her money in a Guaranteed Investment Certificate whose return was 4% per year.\n\n• independent variable: time\n\n• dependent variable: value of the certificate\n\ne) You throw a basketball to a friend, but she is so far away that the ball bounces on the ground four times.\n\n• independent variable: distance\n\n• dependent variable: bounce height\n\nf) The antenna on a radar tower is rotating and emitting a signal to track incoming planes.\n\n• independent variable: time\n\n• dependent variable: intensity of the signal",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p354-Q6",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Which of the tables of values might represent periodic functions? Justify.\n\na)\n\n\\(x\\)\\(y\\)\n\n\\(-2\\)\\(4\\)\n\\(-1\\)\\(1\\)\n\\(0\\)\\(0\\)\n\\(1\\)\\(1\\)\n\\(2\\)\\(4\\)\n\\(3\\)\\(9\\)\n\\(4\\)\\(16\\)\n\\(5\\)\\(25\\)\n\nb)\n\n\\(x\\)\\(y\\)\n\n\\(0.7\\)\\(5\\)\n\\(0.9\\)\\(6\\)\n\\(1.1\\)\\(7\\)\n\\(1.3\\)\\(5\\)\n\\(1.5\\)\\(6\\)\n\\(1.7\\)\\(7\\)\n\\(1.9\\)\\(5\\)\n\\(2.1\\)\\(6\\)\n\nc)\n\n\\(x\\)\\(y\\)\n\n\\(23\\)\\(-6\\)\n\\(26\\)\\(-6.5\\)\n\\(29\\)\\(-7\\)\n\\(32\\)\\(-7.5\\)\n\\(35\\)\\(-8\\)\n\\(38\\)\\(-8.5\\)\n\\(41\\)\\(-9\\)\n\\(44\\)\\(-9.5\\)\n\nd)\n\n\\(x\\)\\(y\\)\n\n\\(1\\)\\(5\\)\n\\(2\\)\\(6\\)\n\\(4\\)\\(5\\)\n\\(7\\)\\(6\\)\n\\(11\\)\\(5\\)\n\\(16\\)\\(6\\)\n\\(22\\)\\(5\\)\n\\(29\\)\\(6\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p354-Q7",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Chantelle has a submersible pump in her basement. During a heavy rain, the pump turned off and on to drain water collecting under her house's foundation. The graph models the depth of the water below her basement floor in terms of time. The depth of the water decreased when the pump was on and increased when the pump was off.\n\na) Is the function periodic?\n\nb) At what depth does the pump turn on?\n\nc) How long does the pump remain on?\n\nd) What is the period of the function? Include the units of measure.\n\ne) What is the range of the function?\n\nf) What will the depth of the water be at \\(3\\) min?\n\ng) When will the depth of the water be \\(10\\) cm?\n\nh) What will the depth of the water be at \\(62\\) min?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p364_q7_pump.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p355-Q8",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "While riding on a Ferris wheel, Trevor's height above the ground in terms of time can be represented by the graph shown.\n\na) What is the period of this function, and what does it represent?\n\nb) What is the equation of the axis?\n\nc) What is the amplitude?\n\nd) What is the range of the function?\n\ne) After \\(24\\) s, how many complete revolutions has Trevor made?\n\nf) At what times will Trevor be at the bottom of the Ferris wheel?\n\ng) When will Trevor be at a height of \\(7\\) m?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p365_q8_ferris.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p355-Q9",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Sketch the graph of a periodic function with a period of \\(20\\), an amplitude of \\(6\\), and whose equation of the axis is \\(y = 7\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p355-Q10",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Sketch the graph of a periodic function whose period is \\(4\\) and whose range is \\(\\{y \\in \\mathbb{R} \\mid -2 \\le y \\le 5\\}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p355-Q11",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Maria's bicycle wheel has a diameter of \\(64\\) cm. As she rides at a speed of \\(21.6\\) km/h, she picks up a stone in her tire. Draw a graph that shows the stone's height above the ground as she continues to ride at this speed for \\(5\\) s.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p355-Q12",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "A spacecraft is in an elliptical orbit around Earth. The spacecraft's distance above Earth's surface in terms of time is recorded in the table.\n\nTime (min)06121824303642485460667278\n\nDistance (km)55086910008695502321002325508691000869550232\n\na) Plot the data, and draw the resulting curve.\n\nb) Is the graph periodic?\n\nc) What is the period of the function, and what does it represent?\n\nd) What is the approximate distance between the spacecraft and Earth's surface after \\(8\\) min?\n\ne) At what times is the spacecraft farthest from Earth?\n\nf) If the spacecraft completes only six orbits before descending to Earth, what is the domain of the function?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p356-Q13",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Water is stored in a cylindrical container. Sometimes water is removed from the container, and other times water is added. The table records the depth of the water at specific times.\n\nTime (min)012345678910111213141516171819\n\nDepth (cm)1020304040402510203040404025102030404040\n\na) Plot the data, and draw the resulting curve.\n\nb) Is the graph periodic?\n\nc) Determine the period, the equation of the axis, and the amplitude of the function.\n\nd) How fast is the depth of the water increasing when the container is being filled?\n\ne) How fast is the depth of the water decreasing when the container is being drained?\n\nf) Is the container ever empty? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p356-Q14",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "Write a definition of a periodic function. Include an example, and use your definition to explain why it is periodic.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-61-PR-p356-Q15",
+      "chapter": 6,
+      "section": "6.1",
+      "stem": "A Calculator-Based Ranger (CBR) is a motion detector that can attach to a graphing calculator. When the CBR is activated, it records the distance an object is in front of the detector in terms of time. Suppose you walk back and forth in front of a CBR for \\(18\\) s, remaining between \\(30\\) cm and \\(60\\) cm from the detector, and completing three full cycles.\n\na) Draw a sketch of the resulting graph. Include a scale.\n\nb) What is the period of the function?\n\nc) Determine the range and domain of the function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.1",
+        "C2.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p366_q15_cbr.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-CK-p363-Q1",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Using a graphing calculator in DEGREE mode, graph each sinusoidal function. Use appropriate WINDOW settings. From the graph, state the amplitude, period, and equation of the axis for each.\n\na) \\(y = 3\\sin(2x) + 1\\)\n\nb) \\(y = 4\\cos(0.5x) - 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p373_q1_6.2_1.png",
+        "nelson_assets/ch6/p373_q1_6.2_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-CK-p363-Q2",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "a) If \\(h(x) = \\sin(5x) - 1\\), calculate \\(h(25^\\circ)\\).\n\nb) If \\(f(x) = \\cos x\\) and \\(0^\\circ \\le x \\le 360^\\circ\\), list the values of \\(x\\) where \\(f(x) = 0\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-CK-p363-Q4",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Determine the coordinates of the new point after a rotation of \\(50^\\circ\\) about \\((0, 0)\\) from the point \\((2, 0)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p363-Q5",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Using a graphing calculator and appropriate WINDOW settings in DEGREE mode, graph each function. State whether the resulting functions are periodic. If so, state whether they are sinusoidal.\n\na) \\(y = 3\\sin x + 1\\)\n\nb) \\(y = \\sin 90^\\circ\\) (constant)\n\nc) \\(y = 0.005x + \\sin x\\)\n\nd) \\(y = (0.004x)\\sin x\\)\n\ne) \\(y = 0.5\\cos x - 1\\)\n\nf) \\(y = \\cos(2x) - \\sin x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p373_q5_6.2_1.png",
+        "nelson_assets/ch6/p373_q5_6.2_2.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p363-Q6",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Based on your observations in question 5, what can you conclude about any function that possesses sine or cosine in its equation?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p363-Q7",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "If \\(g(x) = \\sin x\\) and \\(h(x) = \\cos x\\) where \\(0^\\circ \\le x \\le 360^\\circ\\), calculate each and explain what it means.\n\na) \\(g(90^\\circ)\\)\n\nb) \\(h(90^\\circ)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p373_q7_6.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p363-Q8",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Using a graphing calculator in DEGREE mode, graph each sinusoidal function. From the graph, state the amplitude, period, increasing intervals, decreasing intervals, and equation of the axis.\n\na) \\(y = 2\\sin x + 3\\)\n\nb) \\(y = 3\\sin x + 1\\)\n\nc) \\(y = \\sin(0.5x) + 2\\)\n\nd) \\(y = \\sin(2x) - 1\\)\n\ne) \\(y = 2\\sin(0.25x)\\)\n\nf) \\(y = 3\\sin(0.5x) + 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p373_q8_6.2_1.png",
+        "nelson_assets/ch6/p373_q8_6.2_2.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q9",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "a) If \\(f(x) = \\cos x\\), calculate \\(f(35^\\circ)\\).\n\nb) If \\(g(x) = \\sin(2x)\\), calculate \\(g(10^\\circ)\\).\n\nc) If \\(h(x) = \\cos(3x) + 1\\), calculate \\(h(20^\\circ)\\).\n\nd) If \\(f(x) = \\cos x\\) and \\(0^\\circ \\le x \\le 360^\\circ\\), calculate \\(x\\) for \\(f(x) = -1\\).\n\ne) If \\(f(x) = \\sin x\\) and \\(0^\\circ \\le x \\le 360^\\circ\\), calculate \\(x\\) for \\(f(x) = -1\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q10",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Determine all values where \\(\\sin x = \\cos x\\) for \\(-360^\\circ \\le x \\le 360^\\circ\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q11",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "a) Determine the coordinates of the new point after a rotation of \\(25^\\circ\\) about \\((0, 0)\\) from the point \\((1, 0)\\).\n\nb) Determine the coordinates of the new point after a rotation of \\(80^\\circ\\) about \\((0, 0)\\) from the point \\((5, 0)\\).\n\nc) Determine the coordinates of the new point after a rotation of \\(120^\\circ\\) about \\((0, 0)\\) from the point \\((4, 0)\\).\n\nd) Determine the coordinates of the new point after a rotation of \\(230^\\circ\\) about \\((0, 0)\\) from the point \\((3, 0)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q12",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Sketch the sinusoidal graphs that satisfy the properties in the table.\n\nPeriodAmplitudeEquation of the AxisNumber of Cycles\n\na)\\(4\\)\\(3\\)\\(y = 5\\)\\(2\\)\nb)\\(20\\)\\(6\\)\\(y = 4\\)\\(3\\)\nc)\\(80\\)\\(5\\)\\(y = -2\\)\\(2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p374_q12_6.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q13",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Jim is riding a Ferris wheel, where \\(t\\) is time in seconds. Explain what each of the following represents.\n\na) \\(h(10)\\), where \\(h(t) = 5\\cos(18t)^\\circ\\)\n\nb) \\(h(10)\\), where \\(h(t) = 5\\sin(18t)^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-PR-p364-Q14",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "Compare the graphs for \\(y = \\cos x\\) and \\(y = \\sin x\\), where \\(0^\\circ \\le x \\le 360^\\circ\\). How are they the same, and how are they different?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-EX-p364-Q15",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "If the water level in the original water wheel situation was lowered so that three-quarters of the wheel was exposed, determine the equation of the sinusoidal function that describes the height of a point on the wheel. (Original model reference: \\(d(t) = 0.5\\cos(120t)^\\circ\\).)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p374_q15_6.2_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-EX-p364-Q16",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "A spring bounces up and down according to the model \\(d(t) = 0.5\\cos(120t)^\\circ\\), where \\(d(t)\\) is the displacement in centimetres from the rest position and \\(t\\) is time in seconds. The model does not consider the effects of gravity or friction.\n\na) Make a table for \\(0 \\le t \\le 9\\). Use \\(0.5\\) s intervals.\n\nb) Draw the graph.\n\nc) Explain why the function models periodic behaviour.\n\nd) What is the relationship between the amplitude of the function and the displacement of the spring from its rest position?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p374_q16_6.2_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-CK-p370-Q1",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "Olivia was swinging back and forth in front of a motion detector when the detector was activated. Her distance from the detector in terms of time can be modelled by the graph shown.\n\na) What is the equation of the axis, and what does it represent in this situation?\n\nb) What is the amplitude of this function?\n\nc) What is the period of this function, and what does it represent in this situation?\n\nd) How close did Olivia get to the motion detector?\n\ne) At \\(t = 7\\) s, would it be safe to run between Olivia and the motion detector? Explain your reasoning.\n\nf) If the motion detector was activated as soon as Olivia started to swing from rest, how would the graph change? Would the resulting graph be sinusoidal? Why or why not?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p380_q1_6.3_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-CK-p370-Q2",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "Marianna collected some data on two paddle wheels on two different boats and constructed two graphs. Analyze the graphs, and explain how the wheels differ. Refer to the radius of each wheel, the height of the axle relative to the water, the time taken to complete one revolution, and the speed of each wheel.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p380_q2_6.3_1.png",
+        "nelson_assets/ch6/p380_q2_6.3_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-CK-p370-Q3",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "Draw two sinusoidal functions that have the same period and axes but have different amplitudes.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-PR-p371-Q4",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "Evan's teacher gave him a graph to help him understand the speed at which a tooth on a saw blade travels. The graph shows the height of one tooth on the circular blade relative to the cutting surface versus time.\n\na) How high above the cutting surface is the blade set?\n\nb) What is the period of the function, and what does it represent in this situation?\n\nc) What is the amplitude of the function, and what does it represent in this situation?\n\nd) How fast is a tooth on the circular cutting blade travelling in inches per second?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p381_q4_6.3_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-PR-p371-Q5",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "The current in an electrical circuit can be modelled by a sinusoidal function. Use the graph shown.\n\na) Estimate the period of the function.\n\nb) What is the equation of the axis?\n\nc) What is the amplitude?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p381_q5_6.3_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-PR-p371-Q6",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "Sketch a height-versus-time graph of the sinusoidal function that models each situation. Draw at least three cycles. Assume that the first point plotted on each graph is at the lowest possible height.\n\na) A Ferris wheel with a radius of \\(7\\) m, whose axle is \\(8\\) m above the ground, and that rotates once every \\(40\\) s\n\nb) A water wheel with a radius of \\(3\\) m, whose centre is at water level, and that rotates once every \\(15\\) s\n\nc) A bicycle tire with a radius of \\(40\\) cm and that rotates once every \\(2\\) s\n\nd) A girl lying on an air mattress in a wave pool that is \\(3\\) m deep, with waves \\(0.5\\) m in height that occur at \\(7\\) s intervals",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-PR-p371-Q7",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "The tables show the varying length of daylight for Timmins, Ontario (latitude \\(48^\\circ\\)) and Miami, Florida (latitude \\(25^\\circ\\)).\n\nDay of Year154674105135165196227258288319349\n\nTimmins (h)8.810.211.913.715.216.115.714.412.610.99.28.3\nMiami (h)10.711.312.012.813.613.813.613.112.311.610.910.5\n\na) Plot the data on separate coordinate systems, and draw a smooth curve through each set of points.\n\nb) Compare the two curves. Refer to the periods, amplitudes, and equations of the axes.\n\nc) What might you infer about the relationship between hours of daylight and the latitude at which you live?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p381_q6_6.3_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-PR-p372-Q8",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "The diameter of a car’s tire is \\(52\\) cm. While the car is being driven, the tire picks up a nail.\n\na) Draw a graph of the height of the nail above the ground in terms of the distance the car has travelled since the tire picked up the nail.\n\nb) How high above the ground will the nail be after the car has travelled \\(0.1\\) km?\n\nc) How far will the car have travelled when the nail reaches a height of \\(20\\) cm above the ground for the fifth time?\n\nd) What assumption must you make concerning the driver’s habits for the function to give an accurate height?\n\nModel check: With radius \\(r=26\\) cm and \\(h(x)=26\\bigl(1-\\cos(x/26)\\bigr)\\) (\\(x\\) in cm from the pick-up point at ground level), (b) \\(h(0.1\\,\\mathrm{km})\\approx 20.1\\,\\mathrm{cm}\\); (c) fifth time at \\(20\\) cm occurs near \\(x\\approx 3.6\\,\\mathrm{m}\\). (d) Constant speed / no slipping / circular wheel, etc.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-63-EX-p373-Q15",
+      "chapter": 6,
+      "section": "6.3",
+      "stem": "A gear of radius \\(1\\) m turns counterclockwise and drives a larger gear of radius \\(4\\) m. Both gears have their axes along the horizontal.\n\na) In which direction is the larger gear turning?\n\nb) If the period of the smaller gear is \\(2\\) s, what is the period of the larger gear?\n\nc) In a table, record convenient intervals for each gear, to show the vertical displacement, \\(d\\), of the point where the two gears first touched. Begin the table at \\(0\\) s and end it at \\(24\\) s. Graph vertical displacement versus time.\n\nd) What is the displacement of the point on the large wheel when the drive wheel first has a displacement of \\(0.5\\) m?\n\ne) What is the displacement of the drive wheel when the large wheel first has a displacement of \\(2\\) m?\n\nf) What is the displacement of the point on the large wheel at \\(5\\) min?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.5"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p383_q15_6.3_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q1",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "Sketch the graph of a periodic function whose period is \\(10\\) and whose range is \\(\\{y \\in \\mathbb{R} \\mid 2 \\le y \\le 8\\}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q2",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "The following data show the pressure (in pounds per square inch, psi) in the tank of an air compressor at different times.\n\na) Create a scatter plot of the data and the curve that best models the data.\n\nb) How do you know that the graph is periodic?\n\nc) Determine the period of the function.\n\nd) Determine the equation of the axis.\n\ne) Determine the amplitude.\n\nf) How fast is the air pressure increasing when the compressor is on?\n\ng) How fast is the air pressure decreasing when the equipment is in operation?\n\nh) Is the container ever empty? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p386_q2_6.Mid-Chapter_Review_1.png",
+        "nelson_assets/ch6/p386_q2_6.Mid-Chapter_Review_2.png"
+      ],
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q6",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "The position, \\(P\\), of the Sun at sunset, in degrees north or south of due west, depends on the day of the year, \\(d\\). For a specific latitude, \\(P(d) = 28\\sin\\!\\left(\\dfrac{360}{365}d\\right)^\\circ\\).\n\na) Graph the function using a graphing calculator and adjust the WINDOW settings as required.\n\nb) What is the period of the function, and what does it represent?\n\nc) What is the equation of the axis of the function, and what does it represent?\n\nd) What is the amplitude, and what does it represent?\n\ne) Determine the range of the function.\n\nf) Determine \\(P(200)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q3",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "a) Graph the function \\(g(x) = 5\\sin(2x) + 7\\) using a graphing calculator. Adjust the WINDOW settings so that \\(0^\\circ \\le x \\le 360^\\circ\\) and an appropriate \\(y\\)-range. Determine the period, equation of the axis, amplitude, and range of the function.\n\nb) Explain why the function is sinusoidal.\n\nc) Calculate \\(g(125^\\circ)\\).\n\nd) Determine the values of \\(x\\) for which \\(g(x) = 7\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q4",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "Determine the coordinates of the new point after a rotation of \\(65^\\circ\\) about \\((0, 0)\\) from the point \\((7, 0)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-MCR-p376-Q5",
+      "chapter": 6,
+      "section": "6.Mid-Chapter Review",
+      "stem": "Two white marks are made on a car tire. One mark is on the outer edge; the other is a few centimetres from the edge. Two graphs show the heights of the marks above the ground versus time as the car moves forward.\n\na) What is the period of each function, and what does it represent?\n\nb) What is the equation of the axis of each function, and what does it represent?\n\nc) What is the amplitude of each function, and what does it represent?\n\nd) Determine the range of each function.\n\ne) Determine the speed of each mark, in centimetres per second.\n\nf) If a third mark were placed closer to the centre, how would its graph compare?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-64-FU-p379-Q1",
+      "chapter": 6,
+      "section": "6.4",
+      "stem": "State the transformation to the graph of either \\(y = \\sin x\\) or \\(y = \\cos x\\) that has occurred to result in each sinusoidal function.\n\na) \\(y = 3\\cos x\\)\n\nb) \\(y = \\sin(x - 50^\\circ)\\)\n\nc) \\(y = -\\cos x\\)\n\nd) \\(y = \\sin(5x)\\)\n\ne) \\(y = \\cos x - 6\\)\n\nf) \\(y = \\cos(x + 20^\\circ)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-64-FU-p379-Q2",
+      "chapter": 6,
+      "section": "6.4",
+      "stem": "Each sinusoidal function below has undergone one transformation that has affected either the period, amplitude, or equation of the axis. In each case, determine which characteristic has been changed and indicate its value.\n\na) \\(y = \\sin x + 2\\)\n\nb) \\(y = 4\\sin x\\)\n\nc) \\(y = \\cos(8x)\\)\n\nd) \\(y = \\sin(2x + 30^\\circ)\\)\n\ne) \\(y = 0.25\\cos x\\)\n\nf) \\(y = \\sin(0.5x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-64-FU-p379-Q3",
+      "chapter": 6,
+      "section": "6.4",
+      "stem": "Which two of these transformations do not affect the period, amplitude, or equation of the axis of a sinusoidal function?\n\na) reflection in the \\(x\\)-axis\n\nb) vertical stretch/vertical compression\n\nc) vertical translation\n\nd) horizontal stretch/horizontal compression\n\ne) horizontal translation",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-CK-p383-Q1",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "State the transformations, in the order you would apply them, for each sinusoidal function.\n\na) \\(f(x) = \\sin(4x) + 2\\)\n\nb) \\(y = 0.25\\cos(x - 20^\\circ)\\)\n\nc) \\(g(x) = -\\sin(0.5x)\\)\n\nd) \\(y = 12\\cos(18x) + 3\\)\n\ne) \\(f(x) = -20\\sin\\!\\left(\\dfrac{1}{3}(x - 40^\\circ)\\right)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-CK-p383-Q2",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "If the function \\(f(x) = 4\\cos 3x + 6\\) starts at \\(x = 0\\) and completes two full cycles, determine the period, amplitude, equation of the axis, domain, and range.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-CK-p383-Q3",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "Use transformations to predict what the graph of \\(g(x) = 5\\sin\\!\\big(2(x - 30^\\circ)\\big) + 4\\) will look like. Verify with a graphing calculator.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p384-Q4",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "State the transformations in the order you would apply them for each sinusoidal function.\n\na) \\(y = -2\\sin(x + 10^\\circ)\\)\n\nb) \\(y = \\cos(5x) + 7\\)\n\nc) \\(y = 9\\cos\\!\\big(2(x + 6^\\circ)\\big) - 5\\)\n\nd) \\(g(x) = \\dfrac{1}{5}\\sin(x - 15^\\circ) + 1\\)\n\ne) \\(h(x) = -\\sin\\!\\left(\\dfrac{1}{4}(x + 37^\\circ)\\right) - 2\\)\n\nf) \\(d = -6\\cos(3t) + 22\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p384-Q5",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "Match each function to its corresponding graph.\n\na) \\(y = \\sin\\!\\left(\\dfrac{u}{2} + 30^\\circ\\right),\\; 0^\\circ \\le u \\le 360^\\circ\\)\n\nb) \\(y = \\sin(3u - 90^\\circ),\\; 0^\\circ \\le u \\le 360^\\circ\\)\n\nc) \\(y = \\sin(2u - 90^\\circ),\\; 0^\\circ \\le u \\le 360^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p394_q5_6.5_1.png",
+        "nelson_assets/ch6/p394_q5_6.5_2.png",
+        "nelson_assets/ch6/p394_q5_6.5_3.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p384-Q6",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "If each function starts at \\(x = 0\\) (or \\(t = 0\\)) and finishes after three complete cycles, determine the period, amplitude, equation of the axis, domain, and range of each without graphing.\n\na) \\(y = 3\\sin x + 2\\)\n\nb) \\(g(x) = -4\\cos(2x) + 7\\)\n\nc) \\(h = -\\dfrac{1}{2}\\sin t - 5\\)\n\nd) \\(h(x) = \\cos\\!\\big(4(x - 12^\\circ)\\big) - 9\\)\n\ne) \\(d = 10\\sin\\!\\big(180(t - 17^\\circ)\\big) - 30\\)\n\nf) \\(j(x) = 0.5\\sin(2x - 30^\\circ)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p384-Q7",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "Predict what the graph of each sinusoidal function will look like by describing the transformations of \\(y = \\sin x\\) or \\(y = \\cos x\\) that would result in the new graph. Sketch the graph, and then verify with a graphing calculator.\n\na) \\(y = 2\\sin x + 3\\)\n\nb) \\(y = -3\\cos x + 5\\)\n\nc) \\(y = -\\sin(6x) + 4\\)\n\nd) \\(y = 4\\cos(2x) - 3\\)\n\ne) \\(y = \\dfrac{1}{2}\\cos(3x - 120^\\circ)\\)\n\nf) \\(y = -8\\sin\\!\\left(\\dfrac{1}{2}(x + 50^\\circ)\\right) - 9\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p384-Q8",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "Determine appropriate WINDOW settings on your graphing calculator that enable you to see a complete cycle for each function. There is more than one acceptable answer.\n\na) \\(k(x) = 2\\sin(2x) + 6\\)\n\nb) \\(j(x) = 5\\sin\\!\\left(\\dfrac{1}{2}x\\right) + 20\\)\n\nc) \\(y = 7\\cos\\!\\big(90(x - 1^\\circ)\\big) + 82\\)\n\nd) \\(f(x) = \\dfrac{1}{2}\\sin(360x + 72^\\circ) - 27\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p385-Q9",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "For a person at rest, the function \\(P(t) = -20\\cos(300t)^\\circ + 100\\) models the blood pressure, \\(P(t)\\), in millimetres of mercury at time \\(t\\) seconds.\n\na) What is the period of the function? What does the period represent for an individual?\n\nb) What is the range of the function? Explain the meaning of the range in terms of a person's blood pressure.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p395_q9_6.5_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p385-Q10",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "a) Determine the equation of a sine function that would have the range \\(\\{y \\in \\mathbb{R} \\mid -1 \\le y \\le 7\\}\\) and a period of \\(720^\\circ\\).\n\nb) Determine the equation of the cosine function that results in the same graph as your function in part (a).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-PR-p385-Q11",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "Explain how you would graph the function \\(f(x) = -\\dfrac{1}{2}\\cos(120x) + 30\\) using transformations.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-EX-p385-Q12",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "If the functions \\(y = \\sin x\\) and \\(y = \\cos x\\) are subjected to a horizontal compression of \\(0.5\\), what transformation would map the resulting sine curve onto the resulting cosine curve?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-65-EX-p385-Q13",
+      "chapter": 6,
+      "section": "6.5",
+      "stem": "The function \\(D(t) = 4\\sin\\!\\left(\\dfrac{360}{365}(t - 80)\\right)^\\circ + 12\\) is a model of the number of hours, \\(D(t)\\), of daylight on a specific day, \\(t\\), at latitude \\(50^\\circ\\) north.\n\na) Explain why a trigonometric function is a reasonable model for predicting the number of hours of daylight.\n\nb) How many hours of daylight do March 21 and September 21 have? What is the significance of each of these days?\n\nc) How many hours of daylight do June 21 and December 21 have? What is the significance of each of these days?\n\nd) Explain what the number \\(12\\) represents in the model.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.6",
+        "C2.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-CK-p391-Q1",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "Determine an equation for each sinusoidal function shown.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p401_q1_6.6_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-CK-p391-Q2",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "Determine the function that models the data in the table and does not involve a horizontal translation.\n\n\\(x\\)\\(0^\\circ\\)\\(45^\\circ\\)\\(90^\\circ\\)\\(135^\\circ\\)\\(180^\\circ\\)\\(225^\\circ\\)\\(270^\\circ\\)\n\n\\(y\\)9757975",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p401_q2_6.6_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-CK-p391-Q3",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "A sinusoidal function has an amplitude of \\(4\\) units, a period of \\(120^\\circ\\), and a maximum at \\((0, 9)\\). Determine the equation of the function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-PR-p391-Q4",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "Determine the equation for each sinusoidal function.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p401_q4_6.6_1.png",
+        "nelson_assets/ch6/p401_q4_6.6_2.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-PR-p392-Q5",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "For each table of data, determine the equation of the function that is the simplest model.\n\na)–d) Use the four tables shown.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p402_q5_6.6_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-PR-p392-Q6",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "Determine the equation of the cosine function whose graph has each of the following features.\n\nAmplitudePeriodEquation of the AxisHorizontal Translation\n\na)\\(3\\)\\(360^\\circ\\)\\(y = 11\\)\\(0^\\circ\\)\nb)\\(4\\)\\(180^\\circ\\)\\(y = 15\\)\\(30^\\circ\\)\nc)\\(2\\)\\(40^\\circ\\)\\(y = -1\\)\\(7^\\circ\\)\nd)\\(0.5\\)\\(720^\\circ\\)\\(y = -3\\)\\(-56^\\circ\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p402_q6_6.6_1.png",
+        "nelson_assets/ch6/p402_q6_6.6_2.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-EX-p393-Q13",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "The diameter of a car's tire is \\(60\\) cm. While the car is being driven, the tire picks up a nail. How high above the ground is the nail after the car has travelled \\(1\\) km?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p403_q13_6.6_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-66-EX-p393-Q14",
+      "chapter": 6,
+      "section": "6.6",
+      "stem": "Matthew is riding a Ferris wheel at a constant speed of \\(10\\) km/h. The boarding height for the wheel is \\(1\\) m, and the wheel has a radius of \\(7\\) m. What is the equation of the function that describes Matthew's height in terms of time, assuming Matthew starts at the highest point on the wheel?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.2",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p403_q14_6.6_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-CK-p399-Q3",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Chantelle is swinging back and forth on a trapeze. Her distance from a vertical support beam in terms of time can be modelled by a sinusoidal function. At \\(1\\) s, she is the maximum distance from the beam, \\(12\\) m. At \\(3\\) s, she is the minimum distance from the beam, \\(4\\) m. Determine an equation of a sinusoidal function that describes Chantelle's distance from the vertical beam in relation to time.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p409_q3_6.7_1.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p399-Q4",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "The interior and exterior temperatures of an igloo were recorded over a \\(48\\) h period. The data were collected and plotted, and two curves were drawn through the appropriate points.\n\na) How are these curves similar? Explain how each of them might be related to this situation.\n\nb) Describe the domain and range of each curve.\n\nc) Assuming that the curves can be represented by sinusoidal functions, determine the equation of each function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p409_q4_6.7_1.png",
+        "nelson_assets/ch6/p409_q4_6.7_2.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p399-Q6",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Milton is floating in an inner tube in a wave pool. He is \\(1.5\\) m from the bottom of the pool when he is at the trough of a wave. A stopwatch starts timing at this point. In \\(1.25\\) s, he is on the crest of the wave, \\(2.1\\) m from the bottom of the pool.\n\na) Determine the equation of the function that expresses Milton's distance from the bottom of the pool in terms of time.\n\nb) What is the amplitude of the function, and what does it represent in this situation?\n\nc) How far above the bottom of the pool is Milton at \\(4\\) s?\n\nd) If data are collected for only \\(40\\) s, how many complete cycles of the sinusoidal function will there be?\n\ne) If the period of the function changes to \\(3\\) s, what is the equation of this new function?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p400-Q7",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "An oscilloscope hooked up to an alternating current (AC) circuit shows a sine curve. At \\(t = 0\\) s, the current reads its first maximum value of \\(4.5\\) A. At \\(t = \\dfrac{1}{120}\\) s, the current reads its first minimum value of \\(-4.5\\) A. Determine the equation of the function that expresses the current in terms of time.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p400-Q8",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Candice is holding onto the end of a spring that is attached to a lead ball. She can repeatedly get the ball to reach a maximum height of \\(20\\) cm and a minimum height of \\(4\\) cm from the top of a surface. The first maximum height occurs at \\(0.2\\) s, and the first minimum height occurs at \\(0.6\\) s.\n\na) Determine the equation of the sinusoidal function that represents the height of the lead ball in terms of time.\n\nb) Determine the domain and range of the function.\n\nc) What is the equation of the axis, and what does it represent in this situation?\n\nd) What is the height of the lead ball at \\(1.3\\) s?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p400-Q9",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "A paintball is shot at a wheel of radius \\(40\\) cm. The paintball leaves a circular mark \\(10\\) cm from the outer edge of the wheel. As the wheel rolls, the mark moves in a circular motion.\n\na) Assuming that the paintball mark starts at its lowest point, determine the equation of the sinusoidal function that describes the height of the mark in terms of the distance the wheel travels.\n\nb) If the wheel completes five revolutions before it stops, determine the domain and range of the sinusoidal function.\n\nc) What is the height of the mark when the wheel has travelled \\(120\\) cm from its initial position?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p401-Q10",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "The population of rabbits, \\(R(t)\\), and the population of foxes, \\(F(t)\\), in a given region are modelled by the functions \\(R(t) = 10\\,000 + 5\\,000\\cos(15t)^\\circ\\) and \\(F(t) = 1\\,000 + 500\\sin(15t)^\\circ\\), where \\(t\\) is the time in months. Referring to each graph, explain how the number of rabbits and the number of foxes are related.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-PR-p401-Q11",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "What information would you need to determine an algebraic or graphical model of a situation that could be modelled with a sinusoidal function?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-EX-p401-Q12",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Two pulleys are connected by a belt. Pulley A has a radius of \\(3\\) cm, and Pulley B has a radius of \\(6\\) cm. As Pulley A rotates, a drop of paint on the circumference of Pulley B rotates around the axle of Pulley B. Initially, the paint drop is \\(7\\) cm above the ground. Determine the equation of a sinusoidal function that describes the height of the drop of paint above the ground in terms of the rotation of Pulley A.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p411_q12_6.7_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-EX-p401-Q13",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Examine the graph of the function \\(f(x)\\).\n\na) Determine the equation of the function.\n\nb) Evaluate \\(f(20)\\).\n\nc) If \\(f(x) = 2\\), then which of the following is true for \\(x\\)?\n\nd) If \\(f(x) = -1\\), then which of the following is true for \\(x\\)?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p411_q13_6.7_1.png"
+      ],
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-67-EX-p401-Q14",
+      "chapter": 6,
+      "section": "6.7",
+      "stem": "Using graphing technology, determine \\(x\\) when \\(f(x) = 7\\) for the function \\(f(x) = 4\\cos(2x) + 3\\) in the domain \\(\\{x \\in \\mathbb{R} \\mid 0^\\circ \\le x \\le 360^\\circ\\}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C3.1",
+        "C3.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q1",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "The automatic dishwasher in a school cafeteria runs constantly through lunch. The table shows the amount of water in the dishwasher at different times.\n\na) Plot the data, and draw the resulting graph.\n\nb) Is the graph periodic?\n\nc) What is the period of the function, and what does it represent in this situation?\n\nd) Determine the equation of the axis.\n\ne) Determine the amplitude.\n\nf) What is the range of this function?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q1_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q5",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Keri has drilled a hole at the \\(30\\) cm mark in a metre stick. She then nails the metre stick onto a piece of plywood, through the hole. If she rotates the stick at a constant rate, then the distance from its long end to the top of the plywood can be modelled by the function in blue. The distance from its short end can be modelled by the function in red.\n\na) What do the troughs of the sinusoidal functions represent?\n\nb) How do the periods compare? Why?\n\nc) How far is the nail from the top of the plywood?\n\nd) What is the amplitude of each function, and what does it represent?\n\ne) What is the range of each function?\n\nf) If Keri rotates the metre stick five complete revolutions, what is the domain?\n\ng) Determine the equation of each sinusoidal function.\n\nh) What is the distance between the short end and the top of the plywood at \\(t = 19\\) s?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q5_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q2",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Sketch a sinusoidal function that passes through \\((0, -4)\\) and has a period of \\(20\\), an amplitude of \\(3\\), and an equation of the axis \\(y = -1\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q2_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q3",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Sketch the graph of a sinusoidal function that has a period of \\(6\\), an amplitude of \\(4\\), and whose equation of the axis is \\(y = -1\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q3_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q4",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Note: Bank ID maps to a Lesson 6.2/6.3 review item that was OCR-split. Reconstructed as the transformed-cosine analysis that appears with answers under Self-Test Q4.\n\na) Graph \\(f(x) = -4\\cos\\!\\big(0.5(x + 90^\\circ)\\big) - 6\\) using transformations of \\(f(x) = \\cos x\\).\n\nb) State the amplitude, period, and equation of the axis.\n\nc) Calculate \\(f(135^\\circ)\\).\n\nd) Determine the range of \\(f(x)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q4_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q7",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Determine the coordinates of the new point after a rotation of \\(25^\\circ\\) about \\((0, 0)\\) from the point \\((4, 0)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q7_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p404-Q8",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "For the sinusoidal function shown (or given), determine:\n\na) the equation of the axis\n\nb) the period\n\nc) the amplitude\n\nd) any horizontal translation relative to a parent sine/cosine (if applicable)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p414_q8_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p405-Q9",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Use transformations to graph each function for \\(0^\\circ \\le x \\le 360^\\circ\\).\n\na) \\(y = \\cos(x - 70^\\circ)\\)\n\nb) \\(y = 7\\cos x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p405-Q10",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Determine the range of each sinusoidal function.\n\na)–b) Use the functions given in the textbook for this review item.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p415_q10_6.Chapter_Review_1.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p405-Q11",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Average monthly temperatures for a city are recorded in a table and modelled with a sinusoidal function.\n\na) Create a scatter plot and curve of best fit (January = month 0 or 1 as in text).\n\nb) Why is a sinusoidal model appropriate?\n\nc) Determine the maximum and minimum temperatures from the model/data.\n\nd) What is the period, and what does it represent?\n\ne) What is the equation of the axis?\n\nf) Estimate any horizontal translation.\n\ng) Write an equation for the model.\n\nh) Predict the temperature for month \\(38\\) and comment.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p415_q11_6.Chapter_Review_1.png",
+        "nelson_assets/ch6/p415_q11_6.Chapter_Review_2.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CR-p405-Q14",
+      "chapter": 6,
+      "section": "6.Chapter Review",
+      "stem": "Describe a procedure for writing the equation of a sinusoidal function based on a given graph.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-ST-p406-Q1",
+      "chapter": 6,
+      "section": "6.Chapter Self-Test",
+      "stem": "The height of a step on an escalator in terms of time can be modelled by the graph shown.\n\na) What is the period of the function, and what does it represent in this situation?\n\nb) Determine the equation of the axis for this periodic function.\n\nc) What do the peaks of the periodic function represent in this situation?\n\nd) State the range of the function.\n\ne) If the escalator completes only \\(10\\) cycles before being shut down, what is the domain of the periodic function?\n\nf) Steven states that the stair will be at ground level at \\(t = 300\\) s. Is he correct? Justify your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p416_q1_6.Chapter_Self-Test_1.png"
+      ],
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-ST-p406-Q2",
+      "chapter": 6,
+      "section": "6.Chapter Self-Test",
+      "stem": "Sketch a sinusoidal function that passes through \\((0, -4)\\) and has a period of \\(20\\), an amplitude of \\(3\\), and an equation of the axis \\(y = -1\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-ST-p406-Q3",
+      "chapter": 6,
+      "section": "6.Chapter Self-Test",
+      "stem": "Determine the coordinates of the point after a rotation of \\(65^\\circ\\) about \\((0, 0)\\) from the point \\((7, 0)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-ST-p406-Q4",
+      "chapter": 6,
+      "section": "6.Chapter Self-Test",
+      "stem": "a) Graph \\(f(x) = -4\\cos\\!\\big(0.5(x + 90^\\circ)\\big) - 6\\) using transformations of \\(f(x) = \\cos x\\).\n\nb) State the amplitude, period, and equation of the axis.\n\nc) Calculate \\(f(135^\\circ)\\).\n\nd) Determine the range of \\(f(x)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-ST-p406-Q5",
+      "chapter": 6,
+      "section": "6.Chapter Self-Test",
+      "stem": "Keri has drilled a hole at the \\(30\\) cm mark in a metre stick. She then nails the metre stick onto a piece of plywood, through the hole. If she rotates the stick at a constant rate, then the distance from its long end to the top of the plywood can be modelled by the function in blue in the graph shown. If she rotates the stick at the same constant rate, then the distance from its short end to the top of the plywood can be modelled by the function in red.\n\na) What do the troughs of the sinusoidal functions represent in this situation?\n\nb) How do the periods of the sinusoidal functions compare? Why is this so?\n\nc) How far is the nail from the top of the plywood?\n\nd) What is the amplitude of each sinusoidal function, and what does it represent?\n\ne) What is the range of each sinusoidal function?\n\nf) If Keri rotates the metre stick five complete revolutions, what is the domain of the sinusoidal function?\n\ng) Determine the equation of each sinusoidal function.\n\nh) What is the distance between the short end of the metre stick and the top of the plywood at \\(t = 19\\) s?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p416_q5_6.Chapter_Self-Test_1.png",
+        "nelson_assets/ch6/p416_q5_6.Chapter_Self-Test_2.png"
+      ],
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QA",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep A. Select one of the cylindrical objects. Determine its circumference, and record the measurement in the table. Take a sheet of paper, wrap it around the cylinder, and tape it in place. Make sure that the paper is narrow enough that the top portion of the cylinder is still exposed.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qA_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QB",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep B. Mark a point D along the seam of the paper, somewhere near the top of the paper. Record the position in the table.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qB_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QC",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep C. Mark a point E on the opposite side of the cylinder at least 4 cm below the height of point D. Record the position in the table.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qC_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QD",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep D. Draw a line around the cylinder connecting points D and E and continue back to D.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qD_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QE",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep E. Remove the cylindrically shaped object, leaving the tube of paper. Using scissors, cut along the line you drew.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qE_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QF",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep F. Remove the tape and unroll the paper.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qF_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QG",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep G. Determine an equation that models the resulting curve. Record the equation in the table.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qG_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-TASK-p407-QH",
+      "chapter": 6,
+      "section": "6.Chapter Task",
+      "stem": "Chapter Task — Cylinders and Sinusoidal Functions\n\nCan sinusoidal functions be obtained from cylinders? As you follow the instructions, complete the table (radius, circumference, heights of D and E, resulting equation).\n\nStep H. Repeat this procedure two more times using the other cylindrical objects, marking the points D and E in different locations.\n\nAfter completing steps A–H, answer:\n\na) What is the relationship between the circumference of the cylinder and the resulting sinusoidal function?\n\nb) What effect does changing the locations of points D and E have on the resulting sinusoidal function?\n\nc) If you wanted to see three complete cycles on the paper, what would have to be included in the instructions?\n\nd) How could you do a similar activity and create a function that was periodic but not sinusoidal?\n\ne) If the period of the resulting sinusoidal function was \\(69.12\\) cm, calculate the radius of the cylinder.\n\nf) Another cylinder has a radius of \\(7\\) cm, point D at \\(12\\) cm high, and point E at \\(8\\) cm high. Determine the equation of the resulting sinusoidal function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p417_qH_6.Chapter_Task_1.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q1",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Which of the following expressions has a value of \\(-7\\)?\n\n\\(25^{1/2} + 16^{3/4}\\)\n\\(8^{2/3} - 81^{3/4} + 4^{2}\\)\n\\(8^{-2/3} - 81^{-3/4} + 8^{-3}\\)\n\\(81^{-3/4} + 16^{-3/4} - 16^{-1/2}\\)\n\nCheck: (b) \\(4 - 27 + 16 = -7\\). Answer key: (b).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_q1.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q2",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q2. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a and d)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_left.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q8",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q8. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q3",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q3. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_left.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q4",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "The population of a town is growing at an average rate of \\(5\\%\\) per year. In 2000, its population was \\(15\\,000\\). What is the best estimate of the population in 2020 if the town continues to grow at this rate?\n\n\\(40\\,000\\)\\(30\\,000\\)\\(35\\,000\\)\\(45\\,000\\)\nCheck: \\(15000(1.05)^{20} \\approx 39\\,800\\) → (a).\n\nAnswer key (Chapters 4–6 Cumulative Review): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q10",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q10. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q5",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Point \\(P(-7, 24)\\) is on the terminal arm of an angle in standard position. What is the measure of the related acute angle and the principal angle to the nearest degree?\n\n\\(74^\\circ\\) and \\(106^\\circ\\)\\(16^\\circ\\) and \\(344^\\circ\\)\\(16^\\circ\\) and \\(164^\\circ\\)\\(74^\\circ\\) and \\(286^\\circ\\)\nCheck: \\(\\theta_\\mathrm{ref}=\\tan^{-1}(24/7)\\approx 74^\\circ\\); Q2 principal \\(180^\\circ-74^\\circ=106^\\circ\\) → (a).\n\nAnswer key (Chapters 4–6 Cumulative Review): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q6",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q6. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q11",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q11. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (b)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q12",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "A weather balloon is spotted from two angles of elevation, \\(57^\\circ\\) and \\(83^\\circ\\), from two different tracking stations. The tracking stations are \\(15\\) km apart. Determine the altitude of the balloon if the tracking stations and the point directly below the balloon lie along the same straight line.\n\n\\(28.5\\) km\\(32\\) km\\(984\\) km\\(23.7\\) km\nAnswer key (Chapters 4–6 Cumulative Review): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q13",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "At a concert, a spotlight is placed at a height of \\(12.0\\) m. The spotlight beam shines down at an angle of depression of \\(35^\\circ\\). How far is the spotlight from the stage?\n\n\\(20.9\\) m\\(12.1\\) m\\(25\\) m\\(9.6\\) m\nCheck: distance along the beam \\(12/\\sin 35^\\circ \\approx 20.9\\) m → (a).\n\nAnswer key (Chapters 4–6 Cumulative Review): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q16",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q16. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p409_cum_left.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q14",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "In \\(\\triangle ABC\\), \\(\\angle A = 32^\\circ\\), \\(\\angle C = 81^\\circ\\), and \\(a = 24.1\\). Solve the triangle, and identify the correct solution.\n\n\\(\\angle B = 125^\\circ\\), \\(AC = 14.2\\), \\(AB = 44.9\\)\\(\\angle B = 52^\\circ\\), \\(AC = 41.9\\), \\(AB = 44.9\\)\\(\\angle B = 107^\\circ\\), \\(AC = 29.4\\), \\(AB = 44.9\\)\\(\\angle B = 67^\\circ\\), \\(AC = 41.9\\), \\(AB = 44.9\\)\nCheck: \\(\\angle B = 180^\\circ-32^\\circ-81^\\circ=67^\\circ\\) → (d).\n\nAnswer key (Chapters 4–6 Cumulative Review): (d)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q17",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q17. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p409_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q18",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Identify which of the following statements is true regarding sinusoidal functions of the form \\(y = a\\sin\\bigl(k(x-d)\\bigr)+c\\).\n\nChanging the value of \\(a\\) affects the maximum and minimum values, the amplitude, and the range.Changing the value of \\(k\\) affects the amplitude, the equation of the axis, and the domain and range.Changing the value of \\(c\\) affects the period, the amplitude, or the domain.Changing the value of \\(d\\) affects the period, the amplitude, and the equation of the axis.\nCheck: Only (a) is true.\n\nAnswer key (Chapters 4–6 Cumulative Review): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q23",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q23. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q24",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q24. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (b)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q19",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "A circular dining room at the top of a skyscraper rotates counterclockwise. A woman sits next to the window ledge and places her purse on the ledge. Eighteen minutes later her table has moved but her purse has not. Her position is \\((x,y)=(20\\cos(7.5t)^\\circ,\\,20\\sin(7.5t)^\\circ)\\), with \\(t\\) in minutes and \\(x,y\\) in metres. What is the shortest distance she has to walk to retrieve her purse?\n\n\\(54.1\\) m\\(37.0\\) m\\(114.0\\) m\\(62.9\\) m\nCheck: central angle \\(7.5^\\circ\\times 18=135^\\circ\\); chord \\(2\\cdot 20\\cdot\\sin(67.5^\\circ)\\approx 37.0\\) m → (b).\n\nAnswer key (Chapters 4–6 Cumulative Review): (b)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q20",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Which of the following statements is not true about the graph of \\(y = |\\sin x|\\)?\n\nThe period is \\(360^\\circ\\).The amplitude is \\(1\\).The equation of the axis is \\(y = 0\\).The range is \\(\\{y \\in \\mathbb{R}\\mid 0 < y < 1\\}\\).\nCheck: Period of \\(|\\sin x|\\) is \\(180^\\circ\\), so (a) is false → key (d) flags the false range statement as the intended “not true” item in the printed key; stem kept with key.\n\nAnswer key (Chapters 4–6 Cumulative Review): (d)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q21",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "A regular octagon is inscribed inside a circle with a radius of \\(14\\) cm. The perimeter is\n\n\\(32.9\\) cm\\(56.0\\) cm\\(85.7\\) cm\\(42.9\\) cm\nCheck: side \\(2\\cdot 14\\cdot\\sin(22.5^\\circ)\\approx 10.72\\); perimeter \\(\\approx 85.7\\) cm → (c).\n\nAnswer key (Chapters 4–6 Cumulative Review): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p411-Q29",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "The Paper Folding Problem. A sheet of letter paper is about \\(0.1\\) mm thick. If it were possible to keep folding in half indefinitely, how many folds would be required for the thickness to surpass the height of the CN Tower (\\(553\\) m)?\n\nCheck: thickness after \\(n\\) folds is \\(0.1\\times 2^n\\) mm. Need \\(0.1\\cdot 2^n > 553\\times 1000\\) mm \\(\\Rightarrow 2^n > 5.53\\times 10^6\\) \\(\\Rightarrow n \\ge 23\\) folds.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p411-Q30",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Lawn Chairs. A reclining lawn chair should be positionable at \\(105^\\circ\\), \\(125^\\circ\\), \\(145^\\circ\\), \\(165^\\circ\\), and \\(175^\\circ\\). In the figure, \\(AC = 75\\) cm and \\(AB = 55\\) cm. Determine the positions for the notches on \\(BC\\) that produce the required angles. Give a complete solution.\n\nApproach: For each angle at \\(A\\) (or as labelled in the figure), use the cosine law in \\(\\triangle ABC\\) to find the corresponding length \\(BC\\) (notch position).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p411_lawn_chairs.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p411-Q31",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Dock Dilemma. Depth of water (m) measured every hour over \\(24\\) h:\n\nTimeDepthTimeDepth1:003.8113:003.812:005.0514:005.053:005.9415:005.944:006.2516:006.255:005.8917:005.896:004.9518:004.957:003.6919:003.698:002.4520:002.459:001.5621:001.5610:001.2522:001.2511:001.6223:001.6212:002.5524:002.55\na) Graph the data, and determine an equation that models this situation over a \\(24\\) h period.\n\nb) What is the maximum depth of the water at this location?\n\nc) The hull of their boat must have a clearance of at least \\(1\\) m at all times. Is this location suitable for their dock? Explain.\n\nCheck: (b) max depth \\(6.25\\) m; (c) min depth \\(1.25\\) m so only \\(0.25\\) m clearance above a hull that sits \\(1\\) m deep — not suitable if the hull extends \\(>0.25\\) m below the surface.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-62-CK-p363-Q3",
+      "chapter": 6,
+      "section": "6.2",
+      "stem": "A buoy rises and falls as it rides the waves. The equation \\(h(t) = \\cos(36t)^\\circ\\) models the displacement of the buoy, \\(h(t)\\), in metres at \\(t\\) seconds.\n\na) Graph the displacement from \\(0\\) s to \\(20\\) s, in \\(2.5\\) s intervals.\n\nb) Determine the period of the function from the graph.\n\nc) What is the displacement at \\(35\\) s?\n\nd) At what time, to the nearest second, does the buoy first reach \\(-0.8\\) m?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "C2.3",
+        "C2.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q7",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q7. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (b)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p408-Q9",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q9. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p408_cum_right.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p409-Q15",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q15. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (d)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p409_cum_left.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q22",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q22. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q25",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q25. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q26",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q26. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (c)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C6-CUM-p410-Q27",
+      "chapter": 6,
+      "section": "6.Cumulative Review",
+      "stem": "Chapters 4–6 Cumulative Review — Multiple Choice Q27. Read the full printed item in the figure (options and any diagram).\n\nAnswer key (p.670): (a)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch6/p410_cum_full.png"
+      ],
+      "exercise_block": "Cumulative Review"
+    }
+  ]
+}

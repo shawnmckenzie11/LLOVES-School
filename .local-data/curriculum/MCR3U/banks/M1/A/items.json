@@ -1,0 +1,2171 @@
+{
+  "course_code": "MCR3U",
+  "module_number": 1,
+  "strand": "A",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-CK-p10-Q1",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "State which relations are functions. Explain.\n\na) \\(\\left\\{(-5, 1), (-3, 2), (-1, 3), (1, 2)\\right\\}\\)\n\nb)\n\nc) \\(\\left\\{(0, 4), (3, 5), (5, -2), (0, 1)\\right\\}\\)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1_1.1/p020_q1_1.1_b.png",
+        "nelson_assets/ch1_1.1/p020_q1_1.1_d.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-CK-p10-Q2",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Use a ruler and the vertical-line test to determine which graphs are functions.\n\na)\n\nb)\n\nc)\n\nd)\n\ne)\n\nf)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1_1.1/p020_q2_1.1_a.png",
+        "nelson_assets/ch1_1.1/p020_q2_1.1_b.png",
+        "nelson_assets/ch1_1.1/p020_q2_1.1_c.png",
+        "nelson_assets/ch1_1.1/p020_q2_1.1_d.png",
+        "nelson_assets/ch1_1.1/p020_q2_1.1_e.png",
+        "nelson_assets/ch1_1.1/p020_q2_1.1_f.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q4",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "A guidance counsellor lists grades and credit totals for five students in an online Ontario high school.\n\nStudentGradeNumber of Credits\n\nAmara108\nMateo1225\nKateri1115\nMandeep1118\nYuki1016\n\na) Write a list of ordered pairs and create a mapping diagram for the relation between\n\nstudents and grades\ngrades and numbers of credits\nstudents and numbers of credits\n\nb) State the domain and range of each relation in part (a).\n\nc) Which relations in part (a) are functions? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q5",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "A guidance counsellor lists grades and credit totals for five students in an online Ontario high school.\n\nStudentGradeNumber of Credits\n\nAmara108\nMateo1225\nKateri1115\nMandeep1118\nYuki1016\n\nConsider these three relations:\n\nstudents and grades\ngrades and numbers of credits\nstudents and numbers of credits\n\nGraph each relation. Then use the vertical-line test to decide which of the relations are functions.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q6",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Describe the graphs of the relations \\(y = 3\\) and \\(x = 3\\). Are these relations functions? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q7",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Identify each type of relation and predict whether it is a function. Then graph each relation and use the vertical-line test to determine whether your prediction was correct.\n\na) \\(y = 5 - 2x\\)\n\nb) \\(y = 2x^{2} - 3\\)\n\nc) \\(y = -\\dfrac{3}{4}(x + 3)^{2} + 1\\)\n\nd) \\(x^{2} + y^{2} = 25\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q8",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "a) Substitute \\(x = 0\\) into each equation and solve for \\(y\\). Repeat for \\(x = -2\\).\n\ni) \\(3x + 4y = 5\\)\n\nii) \\(x^{2} + y^{2} = 4\\)\n\niii) \\(x^{2} + y = 2\\)\n\niv) \\(x + y^{2} = 0\\)\n\nb) Which relations in part (a) appear to be functions?\n\nc) How could you verify your answer to part (b)?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q9",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Determine which relations are functions.\n\na) \\(y = \\sqrt{x + 2}\\)\n\nb) \\(y = 2 - x\\)\n\nc) \\(3x^{2} - 4y^{2} = 12\\)\n\nd) \\(y = -3(x + 2)^{2} - 4\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q10",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Use numeric and graphical representations to investigate whether the relation \\(x - y^{2} = 2\\) is a function. Explain your reasoning.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p11-Q11",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "Determine which of the following relations are functions.\n\na) The relation between earnings and sales if Zara earns $400 per week plus 5% commission on sales from her online shop\n\nb) The relation between distance and time if Jamal walks at 5 km/h\n\nc) The relation between students’ ages and the number of credits earned",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p12-Q12",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "12. The cost of renting a car depends on the daily rental charge and the number\nof kilometres driven. A graph of cost versus the distance driven over a\none-day period is shown.\nCost 60\na) What are the domain and range of this relation?\nb) Explain why the domain and range have a lower limit.\nc) Is the relation a function? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1_1.1/p022_q12_1.1_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-PR-p12-Q13",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "a) Sketch a graph of a function that has the set of integers as its domain and all integers less than 5 as its range.\n\nb) Sketch a graph of a relation that is not a function and that has the set of real numbers less than or equal to 10 as its domain and all real numbers greater than \\(-5\\) as its range.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-11-EX-p12-Q15",
+      "chapter": 1,
+      "section": "1.1",
+      "stem": "A same-day courier app charges $4/kg for any order less than 100 kg and $3.50/kg for any order of at least 100 kg.\n\na) Why must this relation be a function?\n\nb) What is the domain of this function? What is its range?\n\nc) Graph the function.\n\nd) What suggestions can you offer to the company for a better pricing structure? Support your answer.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.1"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q1",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Simplify each expression.\n\na) \\(3(x + y) - 5(x - y)\\)\n\nb) \\((4x - y)(4x + y)\\)\n\nc) \\(\\dfrac{1}{2}(x^{2} + 1) - \\dfrac{3}{2}(x^{2} - 1)\\)\n\nd) \\(4x(x + 2) - 2x(x - 4)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q2",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Evaluate each expression when \\(x = 3\\) and \\(y = -5\\).\n\na) \\(3(x + y) - 5(x - y)\\)\n\nb) \\((4x - y)(4x + y)\\)\n\nc) \\(\\dfrac{1}{2}(x^{2} + 1) - \\dfrac{3}{2}(x^{2} - 1)\\)\n\nd) \\(4x(x + 2) - 2x(x - 4)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q4",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Graph each linear relation.\n\na) \\(y = 2x - 3\\)\n\nb) \\(3x + 4y = 12\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q6",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Graph each parabola, labelling the vertex and the axis of symmetry.\n\na) \\(y = x^{2} - 6\\)\n\nb) \\(y = (x - 2)^{2} - 1\\)\n\nc) \\(y = -3(x + 4)^{2} + 2\\)\n\nd) \\(y = 2x^{2} + 6x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q7",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "For each quadratic relation, list the transformations you need to apply to \\(y = x^{2}\\) to graph the relation. Then sketch the graph.\n\na) \\(y = x^{2} - 2\\)\n\nb) \\(y = -4x^{2} + 3\\)\n\nc) \\(y = \\dfrac{1}{2}(x - 1)^{2} - 4\\)\n\nd) \\(y = -2(x + 3)^{2} + 5\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q8",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Solve each quadratic equation.\n\na) \\(x^{2} - 5x + 6 = 0\\)\n\nb) \\(3x^{2} - 5 = 70\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q9",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Compare the properties of linear relations, circles, and quadratic relations. Begin by completing a table like the one shown. Then list similarities and differences among the three types of relations.\n\nPropertyLinear RelationsCirclesQuadratic Relations\n\nEquation(s)\nShape of graph\nNumber of quadrants graph enters\nDescriptive features of graph\nTypes of problems modelled by the relation",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-CK-p22-Q1",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Evaluate, where \\(f(x) = 2 - 3x\\).\n\na) \\(f(2)\\)\n\nb) \\(f(0)\\)\n\nc) \\(f(-4)\\)\n\nd) \\(f\\!\\left(\\dfrac{1}{2}\\right)\\)\n\ne) \\(f(a)\\)\n\nf) \\(f(3b)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-CK-p22-Q2",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "The graphs of \\(y = f(x)\\) and \\(y = g(x)\\) are shown.\n\n\\(y = f(x)\\)\n\n\\(y = g(x)\\)\n\nUsing the graphs, evaluate\n\na) \\(f(1)\\)\n\nb) \\(g(-2)\\)\n\nc) \\(f(4) - g(-2)\\)\n\nd) \\(x\\) when \\(f(x) = -3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p032_q2_1.2_f.png",
+        "nelson_assets/ch1/p032_q2_1.2_g.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-CK-p23-Q3",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Milk is leaking from a carton at a rate of 3 mL/min. There is 1.2 L of milk in the carton at 11:00 a.m.\n\na) Use function notation to write an equation for this situation.\n\nb) How much will be left in the carton at 1:00 p.m.?\n\nc) At what time will 450 mL of milk be left in the carton?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q4",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Evaluate \\(f(-1)\\), \\(f(3)\\), and \\(f(1.5)\\) for\n\na) \\(f(x) = (x - 2)^{2} - 1\\)\n\nb) \\(f(x) = 2 + 3x - 4x^{2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q5",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "For \\(f(x) = \\dfrac{1}{2x}\\), determine\n\na) \\(f(-3)\\)\n\nb) \\(f(0)\\)\n\nc) \\(f(1) - f(3)\\)\n\nd) \\(f\\!\\left(\\dfrac{1}{4}\\right) + f\\!\\left(\\dfrac{3}{4}\\right)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q6",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "The graph of \\(y = f(x)\\) is shown.\n\na) State the domain and range of \\(f\\).\n\nb) Evaluate.\n\ni) \\(f(3)\\)\n\nii) \\(f(5)\\)\n\niii) \\(f(5) - f(3)\\)\n\niv) \\(f(5 - 3)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p033_q6_1.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q7",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "For \\(h(x) = 2x - 5\\), determine\n\na) \\(h(a)\\)\n\nb) \\(h(b + 1)\\)\n\nc) \\(h(3c - 1)\\)\n\nd) \\(h(2 - 5x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q8",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Consider the function \\(g(t) = 3t + 5\\).\n\na) Create a table of values and graph the function.\n\nb) Determine each value.\n\ni) \\(g(0)\\)\n\nii) \\(g(3)\\)\n\niii) \\(g(2) - g(1)\\)\n\niv) \\(g(1) - g(0)\\)\n\nv) \\(g(1001) - g(1000)\\)\n\nvi) \\(g(a + 1) - g(a)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q9",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Consider the function \\(f(s) = s^{2} - 6s + 9\\).\n\na) Create a table of values for the function.\n\nb) Determine each value.\n\ni) \\(f(0)\\)\n\nii) \\(f(1)\\)\n\niii) \\(f(2)\\)\n\niv) \\(f(3)\\)\n\nv) \\([f(2) - f(1)] - [f(1) - f(0)]\\)\n\nvi) \\([f(3) - f(2)] - [f(2) - f(1)]\\)\n\nc) In part (b), what do you notice about the answers to parts (v) and (vi)? Explain why this happens.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q11",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "For \\(g(x) = 4 - 5x\\), determine the input for \\(x\\) when the output of \\(g(x)\\) is\n\na) \\(-6\\)\n\nb) \\(2\\)\n\nc) \\(0\\)\n\nd) \\(3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q12",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "A company rents cars for $50 per day plus $0.15/km.\n\na) Express the daily rental cost as a function of the number of kilometres travelled.\n\nb) Determine the rental cost if you drive 472 km in one day.\n\nc) Determine how far you can drive in a day for $80.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q13",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "As a mental arithmetic exercise, a teacher asked her students to think of a number, triple it, and subtract the resulting number from 24. Finally, they were asked to multiply the resulting difference by the number they first thought of.\n\na) Use function notation to express the final answer in terms of the original number.\n\nb) Determine the result of choosing numbers 3, \\(-5\\), and 10.\n\nc) Determine the maximum result possible.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q14",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "The second span of the Bluewater Bridge in Sarnia, Ontario, is supported by two parabolic arches. Each arch is set in concrete foundations that are on opposite sides of the St. Clair River. The arches are 281 m apart. The top of each arch rises 71 m above the river. Write a function to model the arch.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q15",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "a) Graph the function \\(f(x) = 3(x - 1)^{2} - 4\\).\n\nb) What does \\(f(-1)\\) represent on the graph? Indicate on the graph how you would find \\(f(-1)\\).\n\nc) Use the equation to determine\n\ni) \\(f(2) - f(1)\\)\n\nii) \\(2f(3) - 7\\)\n\niii) \\(f(1 - x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q16",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Let \\(f(x) = x^{2} + 2x - 15\\). Determine the values of \\(x\\) for which\n\na) \\(f(x) = 0\\)\n\nb) \\(f(x) = -12\\)\n\nc) \\(f(x) = -16\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q17",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Let \\(f(x) = 3x + 1\\) and \\(g(x) = 2 - x\\). Determine values for \\(a\\) such that\n\na) \\(f(a) = g(a)\\)\n\nb) \\(f(a^{2}) = g(2a)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p24-Q18",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "Explain, with examples, what function notation is and how it relates to the graph of a function. Include a discussion of the advantages of using function notation.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-EX-p24-Q19",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "The highest and lowest marks awarded on an examination were 285 and 75. All the marks must be reduced so that the highest and lowest marks become 200 and 60.\n\na) Determine a linear function that will convert 285 to 200 and 75 to 60.\n\nb) Use the function to determine the new marks that correspond to original marks of 95, 175, 215, and 255.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-EX-p24-Q20",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "A function \\(f(x)\\) has these properties:\n\nThe domain of \\(f\\) is the set of natural numbers.\n\\(f(1) = 1\\)\n\\(f(x + 1) = f(x) + 3x(x + 1) + 1\\)\n\na) Determine \\(f(2)\\), \\(f(3)\\), \\(f(4)\\), \\(f(5)\\), and \\(f(6)\\).\n\nb) Describe the function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-13-FU-p28-Q2",
+      "chapter": 1,
+      "section": "1.3",
+      "stem": "Sketch the graphs of \\(f(x) = x^{2}\\) and \\(g(x) = |x|\\) on the same axes. Describe how these graphs are alike and how they are different.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-13-FU-p28-Q3",
+      "chapter": 1,
+      "section": "1.3",
+      "stem": "Sketch the graph of \\(f(x) = x^{2}\\) for values of \\(x \\ge 0\\). On the same axes, sketch the graphs of \\(g(x) = \\sqrt{x}\\) and \\(h(x) = x\\). Describe how the three graphs are related.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-CK-p35-Q1",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "State the domain and range of each relation.\n\na) Historical life expectancy at birth (years) for selected years of birth:\n\nYear of BirthLife Expectancy (years)\n\n190047.3\n192054.1\n194062.9\n196069.7\n198073.7\n200077.0\n\nb)\n\nc) \\(\\left\\{(-4, 7), (0, 5), (0, 3), (3, 0), (5, -1)\\right\\}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p045_q1_1.4_b.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-CK-p35-Q2",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "State the domain and range of each relation.\na)\n\nb)\n\nc)\n\nd)\n\ne)\n\nf)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p045_q2_1.4_a.png",
+        "nelson_assets/ch1/p045_q2_1.4_b.png",
+        "nelson_assets/ch1/p045_q2_1.4_c.png",
+        "nelson_assets/ch1/p045_q2_1.4_d.png",
+        "nelson_assets/ch1/p045_q2_1.4_e.png",
+        "nelson_assets/ch1/p045_q2_1.4_f.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-CK-p35-Q4",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Determine the domain and range of the function \\(f(x) = 2(x - 1)^{2} - 3\\) by sketching its graph.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p36-Q6",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "The route for a community race is 15 km long. Participants may walk, jog, run, or cycle. Copy and complete the table to show times for finishing at different speeds.\n\nSpeed (km/h)Time (h)\n\n115.0\n27.5\n3\n4\n5\n6\n8\n10\n15\n20\n\nGraph the relation in the table and explain how you know that it is a function. State the domain and range of the function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p36-Q7",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "A relation is defined by \\(x^{2} + y^{2} = 36\\).\n\na) Graph the relation.\n\nb) State the domain and range of the relation.\n\nc) Is the relation a function? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p36-Q8",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Write a function to describe coffee dripping into a 10-cup carafe at a rate of 1 mL/s. State the domain and range of the function (1 cup = 250 mL).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q9",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Determine the domain and range of each function.\n\na) \\(f(x) = -3x + 8\\)\n\nb) \\(g(x) = -0.5(x + 3)^{2} + 4\\)\n\nc) \\(h(x) = \\sqrt{x - 1}\\)\n\nd) \\(p(x) = \\dfrac{2}{3}(x - 2)^{2} - 5\\)\n\ne) \\(q(x) = 11 - \\dfrac{5}{2x}\\)\n\nf) \\(r(x) = \\sqrt{5 - x}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q10",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "A ball is tossed upward from the rooftop of a 25 m apartment building. The ball reaches a height of 45 m above the ground after 2 s and hits the ground 5 s after being thrown.\n\na) Sketch a graph that shows the height of the ball as a function of time.\n\nb) State the domain and range of the function.\n\nc) Determine an equation for the function.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q11",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Write the domain and range of each function in set notation.\n\na) \\(f(x) = 4x + 1\\)\n\nb) \\(f(x) = \\sqrt{x - 2}\\)\n\nc) \\(f(x) = 3(x + 1)^{2} - 4\\)\n\nd) \\(f(x) = -2x^{2} - 5\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q12",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Use a graphing calculator to graph each function and determine the domain and range.\n\na) \\(f(x) = \\sqrt{3 - x} + 2\\)\n\nb) \\(g(x) = x^{2} - 3x\\)\n\nc) \\(h(x) = \\dfrac{1}{x^{2}}\\)\n\nd) \\(p(x) = \\sqrt{x^{2} - 5}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q13",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Sana has 450 m of fencing to enclose a rectangular community-garden plot and divide it into two sections as shown.\n\na) Write an equation to express the total area enclosed as a function of the width.\n\nb) Determine the domain and range of this area function.\n\nc) Determine the dimensions that give the maximum area.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p047_q13_1.4_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q14",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Determine the range of each function if the domain is \\(\\{-3, -1, 0, 2.5, 6\\}\\).\n\na) \\(f(x) = 4 - 3x\\)\n\nb) \\(f(x) = 2x^{2} - 3x + 1\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-PR-p37-Q15",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "Explain the terms “domain” and “range” as they apply to relations and functions. Describe, with examples, how the domain and range are determined from a table of values, a graph, and an equation.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-14-EX-p37-Q16",
+      "chapter": 1,
+      "section": "1.4",
+      "stem": "a) Sketch the graph of a function whose domain is \\(\\{x \\in \\mathbb{R}\\}\\) and range is \\(\\{y \\in \\mathbb{R} \\mid y \\le 2\\}\\).\n\nb) Sketch the graph of a relation that is not a function and whose domain is \\(\\{x \\in \\mathbb{R} \\mid x \\ge -4\\}\\) and range is \\(\\{y \\in \\mathbb{R}\\}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.3"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q4",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "A teacher asked her students to think of a number, multiply it by 5, and subtract the product from 20. Then she asked them to multiply the resulting difference by the number they first thought of.\n\na) Use function notation to express the final answer in terms of the original number.\n\nb) Determine the outputs for the input numbers 1, \\(-1\\), and 7.\n\nc) Determine the maximum result possible.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q1",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "Determine which relations are functions. For those which are, explain why.\n\na) \\(\\left\\{(1, 2), (2, 3), (2, 4), (4, 5)\\right\\}\\)\n\nb) Mapping diagram on page 40 (each domain element has exactly one arrow) — function.\n\nc) Graph on page 40 that passes the vertical-line test — function.\n\nd) Mapping/graph on page 40 that fails the function test — not a function.\n\ne) \\(y = 2(x - 3)^{2} + 5\\)\n\nf) \\(y = \\sqrt{x - 4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q5",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "Graph each function and state its domain and range.\n\na) \\(f(x) = x^{2}\\)\n\nb) \\(f(x) = \\dfrac{1}{x}\\)\n\nc) \\(f(x) = \\sqrt{x}\\)\n\nd) \\(f(x) = |x|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q2",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "Use numeric and graphical representations to show that \\(x^{2} + y = 4\\) is a function but \\(x^{2} + y^{2} = 4\\) is not a function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q8",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "Determine the domain and range for each.\n\na) A parabola has a vertex at \\((-2, 5)\\), and \\(y = 5\\) is its maximum value.\n\nb) A parabola has a vertex at \\((3, 4)\\), and \\(y = 4\\) is its minimum value.\n\nc) A circle has a centre at \\((0, 0)\\) and a radius of 7.\n\nd) A circle has a centre at \\((2, 5)\\) and a radius of 4.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q3",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "a) Graph the function \\(f(x) = -2(x + 1)^{2} + 3\\).\n\nb) Evaluate \\(f(-3)\\).\n\nc) What does \\(f(-3)\\) represent on the graph of \\(f\\)?\n\nd) Use the equation to determine\n\ni) \\(f(1) - f(0)\\)\n\nii) \\(3f(2) - 5\\)\n\niii) \\(f(2 - x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-CK-p46-Q1",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Determine the inverse relation for each set of ordered pairs. Graph each relation and its inverse. Which of the relations and inverse relations are functions?\n\na) \\(\\left\\{(-2, 3), (0, 4), (2, 5), (4, 6)\\right\\}\\)\n\nb) \\(\\left\\{(2, 5), (2, -1), (3, 1), (5, 1)\\right\\}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-CK-p47-Q3",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Determine whether each pair of functions described in words are inverses.\n\na) \\(f\\): Multiply by 3, then add 1; \\(g\\): Divide by 3, then subtract 1.\n\nb) \\(f\\): Multiply by 5, then subtract 2; \\(g\\): Add 2, then divide by 5.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-CK-p47-Q4",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "For each linear function, interchange \\(x\\) and \\(y\\). Then solve for \\(y\\) to determine the inverse.\n\na) \\(y = 4x - 3\\)\n\nb) \\(3x + 4y = 6\\)\n\nc) \\(y = 2 - \\dfrac{1}{2}x\\)\n\nd) \\(2y - 10 = 5x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p47-Q5",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Determine the inverse of each linear function by reversing the operations.\n\na) \\(f(x) = x - 4\\)\n\nb) \\(f(x) = \\dfrac{1}{2}x - 1\\)\n\nc) \\(f(x) = 5x\\)\n\nd) \\(f(x) = 3x + 1\\)\n\ne) \\(f(x) = 6 - 5x\\)\n\nf) \\(f(x) = \\dfrac{3}{4}x + 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p47-Q6",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Determine the inverse of each linear function by interchanging the variables.\n\na) \\(f(x) = x + 7\\)\n\nb) \\(f(x) = 2 - x\\)\n\nc) \\(f(x) = 5\\)\n\nd) \\(f(x) = -\\dfrac{1}{5}x - 2\\)\n\ne) \\(f(x) = x\\)\n\nf) \\(f(x) = \\dfrac{x - 3}{4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p47-Q7",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Sketch the graph of each function below, and sketch its inverse. Is each inverse linear? Is each inverse a function? Explain.\n\nSet A\n\na) \\(f(x) = x - 4\\)\n\nb) \\(f(x) = \\dfrac{1}{2}x - 1\\)\n\nc) \\(f(x) = 5x\\)\n\nd) \\(f(x) = 3x + 1\\)\n\ne) \\(f(x) = 6 - 5x\\)\n\nf) \\(f(x) = \\dfrac{3}{4}x + 2\\)\n\nSet B\n\na) \\(f(x) = x + 7\\)\n\nb) \\(f(x) = 2 - x\\)\n\nc) \\(f(x) = 5\\)\n\nd) \\(f(x) = -\\dfrac{1}{5}x - 2\\)\n\ne) \\(f(x) = x\\)\n\nf) \\(f(x) = \\dfrac{x - 3}{4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q8",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "For each function, determine the inverse, sketch the graphs of the function and its inverse, and state the domain and range of both the function and its inverse. In each case, how do the domain and range of the function compare with the domain and range of the inverse?\n\na) \\(\\left\\{(-1, 2), (1, 4), (2, 6), (3, 8)\\right\\}\\)\n\nb) \\(\\left\\{(-4, 3), (-2, 6), (1, 8), (5, 8)\\right\\}\\)\n\nc) \\(f(x) = 1 - 3x\\)\n\nd) Discrete/graph relation as in the textbook figure for part (d) on page 48 (ordered pairs visible near the axes in the book).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q9",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "a) Determine \\(f^{-1}\\) for the linear function \\(f(x) = 5x - 2\\).\n\nb) Graph \\(f\\) and \\(f^{-1}\\) on the same axes.\n\nc) Explain how you can tell that \\(f^{-1}\\) is also a linear function.\n\nd) State the coordinates of any points that are common to both \\(f\\) and \\(f^{-1}\\).\n\ne) Compare the slopes of the two lines.\n\nf) Repeat parts (a) to (e) for \\(g(x) = -\\dfrac{1}{2}x + 3\\) and for \\(h(x) = 2x - 1\\), \\(p(x) = 6 - x\\), and \\(q(x) = 2\\) as directed in the textbook.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q10",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "For \\(g(t) = 3t - 2\\), determine each value.\n\na) \\(g(13)\\)\n\nb) \\(g(7)\\)\n\nc) \\(\\dfrac{g(13) - g(7)}{13 - 7}\\)\n\nd) \\(g^{-1}(13)\\)\n\ne) \\(g^{-1}(7)\\)\n\nf) \\(\\dfrac{g^{-1}(13) - g^{-1}(7)}{13 - 7}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q11",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "For \\(g(t) = 3t - 2\\), consider\n\n\\(\\dfrac{g(13) - g(7)}{13 - 7}\\) and \\(\\dfrac{g^{-1}(13) - g^{-1}(7)}{13 - 7}\\).\n\nExplain what these two values represent.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q12",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "The formula for converting a temperature in degrees Celsius into degrees Fahrenheit is \\(F = \\dfrac{9}{5}C + 32\\). Noor, visiting Canada from the United States, uses a simpler rule to convert from Celsius to Fahrenheit: Double the Celsius temperature, then add 30.\n\na) Use function notation to write an equation for this rule. Call the function \\(f\\) and let \\(x\\) represent the temperature in degrees Celsius.\n\nb) Write \\(f^{-1}\\) as a rule. Who might use this rule?\n\nc) Determine \\(f^{-1}(x)\\).\n\nd) One day, the temperature was \\(14^{\\circ}\\mathrm{C}\\). Use function notation to express this temperature in degrees Fahrenheit.\n\ne) Another day, the temperature was \\(70^{\\circ}\\mathrm{F}\\). Use function notation to express this temperature in degrees Celsius.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p48-Q13",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Kenji, another visitor to Canada from the United States, uses this rule to convert centimetres to inches: Multiply by 4 and then divide by 10. Let the function \\(g\\) be the method for converting centimetres to inches, according to Kenji’s rule.\n\na) Write \\(g(x)\\) and \\(g^{-1}(x)\\) as rules.\n\nb) Describe a situation in which the rule for \\(g^{-1}\\) might be useful.\n\nc) Determine \\(g(x)\\) and \\(g^{-1}(x)\\).\n\nd) One day, 15 cm of snow fell. Use function notation to represent this amount in inches.\n\ne) Kenji is 5 ft 10 in. tall. Use function notation to represent his height in centimetres.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p49-Q14",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Priya modelled some data at school with a graphing app. She determined that the equation of the line of best fit was \\(y = 2.63x - 1.29\\). Once she got home, she realized she had mixed up the independent and dependent variables. Write the correct equation for the relation in the form \\(y = mx + b\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p49-Q15",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Fatima is paid $8.05/h, plus 5% of her sales over $1000, for a 40 h work week at a retail store. For example, suppose Fatima sold $1800 worth of merchandise. Then she would earn $8.05(40) + 0.05($800) = $362.\n\na) Graph the relation between Fatima’s total pay for a 40 h work week and her sales for that week.\n\nb) Write the relation in function notation.\n\nc) Graph the inverse relation.\n\nd) Write the inverse relation in function notation.\n\ne) Write an expression in function notation that represents her sales if she earned $420 one work week. Then evaluate.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p49-Q16",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "The ordered pair \\((1, 5)\\) belongs to a function \\(f\\). Explain why the ordered pair \\((2, 1)\\) cannot belong to \\(f^{-1}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-PR-p49-Q17",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Given \\(f(x) = k(2 + x)\\), find the value of \\(k\\) if \\(f^{-1}(-2) = -3\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-EX-p49-Q19",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Self-inverse functions are their own inverses. Find three linear functions that are self-inverse.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-15-EX-p49-Q20",
+      "chapter": 1,
+      "section": "1.5",
+      "stem": "Determine the inverse of the inverse of \\(f(x) = 3x + 4\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-16-FU-p51-Q2",
+      "chapter": 1,
+      "section": "1.6",
+      "stem": "The graph of \\(y = \\sqrt{x}\\) opens up (upper half-parabola) and the graph of \\(y = -\\sqrt{x}\\) opens down. How would reflecting each of the following graphs in the \\(x\\)-axis change the graph?\n\na) \\(y = \\sqrt{x}\\)\n\nb) \\(y = |x|\\)\n\nc) \\(y = \\dfrac{1}{x}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-16-FU-p51-Q3",
+      "chapter": 1,
+      "section": "1.6",
+      "stem": "The graph of \\(y = 2x\\) is steeper than the graph of \\(y = x\\). How do the following graphs compare?\n\na) \\(y = 2\\sqrt{x}\\) and \\(y = \\sqrt{x}\\)\n\nb) \\(y = 2|x|\\) and \\(y = |x|\\)\n\nc) \\(y = \\dfrac{2}{x}\\) and \\(y = \\dfrac{1}{x}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-16-FU-p51-Q4",
+      "chapter": 1,
+      "section": "1.6",
+      "stem": "Experiment with each of the parent functions to create patterns on a graphing calculator. Record interesting equations and sketches.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-CK-p58-Q2",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "For each function, identify the parent function and describe how the graph of the function can be obtained from the graph of the parent function. Then sketch both graphs on the same set of axes.\n\na) \\(y = |0.5x|\\)\n\nb) \\(y = \\left(\\dfrac{1}{4}x\\right)^{2}\\)\n\nc) \\(y = \\sqrt{-2x}\\)\n\nd) \\(y = \\dfrac{1}{5x}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p59-Q4",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "Sketch graphs of each pair of transformed functions, along with the graph of the parent function, on the same set of axes. Describe the transformations in words and note any invariant points.\n\na) \\(y = (2x)^{2}\\), \\(y = (5x)^{2}\\)\n\nb) \\(y = \\dfrac{1}{2x}\\), \\(y = \\dfrac{1}{3x}\\)\n\nc) \\(y = \\sqrt{3x}\\), \\(y = \\sqrt{4x}\\)\n\nd) \\(y = |3x|\\), \\(y = |5x|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p59-Q5",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "Sketch graphs of each pair of transformed functions, along with the graph of the parent function, on the same set of axes. Describe the transformations in words and note any invariant points.\n\na) \\(y = (-2x)^{2}\\), \\(y = (-5x)^{2}\\)\n\nb) \\(y = \\dfrac{1}{-2x}\\), \\(y = \\dfrac{1}{-3x}\\)\n\nc) \\(y = \\sqrt{-3x}\\), \\(y = \\sqrt{-4x}\\)\n\nd) \\(y = |-3x|\\), \\(y = |-5x|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p59-Q6",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "Sketch graphs of each pair of transformed functions, along with the graph of the parent function, on the same set of axes. Describe the transformations in words and note any invariant points.\n\na) \\(y = \\left(\\dfrac{1}{2}x\\right)^{2}\\), \\(y = \\left(\\dfrac{1}{3}x\\right)^{2}\\)\n\nb) \\(y = \\dfrac{1}{\\frac{1}{2}x}\\), \\(y = \\dfrac{1}{\\frac{1}{4}x}\\)\n\nc) \\(y = \\sqrt{\\dfrac{1}{2}x}\\), \\(y = \\sqrt{\\dfrac{1}{3}x}\\)\n\nd) \\(y = \\left|\\dfrac{1}{3}x\\right|\\), \\(y = \\left|\\dfrac{1}{5}x\\right|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p59-Q7",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "Sketch graphs of each pair of transformed functions, along with the graph of the parent function, on the same set of axes. Describe the transformations in words and note any invariant points.\n\na) \\(y = \\left(-\\dfrac{1}{2}x\\right)^{2}\\), \\(y = \\left(-\\dfrac{1}{3}x\\right)^{2}\\)\n\nb) \\(y = \\dfrac{1}{-\\frac{1}{2}x}\\), \\(y = \\dfrac{1}{-\\frac{1}{4}x}\\)\n\nc) \\(y = \\sqrt{-\\dfrac{1}{2}x}\\), \\(y = \\sqrt{-\\dfrac{1}{3}x}\\)\n\nd) \\(y = \\left|-\\dfrac{1}{3}x\\right|\\), \\(y = \\left|-\\dfrac{1}{5}x\\right|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p60-Q9",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "When a phone is dropped from a height (ignore air resistance), the time it takes to reach the ground is a function of the height from which it was dropped. An equation for this function is \\(t(h) = \\sqrt{\\dfrac{h}{4.9}}\\), where \\(h\\) is in metres and \\(t\\) is in seconds.\n\na) Describe the domain and range of the function.\n\nb) Sketch the graph by applying a transformation to the graph of \\(t(h) = \\sqrt{h}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p60-Q10",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "For each set of functions, transform the graph of \\(f(x)\\) to sketch \\(g(x)\\) and \\(h(x)\\), and state the domain and range of each function.\n\na) \\(f(x) = x^{2}\\), \\(g(x) = \\left(\\dfrac{1}{4}x\\right)^{2}\\), \\(h(x) = (-4x)^{2}\\)\n\nb) \\(f(x) = \\sqrt{x}\\), \\(g(x) = \\sqrt{\\dfrac{1}{5}x}\\), \\(h(x) = \\sqrt{-5x}\\)\n\nc) \\(f(x) = \\dfrac{1}{x}\\), \\(g(x) = \\dfrac{1}{4x}\\), \\(h(x) = \\dfrac{1}{-\\frac{1}{3}x}\\)\n\nd) \\(f(x) = |x|\\), \\(g(x) = |-2x|\\), \\(h(x) = \\left|\\dfrac{1}{2}x\\right|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p60-Q12",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "A quadratic function has equation \\(f(x) = x^{2} - x - 6\\). Determine the \\(x\\)-intercepts for each function.\n\na) \\(y = f(2x)\\)\n\nb) \\(y = f\\!\\left(\\dfrac{1}{3}x\\right)\\)\n\nc) \\(y = f(-3x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p60-Q13",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "a) Describe how the graph of \\(y = f(kx)\\) can be obtained from the graph of \\(y = f(x)\\). Include examples that show how the transformations vary with the value of \\(k\\).\n\nb) Compare the graph of \\(y = f(kx)\\) with the graph of \\(y = kf(x)\\) for different values of \\(k\\) and different functions \\(f(x)\\). How are the transformations alike? How are they different?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-EX-p60-Q14",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "a) Graph the function \\(y = \\dfrac{1}{x}\\).\n\nb) Apply a horizontal stretch with factor 2.\n\nc) Apply a vertical stretch with factor 2. What do you notice?\n\nd) Write the equations of the functions that result from the transformations in parts (b) and (c). Explain why these equations are the same.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-EX-p60-Q15",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "Suppose you are asked to graph \\(y = f(2x + 4)\\). What two transformations are required? Does the order in which you apply these transformations make a difference? Choose one of the parent functions and investigate. If you get two different results, use a graphing calculator to verify which graph is correct.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-CK-p70-Q2",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Match each operation to one of the transformations from question 1 (labels A–E on the transformation diagram for \\(f(x) = \\sqrt{x}\\) mapped to \\(5f(-3(x-2))+4\\)).\n\nDivide the \\(x\\)-coordinates by 3.\nMultiply the \\(y\\)-coordinates by 5.\nMultiply the \\(x\\)-coordinates by \\(-1\\).\nAdd 4 to the \\(y\\)-coordinate.\nAdd 2 to the \\(x\\)-coordinate.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-CK-p70-Q3",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Complete the table for the point \\((1, 1)\\) under successive transformations toward \\(5f(-3(x-2))+4\\).\n\n\\(f(x)\\)\\(f(3x)\\)\\(f(-3x)\\)\\(5f(-3x)\\)\\(5f(-3(x-2))+4\\)\n(1, 1)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p70-Q4",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Explain what transformations you would need to apply to the graph of \\(y = f(x)\\) to graph each function.\n\na) \\(y = 3f(x) - 1\\)\n\nb) \\(y = f(x - 2) + 3\\)\n\nc) \\(y = f(2x) - 5\\)\n\nd) \\(y = 2f\\!\\left(\\dfrac{1}{2}x\\right) - 2\\)\n\ne) \\(y = \\dfrac{2}{3}f(x + 3) + 1\\)\n\nf) \\(y = 4f(-x) - 4\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p70-Q5",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Sketch each set of functions on the same set of axes.\n\na) \\(y = x^{2}\\), \\(y = 3x^{2}\\), \\(y = 3(x - 2)^{2} + 1\\)\n\nb) \\(y = \\sqrt{x}\\), \\(y = \\sqrt{3x}\\), \\(y = \\sqrt{-3x}\\), \\(y = \\sqrt{-3(x + 1)} - 4\\)\n\nc) \\(y = \\dfrac{1}{x}\\), \\(y = \\dfrac{2}{x}\\), \\(y = -\\dfrac{2}{x}\\), \\(y = -\\dfrac{2}{x} + 3\\)\n\nd) \\(y = |x|\\), \\(y = \\left|\\dfrac{1}{2}x\\right|\\), \\(y = -\\left|\\dfrac{1}{2}x\\right|\\), \\(y = -\\left|\\dfrac{1}{2}(x + 3)\\right| - 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p70-Q6",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Explain what transformations you would need to apply to the graph of \\(y = f(x)\\) to graph each function.\n\na) \\(y = f\\!\\left(\\dfrac{1}{3}(x + 4)\\right)\\)\n\nb) \\(y = 2f(-(x - 3)) + 1\\)\n\nc) \\(y = -3f(2(x - 1)) - 3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q7",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "If \\(f(x) = x^{2}\\), sketch the graph of each function and state the domain and range.\n\na) \\(y = f(x - 2) + 3\\)\n\nb) \\(y = 0.5f(3(x - 4)) - 1\\)\n\nc) \\(y = -2f\\!\\left(\\dfrac{1}{4}(x + 1)\\right) + 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q11",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "For \\(f(x) = x^{2}\\), sketch the graph of \\(g(x) = f(2x + 6)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q13",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "For \\(f(x) = |x|\\), sketch the graph of \\(p(x) = f(4x + 8)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q14",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Low and high blood pressure can both be dangerous. Clinicians use a special index, \\(P_{d}\\), to measure how far from normal someone’s blood pressure is. In the equation \\(P_{d} = |P - \\overline{P}|\\), \\(P\\) is a person’s systolic blood pressure and \\(\\overline{P}\\) is the normal systolic blood pressure. Sketch the graph of this index. Assume that normal systolic blood pressure is 120 mm(Hg).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q15",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Mei uses the relationship \\(\\text{Time} = \\dfrac{\\text{Distance}}{\\text{Speed}}\\) to plan kayaking trips. Tomorrow Mei plans to kayak 20 km across a calm lake. She wants to graph the relation \\(T(s) = \\dfrac{20}{s}\\) to see how the time, \\(T\\), it will take varies with her kayaking speed, \\(s\\). The next day, she will kayak 15 km up a river that flows at 3 km/h. She will need the graph of \\(T(s) = \\dfrac{15}{s - 3}\\) to plan this trip. Use transformations to sketch both graphs.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q16",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "The graph of \\(g(x) = \\sqrt{x}\\) is reflected across the \\(y\\)-axis, stretched vertically by the factor 3, and then translated 5 units right and 2 units down. Draw the graph of the new function and write its equation.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q17",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "The graph of \\(y = f(x)\\) is reflected in the \\(y\\)-axis, stretched vertically by the factor 3, and then translated up 2 units and 1 unit left. Write the equation of the new function in terms of \\(f\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p73-Q19",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "The function \\(y = f(x)\\) has been transformed to \\(y = af\\!\\left(k(x - d)\\right) + c\\). Determine \\(a\\), \\(k\\), \\(c\\), and \\(d\\); sketch the graph; and state the domain and range for each transformation.\n\na) A vertical stretch by the factor 2, a reflection in the \\(x\\)-axis, and a translation 4 units right are applied to \\(y = \\sqrt{x}\\).\n\nb) A vertical compression by the factor \\(\\dfrac{1}{2}\\), a reflection in the \\(y\\)-axis, a translation 3 units left, and a translation 4 units down are applied to \\(y = \\dfrac{1}{x}\\).\n\nc) A horizontal compression by the factor \\(\\dfrac{1}{3}\\), a vertical stretch by the factor 3, a translation 1 unit right, and a translation 6 units down are applied to \\(y = |x|\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p73-Q20",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "If \\(f(x) = (x - 2)(x + 5)\\), determine the \\(x\\)-intercepts for each function.\n\na) \\(y = f(x)\\)\n\nb) \\(y = f\\!\\left(-\\dfrac{1}{3}x\\right)\\)\n\nc) \\(y = -4f(x)\\)\n\nd) \\(y = f(2(x + 2))\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p73-Q21",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "List the steps you would take to sketch the graph of a function of the form \\(y = af\\!\\left(k(x - d)\\right) + c\\) when \\(f(x)\\) is one of the parent functions you have studied in this chapter. Discuss the roles of \\(a\\), \\(k\\), \\(d\\), and \\(c\\), and the order in which they would be applied.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-EX-p73-Q23",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Compare the graphs and the domains and ranges of \\(f(x) = x^{2}\\) and \\(g(x) = \\sqrt{x}\\). How are they alike? How are they different? Develop a procedure to obtain the graph of \\(g(x)\\) from the graph of \\(f(x)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q6",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "If \\(f(x) = x^{2} - 4x + 3\\), determine the input(s) for \\(x\\) whose output is 8.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q2",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "What rule can you use to determine, from the graph of a relation, whether the relation is a function? Graph each relation and determine which are functions.\n\na) \\(x^{2} + y^{2} = 16\\)\n\nb) \\(y = 4 - 3x\\)\n\nc) \\(y = \\dfrac{1}{x}\\)\n\nd) \\(y = (x - 2)^{2} + 4\\)\n\ne) \\(y = \\sqrt{x}\\)\n\nf) \\(\\{(1, -1), (1, -2), (2, -2)\\}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q9",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "Ibrahim has 540 m of fencing to enclose a rectangular market-garden plot and divide it into three equal sections with fences parallel to one side (as in the textbook diagram).\n\na) Write an equation to express the total area enclosed as a function of the width.\n\nb) Determine the domain and range of this area function.\n\nc) Determine the dimensions that give the maximum area.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q3",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "Sketch the graph of a function whose domain is the set of real numbers and whose range is the set of real numbers less than or equal to 3.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q5",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "a) Graph the function \\(f(x) = -2(x - 3)^{2} + 4\\) and state its domain and range.\n\nb) What does \\(f(1)\\) represent on the graph? Indicate, on the graph, how you would find \\(f(1)\\).\n\nc) Use the equation to determine each of the following.\n\ni) \\(f(3) - f(2)\\)\n\nii) \\(2f(5) + 7\\)\n\niii) \\(f(1 - x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q11",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "For an online fundraiser, a community nonprofit expects to receive $15 000 from corporate sponsors plus $30 from each person who registers.\n\na) Write a function for the total income in terms of the number of people who register.\n\nb) State the domain and range of this function in the context of the problem.\n\nc) Determine the inverse function and its domain. What does the inverse represent?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q15",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "The point \\((1, 4)\\) is on the graph of \\(y = f(x)\\). Determine the coordinates of the image of this point on the graph of \\(y = 3f\\!\\left[-\\dfrac{1}{4}(x + 1)\\right] - 2\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q16",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "a) Explain what you would need to do to the graph of \\(y = f(x)\\) to graph the function \\(y = -2f\\!\\left(\\dfrac{1}{3}x + 4\\right) - 1\\).\n\nb) Graph the function in part (a) for \\(f(x) = x^{2}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q17",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "In each case, write the equation for the transformed function, sketch its graph, and state its domain and range.\n\na) The graph of \\(f(x) = \\sqrt{x}\\) is compressed horizontally by the factor \\(\\dfrac{1}{2}\\), reflected in the \\(y\\)-axis, and translated 3 units right and 2 units down.\n\nb) The graph of \\(y = \\dfrac{1}{x}\\) is stretched vertically by the factor 3, reflected in the \\(x\\)-axis, and translated 4 units left and 1 unit up.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q18",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "If \\(f(x) = (x - 4)(x + 3)\\), determine the \\(x\\)-intercepts of each function.\n\na) \\(y = f(x)\\)\n\nb) \\(y = -2f(x)\\)\n\nc) \\(y = f\\!\\left(-\\dfrac{1}{2}x\\right)\\)\n\nd) \\(y = f\\!\\left(2(x + 1)\\right)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q19",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "A function \\(f(x)\\) has domain \\(\\{x \\in \\mathbb{R} \\mid x \\ge -4\\}\\) and range \\(\\{y \\in \\mathbb{R} \\mid y \\le -1\\}\\). Determine the domain and range of each function.\n\na) \\(y = 2f(x)\\)\n\nb) \\(y = f(-x)\\)\n\nc) \\(y = 3f(x + 1) + 4\\)\n\nd) \\(y = -2f(2x + 5) + 1\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q13",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "For each set of functions, transform the graph of \\(f(x)\\) to sketch \\(g(x)\\) and \\(h(x)\\), and state the domain and range of each function.\n\na) \\(f(x) = x^{2}\\), \\(g(x) = \\left(\\dfrac{1}{2}x\\right)^{2}\\), \\(h(x) = (-2x)^{2}\\)\n\nb) \\(f(x) = |x|\\), \\(g(x) = |-4x|\\), \\(h(x) = \\left|\\dfrac{1}{4}x\\right|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q3",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "Determine the domain and range of each function. Show your steps.\n\na) \\(f(x) = \\dfrac{1}{x - 2}\\)\n\nb) \\(f(x) = \\sqrt{3 - x} - 4\\)\n\nc) \\(f(x) = -2|x + 1| + 3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q4",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "Explain what the term inverse means in relation to a linear function. How are the domain and range of a linear function related to the domain and range of its inverse?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q5",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "For each function, determine the inverse, sketch the graphs of the function and its inverse, and state the domain and range of both the function and its inverse.\n\na) \\(\\left\\{(-2, 3), (0, 5), (2, 6), (4, 8)\\right\\}\\)\n\nb) \\(f(x) = 3 - 4x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q6",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "At Nova Thread, an online clothing boutique, Amara is paid a monthly salary of $1500, plus 4% commission on sales over $2500.\n\na) Explain why total pay is a function of sales.\n\nb) Write a function for her total pay in terms of sales \\(x\\) (for \\(x \\ge 2500\\)).\n\nc) State a reasonable domain and range.\n\nd) Determine the inverse function.\n\ne) Evaluate the inverse at $1740 and interpret.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q7",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "The function \\(y = f(x)\\) has been transformed to \\(y = f(kx)\\). Determine the value of \\(k\\) for each transformation.\n\na) a horizontal stretch by the factor 5\n\nb) a horizontal compression by the factor \\(\\dfrac{1}{3}\\) and a reflection in the \\(y\\)-axis",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q8",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "The function \\(y = f(x)\\) has been transformed to \\(y = af\\!\\left(k(x - d)\\right) + c\\). Determine \\(a\\), \\(k\\), \\(d\\), and \\(c\\); write the equation; sketch the graph; and state the domain and range of each transformed function.\n\na) vertical compression by the factor \\(\\dfrac{1}{2}\\), reflection in the \\(y\\)-axis, and translation 2 units right, applied to \\(y = \\sqrt{x}\\)\n\nb) vertical stretch by the factor 4, reflection in the \\(x\\)-axis, translation 2 units left, and translation 3 units down, applied to \\(y = \\dfrac{1}{x}\\)\n\nc) horizontal compression by the factor \\(\\dfrac{1}{4}\\), vertical stretch by the factor \\(\\dfrac{3}{2}\\), reflection in the \\(x\\)-axis, translation 3 units right, and translation 2 units down, applied to \\(y = |x|\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-GS-p2-Q3",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Solve each linear equation.\n\na) \\(5x - 8 = 7\\)\n\nb) \\(-2(x - 3) = 2(1 - 2x)\\)\n\nc) \\(\\dfrac{5}{6}y - \\dfrac{3}{4}y = -3\\)\n\nd) \\(\\dfrac{x - 2}{4} = \\dfrac{2x + 1}{3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1GettingStarted-AW-p3-QA",
+      "chapter": 1,
+      "section": "1.Getting Started",
+      "stem": "Fencing a Vegetable Plot. Fatima has 600 m of fencing for a vegetable plot. A creek that runs through the property will form one side of the rectangular boundary. Fatima considers different widths to maximize the area enclosed.\n\nHow are the length and area of the field related to its width?\n\nA. What are the minimum and maximum values of the width of the field?\n\nB. What equations describe each?\n\ni) the relationship between the length and width of the field\n\nii) the relationship between the area and width of the field\n\nC. Copy and complete a table of values for widths that go from the least to the greatest possible values in intervals of 50 m. Columns: Width (m), Length (m), Area (m\\(^{2}\\)).\n\nD. Graph width vs length. Describe the graph. What type of relationship is this?\n\nE. Graph width vs area. Describe the graph. What type of relationship is this?\n\nF. How could you have used the table of values to determine the types of relationships in parts D and E?\n\nG. How could you have used the equations from part B to determine the types of relationships in parts D and E?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "APPLYING What You Know"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1MidChapterReview-MCR-p40-Q6",
+      "chapter": 1,
+      "section": "1.Mid-Chapter Review",
+      "stem": "Determine the domain and range of each relation in Mid-Chapter Review question 1:\n\na) \\(\\left\\{(1, 2), (2, 3), (2, 4), (4, 5)\\right\\}\\)\n\nb)–d) the mapping diagrams/graphs on page 40\n\ne) \\(y = 2(x - 3)^{2} + 5\\)\n\nf) \\(y = \\sqrt{x - 4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p59-Q3",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "The point \\((3, 4)\\) is on the graph of \\(y = f(x)\\). State the coordinates of the image of this point on each graph.\n\na) \\(y = f(2x)\\)\n\nb) \\(y = f(0.5x)\\)\n\nc) \\(y = f\\!\\left(\\dfrac{1}{3}x\\right)\\)\n\nd) \\(y = f(-4x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-17-PR-p60-Q11",
+      "chapter": 1,
+      "section": "1.7",
+      "stem": "The function \\(y = f(x)\\) has been transformed to \\(y = f(kx)\\). Determine the value of \\(k\\) for each transformation.\n\na) a horizontal stretch by the factor 4\n\nb) a horizontal compression by the factor \\(\\dfrac{1}{2}\\)\n\nc) a reflection in the \\(y\\)-axis\n\nd) a horizontal compression by the factor \\(\\dfrac{1}{5}\\) and a reflection in the \\(y\\)-axis",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q8",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "If \\(f(x) = \\sqrt{x}\\), sketch the graph of each function and state the domain and range.\n\na) \\(y = f(x - 1) + 4\\)\n\nb) \\(y = -2f(2(x - 2)) + 1\\)\n\nc) \\(y = f\\!\\left(-\\dfrac{1}{2}(x + 4)\\right) - 3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q9",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "If \\(f(x) = |x|\\), sketch the graph of each function and state the domain and range.\n\na) \\(y = 2f(x - 3)\\)\n\nb) \\(y = -\\dfrac{1}{2}f(3(x + 2)) + 4\\)\n\nc) \\(y = 4f(-(x - 1)) - 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q10",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "Describe the transformations that you would apply to the graph of \\(f(x) = \\dfrac{1}{x}\\) to transform it into each of these graphs.\n\na) \\(y = \\dfrac{1}{x - 2}\\)\n\nb) \\(y = 0.5\\cdot\\dfrac{1}{x}\\)\n\nc) \\(y = \\dfrac{2}{x}\\)\n\nd) \\(y = \\dfrac{1}{x + 2}\\)\n\ne) \\(y = -\\dfrac{1}{x}\\)\n\nf) \\(y = -\\dfrac{2}{x}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-18-PR-p71-Q12",
+      "chapter": 1,
+      "section": "1.8",
+      "stem": "For \\(f(x) = \\sqrt{x}\\), sketch the graph of \\(h(x) = f(-3x - 12)\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.8",
+        "A1.9"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q4",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "If \\(f(x) = x^{2} + 3x - 5\\) and \\(g(x) = 2x - 3\\), determine each.\n\na) \\(f(-1)\\)\n\nb) \\(f(2b)\\)\n\nc) \\(f(0)\\)\n\nd) \\(g\\!\\left(\\dfrac{1}{2}\\right)\\)\n\ne) \\(g(1 - 4a)\\)\n\nf) \\(x\\) when \\(f(x) = g(x)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q7",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "A ball is tossed upward from the rooftop of a 60 m apartment building. The ball reaches a height of 80 m above the ground after 2 s and hits the ground 6 s after being thrown.\n\na) Sketch a graph that shows the height of the ball as a function of time.\n\nb) State the domain and range of the function.\n\nc) Determine an equation for the function.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p76-Q8",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "State the domain and range of each function.\n\na) \\(f(x) = 2(x - 1)^{2} + 3\\)\n\nb) \\(f(x) = \\sqrt{2x + 4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q10",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "Using the functions listed as examples, describe three methods for determining the inverse of a linear function. Use a different method for each function.\n\na) \\(f(x) = 2x - 5\\)\n\nb) \\(f(x) = x + 3\\)\n\nc) \\(f(x) = 4 - \\dfrac{1}{2}x\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterReview-CR-p77-Q14",
+      "chapter": 1,
+      "section": "1.Chapter Review",
+      "stem": "Three transformations are applied to \\(y = x^{2}\\): a vertical stretch by the factor 2, a translation 3 units right, and a translation 4 units down.\n\na) Is the order of the transformations important?\n\nb) Is there any other sequence of these transformations that could produce the same result?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-1ChapterSelfTest-ST-p78-Q2",
+      "chapter": 1,
+      "section": "1.Chapter Self-Test",
+      "stem": "A basic household light bulb costs $0.65 to buy and $0.004/h for electricity to run. An energy-efficient fluorescent bulb costs $3.50 to buy and $0.001/h to run.\n\na) Use function notation to write a cost equation for each type of bulb.\n\nb) State the domain and range of each function.\n\nc) After how long is the fluorescent bulb cheaper than the basic bulb?\n\nd) Determine the difference in costs after one year. Assume the light is on for an average of 6 h/day.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C1-12-PR-p23-Q10",
+      "chapter": 1,
+      "section": "1.2",
+      "stem": "The graph shows \\(f(x) = 2(x - 3)^2 - 1\\).\n\na) Evaluate \\(f(-2)\\).\n\nb) What does \\(f(-2)\\) represent on the graph of \\(f\\)?\n\nc) State the domain and range of the relation.\n\nd) How do you know that \\(f\\) is a function from its graph?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch1/p033_q10_1.2_1.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-CK-p160-Q1",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "1. Each set of ordered pairs defines a parabola. Graph the relation and\n\nits inverse.\n\na) 0), (1, 3), (2, 12), (3,\n\n24), (22, 1), (21, 4), (0, 5), (1, 4), (2, 1), (3,\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-CK-p160-Q2",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "2. Given the graph of f (x), graph the inverse relation.\n\na) y b) y\n\n6 x\n\n4 - 8 !6 - 4 !2 2 - 2\n\nx !4 - 6 !4 - 2 - 4 6 - 6\n\n!2 - 8\n\n(x) 2x2",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p170_q2_3.3_1.png",
+        "nelson_assets/ch3/p170_q2_3.3_2.png"
+      ],
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-CK-p160-Q3",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "3. Given \\(f = 2 1\\), determine the equation of the inverse.\n\n160 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "CHECK Your Understanding",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q4",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "4. 5 - 2!x 2 $\n\n(3) 21(x) 21(5) 21(2a 7)\n\na) f b) f c) f d) f 1",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q5",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "5. a) Sketch the graph of \\(f (x) = 3(x - 2)2 - 2.\\)\n\nb) Sketch the graph of its inverse on the same axes.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q6",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "6. a) Graph \\(g(x) = for x $ 0.\\)\n\nb) Graph its inverse on the same axes.\n\nState the domain and range of g21(x).\n\nc)\n\ng21(x).\n\nd) Determine the equation for",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q7",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "7. Given \\(f (x) = 2(x + 1)2 - 3 for x $ 21\\), determine the equation for\n\nK f 21(x). Graph the function and its inverse on the same axes.\n\nGiven f (x) 2(x 5)2 3, find the equation for f 21(x) for the part of\n\nthe function where x 5. Use a graphing calculator to graph f 21(x).\n\n#",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q9",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "9. For 22 x 3 and f (x) 3x - 6x, determine\n\n, , 5 2\n\na) the domain and range of f (x)\n\nthe equation of f 21(x) if f (x) is further restricted to 1 x 3\n\nb) , ,",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q10",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "10. The height of a ball thrown from a balcony can be modelled by the function\n\nA \\(h(t) = 25t2 + 10t 1 35\\), where h(t) is the height above the ground, in\n\nmetres, at time t seconds after it is thrown.\n\nh(t)\n\na) Write in vertex form.\n\nb) Determine the domain and range of h(t).\n\nDetermine the model that describes time in terms of the height.\n\nc)\n\nd) What are the domain and range of the new model?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p161-Q11",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "11. The height of a golf ball after Lori Kane hits it is shown in the table.\n\nTime (s) 0 0.5 + 1.5 - 2.5\n\nHeight (m) 0 12.375 22.5 30.375 36.0 39.375\n\na) Use first and second differences to extend the table.\n\nb) Graph the data and a curve of good fit for the relationship.\n\nc) Graph the inverse relation and its curve of good fit.\n\nd) Is the inverse a function? Explain.\n\nConsider f (x) 22x - 3x 1.\n\nT a) Determine the vertex of the parabola.\n\nb) Graph f (x).\n\n21(x)\n\nc) Graph f for y $ 0.75.\n\nd) Determine the domain and range of f 21(x) for y $ 0.75.\n\ne) Why were the values of x restricted in parts (c) and (d)?\n\nQuadratic Functions 161",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p171_q11_3.3_1.png",
+        "nelson_assets/ch3/p171_q11_3.3_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p162-Q13",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "13. Each graph shows a function f that is a parabola or a branch of a parabola.\n\na) y c) y\n\n4 6 - 4\n\nx\n\nx - 4 6 8\n\n–2 –6 –4 –2 2\n\n–2\n\n–4\n\n–4\n\n–6\n\nb) y d) y\n\n6 8\n\n4 6 - 4\n\nx\n\n–4 –2 - 4 6 2\n\n–2\n\nx\n\n–6 –4 –2 - 4\n\n–4\n\n–2\n\ni) Determine f (x).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "image_paths": [
+        "nelson_assets/ch3/p172_q13_3.3_1.png",
+        "nelson_assets/ch3/p172_q13_3.3_2.png"
+      ],
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p162-Q21",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "21.\n\nii) Graph f\n\niii) State restrictions on the domain or range of f to make its inverse a function.\n\niv) Determine the equation(s) for f 21.\n\n5 6,",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p162-Q14",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "14. What must happen for the inverse of a quadratic function defined over all the\n\nreal numbers also to be a function?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-PR-p162-Q15",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "15. a) If you are given a quadratic function in standard form, explain how you\n\nC\n\ncould determine the equation of its inverse.\n\nb) If the domain of the quadratic function is x [ R will its inverse be a\n\nfunction? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C3-33-EX-p162-Q16",
+      "chapter": 3,
+      "section": "3.3",
+      "stem": "16. A meat department manager discovers that she can sell kilograms of\n\nground beef in a week, where \\(m(x) = 14 700 - 3040x\\), if she sells it at x\n\ndollars per kilogram. She pays her supplier $3.21/kg for the beef.\n\na) Determine an algebraic expression for P(x), where P(x) represents the\n\ntotal profit in dollars for 1 week.\n\nb) Find the equation for the inverse relation. Interpret its meaning.\n\nc) Write an expression in function notation to represent the price that will\n\nearn $1900 in profit. Evaluate and explain.\n\nd) Determine the price that will maximize profit.\n\ne) The supply cost drops to $3.10/kg. What price should the manager set?\n\nHow much profit will be earned at this price?\n\nYou are given the relation x 4 4y y^2.\n\na) Graph the relation.\n\nb) Determine the domain and range of the relation.\n\nc) Determine the equation of the inverse.\n\nd) Is the inverse a function? Explain.\n\n162 Chapter 3",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.6",
+        "A1.7"
+      ],
+      "verified": false,
+      "exercise_block": "Extending",
+      "verified_note": "legacy_ch1_3_no_verified_inclusion_column"
+    }
+  ]
+}

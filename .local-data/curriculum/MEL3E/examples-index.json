@@ -1,0 +1,323 @@
+{
+  "course_code": "MEL3E",
+  "course_title": "Mathematics for Work and Everyday Life, Grade 11, Workplace Preparation",
+  "wording_source": "Local dump MEL3E-specific-expectations.md/.json (prefer newer Drive Doc id 1VA3f5SXoPg6HI5uBspS7xdtbIgU3ceEkNuyV3BrLLFI). Source: math1112currb (Ontario Curriculum Grades 11 and 12 Mathematics); pages 79-86. Extracted Sample problem: lines and (e.g.,)/[e.g.,] inners plus dump examples arrays. Nothing invented.",
+  "drive_specific_expectations_doc_id": "1VA3f5SXoPg6HI5uBspS7xdtbIgU3ceEkNuyV3BrLLFI",
+  "drive_course_folder_id": "1ie5PdcQkLEO30NKrso3Xd7GMyKfYSzLM",
+  "local_source_md": ".local-data/curriculum/MEL3E/MEL3E-specific-expectations.md",
+  "local_source_json": ".local-data/curriculum/MEL3E/MEL3E-specific-expectations.json",
+  "counts": {
+    "specifics": 48,
+    "with_examples": 40,
+    "empty": 8
+  },
+  "specifics": [
+    {
+      "code": "A1.1",
+      "examples": [
+        "salary, benefits, vacation pay, profit-sharing"
+      ]
+    },
+    {
+      "code": "A1.2",
+      "examples": [
+        "hourly rate, overtime rate, job or project rate, commission, salary, gratuities",
+        "weekly, biweekly, semi-monthly, monthly"
+      ]
+    },
+    {
+      "code": "A1.3",
+      "examples": [
+        "the timing of a major purchase, the scheduling of mortgage payments and other bill payments"
+      ]
+    },
+    {
+      "code": "A1.4",
+      "examples": [
+        "calculator, spreadsheet",
+        "Two sales positions are available in sportswear stores. One pays an hourly rate of $11.25 for 40 h per week. The other pays a weekly salary of $375 for the same number of hours, plus a commission of 5% of sales. Under what conditions would each position be the better choice?"
+      ]
+    },
+    {
+      "code": "A2.1",
+      "examples": [
+        "contributions to pension plans other than CPP; union dues; charitable donations; benefit-plan contributions"
+      ]
+    },
+    {
+      "code": "A2.2",
+      "examples": [
+        "federal tax tables",
+        "$15 000, $20 000, $25 000",
+        "Compare the percentage of total earnings deducted through government payroll deductions for total earnings of $15 000 and $45 000."
+      ]
+    },
+    {
+      "code": "A2.3",
+      "examples": []
+    },
+    {
+      "code": "A2.4",
+      "examples": []
+    },
+    {
+      "code": "A3.1",
+      "examples": [
+        "20% off; 1/3 off; buy 3 get 1 free; loyalty rewards; coupons; 0% financing"
+      ]
+    },
+    {
+      "code": "A3.2",
+      "examples": [
+        "estimate 25% off of $38.99 as 25% or 1/4 off of $40, giving a discount of about $10 and a sale price of approximately $30; alternatively, estimate the same sale price as about 3/4 of $40"
+      ]
+    },
+    {
+      "code": "A3.3",
+      "examples": [
+        "estimate the sales tax on most purchases in Ontario by estimating 10% of the purchase price and adding about a third of this estimate, rather than estimating the PST and GST separately",
+        "You purchase three items for $8.99 each and one item for $4.99. Estimate the after-tax total."
+      ]
+    },
+    {
+      "code": "A3.4",
+      "examples": []
+    },
+    {
+      "code": "A3.5",
+      "examples": [
+        "gasoline tax, tire tax"
+      ]
+    },
+    {
+      "code": "A3.6",
+      "examples": [
+        "Estimate the change from the $20 offered to pay a charge of $13.87."
+      ]
+    },
+    {
+      "code": "A3.7",
+      "examples": [
+        "Use currency manipulatives to explain why someone might offer $15.02, rather than $15.00, to pay a charge of $13.87."
+      ]
+    },
+    {
+      "code": "A3.8",
+      "examples": [
+        "Investigate whether or not purchasing larger quantities always results in a lower unit price."
+      ]
+    },
+    {
+      "code": "A3.9",
+      "examples": [
+        "interest costs, exchange rates, shipping and handling costs, customs duty, insurance",
+        "What are the various costs included in the final total for purchasing a digital audio player online from an American source? Using an online calculator, calculate the final cost, and describe how it compares with the cost of the purchase from a major retailer in Ontario."
+      ]
+    },
+    {
+      "code": "A3.10",
+      "examples": [
+        "extra costs, such as shipping costs and transaction fees; quality and quantity of the item; shelf life of the item; method of purchase, such as online versus local",
+        "not having access to a vehicle; living in a remote community; having limited storage space",
+        "I have to take 100 mL of a liquid vitamin supplement every morning. I can buy a 100 mL size for $6.50 or a 500 mL size for $25.00. If the supplement keeps in the refrigerator for only 72 h, investigate which size is the better buy. Explain your reasoning."
+      ]
+    },
+    {
+      "code": "B1.1",
+      "examples": [
+        "savings and chequing accounts, term investments",
+        "cost of cheques, monthly statement fees, early withdrawal penalties",
+        "maintaining a minimum balance in a savings account; paying a monthly flat fee for a package of services"
+      ]
+    },
+    {
+      "code": "B1.2",
+      "examples": [
+        "user fees, annual fees, service charges, interest charges on overdue balances",
+        "loyalty rewards; philanthropic incentives, such as support for Olympic athletes or a Red Cross disaster relief fund"
+      ]
+    },
+    {
+      "code": "B1.3",
+      "examples": [
+        "bank statement, credit card statement, passbook, automated banking machine printout, online banking statement, account activity report",
+        "Examine a credit card statement and a bank statement for one individual, and comment on the individual's financial situation."
+      ]
+    },
+    {
+      "code": "B2.1",
+      "examples": [
+        "calculator, spreadsheet"
+      ]
+    },
+    {
+      "code": "B2.2",
+      "examples": [
+        "Someone deposits $5000 at 4% interest per annum, compounded semi-annually. How much interest accumulates in 3 years?"
+      ]
+    },
+    {
+      "code": "B2.3",
+      "examples": []
+    },
+    {
+      "code": "B2.4",
+      "examples": [
+        "a TVM Solver on a graphing calculator or on a website",
+        "Compare the results at age 40 of making a deposit of $1000 at age 20 or a deposit of $2000 at age 30, if both investments pay 6% interest per annum, compounded monthly."
+      ]
+    },
+    {
+      "code": "B2.5",
+      "examples": []
+    },
+    {
+      "code": "B3.1",
+      "examples": [
+        "Describe ways of minimizing the cost of carrying an outstanding balance on a credit card."
+      ]
+    },
+    {
+      "code": "B3.2",
+      "examples": [
+        "interest rates, flexibility",
+        "eligibility, required collateral",
+        "student loan, car loan, \"no interest\" deferred-payment loan, loan to consolidate debt, loan drawn on a line of credit, payday or bridging loan"
+      ]
+    },
+    {
+      "code": "B3.3",
+      "examples": [
+        "calculator, spreadsheet"
+      ]
+    },
+    {
+      "code": "B3.4",
+      "examples": [
+        "spreadsheet template, online amortization tables"
+      ]
+    },
+    {
+      "code": "B3.5",
+      "examples": [
+        "spreadsheet template, online amortization tables",
+        "monthly, biweekly"
+      ]
+    },
+    {
+      "code": "B3.6",
+      "examples": []
+    },
+    {
+      "code": "B3.7",
+      "examples": [
+        "income, cost of borrowing, availability of an item, need for an item",
+        "having a large existing debt, wanting to pursue an education or training opportunity, needing transportation to a new job, wanting to set up a business"
+      ]
+    },
+    {
+      "code": "C1.1",
+      "examples": [
+        "in the graduated licensing system",
+        "driver training; licensing fees"
+      ]
+    },
+    {
+      "code": "C1.2",
+      "examples": []
+    },
+    {
+      "code": "C1.3",
+      "examples": [
+        "car, motorcycle, snowmobile",
+        "gender, age, driving record, model of vehicle, use of vehicle",
+        "Use automobile insurance websites to investigate the degree to which the type of car and the age and gender of the driver affect insurance rates."
+      ]
+    },
+    {
+      "code": "C1.4",
+      "examples": [
+        "monthly payments, insurance, depreciation, maintenance, miscellaneous expenses",
+        "Compare the costs of buying a new car, leasing the same car, and buying an older model of the same car."
+      ]
+    },
+    {
+      "code": "C1.5",
+      "examples": [
+        "lack of maintenance, careless driving",
+        "legal costs, fines, higher insurance rates, demerit points, loss of driving privileges"
+      ]
+    },
+    {
+      "code": "C1.6",
+      "examples": [
+        "gas consumption, depreciation, insurance, maintenance",
+        "convenience, increased profit",
+        "Your employer pays 35 cents/km for you to use your car for work. Discuss how you would determine whether or not this is fair compensation."
+      ]
+    },
+    {
+      "code": "C1.7",
+      "examples": [
+        "calculator, spreadsheet",
+        "licence fee, insurance",
+        "maintenance, fuel",
+        "The rate at which a car consumes gasoline depends on the speed of the car. Use a given graph of gasoline consumption, in litres per 100 km, versus speed, in kilometres per hour, to determine how much gasoline is used to drive 500 km at speeds of 80 km/h, 100 km/h, and 120 km/h. Use the current price of gasoline to calculate the cost of driving 500 km at each of these speeds."
+      ]
+    },
+    {
+      "code": "C2.1",
+      "examples": [
+        "provincial road map, local street map, Web-based maps",
+        "Compare the driving distances between two points on the same map by two different routes."
+      ]
+    },
+    {
+      "code": "C2.2",
+      "examples": [
+        "distances involved, the purpose of the trip, the time of year, the time of day, probable road conditions, personal priorities"
+      ]
+    },
+    {
+      "code": "C2.3",
+      "examples": [
+        "gasoline, accommodation, food, entertainment, tolls, car rental",
+        "automobile association travel books, travel guides, the Internet"
+      ]
+    },
+    {
+      "code": "C2.4",
+      "examples": [
+        "Determine and justify a cost-effective delivery route for ten deliveries to be made in a given area over two days."
+      ]
+    },
+    {
+      "code": "C3.1",
+      "examples": [
+        "monetary, health, environmental",
+        "to work and/or school",
+        "car, taxi, motorcycle, public transportation, bicycle, walking",
+        "Discuss the impact if 100 students decided to walk the 3-km distance to school instead of taking a school bus."
+      ]
+    },
+    {
+      "code": "C3.2",
+      "examples": [
+        "insurance, extra charges based on distance travelled",
+        "one-way or return, drop-off time and location, age of the driver, required type of driver's licence",
+        "You want to rent a trailer or a truck to help you move to a new apartment. Investigate the costs and describe the conditions that favour each option."
+      ]
+    },
+    {
+      "code": "C3.3",
+      "examples": []
+    },
+    {
+      "code": "C3.4",
+      "examples": [
+        "cost, time, convenience",
+        "Investigate the cost of shipping a computer from Thunder Bay to Windsor by airplane, train, or bus. Describe the conditions that favour each alternative."
+      ]
+    }
+  ]
+}

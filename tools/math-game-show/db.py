@@ -210,7 +210,7 @@ ROUND_TITLES = {
 }
 
 ROUND_KIND_META = {
-    "open": {"title": "Open Question", "bucket": 1, "default_min": 20},
+    "open": {"title": "Open Question Round", "bucket": 1, "default_min": 20},
     "challenge": {"title": "Team Challenge", "bucket": 2, "default_min": 10},
     "formative": {"title": "Formative", "bucket": 3, "default_min": 10},
     "break": {"title": "Break", "bucket": None, "default_min": 5},
@@ -243,9 +243,9 @@ def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
     """Validate and normalize a teacher rounds plan.
 
     Allows any count from 1 through ``MAX_ROUNDS_PLAN``, duplicate kinds, and
-    an optional ``title`` override (required for ``break``). Gradebook buckets
-    stay keyed by kind (``open``→1, ``challenge``→2, ``formative``→3);
-    ``break`` has no bucket.
+    an optional ``title`` override (``break`` defaults to ``Break`` when empty).
+    Gradebook buckets stay keyed by kind (``open``→1, ``challenge``→2,
+    ``formative``→3); ``break`` has no bucket.
 
     Args:
         raw: List of ``{kind, duration_sec|minutes, title?}`` or None for defaults.
@@ -285,10 +285,7 @@ def normalize_rounds_config(raw: Any) -> list[dict[str, Any]]:
             raise ValueError("Round length must be between 1 and 180 minutes")
         title_raw = item.get("title")
         title = str(title_raw).strip() if title_raw is not None else ""
-        if kind == "break":
-            if not title:
-                raise ValueError("Break rounds need a title")
-        elif not title:
+        if not title:
             title = str(meta["title"])
         bucket = meta["bucket"]
         out.append(
@@ -1611,6 +1608,7 @@ class GameShowDB:
                 (int(class_id),),
             ).fetchone()
         round_label = ""
+        round_kind = ""
         if open_game is not None:
             game_status = str(open_game["status"] or "")
             if game_status == "live":
@@ -1651,6 +1649,7 @@ class GameShowDB:
                 game_fields = state.get("game") or {}
                 round_n = int(game_fields.get("round") or 0)
                 title = str(game_fields.get("round_title") or "").strip()
+                round_kind = str(game_fields.get("round_kind") or "").strip().lower()
                 if round_n >= 1 and title:
                     round_label = f"Round {round_n} · {title}"
         me: dict[str, Any] = {
@@ -1672,6 +1671,7 @@ class GameShowDB:
             "show_rank": show_rank,
             "class_id": int(class_id),
             "round_label": round_label,
+            "round_kind": round_kind,
             "me": me,
             "scoreboard": self.scoreboard(class_id),
         }

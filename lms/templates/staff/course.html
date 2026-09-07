@@ -30,11 +30,12 @@
 
     <nav class="tabs course-tabs" id="course-tabs" aria-label="Course sections">
       <button type="button" class="course-tabs-toggle" id="course-tabs-toggle" aria-expanded="false" aria-controls="course-tabs-panel">
-        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
+        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'lesson-slides' %}Lesson Slides{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
         <span class="course-tabs-toggle-icon" aria-hidden="true">☰</span>
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}" class="{{ 'on' if tab == 'live' else '' }}">Run Live Class</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}" class="{{ 'on' if tab == 'lesson-slides' else '' }}">Lesson Slides</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
@@ -44,6 +45,7 @@
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>
       </div>
     </nav>
     <script>
@@ -103,13 +105,6 @@
             <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
             <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
             <input type="hidden" id="ap-valid-date" class="ap-date-input">
-            <p class="hint compact" id="ap-slides-status" hidden>Preparing slides…</p>
-            <p class="row-actions compact" id="ap-slides-actions" hidden>
-              <a class="btn secondary" id="ap-open-slides" href="#" target="_blank" rel="noopener">Open slides</a>
-              <button type="button" class="secondary" id="ap-regenerate-slides">Regenerate slides</button>
-              <a class="btn secondary" id="ap-connect-slides" href="/auth/google/slides">Connect Google Slides</a>
-            </p>
-            <p class="hint compact" id="ap-slides-console-hint">If Google shows <strong>redirect_uri_mismatch</strong>, add this exact URI under the Web client → Authorized redirect URIs, then Save: <code>http://127.0.0.1:8787/auth/google/slides/callback</code></p>
             <div class="track-step-footer">
               <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
               <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
@@ -137,11 +132,6 @@
               <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
               <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
             </div>
-            <p class="hint compact" id="ap-slides-status-att" hidden></p>
-            <p class="row-actions compact" id="ap-slides-actions-att" hidden>
-              <a class="btn secondary" id="ap-open-slides-att" href="#" target="_blank" rel="noopener">Open slides</a>
-              <button type="button" class="secondary" id="ap-regenerate-slides-att">Regenerate slides</button>
-            </p>
           </div>
         </section>
 
@@ -308,7 +298,15 @@
             <div id="ap-break-banner" class="ap-break-banner" hidden></div>
             <div class="ap-score-shell">
               <header class="ap-score-header">
-                <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                <div class="ap-score-header-top">
+                  <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                  <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
+                    <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
+                      <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
+                    </label>
+                    <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
+                  </div>
+                </div>
                 <div class="ap-round-bar">
                   <span id="ap-round-label"></span>
                   <span id="ap-round-clock"></span>
@@ -367,6 +365,52 @@
       <script type="module" src="/static/staff_ap.js"></script>
       <script type="module" src="/static/staff_evidence.js"></script>
     </div>
+    {% elif tab == 'lesson-slides' %}
+    <div class="card lesson-slides-wizard" id="lesson-slides-root" data-class-id="{{ cls.id }}">
+      <h2>Lesson Slides</h2>
+      <p class="hint">Map one live class onto async Lessons, confirm the team challenge, then copy Lesson Theme Template #1 and fill by slide order.</p>
+      <div class="lesson-slides-grid">
+        <label class="field">Module #
+          <input id="ls-module" type="number" min="1" value="1">
+        </label>
+        <label class="field">Live class # in module
+          <input id="ls-live-index" type="number" min="1" value="1">
+        </label>
+        <label class="field">Live classes per module
+          <input id="ls-lives" type="number" min="1" value="4">
+        </label>
+        <label class="field">Weeks per module
+          <input id="ls-weeks" type="number" min="1" value="2">
+        </label>
+        <label class="field">Async keyword
+          <input id="ls-keyword" type="text" value="Lesson">
+        </label>
+      </div>
+      <p class="row-actions compact">
+        <button type="button" id="ls-preview">Preview connected Lessons</button>
+      </p>
+      <p class="hint" id="ls-preview-status">Defaults are M1C1 (module 1, live class 1).</p>
+      <ul id="ls-preview-list"></ul>
+      <p class="hint" id="ls-expect-codes"></p>
+      <label class="field">Team challenge context
+        <textarea id="ls-context" rows="4"></textarea>
+      </label>
+      <label class="field">Team challenge question
+        <textarea id="ls-question" rows="3"></textarea>
+      </label>
+      <label class="field">Speaker notes (context slide)
+        <textarea id="ls-notes" rows="3"></textarea>
+      </label>
+      <p class="hint compact" id="ls-status"></p>
+      <p class="row-actions">
+        <a class="btn secondary" id="ls-connect" href="/auth/google/slides">Connect Google Slides</a>
+        <button type="button" id="ls-build">Build deck</button>
+        <button type="button" class="secondary" id="ls-rebuild" hidden>Rebuild deck</button>
+        <a class="btn secondary" id="ls-open" href="#" target="_blank" rel="noopener" hidden>Open slides</a>
+      </p>
+      <p class="hint compact">Connect lives only on this tab. If Google shows <strong>redirect_uri_mismatch</strong>, add this exact URI under the Web client → Authorized redirect URIs, then Save: <code>http://127.0.0.1:8787/auth/google/slides/callback</code></p>
+    </div>
+    <script type="module" src="/static/staff_lesson_slides.js"></script>
     {% elif tab == 'ap' %}
     <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="0" data-participate="0" data-live-session-id="">
       <nav class="ap-subtabs" aria-label="Attendance and Participation">
@@ -479,11 +523,6 @@
     </div>
     {% elif tab == 'gradebook' %}
     <div id="gradebook-root" data-class-id="{{ cls.id }}">
-      <section class="card grades-panel">
-        <h2>Grades</h2>
-        <p class="hint">Weighted categories (editable later via API). Participation rolls up live-class credits; Exam is a placeholder.</p>
-        <div id="gradebook-weights" class="grade-weights" aria-live="polite"></div>
-      </section>
       <div id="gradebook-error" class="error" hidden></div>
       <div class="sheet-wrap">
         <table class="sheet" id="gradebook-sheet">
@@ -491,6 +530,56 @@
           <tbody></tbody>
         </table>
       </div>
+      <section class="card grades-panel" id="gradebook-scheme">
+        <h2>Grading Scheme</h2>
+        <p class="hint">Course-level weights must add to 100%. Term Mark holds each module’s portfolio rubric — pick a module to edit its rules.</p>
+        <form id="gradebook-scheme-form" class="gb-scheme-form">
+          <h3>Course weights</h3>
+          <div class="gb-scheme-grid">
+            <label class="field">Term
+              <input id="scheme-weight-term" name="term" type="number" min="0" max="100" step="0.5" required>
+            </label>
+            <label class="field">Exam
+              <input id="scheme-weight-exam" name="exam" type="number" min="0" max="100" step="0.5" required>
+            </label>
+            <label class="field">Att &amp; Participation
+              <input id="scheme-weight-participation" name="participation" type="number" min="0" max="100" step="0.5" required>
+            </label>
+          </div>
+          <p id="scheme-weight-sum" class="hint compact" aria-live="polite"></p>
+          <section class="gb-scheme-term" aria-labelledby="scheme-term-heading">
+            <h3 id="scheme-term-heading">Term Mark</h3>
+            <label class="field gb-scheme-module-pick">Module
+              <select id="scheme-term-module" name="module_number">
+                {% for n in range(1, 9) %}
+                <option value="{{ n }}">Module {{ n }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <p id="scheme-term-window" class="hint compact"></p>
+            <h4>Portfolio</h4>
+            <div class="gb-scheme-grid">
+              <label class="field">Min live / office sessions
+                <input id="scheme-term-sessions" name="min_sessions" type="number" min="0" step="1" required>
+              </label>
+              <label class="field">Min Open Question points
+                <input id="scheme-term-r1" name="min_r1" type="number" min="0" step="0.5" required>
+              </label>
+              <label class="field">Min Formative points
+                <input id="scheme-term-r3" name="min_r3" type="number" min="0" step="0.5" required>
+              </label>
+            </div>
+            <label class="gb-scheme-check">
+              <input id="scheme-term-reflections" name="require_reflections" type="checkbox">
+              <span>Require all reflection questions after group activities</span>
+            </label>
+          </section>
+          <div class="row-actions">
+            <button type="submit">Save scheme</button>
+          </div>
+        </form>
+        <p id="gradebook-scheme-status" class="hint compact" hidden></p>
+      </section>
     </div>
     <script type="module" src="/static/staff_gradebook.js"></script>
     {% elif tab == 'expectations' %}
@@ -509,6 +598,45 @@
       <p class="hint">No inherited expectations are on file for this course code yet.</p>
       {% endif %}
     </section>
+    {% elif tab == 'profiles' %}
+    <section class="card ap-profiles-panel" id="ap-profiles-root" data-class-id="{{ cls.id }}">
+      <h2>Open Question action profiles</h2>
+      <p class="hint">Profiles control the action buttons available while scoring Open Question rounds. Changes apply to this course section only.</p>
+      <div id="ap-profiles-error" class="error" hidden></div>
+      <div id="ap-profiles-status" class="hint compact" hidden></div>
+      <div class="ap-profiles-toolbar row-actions compact">
+        <label class="field">Profile
+          <select id="ap-profiles-select"></select>
+        </label>
+        <button type="button" class="secondary" id="ap-profiles-new">New</button>
+        <button type="button" class="secondary" id="ap-profiles-duplicate">Duplicate</button>
+        <button type="button" class="secondary" id="ap-profiles-delete">Delete</button>
+        <button type="button" id="ap-profiles-save">Save</button>
+      </div>
+      <label class="field">Profile name
+        <input type="text" id="ap-profiles-name" maxlength="80">
+      </label>
+      <label class="field ap-profiles-active-check">
+        <input type="checkbox" id="ap-profiles-active"> Use as active scoring profile
+      </label>
+      <div class="sheet-wrap ap-profiles-actions-wrap">
+        <table class="sheet ap-profiles-actions-table" id="ap-profiles-actions">
+          <thead>
+            <tr>
+              <th>Id</th>
+              <th>Label</th>
+              <th>Points</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row-actions compact">
+        <button type="button" class="secondary" id="ap-profiles-add-action">Add action</button>
+      </div>
+    </section>
+    <script type="module" src="/static/staff_ap_profiles.js"></script>
     {% endif %}
   </div>
 </body>

@@ -1,0 +1,75 @@
+{
+  "source": "Ontario Curriculum Grades 11 and 12 Mathematics",
+  "courses": [
+    {
+      "code": "MAP4C",
+      "title": "Foundations for College Mathematics, Grade 12, College Preparation",
+      "specific_count": 59,
+      "overall_count": 11,
+      "pages": "137-148"
+    },
+    {
+      "code": "MBF3C",
+      "title": "Foundations for College Mathematics, Grade 11, College Preparation",
+      "specific_count": 56,
+      "overall_count": 10,
+      "pages": "69-78"
+    },
+    {
+      "code": "MCF3M",
+      "title": "Functions and Applications, Grade 11, University/College Preparation",
+      "specific_count": 51,
+      "overall_count": 9,
+      "pages": "59-68"
+    },
+    {
+      "code": "MCR3U",
+      "title": "Functions, Grade 11, University Preparation",
+      "specific_count": 67,
+      "overall_count": 12,
+      "pages": "45-58"
+    },
+    {
+      "code": "MCT4C",
+      "title": "Mathematics for College Technology, Grade 12, College Preparation",
+      "specific_count": 57,
+      "overall_count": 11,
+      "pages": "125-136"
+    },
+    {
+      "code": "MCV4U",
+      "title": "Calculus and Vectors, Grade 12, University Preparation",
+      "specific_count": 51,
+      "overall_count": 9,
+      "pages": "101-112"
+    },
+    {
+      "code": "MDM4U",
+      "title": "Mathematics of Data Management, Grade 12, University Preparation",
+      "specific_count": 47,
+      "overall_count": 9,
+      "pages": "113-124"
+    },
+    {
+      "code": "MEL3E",
+      "title": "Mathematics for Work and Everyday Life, Grade 11, Workplace Preparation",
+      "specific_count": 47,
+      "overall_count": 9,
+      "pages": "79-86"
+    },
+    {
+      "code": "MEL4E",
+      "title": "Mathematics for Work and Everyday Life, Grade 12, Workplace Preparation",
+      "specific_count": 52,
+      "overall_count": 8,
+      "pages": "149-160"
+    },
+    {
+      "code": "MHF4U",
+      "title": "Advanced Functions, Grade 12, University Preparation",
+      "specific_count": 69,
+      "overall_count": 13,
+      "pages": "87-100"
+    }
+  ]
+}

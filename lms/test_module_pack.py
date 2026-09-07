@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import tempfile
@@ -376,6 +377,66 @@ class ModulePackTests(unittest.TestCase):
         if rel:
             leftover_inst = Path(self.tmp.name) / rel
             self.assertTrue(leftover_inst.exists() or updated["instance_relpath"] == rel)
+
+    def test_stale_busy_status_becomes_error(self) -> None:
+        """A busy install_status.json with an old heartbeat is not perpetual loading."""
+        from modules import PACK_STALE_SECONDS, read_pack_status, write_pack_status
+
+        dest = Path(self.tmp.name) / "stale-lib"
+        dest.mkdir()
+        write_pack_status(
+            dest,
+            stage="ingest",
+            detail="Loading modules, pages, and assessments…",
+        )
+        path = dest / "install_status.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["updated_at"] = payload["updated_at"] - PACK_STALE_SECONDS - 5
+        payload["pid"] = 999999999
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        status = read_pack_status(dest)
+        self.assertEqual(status["stage"], "error")
+        self.assertFalse(status["busy"])
+        self.assertIn("stopped before it finished", status["error"])
+
+    def test_corrupt_imscc_surfaces_teacher_message(self) -> None:
+        """A cartridge whose deflate stream is garbage fails with a clear error."""
+        import zlib
+
+        from modules import (
+            CORRUPT_CARTRIDGE_MESSAGE,
+            explain_pack_exception,
+            install_uploaded_module_pack,
+        )
+
+        self.assertEqual(
+            explain_pack_exception(
+                zlib.error("Error -3 while decompressing data: invalid lengths set")
+            ),
+            CORRUPT_CARTRIDGE_MESSAGE,
+        )
+        dest = Path(self.tmp.name) / "bad-lib"
+        dest.mkdir()
+        (dest / "course.imscc").write_bytes(_scrambled_imscc_bytes())
+        result = install_uploaded_module_pack(dest / "course.imscc", dest)
+        self.assertFalse(result.get("ok"))
+        self.assertIn("damaged or incomplete", str(result.get("error")))
+
+
+def _scrambled_imscc_bytes() -> bytes:
+    """Valid ZIP directory with a corrupted compressed member payload."""
+    raw = bytearray(_minimal_imscc_bytes())
+    with zipfile.ZipFile(io.BytesIO(bytes(raw))) as archive:
+        info = archive.getinfo("wiki_content/lesson-1.html")
+        start = (
+            info.header_offset
+            + zipfile.sizeFileHeader
+            + len(info.filename)
+            + len(info.extra or b"")
+        )
+    for index in range(start, min(start + 16, len(raw))):
+        raw[index] ^= 0xA5
+    return bytes(raw)
 
 
 def is_template_or_library(path: Path) -> bool:

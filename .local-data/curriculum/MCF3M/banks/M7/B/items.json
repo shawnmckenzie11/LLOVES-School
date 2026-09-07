@@ -1,0 +1,1541 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 7,
+  "strand": "B",
+  "expectation_codes": [],
+  "source": "nelson_functions_11",
+  "items": [
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q1",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate.\n\na) \\(7^2\\)\n\nb) \\(2^5\\)\n\nc) \\((-5)^2\\)\n\nd) \\(10^0\\)\n\ne) \\(100^2\\)\n\nf) \\(2^{-3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q2",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate.\n\na) \\((-3)^2\\)\n\nb) \\((-3)^3\\)\n\nc) \\(-4^2\\)\n\nd) \\((-4)^2\\)\n\ne) \\((-5)^3\\)\n\nf) \\(-5^3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q4",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate.\n\na) \\((3^2)^2\\)\n\nb) \\((7^2)^4\\)\n\nc) \\(\\bigl[(-4)^2\\bigr]^3\\)\n\nd) \\(\\bigl[-(10^2)\\bigr]^3\\)\n\ne) \\(3(2^2)^2\\)\n\nf) \\(-\\bigl[(2^2)^2\\bigr]^0\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q5",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate.\n\na) \\((\\sqrt{49})^2\\)\n\nb) \\(3\\sqrt{64}\\)\n\nc) \\(\\sqrt{4}\\sqrt{16}\\)\n\nd) \\(\\dfrac{\\sqrt{9}}{\\sqrt{81}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q6",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate.\n\na) \\(\\dfrac{5}{8}+\\dfrac{5}{3}\\)\n\nb) \\(\\dfrac{5}{8}-\\dfrac{5}{3}\\)\n\nc) \\(-\\dfrac{4}{3}+\\left(\\dfrac{9}{10}\\div\\dfrac{5}{12}\\right)\\)\n\nd) \\(\\dfrac{1}{5}-\\dfrac{3}{8}\\left(\\dfrac{4}{3}\\right)\\)\n\ne) \\(\\dfrac{7}{8}\\div\\dfrac{2}{3}\\)\n\nf) \\(-\\dfrac{9}{10}\\left(\\dfrac{3}{8}+\\dfrac{7}{3}\\right)\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q7",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Simplify.\n\na) \\(a^2(a^5)\\)\n\nb) \\(b^{12}\\div b^8\\)\n\nc) \\((c^3)^4\\)\n\nd) \\(d(d^6)d^3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q8",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Determine the exponent that makes each equation true.\n\na) \\(9^x=81\\)\n\nb) \\(8^m=256\\)\n\nc) \\((-5)^a=-125\\)\n\nd) \\(-10^r=-100\\,000\\,000\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q9",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Evaluate the following formulas for \\(r=2.5\\) cm and \\(h=4.8\\) cm.\n\na) the volume of a cylinder: \\(V=\\pi r^2 h\\)\n\nb) the volume of a sphere: \\(V=\\dfrac{4}{3}\\pi r^3\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q10",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "For each set of data, calculate the differences. Identify whether or not the data represent a linear or quadratic relationship. Explain.\n\na)\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p212_q10a_table.png",
+        "nelson_assets/ch4/p212_q10b_table.png"
+      ],
+      "exercise_block": "Getting Started"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-41-FU-p216-Q1",
+      "chapter": 4,
+      "section": "4.1",
+      "stem": "A cup of hot cocoa left on a desk in a classroom had its temperature measured once every minute. The graph shows the relationship between the temperature of the cocoa, in degrees Celsius, and time, in minutes.\n\na) What characteristics of this graph are the same as the graph(s) you drew in the ball-bounce experiment?\n\nb) What was the temperature of the cocoa at the start of the experiment?\n\nc) What is the temperature of the classroom?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p216_q1_cocoa.png"
+      ],
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-41-FU-p216-Q2",
+      "chapter": 4,
+      "section": "4.1",
+      "stem": "A folktale tells of a man who helps a king solve a problem. In return, the king offers the man anything he desires. The man asks for one grain of rice on a square of a chessboard and then double the number of grains of rice for each subsequent square.\n\na) Complete the table of values for the first 10 squares.\n\nb) Create a scatter plot of the data in the first two columns.\n\nc) Compare this graph and the first differences of the data with your graphs and data for the ball-bounce experiment.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p216_q2_chess.png",
+        "nelson_assets/ch4/p216_q2_rice_table.png"
+      ],
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-CK-p221-Q1",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Rewrite each expression as an equivalent expression with a positive exponent.\n\na) \\(5^{-4}\\)\n\nb) \\(\\left(-\\dfrac{1}{10}\\right)^{-3}\\)\n\nc) \\(\\dfrac{1}{2^{-4}}\\)\n\nd) \\(-\\left(\\dfrac{6}{5}\\right)^{-3}\\)\n\ne) \\(\\left(\\dfrac{3}{11}\\right)^{-1}\\)\n\nf) \\(\\dfrac{7^{-2}}{8^{-1}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-CK-p221-Q2",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Simplify. Express answers with positive exponents.\n\na) \\(6^{-7}\\times 6^5\\)\n\nb) \\((-10)^8(-10)^{-8}\\)\n\nc) \\(\\dfrac{2^8}{2^{-5}}\\)\n\nd) \\(\\dfrac{11^{-3}}{11^5}\\)\n\ne) \\((-9^4)^{-1}\\)\n\nf) \\(\\bigl[(7^{-3})^{-2}\\bigr]^{-2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-CK-p221-Q3",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Which is the greater power, \\(2^{-5}\\) or \\(\\left(\\dfrac{1}{2}\\right)^{-5}\\)? Explain.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q4",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Simplify, then evaluate each expression. Express answers in rational form.\n\na) \\(2^{-3}(2^7)\\)\n\nb) \\((-8)^3(-8)^{-3}\\)\n\nc) \\(\\dfrac{5^4}{5^6}\\)\n\nd) \\(\\dfrac{3^{-8}}{3^{-6}}\\)\n\ne) \\((4^{-3})^{-1}\\)\n\nf) \\((7^{-1})^2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q5",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Simplify, then evaluate. Express answers in rational form.\n\na) \\(3^3(3^2)^{-1}\\)\n\nb) \\((9\\times 9^{-1})^{-2}\\)\n\nc) \\(\\dfrac{(12^{-1})^3}{12^{-3}}\\)\n\nd) \\(\\dfrac{(5^3)^{-2}}{5^{-6}}\\)\n\ne) \\(\\bigl(3^{-2}(3^3)\\bigr)^{-2}\\)\n\nf) \\(9^7(9^3)^{-2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q6",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Simplify, then evaluate. Express answers in rational form.\n\na) \\(10(10^4)(10^{-2})\\)\n\nb) \\(8(8^2)(8^{-4})\\)\n\nc) \\(\\dfrac{6^{-5}}{(6^2)^{-2}}\\)\n\nd) \\(\\dfrac{4^{-10}}{(4^{-4})^3}\\)\n\ne) \\(2^8\\times\\left(\\dfrac{2^{-5}}{2^6}\\right)\\)\n\nf) \\(13^{-5}\\times\\left(\\dfrac{13^2}{13^8}\\right)^{-1}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q7",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Evaluate. Express answers in rational form.\n\na) \\(16^{-1}-2^{-2}\\)\n\nb) \\((-3)^{-1}+4^0-6^{-1}\\)\n\nc) \\(\\left(\\dfrac{1}{5}\\right)^{-1}+\\left(-\\dfrac{1}{2}\\right)^{-2}\\)\n\nd) \\(5^{-3}+10^{-3}-8(1000^{-1})\\)\n\ne) \\(\\left(-\\dfrac{2}{3}\\right)^{-1}+\\left(\\dfrac{2}{5}\\right)^{-1}\\)\n\nf) \\(3^{-2}-6^{-2}+\\dfrac{3}{2}(-9)^{-1}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q8",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Evaluate. Express answers in rational form.\n\na) \\(5^2(-10)^{-4}\\)\n\nb) \\(16^{-1}(2^5)\\)\n\nc) \\(\\dfrac{12^{-1}}{(-4)^{-1}}\\)\n\nd) \\(\\dfrac{(-9)^{-2}}{(3^{-1})^2}\\)\n\ne) \\((8^{-1})\\left(\\dfrac{2^{-3}}{4^{-1}}\\right)\\)\n\nf) \\(\\dfrac{(-5)^3(-25)^{-1}}{(-5)^{-2}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q9",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Evaluate.\n\na) \\((-4)^{-3}\\)\n\nb) \\((-4)^{-2}\\)\n\nc) \\(-(5)^{-3}\\)\n\nd) \\(-(5)^{-2}\\)\n\ne) \\((-6)^{-3}\\)\n\nf) \\(-(6)^{-2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q10",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Without using your calculator, write the given numbers in order from least to greatest. Explain your thinking.\n\n\\((0.1)^{-1},\\; 4^{-1},\\; 5^{-2},\\; 10^{-1},\\; 3^{-2},\\; 2^{-3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p222-Q11",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Evaluate for \\(x=-2\\), \\(y=3\\), and \\(n=-1\\). Express answers in rational form.\n\na) \\(\\left(\\dfrac{x^n}{y^n}\\right)^n\\)\n\nb) \\((x^2)^n(y^{-2n})x^{-n}\\)\n\nc) \\((x^n+y^n)^{-2n}\\)\n\nd) \\(\\left(\\dfrac{xy^n}{(xy)^{2n}}\\right)^{2n}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p223-Q12",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Kendra, Erik, and Vinh are studying. They wish to evaluate \\(3^{-2}\\times 3\\). Kendra notices errors in each of her friends’ solutions, shown here.\n\na) Explain where each student went wrong.\n\nb) Create a solution that demonstrates the correct steps.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p223_q12_erik_vinh.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p223-Q13",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Evaluate using the laws of exponents.\n\na) \\(2^{3}\\times 4^{-2}\\div 2^{2}\\)\n\nb) \\((2\\times 3)^{-1}\\)\n\nc) \\(\\left(\\dfrac{3^{-1}}{2^{-1}}\\right)^{-2}\\)\n\nd) \\(4^{-1}(4^{2}+4^{0})\\)\n\ne) \\(\\dfrac{2^{5}}{3^{-2}}\\times\\dfrac{3^{-1}}{2^{4}}\\)\n\nf) \\((5^{0}+5^{2})^{-1}\\)\n\ng) \\(\\dfrac{3^{-2}\\times 2^{-3}}{3^{-1}\\times 2^{-2}}\\)\n\nh) \\(\\dfrac{4^{-2}+3^{-1}}{3^{-2}+2^{-3}}\\)\n\ni) \\(\\dfrac{5^{-1}-2^{-2}}{5^{-1}+2^{-2}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p223-Q14",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Find the value of each expression for \\(a=1\\), \\(b=3\\), and \\(c=2\\).\n\na) \\(ac^{c}\\)\n\nb) \\(a^{c}b^{c}\\)\n\nc) \\((ab)^{-c}\\)\n\nd) \\((b\\div c)^{-a}\\)\n\ne) \\((-a\\div b)^{-c}\\)\n\nf) \\((a^{-1}b^{-2})^{c}\\)\n\ng) \\((a^{b}b^{a})^{c}\\)\n\nh) \\([(b)^{-a}]^{-c}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-PR-p223-Q15",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "a) Explain the difference between evaluating \\((-10)^{3}\\) and evaluating \\(10^{-3}\\).\n\nb) Explain the difference between evaluating \\((-10)^{4}\\) and evaluating \\(-10^{4}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-EX-p223-Q16",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Determine the exponent that makes each equation true.\n\na) \\(16^{x}=\\dfrac{1}{16}\\)\n\nb) \\(10^{x}=0.01\\)\n\nc) \\(2^{x}=1\\)\n\nd) \\(2^{n}=0.25\\)\n\ne) \\(25^{n}=\\dfrac{1}{625}\\)\n\nf) \\(12^{n}=\\dfrac{1}{144}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-EX-p223-Q17",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "If \\(10^{2y}=25\\), determine the value of \\(10^{-y}\\), where \\(y>0\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-42-EX-p223-Q18",
+      "chapter": 4,
+      "section": "4.2",
+      "stem": "Simplify.\n\na) \\((x^{2})^{5-r}\\)\n\nb) \\((b^{2m+3m})\\div(b^{m-n})\\)\n\nc) \\((b^{2m+3n})\\div(b^{m-n})\\)\n\nd) \\(x^{3(7-r)}x^{r}\\)\n\ne) \\((a^{10-p})\\left(\\dfrac{1}{a}\\right)^{p}\\)\n\nf) \\(\\left[(3x^{4})^{6-m}\\right]\\left(\\dfrac{1}{x}\\right)^{m}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-CK-p229-Q1",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Write in radical form. Then evaluate without using a calculator.\n\na) \\(49^{1/2}\\)\n\nb) \\(100^{1/2}\\)\n\nc) \\((-125)^{1/3}\\)\n\nd) \\(16^{0.25}\\)\n\ne) \\(81^{1/4}\\)\n\nf) \\((-144)^{0.5}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-CK-p229-Q2",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Write in exponent form, then evaluate. Express answers in rational form.\n\na) \\(\\sqrt[9]{512}\\)\n\nb) \\(\\sqrt[3]{-27}\\)\n\nc) \\(\\sqrt[3]{27^2}\\)\n\nd) \\((\\sqrt[3]{-216})^5\\)\n\ne) \\(\\sqrt[3]{\\dfrac{-32}{243}}\\)\n\nf) \\(\\sqrt[4]{\\left(\\dfrac{16}{81}\\right)^{-1}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-CK-p229-Q3",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Write as a single power.\n\na) \\(8^{2/3}(8^{1/3})\\)\n\nb) \\(8^{2/3}\\div 8^{1/3}\\)\n\nc) \\((-11)^2(-11)^{3/4}\\)\n\nd) \\((7^{5/6})^{-6/5}\\)\n\ne) \\(\\dfrac{9^{-1/5}}{9^{2/3}}\\)\n\nf) \\(10^{-4/5}(10^{1/15})\\div 10^{2/3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p229-Q4",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Simplify.\n\na) \\(\\sqrt{5}\\sqrt{5}\\)\n\nb) \\(\\dfrac{\\sqrt[3]{-16}}{\\sqrt[3]{2}}\\)\n\nc) \\(\\dfrac{\\sqrt{28}\\sqrt{4}}{\\sqrt{7}}\\)\n\nd) \\(\\dfrac{\\sqrt[4]{18}(\\sqrt[4]{9})}{\\sqrt[4]{2}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p229-Q5",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Evaluate.\n\na) \\(49^{1/2}+16^{1/2}\\)\n\nb) \\(27^{2/3}-81^{3/4}\\)\n\nc) \\(16^{3/4}+16^{3/4}-81^{-1/4}\\)\n\nd) \\(128^{-5/7}-16^{0.75}\\)\n\ne) \\(16^{3/2}+16^{-0.5}+8-27^{2/3}\\)\n\nf) \\(81^{1/2}+\\sqrt[3]{8}-32^{4/5}+16^{3/4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p229-Q6",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Write as a single power, then evaluate. Express answers in rational form.\n\na) \\(4^{1/5}(4^{0.3})\\)\n\nb) \\(100^{0.2}(100^{-7/10})\\)\n\nc) \\(\\dfrac{27^{-1}}{27^{-2/3}}\\)\n\nd) \\(\\dfrac{64^{4/3}}{64}\\)\n\ne) \\(\\dfrac{(8^{-2})(8^{2.5})}{(8^6)^{-0.25}}\\)\n\nf) \\(\\dfrac{(16^{-2.5})^{-0.2}}{16^{3/4}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p229-Q7",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Predict the order of these six expressions from lowest to highest value. Check with a calculator. Express answers to three decimal places where needed.\n\na) \\(80.9^{1/4}\\)\n\nb) \\(125^{2/5}\\)\n\nc) \\(\\sqrt{623}\\)\n\nd) \\(17.5^{5/8}\\)\n\ne) \\(21.4^{3/2}\\)\n\nf) \\(\\sqrt[10]{10.24}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q8",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "The volume of a cube is \\(0.015625\\,\\mathrm{m}^3\\). Determine the length of each side.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q10",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Explain why \\((-100)^{0.2}\\) is possible to evaluate while \\((-100)^{0.5}\\) is not.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q11",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Write \\(125^{-2/3}\\) in radical form, then evaluate. Explain each of your steps.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q12",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Evaluate.\n\na) \\(-256^{0.375}\\)\n\nb) \\(15.625^{\\frac{4}{3}}\\)\n\nc) \\(\\sqrt[3]{(-0.027)^{4}}\\)\n\nd) \\((-3.375)^{\\frac{2}{3}}\\)\n\ne) \\(\\sqrt[4]{(0.0016)^{3}}\\)\n\nf) \\((-7776)^{1.6}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q13",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "The power \\(4^3\\) means that 4 is multiplied by itself three times. Explain the meaning of \\(4^{2.5}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q14",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "State whether each expression is true or false.\n\n1 21 + 1 1\n\na) 9 - 1 4 2 = (9 + 4) 2 d) 3 = ab\n\nc ax a 3bay 3b d\n\na1 bb\n\n1 6 + 1 1 + x^2 y^2\n\nb) 9 + 4 = (9 3 4) e) + \\(y = 1 - 2 2 3 + 21 + 1 6\\)\n\nc) f) x2y2\n\n1 = a 1 \\(b = a\\)\n\nm\n\n(22)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-PR-p230-Q15",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "a) What are some values of \\(m\\) and \\(n\\) that would make \\((-2)^{m/n}\\) undefined?\n\nb) What are some values of \\(m\\) and \\(n\\) that would make \\(6^{m/n}\\) undefined?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-EX-p230-Q17",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Extending. Mary must solve \\(1.225=(1+i)^{12}\\) to determine the interest rate \\(i\\) per year. Solve for \\(i\\) and discuss a roots/powers approach.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-43-EX-p230-Q18",
+      "chapter": 4,
+      "section": "4.3",
+      "stem": "Solve.\n\na) \\(\\left(\\dfrac{1}{16}\\right)^{\\frac{1}{4}}-\\sqrt[3]{\\dfrac{8}{27}}=\\sqrt{x^{2}}\\)\n\nb) \\(\\sqrt[3]{\\dfrac{1}{8}}-\\sqrt[4]{x^{4}}+15=\\sqrt[4]{16}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.2"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-CK-p235-Q1",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express each answer with positive exponents.\n\na) \\(x^4(x^3)\\)\n\nb) \\((p^{-3})(p)^5\\)\n\nc) \\(\\dfrac{m^5}{m^{-3}}\\)\n\nd) \\(\\dfrac{a^{-4}}{a^{-2}}\\)\n\ne) \\((y^3)^2\\)\n\nf) \\((k^6)^{-2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-CK-p236-Q2",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express each answer with positive exponents.\n\na) \\(y^{10}(y^{4})^{-3}\\)\n\nb) \\((x^{-3})^{-3}(x^{-1})^{5}\\)\n\nc) \\(\\dfrac{(n^{-4})^{3}}{(n^{-3})^{-4}}\\)\n\nd) \\(\\dfrac{w^{4}(w^{-3})}{(w^{-2})^{-1}}\\)\n\ne) \\(\\dfrac{(x^{-1})^{4}x}{x^{-3}}\\)\n\nf) \\(\\dfrac{(b^{-7})^{2}}{b(b^{-5})b^{9}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-CK-p236-Q3",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Consider the expression \\(\\dfrac{x^5}{y^4}\\).\n\na) Substitute \\(x=-2\\) and \\(y=3\\) into the expression, and evaluate.\n\nb) Complete the remaining CHECK Q3 prompts on printed p.236.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p236-Q4",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express answers with positive exponents.\n\na) \\((pq^{2})^{-1}(p^{3}q^{3})\\)\n\nb) \\(\\left(\\dfrac{x^{3}}{y}\\right)^{-2}\\)\n\nc) \\(\\dfrac{(ab)^{-2}}{b^{5}}\\)\n\nd) \\(\\dfrac{m^{2}n^{2}}{(m^{3}n^{-2})^{2}}\\)\n\ne) \\(\\dfrac{(w^{2}x)^{2}}{(x^{-1})^{2}w^{3}}\\)\n\nf) \\(\\left(\\dfrac{(ab)^{-1}}{a^{2}b^{-3}}\\right)^{-2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p236-Q5",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express answers with positive exponents.\n\na) \\((3xy^{4})^{2}(2x^{2}y)^{3}\\)\n\nb) \\(\\dfrac{(2a^{3})^{2}}{4ab^{2}}\\)\n\nc) \\(\\dfrac{(10x)^{-1}y^{3}}{15x^{3}y^{-3}}\\)\n\nd) \\(\\dfrac{(3m^{4}n^{2})^{2}}{12m^{-2}n^{6}}\\)\n\ne) \\(\\dfrac{p^{-5}(r^{3})^{2}}{(p^{2}r)^{2}(p^{-1})^{2}}\\)\n\nf) \\(\\left(\\dfrac{(x^{3}y)^{-1}(x^{4}y^{3})}{(x^{2}y^{-3})^{-2}}\\right)^{-1}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p236-Q6",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express answers with positive exponents.\n\na) \\((x^{4})^{\\frac{1}{2}}(x^{6})^{-\\frac{1}{3}}\\)\n\nb) \\(\\dfrac{9(c^{8})^{0.5}}{(16c^{12})^{0.25}}\\)\n\nc) \\(\\dfrac{\\sqrt{25m^{-12}}}{\\sqrt{36m^{10}}}\\)\n\nd) \\(\\sqrt[3]{\\dfrac{(10x^{3})^{2}}{(10x^{6})^{-1}}}\\)\n\ne) \\(\\left(\\dfrac{(32x^{5})^{-2}}{(x^{-1})^{10}}\\right)^{0.2}\\)\n\nf) \\(\\dfrac{\\sqrt[10]{1024x^{20}}}{\\sqrt[9]{512x^{27}}}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p236-Q7",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Evaluate each expression. Express answers in rational form with positive\n\nexponents.\n\na) (16x6y4) 2 for \\(x = 2\\), \\(y = 1\\)\n\n(9p22)\n\nb) for \\(p = 3\\)\n\na (7a22b)2b 6p2\n\n(81x4y6)\n\nfor x 10, \\(y = c) = 5\\)\n\n8(x9y3) 3\n\n(25a4)21\n\nd) for \\(a = 11\\), \\(b = 10\\)\n\n236 Chapter 4\n\n(\"10\n\na b",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q8",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Evaluate. Express answers in rational form with positive exponents.\n\n2b)23\"25a4b6\n\na) 000x) 2 for \\(x = 16\\)\n\n(4x3)4 20.5\n\nb) for \\(x = 5\\)\n\nÄ\n\n(x3)6\n\nc) (22a for \\(a = 1\\), \\(b = 2\\)\n\na!64a12\n\n(a1.5)26b\n\n(18m25n2)(32m2n)\n\nd) for \\(m = 10\\), \\(n = 1\\)\n\n4mn23\n\na b a 5 - 243x10b",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q9",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify. Express answers in rational form with positive exponents.\n\na) \\((36m^{4}n^{6})^{0.5}(81m^{12}n^{8})^{0.25}\\)\n\nb) \\(\\left(\\dfrac{(6x^{3})^{2}(6y^{3})}{(9xy)^{6}}\\right)^{-\\frac{1}{3}}\\)\n\nc) \\(\\left(\\dfrac{\\sqrt{64a^{12}}}{(a^{1.5})^{-6}}\\right)^{\\frac{2}{3}}\\)\n\nd) \\(\\left(\\dfrac{(x^{18})^{-\\frac{1}{6}}}{\\sqrt[5]{243x^{10}}}\\right)^{0.5}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q10",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "If \\(M=\\dfrac{(16x^{8}y^{-4})^{\\frac{1}{4}}}{32x^{-2}y^{8}}\\), determine values for \\(x\\) and \\(y\\) so that\n\na) \\(M=1\\)\n\nb) \\(M>1\\)\n\nc) \\(0<M<1\\)\n\nd) \\(M<0\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q11",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "The volume and surface area of a cylinder are given, respectively, by the formulas\n\n\\(V=\\pi r^{2}h\\) and \\(SA=2\\pi rh+2\\pi r^{2}\\).\n\na) Determine an expression, in simplified form, that represents the surface area-to-volume ratio for a cylinder.\n\nb) Calculate the ratio for a radius of \\(0.8\\,\\mathrm{cm}\\) and a height of \\(12\\,\\mathrm{cm}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q12",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "If \\(x=-2\\) and \\(y=3\\), write the three expressions in order from least to greatest.\n\n\\(\\dfrac{y^{-4}(x^{2})^{-3}y^{-3}}{x^{-5}(y^{-4})^{2}},\\quad\\dfrac{x^{-3}(y^{-1})^{-2}}{(x^{-5})(y^{4})},\\quad(y^{-5})(x^{5})^{-2}(y^{2})(x^{-3})^{-4}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-PR-p237-Q13",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "How is simplifying algebraic expressions like simplifying numerical ones? How is it different?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-EX-p237-Q14",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "!\\(x(x2n11) = 3p\\)\n\nSolve this equation for r. Write two versions, one in radical form and one\n\n3!x3n\n\nin exponential form.\n\nDetermine the radius of a sphere with a volume of 256p m3.\n\nb)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-44-EX-p237-Q15",
+      "chapter": 4,
+      "section": "4.4",
+      "stem": "Simplify \\(\\dfrac{\\sqrt{x\\left(x^{2n+1}\\right)}}{\\sqrt[3]{x^{3n}}}\\), \\(x>0\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.5"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q1",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "a 10b a 10b 4 8 a) 2456 7 c) positive exponents. 3(3)6 = b) 980.75 d) 21000)3 5(54) a (7)4b a) d) 4 4 (28)4 + 6 1 24 Evaluate 28 and (28) 3. Explain the difference b) e) 8. 3 (28)5 between the two. (7)2 21 (93)6 a21 2b c) f) Lesson 4.4",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q9",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "<p>Simplify. Express answers with positive exponents.</p>",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q2",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "Evaluate. Express answers in rational form.\n\n(x^2 3)\\(x = (22x5)3\\)\n\na b\n\n422 821 2521 3(521)2 a) d)\n\na) 2 c) + x7 8x10\n\na4 7b a22 b\n\n(n24)n26\n\nb) (4 8)0 522 d) 423\n\n1 - 1\n\nb) e) (3a2)23(9a21)2\n\n(n22)7\n\na22 5b\n\na (2a2b3c)2b",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q3",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "<p>Evaluate. Express answers in rational form. (y^2)6 22 (4r26)(22r2)5 - 23 c) f) y9 (22r)4 a) c) 4 - 81p8 Simplify. Express answers with positive !9p4 exponents.</p>",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q10",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "<p>10. 3 (23)22 x0.5y1.8 2abc3 22 b) d) (23)25 a) &quot;x2y4 d) 6!(8x6)2 x0.3y2.5 4 - 625x8 Lesson 4.3 21 (mn3) a49 81b 2 b) e)</p>",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q4",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "What restrictions are there on the value of \\(x\\) in expressions such as \\(x^{-2}\\)? Are these restrictions the same for the related expressions on printed p.239 Q4?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q5",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "Evaluate. Express answers in rational form. ab3 b a2a4 b (x22y3)2 1 Å a16 b 2 3 - 512 ((2125) 3)23 a) d) 11. Evaluate each expression for a = 2 and b = 3. 5 - 21024 Express values in rational form. 2 9b3(ab)2 b) e) 121 a) 2)322ma1 xb b) = b5 (a2b3)3 a 20.5 3(c)2n23m4(c c) f) 12. Simplify. a) (a1012p)(a2p28) a 3b",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-MCR-p239-Q6",
+      "chapter": 4,
+      "section": "4.Mid-Chapter Review",
+      "stem": "<p>Copy and complete the table. Express values in the 2m (2x b) last column in rational form. c) 3)m (c 2)n Exponential Evaluation m1n Form Radical !121 Form of Expression 1 d) (x",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p239_q6_table.png"
+      ],
+      "exercise_block": "Mid-Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-45-FU-p243-Q1",
+      "chapter": 4,
+      "section": "4.5",
+      "stem": "Use differences to identify the type of function represented by each table of values.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.6",
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p243_q1a_table.png",
+        "nelson_assets/ch4/p243_q1b_table.png",
+        "nelson_assets/ch4/p243_q1c_table.png",
+        "nelson_assets/ch4/p243_q1d_table.png"
+      ],
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-45-FU-p243-Q2",
+      "chapter": 4,
+      "section": "4.5",
+      "stem": "What type of function is represented in each graph? Explain how you know.\n\na)\n\nb)\n\nc)\n\nd)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.6",
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p243_q2a_graph.png",
+        "nelson_assets/ch4/p243_q2b_graph.png",
+        "nelson_assets/ch4/p243_q2c_graph.png",
+        "nelson_assets/ch4/p243_q2d_graph.png"
+      ],
+      "exercise_block": "FURTHER Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-CK-p251-Q1",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "<p>Each of the following are transformations of \\(f = Describe each\\) transformation. a) g(x) 3x 3 c) g(x) 3(3x) = 1 5 x b) \\(g(x) = 3x13 d) g(x) = 3 3\\) 2a1 2b</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-CK-p251-Q2",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "For each transformation, state the base function and then describe the\n\ntransformations in the order they could be applied.\n\na) f (x) 23(4x11) c) h(x) 7(0.5x24) 1 = 5 - 2x\n\nb) \\(g(x) = 1 3 d) k(x) = 53x26\\)\n\nExponential Functions 251",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-CK-p252-Q3",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "State the \\(y\\)-intercept, the equation of the asymptote, and the domain and range for each of these functions:\n\na) the transformed exponential graphs from Check Your Understanding questions 1 and 2 on this page (printed p.252)\n\nNote: Use the graphs/equations from Q1 and Q2 of this Check Your Understanding block.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p252-Q6",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "Compare the functions \\(f(x)=6^x\\) and \\(g(x)=3^{2x}\\).",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p252-Q7",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "A cup of hot liquid was left to cool in a room whose temperature was \\(20^\\circ\\mathrm{C}\\). The temperature changes with time according to the function \\(T(t) = 80\\left(\\dfrac{1}{2}\\right)^{t/30} + 20\\). Use your knowledge of transformations to sketch this function. Explain the meaning of the \\(y\\)-intercept and the asymptote in the context of this problem.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p252-Q8",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "The doubling time for a certain type of yeast cell is 3 h. The number of cells after \\(t\\) hours is described by \\(N(t) = N_0\\, 2^{t/3}\\), where \\(N_0\\) is the initial population.\n\na) How would the graph and the equation change if the doubling time were 9 h?\n\nb) What are the domain and range of this function in the context of this problem?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p252-Q9",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "Match the equation of the functions from the list to the appropriate graph at\n\na1 4b 2a5 4b\n\nthe top of the next page.\n\n2x 2x\n\na) \\(f (x) = 1 3 c) g(x) = 1 3\\)\n\nx x\n\nh(x)\n\nb) \\(y = 1 3 d) = 1 3\\)\n\n252 Chapter 4\n\ni) y iii) y\n\n10 8\n\n8 6\n\n6 4\n\n4 - x\n\nx !8 - 4 4 8 - 8 !4 4 8\n\ny\n\nii) y iv)\n\n10 8\n\n8 6\n\n6 4\n\n4 - x\n\n!5 - 3 !1 + 3 = x\n\n!8 - 4 4 8",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p253-Q10",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "<p>Each graph represents a transformation of the function \\(f (x) = 2x. Write an\\) equation for each one. y a) y b) 8 8 4 4 x x !8 - 4 4 8 - 8 !4 4 8 - 4 !4 - 8 !8</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p253_q10a_graph.png",
+        "nelson_assets/ch4/p253_q10b_graph.png"
+      ],
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-PR-p253-Q11",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "<p>State the transformations necessary (and in the proper order) to transform T \\(f (x) = 2x11 1 = to g(x) = 4(2x).\\)</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-EX-p253-Q12",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "<p>Use your knowledge of transformations to sketch the function 2Q1 3R20.5x11. (x) \\(f = 2 1.\\) 2x12</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-EX-p253-Q13",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "<p>Use your knowledge of transformations to sketch the function 2Q3 2R2x22 2Q9 4R2x11 \\(g(x) = 4 2\\)</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-46-EX-p253-Q14",
+      "chapter": 4,
+      "section": "4.6",
+      "stem": "State the transformations necessary (and in the proper order) to transform\n\nm(x) \\(n(x) = to = 1 2.\\)\n\nExponential Functions 253",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B1.3",
+        "B1.4"
+      ],
+      "verified": true,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-CK-p261-Q1",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "<p>Solve each exponential equation. Express answers to the nearest hundredth of a unit. 250(1.05)10 a) \\(A = b) P = c) 500 = N0(1.25)1.25\\) d) 625 = P(0.71)9</p>",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-CK-p261-Q2",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "<p>Complete the table. Exponential Growth or Function Growth or Decay? Initial Value Decay Rate a) V(t) 20(1.02)t 600a5 8b b) \\(P(n) = (0.8)n\\) c) 0.5(3)x \\(A(x) = w\\) d) Q(w) 5</p",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p261_q2_table.png"
+      ],
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-CK-p261-Q3",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "The growth in population of a small town since 1996 is given by the function\n\n\\(P(n) = 1250(1.03)n.\\)\n\na) What is the initial population? Explain how you know.\n\nb) What is the growth rate? Explain how you know.\n\nc) Determine the population in the year 2007.\n\nd) In which year does the population reach 2000 people?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-CK-p261-Q4",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A computer loses its value each month after it is purchased. Its value as a\n\nfunction of time, in months, is modelled by \\(V(m) = 1500(0.95)m .\\)\n\na) What is the initial value of the computer? Explain how you know.\n\nb) What is the rate of depreciation? Explain how you know.\n\nc) Determine the value of the computer after 2 years.\n\nd) In which month after it is purchased does the computer's worth fall\n\nbelow $900?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "CHECK Your Understanding"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p261-Q5",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "In 1990, a sum of \\(\\$1000\\) is invested at a rate of 6% per year for 15 years.\n\na) What is the growth rate?\n\nb) What is the initial amount?\n\nc) How many growth periods are there?\n\nd) Write an equation that models the growth of the investment, and use it to determine the value after 15 years.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p262-Q6",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A species of bacteria has a population of 500 at noon. It doubles every 10 h. Model: \\(P(t)=500\\cdot 2^{t/10}\\).\n\na) Why is the exponent \\(\\dfrac{t}{10}\\)?\n\nb) Why is the base 2?\n\nc) Why is the multiplier 500?\n\nd) Determine the population at midnight.\n\ne) Determine the population at noon the next day.\n\nf) Determine the time at which the population first exceeds 2000.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p262-Q7",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "Which of these functions describe exponential decay? Explain.\n\na) \\(g(x)=-4(3)^x\\)\n\nb) \\(h(x)=0.8(1.2)^x\\)\n\nc) \\(j(x)=3(0.8)^{2x}\\)\n\nd) \\(k(x)=\\dfrac{1}{3}(0.9)^{x/2}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p262-Q8",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A town with a population of 12 000 has been growing at an average rate of 2.5%. Let \\(P(n)\\) be population (in thousands) \\(n\\) years from now, \\(P(n)=12(1.025)^n\\).\n\na) Determine the population in 10 years.\n\nb) Determine the number of years until the population doubles.\n\nc) Determine how many years ago the population was 8000.\n\nd) What are the domain and range of the function?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p262-Q9",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A student records the internal temperature of a hot sandwich that has been left to cool on a kitchen counter. The room temperature is \\(19^\\circ\\mathrm{C}\\). An equation that models this situation is \\(T(t) = 63(0.5)^{t/10} + 19\\), where \\(T\\) is the temperature in degrees Celsius and \\(t\\) is the time in minutes.\n\na) What was the temperature of the sandwich when she began to record its temperature?\n\nb) Determine the temperature, to the nearest degree, of the sandwich after 20 min.\n\nc) How much time did it take for the sandwich to reach an internal temperature of \\(30^\\circ\\mathrm{C}\\)?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q10",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "In each case, write an equation that models the situation described. Explain what each part of each equation represents. a) the percent of colour left if blue jeans lose 1% of their colour every time they are washed b) the population if a town had 2500 residents in 1990 and grew at a rate of 0.5% each year after that for t years c) the population of a colony if a single bacterium takes 1 day to divide into two; the population is P after t days",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q11",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A population of yeast cells can double in as little as 1 h. Assume an initial population of 80 cells. a) What is the growth rate, in percent per hour, of this colony of yeast cells? b) Write an equation that can be used to determine the population of cells at t hours. c) Use your equation to determine the population after 6 h. d) Use your equation to determine the population after 90 min. e) Approximately how many hours would it take for the population to reach 1 million cells? f) What are the domain and range for this situation?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": false,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q12",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A collector's hockey card is purchased in 1990 for $5. The value increases by\n\n6% every year.\n\na) Write an equation that models the value of the card, given the number of\n\nyears since 1990.\n\nb) Determine the increase in value of the card in the 4th year after\n\nit was purchased (from year 3 to year 4).\n\nc) Determine the increase in value of the card in the 20th year after\n\nit was purchased.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q13",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "Light intensity in a lake falls by 9% per metre of depth relative to the surface.\n\na) Write an equation that models the intensity of light per metre of depth.\n\nAssume that the intensity is 100% at the surface.\n\nb) Determine the intensity of light at a depth of 7.5 m.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q14",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A disinfectant is advertised as being able to kill 99% of all germs with\n\neach application.\n\na) Write an equation that represents the percent of germs left with\n\nn applications.\n\nb) Suppose a kitchen countertop has 10 billion (1010) germs. How many\n\napplications are required to eliminate all of the germs?",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q15",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A town has a population of 8400 in 1990. Fifteen years later, its population grew as described on printed p.263 Q15. Write and use an exponential model to answer the prompts.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-PR-p263-Q16",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "A group of yeast cells grows by 75% every 3 h. At 9 a.m., there are 200 yeast cells. Answer the modelling / evaluation / solve prompts on printed p.263 Q16.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": true,
+      "exercise_block": "PRACTISING"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-47-EX-p264-Q17",
+      "chapter": 4,
+      "section": "4.7",
+      "stem": "17. • Two years later, there were 18 girls (including the first one) with that name. • By 2005, there were 70 girls with the name (National Post, Wed., May 24, 2006, p. A^2). a) Investigate whether or not this is an example of exponential growth. b) Determine what the growth rate might be, and create a possible equation to model the growth in the popularity of this name. c) Discuss any limitations of your model.",
+      "item_type": "constructed",
+      "expectation_codes": [
+        "B2.2",
+        "B2.3"
+      ],
+      "verified": false,
+      "exercise_block": "Extending"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p267-Q5",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "Simplify. Write with only positive exponents.\n\na) \\(a^{3/2}(a^{-3/2})\\)\n\nb) \\(\\dfrac{b^{0.8}}{b^{-0.2}}\\)\n\nc) \\(\\dfrac{c^a c^{5/6}}{c^2}\\)\n\nd) \\(\\dfrac{d^{-5} d^{11/2}}{(d^{-3})^2}\\)\n\ne) \\(\\bigl((e^{-2})^{7/2}\\bigr)^{-2}\\)\n\nf) \\(\\bigl((f^{1/6})^{6/5}\\bigr)^{-1}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p268-Q11",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "For each exponential function, state the base function \\(y = b^x\\). Then state the transformations that map the base function onto the given function. Use transformations to sketch each graph.\n\na) \\(y = \\left(\\dfrac{1}{2}\\right)^{x/2} - 3\\)\n\nb) \\(y = \\dfrac{1}{4}(2)^{-x} + 1\\)\n\nc) \\(y = -2(3)^{2x+4}\\)\n\nd) \\(y = -\\dfrac{1}{10}(5)^{3x-9} + 10\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p268-Q10",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "<p>Identify each type of function (linear, quadratic, or (5)3x29 exponential) from its graph. d) \\(y = 1 10\\) y a)</p>",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p268_q10a_graph.png",
+        "nelson_assets/ch4/p268_q10b_graph.png",
+        "nelson_assets/ch4/p268_q10c_graph.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p268-Q12",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "<p>The exponential function shown has been reflected in the y-axis and translated vertically. State its y-intercept, its asymptote, and a possible equation x for it. !8 - 4 4 8 - 4",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p268_q12_graph.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p269-Q15",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "The value of a car after it is purchased depreciates according to the formula \\(V(n) = 28\\,000(0.875)^n\\), where \\(V(n)\\) is the car’s value in the \\(n\\)th year since it was purchased.\n\na) What is the purchase price of the car?\n\nb) What is the annual rate of depreciation?\n\nc) What is the car’s value at the end of 3 years?\n\nd) What is its value at the end of 30 months?\n\ne) How much value does the car lose in its first year?\n\nf) How much value does it lose in its fifth year?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p269_q15_car.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p269-Q13",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "<p>13. 000(0.875)n \\(V(n) = 28\\) Exponential Initial Growth where V(n) is the car&#x27;s value in the nth year since it Growth or Value (y- or Decay was purchased. Function Decay?",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p269_q13_table.png"
+      ],
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p269-Q14",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "A hot cup of coffee cools according to the equation \\(T(t) = 69\\left(\\dfrac{1}{2}\\right)^{t/30} + 21\\), where \\(T\\) is the temperature in degrees Celsius and \\(t\\) is the time in minutes.\n\na) Which part of the equation indicates that this is an example of exponential decay?\n\nb) What was the initial temperature of the coffee?\n\nc) Use your knowledge of transformations to sketch the graph of this function.\n\nd) Determine the temperature of the coffee, to the nearest degree, after 48 min.\n\ne) Explain how the equation would change if the coffee cooled faster.\n\nf) Explain how the graph would change if the coffee cooled faster.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": false,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-CR-p269-Q16",
+      "chapter": 4,
+      "section": "4.Chapter Review",
+      "stem": "Write the equation that models each situation. In each case, describe each part of your equation.\n\na) the percent of a pond covered by water lilies if they cover one-third of a pond now and each week they increase their coverage by 10%\n\nb) the amount remaining of the radioactive isotope \\(\\mathrm{U}\\text{-}238\\) if it has a half-life of \\(4.5\\times 10^9\\) years\n\nc) the intensity of light if each gel used to change the colour of a spotlight reduces the intensity of the light by 4%",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Review"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q2",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "Evaluate. Express answers as rational numbers.\n\na) \\((-5)^{-3}\\)\n\nb) \\(27^{2/3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q3",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "Simplify. Use only positive exponents in your final answers.\n\na) \\((-3x^2 y)^3(-3x^{-3}y)^2\\)\n\nb) \\(\\dfrac{(5a^{-1}b^2)^{-2}}{125 a^5 b^{-3}}\\)\n\nc) \\(\\sqrt[5]{\\dfrac{1024(x^{-1})^{10}}{(2x^{-3})^5}}\\)\n\nd) \\(\\dfrac{(8x^6 y^{-3})^{1/3}}{(2xy)^3}\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q4",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "A spotlight uses coloured gels for a theatrical production. Each gel reduces the original intensity of the light by 3.6%.\n\na) Write an equation that models intensity \\(I\\) as a function of the number of gels used.\n\nb) Determine the percent of light left if three gels are used.\n\nc) Explain why this is an example of exponential decay.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q5",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "A small country that had 2 million inhabitants in 1990 has grown at 4% per year since then.\n\na) Write an equation that models population \\(P\\) as a function of years \\(n\\) since 1990.\n\nb) Determine when the population will double (assuming the growth rate continues).",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q6",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "Which of these equations correspond to the graph? Explain how you know.\n\na) \\(f(x) = 2(3^{2x}) + 5\\)\n\nb) \\(g(x) = (3^{2x-4}) - 5\\)\n\nc) \\(h(x) = -0.8(3^{x-3})\\)\n\nd) \\(p(x) = \\left(\\dfrac{1}{2}\\right)^x - 2\\)",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p270_q6_graph.png"
+      ],
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-ST-p270-Q7",
+      "chapter": 4,
+      "section": "4.Chapter Self-Test",
+      "stem": "<p>What are the restrictions on the value of n in a if a 0? Explain. n , !8 - 10 270 </p>",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Chapter Self-Test"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-TASK-p271-QA",
+      "chapter": 4,
+      "section": "4.Chapter Task",
+      "stem": "Every two years, the United Nations Population Division prepares estimates and projections of world, regional, and national population size. The estimated population of the world since 1950 is given in the table.\n\nWhat is the equation of the function you could use to model the world’s population?\n\nA. Use the data from the table to create a scatter plot on graph paper.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "image_paths": [
+        "nelson_assets/ch4/p271_task_table.png"
+      ],
+      "exercise_block": "Chapter Task"
+    },
+    {
+      "source": "nelson",
+      "smart_id": "NEL-C4-GS-p212-Q3",
+      "chapter": 4,
+      "section": "4.Getting Started",
+      "stem": "Predict whether the power \\((-5)^{120}\\) will result in a positive or negative answer. Explain how you know.",
+      "item_type": "constructed",
+      "expectation_codes": [],
+      "verified": true,
+      "exercise_block": "Getting Started"
+    }
+  ]
+}

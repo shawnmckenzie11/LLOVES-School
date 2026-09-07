@@ -7,6 +7,8 @@ import json
 import os
 import random
 import urllib.parse
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from functools import wraps
 from typing import Any, Callable
 
@@ -28,13 +30,103 @@ from live_class_constants import (
     SLIDES_SCOPES,
     is_slides_operator_email,
 )
-from school_db import SchoolDB
-from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT
+from school_db import (
+    STAFF_2FA_DAILY,
+    STAFF_2FA_EVERY_SIGN_IN,
+    SchoolDB,
+)
+from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT, public_brand
 from student_portal import (
     bind_student_session,
     clear_student_session_keys,
     next_student_endpoint,
 )
+
+VERIFY_SEND_COOLDOWN_SEC = 15 * 60
+VERIFY_RESEND_COOLDOWN_SEC = 90
+
+
+def _env_flag(name: str) -> bool:
+    """True when an env var is a common truthy string."""
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def privileged_mfa_required() -> bool:
+    """True when env forces email 2SV on every staff/IT sign-in.
+
+    Admin Settings own the usual cadence (default: first login). This flag is
+    an emergency override; ``FLASK_ENV=production`` no longer implies it.
+    """
+    return _env_flag("REQUIRE_PRIVILEGED_MFA")
+
+
+def _toronto_today() -> date:
+    """Calendar date in America/Toronto for daily 2FA windows."""
+    return datetime.now(ZoneInfo("America/Toronto")).date()
+
+
+def _stamp_toronto_date(raw: str | None) -> date | None:
+    """Parse a stored ISO timestamp into an America/Toronto calendar date.
+
+    Args:
+        raw: ``users.last_login_at`` or similar.
+
+    Returns:
+        The school-local date, or None when missing/invalid.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    zone = ZoneInfo("America/Toronto")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=zone)
+    return parsed.astimezone(zone).date()
+
+
+def staff_2fa_challenge_required(user: dict[str, Any]) -> bool:
+    """True when this Google login must complete the Resend email code.
+
+    Args:
+        user: Allowlisted staff/IT row.
+    """
+    if not user.get("verified_at"):
+        return True
+    if privileged_mfa_required():
+        return True
+    mode = school_db().staff_2fa_mode()
+    if mode == STAFF_2FA_EVERY_SIGN_IN:
+        return True
+    if mode == STAFF_2FA_DAILY:
+        last = _stamp_toronto_date(user.get("last_login_at"))
+        return last is None or last < _toronto_today()
+    return False
+
+
+def request_client_ip() -> str:
+    """Best-effort client IP for audit rows (first X-Forwarded-For hop)."""
+    try:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()[:120]
+        return (request.remote_addr or "")[:120]
+    except RuntimeError:
+        return ""
+
+
+def _verification_age_seconds(user: dict[str, Any]) -> float | None:
+    """Seconds since the last verification email was recorded, if known."""
+    raw = user.get("verification_sent_at")
+    if not raw:
+        return None
+    try:
+        sent = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return max(0.0, (datetime.now() - sent).total_seconds())
+
 
 
 def google_client_id() -> str:
@@ -112,8 +204,7 @@ def google_oauth_ready() -> bool:
 def landing_kwargs(**extra: Any) -> dict[str, Any]:
     """Template context for the public landing page."""
     ctx = {
-        "school_name": SCHOOL_NAME,
-        "school_short": SCHOOL_SHORT,
+        **public_brand(),
         "google_client_id": google_client_id() if google_oauth_ready() else "",
         "one_tap_auto": False,
         "student_error": None,
@@ -218,7 +309,20 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
     session["portal"] = portal
     session["display_name"] = user.get("display_name") or user["email"]
     session.permanent = True
-    school_db().record_login(int(user["id"]))
+    db = school_db()
+    db.record_login(int(user["id"]))
+    try:
+        db.record_access_event(
+            action="login.success",
+            resource_type="session",
+            actor_user_id=int(user["id"]),
+            actor_role=str(user.get("role") or portal),
+            tenant_id=db.tenant_id_of(user),
+            resource_id=portal,
+            ip=request_client_ip(),
+        )
+    except Exception:  # noqa: BLE001 - login must not fail if audit write fails
+        pass
 
 
 def begin_pending_2sv(user: dict[str, Any], *, portal: str) -> None:
@@ -357,21 +461,31 @@ def staff_or_student_scoreboard(f: Callable) -> Callable:
     return decorated
 
 
-def _send_first_login_code(user: dict[str, Any]) -> tuple[str, bool]:
+def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tuple[str, bool]:
     """Generate and store a 6-digit code; email it when delivery is configured.
 
     Args:
         user: Allowlisted user row.
+        force: When True (Resend button), mint a new code unless the
+            shorter resend cooldown is still running.
 
     Returns:
-        ``(code, emailed)``. ``emailed`` is True only when Resend or SMTP
-        accepted the message. The code is stored on the user row; production
-        never puts it on the verify page.
+        ``(code, emailed)``. ``emailed`` is True when Resend/SMTP accepted
+        the message, or when an existing code is reused inside the cooldown
+        so the verify page still says to check email. Production never puts
+        the code on the verify page.
     """
+    db = school_db()
+    fresh = db.get_user_by_id(int(user["id"])) or user
+    existing = str(fresh.get("verification_code") or "")
+    age = _verification_age_seconds(fresh)
+    cooldown = VERIFY_RESEND_COOLDOWN_SEC if force else VERIFY_SEND_COOLDOWN_SEC
+    if existing and age is not None and age < cooldown:
+        return existing, True
     code = f"{random.randint(100000, 999999)}"
-    school_db().set_verification_code(int(user["id"]), code)
-    name = user.get("display_name") or user["email"].split("@")[0]
-    emailed = email_service.send_verification_email(user["email"], name, code)
+    db.set_verification_code(int(fresh["id"]), code)
+    name = fresh.get("display_name") or fresh["email"].split("@")[0]
+    emailed = email_service.send_verification_email(fresh["email"], name, code)
     return code, emailed
 
 
@@ -418,7 +532,7 @@ def _finish_google_identity(
     if not user:
         return render_template(
             "forbidden.html",
-            message="This Google account is not registered. Ask IT.",
+            message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
     if user.get("archived_at"):
         session.clear()
@@ -440,10 +554,11 @@ def _finish_google_identity(
     if portal_key == "staff" and user["role"] not in {"staff", "it"} and not is_it:
         return render_template(
             "forbidden.html",
-            message="This Google account is not registered. Ask IT.",
+            message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
 
-    if not user.get("verified_at"):
+    needs_mfa = staff_2fa_challenge_required(user)
+    if needs_mfa:
         _code, emailed = _send_first_login_code(user)
         begin_pending_2sv(user, portal=portal_key)
         return redirect(url_for("verify_email", sent="1" if emailed else "0"))
@@ -514,7 +629,7 @@ def register_auth_routes(app: Flask) -> None:
                 return render_template(
                     "google_auth.html",
                     portal=portal,
-                    school=SCHOOL_SHORT,
+                    school=public_brand()["school_display"],
                     known_accounts=_local_dev_accounts(portal),
                 )
             app.logger.warning(
@@ -523,7 +638,7 @@ def register_auth_routes(app: Flask) -> None:
             return render_template(
                 "google_setup.html",
                 portal=portal,
-                school=SCHOOL_SHORT,
+                school=public_brand()["school_display"],
                 school_name=SCHOOL_NAME,
                 redirect_uri=_google_redirect_uri(),
             ), 503
@@ -638,7 +753,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/verify-email", methods=["GET", "POST"])
     def verify_email():
-        """First-login 6-digit code (skipped on later visits)."""
+        """Email 6-digit code: first login, daily, or every sign-in per Admin Settings."""
         if not session.get("pending_2sv"):
             if current_user():
                 return _post_login_redirect(session.get("portal") or "staff")
@@ -671,6 +786,7 @@ def register_auth_routes(app: Flask) -> None:
         if email_service.show_on_page_verification_code():
             dev_code = user.get("verification_code")
 
+        session_mfa = bool(user.get("verified_at"))
         return render_template(
             "verify.html",
             email=user["email"],
@@ -678,6 +794,8 @@ def register_auth_routes(app: Flask) -> None:
             info=info,
             dev_code=dev_code,
             email_configured=email_service.is_email_delivery_configured(),
+            session_mfa=session_mfa,
+            staff_2fa_mode=school_db().staff_2fa_mode(),
         )
 
     @app.route("/resend-verification", methods=["POST"])
@@ -687,9 +805,9 @@ def register_auth_routes(app: Flask) -> None:
             return redirect(url_for("landing"))
         db = school_db()
         user = db.get_user_by_id(int(session["pending_user_id"]))
-        if not user or user.get("verified_at"):
+        if not user:
             return redirect(url_for("landing"))
-        _code, emailed = _send_first_login_code(user)
+        _code, emailed = _send_first_login_code(user, force=True)
         return redirect(url_for("verify_email", sent="1" if emailed else "0"))
 
     @app.route("/logout")
@@ -951,6 +1069,18 @@ def register_auth_routes(app: Flask) -> None:
             codename=str(student.get("codename") or name),
         )
         db.clear_recent_code_attempts(ip)
+        try:
+            db.record_access_event(
+                action="student.join",
+                resource_type="live_session",
+                actor_role="student",
+                tenant_id=db.tenant_id_of(offering),
+                resource_id=int(live_session["id"]),
+                student_id=int(student["id"]),
+                ip=ip,
+            )
+        except Exception:  # noqa: BLE001 - join must not fail on audit write
+            pass
         attendee = join_result.get("attendee") or {}
         visit_token = str(attendee.get("visit_token") or "")
         bind_student_session(

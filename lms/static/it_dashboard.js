@@ -352,6 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initLiveClassesTab();
   initLiveProblemsTab();
   initQuickPhrasesTab();
+  initPermanentDeleteForms();
 });
 
 /**
@@ -379,11 +380,15 @@ function initPackStatusLines() {
     const tick = async () => {
       try {
         const rv = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!rv.ok) return;
-        const status = await rv.json();
-        paint(status);
-        if (status.busy) window.setTimeout(tick, 700);
-      } catch (_) {}
+        if (rv.ok) {
+          const status = await rv.json();
+          paint(status);
+          if (!status.busy) return;
+        }
+      } catch (_) {
+        /* keep polling through a blip */
+      }
+      window.setTimeout(tick, 700);
     };
     if (cell.dataset.packBusy === "true") tick();
   });
@@ -595,26 +600,79 @@ function initLiveClassesTab() {
 }
 
 /**
+ * Require typing the staff email, then a browser confirm, before permanent delete.
+ */
+function initPermanentDeleteForms() {
+  document.querySelectorAll("form.it-delete-form").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const expected = String(form.dataset.confirmEmail || "")
+        .trim()
+        .toLowerCase();
+      const input = form.querySelector('input[name="confirm_email"]');
+      const typed = String(input?.value || "")
+        .trim()
+        .toLowerCase();
+      if (!expected || typed !== expected) {
+        event.preventDefault();
+        window.alert(
+          "Type the staff email exactly to confirm permanent delete."
+        );
+        input?.focus();
+        return;
+      }
+      const ok = window.confirm(
+        `Permanently delete ${expected}? This cannot be undone.`
+      );
+      if (!ok) event.preventDefault();
+    });
+  });
+}
+
+/**
  * Persist Admin attendance settings from the Settings tab.
  */
 function initSettingsTab() {
   const box = document.getElementById("only-live-class-days");
+  const modeSelect = document.getElementById("staff-2fa-mode");
   const status = document.getElementById("settings-status");
-  if (!box) return;
-  box.addEventListener("change", async () => {
+  if (!box && !modeSelect) return;
+
+  /**
+   * POST Admin settings and show status.
+   * @param {object} payload
+   * @param {() => void} [revert]
+   */
+  async function saveSettings(payload, revert) {
     if (status) status.textContent = "Saving…";
     try {
       const rv = await fetch("/api/it/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ only_live_class_days: box.checked }),
+        body: JSON.stringify(payload),
       });
       const data = await rv.json();
       if (!rv.ok || !data.ok) throw new Error(data.error || "Save failed");
       if (status) status.textContent = "Saved.";
+      return data;
     } catch (err) {
-      box.checked = !box.checked;
+      if (typeof revert === "function") revert();
       if (status) status.textContent = String(err.message || err);
+      return null;
+    }
+  }
+
+  box?.addEventListener("change", async () => {
+    await saveSettings({ only_live_class_days: box.checked }, () => {
+      box.checked = !box.checked;
+    });
+  });
+  modeSelect?.addEventListener("change", async () => {
+    const previous = modeSelect.dataset.saved || "first_login";
+    const data = await saveSettings({ staff_2fa_mode: modeSelect.value }, () => {
+      modeSelect.value = previous;
+    });
+    if (data && data.staff_2fa_mode) {
+      modeSelect.dataset.saved = data.staff_2fa_mode;
     }
   });
 }

@@ -31,6 +31,7 @@ class AuthTests(unittest.TestCase):
             key: os.environ.get(key)
             for key in (
                 "FLASK_ENV",
+                "REQUIRE_PRIVILEGED_MFA",
                 "RESEND_API_KEY",
                 "SMTP_SERVER",
                 "SMTP_USERNAME",
@@ -89,13 +90,52 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
         self.assertIn("Attendance", body)
-        self.assertIn("Live Classes", body)
-        self.assertIn('class="brand-edge"', body)
-        self.assertIn("brand-edge\">Attendance", body)
-        self.assertIn("brand-edge\">Live Classes", body)
+        self.assertIn("Live Lessons", body)
         self.assertIn("Take attendance and log participation", body)
+        self.assertNotIn("alc-logo.png", body)
         self.assertNotIn("Staff Login", body)
         self.assertNotIn(">ELC<", body)
+        self.assertNotIn("What ALC includes", body)
+        self.assertNotIn("I already have an account", body)
+        self.assertNotIn("Built by McKenzian Solutions", body)
+        self.assertNotIn("LLOVES", body)
+        self.assertNotIn("Stripe", body)
+        self.assertNotIn("checkout", body.lower())
+
+    def test_request_access_stores_without_allowlisting(self) -> None:
+        """Signup requests persist for IT and never create a user."""
+        get = self.client.get("/request-access")
+        self.assertEqual(get.status_code, 200)
+        page = get.get_data(as_text=True)
+        self.assertIn("Request access", page)
+        self.assertIn("Built by McKenzian Solutions", page)
+        self.assertNotIn("card number", page.lower())
+        self.assertNotIn("stripe", page.lower())
+        self.assertNotIn('name="price"', page)
+        rv = self.client.post(
+            "/request-access",
+            data={
+                "name": "Pat Homeschool",
+                "email": "pat@example.com",
+                "role": "parent",
+                "organization": "Homeschool co-op",
+                "context": "Grade 11 functions for two learners.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 200)
+        self.assertIn("We received your request", rv.get_data(as_text=True))
+        self.assertIsNone(self.school.get_user_by_email("pat@example.com"))
+        rows = self.school.list_access_requests(status="pending")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["email"], "pat@example.com")
+        self.assertEqual(rows[0]["role"], "parent")
+
+    def test_health_keeps_internal_lloves_alias(self) -> None:
+        """/health still reports the internal SCHOOL_SHORT alias."""
+        rv = self.client.get("/health")
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.get_json()["school"], "LLOVES")
 
     def test_unknown_google_403(self) -> None:
         """Unknown Google accounts are not auto-created."""
@@ -135,6 +175,81 @@ class AuthTests(unittest.TestCase):
         second = self._callback("teacher@gmail.com", "staff")
         self.assertEqual(second.status_code, 302)
         self.assertIn("/staff", second.headers.get("Location", ""))
+
+    def test_production_no_longer_forces_every_sign_in_2fa(self) -> None:
+        """FLASK_ENV=production uses the first-login default unless Admin changes it."""
+        os.environ["FLASK_ENV"] = "production"
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        second = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/staff", second.headers.get("Location", ""))
+
+    def test_require_privileged_mfa_env_still_forces_every_login(self) -> None:
+        """REQUIRE_PRIVILEGED_MFA=1 keeps every-sign-in even in first-login mode."""
+        os.environ["REQUIRE_PRIVILEGED_MFA"] = "1"
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        with patch("email_service.send_verification_email", return_value=True):
+            second = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/verify-email", second.headers.get("Location", ""))
+
+    def test_every_sign_in_2fa_mode_emails_each_google_login(self) -> None:
+        """Admin 'Every sign in' re-sends Resend 2SV after logout."""
+        self.school.set_staff_2fa_mode("every_sign_in")
+        self.school.register_staff("teacher@gmail.com")
+        with patch("email_service.send_verification_email", return_value=True):
+            self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            second = self._callback("teacher@gmail.com", "staff")
+            mocked.assert_called_once()
+        self.assertIn("/verify-email", second.headers.get("Location", ""))
+
+    def test_daily_2fa_skips_same_day_and_requires_next_day(self) -> None:
+        """Daily mode asks for a code once per America/Toronto calendar day."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        self.school.set_staff_2fa_mode("daily")
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        self.client.get("/logout")
+        same = self._callback("teacher@gmail.com", "staff")
+        self.assertIn("/staff", same.headers.get("Location", ""))
+        self.client.get("/logout")
+        yesterday = (
+            datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=1)
+        ).replace(tzinfo=None).isoformat(timespec="seconds")
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE users SET last_login_at = ? WHERE email = ?",
+                (yesterday, "teacher@gmail.com"),
+            )
+            self.school.conn.commit()
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            next_day = self._callback("teacher@gmail.com", "staff")
+            mocked.assert_called_once()
+        self.assertIn("/verify-email", next_day.headers.get("Location", ""))
+
+    def test_unverified_login_retries_do_not_resend_email(self) -> None:
+        """Repeated Google callbacks reuse the same code instead of bursting Resend."""
+        self.school.register_staff("teacher@gmail.com")
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            first = self._callback("teacher@gmail.com", "staff")
+            self.assertIn("/verify-email", first.headers.get("Location", ""))
+            for _ in range(7):
+                again = self._callback("teacher@gmail.com", "staff")
+                self.assertIn("/verify-email", again.headers.get("Location", ""))
+            mocked.assert_called_once()
+        user = self.school.get_user_by_email("teacher@gmail.com")
+        assert user is not None
+        self.assertRegex(str(user["verification_code"]), r"^\d{6}$")
 
     def test_production_never_shows_verification_code(self) -> None:
         """FLASK_ENV=production hides the on-page code even if ALLOW_DEV is on."""

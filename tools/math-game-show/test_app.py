@@ -869,7 +869,7 @@ class GamePersistTests(unittest.TestCase):
         game = state["game"]
         self.assertEqual(game["status"], "live")
         self.assertEqual(game["round"], 1)
-        self.assertEqual(game["round_title"], "Open Question")
+        self.assertEqual(game["round_title"], "Open Question Round")
         self.assertGreaterEqual(game["round_remaining_sec"], 1190)
         self.assertLessEqual(game["round_remaining_sec"], 1200)
         self.assertTrue(game["round_ends_at"])
@@ -881,7 +881,7 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(member["points_r3"], 0)
         board = self.db.scoreboard()
         self.assertEqual(board["round"], 1)
-        self.assertEqual(board["round_title"], "Open Question")
+        self.assertEqual(board["round_title"], "Open Question Round")
         self.assertGreaterEqual(board["round_remaining_sec"], 1190)
 
     def test_meet_teams_and_anticipation_overlay_phases(self) -> None:
@@ -915,7 +915,7 @@ class GamePersistTests(unittest.TestCase):
         live = self.db.start_live_with_rounds(class_id)
         self.assertEqual(live["game"]["status"], "live")
         self.assertIsNone(live["game"]["overlay_phase"])
-        self.assertEqual(live["game"]["round_title"], "Open Question")
+        self.assertEqual(live["game"]["round_title"], "Open Question Round")
 
     def test_add_late_student_to_live_team(self) -> None:
         """An absent roster student can join a live team at zero points."""
@@ -974,7 +974,7 @@ class GamePersistTests(unittest.TestCase):
             self.db.start_round(class_id, 2)
 
     def test_normalize_rounds_allows_duplicates_and_break(self) -> None:
-        """Sequential plans may repeat kinds and include titled Breaks."""
+        """Sequential plans may repeat kinds; Break title defaults to Break."""
         plan = normalize_rounds_config(
             [
                 {"kind": "open", "minutes": 5},
@@ -987,8 +987,9 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(plan[1]["bucket"], 1)
         self.assertIsNone(plan[2]["bucket"])
         self.assertEqual(plan[2]["title"], "Snack")
-        with self.assertRaises(ValueError):
-            normalize_rounds_config([{"kind": "break", "minutes": 3}])
+        untitled = normalize_rounds_config([{"kind": "break", "minutes": 3}])
+        self.assertEqual(untitled[0]["title"], "Break")
+        self.assertIsNone(untitled[0]["bucket"])
 
     def test_append_round_duplicate_open_shares_r1_bucket(self) -> None:
         """Two Open Question rounds both credit points_r1; Break rejects awards."""
@@ -1014,11 +1015,11 @@ class GamePersistTests(unittest.TestCase):
             class_id, {"kind": "open", "minutes": 5}
         )
         self.assertEqual(nxt["game"]["round"], 2)
-        self.assertEqual(nxt["game"]["round_title"], "Open Question")
+        self.assertEqual(nxt["game"]["round_title"], "Open Question Round")
         self.assertEqual(nxt["game"]["round_count"], 2)
         self.db.award_points(class_id, kind="student", target_id=member["id"], amount=3)
         phone = self.db.student_live_payload(class_id, member["id"])
-        self.assertEqual(phone["round_label"], "Round 2 · Open Question")
+        self.assertEqual(phone["round_label"], "Round 2 · Open Question Round")
         scored = self.db.game_state(class_id)
         member_live = next(
             m for t in scored["teams"] for m in t["members"] if m["id"] == member["id"]
@@ -1053,7 +1054,7 @@ class GamePersistTests(unittest.TestCase):
             class_id, [{"kind": "open", "minutes": 12}]
         )
         self.assertEqual(live["game"]["status"], "live")
-        self.assertEqual(live["game"]["round_title"], "Open Question")
+        self.assertEqual(live["game"]["round_title"], "Open Question Round")
         self.assertEqual(live["game"]["round_count"], 1)
         self.assertIsNone(self.db._scoreboard_game_id())
         with self.assertRaises(ValueError):
@@ -1071,7 +1072,7 @@ class GamePersistTests(unittest.TestCase):
         direct = self.db.start_ungamified_live(class_id, go_live=True)
         self.assertEqual(direct["game"]["status"], "live")
         self.assertEqual(direct["game"]["round_count"], 1)
-        self.assertEqual(direct["game"]["round_title"], "Open Question")
+        self.assertEqual(direct["game"]["round_title"], "Open Question Round")
 
     def test_r2_awards_do_not_change_r1(self) -> None:
         """New awards tag the current round; the lesson total is the sum."""
@@ -1692,7 +1693,7 @@ class HttpApiTests(unittest.TestCase):
         )
         live = _http_json(self.base, f"/api/classes/{class_id}/game")
         self.assertEqual(live["game"]["round"], 1)
-        self.assertEqual(live["game"]["round_title"], "Open Question")
+        self.assertEqual(live["game"]["round_title"], "Open Question Round")
         self.assertGreaterEqual(live["game"]["round_remaining_sec"], 1190)
         skip = Request(
             self.base + f"/api/classes/{class_id}/game/round",

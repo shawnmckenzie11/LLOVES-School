@@ -31,6 +31,10 @@ tools/math-game-show/data/
 lms/data/
 lms/.venv/
 
+# Local volume clone (sqlite + libraries). Keep curriculum extracts commitable.
+.local-data/main/
+.cursor/debug-*.log
+
 # Never commit IMSCC packs (Admin uploads to Fly volume only)
 *.imscc
 **/imscc-unpacked/

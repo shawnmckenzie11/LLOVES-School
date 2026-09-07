@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Math 11–12 specific expectations · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <p class="kicker"><a href="{{ url_for('it_dashboard') }}">Admin dashboard</a></p>
+        <h1>Ontario Math 11–12 specific expectations</h1>
+        <p class="sub">Internal dump from the Ministry PDF. Wording is extracted, not invented. Spot-check superscripts.</p>
+      </div>
+    </div>
+    <section class="card">
+      <p class="hint"><a href="{{ drive_folder_url }}" target="_blank" rel="noopener">Open Curriculum folder</a> (ALC / Curriculum / {course code}). Local JSON: <code>.local-data/curriculum/{code}/</code></p>
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Title</th>
+            <th>Specific</th>
+            <th>PDF pages</th>
+            <th>Drive</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in courses %}
+          <tr>
+            <td><a href="{{ url_for('it_curriculum_expectation_course', code=row.code) }}">{{ row.code }}</a></td>
+            <td>{{ row.title }}</td>
+            <td>{{ row.specific_count }}</td>
+            <td>{{ row.pages }}</td>
+            <td>
+              {% if row.drive_folder_url %}
+              <a href="{{ row.drive_folder_url }}" target="_blank" rel="noopener">Folder</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </div>
+</body>
+</html>

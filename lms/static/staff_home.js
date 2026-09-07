@@ -341,15 +341,23 @@ function initPackProgress() {
   document.querySelectorAll("article[data-pack-status-url]").forEach((card) => {
     const url = card.getAttribute("data-pack-status-url");
     if (!url) return;
+    let keepPolling = card.getAttribute("data-pack-busy") === "1";
     const tick = async () => {
       try {
         const rv = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!rv.ok) return;
-        const status = await rv.json();
-        applyPackBusy(card, status);
-        if (status.busy) window.setTimeout(tick, 700);
-      } catch (_) {}
+        if (rv.ok) {
+          const status = await rv.json();
+          applyPackBusy(card, status);
+          keepPolling = Boolean(status.busy);
+          if (!keepPolling) return;
+        }
+      } catch (_) {
+        /* keep polling through a blip while still busy */
+      }
+      if (keepPolling) window.setTimeout(tick, 700);
     };
+    tick();
+  });
     tick();
   });
 }
