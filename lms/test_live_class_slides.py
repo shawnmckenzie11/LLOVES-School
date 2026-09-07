@@ -261,7 +261,7 @@ class LiveClassSlidesTests(unittest.TestCase):
         self.assertNotIn("Create Lesson Slides", html)
         self.assertNotIn("ap-create-slides", html)
         self.assertNotIn("Connect Google Slides", html)
-        self.assertIn("ap-evidence-panel", html)
+        self.assertNotIn("ap-evidence-panel", html)
         slides_tab = self.client.get(f"/staff/class/{self.class_id}?tab=lesson-slides")
         slides_html = slides_tab.get_data(as_text=True)
         self.assertIn("Lesson Slides", slides_html)

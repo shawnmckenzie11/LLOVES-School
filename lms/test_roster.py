@@ -549,9 +549,14 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(nxt.get_json()["game"]["round"], 2)
         bad = self.client.post(
             f"/api/classes/{class_id}/game/append-round",
-            json={"kind": "challenge", "minutes": 10},
+            json={"kind": "formative", "minutes": 10},
         )
         self.assertEqual(bad.status_code, 400)
+        ok_ch = self.client.post(
+            f"/api/classes/{class_id}/game/append-round",
+            json={"kind": "challenge", "minutes": 10},
+        )
+        self.assertEqual(ok_ch.status_code, 200)
 
     def test_gradebook_weights_defaults_and_persist(self) -> None:
         """Grades scaffold seeds 15/65/20 and persists weight edits."""

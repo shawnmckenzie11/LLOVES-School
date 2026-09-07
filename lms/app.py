@@ -701,6 +701,10 @@ def create_app(
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     secure = (os.getenv("FLASK_ENV") or "").lower() == "production"
     app.config["SESSION_COOKIE_SECURE"] = secure and not testing
+    if not secure:
+        # Local runs keep debug off; still reload staff HTML after template edits.
+        app.config["TEMPLATES_AUTO_RELOAD"] = True
+        app.jinja_env.auto_reload = True
     if secure:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
         app.config["PREFERRED_URL_SCHEME"] = "https"
@@ -2223,6 +2227,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         tab = (request.args.get("tab") or "modules").strip().lower()
         if tab in {"track-live", "track_live"}:
             tab = "live"
+        from portfolio.flags import portfolio_tab_enabled
+
+        show_portfolio_tab = portfolio_tab_enabled()
         # Old tracker lived at ?tab=grades; send those bookmarks to A&P.
         if tab == "grades":
             return redirect(
@@ -2253,6 +2260,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         if ap_view not in {"attendance", "participation"}:
             ap_view = "attendance"
+        portfolio_view = (request.args.get("view") or "build").strip().lower()
+        if portfolio_view not in {"build", "marking"}:
+            portfolio_view = "build"
         if tab not in {
             "modules",
             "pages",
@@ -2266,7 +2276,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "gradebook",
             "expectations",
             "profiles",
+            "portfolio",
         }:
+            tab = "modules"
+        if tab == "portfolio" and not show_portfolio_tab:
             tab = "modules"
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
@@ -2292,6 +2305,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             nav_courses=_staff_nav_courses(int(user["id"])),
             tab=tab,
             ap_view=ap_view,
+            portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
@@ -2301,6 +2315,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             show_module_pack_upload=False,
             pack_error=pack_error,
             pack_ok=pack_ok,
+            show_portfolio_tab=show_portfolio_tab,
         )
 
     @app.route("/staff/class/<int:class_id>/module-pack", methods=["POST"])
@@ -3836,6 +3851,260 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
+    def _portfolio_guard(class_id: int):
+        """Local-only Portfolio APIs; 404 in production."""
+        from portfolio.flags import portfolio_tab_enabled
+
+        if not portfolio_tab_enabled():
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        return _require_class_staff(class_id)
+
+    def _portfolio_course_code(class_id: int) -> str:
+        """Ontario code for the open class."""
+        cls = school.enrich_class(school.game.get_class(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        return str((offering or {}).get("ontario_code") or cls.get("ontario_code") or "").upper()
+
+    @app.route("/api/classes/<int:class_id>/portfolio/context")
+    @login_required
+    def api_portfolio_context(class_id: int):
+        """Build-card context for one module (local Portfolio tab)."""
+        denied = _portfolio_guard(class_id)
+        if denied:
+            return denied
+        from portfolio.assemble import assemble_context
+
+        code = _portfolio_course_code(class_id)
+        module_n = int(request.args.get("module") or 1)
+        try:
+            payload = assemble_context(
+                course_code=code,
+                module_number=module_n,
+                data_dir=Path(app.config["DATA_DIR"]),
+            )
+            payload["ok"] = True
+            return jsonify(payload)
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/portfolio/generate", methods=["POST"])
+    @login_required
+    def api_portfolio_generate(class_id: int):
+        """Write M{n}.json, return HTML, optionally convert a Drive Doc."""
+        denied = _portfolio_guard(class_id)
+        if denied:
+            return denied
+        from live_class_slides import GoogleSlidesClient, SlidesConnectRequired
+        from portfolio.assemble import generate_portfolio
+        from portfolio.drive_docs import create_or_update_assignment_doc
+
+        user = current_user()
+        assert user is not None
+        body = request.get_json(silent=True) or {}
+        code = _portfolio_course_code(class_id)
+        module_n = int(body.get("module") or 1)
+        try:
+            result = generate_portfolio(
+                course_code=code,
+                module_number=module_n,
+                edits=body.get("edits") if isinstance(body.get("edits"), dict) else None,
+                data_dir=Path(app.config["DATA_DIR"]),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+        if body.get("drive"):
+            semester = school.get_active_semester() or {}
+            try:
+                client = GoogleSlidesClient(school, user=user)
+                drive = create_or_update_assignment_doc(
+                    client,
+                    ontario_code=code,
+                    module_number=module_n,
+                    title=str(result.get("doc_title") or "Portfolio Assignment"),
+                    doc_html=str(result.get("doc_html") or ""),
+                    semester_label=str(semester.get("label") or ""),
+                )
+                result["drive_id"] = drive.get("id")
+                result["drive_url"] = drive.get("url")
+                result["needs_drive_connect"] = False
+            except SlidesConnectRequired:
+                result["needs_drive_connect"] = True
+            except Exception as exc:  # noqa: BLE001
+                result["drive_error"] = str(exc)
+                result["needs_drive_connect"] = False
+        return jsonify(result)
+
+    @app.route("/api/classes/<int:class_id>/portfolio/marking", methods=["GET", "POST"])
+    @login_required
+    def api_portfolio_marking(class_id: int):
+        """Local marking sheet: suggestions, overrides, look-for tallies."""
+        denied = _portfolio_guard(class_id)
+        if denied:
+            return denied
+        from live_class_slides import GoogleSlidesClient, SlidesConnectRequired
+        from portfolio.lookfors import LOOKFOR_IDS, LOOKFOR_LABELS, empty_tally
+        from portfolio.marking import (
+            drive_path_label,
+            list_local_submissions,
+            match_submission_for_student,
+            read_local_text,
+        )
+        from portfolio.drive_docs import (
+            ensure_portfolio_folder,
+            export_google_doc_text,
+            list_folder_files,
+        )
+        from portfolio.suggest import submission_text_from_html, suggest_levels
+        from portfolio.assemble import assemble_context, list_modules
+
+        user = current_user()
+        assert user is not None
+        code = _portfolio_course_code(class_id)
+
+        def marking_sheet(*, module_n: int, score: bool) -> dict[str, Any]:
+            """Assemble file list, optional suggestions, and look-for tallies."""
+            n_modules = max(len(list_modules(code)), 1)
+            students = [
+                dict(row)
+                for row in school.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ?
+                    ORDER BY last_display, first_name
+                    """,
+                    (class_id,),
+                )
+            ]
+            useful: list[str] = []
+            try:
+                ctx = assemble_context(
+                    course_code=code,
+                    module_number=module_n,
+                    data_dir=Path(app.config["DATA_DIR"]),
+                )
+                useful = list(ctx.get("useful_words") or [])
+            except Exception:  # noqa: BLE001
+                pass
+            semester = school.get_active_semester() or {}
+            label = str(semester.get("label") or "")
+            submissions: list[dict[str, str]] = []
+            drive_error = ""
+            client = None
+            try:
+                client = GoogleSlidesClient(school, user=user)
+                folder_id = ensure_portfolio_folder(
+                    client,
+                    ontario_code=code,
+                    module_number=module_n,
+                    semester_label=label,
+                )
+                submissions.extend(list_folder_files(client, folder_id))
+            except SlidesConnectRequired:
+                drive_error = "Drive not connected"
+            except Exception as exc:  # noqa: BLE001
+                drive_error = str(exc)
+            submissions.extend(list_local_submissions(code, module_n))
+            saved = {
+                int(r["student_id"]): r
+                for r in school.list_portfolio_mark_rows(class_id, module_n)
+            }
+            tallies = school.lookfor_tallies_for_module(
+                class_id, module_n, n_modules=n_modules
+            )
+            rows = []
+            for student in students:
+                sid = int(student["id"])
+                match = match_submission_for_student(student, submissions)
+                stored = saved.get(sid) or {}
+                suggested = stored.get("suggested") or {}
+                if score:
+                    text = ""
+                    if match and match.get("source") == "local":
+                        text = read_local_text(Path(match["id"]))
+                    elif match and match.get("source") == "drive" and client is not None:
+                        try:
+                            raw = export_google_doc_text(client, match["id"])
+                            text = (
+                                submission_text_from_html(raw)
+                                if "<" in raw[:200].lower()
+                                else raw
+                            )
+                        except Exception:  # noqa: BLE001
+                            text = ""
+                    if text:
+                        suggested = suggest_levels(text, useful)
+                        school.upsert_portfolio_mark(
+                            class_id=class_id,
+                            ontario_code=code,
+                            module_number=module_n,
+                            student_id=sid,
+                            suggested=suggested,
+                        )
+                look = tallies.get(str(sid)) or empty_tally()
+                rows.append(
+                    {
+                        "id": sid,
+                        "codename": student.get("last_display")
+                        or student.get("first_name")
+                        or "",
+                        "name": student.get("last_display")
+                        or student.get("first_name")
+                        or "",
+                        "suggested": suggested,
+                        "override": stored.get("override") or {},
+                        "lookfors": look,
+                        "submission": match,
+                    }
+                )
+            return {
+                "ok": True,
+                "students": rows,
+                "submissions": submissions,
+                "files": [
+                    {
+                        "name": row.get("name") or "",
+                        "source": row.get("source") or "",
+                    }
+                    for row in submissions
+                ],
+                "drive_error": drive_error,
+                "drive_path": drive_path_label(code, module_n, label),
+                "lookfor_ids": list(LOOKFOR_IDS),
+                "lookfor_labels": LOOKFOR_LABELS,
+            }
+
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+            module_n = int(body.get("module") or 1)
+            action = str(body.get("action") or "").strip().lower()
+            if action == "run":
+                return jsonify(marking_sheet(module_n=module_n, score=True))
+            student_id = int(body.get("student_id") or 0)
+            override = body.get("override") if isinstance(body.get("override"), dict) else {}
+            existing_rows = {
+                int(r["student_id"]): r
+                for r in school.list_portfolio_mark_rows(class_id, module_n)
+            }
+            prev = (existing_rows.get(student_id) or {}).get("override") or {}
+            merged = dict(prev)
+            merged.update({k: v for k, v in override.items() if v})
+            for key, val in list(merged.items()):
+                if val in ("", None):
+                    merged.pop(key, None)
+            school.upsert_portfolio_mark(
+                class_id=class_id,
+                ontario_code=code,
+                module_number=module_n,
+                student_id=student_id,
+                override=merged or None,
+            )
+            return jsonify({"ok": True})
+
+        module_n = int(request.args.get("module") or 1)
+        return jsonify(marking_sheet(module_n=module_n, score=False))
+
     @app.route("/api/classes/<int:class_id>/gradebook")
     @login_required
     def api_gradebook(class_id: int):
@@ -4074,7 +4343,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
-            return school.game.award_points(
+            result = school.game.award_points(
                 class_id,
                 kind=str(body.get("kind") or ""),
                 target_id=int(body.get("id") or 0),
@@ -4082,6 +4351,58 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 team_rule=(str(body["team_rule"]) if body.get("team_rule") else None),
                 label=(str(body["label"]) if body.get("label") else None),
             )
+            lookfor_id = str(body.get("lookfor_id") or "").strip()
+            if lookfor_id:
+                try:
+                    from portfolio.lookfors import (
+                        LOOKFOR_IDS,
+                        observation_note_for_lookfor,
+                        process_keys_for_lookfor,
+                    )
+
+                    if lookfor_id in LOOKFOR_IDS:
+                        live = school.get_active_live_session_for_class(class_id)
+                        if live is None:
+                            live = school.get_latest_live_session_for_class(class_id)
+                        observer = current_user()
+                        if live is not None and observer is not None:
+                            kind = str(body.get("kind") or "")
+                            target_id = int(body.get("id") or 0)
+                            student_ids: list[int] = []
+                            team_id = None
+                            scope = "student"
+                            if kind == "student":
+                                student_ids = [target_id]
+                            elif kind == "team":
+                                team_id = target_id
+                                student_ids = school.team_student_ids(team_id)
+                                if len(student_ids) >= 2:
+                                    scope = "students"
+                                elif len(student_ids) == 1:
+                                    scope = "student"
+                                else:
+                                    scope = "team"
+                            school.create_observation(
+                                live_session_id=int(live["id"]),
+                                class_id=class_id,
+                                observer_user_id=int(observer["id"]),
+                                scope=scope,
+                                note=observation_note_for_lookfor(
+                                    lookfor_id, str(body.get("label") or "")
+                                ),
+                                student_ids=student_ids or None,
+                                team_id=team_id,
+                                process_keys=process_keys_for_lookfor(lookfor_id),
+                                source="lookfor",
+                                lookfor_key=lookfor_id,
+                            )
+                except Exception:  # noqa: BLE001 — points still stand
+                    logger.exception(
+                        "look-for observation failed class_id=%s lookfor_id=%s",
+                        class_id,
+                        lookfor_id,
+                    )
+            return result
 
         return _staff_post(class_id, run)
 

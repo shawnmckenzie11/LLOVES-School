@@ -1,0 +1,52 @@
+{
+  "course_code": "MCR3U",
+  "module_number": 1,
+  "locked": true,
+  "title": "Module 1 Portfolio",
+  "hero_subtitle": "Module 1 · Functions through symmetry",
+  "hero_note": "3 questions.\nUse your group work.\nShow your own thinking.",
+  "evidence_placeholders": [
+    "Lesson 1 screenshot",
+    "Lesson 2 screenshot",
+    "Lesson 3 screenshot"
+  ],
+  "intro": "Start with the course question. Tap Module 1 lens only when you want a more specific version.",
+  "reasoning_focus": [
+    "Connect representations",
+    "Justify relationships",
+    "Reflect and transfer"
+  ],
+  "strand": "A",
+  "strand_name": "Characteristics of Functions",
+  "overalls": ["A1"],
+  "representations": [
+    "class/grid",
+    "factors",
+    "number line",
+    "equation",
+    "graph"
+  ],
+  "questions": {
+    "connect": {
+      "lens": "Connect two of these: class/grid, factors, number line, equation, graph. What stays centred or symmetric?",
+      "useful_words": [
+        "factor",
+        "root/zero",
+        "x-intercept",
+        "centre/mean",
+        "symmetric distance"
+      ],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    },
+    "justify": {
+      "lens": "Use centre m and distance d to make and support a claim about factors or roots. Your group work can be the example.",
+      "useful_words": ["m − d", "m + d", "m² − d²", "equivalent"],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    },
+    "transfer": {
+      "lens": "Show how centre-and-distance changed how you factor, solve, or read a quadratic. Then try the idea on a new quadratic.",
+      "useful_words": ["axis of symmetry", "vertex", "roots", "strategy"],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    }
+  }
+}

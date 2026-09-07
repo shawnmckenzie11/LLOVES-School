@@ -1,9 +1,10 @@
-"""Open Question (and future round) action profiles for live scoring.
+"""Open Question and Team Challenge action profiles for live scoring.
 
 Profiles define the action buttons (label + point amount) teachers tap during
-Open Question rounds. Builtin Default matches the historical hardcoded chips.
-Pack seed file ``libraries/<id>/ap_round_profiles.json`` copies into the
-offering on load; teachers edit the offering copy on the Profiles tab.
+Open Question and Team Challenge rounds. Builtin Default matches the historical
+Open Question chips. Team Challenge ships with look-for actions. Pack seed file
+``libraries/<id>/ap_round_profiles.json`` copies into the offering on load;
+teachers edit the offering copy on the Profiles tab.
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from portfolio.lookfors import LOOKFOR_IDS, LOOKFOR_LABELS, LOOKFOR_RUBRIC_KEYS
+
 MAX_PROFILES = 20
 MAX_ACTIONS = 20
+RUBRIC_KEY_ALLOW = frozenset({"connect", "justify", "transfer", "communicate"})
+PROFILE_KINDS = ("open", "challenge")
 
 BUILTIN_OPEN_ACTIONS: list[dict[str, Any]] = [
     {"id": "asks_hwk", "label": "Asks Q re: Hwk", "amount": 2},
@@ -34,11 +39,36 @@ BUILTIN_OPEN_ACTIONS: list[dict[str, Any]] = [
     {"id": "asks_first", "label": "Asks Q for first time", "amount": 1},
 ]
 
+BUILTIN_CHALLENGE_ACTIONS: list[dict[str, Any]] = [
+    {
+        "id": lookfor_id,
+        "label": LOOKFOR_LABELS[lookfor_id],
+        "amount": 1,
+        "lookfor_key": lookfor_id,
+        "rubric_keys": list(LOOKFOR_RUBRIC_KEYS[lookfor_id]),
+    }
+    for lookfor_id in LOOKFOR_IDS
+]
+
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
 
+def builtin_challenge_section() -> dict[str, Any]:
+    """Return the default Team Challenge profiles section."""
+    return {
+        "active_id": "team_challenge",
+        "profiles": [
+            {
+                "id": "team_challenge",
+                "name": "Team Challenge",
+                "actions": [dict(row) for row in BUILTIN_CHALLENGE_ACTIONS],
+            }
+        ],
+    }
+
+
 def builtin_open_document() -> dict[str, Any]:
-    """Return the default Open Question profiles document."""
+    """Return the default Open Question + Team Challenge profiles document."""
     return {
         "open": {
             "active_id": "default",
@@ -49,7 +79,8 @@ def builtin_open_document() -> dict[str, Any]:
                     "actions": [dict(row) for row in BUILTIN_OPEN_ACTIONS],
                 }
             ],
-        }
+        },
+        "challenge": builtin_challenge_section(),
     }
 
 
@@ -86,10 +117,29 @@ def _normalize_action(raw: Any, *, index: int) -> dict[str, Any]:
     else:
         amount_out = round(amount, 1)
     action_id = _slug_id(str(raw.get("id") or ""), fallback=f"action_{index + 1}")
-    return {"id": action_id, "label": label, "amount": amount_out}
+    action: dict[str, Any] = {"id": action_id, "label": label, "amount": amount_out}
+    kind = str(raw.get("_profile_kind") or "")
+    if kind == "challenge" or raw.get("lookfor_key") or raw.get("rubric_keys"):
+        lookfor = _slug_id(str(raw.get("lookfor_key") or action_id), fallback=action_id)
+        action["lookfor_key"] = lookfor
+        keys_raw = raw.get("rubric_keys") or []
+        if isinstance(keys_raw, str):
+            keys_raw = [keys_raw]
+        keys: list[str] = []
+        seen_keys: set[str] = set()
+        if isinstance(keys_raw, list):
+            for item in keys_raw:
+                slug = _slug_id(str(item), fallback="")
+                if slug in RUBRIC_KEY_ALLOW and slug not in seen_keys:
+                    seen_keys.add(slug)
+                    keys.append(slug)
+        action["rubric_keys"] = keys
+    return action
 
 
-def _normalize_profile(raw: Any, *, index: int, seen_ids: set[str]) -> dict[str, Any]:
+def _normalize_profile(
+    raw: Any, *, index: int, seen_ids: set[str], kind: str = "open"
+) -> dict[str, Any]:
     """Validate one profile."""
     if not isinstance(raw, dict):
         raise ValueError("Each profile must be an object")
@@ -110,12 +160,44 @@ def _normalize_profile(raw: Any, *, index: int, seen_ids: set[str]) -> dict[str,
     action_ids: set[str] = set()
     actions: list[dict[str, Any]] = []
     for i, item in enumerate(actions_raw):
+        if isinstance(item, dict):
+            item = dict(item)
+            item["_profile_kind"] = kind
         action = _normalize_action(item, index=i)
         if action["id"] in action_ids:
             action["id"] = f"{action['id']}_{i + 1}"
         action_ids.add(action["id"])
         actions.append(action)
     return {"id": profile_id, "name": name, "actions": actions}
+
+
+def _normalize_kind_section(raw: Any, *, kind: str) -> dict[str, Any]:
+    """Normalize one ``open`` or ``challenge`` section.
+
+    Args:
+        raw: Section object.
+        kind: ``open`` or ``challenge``.
+
+    Returns:
+        ``{active_id, profiles}``.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError(f"{kind} section must be an object")
+    profiles_raw = raw.get("profiles")
+    if not isinstance(profiles_raw, list) or not profiles_raw:
+        raise ValueError(f"{kind} profiles must be a non-empty list")
+    if len(profiles_raw) > MAX_PROFILES:
+        raise ValueError(f"At most {MAX_PROFILES} {kind} profiles")
+    seen: set[str] = set()
+    profiles = [
+        _normalize_profile(item, index=i, seen_ids=seen, kind=kind)
+        for i, item in enumerate(profiles_raw)
+    ]
+    active_id = str(raw.get("active_id") or "").strip()
+    ids = {p["id"] for p in profiles}
+    if active_id not in ids:
+        active_id = profiles[0]["id"]
+    return {"active_id": active_id, "profiles": profiles}
 
 
 def normalize_profiles_document(raw: Any) -> dict[str, Any]:
@@ -125,17 +207,18 @@ def normalize_profiles_document(raw: Any) -> dict[str, Any]:
         raw: Parsed JSON object or None.
 
     Returns:
-        Document with at least an ``open`` section and one profile.
+        Document with ``open`` and ``challenge`` sections.
 
     Raises:
         ValueError: When structure or limits are invalid.
     """
+    builtin = builtin_open_document()
     if raw is None or raw == "" or raw == {}:
-        return builtin_open_document()
+        return builtin
     if isinstance(raw, str):
         text = raw.strip()
         if not text:
-            return builtin_open_document()
+            return builtin
         try:
             raw = json.loads(text)
         except json.JSONDecodeError as exc:
@@ -144,24 +227,33 @@ def normalize_profiles_document(raw: Any) -> dict[str, Any]:
         raise ValueError("Profiles document must be an object")
     open_raw = raw.get("open")
     if open_raw is None:
-        return builtin_open_document()
-    if not isinstance(open_raw, dict):
-        raise ValueError("open section must be an object")
-    profiles_raw = open_raw.get("profiles")
-    if not isinstance(profiles_raw, list) or not profiles_raw:
-        return builtin_open_document()
-    if len(profiles_raw) > MAX_PROFILES:
-        raise ValueError(f"At most {MAX_PROFILES} Open Question profiles")
-    seen: set[str] = set()
-    profiles = [
-        _normalize_profile(item, index=i, seen_ids=seen)
-        for i, item in enumerate(profiles_raw)
-    ]
-    active_id = str(open_raw.get("active_id") or "").strip()
-    ids = {p["id"] for p in profiles}
-    if active_id not in ids:
-        active_id = profiles[0]["id"]
-    return {"open": {"active_id": active_id, "profiles": profiles}}
+        open_section = builtin["open"]
+    else:
+        try:
+            open_section = _normalize_kind_section(open_raw, kind="open")
+        except ValueError:
+            if not isinstance(open_raw, dict):
+                raise
+            profiles_raw = open_raw.get("profiles")
+            if not isinstance(profiles_raw, list) or not profiles_raw:
+                open_section = builtin["open"]
+            else:
+                raise
+    challenge_raw = raw.get("challenge")
+    if challenge_raw is None:
+        challenge_section = builtin["challenge"]
+    else:
+        try:
+            challenge_section = _normalize_kind_section(challenge_raw, kind="challenge")
+        except ValueError:
+            if not isinstance(challenge_raw, dict):
+                raise
+            profiles_raw = challenge_raw.get("profiles")
+            if not isinstance(profiles_raw, list) or not profiles_raw:
+                challenge_section = builtin["challenge"]
+            else:
+                raise
+    return {"open": open_section, "challenge": challenge_section}
 
 
 def parse_profiles_json(text: str | None) -> dict[str, Any]:
@@ -183,6 +275,17 @@ def active_open_actions(doc: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the action list for the active Open Question profile."""
     normalized = normalize_profiles_document(doc)
     section = normalized["open"]
+    active = section["active_id"]
+    for profile in section["profiles"]:
+        if profile["id"] == active:
+            return [dict(a) for a in profile["actions"]]
+    return [dict(a) for a in section["profiles"][0]["actions"]]
+
+
+def active_challenge_actions(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the action list for the active Team Challenge profile."""
+    normalized = normalize_profiles_document(doc)
+    section = normalized["challenge"]
     active = section["active_id"]
     for profile in section["profiles"]:
         if profile["id"] == active:

@@ -1156,8 +1156,9 @@ body.staff-shell .ap-action-chip {
 }
 body.staff-shell .ap-action-chip {
   max-width: 100%;
-  text-align: left;
-  line-height: 1.2;
+  text-align: center;
+  line-height: 1.15;
+  white-space: normal;
   border-color: #0f766e;
   background: #ecfdf5;
 }

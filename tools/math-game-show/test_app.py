@@ -1037,7 +1037,7 @@ class GamePersistTests(unittest.TestCase):
             )
 
     def test_individual_open_question_only_rounds(self) -> None:
-        """Individual Class tracking prepares rounds then starts Open Question only."""
+        """Individual Class tracking allows Open Question and Team Challenge."""
         class_id = self.cls["id"]
         state = self.db.begin_game(class_id, today=date(2026, 8, 31))
         present = [s["id"] for s in state["students"][:3]]
@@ -1046,16 +1046,11 @@ class GamePersistTests(unittest.TestCase):
         self.assertEqual(prepared["game"]["status"], "rounds")
         self.assertEqual(len(prepared["teams"]), 1)
         self.assertEqual(prepared["teams"][0]["name"], "Class")
-        with self.assertRaises(ValueError):
-            self.db.start_live_with_rounds(
-                class_id, [{"kind": "challenge", "minutes": 10}]
-            )
         live = self.db.start_live_with_rounds(
-            class_id, [{"kind": "open", "minutes": 12}]
+            class_id, [{"kind": "challenge", "minutes": 10}]
         )
         self.assertEqual(live["game"]["status"], "live")
-        self.assertEqual(live["game"]["round_title"], "Open Question Round")
-        self.assertEqual(live["game"]["round_count"], 1)
+        self.assertEqual(live["game"]["round_kind"], "challenge")
         self.assertIsNone(self.db._scoreboard_game_id())
         with self.assertRaises(ValueError):
             self.db.append_and_start_round(

@@ -1,14 +1,15 @@
 /**
- * Staff Profiles tab: edit Open Question action profiles for this course.
+ * Staff Profiles tab: Open Question and Team Challenge action profiles.
  */
 import { api, escapeHtml, hideError, showError } from "/static/common.js";
 
 const root = document.getElementById("ap-profiles-root");
 const classId = Number(root?.dataset.classId || 0);
 
-/** @type {{open: {active_id: string, profiles: object[]}} | null} */
+/** @type {{open: object, challenge?: object} | null} */
 let documentState = null;
 let selectedId = "";
+let kind = "open";
 
 /**
  * @param {string} id
@@ -19,10 +20,24 @@ function $(id) {
 }
 
 /**
+ * @returns {object}
+ */
+function section() {
+  if (!documentState) return { active_id: "", profiles: [] };
+  if (kind === "challenge") {
+    if (!documentState.challenge) {
+      documentState.challenge = { active_id: "", profiles: [] };
+    }
+    return documentState.challenge;
+  }
+  return documentState.open || { active_id: "", profiles: [] };
+}
+
+/**
  * @returns {object[]}
  */
 function profiles() {
-  return documentState?.open?.profiles || [];
+  return section().profiles || [];
 }
 
 /**
@@ -39,7 +54,10 @@ async function load() {
   hideError("#ap-profiles-error");
   const data = await api(`/api/classes/${classId}/ap-round-profiles`);
   documentState = data.document || { open: { active_id: "default", profiles: [] } };
-  selectedId = documentState.open.active_id || documentState.open.profiles[0]?.id || "";
+  kind = "open";
+  const kindSelect = $("ap-profiles-kind");
+  if (kindSelect instanceof HTMLSelectElement) kindSelect.value = kind;
+  selectedId = documentState.open?.active_id || documentState.open?.profiles?.[0]?.id || "";
   paint();
 }
 
@@ -66,7 +84,7 @@ function paint() {
   const profile = selectedProfile();
   if (!profile) return;
   nameInput.value = profile.name || "";
-  activeCheck.checked = documentState.open.active_id === profile.id;
+  activeCheck.checked = section().active_id === profile.id;
   tbody.innerHTML = (profile.actions || [])
     .map(
       (action, index) => `<tr data-action-index="${index}">
@@ -91,18 +109,22 @@ function syncFromDom() {
   const tbody = $("ap-profiles-actions")?.querySelector("tbody");
   if (nameInput) profile.name = nameInput.value.trim() || profile.name;
   if (activeCheck?.checked) {
-    documentState.open.active_id = profile.id;
+    section().active_id = profile.id;
   }
   if (!tbody) return;
   profile.actions = [...tbody.querySelectorAll("tr")].map((tr, index) => {
     const id = tr.querySelector('[data-field="id"]');
     const label = tr.querySelector('[data-field="label"]');
     const amount = tr.querySelector('[data-field="amount"]');
-    return {
+    const row = {
       id: id instanceof HTMLInputElement ? id.value.trim() : `action_${index + 1}`,
       label: label instanceof HTMLInputElement ? label.value.trim() : "",
       amount: amount instanceof HTMLInputElement ? Number(amount.value) : 1,
     };
+    if (kind === "challenge") {
+      row.lookfor_key = row.id;
+    }
+    return row;
   });
 }
 
@@ -119,7 +141,7 @@ async function save() {
       body: JSON.stringify({ document: documentState }),
     });
     documentState = data.document;
-    selectedId = documentState.open.active_id;
+    selectedId = section().active_id;
     paint();
     if (status) {
       status.hidden = false;
@@ -148,6 +170,15 @@ function uniqueId(base) {
   return id;
 }
 
+$("ap-profiles-kind")?.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  syncFromDom();
+  kind = select.value === "challenge" ? "challenge" : "open";
+  selectedId = section().active_id || profiles()[0]?.id || "";
+  paint();
+});
+
 $("ap-profiles-select")?.addEventListener("change", (event) => {
   const select = event.target;
   if (!(select instanceof HTMLSelectElement)) return;
@@ -160,7 +191,7 @@ $("ap-profiles-new")?.addEventListener("click", () => {
   syncFromDom();
   if (!documentState) return;
   const id = uniqueId("profile");
-  documentState.open.profiles.push({
+  section().profiles.push({
     id,
     name: "New profile",
     actions: [{ id: "action_1", label: "New action", amount: 1 }],
@@ -174,7 +205,7 @@ $("ap-profiles-duplicate")?.addEventListener("click", () => {
   const profile = selectedProfile();
   if (!documentState || !profile) return;
   const id = uniqueId(`${profile.id}_copy`);
-  documentState.open.profiles.push({
+  section().profiles.push({
     id,
     name: `${profile.name} copy`,
     actions: (profile.actions || []).map((a) => ({ ...a })),
@@ -187,14 +218,17 @@ $("ap-profiles-delete")?.addEventListener("click", () => {
   syncFromDom();
   if (!documentState) return;
   if (profiles().length <= 1) {
-    showError("#ap-profiles-error", new Error("Keep at least one Open Question profile."));
+    showError(
+      "#ap-profiles-error",
+      new Error("Keep at least one profile for this round kind.")
+    );
     return;
   }
-  documentState.open.profiles = profiles().filter((p) => p.id !== selectedId);
-  if (documentState.open.active_id === selectedId) {
-    documentState.open.active_id = documentState.open.profiles[0].id;
+  section().profiles = profiles().filter((p) => p.id !== selectedId);
+  if (section().active_id === selectedId) {
+    section().active_id = section().profiles[0].id;
   }
-  selectedId = documentState.open.profiles[0].id;
+  selectedId = section().profiles[0].id;
   paint();
 });
 

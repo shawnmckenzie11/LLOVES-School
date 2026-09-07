@@ -3380,21 +3380,26 @@ class GameShowDB:
     def _require_open_only_rounds(
         self, plan: list[dict[str, Any]], *, individual: bool
     ) -> None:
-        """Reject non-Open Question kinds for individual tracking.
+        """Reject Formative and Break kinds for individual tracking.
+
+        Open Question and Team Challenge are allowed. Formative and Break stay
+        restricted in individual (Class) tracking.
 
         Args:
             plan: Normalized rounds plan.
             individual: Whether the game is individual Class-team tracking.
 
         Raises:
-            ValueError: When individual tracking includes a non-open kind.
+            ValueError: When individual tracking includes a forbidden kind.
         """
         if not individual:
             return
+        allowed = {"open", "challenge"}
         for row in plan:
-            if str(row.get("kind") or "") != "open":
+            kind = str(row.get("kind") or "")
+            if kind not in allowed:
                 raise ValueError(
-                    "Individual tracking only supports Open Question rounds"
+                    "Individual tracking only supports Open Question and Team Challenge rounds"
                 )
 
     def start_live_with_rounds(
@@ -3404,7 +3409,8 @@ class GameShowDB:
 
         Typically called with a single Round 1 entry; later rounds are appended
         via :meth:`append_and_start_round`. Duplicate kinds and Break are allowed
-        for team tracking; individual (Class) tracking is Open Question only.
+        for team tracking. Individual tracking allows Open Question and Team
+        Challenge. If the game is already live, returns current state.
 
         Args:
             class_id: Classes primary key.
@@ -3416,6 +3422,8 @@ class GameShowDB:
         plan = normalize_rounds_config(rounds)
         with self._lock:
             game = self._game_row(class_id)
+            if str(game["status"] or "") == "live":
+                return self.game_state(class_id)
             if game["status"] not in {"names", "rounds"}:
                 raise ValueError("Set up rounds after teams are created")
             n_teams = self.conn.execute(

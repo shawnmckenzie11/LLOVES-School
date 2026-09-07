@@ -30,7 +30,7 @@
 
     <nav class="tabs course-tabs" id="course-tabs" aria-label="Course sections">
       <button type="button" class="course-tabs-toggle" id="course-tabs-toggle" aria-expanded="false" aria-controls="course-tabs-panel">
-        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'lesson-slides' %}Lesson Slides{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
+        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'lesson-slides' %}Lesson Slides{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% elif tab == 'portfolio' %}Portfolio · {{ 'Marking' if portfolio_view == 'marking' else 'Build' }}{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
         <span class="course-tabs-toggle-icon" aria-hidden="true">☰</span>
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
@@ -46,6 +46,9 @@
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>
+        {% if show_portfolio_tab %}
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio') }}" class="{{ 'on' if tab == 'portfolio' else '' }}">Portfolio</a>
+        {% endif %}
       </div>
     </nav>
     <script>
@@ -316,33 +319,6 @@
               <div class="ap-score-body">
                 <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
                 <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
-                <aside id="ap-evidence-panel" class="ap-evidence-panel" hidden>
-                  <h3>Team Challenge Evidence</h3>
-                  <p class="hint compact">Process observations (not participation points). Open Question chips stay separate.</p>
-                  <div class="ap-evidence-scope" id="ap-evidence-scope"></div>
-                  <div class="ap-evidence-processes" id="ap-evidence-processes"></div>
-                  <div class="ap-evidence-phrases" id="ap-evidence-phrases"></div>
-                  <label class="field" for="ap-evidence-note">Note</label>
-                  <textarea id="ap-evidence-note" rows="3"></textarea>
-                  <div class="ap-evidence-meta">
-                    <label class="field" for="ap-evidence-strength">Strength
-                      <select id="ap-evidence-strength">
-                        <option value="">—</option>
-                        <option value="emerging">emerging</option>
-                        <option value="developing">developing</option>
-                        <option value="clear">clear</option>
-                      </select>
-                    </label>
-                    <label class="it-toggle">
-                      <input type="checkbox" id="ap-evidence-followup"> Follow-up
-                    </label>
-                  </div>
-                  <div class="row-actions compact">
-                    <button type="button" id="ap-evidence-save">Save</button>
-                    <button type="button" class="secondary" id="ap-evidence-undo">Undo last</button>
-                  </div>
-                  <ul class="ap-evidence-log" id="ap-evidence-log"></ul>
-                </aside>
               </div>
             </div>
             <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
@@ -363,7 +339,6 @@
         </section>
       </div>
       <script type="module" src="/static/staff_ap.js"></script>
-      <script type="module" src="/static/staff_evidence.js"></script>
     </div>
     {% elif tab == 'lesson-slides' %}
     <div class="card lesson-slides-wizard" id="lesson-slides-root" data-class-id="{{ cls.id }}">
@@ -598,13 +573,72 @@
       <p class="hint">No inherited expectations are on file for this course code yet.</p>
       {% endif %}
     </section>
+    {% elif tab == 'portfolio' %}
+    <div id="portfolio-root" class="portfolio-root" data-class-id="{{ cls.id }}" data-ontario-code="{{ offering.ontario_code if offering else cls.ontario_code }}" data-view="{{ portfolio_view }}">
+      <div id="portfolio-error" class="error" hidden></div>
+      <nav class="ap-subtabs" aria-label="Portfolio">
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio', view='build') }}" class="{{ 'on' if portfolio_view == 'build' else '' }}">Build</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio', view='marking') }}" class="{{ 'on' if portfolio_view == 'marking' else '' }}">Marking</a>
+      </nav>
+      {% if portfolio_view == 'build' %}
+      <section class="card">
+        <h2>Build</h2>
+        <p class="hint">Local-only generator. Cores stay course-wide; Module 1 lenses are locked exemplars. Later modules prefill parallel stems you can edit.</p>
+        <div class="row-actions compact">
+          <label class="field">Module
+            <select id="portfolio-module"></select>
+          </label>
+        </div>
+        <div id="portfolio-context" class="portfolio-context"></div>
+        <div id="portfolio-lenses"></div>
+        <div class="row-actions compact">
+          <button type="button" id="portfolio-generate">Generate HTML</button>
+          <button type="button" class="secondary" id="portfolio-drive">Generate Google Doc</button>
+        </div>
+        <p id="portfolio-build-status" class="hint compact" hidden></p>
+      </section>
+      {% else %}
+      <section class="card">
+        <h2>Marking</h2>
+        <p class="hint">Suggestions only — this does not change the Module 1 Attendance &amp; Participation 100% gradebook gate. Look-for tallies come from live observations, not <code>points_r2</code>.</p>
+        <div class="row-actions compact">
+          <label class="field">Module
+            <select id="portfolio-module"></select>
+          </label>
+          <button type="button" id="portfolio-mark-run">Mark submissions</button>
+        </div>
+        <p id="portfolio-submissions-hint" class="hint compact"></p>
+        <ul id="portfolio-file-list" class="exp-list"></ul>
+        <div class="sheet-wrap">
+          <table class="sheet" id="portfolio-rubric-sheet">
+            <thead><tr><th class="name">Student</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="hint compact">Live look-for tallies for this module window (for later merge with the written rubric).</p>
+        <div class="sheet-wrap">
+          <table class="sheet" id="portfolio-lookfor-sheet">
+            <thead><tr><th class="name">Student</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+    </div>
+    <script type="module" src="/static/staff_portfolio.js"></script>
     {% elif tab == 'profiles' %}
     <section class="card ap-profiles-panel" id="ap-profiles-root" data-class-id="{{ cls.id }}">
-      <h2>Open Question action profiles</h2>
-      <p class="hint">Profiles control the action buttons available while scoring Open Question rounds. Changes apply to this course section only.</p>
+      <h2>Action profiles</h2>
+      <p class="hint">Open Question and Team Challenge profiles control scoring chips. Team Challenge look-fors also write process observations. Changes apply to this course section only.</p>
       <div id="ap-profiles-error" class="error" hidden></div>
       <div id="ap-profiles-status" class="hint compact" hidden></div>
       <div class="ap-profiles-toolbar row-actions compact">
+        <label class="field">Round kind
+          <select id="ap-profiles-kind">
+            <option value="open">Open Question</option>
+            <option value="challenge">Team Challenge</option>
+          </select>
+        </label>
         <label class="field">Profile
           <select id="ap-profiles-select"></select>
         </label>

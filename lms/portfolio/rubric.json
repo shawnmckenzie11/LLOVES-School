@@ -1,0 +1,64 @@
+{
+  "criteria": {
+    "connect": {
+      "name": "Connect representations",
+      "levels": {
+        "L1": "Identifies a representation or model, but the mathematical connection is unclear.",
+        "L2": "Describes two representations and makes a partial connection between them.",
+        "L3": "Clearly explains how two or more representations show the same mathematical idea and what the connection reveals.",
+        "L4": "Selects or compares representations strategically and uses the connection to reveal or develop a further mathematical insight."
+      },
+      "classifier": {
+        "L1": "names a representation",
+        "L2": "identifies two and describes them",
+        "L3": "explicitly explains how corresponding features are connected",
+        "L4": "compares/selects representations or derives a new insight from the connection"
+      }
+    },
+    "justify": {
+      "name": "Reason & justify",
+      "levels": {
+        "L1": "States a result, observation, or claim with little mathematical support.",
+        "L2": "Supports a claim with an example or some relevant reasoning.",
+        "L3": "Makes a clear mathematical claim and justifies it using relationships, calculations, representations, or examples.",
+        "L4": "Develops a convincing general argument, tests the claim, considers cases, or extends the relationship."
+      },
+      "classifier": {
+        "L1": "gives answer/claim",
+        "L2": "gives claim + example",
+        "L3": "explains why using mathematical relationships",
+        "L4": "generalizes, verifies, addresses cases, or extends the argument"
+      }
+    },
+    "transfer": {
+      "name": "Reflect & transfer",
+      "levels": {
+        "L1": "Describes what was done.",
+        "L2": "Identifies a change in strategy or a useful idea.",
+        "L3": "Explains how and why the thinking changed and applies that idea appropriately to another problem.",
+        "L4": "Compares approaches, identifies when each is useful, and transfers the reasoning flexibly to unfamiliar situations."
+      },
+      "classifier": {
+        "L1": "recounts activity",
+        "L2": "names a changed strategy",
+        "L3": "explains why the change helped + applies it elsewhere",
+        "L4": "evaluates alternatives and identifies when/why the reasoning transfers"
+      }
+    },
+    "communicate": {
+      "name": "Communicate mathematically",
+      "levels": {
+        "L1": "Uses limited mathematical vocabulary, notation, or representations; reasoning is difficult to follow.",
+        "L2": "Uses some appropriate mathematical terminology and notation; reasoning is generally understandable.",
+        "L3": "Uses relevant module vocabulary, notation, and representations accurately to communicate reasoning clearly.",
+        "L4": "Coordinates language, notation, diagrams, and representations precisely and efficiently to strengthen the mathematical argument."
+      },
+      "classifier": {
+        "L1": "reasoning unclear",
+        "L2": "some appropriate mathematical language",
+        "L3": "accurate terminology/notation supports the explanation",
+        "L4": "multiple forms of mathematical communication are coordinated purposefully"
+      }
+    }
+  }
+}

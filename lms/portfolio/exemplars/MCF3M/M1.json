@@ -1,0 +1,45 @@
+{
+  "course_code": "MCF3M",
+  "module_number": 1,
+  "locked": true,
+  "title": "Module 1 Portfolio",
+  "hero_subtitle": "Module 1 · Functions & quadratic models",
+  "hero_note": "3 questions.\nUse your group work.\nShow your own thinking.",
+  "evidence_placeholders": [
+    "Lesson 1 screenshot",
+    "Lesson 2 screenshot",
+    "Lesson 3 screenshot"
+  ],
+  "intro": "Start with the course question. Tap Module 1 lens only when you want a more specific version.",
+  "reasoning_focus": [
+    "Connect representations",
+    "Justify relationships",
+    "Reflect and transfer"
+  ],
+  "strand": "A",
+  "strand_name": "Quadratic Functions",
+  "overalls": ["A2"],
+  "representations": [
+    "arrangement/rectangle",
+    "table",
+    "equation",
+    "graph"
+  ],
+  "questions": {
+    "connect": {
+      "lens": "Connect two of these: arrangement/rectangle, table, equation, graph. What does each show about the same situation?",
+      "useful_words": ["model", "function", "factor", "root", "x-intercept", "graph"],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    },
+    "justify": {
+      "lens": "Make a claim about product, roots, a maximum/minimum, or symmetry. Support it with your model, values, equation, or graph.",
+      "useful_words": ["sum", "product", "vertex", "maximum/minimum", "symmetry"],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    },
+    "transfer": {
+      "lens": "Explain when changing representation made a practical quadratic problem easier. Then use that choice on a new context.",
+      "useful_words": ["domain", "restriction", "reasonable solution", "strategy"],
+      "evidence": "Use your screenshot + one detail from your quick reflection."
+    }
+  }
+}

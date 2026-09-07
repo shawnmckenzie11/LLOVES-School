@@ -1,0 +1,17 @@
+{
+  "connect": {
+    "id": "q1",
+    "verb": "CONNECT",
+    "course_question": "How do two different representations show the same mathematical idea? Explain what you understand better when you connect them."
+  },
+  "justify": {
+    "id": "q2",
+    "verb": "JUSTIFY",
+    "course_question": "What pattern or relationship matters here? Make a mathematical claim and show why it makes sense."
+  },
+  "transfer": {
+    "id": "q3",
+    "verb": "TRANSFER",
+    "course_question": "How did your thinking change? Explain why the new idea helped, then use that thinking on a new problem."
+  }
+}

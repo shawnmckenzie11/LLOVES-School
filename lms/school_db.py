@@ -309,6 +309,7 @@ CREATE TABLE IF NOT EXISTS observations (
     follow_up_required INTEGER NOT NULL DEFAULT 0,
     visibility TEXT NOT NULL DEFAULT 'staff',
     source TEXT NOT NULL DEFAULT 'manual',
+    lookfor_key TEXT,
     quick_phrase_id INTEGER REFERENCES quick_phrases(id)
 );
 
@@ -327,6 +328,18 @@ CREATE TABLE IF NOT EXISTS observation_processes (
         REFERENCES observations(id) ON DELETE CASCADE,
     process_key TEXT NOT NULL,
     PRIMARY KEY (observation_id, process_key)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_mark_suggestions (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    ontario_code TEXT NOT NULL,
+    module_number INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    suggested_json TEXT NOT NULL DEFAULT '{}',
+    override_json TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(class_id, module_number, student_id)
 );
 
 CREATE TABLE IF NOT EXISTS access_audit_log (
@@ -1185,6 +1198,27 @@ class LovesDB:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(class_id, module_number, live_index)
+            )
+            """
+        )
+        obs_cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(observations)").fetchall()
+        }
+        if "lookfor_key" not in obs_cols:
+            self.conn.execute("ALTER TABLE observations ADD COLUMN lookfor_key TEXT")
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS portfolio_mark_suggestions (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                ontario_code TEXT NOT NULL,
+                module_number INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                suggested_json TEXT NOT NULL DEFAULT '{}',
+                override_json TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(class_id, module_number, student_id)
             )
             """
         )
@@ -3266,6 +3300,41 @@ class LovesDB:
             ).fetchall()
         return [self._observation_dict(row) for row in rows]
 
+    def team_student_ids(self, team_id: int) -> list[int]:
+        """Return current team members from ``game_memberships``.
+
+        Args:
+            team_id: MGS ``game_teams.id``.
+        """
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT student_id FROM game_memberships
+                WHERE team_id = ?
+                ORDER BY student_id
+                """,
+                (int(team_id),),
+            ).fetchall()
+        return [int(row["student_id"]) for row in rows]
+
+    def get_latest_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
+        """Most recent live session for a class, including ended sessions.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE class_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
     def get_observation(self, observation_id: int) -> dict[str, Any] | None:
         """Return one observation with subjects and processes.
 
@@ -3293,6 +3362,7 @@ class LovesDB:
         evidence_strength: str | None = None,
         follow_up_required: bool = False,
         source: str = "manual",
+        lookfor_key: str | None = None,
         quick_phrase_id: int | None = None,
         visibility: str = "staff",
     ) -> dict[str, Any]:
@@ -3309,7 +3379,8 @@ class LovesDB:
             process_keys: Ontario process keys.
             evidence_strength: ``emerging``, ``developing``, ``clear``, or None.
             follow_up_required: Teacher flag.
-            source: ``quick_phrase`` or ``manual``.
+            source: ``quick_phrase``, ``manual``, or ``lookfor``.
+            lookfor_key: Team Challenge look-for id when ``source=lookfor``.
             quick_phrase_id: Phrase used, if any.
             visibility: Default ``staff``.
 
@@ -3343,8 +3414,8 @@ class LovesDB:
                 INSERT INTO observations (
                     live_session_id, class_id, observer_user_id, created_at,
                     scope, team_id, note, evidence_strength, follow_up_required,
-                    visibility, source, quick_phrase_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    visibility, source, lookfor_key, quick_phrase_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(live_session_id),
@@ -3358,6 +3429,7 @@ class LovesDB:
                     1 if follow_up_required else 0,
                     visibility or "staff",
                     source or "manual",
+                    (lookfor_key or "").strip() or None,
                     int(quick_phrase_id) if quick_phrase_id else None,
                 ),
             )
@@ -3496,6 +3568,183 @@ class LovesDB:
             "class_counts": class_counts,
             "observation_count": len(observations),
         }
+
+    def lookfor_tallies_for_module(
+        self,
+        class_id: int,
+        module_number: int,
+        *,
+        n_modules: int = 8,
+    ) -> dict[str, dict[str, int]]:
+        """Count ``source=lookfor`` observations per student in a module window.
+
+        Args:
+            class_id: MGS class id.
+            module_number: 1-based module index.
+            n_modules: Course module count for even windows.
+
+        Returns:
+            ``{student_id: {lookfor_id: count}}``.
+        """
+        try:
+            from gradebook import even_module_windows
+            from portfolio.lookfors import LOOKFOR_IDS, empty_tally
+        except ImportError:
+            from lms.gradebook import even_module_windows
+            from lms.portfolio.lookfors import LOOKFOR_IDS, empty_tally
+
+        windows = even_module_windows(n_modules=n_modules)
+        window = next(
+            (row for row in windows if int(row.get("number") or 0) == int(module_number)),
+            None,
+        )
+        this_days = set(window.get("days") or []) if window else set()
+        all_window_days = {
+            str(day)
+            for row in windows
+            for day in (row.get("days") or [])
+        }
+        with self._lock:
+            obs_rows = self.conn.execute(
+                """
+                SELECT * FROM observations
+                WHERE class_id = ? AND source = 'lookfor'
+                ORDER BY id
+                """,
+                (int(class_id),),
+            ).fetchall()
+            sessions = {
+                int(row["id"]): dict(row)
+                for row in self.conn.execute(
+                    """
+                    SELECT id, meeting_date, started_at FROM live_class_sessions
+                    WHERE class_id = ?
+                    """,
+                    (int(class_id),),
+                ).fetchall()
+            }
+        tallies: dict[str, dict[str, int]] = {}
+        for raw in obs_rows:
+            obs = self._observation_dict(raw)
+            key = str(obs.get("lookfor_key") or "").strip()
+            if key not in LOOKFOR_IDS:
+                continue
+            sess = sessions.get(int(obs.get("live_session_id") or 0))
+            meeting = ""
+            if sess is not None:
+                meeting = str(sess.get("meeting_date") or sess.get("started_at") or "")[:10]
+            if this_days:
+                if meeting in this_days:
+                    pass
+                elif meeting in all_window_days:
+                    continue
+                elif int(module_number) != 1:
+                    continue
+            ids = [int(sid) for sid in (obs.get("student_ids") or [])]
+            if not ids and obs.get("team_id") is not None:
+                ids = self.team_student_ids(int(obs["team_id"]))
+            for student_id in ids:
+                bucket = tallies.setdefault(str(int(student_id)), empty_tally())
+                bucket[key] = int(bucket.get(key) or 0) + 1
+        return tallies
+
+    def list_portfolio_mark_rows(
+        self, class_id: int, module_number: int
+    ) -> list[dict[str, Any]]:
+        """Load persisted mark suggestions/overrides for a class module.
+
+        Args:
+            class_id: MGS class id.
+            module_number: 1-based module index.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM portfolio_mark_suggestions
+                WHERE class_id = ? AND module_number = ?
+                """,
+                (int(class_id), int(module_number)),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            for field in ("suggested_json", "override_json"):
+                raw = item.get(field)
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        item[field.replace("_json", "")] = json.loads(raw)
+                    except json.JSONDecodeError:
+                        item[field.replace("_json", "")] = {}
+                else:
+                    item[field.replace("_json", "")] = {} if field == "suggested_json" else None
+            out.append(item)
+        return out
+
+    def upsert_portfolio_mark(
+        self,
+        *,
+        class_id: int,
+        ontario_code: str,
+        module_number: int,
+        student_id: int,
+        suggested: dict[str, Any] | None = None,
+        override: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Insert or update local portfolio mark suggestions (not the 100% gate).
+
+        Args:
+            class_id: MGS class id.
+            ontario_code: Course code.
+            module_number: Module index.
+            student_id: Roster student id.
+            suggested: Classifier output.
+            override: Staff L1–L4 overrides.
+
+        Returns:
+            Stored row.
+        """
+        now = _now()
+        suggested_json = json.dumps(suggested or {}, ensure_ascii=False)
+        override_json = json.dumps(override, ensure_ascii=False) if override is not None else None
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO portfolio_mark_suggestions (
+                    class_id, ontario_code, module_number, student_id,
+                    suggested_json, override_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, module_number, student_id) DO UPDATE SET
+                    ontario_code = excluded.ontario_code,
+                    suggested_json = CASE
+                        WHEN excluded.suggested_json = '{}' THEN
+                            portfolio_mark_suggestions.suggested_json
+                        ELSE excluded.suggested_json
+                    END,
+                    override_json = COALESCE(
+                        excluded.override_json,
+                        portfolio_mark_suggestions.override_json
+                    ),
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(class_id),
+                    str(ontario_code).upper(),
+                    int(module_number),
+                    int(student_id),
+                    suggested_json,
+                    override_json,
+                    now,
+                ),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                """
+                SELECT * FROM portfolio_mark_suggestions
+                WHERE class_id = ? AND module_number = ? AND student_id = ?
+                """,
+                (int(class_id), int(module_number), int(student_id)),
+            ).fetchone()
+        return dict(row) if row else {}
 
 
 class SchoolDB(LovesDB):

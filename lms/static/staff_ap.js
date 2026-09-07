@@ -79,8 +79,19 @@ let setupRoundNumber = 1;
 const ROUND_KIND_OPTIONS = [
   { kind: "open", label: "Open Question Round", defaultMin: 20 },
   { kind: "challenge", label: "Team Challenge", defaultMin: 10 },
-  { kind: "formative", label: "Formative", defaultMin: 10 },
+  { kind: "formative", label: "Formative Question Round", defaultMin: 10 },
   { kind: "break", label: "Break", defaultMin: 5 },
+];
+
+/** Builtin Team Challenge look-fors (fallback when profiles API is unavailable). */
+const TEAM_CHALLENGE_ACTIONS = [
+  { id: "represented", label: "represented", amount: 1, lookfor_key: "represented" },
+  { id: "connected", label: "connected", amount: 1, lookfor_key: "connected" },
+  { id: "noticed_generalized", label: "noticed/generalized", amount: 1, lookfor_key: "noticed_generalized" },
+  { id: "justified", label: "justified", amount: 1, lookfor_key: "justified" },
+  { id: "checked_revised", label: "checked/revised", amount: 1, lookfor_key: "checked_revised" },
+  { id: "transferred_extended", label: "transferred/extended", amount: 1, lookfor_key: "transferred_extended" },
+  { id: "mathematical_language", label: "mathematical language", amount: 1, lookfor_key: "mathematical_language" },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -847,7 +858,7 @@ function isBreakRound(round = null) {
 }
 
 /**
- * True when current round kind is Open Question.
+ * True when the active live round is Open Question.
  * @returns {boolean}
  */
 function isOpenQuestionRound() {
@@ -859,7 +870,31 @@ function isOpenQuestionRound() {
   const row = rounds[n - 1];
   if (row?.kind) return row.kind === "open";
   const title = String(game.round_title || "").toLowerCase();
-  return title.includes("open question");
+  return title.includes("open question") || title === "";
+}
+
+/**
+ * True when current round kind is Team Challenge.
+ * @returns {boolean}
+ */
+function isChallengeRound() {
+  if (isBreakRound()) return false;
+  const game = overlayState?.game || {};
+  if (game.round_kind) return String(game.round_kind) === "challenge";
+  const rounds = game.rounds || [];
+  const n = Number(game.round) || 1;
+  const row = rounds[n - 1];
+  if (row?.kind) return row.kind === "challenge";
+  const title = String(game.round_title || "").toLowerCase();
+  return title.includes("team challenge") || title.includes("challenge");
+}
+
+/**
+ * True when scoring uses a profile matrix (Open Question or Team Challenge).
+ * @returns {boolean}
+ */
+function isProfileMatrixRound() {
+  return isOpenQuestionRound() || isChallengeRound();
 }
 
 /**
@@ -1553,7 +1588,9 @@ $("ap-meet-start")?.addEventListener("click", async () => {
  */
 function availableRoundKinds() {
   if (trackMode === "individual") {
-    return ROUND_KIND_OPTIONS.filter((option) => option.kind === "open");
+    return ROUND_KIND_OPTIONS.filter(
+      (option) => option.kind === "open" || option.kind === "challenge"
+    );
   }
   return ROUND_KIND_OPTIONS;
 }
@@ -1575,7 +1612,7 @@ function roundEditorMarkup(round, roundNumber) {
         `<option value="${option.kind}" ${option.kind === selectedKind ? "selected" : ""}>${escapeHtml(option.label)}</option>`
     )
     .join("");
-  const kindLocked = trackMode === "individual";
+  const kindLocked = false;
   const breakTitle = isBreakRound({ ...round, kind: selectedKind })
     ? `<label class="field ap-round-title">Break title (optional)
         <input type="text" maxlength="80" value="${escapeHtml(round.title || "")}" placeholder="Break" data-round-title>
@@ -1598,7 +1635,7 @@ function roundEditorMarkup(round, roundNumber) {
  * @returns {{kind: string, minutes: number, title?: string}}
  */
 function roundRequestBody(round) {
-  const kind = trackMode === "individual" ? "open" : round.kind;
+  const kind = round.kind;
   const body = {
     kind,
     minutes: Math.max(1, Math.min(180, Number(round.minutes) || 1)),
@@ -1616,7 +1653,7 @@ function roundRequestBody(round) {
 function renderRoundsPanel() {
   const box = $("ap-rounds-list");
   if (!box) return;
-  if (trackMode === "individual" && draftRound.kind !== "open") {
+  if (trackMode === "individual" && !["open", "challenge"].includes(draftRound.kind)) {
     draftRound = { kind: "open", minutes: draftRound.minutes || 20, title: "" };
   }
   box.innerHTML = roundEditorMarkup(draftRound, setupRoundNumber);
@@ -1628,8 +1665,8 @@ function renderRoundsPanel() {
   if (hint) {
     hint.textContent =
       trackMode === "individual"
-        ? "Individual tracking uses Open Question Round only. Set the length, then Start Round."
-        : "Set up one round at a time. Open Question Round uses action chips when scoring.";
+        ? "Individual tracking uses Open Question or Team Challenge. Formative and Break stay team-only."
+        : "Set up one round at a time. Open Question and Team Challenge use action chips when scoring.";
   }
   updateStepSummaries();
 }
@@ -1664,8 +1701,13 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
   const wantEspn = trackMode === "team" && pendingScoreboard && !hasLiveOverlay;
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
-    if (trackMode === "individual") {
+    if (trackMode === "individual" && !["open", "challenge"].includes(draftRound.kind)) {
       draftRound = { ...draftRound, kind: "open" };
+    }
+    if (String(overlayState?.game?.status || "") === "live") {
+      await openLiveScoring(overlayState);
+      startLiveSessionPolling();
+      return;
     }
     const rounds = [roundRequestBody(draftRound)];
     overlayState = await api(`/api/classes/${classId}/game/start-rounds`, {
@@ -1688,7 +1730,7 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
  * Paint the inline editor for the next live round.
  */
 function renderNextRoundPanel() {
-  if (trackMode === "individual" && nextDraftRound.kind !== "open") {
+  if (trackMode === "individual" && !["open", "challenge"].includes(nextDraftRound.kind)) {
     nextDraftRound = { kind: "open", minutes: nextDraftRound.minutes || 10, title: "" };
   }
   const fields = $("ap-next-round-fields");
@@ -1746,7 +1788,7 @@ $("ap-next-round-fields")?.addEventListener("input", (event) => {
 
 $("ap-next-round-start")?.addEventListener("click", async () => {
   try {
-    if (trackMode === "individual") {
+    if (trackMode === "individual" && !["open", "challenge"].includes(nextDraftRound.kind)) {
       nextDraftRound = { ...nextDraftRound, kind: "open" };
     }
     const round = roundRequestBody(nextDraftRound);
@@ -1766,16 +1808,30 @@ $("ap-next-round-start")?.addEventListener("click", async () => {
 });
 
 /**
+ * Split look-for labels such as noticed/generalized onto two lines.
+ * @param {string} label
+ * @returns {string}
+ */
+function stackedSlashLabel(label) {
+  const parts = String(label || "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return escapeHtml(label);
+  return parts.map((part) => escapeHtml(part)).join("<br>");
+}
+
+/**
  * Compact student point chips, or Open Question matrix cell buttons.
  * @param {number} id
  * @returns {string}
  */
 function studentButtons(id) {
-  if (isOpenQuestionRound()) {
-    return getActiveOpenActions()
+  if (isProfileMatrixRound()) {
+    return getActiveMatrixActions()
       .map(
         (action) =>
-          `<button type="button" class="ap-action-chip" data-kind="student" data-id="${id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="+${action.amount}">${escapeHtml(action.label)}</button>`
+          `<button type="button" class="ap-action-chip" data-kind="student" data-id="${id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" data-lookfor="${escapeHtml(action.lookfor_key || action.id || "")}" title="+${action.amount}">${stackedSlashLabel(action.label)}</button>`
       )
       .join("");
   }
@@ -1795,12 +1851,16 @@ function builtinOpenProfilesDoc() {
       active_id: "default",
       profiles: [{ id: "default", name: "Default", actions: OPEN_QUESTION_ACTIONS.map((a) => ({ ...a })) }],
     },
+    challenge: {
+      active_id: "team_challenge",
+      profiles: [{ id: "team_challenge", name: "Team Challenge", actions: TEAM_CHALLENGE_ACTIONS.map((a) => ({ ...a })) }],
+    },
   };
 }
 
 /**
  * Actions for the active Open Question profile.
- * @returns {Array<{id: string, label: string, amount: number}>}
+ * @returns {Array<{id: string, label: string, amount: number, lookfor_key?: string}>}
  */
 function getActiveOpenActions() {
   const doc = openProfilesDoc || builtinOpenProfilesDoc();
@@ -1810,6 +1870,28 @@ function getActiveOpenActions() {
   const active = profiles.find((p) => p.id === activeId) || profiles[0];
   const actions = active && Array.isArray(active.actions) ? active.actions : OPEN_QUESTION_ACTIONS;
   return actions.length ? actions : OPEN_QUESTION_ACTIONS;
+}
+
+/**
+ * Actions for the active Team Challenge profile.
+ * @returns {Array<{id: string, label: string, amount: number, lookfor_key?: string}>}
+ */
+function getActiveChallengeActions() {
+  const doc = openProfilesDoc || builtinOpenProfilesDoc();
+  const section = doc.challenge || {};
+  const profiles = Array.isArray(section.profiles) ? section.profiles : [];
+  const activeId = String(section.active_id || "");
+  const active = profiles.find((p) => p.id === activeId) || profiles[0];
+  const actions = active && Array.isArray(active.actions) ? active.actions : TEAM_CHALLENGE_ACTIONS;
+  return actions.length ? actions : TEAM_CHALLENGE_ACTIONS;
+}
+
+/**
+ * Matrix actions for the current round kind.
+ * @returns {Array<{id: string, label: string, amount: number, lookfor_key?: string}>}
+ */
+function getActiveMatrixActions() {
+  return isChallengeRound() ? getActiveChallengeActions() : getActiveOpenActions();
 }
 
 /**
@@ -1828,6 +1910,9 @@ async function ensureOpenProfilesLoaded(opts = {}) {
       const data = await api(`/api/classes/${classId}/ap-round-profiles`);
       if (data && data.document && data.document.open) {
         openProfilesDoc = data.document;
+        if (!openProfilesDoc.challenge) {
+          openProfilesDoc.challenge = builtinOpenProfilesDoc().challenge;
+        }
       } else {
         openProfilesDoc = builtinOpenProfilesDoc();
       }
@@ -1847,11 +1932,11 @@ function renderOpenProfileBar() {
   const bar = $("ap-oq-profile-bar");
   const select = $("ap-oq-profile-select");
   if (!bar || !select) return;
-  const show = isOpenQuestionRound() && !isBreakRound();
+  const show = isProfileMatrixRound() && !isBreakRound();
   bar.hidden = !show;
   if (!show) return;
   const doc = openProfilesDoc || builtinOpenProfilesDoc();
-  const section = doc.open || {};
+  const section = isChallengeRound() ? doc.challenge || {} : doc.open || {};
   const profiles = Array.isArray(section.profiles) ? section.profiles : [];
   const activeId = String(section.active_id || profiles[0]?.id || "default");
   select.innerHTML = profiles
@@ -1868,15 +1953,15 @@ function renderOpenProfileBar() {
  * @returns {string}
  */
 function openActionMatrixHtml(rows) {
-  const actions = getActiveOpenActions();
+  const actions = getActiveMatrixActions();
   if (!actions.length) {
-    return `<p class="hint compact">No actions in this Open Question profile. <a href="/staff/class/${classId}?tab=profiles" target="_blank" rel="noopener">Edit Profiles</a></p>`;
+    return `<p class="hint compact">No actions in this profile. <a href="/staff/class/${classId}?tab=profiles" target="_blank" rel="noopener">Edit Profiles</a></p>`;
   }
   const head = actions
     .map(
       (action) =>
         `<th scope="col" class="ap-oq-col" title="+${escapeHtml(String(action.amount))}">
-          <span class="ap-oq-col-label">${escapeHtml(action.label)}</span>
+          <span class="ap-oq-col-label">${stackedSlashLabel(action.label)}</span>
           <span class="ap-oq-col-pts">+${escapeHtml(String(action.amount))}</span>
         </th>`
     )
@@ -1887,7 +1972,7 @@ function openActionMatrixHtml(rows) {
       const cells = actions
         .map(
           (action) =>
-            `<td><button type="button" class="ap-oq-cell" data-kind="student" data-id="${row.id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" title="${escapeHtml(action.label)} (+${action.amount})">+${escapeHtml(String(action.amount))}</button></td>`
+            `<td><button type="button" class="ap-oq-cell" data-kind="student" data-id="${row.id}" data-amount="${action.amount}" data-label="${escapeHtml(action.label)}" data-lookfor="${escapeHtml(action.lookfor_key || action.id || "")}" title="${escapeHtml(action.label)} (+${action.amount})">+${escapeHtml(String(action.amount))}</button></td>`
         )
         .join("");
       return `<tr>
@@ -1917,7 +2002,7 @@ function renderScoreList() {
   const teams = overlayState.teams || [];
   const members = teams.flatMap((t) => t.members || []);
   const rows = sortStudents(members.length ? members : overlayState.students || [], nameSort);
-  if (isOpenQuestionRound()) {
+  if (isProfileMatrixRound()) {
     box.innerHTML = openActionMatrixHtml(rows);
   } else {
     box.innerHTML = rows
@@ -1974,8 +2059,10 @@ function renderLiveTeams(state) {
   const stamp = JSON.stringify({
     pending: pendingTeam,
     round: game.round,
-    open: isOpenQuestionRound(),
-    profile: openProfilesDoc?.open?.active_id || "",
+    open: isProfileMatrixRound(),
+    profile: isChallengeRound()
+      ? openProfilesDoc?.challenge?.active_id || ""
+      : openProfilesDoc?.open?.active_id || "",
     activeTeam: $("ap-score-team-tabs")?.dataset.activeTeam || "",
     teams: (state.teams || []).map((t) => [
       t.id,
@@ -2017,7 +2104,7 @@ function renderLiveTeams(state) {
   rootEl.innerHTML = paintTeams
     .map((team) => {
       const members = sortStudents(team.members || [], nameSort);
-      const playerBlocks = isOpenQuestionRound()
+      const playerBlocks = isProfileMatrixRound()
         ? openActionMatrixHtml(members)
         : members
             .map((s) => {
@@ -2036,7 +2123,7 @@ function renderLiveTeams(state) {
           <span class="who">${escapeHtml(team.name)}</span>
           <span class="now">${escapeHtml(formatPoints(team.score))}</span>
         </div>
-        ${teamControls(team.id)}
+        ${isChallengeRound() ? "" : teamControls(team.id)}
         ${playerBlocks}
       </section>`;
     })
@@ -2067,6 +2154,9 @@ async function postScoreFromButton(btn) {
   };
   if (btn.dataset.rule) payload.team_rule = btn.dataset.rule;
   if (btn.dataset.label) payload.label = btn.dataset.label;
+  if (isChallengeRound() && btn.dataset.lookfor) {
+    payload.lookfor_id = btn.dataset.lookfor;
+  }
   overlayState = await api(`/api/classes/${classId}/game/score`, {
     method: "POST",
     body: JSON.stringify(payload),
@@ -2115,8 +2205,13 @@ $("ap-oq-profile-select")?.addEventListener("change", async (event) => {
   if (!(select instanceof HTMLSelectElement)) return;
   const nextId = select.value;
   const doc = openProfilesDoc || builtinOpenProfilesDoc();
-  if (!doc.open) return;
-  doc.open.active_id = nextId;
+  if (isChallengeRound()) {
+    if (!doc.challenge) return;
+    doc.challenge.active_id = nextId;
+  } else {
+    if (!doc.open) return;
+    doc.open.active_id = nextId;
+  }
   openProfilesDoc = doc;
   try {
     const saved = await api(`/api/classes/${classId}/ap-round-profiles`, {
