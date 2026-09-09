@@ -5,124 +5,404 @@
   "description": "The only JSON the student HTML renderer may read. additionalProperties is false.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "lesson_id", "title", "parts"],
+  "required": [
+    "schema_version",
+    "lesson_id",
+    "title",
+    "parts"
+  ],
   "properties": {
-    "schema_version": { "const": "student-content.v1" },
-    "lesson_id": { "type": "string" },
-    "title": { "type": "string" },
+    "schema_version": {
+      "const": "student-content.v1"
+    },
+    "lesson_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
     "credits": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Short source labels shown at the end of the lesson."
     },
     "parts": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/part" }
+      "items": {
+        "$ref": "#/$defs/part"
+      }
+    },
+    "goal": {
+      "type": "string",
+      "description": "Student-visible lesson goal line under the title."
+    },
+    "you_will_need": {
+      "type": "string",
+      "description": "Short tools line (paper, local board)."
     }
   },
   "$defs": {
     "part": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "nav_label", "blocks"],
+      "required": [
+        "id",
+        "nav_label",
+        "blocks"
+      ],
       "properties": {
         "id": {
           "type": "string",
-          "enum": ["hook", "minds-on", "action", "consolidation"]
+          "enum": [
+            "hook",
+            "minds-on",
+            "action",
+            "consolidation"
+          ]
         },
-        "nav_label": { "type": "string" },
+        "nav_label": {
+          "type": "string"
+        },
         "blocks": {
           "type": "array",
-          "items": { "$ref": "#/$defs/block" }
+          "items": {
+            "$ref": "#/$defs/block"
+          }
         }
       }
     },
     "block": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "oneOf": [
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "p" },
-            "text": { "type": "string" }
+            "type": {
+              "const": "p"
+            },
+            "text": {
+              "type": "string"
+            }
           },
-          "required": ["type", "text"]
+          "required": [
+            "type",
+            "text"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "h2" },
-            "text": { "type": "string" }
+            "type": {
+              "const": "h2"
+            },
+            "text": {
+              "type": "string"
+            }
           },
-          "required": ["type", "text"]
+          "required": [
+            "type",
+            "text"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "equation" },
-            "text": { "type": "string" }
+            "type": {
+              "const": "equation"
+            },
+            "text": {
+              "type": "string"
+            }
           },
-          "required": ["type", "text"]
+          "required": [
+            "type",
+            "text"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "task" },
-            "prompt": { "type": "string" }
+            "type": {
+              "const": "task"
+            },
+            "prompt": {
+              "type": "string"
+            }
           },
-          "required": ["type", "prompt"]
+          "required": [
+            "type",
+            "prompt"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "figure" },
-            "src": { "type": "string" },
-            "alt": { "type": "string" }
+            "type": {
+              "const": "figure"
+            },
+            "src": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            }
           },
-          "required": ["type", "src", "alt"]
+          "required": [
+            "type",
+            "src",
+            "alt"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "interactive" },
-            "spec_id": { "type": "string" }
+            "type": {
+              "const": "interactive"
+            },
+            "spec_id": {
+              "type": "string"
+            }
           },
-          "required": ["type", "spec_id"]
+          "required": [
+            "type",
+            "spec_id"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "practice-set" },
-            "set_id": { "type": "string" },
-            "visible_count": { "type": "integer", "minimum": 1 }
+            "type": {
+              "const": "practice-set"
+            },
+            "set_id": {
+              "type": "string"
+            },
+            "visible_count": {
+              "type": "integer",
+              "minimum": 1
+            }
           },
-          "required": ["type", "set_id"]
+          "required": [
+            "type",
+            "set_id"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "example" },
+            "type": {
+              "const": "example"
+            },
             "stage": {
               "type": "string",
-              "enum": ["worked", "variation", "partial", "independent", "retrieval"]
+              "enum": [
+                "worked",
+                "variation",
+                "partial",
+                "independent",
+                "retrieval"
+              ]
             },
             "blocks": {
               "type": "array",
-              "items": { "$ref": "#/$defs/block" }
+              "items": {
+                "$ref": "#/$defs/block"
+              }
             }
           },
-          "required": ["type", "stage", "blocks"]
+          "required": [
+            "type",
+            "stage",
+            "blocks"
+          ]
         },
         {
           "additionalProperties": false,
           "properties": {
-            "type": { "const": "self-check" },
-            "prompt": { "type": "string" },
-            "rubric_id": { "type": "string" }
+            "type": {
+              "const": "self-check"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "rubric_id": {
+              "type": "string"
+            }
           },
-          "required": ["type", "prompt"]
+          "required": [
+            "type",
+            "prompt"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "goal"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "reflect"
+            },
+            "title": {
+              "type": "string"
+            },
+            "questions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "prompt"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "type",
+            "questions"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "key-idea"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "need-to-know"
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "dual-path"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "paths": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "blocks"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "voice": {
+                    "type": "string"
+                  },
+                  "blocks": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "type",
+            "paths"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "support-fade"
+            },
+            "title": {
+              "type": "string"
+            },
+            "process_name": {
+              "type": "string"
+            },
+            "stages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "worked",
+                "practise",
+                "extend"
+              ],
+              "properties": {
+                "worked": {
+                  "type": "string"
+                },
+                "practise": {
+                  "type": "string"
+                },
+                "extend": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "type",
+            "stages"
+          ]
         }
       ]
     }

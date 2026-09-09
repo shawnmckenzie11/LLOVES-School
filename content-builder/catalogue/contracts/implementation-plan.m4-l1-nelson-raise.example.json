@@ -1,0 +1,140 @@
+{
+  "schema_version": "implementation-plan.v1",
+  "course_code": "MCF3M",
+  "lesson_id": "M4-L1-vertex-form",
+  "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+  "goal": "Read vertex form for the turning point and axis, and show that expanding to standard form describes the same curve.",
+  "central_question": "If you only have the equation of a curve that rises and then falls, how do you know where the high or low point is — and how do you know another writing of the same equation is still that curve?",
+  "expectations": [
+    {
+      "code": "A2.7",
+      "statement_source": "lms/seeds/mcf3m_expectations.json#A2.7",
+      "why_this_lesson": "Expand vertex form to standard form and verify equivalence with graphing technology."
+    },
+    {
+      "code": "A2.10",
+      "statement_source": "lms/seeds/mcf3m_expectations.json#A2.10",
+      "why_this_lesson": "Inspect vertex form for vertex, max/min, and axis (M4 share of A2.10)."
+    }
+  ],
+  "not_this_lesson": [
+    { "code_or_topic": "A2.8", "reason": "Completing the square is Module 4 Lesson 2." },
+    { "code_or_topic": "Nelson 4.1 stems", "reason": "Commercial licence; pedagogy benchmark only." }
+  ],
+  "benchmark": {
+    "name": "Nelson Functions 11 §4.1 depth/style (licence-restricted)",
+    "licence_note": "Mirror structure and depth; never paste Nelson text into student fields.",
+    "depth_checklist": [
+      "decision_hook",
+      "dual_solution_paths",
+      "reflect_block",
+      "worked_ladder",
+      "key_idea_need_to_know",
+      "check_practise_extend",
+      "formative_self_feedback",
+      "hook_returns_in_consolidation",
+      "mobile_visual_hierarchy"
+    ]
+  },
+  "specialist_jobs": [
+    {
+      "role": "lesson-director",
+      "output": "lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+      "instructions": "Add decision/compare-two-equivalent-models beat and Reflect A–D slots; keep A2.7/A2.10 scope; document zeros-three-ways deferral.",
+      "acceptance": ["brief names dual-path beat", "reflect_block present", "not_this_lesson includes A2.8"]
+    },
+    {
+      "role": "hook-curator",
+      "depends_on": ["lesson-director"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/hook-proposals.json",
+      "instructions": "Keep fountain hook or propose decision-hook variant; must set returns_in consolidation; CC media only.",
+      "acceptance": ["parent_selected_id set", "returns_in = consolidation"]
+    },
+    {
+      "role": "practice-designer",
+      "depends_on": ["lesson-director"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/practice-sequence.json",
+      "instructions": "Ensure support_fade covers dual-path connect + inspect + expand; mark Nelson items excluded.",
+      "acceptance": ["every candidate has placement or exclusion_reason"]
+    },
+    {
+      "role": "interaction-designer",
+      "depends_on": ["lesson-director", "practice-designer"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/interaction-spec.json",
+      "instructions": "Dual-path verify on board; no Fresh on Action; empty Check blocked.",
+      "acceptance": ["fresh case consolidation-only", "predict-check cycle defined"]
+    },
+    {
+      "role": "formative-feedback-designer",
+      "depends_on": ["interaction-designer"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/feedback-spec.json",
+      "instructions": "Feedback for h-sign, a-sign, expand mismatch; no NaN on empty.",
+      "acceptance": ["check_feedback.py will cover new cases"]
+    },
+    {
+      "role": "visual-experience-designer",
+      "depends_on": ["lesson-director"],
+      "output": "components/lesson.css (worktree) + student chrome notes",
+      "instructions": "Key Idea / Need to Know / Reflect chrome; mobile hierarchy.",
+      "acceptance": ["classes exist for key-idea, need-to-know, reflect"]
+    },
+    {
+      "role": "student-copywriter",
+      "depends_on": ["hook-curator", "practice-designer", "interaction-designer", "formative-feedback-designer", "visual-experience-designer"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+      "instructions": "Original wording only; dual-path worked example; Reflect; Key Idea; whitelist fields.",
+      "acceptance": ["no Nelson stems", "no developer language", "hook returns in consolidation"]
+    },
+    {
+      "role": "lesson-engineer",
+      "depends_on": ["student-copywriter", "visual-experience-designer"],
+      "output": "build/MCF3M/M4-L1-vertex-form/",
+      "instructions": "Render new blocks; isolated worktree if touching shared components.",
+      "acceptance": ["build_lesson.py succeeds", "support fade visible where marked"]
+    },
+    {
+      "role": "lesson-verifier",
+      "depends_on": ["lesson-engineer"],
+      "output": "lessons/MCF3M/M4-L1-vertex-form/verify-report.json",
+      "instructions": "Independent check vs benchmark checklist and scripts.",
+      "acceptance": ["verify_lesson.py PASS", "check_feedback.py PASS"]
+    }
+  ],
+  "verify": {
+    "scripts": [
+      "content-builder/.venv/bin/python content-builder/scripts/build_lesson.py",
+      "content-builder/.venv/bin/python content-builder/scripts/check_feedback.py",
+      "content-builder/.venv/bin/python content-builder/scripts/verify_lesson.py"
+    ],
+    "pedagogical": [
+      "decision_hook or compare-two-models beat visible",
+      "dual_solution_paths on that beat",
+      "reflect_block before heavy apply",
+      "key_idea_need_to_know in consolidation",
+      "hook_returns_in_consolidation",
+      "no Nelson or developer prose in student HTML"
+    ]
+  },
+  "locks": [],
+  "preserve": [
+    "lessons/MCF3M/M4-L1-vertex-form/provenance.json",
+    "catalogue/onboarding/MCF3M/"
+  ],
+  "licence": {
+    "student_html_may_use": [
+      "OpenStax CC BY-NC-SA",
+      "Ontario Queen’s Printer seed samples",
+      "Wikimedia CC fountain image (bundled)"
+    ],
+    "excluded_from_student_html": [
+      "Nelson Functions 11 stems and solutions",
+      "Unlicensed local banks"
+    ]
+  },
+  "out_of_scope": [
+    "LMS sqlite / Fly deploy / IMSCC",
+    "Completing the square (A2.8)",
+    "Required GeoGebra or Desmos API",
+    "Cursor GitHub MCP connector"
+  ]
+}

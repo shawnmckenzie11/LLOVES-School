@@ -3,6 +3,17 @@
   "lesson_id": "M4-L1-vertex-form",
   "processes": [
     {
+      "id": "compare-two-equivalent-models",
+      "name": "Compare two equivalent writings of one model; decide which shows the vertex; verify by algebra and by table/graph",
+      "support_fade": {
+        "worked": "student-content.json#dual-path-fountain-arc",
+        "variation": "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand",
+        "partial": "interaction-spec.json#expand-same-graph",
+        "independent": "ontario-seed-mcf3m-A2.7-sample",
+        "retrieval": "interaction-spec.json#fresh_case_equation"
+      }
+    },
+    {
       "id": "inspect-vertex-form",
       "name": "Inspect vertex form: vertex (h, k) including plus-inside, axis x = h, maximum or minimum from the sign of a",
       "support_fade": {
@@ -48,6 +59,14 @@
     }
   ],
   "candidates": [
+    {
+      "source_ref": "original-fountain-dual-path",
+      "title": "Fountain arc: which writing shows the peak (dual path)",
+      "placement": "worked_example",
+      "process_id": "compare-two-equivalent-models",
+      "purpose": "Decision hook with two equivalent models plus algebra and table/graph paths. Original wording; consistent with fountain opener. Not a commercial stem.",
+      "visible_by_default": true
+    },
     {
       "source_ref": "NEL-C1-1GettingStarted-GS-p2-Q7",
       "title": "Vertex of y = −2(x + 3)^2 + 5 (h-sign)",
@@ -150,28 +169,44 @@
   ],
   "sets": [
     {
+      "id": "worked-dual-path",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "original-fountain-dual-path"
+      ]
+    },
+    {
       "id": "worked-inspection",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["openstax-ca2e-m51274-vertex-form-definition"]
+      "item_refs": [
+        "openstax-ca2e-m51274-vertex-form-definition"
+      ]
     },
     {
       "id": "varied-inspection",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["A2.6-example-0"]
+      "item_refs": [
+        "A2.6-example-0"
+      ]
     },
     {
       "id": "worked-expand",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["openstax-ca2e-m51274-vertex-form-definition#figure-7-expand"]
+      "item_refs": [
+        "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand"
+      ]
     },
     {
       "id": "guided-h-sign",
       "placement": "guided_practice",
       "visible_count": 1,
-      "item_refs": ["geogebra-cxk4xt4u"]
+      "item_refs": [
+        "geogebra-cxk4xt4u"
+      ]
     },
     {
       "id": "core-independent",

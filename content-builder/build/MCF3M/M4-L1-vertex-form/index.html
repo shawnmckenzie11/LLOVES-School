@@ -10,6 +10,7 @@
 <body>
   <article class="lesson">
     <h1>Lesson 1: The Vertex Form of a Quadratic Function</h1>
+    <div class="lesson-meta"><p class="lesson-goal"><span class="chrome-label">Goal</span> Read the turning point and axis from vertex form, and show that expanding to standard form still describes the same curve.</p><p class="you-will-need"><span class="chrome-label">You will need</span> Paper or a notebook, and the graph board on this page.</p></div>
     <div class="tabs" role="tablist">
       <button type="button" role="tab" id="tab-hook" aria-controls="panel-hook" aria-selected="true">The water</button><button type="button" role="tab" id="tab-minds-on" aria-controls="panel-minds-on" aria-selected="false">Minds on</button><button type="button" role="tab" id="tab-action" aria-controls="panel-action" aria-selected="false">Action</button><button type="button" role="tab" id="tab-consolidation" aria-controls="panel-consolidation" aria-selected="false">Consolidation</button>
     </div>
@@ -22,6 +23,22 @@
 <p>Look at f(x) = (x + 3)² + 1. The equation is already in vertex form, but notice the sign inside the brackets.</p>
 <p class="equation">f(x) = (x + 3)² + 1</p>
 <div class="task"><p>Where is the vertex? Write its coordinates before you check on the graph.</p></div></div></section><section class="panel" id="panel-action" role="tabpanel" aria-labelledby="tab-action" hidden><div class="prose"><p>In this course, f(x) = a(x - h)² + k is vertex form. The expanded writing f(x) = ax² + bx + c is standard form. Some books swap those names; this course does not.</p>
+<h2>Which writing shows the peak?</h2>
+<p>Suppose a fountain stream is modelled by either of these two writings. They are meant to be the same curve.</p>
+<p class="equation">f(x) = -\frac{1}{4}(x - 3)² + 5</p>
+<p>and</p>
+<p class="equation">f(x) = -\frac{1}{4}x² + \frac{3}{2}x + \frac{11}{4}</p>
+<div class="task"><p>Without expanding yet: which writing makes it easier to name the highest point of the stream? Write the peak you can read, and say why that writing helped.</p></div>
+<h2>Same claim, two ways to check</h2>
+<p>Alex and Jordan both claim the two writings describe the same fountain arc. They check the claim differently.</p>
+<div class="dual-path example is-worked"><p class="dual-path-prompt">Follow both paths. Each should convince you the writings match — and that the peak is at (3, 5).</p><div class="path-grid"><div class="path"><h3 class="path-label">Path A — expand and compare</h3><p class="path-voice">Alex works on paper.</p><p>Start from the vertex-form writing. Square the binomial: (x - 3)² = x² - 6x + 9.</p>
+<p>Multiply by a = -\frac{1}{4}: -\frac{1}{4}x² + \frac{3}{2}x - \frac{9}{4}.</p>
+<p>Add k = 5: -\frac{1}{4}x² + \frac{3}{2}x + \frac{11}{4}.</p>
+<p>That matches the second writing exactly. Expanding did not invent a new curve.</p></div><div class="path"><h3 class="path-label">Path B — table and graph</h3><p class="path-voice">Jordan builds a short table.</p><p>Evaluate both writings at a few inputs. At x = 3, both give 5 — the peak you can already read from vertex form.</p>
+<p>At x = 1, both give 4. At x = 5, both give 4. The shared points sit on one downward-opening arc.</p>
+<p>On the graph board, those table points land on the same parabola. Matching outputs are another way to see the writings are equivalent.</p></div></div></div>
+<section class="reflect" aria-label="Reflect"><h2>Reflect</h2><ol class="reflect-list"><li><span class="reflect-id">A</span> Which writing made the peak easier to name first, and what in that writing told you the coordinates?</li><li><span class="reflect-id">B</span> What stayed the same when you moved from one writing to the other — the peak, the shape, both, or neither?</li><li><span class="reflect-id">C</span> When might you still prefer the expanded writing ax² + bx + c, even if the peak is harder to see at a glance?</li><li><span class="reflect-id">D</span> How does the sign of a tell you this fountain peak is a maximum rather than a minimum?</li></ol></section>
+<aside class="support-fade" aria-label="Practice support"><p class="chrome-label">Check → Practise → Extend</p><p class="support-fade-process">How support fades in this lesson</p><ol class="fade-stages"><li><span class="fade-stage">Check / worked</span> Worked dual-path check and worked inspections (with explanations).</li><li><span class="fade-stage">Practise</span> Match the graph, move one parameter, expand on the board, and try the independent expand.</li><li><span class="fade-stage">Extend</span> Optional extras under Try another (domain/range and a family of shifts).</li></ol></aside>
 <h2>Read the turning point from the equation</h2>
 <p>You named a vertex from a plus inside the brackets. Read this next equation the same way — vertex, axis, and whether the turning point is a maximum or a minimum.</p>
 <div class="example is-worked"><p>Sketch a parabola that opens downward and turns at a point left of the origin and above the x-axis. Label that turning point. Draw a dashed vertical line through it.</p>
@@ -36,7 +53,7 @@
 <h2>A second equation, with nothing added outside</h2>
 <div class="example is-variation"><p>The last equation had a constant outside the brackets, so k was easy to see as a height. This Ontario sample includes</p>
 <p class="equation">h(x) = -2(x + 1)²</p>
-<p>as one of the graphs to read from f(x) = x². Use it here to inspect vertex form. (The sample also names g(x) = x² - 4; stay with h(x).)</p>
+<p>as one of the graphs to read from f(x) = x². Use it here to inspect vertex form. (The sample also names g(x) = x² - 4; stay with h(x).</p>
 <p>The brackets contain (x + 1). Rewrite x + 1 as x - (-1), so h = -1. There is no constant added outside, so k = 0. The vertex is (-1, 0), and the axis is x = -1.</p>
 <p>The coefficient is -2, so a is negative and the parabola opens downward. The vertex is a maximum even though k = 0. Maximum versus minimum comes from the sign of a, not from whether k looks positive.</p>
 <div class="task"><p>Could you have decided maximum versus minimum from k on this equation? Say why or why not.</p></div></div>
@@ -151,7 +168,9 @@
 <div class="practice-item"><p>On the same axes, graph y = x², y = (x − 2)², y = (x − 3)², and y = (x + 4)². What stays the same? What moves, and in which direction?</p></div>
 </details>
 </div>
-<p>If the graph is not available, work on paper with f(x) = 2(x + 3)² + 1. First look at f(x) = (x + 3)² + 1: name that vertex, then sketch both writings (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch.</p></div></section><section class="panel" id="panel-consolidation" role="tabpanel" aria-labelledby="tab-consolidation" hidden><div class="prose"><figure class="figure"><img src="media/fountain-arc-500.jpg" alt="Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."></figure>
+<p>If the graph is not available, work on paper with f(x) = 2(x + 3)² + 1. First look at f(x) = (x + 3)² + 1: name that vertex, then sketch both writings (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch.</p></div></section><section class="panel" id="panel-consolidation" role="tabpanel" aria-labelledby="tab-consolidation" hidden><div class="prose"><section class="key-idea" aria-label="Key idea"><p class="chrome-label">Key idea</p><p>Vertex form f(x) = a(x - h)² + k makes the vertex (h, k) and the axis x = h readable at a glance. Expanding that writing into ax² + bx + c describes the same parabola — it does not move the curve.</p></section>
+<section class="need-to-know" aria-label="Need to know"><p class="chrome-label">Need to know</p><ul><li>Match brackets to (x - h). A plus inside the brackets means h is negative.</li><li>Maximum versus minimum comes from the sign of a, not from the sign of k and not from which quadrant the vertex sits in.</li><li>a stretches or flips; k moves the vertex up or down. Those jobs are not the same.</li><li>Two writings are equivalent when expansion matches or when shared table points sit on one graph.</li></ul></section>
+<figure class="figure"><img src="media/fountain-arc-500.jpg" alt="Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."></figure>
 <p>You marked the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.</p>
 <p class="equation">f(x) = -0.5(x - 2)² + 4</p>
 <div class="task"><p>Do not move the graph yet. Name the vertex, the axis of symmetry, and whether this vertex is a maximum or a minimum.</p></div>

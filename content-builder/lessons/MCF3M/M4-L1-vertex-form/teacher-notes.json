@@ -8,17 +8,18 @@
     "teacher": "Diagnostic is plus-inside f(x) = (x + 3)^2 + 1. Do not confirm the vertex before they set the graph in Action (match-plus-inside). Listen for (3, 1) or a habit of negating every visible number. Ontario share is A2.10 vertex-form inspection; A2.5/A2.6 are prerequisite, not a new target."
   },
   "action": {
-    "teacher": "Worked inspection is OpenStax y = −3(x + 2)^2 + 4, including h = −2 from (x + 2). Varied inspection is the A2.6 sample’s h(x) = −2(x + 1)^2 only (k = 0, a < 0); do not reteach sketching-by-transformation. Interactives: match-plus-inside, then predict-h, then expand-same-graph. Starting parameters a = 2, h = −3, k = 1. Do not load fresh-case on Action. Live expansion is a check aid after submit, not the key to copy.\n\nThree-form contrast listen-for (OpenStax solution element, not a student key to print): the vertex is easy to identify in this writing. Students may also name axis and maximum or minimum.\n\nA2.7 independent is the Ministry sample verbatim. Seed has no key. Do not invent or print expanded coefficients for 3(x − 1)^2 + 4. Completing the square is Lesson 2 (A2.8).\n\nDo not print Nelson stems. additional-unlicensed-nelson is omitted from student-content. additional-licensed is a practice-set (visible_count 1); item copy is below."
+    "teacher": "Open Action with the fountain decision: two equivalent writings (-1/4)(x-3)^2+5 versus expanded -1/4 x^2 + 3/2 x + 11/4. Students choose which shows the peak, then follow dual paths (Alex expand / Jordan table). Reflect A–D before heavy Apply.\n\nWorked inspection is OpenStax y = −3(x + 2)^2 + 4, including h = −2 from (x + 2). Varied inspection is the A2.6 sample’s h(x) = −2(x + 1)^2 only (k = 0, a < 0); do not reteach sketching-by-transformation. Interactives: match-plus-inside, then predict-h, then expand-same-graph. Starting parameters a = 2, h = −3, k = 1. Do not load fresh-case on Action. Live expansion is a check aid after submit, not the key to copy.\n\nThree-form contrast listen-for (OpenStax solution element, not a student key to print): the vertex is easy to identify in this writing. Students may also name axis and maximum or minimum.\n\nA2.7 independent is the Ministry sample verbatim. Seed has no key. Do not invent or print expanded coefficients for 3(x − 1)^2 + 4. Completing the square is Lesson 2 (A2.8).\n\nDo not print Nelson stems. additional-unlicensed-nelson is omitted from student-content. additional-licensed is a practice-set (visible_count 1); item copy is below.\n\nDeferred (document only; not student core): zeros three ways; equation from a graph (vertex + point → a). Completing the square remains Lesson 2 (A2.8)."
   },
   "consolidation": {
-    "teacher": "Same fountain figure and situation. Fresh equation f(x) = −0.5(x − 2)^2 + 4. Do not print the keyed vertex, axis, or maximum in student-content. Family of idea only: minus-inside; maximum versus minimum from the sign of a, not from k; axis is x = h. Runtime check messages may compare named values after submit. Retrieval: expanding does not move the curve. Not MathNet 0gz2. A3.3 is not attached."
+    "teacher": "Key Idea and Need to Know chrome appear before the fresh fountain case. Same fountain figure and situation. Fresh equation f(x) = −0.5(x − 2)^2 + 4. Do not print the keyed vertex, axis, or maximum in student-content. Family of idea only: minus-inside; maximum versus minimum from the sign of a, not from k; axis is x = h. Runtime check messages may compare named values after submit. Retrieval: expanding does not move the curve. Not MathNet 0gz2. A3.3 is not attached."
   },
   "listen_for": {
     "plus-inside": "(3, 1) or always-negate; target reading is (−3, 1)",
     "max-min-from-k": "On h(x) = −2(x + 1)^2, deciding min/max from k = 0 or from the vertex on the x-axis",
     "axis-equation": "y = h or y = k instead of x = h",
     "expand-changes-graph": "Claiming the expanded writing is a different parabola",
-    "three-form": "Vertex (and axis / max or min) from vertex form; not producing another writing"
+    "three-form": "Vertex (and axis / max or min) from vertex form; not producing another writing",
+    "dual-path-equivalence": "Claiming the expanded fountain writing is a different arc; missing that both give (3, 5) at the peak"
   },
   "self_check_rubrics": {
     "match-plus-inside-explain": [
@@ -39,6 +40,12 @@
       "Reads vertex, axis, and maximum or minimum from the writing without copying a slider label as the method.",
       "Says expanding would not move the fountain-shaped curve.",
       "Maximum versus minimum is tied to the sign of a, not to k or the quadrant."
+    ],
+    "reflect-decision": [
+      "Names vertex form as easier for the peak and reads (3, 5) from (h, k).",
+      "Says the curve (peak and shape) stayed the same across writings.",
+      "Offers a sensible use for standard form (y-intercept, polynomial operations, etc.).",
+      "Ties maximum to a < 0."
     ]
   },
   "additional_practice_copy": {
@@ -69,7 +76,11 @@
   ],
   "expand_starting_equation_teacher_only": {
     "equation": "f(x) = 2(x + 3)^2 + 1",
-    "expandStandard": { "a": 2, "b": 12, "c": 19 },
+    "expandStandard": {
+      "a": 2,
+      "b": 12,
+      "c": 19
+    },
     "note": "Local identity for the starting equation only. Not a Ministry A2.7 key."
   },
   "feedback_messages": {
