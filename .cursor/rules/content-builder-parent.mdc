@@ -15,20 +15,24 @@ The **parent** Cursor agent is the production manager. Specialists submit agains
 
 Onboarding (`catalogue/onboarding/`, `scripts/import_mcf3m_package.py`) must finish before further revision-plan prose, hooks, or interactives. Specialists load `resolved-context.{role}.json` when present.
 
+Pedagogy contracts and role map: `content-builder/docs/pedagogy-specialist-enhancement.md` (Bloom + EEF FAME).
+
 ## Sequence
 
 1. Audit failures when revising (save a fixture). Establish contracts.
-2. `lesson-director` → `lesson-brief.json`
-3. **Parallel:** `practice-designer`, `hook-curator`, `visual-experience-designer`, writing-model comparison (parent picks copywriter model)
-4. `interaction-designer` **and** `formative-feedback-designer` (joint contract)
-5. `student-copywriter` → `student-content.json`
-6. `lesson-engineer` (+ visual CSS already in components) compiles static HTML (worktree if shared `components/`)
-7. `lesson-verifier` independently; parent saves the report
-8. Parent resolves findings; present before/after to Shawn
+2. `lesson-director` → `lesson-brief.json` (include process cognitive targets)
+3. **When `catalogue/banks/` exists for the course/module:** `bank-curator` fills/reviews bank items (licence, Bloom, process tags, dispositions) before or alongside practice design
+4. **Parallel:** `practice-designer` (bank-aware; Bloom + FAME), `hook-curator`, `visual-experience-designer`, writing-model comparison (parent picks copywriter model)
+5. `interaction-designer` **and** `formative-feedback-designer` (joint contract; mistakes examples + explanation prompts)
+6. `student-copywriter` → `student-content.json`
+7. `lesson-engineer` (+ visual CSS already in components) compiles static HTML (worktree if shared `components/`)
+8. `lesson-verifier` independently (Bloom / FAME / flow via `lesson-flow-verify`); parent saves the report
+9. **Module-level flow verify** (same verifier contract, `scope: module`) before course-wide regen
+10. Parent resolves findings; present before/after to Shawn
 
 Do **not** invoke these specialists for LMS, Drive banks, MnCi decks, or Attendance & Participation.
 
-Superseded names (do not start new lessons with these): `curriculum-mapper` → director; `question-curator` → practice-designer; `instruction-author` → copywriter.
+Superseded / redirect names (do not start new lessons with these): `curriculum-mapper` → director; `question-curator` → **`bank-curator`** (bank fill/review) or **`practice-designer`** (sequence only); `instruction-author` → copywriter.
 
 ## Worktrees
 

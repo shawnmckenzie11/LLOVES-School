@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bank-item-evaluation.schema.json",
+  "title": "Bank item evaluation record",
+  "description": "Curator evaluation of one catalogue/banks item for licence, Bloom level, FAME fitness, and disposition toward practice-designer. Does not replace bank-item.schema.json; complements it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bank_item_id",
+    "bloom_level",
+    "process_tags",
+    "fame_checks",
+    "student_html_allowed",
+    "disposition",
+    "evaluated_by",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "const": "bank-item-evaluation.v1" },
+    "bank_item_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Matches bank-item.id"
+    },
+    "course_code": { "type": "string" },
+    "module": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "bloom_level": {
+      "type": "string",
+      "enum": [
+        "remember",
+        "understand",
+        "apply",
+        "analyze",
+        "evaluate",
+        "create"
+      ],
+      "description": "Primary cognitive process target (Waterloo CTE / revised Bloom)."
+    },
+    "bloom_secondary": {
+      "type": ["string", "null"],
+      "enum": [
+        "remember",
+        "understand",
+        "apply",
+        "analyze",
+        "evaluate",
+        "create",
+        null
+      ]
+    },
+    "process_tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Process ids aligned with lesson-brief / module bank slots"
+    },
+    "placement_hint": {
+      "type": "string",
+      "enum": [
+        "worked_example",
+        "guided_practice",
+        "core_practice",
+        "additional_practice",
+        "extension",
+        "unassigned",
+        "mistakes_example"
+      ]
+    },
+    "fame_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suitable_as_worked",
+        "suitable_for_fading",
+        "suitable_for_alternating_pair",
+        "mistakes_example_ok",
+        "explanation_prompt_suggested"
+      ],
+      "properties": {
+        "suitable_as_worked": {
+          "type": "boolean",
+          "description": "Clear multi-step solution suitable for a worked example"
+        },
+        "suitable_for_fading": {
+          "type": "boolean",
+          "description": "Later steps can be removed for partial / guided practice (EEF reverse-order fading)"
+        },
+        "suitable_for_alternating_pair": {
+          "type": "boolean",
+          "description": "Has or can pair with a similar I-do / you-do companion before variation"
+        },
+        "mistakes_example_ok": {
+          "type": "boolean",
+          "description": "True only if clearly signpostable as incorrect AND intended after competence (EEF Mistakes)"
+        },
+        "explanation_prompt_suggested": {
+          "type": ["string", "null"],
+          "description": "Self-explanation / think-aloud prompt id or draft note (how/why a step); null if N/A"
+        }
+      }
+    },
+    "licence_ok": {
+      "type": "boolean",
+      "description": "Licence and permitted_use_status allow intended use"
+    },
+    "student_html_allowed": {
+      "type": "boolean",
+      "description": "Must match bank item; false for Nelson density-oracle rows"
+    },
+    "remember_only_flag": {
+      "type": "boolean",
+      "description": "True if item only quizzes Remember while brief/module targets Apply+"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "include",
+        "include_with_rewrite",
+        "hold_for_licence",
+        "exclude",
+        "density_oracle_only"
+      ],
+      "description": "Hand-off signal for practice-designer"
+    },
+    "exclusion_reason": { "type": ["string", "null"] },
+    "evaluated_by": { "type": "string", "const": "bank-curator" },
+    "notes": { "type": "string" }
+  }
+}
