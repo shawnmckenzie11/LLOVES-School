@@ -34,8 +34,8 @@ Module question banks live at `catalogue/banks/`. They are the licensed, tagged 
 
 - `scripts/banks_to_practice_candidates.py` writes `lessons/{COURSE}/{lesson_id}/bank-sourced-candidates.json` from student-HTML-allowed bank items (`approved`/`locked` by default; `--include-selected` for dry-run). Hand-authored `question-candidates.json` is left alone.
 - `scripts/check_bank_coverage.py` checks `process_slots` mins vs approved/locked (selected warns, exit 0 unless `--strict-selected`).
-- **Human gate:** do not flip `review_status` to `approved`/`locked` in automation — Shawn owns selected→approved. M4 pilot currently has student-allowed items at `selected`; bridge dry-runs use `--include-selected` until that gate lands.
-- practice-designer prefers `bank-sourced-candidates.json` when present.
+- **Human gate:** do not flip `review_status` to `approved`/`locked` in automation — Shawn owns selected→approved. M4 student-HTML-allowed items are **approved** (Shawn gate via PR #24); bridge default (`approved`/`locked`) works without `--include-selected`.
+- practice-designer prefers `bank-sourced-candidates.json` when present and now consumes those bank ids in `practice-sequence.json` (M4-L1 sets/fade driven by the nine approved candidates; hand-authored `question-candidates.json` is context only).
 
 ## Astra → Cursor production path
 
