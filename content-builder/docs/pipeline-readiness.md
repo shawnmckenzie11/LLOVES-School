@@ -26,6 +26,10 @@ Status as of 2026-09-09 on branch `content-builder`. Companion to `content-build
 | LMS / Fly / IMSCC packaging | Admin upload path; builder does not write packs into git |
 | Nelson bank stems in student HTML | Licence-excluded; pedagogy benchmark only |
 
+## Question banks
+
+Module question banks live at `catalogue/banks/`. They are the licensed, tagged corpus that feeds practice-designer (`bank fill → practice-designer → human gate → batch gen`). Nelson is density-oracle only (no stems in `stem_student`). Schemas: `bank-item.schema.json`, `module-bank.schema.json`. Seed: `catalogue/banks/MCF3M/M4/`. Validate with `scripts/validate_banks.py`.
+
 ## Astra → Cursor production path
 
 1. Astra emits an implementation plan matching `docs/astra-cursor-handoff.md` / `implementation-plan.schema.json`.
