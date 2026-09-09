@@ -2,7 +2,7 @@
   "schema_version": "module-bank.v1",
   "course_code": "MCF3M",
   "module": 4,
-  "title": "MCF3M Module 4 — quadratic vertex form (seed bank from M4-L1)",
+  "title": "MCF3M Module 4 \u2014 quadratic vertex form (seed bank from M4-L1)",
   "process_slots": [
     {
       "id": "compare-two-equivalent-models",
@@ -42,10 +42,11 @@
     "mcf3m-m4-openstax-m51274-ex22",
     "mcf3m-m4-nelson-st-p204-q3",
     "mcf3m-m4-openstax-m51274-ex53",
-    "mcf3m-m4-mathnet-0gz2"
+    "mcf3m-m4-mathnet-0gz2",
+    "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
   ],
   "nelson_density_oracle": {
-    "reference": "Nelson Functions 11 §4.1 / local Getting Started + Chapter Self-Test bank labels",
-    "notes": "Oracle only for M4 vertex-form density: plus-inside h-sign diagnostic, mixed vertex/axis labelling (skip standard-form complete-the-square parts for L1), and three-form “which writing for which information” transfer. Three local bank ids are recorded as excluded items with stem_student null. Do not paste commercial stems into student HTML. Licensed OpenStax/Ontario/GeoGebra analogues carry the student-facing load."
+    "reference": "Nelson Functions 11 \u00a74.1 / local Getting Started + Chapter Self-Test bank labels",
+    "notes": "Oracle only for M4 vertex-form density: plus-inside h-sign diagnostic, mixed vertex/axis labelling (skip standard-form complete-the-square parts for L1), and three-form \u201cwhich writing for which information\u201d transfer. Three local bank ids are recorded as excluded items with stem_student null. Do not paste commercial stems into student HTML. Licensed OpenStax/Ontario/GeoGebra analogues carry the student-facing load."
   }
 }
