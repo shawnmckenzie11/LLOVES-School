@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "implementation-plan.schema.json",
+  "title": "Content Builder implementation plan (Astra → Cursor)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "course_code",
+    "lesson_id",
+    "title",
+    "goal",
+    "expectations",
+    "specialist_jobs",
+    "verify",
+    "licence"
+  ],
+  "properties": {
+    "schema_version": { "const": "implementation-plan.v1" },
+    "course_code": { "type": "string", "minLength": 1 },
+    "lesson_id": { "type": "string", "pattern": "^M[0-9]+-L[0-9]+-[a-z0-9-]+$" },
+    "title": { "type": "string" },
+    "goal": { "type": "string", "description": "Student-visible lesson goal (not developer notes)." },
+    "central_question": { "type": "string" },
+    "expectations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["code", "statement_source", "why_this_lesson"],
+        "properties": {
+          "code": { "type": "string" },
+          "statement_source": { "type": "string", "description": "Path or seed id; do not paraphrase Ministry text in the plan body when a seed exists." },
+          "why_this_lesson": { "type": "string" }
+        }
+      }
+    },
+    "not_this_lesson": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code_or_topic", "reason"],
+        "properties": {
+          "code_or_topic": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "benchmark": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "licence_note": { "type": "string" },
+        "depth_checklist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "decision_hook",
+              "dual_solution_paths",
+              "reflect_block",
+              "worked_ladder",
+              "key_idea_need_to_know",
+              "check_practise_extend",
+              "formative_self_feedback",
+              "hook_returns_in_consolidation",
+              "mobile_visual_hierarchy"
+            ]
+          }
+        }
+      }
+    },
+    "specialist_jobs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["role", "output", "acceptance"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "lesson-director",
+              "practice-designer",
+              "hook-curator",
+              "visual-experience-designer",
+              "interaction-designer",
+              "formative-feedback-designer",
+              "student-copywriter",
+              "lesson-engineer",
+              "lesson-verifier"
+            ]
+          },
+          "depends_on": { "type": "array", "items": { "type": "string" } },
+          "output": { "type": "string" },
+          "instructions": { "type": "string" },
+          "acceptance": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "required": ["scripts", "pedagogical"],
+      "properties": {
+        "scripts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "pedagogical": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "locks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths or section ids the parent must not overwrite."
+    },
+    "preserve": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "licence": {
+      "type": "object",
+      "required": ["student_html_may_use", "excluded_from_student_html"],
+      "properties": {
+        "student_html_may_use": { "type": "array", "items": { "type": "string" } },
+        "excluded_from_student_html": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "out_of_scope": { "type": "array", "items": { "type": "string" } }
+  }
+}
