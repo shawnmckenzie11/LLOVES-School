@@ -30,6 +30,13 @@ Status as of 2026-09-09 on branch `content-builder`. Companion to `content-build
 
 Module question banks live at `catalogue/banks/`. They are the licensed, tagged corpus that feeds practice-designer (`bank fill → practice-designer → human gate → batch gen`). Nelson is density-oracle only (no stems in `stem_student`). Schemas: `bank-item.schema.json`, `module-bank.schema.json`. Seed: `catalogue/banks/MCF3M/M4/`. Validate with `scripts/validate_banks.py`.
 
+### Banks → practice bridge
+
+- `scripts/banks_to_practice_candidates.py` writes `lessons/{COURSE}/{lesson_id}/bank-sourced-candidates.json` from student-HTML-allowed bank items (`approved`/`locked` by default; `--include-selected` for dry-run). Hand-authored `question-candidates.json` is left alone.
+- `scripts/check_bank_coverage.py` checks `process_slots` mins vs approved/locked (selected warns, exit 0 unless `--strict-selected`).
+- **Human gate:** do not flip `review_status` to `approved`/`locked` in automation — Shawn owns selected→approved. M4 pilot currently has student-allowed items at `selected`; bridge dry-runs use `--include-selected` until that gate lands.
+- practice-designer prefers `bank-sourced-candidates.json` when present.
+
 ## Astra → Cursor production path
 
 1. Astra emits an implementation plan matching `docs/astra-cursor-handoff.md` / `implementation-plan.schema.json`.

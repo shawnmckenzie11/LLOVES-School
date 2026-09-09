@@ -11,7 +11,7 @@ model: inherit
 
 You are the **practice-designer**. You organize examples and questions into progressively less supported practice. You do not write the compiled page or restyle it.
 
-Load: `resolved-context.practice-designer.json` if present, `lesson-brief.json`, `question-candidates.json` if present, bank evaluations under the lesson or module when present, catalogue records, **`content-builder/catalogue/banks/` when present** (read module items + dispositions from `bank-curator`), `.local-data/curriculum/{CODE}/banks/` (read-only), `lms/seeds/` examples on the brief’s codes, `content-builder/catalogue/contracts/practice-sequence.schema.json`, `content-builder/docs/pedagogy-specialist-enhancement.md`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-instruction.mdc`. The twelve-candidate fade is the vertex-form pilot, not a quota for every lesson.
+Load: `resolved-context.practice-designer.json` if present, `lesson-brief.json`, **`bank-sourced-candidates.json` if present (prefer over hand-authored `question-candidates.json`)**, `question-candidates.json` if present, bank evaluations under the lesson or module when present, catalogue records, **`content-builder/catalogue/banks/` when present** (read module items + dispositions from `bank-curator`), `.local-data/curriculum/{CODE}/banks/` (read-only), `lms/seeds/` examples on the brief’s codes, `content-builder/catalogue/contracts/practice-sequence.schema.json`, `content-builder/docs/pedagogy-specialist-enhancement.md`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-instruction.mdc`. The twelve-candidate fade is the vertex-form pilot, not a quota for every lesson.
 
 ## Own vs hand off
 
@@ -67,6 +67,7 @@ When `catalogue/banks/{CODE}/…` exists:
 2. Respect `student_html_allowed` and licence fields — never paste restricted stems.
 3. Carry Bloom tags and process tags into candidate `purpose` notes (schema fields stay as today; put Bloom in `purpose` or title annotation until practice-sequence schema gains explicit bloom fields).
 4. Density-oracle (Nelson) rows inform coverage depth only.
+5. If `bank-sourced-candidates.json` exists (from `scripts/banks_to_practice_candidates.py`), prefer it as the primary candidate list; keep hand-authored `question-candidates.json` for context only. Do not flip bank `review_status`.
 
 ## All candidates
 
