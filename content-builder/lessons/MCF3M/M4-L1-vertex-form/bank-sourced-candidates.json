@@ -8,10 +8,9 @@
     "student_html_allowed": true,
     "review_status": [
       "approved",
-      "locked",
-      "selected"
+      "locked"
     ],
-    "include_selected": true,
+    "include_selected": false,
     "always_exclude": [
       "source nelson_functions_11",
       "permitted_use_status excluded",
@@ -39,7 +38,7 @@
         "A2.6",
         "A2.10"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "ontario-seed",
@@ -55,7 +54,7 @@
       ],
       "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates diagnostic rank 3; practice-sequence worked_example for inspect-vertex-form (variation). Verbatim seed sample id A2.6-example-0.",
       "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates diagnostic rank 3; practice-sequence worked_example for inspect-vertex-form (variation). Verbatim seed sample id A2.6-example-0.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-figure7-expand",
@@ -76,7 +75,7 @@
       "expectation_codes": [
         "A2.7"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -93,7 +92,7 @@
       ],
       "reason": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 3; practice-sequence worked_example for expand-and-verify.",
       "purpose": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 3; practice-sequence worked_example for expand-and-verify.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-vertex-read",
@@ -113,7 +112,7 @@
       "expectation_codes": [
         "A2.10"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -129,7 +128,7 @@
       ],
       "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates guided_example rank 1; practice-sequence worked_example for inspect-vertex-form. Catalogue record openstax-ca2e-m51274-vertex-form-definition.",
       "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates guided_example rank 1; practice-sequence worked_example for inspect-vertex-form. Catalogue record openstax-ca2e-m51274-vertex-form-definition.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-geogebra-cxk4xt4u",
@@ -150,7 +149,7 @@
       "expectation_codes": [
         "A2.10"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "geogebra",
@@ -167,7 +166,7 @@
       ],
       "reason": "process_tags=inspect-vertex-form,predict-parameter-change; From M4-L1 question-candidates diagnostic rank 2; practice-sequence guided_practice for inspect-vertex-form. Catalogue record geogebra-cxk4xt4u.",
       "purpose": "process_tags=inspect-vertex-form,predict-parameter-change; From M4-L1 question-candidates diagnostic rank 2; practice-sequence guided_practice for inspect-vertex-form. Catalogue record geogebra-cxk4xt4u.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
@@ -187,7 +186,7 @@
       "expectation_codes": [
         "A2.10"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -203,7 +202,7 @@
       ],
       "reason": "process_tags=three-form-contrast; Bank fill 2026-09-09: second licensed three-form-contrast item so module min_approved_items density can clear once Shawn approves. Paraphrase of OpenStax verbal #4 + section prose that names vertex form; no Nelson stems.",
       "purpose": "process_tags=three-form-contrast; Bank fill 2026-09-09: second licensed three-form-contrast item so module min_approved_items density can clear once Shawn approves. Paraphrase of OpenStax verbal #4 + section prose that names vertex form; no Nelson stems.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-ontario-a27-sample",
@@ -224,7 +223,7 @@
       "expectation_codes": [
         "A2.7"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "ontario-seed",
@@ -241,7 +240,7 @@
       ],
       "reason": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 2; practice-sequence core_practice for expand-and-verify. Catalogue record ontario-seed-mcf3m-A2.7-sample.",
       "purpose": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 2; practice-sequence core_practice for expand-and-verify. Catalogue record ontario-seed-mcf3m-A2.7-sample.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-advantage-verbal",
@@ -261,7 +260,7 @@
       "expectation_codes": [
         "A2.10"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -277,7 +276,7 @@
       ],
       "reason": "process_tags=three-form-contrast; From M4-L1 question-candidates practice rank 1; practice-sequence core_practice for three-form-contrast. Catalogue record openstax-ca2e-m51274-advantage-verbal.",
       "purpose": "process_tags=three-form-contrast; From M4-L1 question-candidates practice rank 1; practice-sequence core_practice for three-form-contrast. Catalogue record openstax-ca2e-m51274-advantage-verbal.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-ex22",
@@ -298,7 +297,7 @@
         "A2.10",
         "A2.3"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -314,7 +313,7 @@
       ],
       "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates practice rank 3; practice-sequence additional_practice for inspect-vertex-form (retrieval). Parent may add a dedicated catalogue resource later.",
       "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates practice rank 3; practice-sequence additional_practice for inspect-vertex-form (retrieval). Parent may add a dedicated catalogue resource later.",
-      "visible_by_default": false
+      "visible_by_default": true
     },
     {
       "bank_id": "mcf3m-m4-openstax-m51274-ex53",
@@ -335,7 +334,7 @@
         "A2.10",
         "A2.5"
       ],
-      "review_status": "selected",
+      "review_status": "approved",
       "student_html_allowed": true,
       "provenance": {
         "source": "openstax",
@@ -351,7 +350,7 @@
       ],
       "reason": "process_tags=predict-parameter-change; From M4-L1 question-candidates transfer rank 2; practice-sequence additional_practice for predict-parameter-change.",
       "purpose": "process_tags=predict-parameter-change; From M4-L1 question-candidates transfer rank 2; practice-sequence additional_practice for predict-parameter-change.",
-      "visible_by_default": false
+      "visible_by_default": true
     }
   ],
   "summary": {
@@ -365,7 +364,7 @@
     "skipped_by_review_status": {},
     "emitted": 9,
     "by_review_status": {
-      "selected": 9
+      "approved": 9
     },
     "by_placement": {
       "worked_example": 3,

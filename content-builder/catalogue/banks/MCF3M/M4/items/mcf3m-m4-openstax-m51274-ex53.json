@@ -3,8 +3,13 @@
   "id": "mcf3m-m4-openstax-m51274-ex53",
   "course_code": "MCF3M",
   "module": 4,
-  "process_tags": ["predict-parameter-change"],
-  "expectation_codes": ["A2.10", "A2.5"],
+  "process_tags": [
+    "predict-parameter-change"
+  ],
+  "expectation_codes": [
+    "A2.10",
+    "A2.5"
+  ],
   "placement_hint": "additional_practice",
   "title": "OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2",
   "stem_student": "On the same axes, graph y = x^2, y = (x − 2)^2, y = (x − 3)^2, and y = (x + 4)^2. What stays the same? What moves, and in which direction?",
@@ -19,7 +24,7 @@
   "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274) §5.1 exercise 53. CC BY-NC-SA 4.0.",
   "permitted_use_status": "non-commercial",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
   "provenance_notes": "From M4-L1 question-candidates transfer rank 2; practice-sequence additional_practice for predict-parameter-change."
 }
