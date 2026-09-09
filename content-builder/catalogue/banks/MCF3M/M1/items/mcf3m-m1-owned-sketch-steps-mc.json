@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-sketch-steps-mc",
+  "process_tags": [
+    "sketch-by-transformations"
+  ],
+  "expectation_codes": [
+    "A2.6"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "Owned MC: transformation sequence for 2(x − 1)^2 + 5",
+  "stem_student": "Starting from y = x^2, which sequence produces y = 2(x − 1)^2 + 5? A) Translate 1 right, stretch vertically by 2, translate 5 up. B) Translate 1 left, stretch vertically by 2, translate 5 up. C) Stretch vertically by 2, translate 1 left, translate 5 down. D) Translate 5 up, then 1 right, with no stretch.",
+  "stem_teacher": "LLOVES-owned MC for A2.6 multi-step sketch planning. Order of vertical stretch vs horizontal translate is interchangeable for this form; A is the intended keyed sequence.",
+  "answer": "A",
+  "answer_verification": "h = 1 (right 1), |a| = 2 stretch, k = 5 up.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-sketch-steps-mc",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned MC for A2.6. Check-in-ready (selected)."
+}

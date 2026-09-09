@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-restrict-domain-mc",
+  "process_tags": [
+    "restrict-domain-range-context"
+  ],
+  "expectation_codes": [
+    "A2.4"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Owned MC: which statement restricts the domain for a thrown ball?",
+  "stem_student": "A quadratic models the height of a ball (in metres) versus time since it was thrown (in seconds). Which statement best describes a physical restriction on the domain? A) Height can be any real number. B) Time cannot be negative, and the model only applies while the ball is in the air. C) The range must include negative heights. D) The domain is restricted only by the vertex form parameters a, h, and k.",
+  "stem_teacher": "LLOVES-owned MC companion to the A2.4 Ministry sample. Not Ministry wording.",
+  "answer": "B",
+  "answer_verification": "Elapsed time starts at 0 and ends when the ball hits the ground; height is also non-negative, but the question asks for a domain restriction.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-restrict-domain-mc",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned MC for A2.4. Check-in-ready (selected)."
+}
