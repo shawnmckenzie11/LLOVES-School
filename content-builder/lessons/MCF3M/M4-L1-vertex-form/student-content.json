@@ -408,6 +408,21 @@
         },
         {
           "type": "practice-set",
+          "set_id": "guided-inspect-you-do",
+          "visible_count": 1
+        },
+        {
+          "type": "practice-set",
+          "set_id": "guided-three-form",
+          "visible_count": 1
+        },
+        {
+          "type": "practice-set",
+          "set_id": "core-independent",
+          "visible_count": 2
+        },
+        {
+          "type": "practice-set",
           "set_id": "additional-licensed",
           "visible_count": 1
         },
