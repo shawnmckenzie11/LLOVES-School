@@ -23,6 +23,7 @@
     "Students have already located a vertex from x-intercepts in factored form (A2.9), so vertex form is a second way to see the same point."
   ],
   "processes_to_teach": [
+    "Compare two equivalent writings of one quadratic model and decide which form makes the vertex (high or low point) readable; verify equivalence by expanding and by shared table/graph points.",
     "Inspect vertex form f(x) = a(x − h)^2 + k: name the vertex (h, k) including plus-inside (x + …), the axis of symmetry x = h, and whether the vertex is a maximum or a minimum from the sign of a (not from k or the quadrant).",
     "Predict from the equation what changing one of a, h, or k will do to the graph, then check that prediction against the graph and the rewritten equation (one parameter at a time).",
     "Expand f(x) = a(x − h)^2 + k into f(x) = ax^2 + bx + c and verify, using graphing technology, that the two writings are equivalent representations.",
@@ -36,6 +37,18 @@
     {
       "section": "minds-on",
       "purpose": "Have students commit to a vertex from a plus-inside vertex-form equation so the h-sign reading is visible before they use the graph."
+    },
+    {
+      "section": "action: decision / compare two equivalent models",
+      "purpose": "Give two writings of the same fountain-arc model (vertex form and expanded standard form). Students decide which writing makes the peak easier to name, then verify the writings describe the same curve."
+    },
+    {
+      "section": "action: dual solution paths",
+      "purpose": "On that same decision problem, show two strategies side by side: expand and compare algebraically, and check shared table points / graph — licence-safe dual-voice texture, original wording."
+    },
+    {
+      "section": "action: reflect",
+      "purpose": "Four short meta questions after the first connect (decision + dual paths), before heavy Apply (parameter moves, independent expand, practice sets)."
     },
     {
       "section": "action: worked inspection",
@@ -63,7 +76,7 @@
     }
   ],
   "hook_constraint": "Need a situation where the high or low point of a quadratic model is the decision students care about (path, throw, fountain, height, and similar). The lesson must return to that same situation in consolidation. Do not open by reminding students that they already know stretching, flipping, or sliding y = x^2. A fountain or water-arc image is allowed only if a reusable signed-out source exists; otherwise use a situation that needs no photo. No required login, Gizmos, or Desmos API.",
-  "instructional_sequence_intent": "Need the high or low point from an equation (hook) → predict the vertex from a plus-inside writing → worked then varied inspection → predict, move one parameter, compare graph and equation, explain → expand vertex form and verify equivalent graphs → fresh case that returns to the hook.",
+  "instructional_sequence_intent": "Need the high or low point from an equation (hook) → predict the vertex from a plus-inside writing → compare two equivalent fountain-arc writings and decide which shows the peak → dual paths (algebra expand/verify + graph/table) → Reflect A–D → worked then varied inspection → predict, move one parameter, compare graph and equation, explain → expand vertex form and verify equivalent graphs → fresh case that returns to the hook with Key Idea / Need to Know.",
   "expectations": [
     {
       "code": "A2.7",
@@ -117,6 +130,14 @@
     {
       "code": "A3.3",
       "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Vertex-form max/min in context is possible here but not attached."
+    },
+    {
+      "code_or_topic": "zeros three ways (expand/factor, inverse ops, graph)",
+      "reason": "Pedagogy mirror of a deeper §4.1 beat; deferred so this lesson stays on A2.7/A2.10 vertex-form inspection and expand-and-verify. Revisit later in M4 if A2.10 share expands."
+    },
+    {
+      "code_or_topic": "equation from graph (vertex + point → a)",
+      "reason": "Optional additional practice only; not core for the A2.7/A2.10 pilot. May appear in later M4 practice if licensed analogues exist."
     }
   ],
   "prerequisites": [
@@ -285,6 +306,7 @@
     "A2.10 is one Ministry statement about all three forms. This brief attaches the full verbatim code because M4's share is vertex-form inspection, but factored/standard inspection is already Module 3. Shawn should confirm listing A2.10 here (with that share) rather than treating it as fully done in M3.",
     "A2.7 (expand vertex → standard, verify with technology) matches the lesson name and the seed sample. This brief now includes expansion as an action beat and a process to teach. Confirm A2.7 stays in Lesson 1 rather than moving beside A2.8 in Lesson 2.",
     "A3.3 is deferred to Lesson 5. Confirm that a single contextual max/min from a given vertex-form model is not required in this lesson.",
-    "module-lessons.json title is 'Lesson 1: The Vertex Form of a Quadratic Function'; lesson_number is also 1. No disagreement with the seed (the seed has no per-lesson titles)."
+    "module-lessons.json title is 'Lesson 1: The Vertex Form of a Quadratic Function'; lesson_number is also 1. No disagreement with the seed (the seed has no per-lesson titles).",
+    "Zeros-three-ways and equation-from-graph stay deferred after the Nelson-bar raise; confirm they remain out of core M4-L1 unless the director expands A2.10 share."
   ]
 }

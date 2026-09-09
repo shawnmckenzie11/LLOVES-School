@@ -56,6 +56,81 @@ def render_blocks(blocks: list, *, lesson_dir: Path, sets: dict, spec: dict) -> 
             chunks.append(_practice_set_html(block, sets))
         elif kind == "interactive":
             chunks.append(_interactive_html(block["spec_id"], spec))
+        elif kind == "goal":
+            chunks.append(
+                f'<div class="goal"><p class="goal-label">Goal</p>'
+                f'<p>{math_text(block["text"])}</p></div>'
+            )
+        elif kind == "reflect":
+            title = math_text(block.get("title") or "Reflect")
+            items = []
+            for q in block.get("questions") or []:
+                qid = escape(str(q.get("id") or ""))
+                prompt = math_text(q.get("prompt") or "")
+                label = f'<span class="reflect-id">{qid}</span> ' if qid else ""
+                items.append(f"<li>{label}{prompt}</li>")
+            chunks.append(
+                f'<section class="reflect" aria-label="Reflect">'
+                f"<h2>{title}</h2><ol class=\"reflect-list\">{''.join(items)}</ol></section>"
+            )
+        elif kind == "key-idea":
+            chunks.append(
+                f'<section class="key-idea" aria-label="Key idea">'
+                f'<p class="chrome-label">Key idea</p>'
+                f'<p>{math_text(block["text"])}</p></section>'
+            )
+        elif kind == "need-to-know":
+            lis = "".join(f"<li>{math_text(item)}</li>" for item in block.get("items") or [])
+            chunks.append(
+                f'<section class="need-to-know" aria-label="Need to know">'
+                f'<p class="chrome-label">Need to know</p>'
+                f'<ul>{lis}</ul></section>'
+            )
+        elif kind == "dual-path":
+            intro = ""
+            if block.get("prompt"):
+                intro = f'<p class="dual-path-prompt">{math_text(block["prompt"])}</p>'
+            path_html = []
+            for path in block.get("paths") or []:
+                label = math_text(path.get("label") or "Path")
+                voice = path.get("voice")
+                voice_html = (
+                    f'<p class="path-voice">{math_text(voice)}</p>' if voice else ""
+                )
+                inner = render_blocks(
+                    path.get("blocks") or [], lesson_dir=lesson_dir, sets=sets, spec=spec
+                )
+                path_html.append(
+                    f'<div class="path"><h3 class="path-label">{label}</h3>'
+                    f"{voice_html}{inner}</div>"
+                )
+            chunks.append(
+                f'<div class="dual-path example is-worked">{intro}'
+                f'<div class="path-grid">{"".join(path_html)}</div></div>'
+            )
+        elif kind == "support-fade":
+            title = math_text(block.get("title") or "Check → Practise → Extend")
+            process = block.get("process_name")
+            process_html = (
+                f'<p class="support-fade-process">{math_text(process)}</p>' if process else ""
+            )
+            stages = block.get("stages") or {}
+            chips = []
+            for key, label in (
+                ("worked", "Check / worked"),
+                ("practise", "Practise"),
+                ("extend", "Extend"),
+            ):
+                if stages.get(key):
+                    chips.append(
+                        f'<li><span class="fade-stage">{label}</span> '
+                        f"{math_text(stages[key])}</li>"
+                    )
+            chunks.append(
+                f'<aside class="support-fade" aria-label="Practice support">'
+                f"<p class=\"chrome-label\">{title}</p>{process_html}"
+                f'<ol class="fade-stages">{"".join(chips)}</ol></aside>'
+            )
     return "\n".join(chunks)
 
 
@@ -219,6 +294,19 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
         ],
     }
 
+    goal_bits = []
+    if student.get("goal"):
+        goal_bits.append(
+            f'<p class="lesson-goal"><span class="chrome-label">Goal</span> '
+            f'{math_text(student["goal"])}</p>'
+        )
+    if student.get("you_will_need"):
+        goal_bits.append(
+            f'<p class="you-will-need"><span class="chrome-label">You will need</span> '
+            f'{math_text(student["you_will_need"])}</p>'
+        )
+    goal_meta = f'<div class="lesson-meta">{"".join(goal_bits)}</div>' if goal_bits else ""
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -231,6 +319,7 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
 <body>
   <article class="lesson">
     <h1>{escape(student["title"])}</h1>
+    {goal_meta}
     <div class="tabs" role="tablist">
       {"".join(tabs)}
     </div>

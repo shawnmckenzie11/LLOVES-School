@@ -8,6 +8,8 @@
  * Assumed hooks: .lesson .tabs .panel .prose .equation .task .example
  * .example.is-worked .practice .feedback .feedback.is-ok .feedback.is-retry
  * .hint .board-wrap .credits .sr-only
+ * .lesson-meta .lesson-goal .you-will-need .chrome-label
+ * .reflect .key-idea .need-to-know .dual-path .support-fade
  *
  * Optional (recommended): .example.is-variation | .is-partial | .is-independent
  * | .is-retrieval, .example-label, .solution, details.solution, .figure,
@@ -757,4 +759,168 @@ table.data th,
   .board-wrap .jxgbox {
     break-inside: avoid;
   }
+}
+
+
+/* ---- Nelson-style chrome: goal, reflect, key idea, dual path, support fade ---- */
+
+.chrome-label,
+.goal-label {
+  display: block;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-kicker);
+  font-weight: 700;
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lesson-meta {
+  margin: 0 0 var(--space-5);
+  max-width: var(--measure);
+}
+
+.lesson-goal,
+.you-will-need {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.you-will-need {
+  background: var(--surface-muted, #f0f3f7);
+}
+
+.goal {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--accent-soft, #c5dcf0);
+  border-left: 4px solid var(--accent, #3a8dc9);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  max-width: var(--measure);
+}
+
+.reflect {
+  margin: var(--space-6) 0 var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  background: #f7fafc;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  max-width: var(--measure);
+}
+
+.reflect > h2 {
+  margin-top: 0;
+}
+
+.reflect-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.reflect-list li {
+  margin: 0 0 var(--space-3);
+}
+
+.reflect-id {
+  font-weight: 700;
+  color: var(--accent, #3a8dc9);
+}
+
+.key-idea,
+.need-to-know {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  max-width: var(--measure);
+}
+
+.key-idea {
+  background: #eef6fb;
+  border: 1px solid var(--accent-soft, #c5dcf0);
+  border-left: 4px solid var(--accent, #3a8dc9);
+}
+
+.need-to-know {
+  background: var(--surface-muted, #f0f3f7);
+  border: 1px solid var(--line);
+}
+
+.need-to-know ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.need-to-know li {
+  margin: 0 0 var(--space-2);
+}
+
+.dual-path {
+  margin: 0 0 var(--space-5);
+}
+
+.dual-path-prompt {
+  margin: 0 0 var(--space-4);
+}
+
+.path-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 720px) {
+  .path-grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.path {
+  padding: var(--space-3);
+  background: rgb(255 255 255 / 0.7);
+  border: 1px solid var(--example-line, var(--line));
+  border-radius: var(--radius-sm);
+}
+
+.path-label {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-h3);
+}
+
+.path-voice {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-small);
+  color: var(--muted);
+  font-style: italic;
+}
+
+.support-fade {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  background: var(--practice-bg, #f5f7fa);
+  border: 1px dashed var(--practice-line, var(--line));
+  border-radius: var(--radius-md);
+  max-width: var(--measure);
+}
+
+.support-fade-process {
+  margin: 0 0 var(--space-3);
+  font-weight: 650;
+}
+
+.fade-stages {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.fade-stages li {
+  margin: 0 0 var(--space-2);
+}
+
+.fade-stage {
+  font-weight: 700;
+  color: var(--ink);
 }

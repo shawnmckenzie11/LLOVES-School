@@ -14,6 +14,12 @@ ALLOWED_BLOCK_TYPES = frozenset(
         "practice-set",
         "example",
         "self-check",
+        "goal",
+        "reflect",
+        "key-idea",
+        "need-to-know",
+        "dual-path",
+        "support-fade",
     }
 )
 FORBIDDEN_STUDENT_SUBSTRINGS = (
@@ -37,8 +43,17 @@ def assert_student_content(doc: dict) -> None:
         raise ValueError("student-content.v1 required")
     if "teacher_notes" in doc or "provenance" in doc:
         raise ValueError("teacher_notes and provenance must not live in student-content.json")
+    allowed_root = {
+        "schema_version",
+        "lesson_id",
+        "title",
+        "credits",
+        "parts",
+        "goal",
+        "you_will_need",
+    }
     for key in doc:
-        if key not in {"schema_version", "lesson_id", "title", "credits", "parts"}:
+        if key not in allowed_root:
             raise ValueError(f"unpermitted student field: {key}")
     for part in doc.get("parts", []):
         if part.get("id") not in ALLOWED_PART_IDS:
@@ -53,7 +68,19 @@ def _walk_blocks(blocks: list) -> None:
             raise ValueError(f"unpermitted block type: {kind}")
         if kind == "example":
             _walk_blocks(block.get("blocks") or [])
-        blob = " ".join(str(v) for k, v in block.items() if k != "blocks" and not isinstance(v, (dict, list)))
+        elif kind == "dual-path":
+            for path in block.get("paths") or []:
+                _walk_blocks(path.get("blocks") or [])
+        elif kind == "reflect":
+            for q in block.get("questions") or []:
+                if isinstance(q, dict):
+                    _walk_blocks(q.get("blocks") or [])
+        blob = " ".join(
+            str(v)
+            for k, v in block.items()
+            if k not in {"blocks", "paths", "questions", "items", "stages"}
+            and not isinstance(v, (dict, list))
+        )
         for needle in FORBIDDEN_STUDENT_SUBSTRINGS:
             if needle.lower() in blob.lower() and needle in (
                 "interactive_bridge",

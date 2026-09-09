@@ -2,6 +2,8 @@
   "schema_version": "student-content.v1",
   "lesson_id": "M4-L1-vertex-form",
   "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+  "goal": "Read the turning point and axis from vertex form, and show that expanding to standard form still describes the same curve.",
+  "you_will_need": "Paper or a notebook, and the graph board on this page.",
   "credits": [
     "Water arc photo: GuidoB, CC BY-SA 3.0",
     "OpenStax College Algebra 2e, CC BY-NC-SA 4.0",
@@ -71,6 +73,116 @@
         },
         {
           "type": "h2",
+          "text": "Which writing shows the peak?"
+        },
+        {
+          "type": "p",
+          "text": "Suppose a fountain stream is modelled by either of these two writings. They are meant to be the same curve."
+        },
+        {
+          "type": "equation",
+          "text": "\\(f(x) = -\\frac{1}{4}(x - 3)^2 + 5\\)"
+        },
+        {
+          "type": "p",
+          "text": "and"
+        },
+        {
+          "type": "equation",
+          "text": "\\(f(x) = -\\frac{1}{4}x^2 + \\frac{3}{2}x + \\frac{11}{4}\\)"
+        },
+        {
+          "type": "task",
+          "prompt": "Without expanding yet: which writing makes it easier to name the highest point of the stream? Write the peak you can read, and say why that writing helped."
+        },
+        {
+          "type": "h2",
+          "text": "Same claim, two ways to check"
+        },
+        {
+          "type": "p",
+          "text": "Alex and Jordan both claim the two writings describe the same fountain arc. They check the claim differently."
+        },
+        {
+          "type": "dual-path",
+          "prompt": "Follow both paths. Each should convince you the writings match — and that the peak is at \\((3, 5)\\).",
+          "paths": [
+            {
+              "label": "Path A — expand and compare",
+              "voice": "Alex works on paper.",
+              "blocks": [
+                {
+                  "type": "p",
+                  "text": "Start from the vertex-form writing. Square the binomial: \\((x - 3)^2 = x^2 - 6x + 9\\)."
+                },
+                {
+                  "type": "p",
+                  "text": "Multiply by \\(a = -\\frac{1}{4}\\): \\(-\\frac{1}{4}x^2 + \\frac{3}{2}x - \\frac{9}{4}\\)."
+                },
+                {
+                  "type": "p",
+                  "text": "Add \\(k = 5\\): \\(-\\frac{1}{4}x^2 + \\frac{3}{2}x + \\frac{11}{4}\\)."
+                },
+                {
+                  "type": "p",
+                  "text": "That matches the second writing exactly. Expanding did not invent a new curve."
+                }
+              ]
+            },
+            {
+              "label": "Path B — table and graph",
+              "voice": "Jordan builds a short table.",
+              "blocks": [
+                {
+                  "type": "p",
+                  "text": "Evaluate both writings at a few inputs. At \\(x = 3\\), both give \\(5\\) — the peak you can already read from vertex form."
+                },
+                {
+                  "type": "p",
+                  "text": "At \\(x = 1\\), both give \\(4\\). At \\(x = 5\\), both give \\(4\\). The shared points sit on one downward-opening arc."
+                },
+                {
+                  "type": "p",
+                  "text": "On the graph board, those table points land on the same parabola. Matching outputs are another way to see the writings are equivalent."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "reflect",
+          "title": "Reflect",
+          "questions": [
+            {
+              "id": "A",
+              "prompt": "Which writing made the peak easier to name first, and what in that writing told you the coordinates?"
+            },
+            {
+              "id": "B",
+              "prompt": "What stayed the same when you moved from one writing to the other — the peak, the shape, both, or neither?"
+            },
+            {
+              "id": "C",
+              "prompt": "When might you still prefer the expanded writing \\(ax^2 + bx + c\\), even if the peak is harder to see at a glance?"
+            },
+            {
+              "id": "D",
+              "prompt": "How does the sign of \\(a\\) tell you this fountain peak is a maximum rather than a minimum?"
+            }
+          ]
+        },
+        {
+          "type": "support-fade",
+          "title": "Check → Practise → Extend",
+          "process_name": "How support fades in this lesson",
+          "stages": {
+            "worked": "Worked dual-path check and worked inspections (with explanations).",
+            "practise": "Match the graph, move one parameter, expand on the board, and try the independent expand.",
+            "extend": "Optional extras under Try another (domain/range and a family of shifts)."
+          }
+        },
+        {
+          "type": "h2",
           "text": "Read the turning point from the equation"
         },
         {
@@ -137,7 +249,7 @@
             },
             {
               "type": "p",
-              "text": "as one of the graphs to read from \\(f(x) = x^2\\). Use it here to inspect vertex form. (The sample also names \\(g(x) = x^2 - 4\\); stay with \\(h(x)\\).)"
+              "text": "as one of the graphs to read from \\(f(x) = x^2\\). Use it here to inspect vertex form. (The sample also names \\(g(x) = x^2 - 4\\); stay with \\(h(x)\\)."
             },
             {
               "type": "p",
@@ -309,6 +421,19 @@
       "id": "consolidation",
       "nav_label": "Consolidation",
       "blocks": [
+        {
+          "type": "key-idea",
+          "text": "Vertex form \\(f(x) = a(x - h)^2 + k\\) makes the vertex \\((h, k)\\) and the axis \\(x = h\\) readable at a glance. Expanding that writing into \\(ax^2 + bx + c\\) describes the same parabola — it does not move the curve."
+        },
+        {
+          "type": "need-to-know",
+          "items": [
+            "Match brackets to \\((x - h)\\). A plus inside the brackets means \\(h\\) is negative.",
+            "Maximum versus minimum comes from the sign of \\(a\\), not from the sign of \\(k\\) and not from which quadrant the vertex sits in.",
+            "\\(a\\) stretches or flips; \\(k\\) moves the vertex up or down. Those jobs are not the same.",
+            "Two writings are equivalent when expansion matches or when shared table points sit on one graph."
+          ]
+        },
         {
           "type": "figure",
           "src": "media/fountain-arc-500.jpg",
