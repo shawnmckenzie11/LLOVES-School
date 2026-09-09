@@ -1,0 +1,158 @@
+{
+  "files": [
+    {
+      "created_at": "2026-09-07T00:31:38.339Z",
+      "display_title": "MCF3M",
+      "display_url": "https://drive.google.com/drive/folders/1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+      "file_or_folder": "folder",
+      "id": "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+      "mime_type": "application/vnd.google-apps.folder",
+      "parent_ids": [
+        "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40"
+      ],
+      "shared": false,
+      "size": null,
+      "title": "MCF3M",
+      "updated_at": "2026-09-07T00:31:38.339Z",
+      "url": "https://drive.google.com/drive/folders/1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+      "viewedByMeTime": "2026-09-09T03:19:06.050Z"
+    },
+    {
+      "created_at": "2026-09-07T01:29:14.412Z",
+      "display_title": "MCF3M-examples",
+      "display_url": "https://docs.google.com/document/d/10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0",
+      "mime_type": "application/vnd.google-apps.document",
+      "parent_ids": [
+        "1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx"
+      ],
+      "shared": false,
+      "size": "4616",
+      "title": "MCF3M-examples",
+      "updated_at": "2026-09-07T01:29:15.481Z",
+      "url": "https://docs.google.com/document/d/10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-09T00:53:02.419Z"
+    },
+    {
+      "created_at": "2026-09-07T21:14:26.709Z",
+      "display_title": "MCF3M M0L1",
+      "display_url": "https://docs.google.com/presentation/d/1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M",
+      "mime_type": "application/vnd.google-apps.presentation",
+      "parent_ids": [
+        "1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a"
+      ],
+      "shared": false,
+      "size": "998941",
+      "title": "MCF3M M0L1",
+      "updated_at": "2026-09-09T02:50:45.096Z",
+      "url": "https://docs.google.com/presentation/d/1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-09T04:41:36.128Z"
+    },
+    {
+      "created_at": "2026-09-07T16:05:03.133Z",
+      "display_title": "MCF3M M1C2",
+      "display_url": "https://docs.google.com/presentation/d/1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA",
+      "mime_type": "application/vnd.google-apps.presentation",
+      "parent_ids": [
+        "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+      ],
+      "shared": false,
+      "size": "66313",
+      "title": "MCF3M M1C2",
+      "updated_at": "2026-09-08T19:39:50.823Z",
+      "url": "https://docs.google.com/presentation/d/1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-08T19:41:31.403Z"
+    },
+    {
+      "created_at": "2026-09-07T16:05:11.805Z",
+      "display_title": "MCF3M M1C1 — Square and Near-Square Arrangements",
+      "display_url": "https://docs.google.com/presentation/d/15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0",
+      "mime_type": "application/vnd.google-apps.presentation",
+      "parent_ids": [
+        "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+      ],
+      "shared": false,
+      "size": "571928",
+      "title": "MCF3M M1C1 — Square and Near-Square Arrangements",
+      "updated_at": "2026-09-07T17:05:36.870Z",
+      "url": "https://docs.google.com/presentation/d/15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-08T14:13:34.761Z"
+    },
+    {
+      "created_at": "2026-09-07T23:04:48.701Z",
+      "display_title": "MCF3M Module 1 Portfolio Assignment",
+      "display_url": "https://docs.google.com/document/d/1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q",
+      "mime_type": "application/vnd.google-apps.document",
+      "parent_ids": [
+        "0AJUnPUQeCT75Uk9PVA"
+      ],
+      "shared": false,
+      "size": "2096",
+      "title": "MCF3M Module 1 Portfolio Assignment",
+      "updated_at": "2026-09-07T23:30:00.094Z",
+      "url": "https://docs.google.com/document/d/1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-07T23:30:00.094Z"
+    },
+    {
+      "created_at": "2026-09-07T16:05:54.332Z",
+      "display_title": "MCF3M M1C3 — Reading a Quadratic Model",
+      "display_url": "https://docs.google.com/presentation/d/1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM",
+      "mime_type": "application/vnd.google-apps.presentation",
+      "parent_ids": [
+        "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+      ],
+      "shared": false,
+      "size": "660163",
+      "title": "MCF3M M1C3 — Reading a Quadratic Model",
+      "updated_at": "2026-09-07T17:40:55.723Z",
+      "url": "https://docs.google.com/presentation/d/1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-07T17:40:55.723Z"
+    },
+    {
+      "created_at": "2026-09-07T00:59:00.147Z",
+      "display_title": "MCF3M-specific-expectations.md",
+      "display_url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM",
+      "mime_type": "application/vnd.google-apps.document",
+      "parent_ids": [
+        "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+      ],
+      "shared": false,
+      "size": "6904",
+      "title": "MCF3M-specific-expectations.md",
+      "updated_at": "2026-09-07T00:59:01.334Z",
+      "url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-07T01:02:59.390Z"
+    },
+    {
+      "created_at": "2026-09-07T00:39:18.692Z",
+      "display_title": "README",
+      "display_url": "https://docs.google.com/document/d/1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk/edit?usp=drivesdk",
+      "file_or_folder": "file",
+      "id": "1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk",
+      "mime_type": "application/vnd.google-apps.document",
+      "parent_ids": [
+        "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40"
+      ],
+      "shared": false,
+      "size": "1024",
+      "title": "README",
+      "updated_at": "2026-09-07T00:39:19.807Z",
+      "url": "https://docs.google.com/document/d/1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk/edit?usp=drivesdk",
+      "viewedByMeTime": "2026-09-07T00:41:00.133Z"
+    }
+  ],
+  "note": "Observed metadata only. Existing deck content and current LMS attachment identity are not audited by this input package."
+}

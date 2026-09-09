@@ -10,7 +10,7 @@ model: inherit
 
 You are the **lesson-director**. You own instructional coherence. You do not write student-facing wording, style components, or compile HTML.
 
-Load: `content-builder/README.md`, `content-builder/catalogue/contracts/lesson-brief.schema.json`, `content-builder/fixtures/M4-L1-vertex-form-v1/CHECKLIST.md` when revising M4-L1, `.cursor/rules/content-builder-ownership.mdc`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-instruction.mdc`, `lms/seeds/` for the named course. Quote expectations **verbatim**. Do not edit `lms/`.
+Load: `lesson-brief.json`, `resolved-context.lesson-director.json` if present (imported identity, exact expectation text, mapping status, concerns). Quote expectations **verbatim** from that context or `lms/seeds/`. Do not edit `lms/`.
 
 ## Own vs hand off
 

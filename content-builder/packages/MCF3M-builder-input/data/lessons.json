@@ -1,0 +1,1205 @@
+{
+  "schema_version": "1.0.0",
+  "course_code": "MCF3M",
+  "snapshot_date": "2026-09-09",
+  "lesson_count": 39,
+  "lessons": [
+    {
+      "lesson_id": "MCF3M-M1L1",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 1,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW",
+      "drive_title": "Lesson 1: Characteristics of a Function",
+      "original_title": "Lesson 1: Characteristics of a Function",
+      "title": "Lesson 1: Characteristics of a Function",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.1"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M1L2",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 2,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v",
+      "drive_title": "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+      "original_title": "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+      "title": "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.1",
+        "B1.6"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2",
+        "B1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "B1.6 explicitly compares exponential, linear, and quadratic functions. This early lesson covers only the linear/quadratic part; revisit in M7L3. Do not claim B1.6 is fully covered here."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M1L3",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 3,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF",
+      "drive_title": "Lesson 3: Function Notation",
+      "original_title": "Lesson 3: Function Notation",
+      "title": "Lesson 3: Function Notation",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M1L4",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 4,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A",
+      "drive_title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+      "original_title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+      "title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.5"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M1L5",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 5,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd",
+      "drive_title": "Lesson 5: Graphing Quadratic Functions using Transformations",
+      "original_title": "Lesson 5: Graphing Quadratic Functions using Transformations",
+      "title": "Lesson 5: Graphing Quadratic Functions using Transformations",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.6"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M1L6",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 6,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh",
+      "drive_title": "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+      "original_title": "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+      "title": "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.5",
+        "A2.6"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M1L7",
+      "course_code": "MCF3M",
+      "module_number": 1,
+      "lesson_number": 7,
+      "module_title": "Introduction to the Quadratic Function",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_module_folder_title": "Module 1 - temp",
+      "drive_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "drive_folder_id": "1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a",
+      "drive_title": "Lesson 7: The Domain and Range of a Quadratic Function",
+      "original_title": "Lesson 7: The Domain and Range of a Quadratic Function",
+      "title": "Lesson 7: The Domain and Range of a Quadratic Function",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.3",
+        "A2.4"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L1",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 1,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI",
+      "drive_title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+      "original_title": "Lesson 1: Expanding Polynomials PART 1",
+      "title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L2",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 2,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx",
+      "drive_title": "Lesson 2: Expanding Polynomials",
+      "original_title": "Lesson 2: Expanding Polynomials PART 2",
+      "title": "Lesson 2: Expanding Polynomials",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L3",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 3,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp-",
+      "drive_folder_url": "https://drive.google.com/drive/folders/13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp-",
+      "drive_title": "Lesson 3: Common Factoring",
+      "original_title": "Lesson 3: Common Factoring",
+      "title": "Lesson 3: Common Factoring",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L4",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 4,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G",
+      "drive_title": "Lesson 4: Factoring Simple Trinomials",
+      "original_title": "Lesson 4: Factoring Simple Trinomials",
+      "title": "Lesson 4: Factoring Simple Trinomials",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L5",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 5,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0",
+      "drive_title": "Lesson 5: Factoring Harder Trinomials",
+      "original_title": "Lesson 5: Factoring Harder Trinomials",
+      "title": "Lesson 5: Factoring Harder Trinomials",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M2L6",
+      "course_code": "MCF3M",
+      "module_number": 2,
+      "lesson_number": 6,
+      "module_title": "Algebra of Quadratic Expressions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_module_folder_title": "Module 2",
+      "drive_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_id": "1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd",
+      "drive_title": "Lesson 6: Special Cases",
+      "original_title": "Lesson 6: Special Cases",
+      "title": "Lesson 6: Special Cases",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M3L1",
+      "course_code": "MCF3M",
+      "module_number": 3,
+      "lesson_number": 1,
+      "module_title": "Working with Quadratic Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_module_folder_title": "Module 3",
+      "drive_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_id": "1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y",
+      "drive_title": "Lesson 1: Relating Standard & Factored Form",
+      "original_title": "Lesson 1: Relating Standard & Factored Form",
+      "title": "Lesson 1: Relating Standard & Factored Form",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.9",
+        "A2.10",
+        "A2.11"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M3L2",
+      "course_code": "MCF3M",
+      "module_number": 3,
+      "lesson_number": 2,
+      "module_title": "Working with Quadratic Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_module_folder_title": "Module 3",
+      "drive_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_id": "152WxNDwZLr6_YdrJj0G3IIJd_NafPowu",
+      "drive_folder_url": "https://drive.google.com/drive/folders/152WxNDwZLr6_YdrJj0G3IIJd_NafPowu",
+      "drive_title": "Lesson 2: Solving Quadratic Equations by Graphing",
+      "original_title": "Lesson 2: Solving Quadratic Equations by Graphing",
+      "title": "Lesson 2: Solving Quadratic Equations by Graphing",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.1",
+        "A1.7",
+        "A1.8"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M3L3",
+      "course_code": "MCF3M",
+      "module_number": 3,
+      "lesson_number": 3,
+      "module_title": "Working with Quadratic Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_module_folder_title": "Module 3",
+      "drive_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_id": "1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw",
+      "drive_title": "Lesson 3: Solving Quadratic Functions by Factoring",
+      "original_title": "Lesson 3: Solving Quadratic Functions by Factoring",
+      "title": "Lesson 3: Solving Quadratic Functions by Factoring",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.4",
+        "A1.5",
+        "A1.8"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M3L4",
+      "course_code": "MCF3M",
+      "module_number": 3,
+      "lesson_number": 4,
+      "module_title": "Working with Quadratic Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_module_folder_title": "Module 3",
+      "drive_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_id": "1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_",
+      "drive_title": "Lesson 4: Solving Problems Involving Quadratics",
+      "original_title": "Lesson 4: Solving Problems Involving Quadratics",
+      "title": "Lesson 4: Solving Problems Involving Quadratics",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.1",
+        "A3.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1",
+        "A3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M3L5",
+      "course_code": "MCF3M",
+      "module_number": 3,
+      "lesson_number": 5,
+      "module_title": "Working with Quadratic Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_module_folder_title": "Module 3",
+      "drive_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_id": "1emm9lSmsAuZy1yImZYeE7pgDCismFT1H",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1emm9lSmsAuZy1yImZYeE7pgDCismFT1H",
+      "drive_title": "Lesson 5: Creating a Quadratic Model from Data",
+      "original_title": "Lesson 5: Creating a Quadratic Model from Data",
+      "title": "Lesson 5: Creating a Quadratic Model from Data",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A3.1",
+        "A3.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M4L1",
+      "course_code": "MCF3M",
+      "module_number": 4,
+      "lesson_number": 1,
+      "module_title": "Quadratic Models",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_module_folder_title": "Module 4",
+      "drive_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_id": "1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4",
+      "drive_title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "original_title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.5",
+        "A2.6",
+        "A2.7",
+        "A2.10"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M4L2",
+      "course_code": "MCF3M",
+      "module_number": 4,
+      "lesson_number": 2,
+      "module_title": "Quadratic Models",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_module_folder_title": "Module 4",
+      "drive_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_id": "1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_",
+      "drive_title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+      "original_title": "Lesson2: Relating the Standard & Vertex Forms: Completing the Square",
+      "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.7",
+        "A2.8",
+        "A2.11"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M4L3",
+      "course_code": "MCF3M",
+      "module_number": 4,
+      "lesson_number": 3,
+      "module_title": "Quadratic Models",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_module_folder_title": "Module 4",
+      "drive_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_id": "1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL",
+      "drive_title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+      "original_title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+      "title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.6",
+        "A1.8"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M4L4",
+      "course_code": "MCF3M",
+      "module_number": 4,
+      "lesson_number": 4,
+      "module_title": "Quadratic Models",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_module_folder_title": "Module 4",
+      "drive_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_id": "1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW",
+      "drive_title": "Lesson 4: Discriminant",
+      "original_title": "Lesson 4: Discriminant",
+      "title": "Lesson 4: Discriminant",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A1.7"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M4L5",
+      "course_code": "MCF3M",
+      "module_number": 4,
+      "lesson_number": 5,
+      "module_title": "Quadratic Models",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_module_folder_title": "Module 4",
+      "drive_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_id": "1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo",
+      "drive_title": "Lesson 5: Using Quadratic Models to Solve Problems",
+      "original_title": "Lesson 5: Using Quadratic Models to Solve Problems",
+      "title": "Lesson 5: Using Quadratic Models to Solve Problems",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "A2.4",
+        "A3.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "A2",
+        "A3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M5L1",
+      "course_code": "MCF3M",
+      "module_number": 5,
+      "lesson_number": 1,
+      "module_title": "Trigonometry & Acute Triangles",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_module_folder_title": "Module 5",
+      "drive_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_id": "1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN",
+      "drive_title": "Lesson 1: Trigonometric Ratios",
+      "original_title": "Lesson 1: Trigonometric Ratios",
+      "title": "Lesson 1: Trigonometric Ratios",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C1.1"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M5L2",
+      "course_code": "MCF3M",
+      "module_number": 5,
+      "lesson_number": 2,
+      "module_title": "Trigonometry & Acute Triangles",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_module_folder_title": "Module 5",
+      "drive_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_id": "1o_brErciMB_xJimfTUWYBoybvYAz8MMK",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1o_brErciMB_xJimfTUWYBoybvYAz8MMK",
+      "drive_title": "Lesson 2: Applying the Primary Trig Ratios",
+      "original_title": "Lesson 2: Applying the Primary Trig Ratios",
+      "title": "Lesson 2: Applying the Primary Trig Ratios",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C1.1"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M5L3",
+      "course_code": "MCF3M",
+      "module_number": 5,
+      "lesson_number": 3,
+      "module_title": "Trigonometry & Acute Triangles",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_module_folder_title": "Module 5",
+      "drive_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_id": "1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E",
+      "drive_title": "Lesson 3: Solving Problems by Using Right-Triangle Models",
+      "original_title": "Lesson 3: Solving Problems by Using Right-Triangle Models",
+      "title": "Lesson 3: Solving Problems by Using Right-Triangle Models",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C1.1",
+        "C1.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M5L4",
+      "course_code": "MCF3M",
+      "module_number": 5,
+      "lesson_number": 4,
+      "module_title": "Trigonometry & Acute Triangles",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_module_folder_title": "Module 5",
+      "drive_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_id": "1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl",
+      "drive_title": "Lesson 4: Cosine & Sine Law",
+      "original_title": "Lesson 4: Cosine & Sine Law",
+      "title": "Lesson 4: Cosine & Sine Law",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C1.3",
+        "C1.4"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M5L5",
+      "course_code": "MCF3M",
+      "module_number": 5,
+      "lesson_number": 5,
+      "module_title": "Trigonometry & Acute Triangles",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_module_folder_title": "Module 5",
+      "drive_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_id": "1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP-",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP-",
+      "drive_title": "Lesson 5: Solving Problems by Using Acute-Triangle Models",
+      "original_title": "Lesson 5: Solving Problems by Using Acute-Triangle Models",
+      "title": "Lesson 5: Solving Problems by Using Acute-Triangle Models",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C1.4",
+        "C1.5"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M6L1",
+      "course_code": "MCF3M",
+      "module_number": 6,
+      "lesson_number": 1,
+      "module_title": "Sinusoidal Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_module_folder_title": "Module 6",
+      "drive_parent_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_folder_id": "1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB",
+      "drive_title": "Lesson 1: Periodic Functions",
+      "original_title": "Lesson 1: Periodic Functions",
+      "title": "Lesson 1: Periodic Functions",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C2.1",
+        "C2.2",
+        "C3.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C2",
+        "C3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M6L2",
+      "course_code": "MCF3M",
+      "module_number": 6,
+      "lesson_number": 2,
+      "module_title": "Sinusoidal Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_module_folder_title": "Module 6",
+      "drive_parent_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_folder_id": "1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ",
+      "drive_title": "Lesson 2: Sinusoidal Functions",
+      "original_title": "Lesson 2: Sinusoidal Functions",
+      "title": "Lesson 2: Sinusoidal Functions",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C2.3",
+        "C2.4",
+        "C3.1",
+        "C3.2",
+        "C3.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C2",
+        "C3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M6L3",
+      "course_code": "MCF3M",
+      "module_number": 6,
+      "lesson_number": 3,
+      "module_title": "Sinusoidal Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_module_folder_title": "Module 6",
+      "drive_parent_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_folder_id": "1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym",
+      "drive_title": "Lesson 3: Transformations of the Sine Function",
+      "original_title": "Lesson 3: Transformations of the Sine Function",
+      "title": "Lesson 3: Transformations of the Sine Function",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "C2.5",
+        "C2.6",
+        "C2.7",
+        "C3.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "C2",
+        "C3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M7L1",
+      "course_code": "MCF3M",
+      "module_number": 7,
+      "lesson_number": 1,
+      "module_title": "Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_module_folder_title": "Module 7",
+      "drive_parent_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_folder_id": "18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn",
+      "drive_folder_url": "https://drive.google.com/drive/folders/18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn",
+      "drive_title": "Laws of Exponents & Integer Exponents",
+      "original_title": "Laws of Exponents & Integer Exponents",
+      "title": "Laws of Exponents & Integer Exponents",
+      "title_status": "exact_drive_title",
+      "order_source": "original lesson list",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B1.2",
+        "B1.5"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M7L2",
+      "course_code": "MCF3M",
+      "module_number": 7,
+      "lesson_number": 2,
+      "module_title": "Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_module_folder_title": "Module 7",
+      "drive_parent_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_folder_id": "132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr",
+      "drive_folder_url": "https://drive.google.com/drive/folders/132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr",
+      "drive_title": "Working with Rational Exponents",
+      "original_title": "Working with Rational Exponents",
+      "title": "Working with Rational Exponents",
+      "title_status": "exact_drive_title",
+      "order_source": "original lesson list",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B1.1",
+        "B1.2"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B1"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M7L3",
+      "course_code": "MCF3M",
+      "module_number": 7,
+      "lesson_number": 3,
+      "module_title": "Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_module_folder_title": "Module 7",
+      "drive_parent_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_folder_id": "10UkNkns4mbrJtw7qIK27RNO2phvDuRXB",
+      "drive_folder_url": "https://drive.google.com/drive/folders/10UkNkns4mbrJtw7qIK27RNO2phvDuRXB",
+      "drive_title": "Exploring Exponential Functions, Growth & Decay",
+      "original_title": "Exploring Exponential Functions, Growth & Decay",
+      "title": "Exploring Exponential Functions, Growth & Decay",
+      "title_status": "exact_drive_title",
+      "order_source": "original lesson list",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B1.3",
+        "B1.4",
+        "B1.6",
+        "B2.1",
+        "B2.2",
+        "B2.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B1",
+        "B2"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "This broad lesson carries six proposed expectations. Plan enough investigation, data collection and practice, or record uncovered parts."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M8L1",
+      "course_code": "MCF3M",
+      "module_number": 8,
+      "lesson_number": 1,
+      "module_title": "Solving Financial Problems Involving Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_module_folder_title": "Module 8",
+      "drive_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_id": "1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5",
+      "drive_title": "Lesson 1: Simple & Compound Interest",
+      "original_title": "Lesson 1: Simple & Compound Interest",
+      "title": "Lesson 1: Simple & Compound Interest",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B3.1",
+        "B3.3"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M8L2",
+      "course_code": "MCF3M",
+      "module_number": 8,
+      "lesson_number": 2,
+      "module_title": "Solving Financial Problems Involving Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_module_folder_title": "Module 8",
+      "drive_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_id": "1qgfk85lXXelbWn5f325n5NTtRXOG5cdF",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1qgfk85lXXelbWn5f325n5NTtRXOG5cdF",
+      "drive_title": "Lesson 2: Compound Interest - Future Value",
+      "original_title": "Lesson 2: Compound Interest - Future Value",
+      "title": "Lesson 2: Compound Interest - Future Value",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B3.2",
+        "B3.4"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M8L3",
+      "course_code": "MCF3M",
+      "module_number": 8,
+      "lesson_number": 3,
+      "module_title": "Solving Financial Problems Involving Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_module_folder_title": "Module 8",
+      "drive_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_id": "10_WVhf17ToYrbL3F88FLkaseavX6gq8r",
+      "drive_folder_url": "https://drive.google.com/drive/folders/10_WVhf17ToYrbL3F88FLkaseavX6gq8r",
+      "drive_title": "Lesson 3: Compound Interest - Present Value",
+      "original_title": "Lesson 3: Compound Interest - Present Value",
+      "title": "Lesson 3: Compound Interest - Present Value",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B3.2",
+        "B3.3",
+        "B3.4"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": [
+        "B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it."
+      ]
+    },
+    {
+      "lesson_id": "MCF3M-M8L4",
+      "course_code": "MCF3M",
+      "module_number": 8,
+      "lesson_number": 4,
+      "module_title": "Solving Financial Problems Involving Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_module_folder_title": "Module 8",
+      "drive_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_id": "1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq",
+      "drive_title": "Lesson 4: Annuities - Future Value",
+      "original_title": "Lesson 4: Annuities - Future Value",
+      "title": "Lesson 4: Annuities - Future Value",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B3.5",
+        "B3.6",
+        "B3.7"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    },
+    {
+      "lesson_id": "MCF3M-M8L5",
+      "course_code": "MCF3M",
+      "module_number": 8,
+      "lesson_number": 5,
+      "module_title": "Solving Financial Problems Involving Exponential Functions",
+      "module_title_source": "sources/original-lesson-list.json",
+      "drive_module_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_module_folder_title": "Module 8",
+      "drive_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_id": "1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr",
+      "drive_title": "Lesson 5: Regular/Simple Annuities - Present Value",
+      "original_title": "Lesson 5: Regular/Simple Annuities - Present Value",
+      "title": "Lesson 5: Regular/Simple Annuities - Present Value",
+      "title_status": "exact_drive_title",
+      "order_source": "Drive lesson-number prefix",
+      "folder_verified_on": "2026-09-09",
+      "content_status": "not_drafted",
+      "curriculum_mapping_status": "proposed_review_required",
+      "proposed_specific_expectation_codes": [
+        "B3.5",
+        "B3.6",
+        "B3.7"
+      ],
+      "proposed_overall_expectation_codes": [
+        "B3"
+      ],
+      "mapping_rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "mapping_notes": []
+    }
+  ]
+}

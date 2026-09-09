@@ -8,13 +8,21 @@ Serves ``content-builder/`` on 127.0.0.1:8790. POST /api/locks and
 from __future__ import annotations
 
 import json
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST = "127.0.0.1"
 PORT = 8790
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from onboarding_lib import (  # noqa: E402
+    BuilderPaths,
+    resolve_conflict,
+    resolve_lesson_context,
+    review_payload,
+)
 
 
 class ReviewHandler(SimpleHTTPRequestHandler):
@@ -43,9 +51,46 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             raise ValueError("invalid lesson path")
         return path
 
-    def do_POST(self) -> None:
-        """Save locks or instruction JSON for one lesson."""
+    def do_GET(self) -> None:
+        """Serve onboarding JSON or static files."""
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        paths = BuilderPaths(ROOT)
+        if parsed.path == "/api/onboarding":
+            course = (query.get("course") or ["MCF3M"])[0]
+            try:
+                self._json(200, review_payload(paths, course))
+            except (OSError, KeyError, json.JSONDecodeError, ValueError) as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+        if parsed.path == "/api/lesson-context":
+            course = (query.get("course") or ["MCF3M"])[0]
+            lesson = (query.get("lesson") or ["M4-L1-vertex-form"])[0]
+            role = (query.get("role") or ["lesson-director"])[0]
+            try:
+                self._json(200, resolve_lesson_context(paths, course, lesson, role))
+            except KeyError as exc:
+                self._json(404, {"ok": False, "error": str(exc)})
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        """Save locks, instruction, or conflict resolutions."""
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/conflicts/resolve":
+            try:
+                data = self._read_json()
+                item = resolve_conflict(
+                    BuilderPaths(ROOT),
+                    data.get("course") or "MCF3M",
+                    data["conflict_id"],
+                    data["resolution"],
+                    data.get("note"),
+                )
+                self._json(200, {"ok": True, "conflict": item})
+            except (KeyError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
         try:
             data = self._read_json()
             course = data["course"]

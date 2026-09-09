@@ -1,0 +1,30 @@
+[
+  {
+    "id": "conflict.seed-text.A1.1",
+    "record": "curriculum_source",
+    "field": "text",
+    "existing": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems",
+    "incoming": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems (e.g., \"From the graph of the height of a ball versus time, can you tell me how high the ball was thrown and the time when it hit the ground?\")",
+    "evidence": "lms/seeds wording differs from package source for A1.1.",
+    "status": "unresolved",
+    "auto_resolvable": false
+  },
+  {
+    "id": "conflict.mapping.codes.MCF3M-M4L1",
+    "record": "curriculum_mapping",
+    "field": "specific_codes",
+    "existing": [
+      "A2.7",
+      "A2.10"
+    ],
+    "incoming": [
+      "A2.5",
+      "A2.6",
+      "A2.7",
+      "A2.10"
+    ],
+    "evidence": "Package proposal differs from existing brief expectation codes. Keep both; do not auto-approve.",
+    "status": "unresolved",
+    "auto_resolvable": false
+  }
+]

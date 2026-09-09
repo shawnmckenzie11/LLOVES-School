@@ -16,7 +16,9 @@ The **parent Cursor agent** (this chat’s main agent) is the production manager
 
 ```
 content-builder/
-  catalogue/          # committed resource records + schema
+  packages/           # verified course input snapshots (MCF3M-builder-input)
+  catalogue/          # committed resource records + onboarding store + schema
+    onboarding/       # identities, curriculum sources, mappings, rules, conflicts
   lessons/            # per-lesson JSON/Markdown (specialist outputs)
   components/        # reusable static assets (JSXGraph, CSS)
   build/              # compiled three-tab HTML
@@ -38,7 +40,7 @@ Do not write builder artefacts into `lms/`, `tools/math-game-show/`, Fly `/data`
 7. `lesson-verifier` (independent; language, flow, visual, feedback cases)
 8. Parent integrates; preserve locked/approved sections
 
-Revision plan: `content-builder/docs/math-content-builder-revision-plan.md`. v1 fixture: `content-builder/fixtures/M4-L1-vertex-form-v1/`.
+Revision plan: `content-builder/docs/math-content-builder-revision-plan.md`. v1 fixture: `content-builder/fixtures/M4-L1-vertex-form-v1/`. MCF3M onboarding (39 identities, curriculum, rules) lives in `packages/MCF3M-builder-input/` and `catalogue/onboarding/MCF3M/`. Finish onboarding before further revision-plan prose rewrites.
 
 ## Sources (start small)
 
@@ -67,6 +69,13 @@ content-builder/.venv/bin/python content-builder/scripts/import_ontario_seed.py
 content-builder/.venv/bin/python content-builder/scripts/import_openstax.py
 content-builder/.venv/bin/python content-builder/scripts/import_mathnet.py
 content-builder/.venv/bin/python content-builder/scripts/catalogue.py
+
+# MCF3M onboarding (verified Drive identities + curriculum + rules)
+content-builder/.venv/bin/python content-builder/packages/MCF3M-builder-input/validate_package.py
+content-builder/.venv/bin/python content-builder/scripts/import_mcf3m_package.py --preview
+content-builder/.venv/bin/python content-builder/scripts/import_mcf3m_package.py --apply
+content-builder/.venv/bin/python content-builder/scripts/check_onboarding.py
+content-builder/.venv/bin/python content-builder/scripts/resolve_lesson_context.py --role lesson-director --write
 
 # Compile + check the static three-tab page (not the LMS on :8787)
 content-builder/.venv/bin/python content-builder/scripts/build_lesson.py

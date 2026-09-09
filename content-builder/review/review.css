@@ -479,3 +479,30 @@ main:not(.review-main) {
     grid-template-columns: 1fr;
   }
 }
+
+.onboarding h2,
+.onboarding h3 {
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.concern,
+.title-diff {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.conflict-card pre {
+  overflow-x: auto;
+  font-size: var(--text-small);
+}
+
+.onboarding ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.onboarding .outline-link {
+  font-weight: 650;
+}

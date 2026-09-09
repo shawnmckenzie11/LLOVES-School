@@ -1,0 +1,200 @@
+[
+  {
+    "id": "import-20260909T101749+0000-4722a026",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:17:49+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 1,
+      "created": 38,
+      "unchanged": 0,
+      "conflicted": 2
+    },
+    "outcome": "applied",
+    "fingerprint_before": "0a56b89dce0a358f04fa398ac3e72d809d24a2c6b2bf5b457545f93aa5bb0b64",
+    "fingerprint_after": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "rollback_files": []
+  },
+  {
+    "id": "import-20260909T101750+0000-87052466",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:17:50+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "noop",
+    "fingerprint_before": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "fingerprint_after": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  },
+  {
+    "id": "import-20260909T101807+0000-ed5fb7ab",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:18:07+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "noop",
+    "fingerprint_before": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "fingerprint_after": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  },
+  {
+    "id": "import-20260909T101902+0000-52e4a13b",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:19:02+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "applied",
+    "fingerprint_before": "42a1d79421389cf0ae87f8abd7f40433486ad639b6803b68deab4f31e916803d",
+    "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  },
+  {
+    "id": "import-20260909T101902+0000-102c0107",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:19:02+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "noop",
+    "fingerprint_before": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  },
+  {
+    "id": "import-20260909T101917+0000-e3254ebd",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:19:17+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "noop",
+    "fingerprint_before": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  },
+  {
+    "id": "import-20260909T102023+0000-0df344c9",
+    "package_version": "1.0.0",
+    "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+    "imported_at": "2026-09-09T10:20:23+00:00",
+    "source_snapshot_date": "2026-09-09",
+    "change_summary": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "outcome": "noop",
+    "fingerprint_before": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+    "rollback_files": [
+      "course.json",
+      "identities.json",
+      "curriculum-sources.json",
+      "mappings.json",
+      "rules.json",
+      "conflicts.json",
+      "lesson-revisions.json",
+      "change-index.json",
+      "known-concerns.json",
+      "HEAD.json",
+      "batches/index.json"
+    ]
+  }
+]

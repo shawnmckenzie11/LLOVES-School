@@ -10,8 +10,17 @@
   <main>
     <h1>Lesson review</h1>
     <p class="muted">Local factory only — not the school LMS. Course MCF3M, lesson M4-L1-vertex-form.</p>
-    <p>
-      <label>Course <input id="course" value="MCF3M"></label>
+
+    <section id="onboarding" class="onboarding">
+      <h2>Course onboarding</h2>
+      <p class="muted" id="onboard-summary">Loading import status…</p>
+      <p id="onboard-counts"></p>
+      <div id="onboard-concerns"></div>
+      <div id="onboard-conflicts"></div>
+      <div id="onboard-modules"></div>
+    </section>
+
+    <p>      <label>Course <input id="course" value="MCF3M"></label>
       <label>Lesson <input id="lesson" value="M4-L1-vertex-form"></label>
       <button type="button" id="load">Load</button>
     </p>
@@ -94,6 +103,95 @@
       $("status").textContent = "Loaded " + lesson;
     }
 
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function resolveConflict(id, resolution) {
+      const res = await fetch("/api/conflicts/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          course: $("course").value.trim() || "MCF3M",
+          conflict_id: id,
+          resolution
+        })
+      });
+      const data = await res.json();
+      $("onboard-summary").textContent = data.ok ? "Recorded " + resolution + " for " + id : data.error;
+      await loadOnboarding();
+    }
+
+    async function loadOnboarding() {
+      const course = $("course").value.trim() || "MCF3M";
+      const data = await loadJson("/api/onboarding?course=" + encodeURIComponent(course));
+      if (data.ok === false) throw new Error(data.error || "onboarding unavailable");
+      const batch = data.batch || {};
+      $("onboard-summary").textContent =
+        (batch.outcome ? ("Last import: " + batch.outcome + " · " + (batch.imported_at || "")) : "No import yet.") +
+        " Mapped is not taught. Process expectations stay course-wide.";
+      const c = data.counts || {};
+      $("onboard-counts").innerHTML =
+        "<p><strong>" + (c.lessons || 0) + "</strong> lessons · " +
+        "<strong>" + (c.unresolved_conflicts || 0) + "</strong> unresolved conflicts · " +
+        "<strong>" + (c.catalogue_resources || 0) + "</strong> existing catalogue resources kept · " +
+        "rule set " + escapeHtml(JSON.stringify(data.rule_version || {})) + "</p>";
+      const concerns = (data.known_concerns || []).filter((item) =>
+        ["B1.6-partial-M1L2", "B3.4-tvm", "B2-C3-data-application"].includes(item.id) || item.stable_key
+      );
+      $("onboard-concerns").innerHTML = "<h3>Known coverage concerns</h3>" + concerns.slice(0, 12).map((item) =>
+        "<p class='concern'>" + escapeHtml(item.id) + " — " + escapeHtml(item.detail) + "</p>"
+      ).join("");
+      $("onboard-conflicts").innerHTML = "<h3>Unresolved conflicts</h3>" + (data.conflicts || []).map((item) =>
+        "<div class='card conflict-card' id='conflict-" + escapeHtml(item.id) + "'>" +
+        "<p><strong>" + escapeHtml(item.id) + "</strong></p>" +
+        "<p class='muted'>" + escapeHtml(item.evidence) + "</p>" +
+        "<pre>" + escapeHtml(JSON.stringify({ existing: item.existing, incoming: item.incoming }, null, 2)) + "</pre>" +
+        "<p class='row'>" +
+        "<button type='button' data-conflict='" + escapeHtml(item.id) + "' data-res='keep_existing'>Keep existing</button> " +
+        "<button type='button' data-conflict='" + escapeHtml(item.id) + "' data-res='accept_incoming'>Accept incoming</button> " +
+        "<button type='button' data-conflict='" + escapeHtml(item.id) + "' data-res='keep_both'>Keep both</button>" +
+        "</p></div>"
+      ).join("") || "<p class='muted'>None.</p>";
+      $("onboard-modules").innerHTML = (data.modules || []).map((mod) => {
+        const lessons = (mod.lessons || []).map((lesson) => {
+          const diff = lesson.title_difference
+            ? "<span class='title-diff'>Drive: " + escapeHtml(lesson.title_difference.drive_title) +
+              " · original: " + escapeHtml(lesson.title_difference.original_title) + "</span>"
+            : "";
+          const display = lesson.display_title ? " · display “" + escapeHtml(lesson.display_title) + "”" : "";
+          return "<li><button type='button' class='outline-link' data-lesson='" +
+            escapeHtml(lesson.internal_id) + "'>" +
+            escapeHtml(lesson.stable_key) + " — " + escapeHtml(lesson.source_title) +
+            "</button>" +
+            "<p class='muted'>Drive " + escapeHtml(lesson.drive_folder_id) +
+            " · parent " + escapeHtml(mod.drive_folder_title) +
+            " · content " + escapeHtml(lesson.content_status) + display + "</p>" +
+            "<p class='muted'>Proposed " + escapeHtml((lesson.proposed_codes || []).join(", ") || "—") +
+            " · brief " + escapeHtml((lesson.teacher_codes || []).join(", ") || "—") + "</p>" +
+            diff + "</li>";
+        }).join("");
+        return "<section class='card'><h3>Module " + mod.module_number + ": " +
+          escapeHtml(mod.title) + " <span class='muted'>(" + escapeHtml(mod.drive_folder_title) + ")</span></h3>" +
+          "<ol>" + lessons + "</ol></section>";
+      }).join("");
+    }
+
+    $("onboard-conflicts").addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-conflict]");
+      if (!btn) return;
+      resolveConflict(btn.getAttribute("data-conflict"), btn.getAttribute("data-res"));
+    });
+    $("onboard-modules").addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-lesson]");
+      if (!btn) return;
+      $("lesson").value = btn.getAttribute("data-lesson");
+      loadAll().catch((e) => { $("status").textContent = e.message; });
+    });
     $("load").addEventListener("click", () => loadAll().catch((e) => { $("status").textContent = e.message; }));
     $("save-instruction").addEventListener("click", async () => {
       instruction.minds_on.student = $("minds").value;
@@ -128,6 +226,7 @@
       const data = await res.json();
       $("status").textContent = data.ok ? "Saved locks: " + locked.join(", ") : data.error;
     });
+    loadOnboarding().catch((e) => { $("onboard-summary").textContent = e.message; });
     loadAll().catch((e) => { $("status").textContent = e.message; });
   </script>
 </body>

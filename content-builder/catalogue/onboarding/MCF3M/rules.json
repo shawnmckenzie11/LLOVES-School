@@ -1,0 +1,146 @@
+[
+  {
+    "id": "rule.authority-and-scope",
+    "scope": [
+      "identity",
+      "locks"
+    ],
+    "requirement": "1. Current explicit teacher instructions take priority. Preserve teacher-locked material.\n2. Current Drive IDs and titles in `data/lessons.json` govern identity and reuse. The user-provided lesson list supplies module topic names and Module 7 order.\n3. `data/curriculum.json` supplies source wording. Keep curriculum text separate from student-friendly goals and proposed mappings. Never invent an expectation, problem stem, answer, resource URL or licence.\n4. Later language, flow and practice corrections supersede earlier generic lesson defaults where they conflict. Historical plan inventories are superseded by the fresh 39-folder inventory.\n5. Source plans include implementation proposals. No particular writing model, framework, resource, performance score or generated lesson is approved merely because it appears in a plan.\n6. This package imports content inputs. It does not authorize changes to Drive organization, deployment, or a bulk lesson rebuild.\n\nSources: user project instructions; original lesson JSON; current Drive inventory; prior build plan; latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "parent",
+    "supersedes": [],
+    "affects": [
+      "identity"
+    ]
+  },
+  {
+    "id": "rule.teaching-purpose",
+    "scope": [
+      "async_tabs"
+    ],
+    "requirement": "Individual learning and practice build students' foundations. Live classes use collaborative problem solving to strengthen reasoning, justification and connections. Team-game rounds belong to the live-class format. Do not import live attendance or participation machinery into asynchronous lessons.\n\nBuild a coherent instructional progression. State the intended understanding, a central question, prerequisite assumptions and the purpose of each section before drafting. Start with an accessible action that does not require students to already like mathematics. Return to the opening context during consolidation.\n\nAction should connect at least two useful representations. Explain what stays the same across them and what each makes easier to see. A tool must change what students can see, test or explain. Its instructional relationship comes before its implementation.\n\nSources: explicit teacher teaching philosophy; prior build plan; latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "lesson-director",
+    "supersedes": [],
+    "affects": [
+      "brief",
+      "hook",
+      "flow"
+    ]
+  },
+  {
+    "id": "rule.three-part-html",
+    "scope": [
+      "async_tabs"
+    ],
+    "requirement": "Use consistent styling and exactly three main tabs, in this order:\n\n| Tab | Instructional requirement |\n| --- | --- |\n| Minds On | Give an accessible first move, such as a prediction, sort or visual puzzle. Create a reason to learn. The earlier 5–10-minute target is a planning default, not a required student-facing timer. |\n| Action | Explore, name the pattern, connect representations, demonstrate reasoning, then provide progressively less supported practice. Use short, connected sections. |\n| Consolidation | Revisit the opening idea. Reveal understanding through explanation, error analysis, comparison or transfer. Include an answer check and a useful next step. |\n\nOne primary interactive and one supporting media item is the earlier default. Additional items need distinct instructional purposes. Static, portable core instruction must remain usable without accounts, API keys, a database, a build server, required network calls or JavaScript. Optional online resources need complete local alternatives.\n\nUse button-based tabs, keyboard navigation, visible focus, ARIA relationships and URL hashes. Print all sections. With JavaScript disabled, show all content in reading order. Maintain useful alternative text, equivalent video summaries/transcripts, readable equations, 200% zoom and a layout that works at 320 CSS pixels.\n\nSource: accepted prior build constraints, with current revision refinements.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "lesson-engineer",
+    "supersedes": [],
+    "affects": [
+      "minds-on",
+      "action",
+      "consolidation",
+      "student_html"
+    ]
+  },
+  {
+    "id": "rule.student-language",
+    "scope": [
+      "student_language"
+    ],
+    "requirement": "- Address the student directly. Say what to do and what to notice. Explain why when it helps.\n- Introduce objects, variables, units and notation before using them. Resolve unclear references such as “this graph.”\n- Connect each new task to something already seen. Write one continuous lesson in one voice.\n- Use short, varied sentences, active voice, concrete verbs and precise mathematical language. Read it aloud for naturalness without making it childish.\n- Avoid artificial enthusiasm, repetitive encouragement, canned transitions, unnecessary narration and dramatic framing.\n- Do not use these teacher-banned words: delve, testament, tapestry, beacon, crucial, navigate, realm, symphony, foster.\n- Do not use em dashes to break up sentences. Use periods or commas.\n- Do not use the formula “This is a [X], not a [Y].” Avoid cliché openers and closers, including “In today's fast-paced world,” “In conclusion,” “Ultimately” and “At the end of the day.”\n- Never expose integration notes, provider configuration, retrieval rankings, agent instructions, raw provenance records or developer terminology in lesson directions. Necessary attribution uses tidy source labels or credits.\n- Enforce this with separate `student_content`, `teacher_notes` and `provenance` fields and a student-renderer allowlist. Do not send an entire builder record to the student view.\n\nThe original blacklist is not sufficient by itself. Review context, continuity and mathematical precision. The source revision plan proposes comparing two available writing models with the same material; the teacher's preference should determine the configured copywriter model. No model has been selected by this package.\n\nSources: explicit student-language rules; latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "student-copywriter",
+    "supersedes": [],
+    "affects": [
+      "student_prose"
+    ]
+  },
+  {
+    "id": "rule.practice-feedback",
+    "scope": [
+      "practice",
+      "feedback"
+    ],
+    "requirement": "For each newly taught process, normally provide:\n\n1. A fully explained example.\n2. A purposeful variation.\n3. A partially completed example.\n4. Independent practice with feedback.\n5. Later retrieval or transfer.\n\nFade support as students gain independence. This is a configurable default, not a demand for five separate activities for every small idea. Keep the required workload realistic; provide accessible further practice.\n\nReview every supplied candidate. Classify it as worked example, guided practice, core practice, additional practice, extension, or excluded with a reason. The revision plan's “all 12 candidates” refers to the existing pilot's candidate set, not a universal requirement to fabricate twelve items per lesson. Retain sufficiently relevant, clear candidates in suitable practice pools.\n\nFeedback should describe observable evidence and a useful next action. Support submit, check, specific feedback, hints, retry, another task and reset where appropriate. Define valid alternatives, tolerances and reset behaviour before implementation. Use deterministic mathematical checking for supported answers. Do not infer a student's mental misconception from one slider setting. Use self-check criteria or teacher review for unrestricted explanations unless an appropriate evaluator exists.\n\nReinforcement means practice, feedback and revisiting ideas. Accepted teacher corrections update versioned rules, examples, components or checks. They do not require student-runtime model training.\n\nSource: latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "practice-designer",
+    "supersedes": [],
+    "affects": [
+      "practice",
+      "feedback"
+    ]
+  },
+  {
+    "id": "rule.model-star",
+    "scope": [
+      "practice"
+    ],
+    "requirement": "| Step | Teacher requirement |\n| --- | --- |\n| S: Search the word problem | One sentence identifying the clues, key numbers and what must be found. Highlight the relevant information. |\n| T: Translate the words into an equation | One sentence explaining how the words lead to the mathematical statement, with quantities and operations identified. Do not present an unexplained initial equation. |\n| A: Answer the problem | Carry out the calculation with the chosen strategy or tool and show the reasoning. |\n| R: Review the solution | Check the result in minimal steps against the original conditions. |\n\nInclude a supporting diagram. Keep labels, units and the equation consistent. If supplied information is insufficient, identify what is missing. Any added numerical scenario must be clearly marked as a constructed example, never presented as the original sourced problem.\n\nSource: explicit model-STAR instruction. The incomplete earlier “problems with no specifics” instruction is not reconstructed.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "student-copywriter",
+    "supersedes": [],
+    "affects": [
+      "word_problem_solutions"
+    ]
+  },
+  {
+    "id": "rule.questions-hooks-resources",
+    "scope": [
+      "hooks_resources"
+    ],
+    "requirement": "Prefer accessible, interesting contexts and low-entry problems, including for traditionally weaker students. Record why a resource fits the lesson's intended understanding. A hook must lead into the mathematics and return in consolidation; unfamiliar cultural references must not be required for entry.\n\nThe user's question-sourcing history favours real contest questions and subsequently MathNet as a candidate source, with verified original stems. Do not invent contest URLs or label generated questions as sourced. MCR3U-specific searches are not approved MCF3M banks. Desmos, GeoGebra, Khan Academy, Mathigon, YouTube, MathNet and other named providers remain candidates until checked.\n\nFor each proposed resource record purpose, module/lesson fit, canonical URL, permitted embed URL, source/repository, licence/terms, maintenance signal, bundle size, network calls, accessibility, mobile behaviour, iframe policy, offline alternative, verification date and adopt/link/adapt/reject decision. Do not assume public pages allow embedding or rehosting. Dataset entries go through review, not automatic insertion.\n\nThe four resource gates are access without sign-in, feasible delivery, permitted use and a complete fallback. Preserve provenance outside student instructions. If a full problem image is requested, use a verified source and permitted reproduction, keeping the full question legible.\n\nSources: explicit sourcing corrections; prior build plan; latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "hook-curator",
+    "supersedes": [],
+    "affects": [
+      "hooks",
+      "resources"
+    ]
+  },
+  {
+    "id": "rule.live-slides",
+    "scope": [
+      "live_slides"
+    ],
+    "requirement": "The seven-slide contract in `sources/live-class-slides.metadata.json` applies to live classes only. Use the existing template and preserve slide order. Semantic names identify roles; populate by actual slide index, not nonexistent placeholders. Template ID: `1yn2JQQNyd1AfBrrRK0_BFx4ibkdIgXTgR7bu0QzesRU`.\n\n| Index | Role | Requirement |\n| --- | --- | --- |\n| 1 | TITLE_CLASS | `MCF3M - M{n}C{i}`. Agenda below left; exact relevant overall and specific expectations right. |\n| 2 | TEAM_INTRO | Only “Meet the Teams”. |\n| 3 | OPEN_QUESTIONS_ROUND | Blank. |\n| 4 | TEAM_CHALLENGE_ROUND_CONTEXT | Large “Team Challenge Round”; problem title left and context right. |\n| 5 | TEAM_CHALLENGE_ROUND_QUESTION | Complete sourced team-challenge question. |\n| 6 | TEAM_CHALLENGE_REFLECTION | Wait for supplied solutions from the designated solution dependency. Do not invent or pre-empt them. |\n| 7 | CONSOLIDATION_ROUND | Exactly three typical math questions central to slide 1's specific expectations. |\n\nSlide 7 prompt, exactly: “Choose question 1, 2, or 3 to solve on today’s Formative page and get feedback. You may solve more than one.”\n\nThree live classes per module is the planning assumption. Do not confuse this with the number of asynchronous lessons. Do not include timed Do Now labels or a separate course-code subtitle. Historical dependency statuses and the MCR3M example in the source metadata are not current MCF3M state.\n\nReuse an existing LMS-linked deck for the same class/module/live index. ChatGPT owns teaching Slides, module Portfolio Docs and curriculum content in Drive. Cursor owns the product, LMS and repository implementation. Keep class-time clickers and attendance in the LMS. Do not modify Flask/LMS code, staff/student/IT UI, grades, participation systems, session codes, sqlite, Fly data or deployment as part of this package import.\n\nSource: user project roles; explicit #slides contract. Existing file locations may differ from intended naming rules; no relocation is implied.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "parent",
+    "supersedes": [],
+    "affects": [
+      "live_slides"
+    ]
+  },
+  {
+    "id": "rule.review-production",
+    "scope": [
+      "review"
+    ],
+    "requirement": "One copywriter owns final wording; the lesson director owns instructional coherence; engineers implement the agreed contract. The latest revision plan describes specialist roles and integration order for Cursor to adapt to its current setup. It does not require starting agents during a data import.\n\nTeacher review should support goals/prerequisites, candidate comparisons with reasons, three-tab preview, editing and section locks, targeted regeneration and HTML export. Preserve locked content and surface conflicts.\n\nVerify mathematics, source fidelity, purpose, natural flow, accessible practice, feedback, keyboard use, mobile layout and failed-media behaviour. Review one pilot, then a substantially different lesson before course-wide regeneration. Generate only approved lesson content and approved resources. Importing this package does not mark proposed mappings or empty resources as approved.\n\nSources: prior builder plan and latest revision plan.",
+    "authority": "package instructional-rules.md; current repo rules take priority where they conflict",
+    "version": 1,
+    "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757",
+    "enforcement_owner": "parent",
+    "supersedes": [],
+    "affects": [
+      "review"
+    ]
+  }
+]

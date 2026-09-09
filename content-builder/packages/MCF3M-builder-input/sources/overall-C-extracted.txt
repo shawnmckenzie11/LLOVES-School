@@ -1,0 +1,13 @@
+OVERALL EXPECTATIONS
+By the end of this course, students will:
+
+1. solve problems involving trigonometry in acute triangles using the sine law and the cosine law,
+   including problems arising from real-world applications;
+2. demonstrate an understanding of periodic relationships and the sine function, and make connections
+   between the numeric, graphical, and algebraic representations of sine functions;
+3. identify and represent sine functions, and solve problems involving sine functions, including
+   problems arising from real-world applications.
+
+
+
+

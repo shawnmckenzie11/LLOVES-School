@@ -1,0 +1,239 @@
+{
+  "schema_version": "resolved-context.v1",
+  "role": "lesson-verifier",
+  "course_code": "MCF3M",
+  "identity": {
+    "internal_id": "M4-L1-vertex-form",
+    "stable_key": "MCF3M-M4L1",
+    "module_number": 4,
+    "lesson_number": 1,
+    "module_title": "Quadratic Models",
+    "source_title": "Lesson 1: The Vertex Form of a Quadratic Function",
+    "display_title": null,
+    "position": "Module 4 Lesson 1"
+  },
+  "expectations": [
+    {
+      "code": "A2.10",
+      "text": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "sample_problem": null,
+      "text_hash": "6f11c1a1129b3789de5e90e2ef5731bae50306620729e978a24f96339c9d7fb9",
+      "verification_status": "package_verified"
+    },
+    {
+      "code": "A2.5",
+      "text": "determine, through investigation using technology, the roles of a, h, and k in quadratic functions of the form f(x) = a(x − h)^2 + k, and describe these roles in terms of transformations on the graph of f(x) = x^2 (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "sample_problem": "Investigate the graph f(x) = 3(x − h)^2 + 5 for various values of h, using technology, and describe the effects of changing h in terms of a transformation.",
+      "text_hash": "ce5460cd9be29d1541ce34c0eb6c1f77b983a0bd858c0d9240ac9d9be04c868a",
+      "verification_status": "package_verified"
+    },
+    {
+      "code": "A2.6",
+      "text": "sketch graphs of g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2",
+      "sample_problem": "Transform the graph of f(x) = x^2 to sketch the graphs of g(x) = x^2 − 4 and h(x) = −2(x + 1)^2.",
+      "text_hash": "ea1f3c603d63df6dfcf8c26415a76e1334a98c910902667f3456e4ad8666a9e3",
+      "verification_status": "package_verified"
+    },
+    {
+      "code": "A2.7",
+      "text": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "sample_problem": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+      "text_hash": "ef04250fffef38bd6145b7bcede57eef73b337f8daafabd44a632a6c648d9797",
+      "verification_status": "package_verified"
+    }
+  ],
+  "mappings": [
+    {
+      "id": "map.MCF3M-M4L1.A2.5.proposal",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.5",
+      "code": "A2.5",
+      "rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "partial_coverage_note": null,
+      "origin": "package_proposal",
+      "review_status": "proposed_review_required",
+      "coverage_evidence": "mapped"
+    },
+    {
+      "id": "map.MCF3M-M4L1.A2.6.proposal",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.6",
+      "code": "A2.6",
+      "rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "partial_coverage_note": null,
+      "origin": "package_proposal",
+      "review_status": "proposed_review_required",
+      "coverage_evidence": "mapped"
+    },
+    {
+      "id": "map.MCF3M-M4L1.A2.7.proposal",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.7",
+      "code": "A2.7",
+      "rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "partial_coverage_note": null,
+      "origin": "package_proposal",
+      "review_status": "proposed_review_required",
+      "coverage_evidence": "mapped"
+    },
+    {
+      "id": "map.MCF3M-M4L1.A2.10.proposal",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.10",
+      "code": "A2.10",
+      "rationale": "Topic-based alignment to the exact expectation text; confirm instructional coverage in the lesson brief.",
+      "partial_coverage_note": null,
+      "origin": "package_proposal",
+      "review_status": "proposed_review_required",
+      "coverage_evidence": "mapped"
+    },
+    {
+      "id": "map.MCF3M-M4L1.A2.7.teacher",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.7",
+      "code": "A2.7",
+      "rationale": "Present on the existing lesson brief; not auto-approved by import.",
+      "partial_coverage_note": null,
+      "origin": "teacher_brief",
+      "review_status": "present_unreviewed",
+      "coverage_evidence": "mapped"
+    },
+    {
+      "id": "map.MCF3M-M4L1.A2.10.teacher",
+      "stable_key": "MCF3M-M4L1",
+      "internal_id": "M4-L1-vertex-form",
+      "section": null,
+      "expectation_ref": "MCF3M.specific.A2.10",
+      "code": "A2.10",
+      "rationale": "Present on the existing lesson brief; not auto-approved by import.",
+      "partial_coverage_note": null,
+      "origin": "teacher_brief",
+      "review_status": "present_unreviewed",
+      "coverage_evidence": "mapped"
+    }
+  ],
+  "rules": [
+    {
+      "id": "rule.authority-and-scope",
+      "version": 1,
+      "scope": [
+        "identity",
+        "locks"
+      ],
+      "requirement": "1. Current explicit teacher instructions take priority. Preserve teacher-locked material.\n2. Current Drive IDs and titles in `data/lessons.json` govern identity and reuse. The user-provided lesson list supplies module topic names and Module 7 order.\n3. `data/curriculum.json` supplies source wording. Keep curriculum text separate from student-friendly goals and proposed mappings. Never invent an expectation, problem stem, answer, resource URL or licence.\n4. Later language, flow and practice corrections supersede earlier generic lesson defaults where they conflict. Historical plan inventories are superseded by the fresh 39-folder inventory.\n5. Source plans include implementation proposals. No particular writing model, framework, resource, performance score or generated lesson is approved merely because it appears in a plan.\n6. This package imports content inputs. It does not authorize changes to Drive organization, deployment, or a bulk lesson rebuild.\n\nSources: user project instructions; original lesson JSON; current Drive inventory; prior build plan; latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.teaching-purpose",
+      "version": 1,
+      "scope": [
+        "async_tabs"
+      ],
+      "requirement": "Individual learning and practice build students' foundations. Live classes use collaborative problem solving to strengthen reasoning, justification and connections. Team-game rounds belong to the live-class format. Do not import live attendance or participation machinery into asynchronous lessons.\n\nBuild a coherent instructional progression. State the intended understanding, a central question, prerequisite assumptions and the purpose of each section before drafting. Start with an accessible action that does not require students to already like mathematics. Return to the opening context during consolidation.\n\nAction should connect at least two useful representations. Explain what stays the same across them and what each makes easier to see. A tool must change what students can see, test or explain. Its instructional relationship comes before its implementation.\n\nSources: explicit teacher teaching philosophy; prior build plan; latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.three-part-html",
+      "version": 1,
+      "scope": [
+        "async_tabs"
+      ],
+      "requirement": "Use consistent styling and exactly three main tabs, in this order:\n\n| Tab | Instructional requirement |\n| --- | --- |\n| Minds On | Give an accessible first move, such as a prediction, sort or visual puzzle. Create a reason to learn. The earlier 5–10-minute target is a planning default, not a required student-facing timer. |\n| Action | Explore, name the pattern, connect representations, demonstrate reasoning, then provide progressively less supported practice. Use short, connected sections. |\n| Consolidation | Revisit the opening idea. Reveal understanding through explanation, error analysis, comparison or transfer. Include an answer check and a useful next step. |\n\nOne primary interactive and one supporting media item is the earlier default. Additional items need distinct instructional purposes. Static, portable core instruction must remain usable without accounts, API keys, a database, a build server, required network calls or JavaScript. Optional online resources need complete local alternatives.\n\nUse button-based tabs, keyboard navigation, visible focus, ARIA relationships and URL hashes. Print all sections. With JavaScript disabled, show all content in reading order. Maintain useful alternative text, equivalent video summaries/transcripts, readable equations, 200% zoom and a layout that works at 320 CSS pixels.\n\nSource: accepted prior build constraints, with current revision refinements.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.student-language",
+      "version": 1,
+      "scope": [
+        "student_language"
+      ],
+      "requirement": "- Address the student directly. Say what to do and what to notice. Explain why when it helps.\n- Introduce objects, variables, units and notation before using them. Resolve unclear references such as “this graph.”\n- Connect each new task to something already seen. Write one continuous lesson in one voice.\n- Use short, varied sentences, active voice, concrete verbs and precise mathematical language. Read it aloud for naturalness without making it childish.\n- Avoid artificial enthusiasm, repetitive encouragement, canned transitions, unnecessary narration and dramatic framing.\n- Do not use these teacher-banned words: delve, testament, tapestry, beacon, crucial, navigate, realm, symphony, foster.\n- Do not use em dashes to break up sentences. Use periods or commas.\n- Do not use the formula “This is a [X], not a [Y].” Avoid cliché openers and closers, including “In today's fast-paced world,” “In conclusion,” “Ultimately” and “At the end of the day.”\n- Never expose integration notes, provider configuration, retrieval rankings, agent instructions, raw provenance records or developer terminology in lesson directions. Necessary attribution uses tidy source labels or credits.\n- Enforce this with separate `student_content`, `teacher_notes` and `provenance` fields and a student-renderer allowlist. Do not send an entire builder record to the student view.\n\nThe original blacklist is not sufficient by itself. Review context, continuity and mathematical precision. The source revision plan proposes comparing two available writing models with the same material; the teacher's preference should determine the configured copywriter model. No model has been selected by this package.\n\nSources: explicit student-language rules; latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.practice-feedback",
+      "version": 1,
+      "scope": [
+        "practice",
+        "feedback"
+      ],
+      "requirement": "For each newly taught process, normally provide:\n\n1. A fully explained example.\n2. A purposeful variation.\n3. A partially completed example.\n4. Independent practice with feedback.\n5. Later retrieval or transfer.\n\nFade support as students gain independence. This is a configurable default, not a demand for five separate activities for every small idea. Keep the required workload realistic; provide accessible further practice.\n\nReview every supplied candidate. Classify it as worked example, guided practice, core practice, additional practice, extension, or excluded with a reason. The revision plan's “all 12 candidates” refers to the existing pilot's candidate set, not a universal requirement to fabricate twelve items per lesson. Retain sufficiently relevant, clear candidates in suitable practice pools.\n\nFeedback should describe observable evidence and a useful next action. Support submit, check, specific feedback, hints, retry, another task and reset where appropriate. Define valid alternatives, tolerances and reset behaviour before implementation. Use deterministic mathematical checking for supported answers. Do not infer a student's mental misconception from one slider setting. Use self-check criteria or teacher review for unrestricted explanations unless an appropriate evaluator exists.\n\nReinforcement means practice, feedback and revisiting ideas. Accepted teacher corrections update versioned rules, examples, components or checks. They do not require student-runtime model training.\n\nSource: latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.model-star",
+      "version": 1,
+      "scope": [
+        "practice"
+      ],
+      "requirement": "| Step | Teacher requirement |\n| --- | --- |\n| S: Search the word problem | One sentence identifying the clues, key numbers and what must be found. Highlight the relevant information. |\n| T: Translate the words into an equation | One sentence explaining how the words lead to the mathematical statement, with quantities and operations identified. Do not present an unexplained initial equation. |\n| A: Answer the problem | Carry out the calculation with the chosen strategy or tool and show the reasoning. |\n| R: Review the solution | Check the result in minimal steps against the original conditions. |\n\nInclude a supporting diagram. Keep labels, units and the equation consistent. If supplied information is insufficient, identify what is missing. Any added numerical scenario must be clearly marked as a constructed example, never presented as the original sourced problem.\n\nSource: explicit model-STAR instruction. The incomplete earlier “problems with no specifics” instruction is not reconstructed.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.questions-hooks-resources",
+      "version": 1,
+      "scope": [
+        "hooks_resources"
+      ],
+      "requirement": "Prefer accessible, interesting contexts and low-entry problems, including for traditionally weaker students. Record why a resource fits the lesson's intended understanding. A hook must lead into the mathematics and return in consolidation; unfamiliar cultural references must not be required for entry.\n\nThe user's question-sourcing history favours real contest questions and subsequently MathNet as a candidate source, with verified original stems. Do not invent contest URLs or label generated questions as sourced. MCR3U-specific searches are not approved MCF3M banks. Desmos, GeoGebra, Khan Academy, Mathigon, YouTube, MathNet and other named providers remain candidates until checked.\n\nFor each proposed resource record purpose, module/lesson fit, canonical URL, permitted embed URL, source/repository, licence/terms, maintenance signal, bundle size, network calls, accessibility, mobile behaviour, iframe policy, offline alternative, verification date and adopt/link/adapt/reject decision. Do not assume public pages allow embedding or rehosting. Dataset entries go through review, not automatic insertion.\n\nThe four resource gates are access without sign-in, feasible delivery, permitted use and a complete fallback. Preserve provenance outside student instructions. If a full problem image is requested, use a verified source and permitted reproduction, keeping the full question legible.\n\nSources: explicit sourcing corrections; prior build plan; latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    },
+    {
+      "id": "rule.review-production",
+      "version": 1,
+      "scope": [
+        "review"
+      ],
+      "requirement": "One copywriter owns final wording; the lesson director owns instructional coherence; engineers implement the agreed contract. The latest revision plan describes specialist roles and integration order for Cursor to adapt to its current setup. It does not require starting agents during a data import.\n\nTeacher review should support goals/prerequisites, candidate comparisons with reasons, three-tab preview, editing and section locks, targeted regeneration and HTML export. Preserve locked content and surface conflicts.\n\nVerify mathematics, source fidelity, purpose, natural flow, accessible practice, feedback, keyboard use, mobile layout and failed-media behaviour. Review one pilot, then a substantially different lesson before course-wide regeneration. Generate only approved lesson content and approved resources. Importing this package does not mark proposed mappings or empty resources as approved.\n\nSources: prior builder plan and latest revision plan.",
+      "source_hash": "5d3dd5e0b7729ef93f30e5ab85bd2b0c3973aa45ae363769550b4e5b34197757"
+    }
+  ],
+  "locks": [],
+  "content_revision": "ae50dde1a2cb14a5bc36a393d83d9ee3ddb8f78528893eb1f6f49d0923e24450",
+  "selected_resource_ids": [
+    "geogebra-cxk4xt4u",
+    "jsxgraph-vertex-form-board",
+    "mathnet-0gz2",
+    "ontario-seed-mcf3m-A2.7-sample",
+    "ontario-seed-mcf3m-A2.7",
+    "openstax-ca2e-m51274-advantage-verbal",
+    "openstax-ca2e-m51274-vertex-form-definition"
+  ],
+  "concerns": [
+    {
+      "id": "B1.6-partial-M1L2",
+      "detail": "Partial B1.6 comparison in M1L2 (linear/quadratic only).",
+      "review_status": "unresolved"
+    },
+    {
+      "id": "B3.4-tvm",
+      "detail": "B3.4 requires TVM Solver work for rate or number of periods.",
+      "review_status": "unresolved"
+    },
+    {
+      "id": "B2-C3-data-application",
+      "detail": "B2 and C3 need actual data-collection/application tasks, not titles alone.",
+      "review_status": "unresolved"
+    }
+  ],
+  "scope_notes": {
+    "async_tabs": "Exactly three asynchronous tabs: Minds On, Action, Consolidation.",
+    "live_slides": "Seven-slide live contract applies only to live decks.",
+    "twelve_candidates": "The twelve-candidate fade is the vertex-form pilot, not a universal quota.",
+    "model_star": "Model-STAR plus diagram applies when generating word-problem solutions.",
+    "named_platform": "A platform named in a plan is not an approved resource."
+  },
+  "generation_blockers": [],
+  "student_renderer": "Do not copy this document into student-content.json.",
+  "context_revision": "c3f4944fca11bc524f0f366501bf01ff8c3bc70cd033f8dfdf50ec243c897a13"
+}

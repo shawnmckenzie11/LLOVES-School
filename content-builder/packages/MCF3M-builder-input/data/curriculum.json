@@ -1,0 +1,625 @@
+{
+  "course_code": "MCF3M",
+  "curriculum_edition": "2007",
+  "strands": [
+    {
+      "code": "A",
+      "title": "Quadratic Functions"
+    },
+    {
+      "code": "B",
+      "title": "Exponential Functions"
+    },
+    {
+      "code": "C",
+      "title": "Trigonometric Functions"
+    }
+  ],
+  "overall_expectations": [
+    {
+      "code": "A1",
+      "text": "expand and simplify quadratic expressions, solve quadratic equations, and relate the roots of a quadratic equation to the corresponding graph;",
+      "source_id": "ministry-2007",
+      "printed_page": 59,
+      "pdf_page_1_based": 61,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "A2",
+      "text": "demonstrate an understanding of functions, and make connections between the numeric, graphical, and algebraic representations of quadratic functions;",
+      "source_id": "ministry-2007",
+      "printed_page": 59,
+      "pdf_page_1_based": 61,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "A3",
+      "text": "solve problems involving quadratic functions, including problems arising from real-world applications.",
+      "source_id": "ministry-2007",
+      "printed_page": 59,
+      "pdf_page_1_based": 61,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "B1",
+      "text": "simplify and evaluate numerical expressions involving exponents, and make connections between the numeric, graphical, and algebraic representations of exponential functions;",
+      "source_id": "ministry-2007",
+      "printed_page": 62,
+      "pdf_page_1_based": 64,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "B2",
+      "text": "identify and represent exponential functions, and solve problems involving exponential functions, including problems arising from real-world applications;",
+      "source_id": "ministry-2007",
+      "printed_page": 62,
+      "pdf_page_1_based": 64,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "B3",
+      "text": "demonstrate an understanding of compound interest and annuities, and solve related problems.",
+      "source_id": "ministry-2007",
+      "printed_page": 62,
+      "pdf_page_1_based": 64,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "C1",
+      "text": "solve problems involving trigonometry in acute triangles using the sine law and the cosine law, including problems arising from real-world applications;",
+      "source_id": "ministry-2007",
+      "printed_page": 65,
+      "pdf_page_1_based": 67,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "C2",
+      "text": "demonstrate an understanding of periodic relationships and the sine function, and make connections between the numeric, graphical, and algebraic representations of sine functions;",
+      "source_id": "ministry-2007",
+      "printed_page": 65,
+      "pdf_page_1_based": 67,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    },
+    {
+      "code": "C3",
+      "text": "identify and represent sine functions, and solve problems involving sine functions, including problems arising from real-world applications.",
+      "source_id": "ministry-2007",
+      "printed_page": 65,
+      "pdf_page_1_based": 67,
+      "wording_status": "verbatim_words_line_wraps_removed"
+    }
+  ],
+  "specific_expectations": [
+    {
+      "code": "A1.1",
+      "overall_code": "A1",
+      "text": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems (e.g., \"From the graph of the height of a ball versus time, can you tell me how high the ball was thrown and the time when it hit the ground?\")",
+      "sample_problem": null,
+      "source_block": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems (e.g., \"From the graph of the height of a ball versus time, can you tell me how high the ball was thrown and the time when it hit the ground?\")",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.2",
+      "overall_code": "A1",
+      "text": "represent situations (e.g., the area of a picture frame of variable width) using quadratic expressions in one variable, and expand and simplify quadratic expressions in one variable [e.g., 2x(x + 4) − (x + 3)^2]*",
+      "sample_problem": null,
+      "source_block": "represent situations (e.g., the area of a picture frame of variable width) using quadratic expressions in one variable, and expand and simplify quadratic expressions in one variable [e.g., 2x(x + 4) − (x + 3)^2]*",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.3",
+      "overall_code": "A1",
+      "text": "factor quadratic expressions in one variable, including those for which a ≠ 1 (e.g., 3x^2 + 13x − 10), differences of squares (e.g., 4x^2 − 25), and perfect square trinomials (e.g., 9x^2 + 24x + 16), by selecting and applying an appropriate strategy",
+      "sample_problem": "Factor 2x^2 − 12x + 10.",
+      "source_block": "factor quadratic expressions in one variable, including those for which a ≠ 1 (e.g., 3x^2 + 13x − 10), differences of squares (e.g., 4x^2 − 25), and perfect square trinomials (e.g., 9x^2 + 24x + 16), by selecting and applying an appropriate strategy\n\n\nSample problem: Factor 2x^2 − 12x + 10.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.4",
+      "overall_code": "A1",
+      "text": "solve quadratic equations by selecting and applying a factoring strategy",
+      "sample_problem": null,
+      "source_block": "solve quadratic equations by selecting and applying a factoring strategy",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.5",
+      "overall_code": "A1",
+      "text": "determine, through investigation, and describe the connection between the factors used in solving a quadratic equation and the x-intercepts of the graph of the corresponding quadratic relation",
+      "sample_problem": "The profit, P, of a video company, in thousands of dollars, is given by P = −5x^2 + 550x − 5000, where x is the amount spent on advertising, in thousands of dollars. Determine, by factoring and by graphing, the amount spent on advertising that will result in a profit of $0. Describe the connection between the two strategies.",
+      "source_block": "determine, through investigation, and describe the connection between the factors used in solving a quadratic equation and the x-intercepts of the graph of the corresponding quadratic relation\n\n\nSample problem: The profit, P, of a video company, in thousands of dollars, is given by P = −5x^2 + 550x − 5000, where x is the amount spent on advertising, in thousands of dollars. Determine, by factoring and by graphing, the amount spent on advertising that will result in a profit of $0. Describe the connection between the two strategies.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.6",
+      "overall_code": "A1",
+      "text": "explore the algebraic development of the quadratic formula (e.g., given the algebraic development, connect the steps to a numeric example; follow a demonstration of the algebraic development, with technology, such as computer algebra systems, or without technology [student reproduction of the development of the general case is not required]), and apply the formula to solve quadratic equations, using technology",
+      "sample_problem": null,
+      "source_block": "explore the algebraic development of the quadratic formula (e.g., given the algebraic development, connect the steps to a numeric example; follow a demonstration of the algebraic development, with technology, such as computer algebra systems, or without technology [student reproduction of the development of the general case is not required]), and apply the formula to solve quadratic equations, using technology",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.7",
+      "overall_code": "A1",
+      "text": "relate the real roots of a quadratic equation to the x-intercepts of the corresponding graph, and connect the number of real roots to the value of the discriminant (e.g., there are no real roots and no x-intercepts if b^2 − 4ac < 0)",
+      "sample_problem": null,
+      "source_block": "relate the real roots of a quadratic equation to the x-intercepts of the corresponding graph, and connect the number of real roots to the value of the discriminant (e.g., there are no real roots and no x-intercepts if b^2 − 4ac < 0)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A1.8",
+      "overall_code": "A1",
+      "text": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)",
+      "sample_problem": "Generate 10 quadratic equations by randomly selecting integer values for a, b, and c in ax^2 + bx + c = 0. Solve the equations using the quadratic formula. How many of the equations could you solve by factoring?",
+      "source_block": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)\n\n\nSample problem: Generate 10 quadratic equations by randomly selecting integer values for a, b, and c in ax^2 + bx + c = 0. Solve the equations using the quadratic formula. How many of the equations could you solve by factoring?",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.1",
+      "overall_code": "A2",
+      "text": "explain the meaning of the term function, and distinguish a function from a relation that is not a function, through investigation of linear and quadratic relations using a variety of representations (i.e., tables of values, mapping diagrams, graphs, function machines, equations) and strategies (e.g., using the vertical-line test)",
+      "sample_problem": "Investigate, using numeric and graphical representations, whether the relation x = y^2 is a function, and justify your reasoning.",
+      "source_block": "explain the meaning of the term function, and distinguish a function from a relation that is not a function, through investigation of linear and quadratic relations using a variety of representations (i.e., tables of values, mapping diagrams, graphs, function machines, equations) and strategies (e.g., using the vertical-line test)\n\n\nSample problem: Investigate, using numeric and graphical representations, whether the relation x = y^2 is a function, and justify your reasoning.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.2",
+      "overall_code": "A2",
+      "text": "substitute into and evaluate linear and quadratic functions represented using function notation [e.g., evaluate f(½), given f(x) = 2x^2 + 3x − 1], including functions arising from real-world applications",
+      "sample_problem": "The relationship between the selling price of a sleeping bag, s dollars, and the revenue at that selling price, r(s) dollars, is represented by the function r(s) = −10s^2 + 1500s. Evaluate, interpret, and compare r(29.95), r(60.00), r(75.00), r(90.00), and r(130.00).",
+      "source_block": "substitute into and evaluate linear and quadratic functions represented using function notation [e.g., evaluate f(½), given f(x) = 2x^2 + 3x − 1], including functions arising from real-world applications\n\n\nSample problem: The relationship between the selling price of a sleeping bag, s dollars, and the revenue at that selling price, r(s) dollars, is represented by the function r(s) = −10s^2 + 1500s. Evaluate, interpret, and compare r(29.95), r(60.00), r(75.00), r(90.00), and r(130.00).",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.3",
+      "overall_code": "A2",
+      "text": "explain the meanings of the terms domain and range, through investigation using numeric, graphical, and algebraic representations of linear and quadratic functions, and describe the domain and range of a function appropriately (e.g., for y = x^2 + 1, the domain is the set of real numbers, and the range is y ≥ 1)",
+      "sample_problem": null,
+      "source_block": "explain the meanings of the terms domain and range, through investigation using numeric, graphical, and algebraic representations of linear and quadratic functions, and describe the domain and range of a function appropriately (e.g., for y = x^2 + 1, the domain is the set of real numbers, and the range is y ≥ 1)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.4",
+      "overall_code": "A2",
+      "text": "explain any restrictions on the domain and the range of a quadratic function in contexts arising from real-world applications",
+      "sample_problem": "A quadratic function represents the relationship between the height of a ball and the time elapsed since the ball was thrown. What physical factors will restrict the domain and range of the quadratic function?",
+      "source_block": "explain any restrictions on the domain and the range of a quadratic function in contexts arising from real-world applications\n\n\nSample problem: A quadratic function represents the relationship between the height of a ball and the time elapsed since the ball was thrown. What physical factors will restrict the domain and range of the quadratic function?",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.5",
+      "overall_code": "A2",
+      "text": "determine, through investigation using technology, the roles of a, h, and k in quadratic functions of the form f(x) = a(x − h)^2 + k, and describe these roles in terms of transformations on the graph of f(x) = x^2 (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "sample_problem": "Investigate the graph f(x) = 3(x − h)^2 + 5 for various values of h, using technology, and describe the effects of changing h in terms of a transformation.",
+      "source_block": "determine, through investigation using technology, the roles of a, h, and k in quadratic functions of the form f(x) = a(x − h)^2 + k, and describe these roles in terms of transformations on the graph of f(x) = x^2 (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)\n\n\nSample problem: Investigate the graph f(x) = 3(x − h)^2 + 5 for various values of h, using technology, and describe the effects of changing h in terms of a transformation.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.6",
+      "overall_code": "A2",
+      "text": "sketch graphs of g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2",
+      "sample_problem": "Transform the graph of f(x) = x^2 to sketch the graphs of g(x) = x^2 − 4 and h(x) = −2(x + 1)^2.",
+      "source_block": "sketch graphs of g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2\n\n\nSample problem: Transform the graph of f(x) = x^2 to sketch the graphs of g(x) = x^2 − 4 and h(x) = −2(x + 1)^2.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.7",
+      "overall_code": "A2",
+      "text": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "sample_problem": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+      "source_block": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations\n\n\nSample problem: Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.8",
+      "overall_code": "A2",
+      "text": "express the equation of a quadratic function in the vertex form f(x) = a(x − h)^2 + k, given the standard form f(x) = ax^2 + bx + c, by completing the square (e.g., using algebra tiles or diagrams; algebraically), including cases where b/a is a simple rational number (e.g., ½, 0.75), and verify, using graphing technology, that these forms are equivalent representations",
+      "sample_problem": null,
+      "source_block": "express the equation of a quadratic function in the vertex form f(x) = a(x − h)^2 + k, given the standard form f(x) = ax^2 + bx + c, by completing the square (e.g., using algebra tiles or diagrams; algebraically), including cases where b/a is a simple rational number (e.g., ½, 0.75), and verify, using graphing technology, that these forms are equivalent representations",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.9",
+      "overall_code": "A2",
+      "text": "sketch graphs of quadratic functions in the factored form f(x) = a(x − r)(x − s) by using the x-intercepts to determine the vertex",
+      "sample_problem": null,
+      "source_block": "sketch graphs of quadratic functions in the factored form f(x) = a(x − r)(x − s) by using the x-intercepts to determine the vertex",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.10",
+      "overall_code": "A2",
+      "text": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "sample_problem": null,
+      "source_block": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A2.11",
+      "overall_code": "A2",
+      "text": "sketch the graph of a quadratic function whose equation is given in the standard form f(x) = ax^2 + bx + c by using a suitable strategy (e.g., completing the square and finding the vertex; factoring, if possible, to locate the x-intercepts), and identify the key features of the graph (e.g., the vertex, the x- and y-intercepts, the equation of the axis of symmetry, the intervals where the function is positive or negative, the intervals where the function is increasing or decreasing)",
+      "sample_problem": null,
+      "source_block": "sketch the graph of a quadratic function whose equation is given in the standard form f(x) = ax^2 + bx + c by using a suitable strategy (e.g., completing the square and finding the vertex; factoring, if possible, to locate the x-intercepts), and identify the key features of the graph (e.g., the vertex, the x- and y-intercepts, the equation of the axis of symmetry, the intervals where the function is positive or negative, the intervals where the function is increasing or decreasing)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A3.1",
+      "overall_code": "A3",
+      "text": "collect data that can be modelled as a quadratic function, through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials; measurement tools such as measuring tapes, electronic probes, motion sensors), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data",
+      "sample_problem": "When a 3×3×3 cube made up of 1×1×1 cubes is dipped into red paint, 6 of the smaller cubes will have 1 face painted. Investigate the number of smaller cubes with 1 face painted as a function of the edge length of the larger cube, and graph the function.",
+      "source_block": "collect data that can be modelled as a quadratic function, through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials; measurement tools such as measuring tapes, electronic probes, motion sensors), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data\n\n\nSample problem: When a 3×3×3 cube made up of 1×1×1 cubes is dipped into red paint, 6 of the smaller cubes will have 1 face painted. Investigate the number of smaller cubes with 1 face painted as a function of the edge length of the larger cube, and graph the function.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A3.2",
+      "overall_code": "A3",
+      "text": "determine, through investigation using a variety of strategies (e.g., applying properties of quadratic functions such as the x-intercepts and the vertex; using transformations), the equation of the quadratic function that best models a suitable data set graphed on a scatter plot, and compare this equation to the equation of a curve of best fit generated with technology (e.g., graphing software, graphing calculator)",
+      "sample_problem": null,
+      "source_block": "determine, through investigation using a variety of strategies (e.g., applying properties of quadratic functions such as the x-intercepts and the vertex; using transformations), the equation of the quadratic function that best models a suitable data set graphed on a scatter plot, and compare this equation to the equation of a curve of best fit generated with technology (e.g., graphing software, graphing calculator)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "A3.3",
+      "overall_code": "A3",
+      "text": "solve problems arising from real-world applications, given the algebraic representation of a quadratic function (e.g., given the equation of a quadratic function representing the height of a ball over elapsed time, answer questions that involve the maximum height of the ball, the length of time needed for the ball to touch the ground, and the time interval when the ball is higher than a given measurement)",
+      "sample_problem": "In a DC electrical circuit, the relationship between the power used by a device, P (in watts, W), the electric potential difference (voltage), V (in volts, V), the current, I (in amperes, A), and the resistance, R (in ohms, Ω), is represented by the formula P = IV − I^2 R. Represent graphically and algebraically the relationship between the power and the current when the electric potential difference is 24 V and the resistance is 1.5 Ω. Determine the current needed in order for the device to use the maximum amount of power.",
+      "source_block": "solve problems arising from real-world applications, given the algebraic representation of a quadratic function (e.g., given the equation of a quadratic function representing the height of a ball over elapsed time, answer questions that involve the maximum height of the ball, the length of time needed for the ball to touch the ground, and the time interval when the ball is higher than a given measurement)\n\n\nSample problem: In a DC electrical circuit, the relationship between the power used by a device, P (in watts, W), the electric potential difference (voltage), V (in volts, V), the current, I (in amperes, A), and the resistance, R (in ohms, Ω), is represented by the formula P = IV − I^2 R. Represent graphically and algebraically the relationship between the power and the current when the electric potential difference is 24 V and the resistance is 1.5 Ω. Determine the current needed in order for the device to use the maximum amount of power.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.1",
+      "overall_code": "B1",
+      "text": "determine, through investigation using a variety of tools (e.g., calculator, paper and pencil, graphing technology) and strategies (e.g., patterning; finding values from a graph; interpreting the exponent laws), the value of a power with a rational exponent (i.e., x^{m/n}, where x > 0 and m and n are integers)",
+      "sample_problem": "The exponent laws suggest that 4^{1/2} × 4^{1/2} = 4^1. What value would you assign to 4^{1/2}? What value would you assign to 27^{1/3}? Explain your reasoning. Extend your reasoning to make a generalization about the meaning of x^{1/n}, where x > 0 and n is a natural number.",
+      "source_block": "determine, through investigation using a variety of tools (e.g., calculator, paper and pencil, graphing technology) and strategies (e.g., patterning; finding values from a graph; interpreting the exponent laws), the value of a power with a rational exponent (i.e., x^{m/n}, where x > 0 and m and n are integers)\n\n\nSample problem: The exponent laws suggest that 4^{1/2} × 4^{1/2} = 4^1. What value would you assign to 4^{1/2}? What value would you assign to 27^{1/3}? Explain your reasoning. Extend your reasoning to make a generalization about the meaning of x^{1/n}, where x > 0 and n is a natural number.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.2",
+      "overall_code": "B1",
+      "text": "evaluate, with and without technology, numerical expressions containing integer and rational exponents and rational bases [e.g., 2^{-3}, (−6)^3, 4^{3/2}, 1.01^{120}]",
+      "sample_problem": null,
+      "source_block": "evaluate, with and without technology, numerical expressions containing integer and rational exponents and rational bases [e.g., 2^{-3}, (−6)^3, 4^{3/2}, 1.01^{120}]",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.3",
+      "overall_code": "B1",
+      "text": "graph, with and without technology, an exponential relation, given its equation in the form y = a^x (a > 0, a ≠ 1), define this relation as the function f(x) = a^x, and explain why it is a function",
+      "sample_problem": null,
+      "source_block": "graph, with and without technology, an exponential relation, given its equation in the form y = a^x (a > 0, a ≠ 1), define this relation as the function f(x) = a^x, and explain why it is a function",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.4",
+      "overall_code": "B1",
+      "text": "determine, through investigation, and describe key properties relating to domain and range, intercepts, increasing/decreasing intervals, and asymptotes (e.g., the domain is the set of real numbers; the range is the set of positive real numbers; the function either increases or decreases throughout its domain) for exponential functions represented in a variety of ways [e.g., tables of values, mapping diagrams, graphs, equations of the form f(x) = a^x (a > 0, a ≠ 1), function machines]",
+      "sample_problem": "Graph f(x) = 2^x, g(x) = 3^x, and h(x) = 0.5^x on the same set of axes. Make comparisons between the graphs, and explain the relationship between the y-intercepts.",
+      "source_block": "determine, through investigation, and describe key properties relating to domain and range, intercepts, increasing/decreasing intervals, and asymptotes (e.g., the domain is the set of real numbers; the range is the set of positive real numbers; the function either increases or decreases throughout its domain) for exponential functions represented in a variety of ways [e.g., tables of values, mapping diagrams, graphs, equations of the form f(x) = a^x (a > 0, a ≠ 1), function machines]\n\n\nSample problem: Graph f(x) = 2^x, g(x) = 3^x, and h(x) = 0.5^x on the same set of axes. Make comparisons between the graphs, and explain the relationship between the y-intercepts.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.5",
+      "overall_code": "B1",
+      "text": "determine, through investigation (e.g., by patterning with and without a calculator), the exponent rules for multiplying and dividing numeric expressions involving exponents [e.g., (½)^3 × (½)^2], and the exponent rule for simplifying numerical expressions involving a power of a power [e.g., (5^3)^2], and use the rules to simplify numerical expressions containing integer exponents [e.g., (2^3)(2^5) = 2^8]",
+      "sample_problem": null,
+      "source_block": "determine, through investigation (e.g., by patterning with and without a calculator), the exponent rules for multiplying and dividing numeric expressions involving exponents [e.g., (½)^3 × (½)^2], and the exponent rule for simplifying numerical expressions involving a power of a power [e.g., (5^3)^2], and use the rules to simplify numerical expressions containing integer exponents [e.g., (2^3)(2^5) = 2^8]",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B1.6",
+      "overall_code": "B1",
+      "text": "distinguish exponential functions from linear and quadratic functions by making comparisons in a variety of ways (e.g., comparing rates of change using finite differences in tables of values; identifying a constant ratio in a table of values; inspecting graphs; comparing equations), within the same context when possible (e.g., simple interest and compound interest, population growth)",
+      "sample_problem": "Explain in a variety of ways how you can distinguish the exponential function f(x) = 2^x from the quadratic function f(x) = x^2 and the linear function f(x) = 2x.",
+      "source_block": "distinguish exponential functions from linear and quadratic functions by making comparisons in a variety of ways (e.g., comparing rates of change using finite differences in tables of values; identifying a constant ratio in a table of values; inspecting graphs; comparing equations), within the same context when possible (e.g., simple interest and compound interest, population growth)\n\n\nSample problem: Explain in a variety of ways how you can distinguish the exponential function f(x) = 2^x from the quadratic function f(x) = x^2 and the linear function f(x) = 2x.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B2.1",
+      "overall_code": "B2",
+      "text": "collect data that can be modelled as an exponential function, through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials such as number cubes, coins; measurement tools such as electronic probes), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data",
+      "sample_problem": "Collect data and graph the cooling curve representing the relationship between temperature and time for hot water cooling in a porcelain mug. Predict the shape of the cooling curve when hot water cools in an insulated mug. Test your prediction.",
+      "source_block": "collect data that can be modelled as an exponential function, through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials such as number cubes, coins; measurement tools such as electronic probes), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data\n\n\nSample problem: Collect data and graph the cooling curve representing the relationship between temperature and time for hot water cooling in a porcelain mug. Predict the shape of the cooling curve when hot water cools in an insulated mug. Test your prediction.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B2.2",
+      "overall_code": "B2",
+      "text": "identify exponential functions, including those that arise from real-world applications involving growth and decay (e.g., radioactive decay, population growth, cooling rates, pressure in a leaking tire), given various representations (i.e., tables of values, graphs, equations), and explain any restrictions that the context places on the domain and range (e.g., ambient temperature limits the range for a cooling curve)",
+      "sample_problem": null,
+      "source_block": "identify exponential functions, including those that arise from real-world applications involving growth and decay (e.g., radioactive decay, population growth, cooling rates, pressure in a leaking tire), given various representations (i.e., tables of values, graphs, equations), and explain any restrictions that the context places on the domain and range (e.g., ambient temperature limits the range for a cooling curve)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B2.3",
+      "overall_code": "B2",
+      "text": "solve problems using given graphs or equations of exponential functions arising from a variety of real-world applications (e.g., radioactive decay, population growth, height of a bouncing ball, compound interest) by interpreting the graphs or by substituting values for the exponent into the equations",
+      "sample_problem": "The temperature of a cooling liquid over time can be modelled by the exponential function T(x) = 60(½)^{x/30} + 20, where T(x) is the temperature, in degrees Celsius, and x is the elapsed time, in minutes. Graph the function and determine how long it takes for the temperature to reach 28°C.",
+      "source_block": "solve problems using given graphs or equations of exponential functions arising from a variety of real-world applications (e.g., radioactive decay, population growth, height of a bouncing ball, compound interest) by interpreting the graphs or by substituting values for the exponent into the equations\n\n\nSample problem: The temperature of a cooling liquid over time can be modelled by the exponential function T(x) = 60(½)^{x/30} + 20, where T(x) is the temperature, in degrees Celsius, and x is the elapsed time, in minutes. Graph the function and determine how long it takes for the temperature to reach 28°C.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.1",
+      "overall_code": "B3",
+      "text": "compare, using a table of values and graphs, the simple and compound interest earned for a given principal (i.e., investment) and a fixed interest rate over time",
+      "sample_problem": "Compare, using tables of values and graphs, the amounts after each of the first five years for a $1000 investment at 5% simple interest per annum and a $1000 investment at 5% interest per annum, compounded annually.",
+      "source_block": "compare, using a table of values and graphs, the simple and compound interest earned for a given principal (i.e., investment) and a fixed interest rate over time\n\n\nSample problem: Compare, using tables of values and graphs, the amounts after each of the first five years for a $1000 investment at 5% simple interest per annum and a $1000 investment at 5% interest per annum, compounded annually.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.2",
+      "overall_code": "B3",
+      "text": "solve problems, using a scientific calculator, that involve the calculation of the amount, A (also referred to as future value, FV), and the principal, P (also referred to as present value, PV), using the compound interest formula in the form A = P(1 + i)^n [or FV = PV(1 + i)^n]",
+      "sample_problem": "Calculate the amount if $1000 is invested for three years at 6% per annum, compounded quarterly.",
+      "source_block": "solve problems, using a scientific calculator, that involve the calculation of the amount, A (also referred to as future value, FV), and the principal, P (also referred to as present value, PV), using the compound interest formula in the form A = P(1 + i)^n [or FV = PV(1 + i)^n]\n\n\nSample problem: Calculate the amount if $1000 is invested for three years at 6% per annum, compounded quarterly.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.3",
+      "overall_code": "B3",
+      "text": "determine, through investigation (e.g., using spreadsheets and graphs), that compound interest is an example of exponential growth [e.g., the formulas for compound interest, A = P(1 + i)^n, and present value, PV = A(1 + i)^{−n}, are exponential functions, where the number of compounding periods, n, varies]",
+      "sample_problem": "Describe an investment that could be represented by the function f(x) = 500(1.01)^x.",
+      "source_block": "determine, through investigation (e.g., using spreadsheets and graphs), that compound interest is an example of exponential growth [e.g., the formulas for compound interest, A = P(1 + i)^n, and present value, PV = A(1 + i)^{−n}, are exponential functions, where the number of compounding periods, n, varies]\n\n\nSample problem: Describe an investment that could be represented by the function f(x) = 500(1.01)^x.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.4",
+      "overall_code": "B3",
+      "text": "solve problems, using a TVM Solver on a graphing calculator or on a website, that involve the calculation of the interest rate per compounding period, i, or the number of compounding periods, n, in the compound interest formula A = P(1 + i)^n [or FV = PV(1 + i)^n]",
+      "sample_problem": "Use the TVM Solver in a graphing calculator to determine the time it takes to double an investment in an account that pays interest of 4% per annum, compounded semi-annually.",
+      "source_block": "solve problems, using a TVM Solver on a graphing calculator or on a website, that involve the calculation of the interest rate per compounding period, i, or the number of compounding periods, n, in the compound interest formula A = P(1 + i)^n [or FV = PV(1 + i)^n]\n\n\nSample problem: Use the TVM Solver in a graphing calculator to determine the time it takes to double an investment in an account that pays interest of 4% per annum, compounded semi-annually.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.5",
+      "overall_code": "B3",
+      "text": "explain the meaning of the term annuity, through investigation of numeric and graphical representations using technology",
+      "sample_problem": null,
+      "source_block": "explain the meaning of the term annuity, through investigation of numeric and graphical representations using technology",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.6",
+      "overall_code": "B3",
+      "text": "determine, through investigation using technology (e.g., the TVM Solver on a graphing calculator, online tools), the effects of changing the conditions (i.e., the payments, the frequency of the payments, the interest rate, the compounding period) of ordinary simple annuities (i.e., annuities in which payments are made at the end of each period, and the compounding period and the payment period are the same) (e.g., long-term savings plans, loans)",
+      "sample_problem": "Compare the amounts at age 65 that would result from making an annual deposit of $1000 starting at age 20, or from making an annual deposit of $3000 starting at age 50, to an RRSP that earns 6% interest per annum, compounded annually. What is the total of the deposits in each situation?",
+      "source_block": "determine, through investigation using technology (e.g., the TVM Solver on a graphing calculator, online tools), the effects of changing the conditions (i.e., the payments, the frequency of the payments, the interest rate, the compounding period) of ordinary simple annuities (i.e., annuities in which payments are made at the end of each period, and the compounding period and the payment period are the same) (e.g., long-term savings plans, loans)\n\n\nSample problem: Compare the amounts at age 65 that would result from making an annual deposit of $1000 starting at age 20, or from making an annual deposit of $3000 starting at age 50, to an RRSP that earns 6% interest per annum, compounded annually. What is the total of the deposits in each situation?",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "B3.7",
+      "overall_code": "B3",
+      "text": "solve problems, using technology (e.g., scientific calculator, spreadsheet, graphing calculator), that involve the amount, the present value, and the regular payment of an ordinary simple annuity (e.g., calculate the total interest paid over the life of a loan, using a spreadsheet, and compare the total interest with the original principal of the loan)",
+      "sample_problem": null,
+      "source_block": "solve problems, using technology (e.g., scientific calculator, spreadsheet, graphing calculator), that involve the amount, the present value, and the regular payment of an ordinary simple annuity (e.g., calculate the total interest paid over the life of a loan, using a spreadsheet, and compare the total interest with the original principal of the loan)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C1.1",
+      "overall_code": "C1",
+      "text": "solve problems, including those that arise from real-world applications (e.g., surveying, navigation), by determining the measures of the sides and angles of right triangles using the primary trigonometric ratios",
+      "sample_problem": null,
+      "source_block": "solve problems, including those that arise from real-world applications (e.g., surveying, navigation), by determining the measures of the sides and angles of right triangles using the primary trigonometric ratios",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C1.2",
+      "overall_code": "C1",
+      "text": "solve problems involving two right triangles in two dimensions",
+      "sample_problem": "A helicopter hovers 500 m above a long straight road. Ahead of the helicopter on the road are two trucks. The angles of depression of the two trucks from the helicopter are 60° and 20°. How far apart are the two trucks?",
+      "source_block": "solve problems involving two right triangles in two dimensions\n\n\nSample problem: A helicopter hovers 500 m above a long straight road. Ahead of the helicopter on the road are two trucks. The angles of depression of the two trucks from the helicopter are 60° and 20°. How far apart are the two trucks?",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C1.3",
+      "overall_code": "C1",
+      "text": "verify, through investigation using technology (e.g., dynamic geometry software, spreadsheet), the sine law and the cosine law (e.g., compare, using dynamic geometry software, the ratios a/sin A, b/sin B, and c/sin C in triangle ABC while dragging one of the vertices)",
+      "sample_problem": null,
+      "source_block": "verify, through investigation using technology (e.g., dynamic geometry software, spreadsheet), the sine law and the cosine law (e.g., compare, using dynamic geometry software, the ratios a/sin A, b/sin B, and c/sin C in triangle ABC while dragging one of the vertices)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C1.4",
+      "overall_code": "C1",
+      "text": "describe conditions that guide when it is appropriate to use the sine law or the cosine law, and use these laws to calculate sides and angles in acute triangles",
+      "sample_problem": null,
+      "source_block": "describe conditions that guide when it is appropriate to use the sine law or the cosine law, and use these laws to calculate sides and angles in acute triangles",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C1.5",
+      "overall_code": "C1",
+      "text": "solve problems that require the use of the sine law or the cosine law in acute triangles, including problems arising from real-world applications (e.g., surveying, navigation, building construction)",
+      "sample_problem": null,
+      "source_block": "solve problems that require the use of the sine law or the cosine law in acute triangles, including problems arising from real-world applications (e.g., surveying, navigation, building construction)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.1",
+      "overall_code": "C2",
+      "text": "describe key properties (e.g., cycle, amplitude, period) of periodic functions arising from real-world applications (e.g., natural gas consumption in Ontario, tides in the Bay of Fundy), given a numeric or graphical representation",
+      "sample_problem": null,
+      "source_block": "describe key properties (e.g., cycle, amplitude, period) of periodic functions arising from real-world applications (e.g., natural gas consumption in Ontario, tides in the Bay of Fundy), given a numeric or graphical representation",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.2",
+      "overall_code": "C2",
+      "text": "predict, by extrapolating, the future behaviour of a relationship modelled using a numeric or graphical representation of a periodic function (e.g., predicting hours of daylight on a particular date from previous measurements; predicting natural gas consumption in Ontario from previous consumption)",
+      "sample_problem": null,
+      "source_block": "predict, by extrapolating, the future behaviour of a relationship modelled using a numeric or graphical representation of a periodic function (e.g., predicting hours of daylight on a particular date from previous measurements; predicting natural gas consumption in Ontario from previous consumption)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.3",
+      "overall_code": "C2",
+      "text": "make connections between the sine ratio and the sine function by graphing the relationship between angles from 0° to 360° and the corresponding sine ratios, with or without technology (e.g., by generating a table of values using a calculator; by unwrapping the unit circle), defining this relationship as the function f(x) = sin x, and explaining why the relationship is a function",
+      "sample_problem": null,
+      "source_block": "make connections between the sine ratio and the sine function by graphing the relationship between angles from 0° to 360° and the corresponding sine ratios, with or without technology (e.g., by generating a table of values using a calculator; by unwrapping the unit circle), defining this relationship as the function f(x) = sin x, and explaining why the relationship is a function",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.4",
+      "overall_code": "C2",
+      "text": "sketch the graph of f(x) = sin x for angle measures expressed in degrees, and determine and describe its key properties (i.e., cycle, domain, range, intercepts, amplitude, period, maximum and minimum values, increasing/decreasing intervals)",
+      "sample_problem": null,
+      "source_block": "sketch the graph of f(x) = sin x for angle measures expressed in degrees, and determine and describe its key properties (i.e., cycle, domain, range, intercepts, amplitude, period, maximum and minimum values, increasing/decreasing intervals)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.5",
+      "overall_code": "C2",
+      "text": "make connections, through investigation with technology, between changes in a real-world situation that can be modelled using a periodic function and transformations of the corresponding graph (e.g., investigate the connection between variables for a swimmer swimming lengths of a pool and transformations of the graph of distance from the starting point versus time)",
+      "sample_problem": "Generate the graph of a periodic function by walking a circle of 2-m diameter in front of a motion sensor. Describe how the following changes in the motion change the graph: starting at a different point on the circle; starting a greater distance from the motion sensor; changing direction; increasing the radius of the circle.",
+      "source_block": "make connections, through investigation with technology, between changes in a real-world situation that can be modelled using a periodic function and transformations of the corresponding graph (e.g., investigate the connection between variables for a swimmer swimming lengths of a pool and transformations of the graph of distance from the starting point versus time)\n\n\nSample problem: Generate the graph of a periodic function by walking a circle of 2-m diameter in front of a motion sensor. Describe how the following changes in the motion change the graph: starting at a different point on the circle; starting a greater distance from the motion sensor; changing direction; increasing the radius of the circle.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.6",
+      "overall_code": "C2",
+      "text": "determine, through investigation using technology, the roles of the parameters a, c, and d in functions in the form f(x) = a sin x, f(x) = sin x + c, and f(x) = sin(x − d), and describe these roles in terms of transformations on the graph of f(x) = sin x with angles expressed in degrees (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "sample_problem": null,
+      "source_block": "determine, through investigation using technology, the roles of the parameters a, c, and d in functions in the form f(x) = a sin x, f(x) = sin x + c, and f(x) = sin(x − d), and describe these roles in terms of transformations on the graph of f(x) = sin x with angles expressed in degrees (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C2.7",
+      "overall_code": "C2",
+      "text": "sketch graphs of f(x) = a sin x, f(x) = sin x + c, and f(x) = sin(x − d) by applying transformations to the graph of f(x) = sin x, and state the domain and range of the transformed functions",
+      "sample_problem": "Transform the graph of f(x) = sin x to sketch the graphs of g(x) = −2 sin x and h(x) = sin(x − 180°), and state the domain and range of each function.",
+      "source_block": "sketch graphs of f(x) = a sin x, f(x) = sin x + c, and f(x) = sin(x − d) by applying transformations to the graph of f(x) = sin x, and state the domain and range of the transformed functions\n\n\nSample problem: Transform the graph of f(x) = sin x to sketch the graphs of g(x) = −2 sin x and h(x) = sin(x − 180°), and state the domain and range of each function.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C3.1",
+      "overall_code": "C3",
+      "text": "collect data that can be modelled as a sine function (e.g., voltage in an AC circuit, sound waves), through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials, measurement tools such as motion sensors), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data",
+      "sample_problem": "Measure and record distance−time data for a swinging pendulum, using a motion sensor or other measurement tools, and graph the data.",
+      "source_block": "collect data that can be modelled as a sine function (e.g., voltage in an AC circuit, sound waves), through investigation with and without technology, from primary sources, using a variety of tools (e.g., concrete materials, measurement tools such as motion sensors), or from secondary sources (e.g., websites such as Statistics Canada, E-STAT), and graph the data\n\n\nSample problem: Measure and record distance−time data for a swinging pendulum, using a motion sensor or other measurement tools, and graph the data.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C3.2",
+      "overall_code": "C3",
+      "text": "identify periodic and sinusoidal functions, including those that arise from real-world applications involving periodic phenomena, given various representations (i.e., tables of values, graphs, equations), and explain any restrictions that the context places on the domain and range",
+      "sample_problem": null,
+      "source_block": "identify periodic and sinusoidal functions, including those that arise from real-world applications involving periodic phenomena, given various representations (i.e., tables of values, graphs, equations), and explain any restrictions that the context places on the domain and range",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    },
+    {
+      "code": "C3.3",
+      "overall_code": "C3",
+      "text": "pose problems based on applications involving a sine function, and solve these and other such problems by using a given graph or a graph generated with technology from a table of values or from its equation",
+      "sample_problem": "The height above the ground of a rider on a Ferris wheel can be modelled by the sine function h(x) = 25 sin(x − 90°) + 27, where h(x) is the height, in metres, and x is the angle, in degrees, that the radius from the centre of the ferris wheel to the rider makes with the horizontal. Graph the function, using graphing technology in degree mode, and determine the maximum and minimum heights of the rider and the measures of the angle when the height of the rider is 40 m.",
+      "source_block": "pose problems based on applications involving a sine function, and solve these and other such problems by using a given graph or a graph generated with technology from a table of values or from its equation\n\n\nSample problem: The height above the ground of a rider on a Ferris wheel can be modelled by the sine function h(x) = 25 sin(x − 90°) + 27, where h(x) is the height, in metres, and x is the angle, in degrees, that the radius from the centre of the ferris wheel to the rider makes with the horizontal. Graph the function, using graphing technology in degree mode, and determine the maximum and minimum heights of the rider and the measures of the angle when the height of the rider is 40 m.",
+      "source_id": "drive-specific-expectations",
+      "wording_status": "exact_drive_extract",
+      "normalization": "Outer whitespace trimmed; line endings normalized. Mathematical notation retained from Drive."
+    }
+  ],
+  "provenance_note": "Specific wording copied from the existing Drive transcription, not regenerated. Overall expectations supplied from the official PDF because the Drive extract contains only specifics. Overall codes combine strand letter and printed number for cross-referencing. Sample problems remain distinct from expectation statements. This package verifies extraction integrity, not every glyph of the earlier Drive transcription against the PDF."
+}

@@ -13,3 +13,6 @@ Shared contracts for the math lesson factory. Specialists submit against these f
 | `teacher-notes.json` | director / copywriter teacher fields | no |
 | `provenance.json` | copywriter + parent | credits blocks only |
 | `locks.json` | parent after Shawn | skip locked keys |
+| `identity.json` / `resolved-context.*.json` | onboarding import | no |
+
+Onboarding contract: [`onboarding.md`](onboarding.md). Import does not rewrite `student-content.json`.

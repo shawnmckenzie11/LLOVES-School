@@ -1,0 +1,94 @@
+{
+    "course_code": "MCF3M",
+    "pack_title": "Functions and Applications, Grade 11, University/College Preparation",
+    "total_lessons": 39,
+    "modules": [
+        {
+            "module": 1,
+            "title": "Introduction to the Quadratic Function",
+            "lessons": [
+                "Lesson 1: Characteristics of a Function",
+                "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+                "Lesson 3: Function Notation",
+                "Lesson 4: Exploring Transformations of Quadratic Functions",
+                "Lesson 5: Graphing Quadratic Functions using Transformations",
+                "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+                "Lesson 7: The Domain and Range of a Quadratic Function"
+            ]
+        },
+        {
+            "module": 2,
+            "title": "Algebra of Quadratic Expressions",
+            "lessons": [
+                "Lesson 1: Expanding Polynomials PART 1",
+                "Lesson 2: Expanding Polynomials PART 2",
+                "Lesson 3: Common Factoring",
+                "Lesson 4: Factoring Simple Trinomials",
+                "Lesson 5: Factoring Harder Trinomials",
+                "Lesson 6: Special Cases"
+            ]
+        },
+        {
+            "module": 3,
+            "title": "Working with Quadratic Functions",
+            "lessons": [
+                "Lesson 1: Relating Standard & Factored Form",
+                "Lesson 2: Solving Quadratic Equations by Graphing",
+                "Lesson 3: Solving Quadratic Functions by Factoring",
+                "Lesson 4: Solving Problems Involving Quadratics",
+                "Lesson 5: Creating a Quadratic Model from Data"
+            ]
+        },
+        {
+            "module": 4,
+            "title": "Quadratic Models",
+            "lessons": [
+                "Lesson 1: The Vertex Form of a Quadratic Function",
+                "Lesson2: Relating the Standard & Vertex Forms: Completing the Square",
+                "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+                "Lesson 4: Discriminant",
+                "Lesson 5: Using Quadratic Models to Solve Problems"
+            ]
+        },
+        {
+            "module": 5,
+            "title": "Trigonometry & Acute Triangles",
+            "lessons": [
+                "Lesson 1: Trigonometric Ratios",
+                "Lesson 2: Applying the Primary Trig Ratios",
+                "Lesson 3: Solving Problems by Using Right-Triangle Models",
+                "Lesson 4: Cosine & Sine Law",
+                "Lesson 5: Solving Problems by Using Acute-Triangle Models"
+            ]
+        },
+        {
+            "module": 6,
+            "title": "Sinusoidal Functions",
+            "lessons": [
+                "Lesson 1: Periodic Functions",
+                "Lesson 2: Sinusoidal Functions",
+                "Lesson 3: Transformations of the Sine Function"
+            ]
+        },
+        {
+            "module": 7,
+            "title": "Exponential Functions",
+            "lessons": [
+                "Laws of Exponents & Integer Exponents",
+                "Working with Rational Exponents",
+                "Exploring Exponential Functions, Growth & Decay"
+            ]
+        },
+        {
+            "module": 8,
+            "title": "Solving Financial Problems Involving Exponential Functions",
+            "lessons": [
+                "Lesson 1: Simple & Compound Interest",
+                "Lesson 2: Compound Interest - Future Value",
+                "Lesson 3: Compound Interest - Present Value",
+                "Lesson 4: Annuities - Future Value",
+                "Lesson 5: Regular/Simple Annuities - Present Value"
+            ]
+        }
+    ]
+}

@@ -71,4 +71,4 @@ Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent
 | Lesson engineer | [`.cursor/agents/lesson-engineer.md`](.cursor/agents/lesson-engineer.md) | static HTML + components (worktree if shared) |
 | Lesson verifier | [`.cursor/agents/lesson-verifier.md`](.cursor/agents/lesson-verifier.md) | independent pass/fail report |
 
-Overlapping code: isolated Git worktrees ([`.cursor/worktrees.json`](.cursor/worktrees.json), [`content-builder/scripts/isolated-worktree.sh`](content-builder/scripts/isolated-worktree.sh)). Parent copies `content-builder/` paths only. Policies: `.cursor/rules/content-builder-*.mdc`.
+Overlapping code: isolated Git worktrees ([`.cursor/worktrees.json`](.cursor/worktrees.json), [`content-builder/scripts/isolated-worktree.sh`](content-builder/scripts/isolated-worktree.sh)). Parent copies `content-builder/` paths only. Policies: `.cursor/rules/content-builder-*.mdc`. MCF3M onboarding: `content-builder/packages/MCF3M-builder-input/` → `content-builder/catalogue/onboarding/`.

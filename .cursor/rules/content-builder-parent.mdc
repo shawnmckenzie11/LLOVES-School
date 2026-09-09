@@ -13,6 +13,8 @@ The **parent** Cursor agent is the production manager. Specialists submit agains
 
 **Copywriter owns final wording. Director owns instructional coherence. Engineer implements approved specifications.** Do not have every agent rewrite the lesson.
 
+Onboarding (`catalogue/onboarding/`, `scripts/import_mcf3m_package.py`) must finish before further revision-plan prose, hooks, or interactives. Specialists load `resolved-context.{role}.json` when present.
+
 ## Sequence
 
 1. Audit failures when revising (save a fixture). Establish contracts.
