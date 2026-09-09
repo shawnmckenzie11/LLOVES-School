@@ -1,0 +1,481 @@
+/**
+ * Teacher review surface (local factory, not the LMS).
+ * Owner: visual-experience-designer.
+ *
+ * Styles the review chrome only. Do not restyle student iframe contents —
+ * student.css owns .lesson inside the preview document.
+ *
+ * Link: <link rel="stylesheet" href="review.css"> (this file @imports tokens).
+ *
+ * Intended hooks (engineer / parent can wrap the current index.html):
+ *   body.review
+ *   .review-shell .review-outline .review-main .review-head .review-meta
+ *   .review-workspace .review-editor .review-preview
+ *   .review-status.is-draft | .is-approved | .is-locked
+ *   .candidate .candidate-rank .candidate-reason
+ *   .lock-panel .lock-item .lock-item.is-locked
+ *   .regen .revision
+ *
+ * Existing index.html (main, .card, iframe#preview, textarea, .row, #status)
+ * stays readable until those wrappers exist.
+ */
+
+@import url("../components/design-tokens.css");
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body,
+body.review {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+a {
+  color: var(--link);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+iframe:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+button {
+  font: inherit;
+  font-weight: 650;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--ink);
+}
+
+button[type="submit"],
+.review-head button,
+#load,
+#save-instruction,
+#save-locks,
+.regen {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border-color: var(--btn-primary-bg);
+}
+
+button[type="submit"]:hover,
+.review-head button:hover,
+#load:hover,
+#save-instruction:hover,
+#save-locks:hover,
+.regen:hover {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+}
+
+button:focus-visible,
+#load:focus-visible,
+#save-instruction:focus-visible,
+#save-locks:focus-visible {
+  outline-color: var(--focus-on-accent);
+}
+
+label {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 650;
+}
+
+input[type="text"],
+input:not([type]),
+input[type="search"],
+textarea,
+select {
+  width: 100%;
+  font: var(--text-small) / 1.45 var(--font-mono);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+textarea {
+  min-height: 8.5rem;
+  resize: vertical;
+}
+
+.muted,
+.review-banner {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 400;
+}
+
+#status {
+  min-height: 1.4em;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+#status:empty {
+  display: none;
+}
+
+/* ---- Shell: outline | main ---- */
+
+.review-shell {
+  display: grid;
+  min-height: 100vh;
+}
+
+.review-outline {
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-4);
+}
+
+.review-outline h2,
+.review-outline .outline-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-kicker);
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.review-outline ol,
+.review-outline ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-outline a,
+.review-outline button.outline-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2.25rem;
+  padding: var(--space-2);
+  margin: 0 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.review-outline a:hover,
+.review-outline button.outline-link:hover {
+  background: var(--surface-muted);
+}
+
+.review-outline a.is-current,
+.review-outline [aria-current="true"] {
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.review-main {
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  min-width: 0;
+}
+
+.review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.review-head h1,
+.review-main > h1,
+main > h1 {
+  font-size: 1.35rem;
+  margin: 0 0 var(--space-2);
+}
+
+.review-main h2,
+main h2 {
+  font-size: 1.05rem;
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+@media (min-width: 960px) {
+  .review-shell {
+    grid-template-columns: var(--review-outline) minmax(0, 1fr);
+  }
+
+  .review-outline {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    padding: var(--space-5) var(--space-4);
+  }
+}
+
+/* ---- Metadata (source, ids, integration — teacher only) ---- */
+
+.review-meta,
+.review-meta dl {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: var(--text-small);
+}
+
+.review-meta dt {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.review-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.81rem;
+}
+
+.review-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  font-size: var(--text-kicker);
+  font-weight: 700;
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+}
+
+.review-status.is-draft {
+  background: var(--draft-bg);
+  color: var(--draft-fg);
+}
+
+.review-status.is-approved {
+  background: var(--approved-bg);
+  color: var(--approved-fg);
+}
+
+.review-status.is-locked {
+  background: var(--lock-bg);
+  color: var(--lock-fg);
+}
+
+/* ---- Preview beside editable content ---- */
+
+.review-workspace {
+  display: grid;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.review-editor,
+.review-preview {
+  min-width: 0;
+}
+
+.review-preview {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.review-preview > p,
+.review-preview .preview-label {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-kicker);
+  font-weight: 700;
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Iframe chrome only — student.css styles the document inside. */
+.review-preview iframe,
+iframe#preview,
+iframe[title="Compiled lesson preview"] {
+  display: block;
+  width: 100%;
+  height: min(70vh, 42rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+
+@media (min-width: 1100px) {
+  .review-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 40%);
+  }
+
+  .review-preview {
+    position: sticky;
+    top: var(--space-4);
+  }
+
+  .review-preview iframe,
+  .review-workspace iframe#preview {
+    height: calc(100vh - 6rem);
+  }
+}
+
+/* ---- Candidates, JSON, cards ---- */
+
+.candidate,
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.candidate-rank,
+.card > strong:first-child {
+  display: inline-block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-kicker);
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.candidate-reason,
+.card .muted {
+  margin: var(--space-2) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--line);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+pre,
+pre.card,
+#interaction {
+  font: 0.81rem / 1.45 var(--font-mono);
+  overflow: auto;
+  max-height: 24rem;
+  padding: var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.revision,
+.revision-diff {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+@media (min-width: 720px) {
+  .revision,
+  .revision-diff {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.revision > * {
+  padding: var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+/* ---- Locks ---- */
+
+.lock-panel,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
+.lock-item,
+.row label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+}
+
+.lock-item input,
+.row input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--lock-fg);
+}
+
+.lock-item.is-locked,
+.row label:has(input:checked) {
+  background: var(--lock-bg);
+  border-color: #e7b4a6;
+  color: var(--lock-fg);
+}
+
+/* ---- Legacy single-column main (until shell markup exists) ---- */
+
+body:not(.review) main,
+main:not(.review-main) {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+}
+
+@media (max-width: 719px) {
+  .review-main,
+  body:not(.review) main {
+    padding: var(--space-4) var(--space-3) var(--space-8);
+  }
+
+  .review-meta,
+  .review-meta dl {
+    grid-template-columns: 1fr;
+  }
+}

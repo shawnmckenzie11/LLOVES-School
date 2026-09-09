@@ -1,0 +1,39 @@
+{
+  "id": "openstax-ca2e-m51274-vertex-form-definition",
+  "source": "openstax",
+  "source_id": "m51274#term-00015",
+  "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+  "source_revision": "789b54099106b071d1d32bfcee454fed72eb4768",
+  "resource_type": "explanation",
+  "title": "OpenStax: vertex form of a quadratic function",
+  "content_or_local_path": "cache/osbooks-college-algebra-bundle/modules/m51274/index.cnxml",
+  "topics": [
+    "vertex form",
+    "quadratic functions",
+    "parabola"
+  ],
+  "prerequisites": [
+    "graph of y = x^2"
+  ],
+  "representations": [
+    "equation",
+    "graph"
+  ],
+  "reading_demand": "moderate",
+  "mathematical_difficulty": "routine",
+  "context": "OpenStax names f(x) = a(x − h)^2 + k the standard form of a quadratic and also the vertex form. Ontario calls that expression vertex form and calls ax^2 + bx + c standard form. Quote OpenStax; do not rename their terms in the source field.",
+  "instructional_roles": [
+    "connects graph to equation",
+    "names vertex (h, k) from the equation"
+  ],
+  "answer": null,
+  "answer_verification": null,
+  "embed_configuration": null,
+  "fallback": "Read the local CNXML excerpt at content_or_local_path.",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+  "permitted_use_status": "non-commercial",
+  "access_test_result": "local CNXML present in cache clone",
+  "checked_at": "2026-09-09T04:49:06+00:00",
+  "review_status": "selected"
+}

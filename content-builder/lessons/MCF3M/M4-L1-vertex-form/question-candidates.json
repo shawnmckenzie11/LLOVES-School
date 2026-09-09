@@ -1,0 +1,261 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "brief_path": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+  "candidates": [
+    {
+      "role": "diagnostic",
+      "rank": 1,
+      "title": "Vertex of y = −2(x + 3)^2 + 5 (h-sign)",
+      "student_facing": "Look at y = −2(x + 3)^2 + 5. Name the vertex of this parabola.",
+      "source_stem": "For each quadratic relation, list the transformations you need to apply to y = x^2 to graph the relation. Then sketch the graph.\n\na) y = x^2 − 2\n\nb) y = −4x^2 + 3\n\nc) y = (1/2)(x − 1)^2 − 4\n\nd) y = −2(x + 3)^2 + 5",
+      "answer": null,
+      "answer_verification": "Local Nelson bank item has no key. Focus on part (d) only; the full stem also asks for a transformation list (A2.5/A2.6, already taught).",
+      "provenance": {
+        "source": "nelson_functions_11",
+        "source_id": "NEL-C1-1GettingStarted-GS-p2-Q7",
+        "source_url": null,
+        "licence": "unknown (commercial textbook excerpt in local bank; licence not recorded in the bank file)"
+      },
+      "instructional_roles": [
+        "exposes a misconception",
+        "names vertex (h, k) from the equation"
+      ],
+      "reason": "Closest existing bank item to the brief’s h-sign case f(x) = (x + 3)^2 + 1. Students who read the written plus as a right shift place the vertex at (3, 5) instead of (−3, 5). Isolating the vertex ask keeps this on A2.10 inspection, not a new transformation lesson."
+    },
+    {
+      "role": "diagnostic",
+      "rank": 2,
+      "title": "Predict vertex of (x + 3)^2 + 1, then check sliders",
+      "student_facing": "Before you move anything, name the vertex of f(x) = (x + 3)^2 + 1. Then set the sliders so the graph matches that equation and check.",
+      "source_stem": "Change the parameters to investigate their effect on the function graph. Compare g(x) to f(x). Point A is the vertex of f(x) and B is the vertex of g(x).",
+      "answer": null,
+      "answer_verification": "GeoGebra applet has no key. The brief’s exact (x + 3)^2 + 1 stem is not a catalogue exercise; this is a focused prompt on the selected applet (sliders p, q, a with f(x) = a(x − p)^2 + q).",
+      "provenance": {
+        "source": "geogebra",
+        "source_id": "geogebra-cxk4xt4u",
+        "source_url": "https://www.geogebra.org/classic/cxk4xt4u",
+        "licence": "GeoGebra non-commercial terms (https://www.geogebra.org/license)"
+      },
+      "instructional_roles": [
+        "exposes a misconception",
+        "connects graph to equation",
+        "supports parameter investigation"
+      ],
+      "reason": "Hits the brief’s exact h-sign example. Prediction before the sliders move separates “I read +3 as h = 3” from a later graph check. Fallback: locally bundled JSXGraph; do not require GeoGebra."
+    },
+    {
+      "role": "diagnostic",
+      "rank": 3,
+      "title": "Ministry A2.6 sample: vertex of −2(x + 1)^2",
+      "student_facing": "Starting from y = x^2, sketch h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum?",
+      "source_stem": "Transform the graph of f(x) = x^2 to sketch the graphs of g(x) = x^2 − 4 and h(x) = −2(x + 1)^2.",
+      "answer": null,
+      "answer_verification": "Seed has no key for this sample.",
+      "provenance": {
+        "source": "ontario-seed",
+        "source_id": "A2.6-example-0",
+        "source_url": null,
+        "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)"
+      },
+      "instructional_roles": [
+        "exposes a misconception",
+        "connects graph to equation"
+      ],
+      "reason": "Second Ministry plus-inside case. Exposes h-sign on (x + 1) and max-min-from-a (students may use the sign of k, which is 0 here). This is an A2.6 sample reused only for the misconception; do not treat sketching-by-transformation as a new M4 target."
+    },
+    {
+      "role": "guided_example",
+      "rank": 1,
+      "title": "OpenStax worked reading: y = −3(x + 2)^2 + 4",
+      "student_facing": "The equation is y = −3(x + 2)^2 + 4. Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew.",
+      "source_stem": "Figure 5 represents the graph of the quadratic function written in standard form as y = −3(x + 2)^2 + 4. Since x − h = x + 2 in this example, h = −2. In this form, a = −3, h = −2, and k = 4. Because a < 0, the parabola opens downward. The vertex is at (−2, 4).",
+      "answer": "The vertex is at (−2, 4). Because a < 0, the parabola opens downward (vertex is a maximum). h = −2 because x − h = x + 2.",
+      "answer_verification": "Copied from OpenStax College Algebra 2e §5.1 worked text on m51274 (Figure 5 paragraph). OpenStax calls a(x − h)^2 + k standard form and also vertex form; Ontario calls that expression vertex form.",
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0"
+      },
+      "instructional_roles": [
+        "names vertex (h, k) from the equation",
+        "exposes a misconception",
+        "connects graph to equation"
+      ],
+      "reason": "Only selected source that already works the plus-inside reading (x + 2 means h = −2) and ties the sign of a to maximum versus minimum. Use as a semi-worked read-the-equation example, not as a transformation introduction."
+    },
+    {
+      "role": "guided_example",
+      "rank": 2,
+      "title": "MCF3M A2.7 sample: expand 3(x − 1)^2 + 4",
+      "student_facing": "Given f(x) = 3(x − 1)^2 + 4, write the same function as ax^2 + bx + c. Use graphing technology to compare the two graphs.",
+      "source_stem": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+      "answer": null,
+      "answer_verification": "Seed has no key for this sample.",
+      "provenance": {
+        "source": "ontario-seed",
+        "source_id": "ontario-seed-mcf3m-A2.7-sample",
+        "source_url": null,
+        "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)"
+      },
+      "instructional_roles": [
+        "tests equivalent representations",
+        "connects graph to equation",
+        "supports practice"
+      ],
+      "reason": "Verbatim Ministry sample for A2.7: expand vertex form and check that the graph does not change. Targets the expand-changes-graph misconception. Do not invent the expanded coefficients."
+    },
+    {
+      "role": "guided_example",
+      "rank": 3,
+      "title": "OpenStax: expand ½(x + 2)^2 − 3 and check a table",
+      "student_facing": "A graph looks like y = x^2 moved left 2 and down 3, then stretched by one-half: g(x) = (1/2)(x + 2)^2 − 3. Expand this to the ax^2 + bx + c form. Check a few points in a table to see that both writings give the same outputs.",
+      "source_stem": "Write an equation for the quadratic function g in Figure 7 as a transformation of f(x) = x^2, and then expand the formula, and simplify terms to write the equation in general form. … In standard form, the algebraic model for this graph is g(x) = (1/2)(x + 2)^2 − 3. To write this in general polynomial form, we can expand the formula and simplify terms. … We can check our work using the table feature on a graphing utility.",
+      "answer": "g(x) = (1/2)x^2 + 2x − 1",
+      "answer_verification": "Copied from the OpenStax worked solution on m51274 (Writing the Equation of a Quadratic Function from the Graph). Page typesetting shows the half as 12 in places; the expanded steps give (1/2)x^2 + 2x − 1.",
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0"
+      },
+      "instructional_roles": [
+        "tests equivalent representations",
+        "connects graph to equation",
+        "connects table to equation"
+      ],
+      "reason": "Second A2.7-shaped worked path: expand, then confirm with a table. Also rehearses h-sign on (x + 2). STAR+diagram if used as a wordless graph-to-equation example; the basketball/shooter follow-on on the same page is A3.3-ish and is not this pick."
+    },
+    {
+      "role": "practice",
+      "rank": 1,
+      "title": "OpenStax verbal: advantage of this form",
+      "student_facing": "This writing of a quadratic is f(x) = a(x − h)^2 + k. What can you read from it that is harder to see when the same function is written as ax^2 + bx + c?",
+      "source_stem": "Explain the advantage of writing a quadratic function in standard form.",
+      "answer": "When written in that form, the vertex can be easily identified.",
+      "answer_verification": "Copied from OpenStax solution element fs-id1165135361339 (catalogue record openstax-ca2e-m51274-advantage-verbal). OpenStax “standard form” here means a(x − h)^2 + k, which Ontario calls vertex form.",
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-advantage-verbal",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0"
+      },
+      "instructional_roles": [
+        "supports practice",
+        "connects graph to equation"
+      ],
+      "reason": "Verbal A2.10 inspection: what vertex form is for, without asking students to expand. Keep the OpenStax stem in the source field; do not say “standard form” to students without the Ontario naming note."
+    },
+    {
+      "role": "practice",
+      "rank": 2,
+      "title": "Nelson: label vertex and axis from mixed equations",
+      "student_facing": "Graph each parabola. Label the vertex and the axis of symmetry.\n\na) y = x^2 − 6\n\nb) y = (x − 2)^2 − 1\n\nc) y = −3(x + 4)^2 + 2\n\nd) y = 2x^2 + 6x",
+      "source_stem": "Graph each parabola, labelling the vertex and the axis of symmetry.\n\na) y = x^2 − 6\n\nb) y = (x − 2)^2 − 1\n\nc) y = −3(x + 4)^2 + 2\n\nd) y = 2x^2 + 6x",
+      "answer": null,
+      "answer_verification": "Local Nelson bank item has no key. Part (d) is standard form (vertex not readable by inspection alone); skip (d) if this lesson stays on vertex-form inspection, or keep it as a contrast.",
+      "provenance": {
+        "source": "nelson_functions_11",
+        "source_id": "NEL-C1-1GettingStarted-GS-p2-Q6",
+        "source_url": null,
+        "licence": "unknown (commercial textbook excerpt in local bank; licence not recorded in the bank file)"
+      },
+      "instructional_roles": [
+        "supports practice",
+        "names vertex (h, k) from the equation",
+        "connects graph to equation"
+      ],
+      "reason": "Practice progression after the diagnostic: (b) is minus-inside, (c) is plus-inside plus a < 0 (axis-equation and max-min-from-a). Not a clone of Q7(d)."
+    },
+    {
+      "role": "practice",
+      "rank": 3,
+      "title": "OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6",
+      "student_facing": "Determine the domain and range of f(x) = −2(x + 3)^2 − 6.",
+      "source_stem": "For the following exercises, determine the domain and range of the quadratic function.\n\n22. f(x) = −2(x + 3)^2 − 6",
+      "answer": null,
+      "answer_verification": "Student-facing OpenStax page lists the exercise only; no solution element was copied into the catalogue. Do not invent the range.",
+      "provenance": {
+        "source": "openstax",
+        "source_id": "m51274#section-exercises-22",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0"
+      },
+      "instructional_roles": [
+        "supports practice",
+        "names vertex (h, k) from the equation"
+      ],
+      "reason": "Third practice step: same (x + 3) family as the diagnostic, now used to read range from k and the sign of a. Prerequisite A2.3 language; still serves vertex-form inspection. Not in the six-record catalogue as its own id — parent would need to add a record if this is chosen."
+    },
+    {
+      "role": "transfer",
+      "rank": 1,
+      "title": "Which form for which information (A2.10)",
+      "student_facing": "You can choose whether a quadratic is given in standard form, factored form, or vertex form. Which form would you pick if you needed the vertex? The y-intercept? The zeros? The axis of symmetry? The domain and range? Say why.",
+      "source_stem": "3. You can choose whether you are provided the equation of a quadratic\n\nfunction in standard form, factored form, or vertex form. If you needed to\n\nknow the information listed, which form would you choose and why?\n\na) the vertex\n\nthe y-intercept\n\nb)\n\nc) the zeros\n\nd) the axis of symmetry\n\nthe domain and range\n\ne)\n\n!8)(3\n\n\"2).",
+      "answer": null,
+      "answer_verification": "Local Nelson bank item has no key. Stem OCR after part (e) is garbled; use only the readable prompt.",
+      "provenance": {
+        "source": "nelson_functions_11",
+        "source_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q3",
+        "source_url": null,
+        "licence": "unknown (commercial textbook excerpt in local bank; licence not recorded in the bank file)"
+      },
+      "instructional_roles": [
+        "tests transfer",
+        "connects graph to equation"
+      ],
+      "reason": "Fresh case of the intended understanding: students choose vertex form when they need the vertex, axis, or max/min, and say what they cannot read (zeros). Matches A2.10’s three-form share without asking them to complete the square."
+    },
+    {
+      "role": "transfer",
+      "rank": 2,
+      "title": "OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2",
+      "student_facing": "On the same axes, graph y = x^2, y = (x − 2)^2, y = (x − 3)^2, and y = (x + 4)^2. What stays the same? What moves, and in which direction?",
+      "source_stem": "Graph on the same set of axes f(x) = x^2, f(x) = (x − 2)^2, f(x) = (x − 3)^2, and f(x) = (x + 4)^2.\n\nWhat appears to be the effect of adding or subtracting those numbers?",
+      "answer": null,
+      "answer_verification": "Student-facing OpenStax page lists the exercise only; no solution element was copied. Do not invent a key.",
+      "provenance": {
+        "source": "openstax",
+        "source_id": "m51274#section-exercises-53",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0"
+      },
+      "instructional_roles": [
+        "tests transfer",
+        "connects graph to equation",
+        "supports parameter investigation"
+      ],
+      "reason": "Parameter-change transfer after they can already name one vertex: (x + 4) versus (x − 2) forces the h-sign again on a family, then they explain the change. A2.5 is prerequisite; this reuses that language to inspect vertex form. Not a separate catalogue id yet."
+    },
+    {
+      "role": "transfer",
+      "rank": 3,
+      "title": "MathNet 0gz2 (olympiad; rewrite required)",
+      "student_facing": "A parabola goes through two points, one on each side of the y-axis, and never meets the x-axis. What can you say about where its highest or lowest point can sit?\n\n[Do not use the contest stem below as classroom copy. This rewrite is a situation-level prompt only; Shawn must accept or restem before it is student-facing.]",
+      "source_stem": "Parabola $y = ax^2 + bx + c$ passes through the points $A(-2, 1)$ and $B(2, 9)$, and does not intersect $x$-axis. Find all possible values of $x$ coordinate of the vertex of the parabola.",
+      "answer": "(-4, -1)",
+      "answer_verification": "Copied from MathNet final_answer convenience field; LLM-assisted, not an official contest key. Do not treat as verified.",
+      "provenance": {
+        "source": "mathnet",
+        "source_id": "mathnet-0gz2",
+        "source_url": "https://mathnet.mit.edu/explorer.html?id=0gz2",
+        "licence": "CC BY 4.0 unless the contest/country asserts otherwise; see row country/competition"
+      },
+      "instructional_roles": [
+        "tests transfer"
+      ],
+      "reason": "Only selected MathNet hit. Ukraine olympiad (2010 fourth round): too packed and too hard as a Grade 11 worksheet. Keep as a transfer candidate after rewrite; the contest numbers and “find all possible x of the vertex” are solving, not classroom English. Licence and key both unverified."
+    }
+  ],
+  "notes_for_parent": {
+    "catalogue_search": "content-builder/scripts/search_resources.py vertex returned six records: geogebra-cxk4xt4u, mathnet-0gz2, ontario-seed-mcf3m-A2.7-sample, ontario-seed-mcf3m-A2.7, openstax-ca2e-m51274-advantage-verbal, openstax-ca2e-m51274-vertex-form-definition.",
+    "locks": "No locks.json in this lesson folder.",
+    "not_used": [
+      "ontario-seed-mcf3m-A2.7 (expectation statement, not a student item)",
+      "M4 Nelson OCR stems (unverified, unreadable equations)",
+      "OpenStax §5.1 ex. 6–20 (rewrite to vertex form / complete the square — A2.8, Lesson 2)",
+      "OpenStax basketball/rocket/dog-park applications (A3.3, Lesson 5)"
+    ]
+  }
+}

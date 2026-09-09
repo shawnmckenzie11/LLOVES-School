@@ -10,6 +10,7 @@ frameworks/                 # shared ELC constants
 lms/                        # Flask LMS app
   seeds/                    # verified expectations JSON
   sources/ontario-curriculum/  # Ministry PDFs
+content-builder/            # isolated math lesson factory (not the LMS)
 tools/math-game-show/       # live class tracker DB/UI (staff Attendance & Participation surface)
 agents/                     # school-facing agent prompts
 scripts/                    # syllabus + IMSCC helper scripts
@@ -17,6 +18,7 @@ scripts/                    # syllabus + IMSCC helper scripts
 ```
 
 - Do **not** add `courses/` or commit `.imscc` files.
+- Math content factory writes under `content-builder/` only. Do not use LMS sqlite (`lms/data/`, Fly `/data`) as its catalogue index. Parent agent integrates shared builder files; overlapping component work uses isolated Git worktrees.
 - Module packs: Admin upload → `content_libraries` on `/data`.
 - Put shared school rules under `frameworks/` or `.cursor/rules/`.
 - Teaching content > app scaffolding. Docstrings required on new functions/methods.

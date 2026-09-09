@@ -1,0 +1,155 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "student_credits": [
+    "Water arc photo: GuidoB, CC BY-SA 3.0",
+    "OpenStax College Algebra 2e, CC BY-NC-SA 4.0",
+    "Ontario curriculum sample: Queen’s Printer for Ontario"
+  ],
+  "sources": [
+    {
+      "role": "hook-figure",
+      "id": "fountain-arc-photo",
+      "source": "wikimedia-commons",
+      "source_id": "File:ParabolicWaterTrajectory.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:ParabolicWaterTrajectory.jpg",
+      "licence": "CC BY-SA 3.0",
+      "attribution": "GuidoB",
+      "local_src": "media/fountain-arc-500.jpg",
+      "used_in_student_content": true
+    },
+    {
+      "role": "worked-inspection",
+      "id": "openstax-ca2e-m51274-vertex-form-definition",
+      "source": "openstax",
+      "source_id": "m51274#term-00015",
+      "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+      "source_revision": "789b54099106b071d1d32bfcee454fed72eb4768",
+      "licence": "CC BY-NC-SA 4.0",
+      "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
+      "used_in_student_content": true,
+      "note": "Worked reading of y = −3(x + 2)^2 + 4. Ontario name is vertex form."
+    },
+    {
+      "role": "worked-expand",
+      "id": "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand",
+      "source": "openstax",
+      "source_id": "m51274#figure-7-expand",
+      "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+      "source_revision": "789b54099106b071d1d32bfcee454fed72eb4768",
+      "licence": "CC BY-NC-SA 4.0",
+      "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
+      "used_in_student_content": true,
+      "note": "Figure 7 expand path only: g(x) = (1/2)(x + 2)^2 − 3 to (1/2)x^2 + 2x − 1."
+    },
+    {
+      "role": "three-form-contrast",
+      "id": "openstax-ca2e-m51274-advantage-verbal",
+      "source": "openstax",
+      "source_id": "m51274#fs-id1165135361332",
+      "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+      "source_revision": "789b54099106b071d1d32bfcee454fed72eb4768",
+      "licence": "CC BY-NC-SA 4.0",
+      "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
+      "used_in_student_content": true,
+      "note": "Student prompt rewritten so OpenStax’s name “standard form” is not Ontario’s ax^2 + bx + c."
+    },
+    {
+      "role": "varied-inspection",
+      "id": "A2.6-example-0",
+      "source": "ontario-seed",
+      "source_id": "A2.6-example-0",
+      "source_url": null,
+      "source_revision": "lms/seeds/mcf3m_expectations.json",
+      "licence": "Queen's Printer for Ontario",
+      "attribution": "lms/seeds/mcf3m_expectations.json",
+      "used_in_student_content": true,
+      "note": "Quoted h(x) = −2(x + 1)^2 for inspection only; sketching-by-transformation is not a new M4 target."
+    },
+    {
+      "role": "independent-expand",
+      "id": "ontario-seed-mcf3m-A2.7-sample",
+      "source": "ontario-seed",
+      "source_id": "A2.7-example-0",
+      "source_url": null,
+      "source_revision": "lms/seeds/mcf3m_expectations.json",
+      "licence": "Queen's Printer for Ontario",
+      "attribution": "lms/seeds/mcf3m_expectations.json",
+      "used_in_student_content": true,
+      "note": "Verbatim Ministry sample. Seed has no key; expanded coefficients are not printed."
+    },
+    {
+      "role": "additional-practice",
+      "id": "m51274#section-exercises-22",
+      "source": "openstax",
+      "source_id": "m51274#section-exercises-22",
+      "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+      "licence": "CC BY-NC-SA 4.0",
+      "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
+      "used_in_student_content": false,
+      "used_in_practice_set": "additional-licensed",
+      "note": "No solution element in catalogue; do not invent the range."
+    },
+    {
+      "role": "additional-practice",
+      "id": "m51274#section-exercises-53",
+      "source": "openstax",
+      "source_id": "m51274#section-exercises-53",
+      "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+      "licence": "CC BY-NC-SA 4.0",
+      "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
+      "used_in_student_content": false,
+      "used_in_practice_set": "additional-licensed",
+      "note": "No solution element in catalogue; do not invent a key."
+    },
+    {
+      "role": "guided-interactive-analogue",
+      "id": "geogebra-cxk4xt4u",
+      "source": "geogebra",
+      "source_id": "geogebra-cxk4xt4u",
+      "source_url": "https://www.geogebra.org/classic/cxk4xt4u",
+      "licence": "GeoGebra non-commercial terms",
+      "used_in_student_content": false,
+      "note": "Catalogue analogue only. Student task is local match-plus-inside. Do not require this embed. Legacy iframe id/cxk4xt4u returned HTTP 410."
+    },
+    {
+      "role": "excluded-unlicensed",
+      "id": "NEL-C1-1GettingStarted-GS-p2-Q7",
+      "source": "nelson_functions_11",
+      "source_id": "NEL-C1-1GettingStarted-GS-p2-Q7",
+      "source_url": null,
+      "licence": "unknown",
+      "used_in_student_content": false,
+      "note": "Commercial bank; stem not printed."
+    },
+    {
+      "role": "excluded-unlicensed",
+      "id": "NEL-C1-1GettingStarted-GS-p2-Q6",
+      "source": "nelson_functions_11",
+      "source_id": "NEL-C1-1GettingStarted-GS-p2-Q6",
+      "source_url": null,
+      "licence": "unknown",
+      "used_in_student_content": false,
+      "note": "Commercial bank; stem not printed."
+    },
+    {
+      "role": "excluded-unlicensed",
+      "id": "NEL-C3-3ChapterSelfTest-ST-p204-Q3",
+      "source": "nelson_functions_11",
+      "source_id": "NEL-C3-3ChapterSelfTest-ST-p204-Q3",
+      "source_url": null,
+      "licence": "unknown",
+      "used_in_student_content": false,
+      "note": "Commercial bank; stem not printed."
+    },
+    {
+      "role": "excluded",
+      "id": "mathnet-0gz2",
+      "source": "mathnet",
+      "source_id": "0gz2",
+      "source_url": "https://mathnet.mit.edu/explorer.html?id=0gz2",
+      "licence": "unknown",
+      "used_in_student_content": false,
+      "note": "Olympiad packing; contest stem not printed."
+    }
+  ]
+}

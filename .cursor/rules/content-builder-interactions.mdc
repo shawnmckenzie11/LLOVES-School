@@ -1,0 +1,21 @@
+---
+description: >-
+  Every content-builder interactive needs a prediction, an action, and an
+  interpretation prompt. Specify that relationship before engineering a slider.
+globs: content-builder/**
+alwaysApply: false
+---
+
+# Content-builder interactions
+
+Every interactive must include a **task** and the formative cycle:
+
+**Start → manipulate → submit → check → specific feedback → retry or try another.**
+
+Still require a prediction before the first change, and an interpretation after feedback. Record: student action, changing quantities, invariant, intended observation, **fallback**.
+
+Feedback describes observable evidence. Do not infer a misconception from a control value alone. Deterministic math for supported responses; unrestricted explanations are self-check or teacher review.
+
+The cycle wrapper is independent of JSXGraph. Each tool supplies its checker.
+
+Default custom engine: **locally bundled JSXGraph** (MIT option). Reuse GeoGebra / public Desmos embeds when they already do the job. Do not require the Desmos calculator API. Do not use Gizmos as a required activity. Khan Academy is links or supported video embeds only — no retired API connector. Defer Polypad until embedding terms are checked.

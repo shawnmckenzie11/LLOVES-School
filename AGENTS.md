@@ -15,6 +15,7 @@ This repository is the **LLOVES** LMS (Admin / Staff / Student) for ELC online d
 ```
 frameworks/     Shared ELC school / class / semester constants
 lms/            Flask LMS (Admin / Staff / Student) + curriculum seeds/PDFs
+content-builder/ Isolated math lesson factory (static HTML; not the LMS)
 tools/math-game-show/   Live Math Game Show (db/schedule/teams; no overlay)
 scripts/        syllabus_calendar + canvas unpack/inventory + reingest
 agents/         School-facing agent prompts (semester, syllabus calendar)
@@ -53,3 +54,21 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 | Syllabus calendar | [`agents/syllabus-calendar.md`](agents/syllabus-calendar.md) | School-day syllabus dates (prefer `--edit`) |
 | Local verify | [`.cursor/skills/local-verify/SKILL.md`](.cursor/skills/local-verify/SKILL.md) | UI/API/staff/IT done-when on localhost |
 | Release gate | [`.cursor/skills/release-gate/SKILL.md`](.cursor/skills/release-gate/SKILL.md) | PR → CI → merge main → Deploy → `/health` |
+
+## Math content builder (isolated)
+
+Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent integrates.** Do not mix with `lms/` or the LMS sqlite. Contracts: `content-builder/catalogue/contracts/`. Copywriter owns wording; director owns coherence; engineer implements specs.
+
+| Specialist | Path | Output |
+|-------|------|----------|
+| Lesson director | [`.cursor/agents/lesson-director.md`](.cursor/agents/lesson-director.md) | `lesson-brief.json` |
+| Practice designer | [`.cursor/agents/practice-designer.md`](.cursor/agents/practice-designer.md) | `practice-sequence.json` |
+| Hook curator | [`.cursor/agents/hook-curator.md`](.cursor/agents/hook-curator.md) | `hook-proposals.json` |
+| Visual experience designer | [`.cursor/agents/visual-experience-designer.md`](.cursor/agents/visual-experience-designer.md) | design tokens + student/review CSS |
+| Interaction designer | [`.cursor/agents/interaction-designer.md`](.cursor/agents/interaction-designer.md) | `interaction-spec.json` |
+| Formative feedback designer | [`.cursor/agents/formative-feedback-designer.md`](.cursor/agents/formative-feedback-designer.md) | `feedback-spec.json` |
+| Student copywriter | [`.cursor/agents/student-copywriter.md`](.cursor/agents/student-copywriter.md) | `student-content.json` |
+| Lesson engineer | [`.cursor/agents/lesson-engineer.md`](.cursor/agents/lesson-engineer.md) | static HTML + components (worktree if shared) |
+| Lesson verifier | [`.cursor/agents/lesson-verifier.md`](.cursor/agents/lesson-verifier.md) | independent pass/fail report |
+
+Overlapping code: isolated Git worktrees ([`.cursor/worktrees.json`](.cursor/worktrees.json), [`content-builder/scripts/isolated-worktree.sh`](content-builder/scripts/isolated-worktree.sh)). Parent copies `content-builder/` paths only. Policies: `.cursor/rules/content-builder-*.mdc`.

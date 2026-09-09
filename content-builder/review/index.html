@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Content builder review</title>
+  <link rel="stylesheet" href="review.css">
+</head>
+<body>
+  <main>
+    <h1>Lesson review</h1>
+    <p class="muted">Local factory only — not the school LMS. Course MCF3M, lesson M4-L1-vertex-form.</p>
+    <p>
+      <label>Course <input id="course" value="MCF3M"></label>
+      <label>Lesson <input id="lesson" value="M4-L1-vertex-form"></label>
+      <button type="button" id="load">Load</button>
+    </p>
+    <p id="status"></p>
+
+    <h2>1. Intended understanding</h2>
+    <p id="goal"></p>
+    <p class="muted" id="codes"></p>
+
+    <h2>2. Question candidates</h2>
+    <div id="questions"></div>
+
+    <h2>3. Interaction</h2>
+    <pre id="interaction" class="card"></pre>
+
+    <h2>4. Preview (three-tab export)</h2>
+    <p><a id="export-link" href="/build/MCF3M/M4-L1-vertex-form/index.html">Open compiled HTML</a></p>
+    <iframe id="preview" title="Compiled lesson preview" src="/build/MCF3M/M4-L1-vertex-form/index.html"></iframe>
+
+    <h2>5. Edit instructional sequence</h2>
+    <label>Minds On student<textarea id="minds"></textarea></label>
+    <label>Action student<textarea id="action"></textarea></label>
+    <label>Guided example<textarea id="guided"></textarea></label>
+    <label>Interactive bridge<textarea id="bridge"></textarea></label>
+    <label>Practice<textarea id="practice"></textarea></label>
+    <label>Consolidation student<textarea id="cons"></textarea></label>
+    <button type="button" id="save-instruction">Save instruction.json</button>
+
+    <h2>6. Lock approved sections</h2>
+    <div class="row">
+      <label><input type="checkbox" value="instruction.minds_on"> instruction.minds_on</label>
+      <label><input type="checkbox" value="instruction.action"> instruction.action</label>
+      <label><input type="checkbox" value="instruction.consolidation"> instruction.consolidation</label>
+      <label><input type="checkbox" value="questions.transfer"> questions.transfer</label>
+    </div>
+    <button type="button" id="save-locks">Save locks.json</button>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let instruction = null;
+
+    async function loadJson(path) {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(path + " " + res.status);
+      return res.json();
+    }
+
+    async function loadAll() {
+      const course = $("course").value.trim();
+      const lesson = $("lesson").value.trim();
+      const base = "/lessons/" + course + "/" + lesson + "/";
+      $("status").textContent = "Loading…";
+      const brief = await loadJson(base + "lesson-brief.json");
+      const questions = await loadJson(base + "question-candidates.json");
+      const spec = await loadJson(base + "interaction-spec.json");
+      instruction = await loadJson(base + "instruction.json");
+      $("goal").textContent = brief.intended_understanding || "";
+      $("codes").textContent = (brief.expectations || []).map((e) => e.code).join(", ");
+      $("questions").innerHTML = (questions.candidates || []).map((c) => (
+        "<div class='card'><strong>" + c.role + " #" + c.rank + "</strong> — " +
+        (c.title || "") + "<p>" + (c.student_facing || "") + "</p>" +
+        "<p class='muted'>" + (c.reason || "") + " · " + (c.provenance && c.provenance.source) + "</p></div>"
+      )).join("");
+      $("interaction").textContent = JSON.stringify({
+        engine: spec.engine,
+        prediction: spec.prediction_prompt,
+        action: spec.student_action,
+        interpretation: spec.interpretation_prompt,
+        fallback: spec.fallback
+      }, null, 2);
+      $("minds").value = instruction.minds_on.student;
+      $("action").value = instruction.action.student;
+      $("guided").value = instruction.action.guided_example;
+      $("bridge").value = instruction.action.interactive_bridge;
+      $("practice").value = instruction.action.practice;
+      $("cons").value = instruction.consolidation.student;
+      const preview = "/build/" + course + "/" + lesson + "/index.html";
+      $("preview").src = preview;
+      $("export-link").href = preview;
+      $("status").textContent = "Loaded " + lesson;
+    }
+
+    $("load").addEventListener("click", () => loadAll().catch((e) => { $("status").textContent = e.message; }));
+    $("save-instruction").addEventListener("click", async () => {
+      instruction.minds_on.student = $("minds").value;
+      instruction.action.student = $("action").value;
+      instruction.action.guided_example = $("guided").value;
+      instruction.action.interactive_bridge = $("bridge").value;
+      instruction.action.practice = $("practice").value;
+      instruction.consolidation.student = $("cons").value;
+      const res = await fetch("/api/instruction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          course: $("course").value.trim(),
+          lesson_id: $("lesson").value.trim(),
+          instruction
+        })
+      });
+      const data = await res.json();
+      $("status").textContent = data.ok ? "Saved instruction.json — rebuild the HTML to refresh the preview." : data.error;
+    });
+    $("save-locks").addEventListener("click", async () => {
+      const locked = [...document.querySelectorAll("input[type=checkbox]:checked")].map((el) => el.value);
+      const res = await fetch("/api/locks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          course: $("course").value.trim(),
+          lesson_id: $("lesson").value.trim(),
+          locked_keys: locked
+        })
+      });
+      const data = await res.json();
+      $("status").textContent = data.ok ? "Saved locks: " + locked.join(", ") : data.error;
+    });
+    loadAll().catch((e) => { $("status").textContent = e.message; });
+  </script>
+</body>
+</html>

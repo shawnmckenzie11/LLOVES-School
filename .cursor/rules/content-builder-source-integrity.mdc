@@ -1,0 +1,17 @@
+---
+description: >-
+  Never invent Ontario expectation wording, resource URLs, answer keys, or
+  licences. Preserve source identity in the content builder catalogue and lessons.
+globs: content-builder/**
+alwaysApply: false
+---
+
+# Content-builder source integrity
+
+- Never invent **expectation wording**. Quote `lms/seeds/` or the Ministry PDF extract. Cite file path and code.
+- Never invent **resource URLs**, **answer keys**, or **licences**. If unknown, set the field to null / `unknown` and say so.
+- Preserve `id`, `source`, `source_id`, `source_url`, `source_revision` on every record.
+- Pin revisions. Refresh sources deliberately (`git fetch` in `cache/`), inspect, re-index affected records.
+- Keep downloaded collections in `content-builder/cache/` (ignored). Commit selected records, provenance, and permitted assets only.
+- MathNet is olympiad-oriented. Use it selectively. Keep original provenance beside the dataset licence.
+- GeoGebra: record non-commercial usage conditions. Desmos: public embed code only — no calculator API key.

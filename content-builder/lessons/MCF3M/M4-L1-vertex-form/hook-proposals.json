@@ -1,0 +1,51 @@
+{
+  "schema_version": "hook-proposals.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "recommended_id": "fountain-arc-photo",
+  "parent_selected_id": "fountain-arc-photo",
+  "proposals": [
+    {
+      "id": "fountain-arc-photo",
+      "kind": "clip-image-interactive",
+      "title": "The top of the fountain arc",
+      "rank": 1,
+      "student_facing_sketch": "Look at the water leaving the fountain. Each stream goes up and comes down. Mark the highest point of one stream — the place the water does not go above. That is the point we will want from an equation later. Do not measure, and do not write an equation yet.",
+      "why_interesting": "Watching a spray of water is ordinary and a little mesmerizing; you do not need to like mathematics to look for the top of the arc. The photo makes that high point the thing the eye already wants, without a palace name, a sport, or any graph.",
+      "student_does": "Choose one water stream. Point to its highest place. Say that this is a highest point (the water turns around there). No numbers, no model, no fitting.",
+      "leads_to": "The lesson needs a writing of a quadratic path that makes the high or low point readable: vertex (h, k), axis x = h, and maximum versus minimum from the sign of a. The photo creates that need before any reminder about stretching, reflecting, or sliding y = x^2. A3.3 stays light: mark the peak of a given arc; do not solve a fountain-design or landing-distance problem.",
+      "returns_in": "Consolidation. Same fountain-jet situation, now with a fresh vertex-form equation. Students read the vertex, the axis of symmetry, and whether that vertex is a maximum, independently. Then retrieve that expanding the writing into standard form does not move the curve.",
+      "media": {
+        "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/ParabolicWaterTrajectory.jpg/500px-ParabolicWaterTrajectory.jpg",
+        "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+        "licence": "CC BY-SA 3.0",
+        "source_url": "https://commons.wikimedia.org/wiki/File:ParabolicWaterTrajectory.jpg",
+        "signed_out_result": "Checked 2026-09-09, signed-out (no Wikimedia account). Commons file page HTTP 200. Original JPEG https://upload.wikimedia.org/wikipedia/commons/4/4e/ParabolicWaterTrajectory.jpg HTTP 200, Content-Type image/jpeg, JPEG SOI bytes FF D8, 1536×2048, 1.61 MB. Thumbs HTTP 200 image/jpeg: 250px, 500px (500×667, used as src), 960px (960×1280). Author GuidoB, own work, taken 4 October 2009 (Hercules fountain, Aranjuez — attribution only; students do not need that name). Commons API LicenseShortName CC BY-SA 3.0, LicenseUrl https://creativecommons.org/licenses/by-sa/3.0, AttributionRequired true. File page also offers GFDL 1.2+; this proposal uses CC BY-SA 3.0. Creative Commons BY-SA 3.0 deed HTTP 200."
+      },
+      "access": "No student login. Image loaded signed-out from Wikimedia Commons and upload.wikimedia.org. Recommend bundling the 500px or 960px JPEG locally so the student page does not depend on hotlinking. Fallback if the image is blocked: the same fountain-arc situation in words, or a paper sketch of a water arc; students still mark the highest point. No Gizmos. No Desmos API. No required remote interactive."
+    },
+    {
+      "id": "throw-high-point",
+      "kind": "everyday-or-puzzle",
+      "title": "Freeze the throw at the top",
+      "rank": 2,
+      "student_facing_sketch": "Someone throws a ball to a friend across a yard. If you could freeze the throw at only one moment, freeze it at the highest point. Point to that place in the air. We do not need a graph yet.",
+      "why_interesting": "Almost everyone has thrown or watched a ball in the air. You already track the high point when you reach to catch, duck, or take a still photo — that is a human decision, not a mathematics hobby.",
+      "student_does": "Decide which moment they would freeze, and say why that moment (not the start, not the catch) is the one that shows how high the throw went. No distances, no equation.",
+      "leads_to": "The high or low point of a path that rises and then falls is the fact this lesson will read from vertex form. The opener does not remind them about transformations of y = x^2. Keep it a situation, not an A3.3 modelling task: they are not fitting a throw or checking whether it lands.",
+      "returns_in": "Consolidation. Same thrown-ball situation with a fresh vertex-form equation for a path like that throw. Students read vertex, axis, and maximum or minimum independently, and retrieve that expanding the writing does not move the curve.",
+      "access": "No media; situation only. No login. No Gizmos. No Desmos API."
+    },
+    {
+      "id": "one-point-claim",
+      "kind": "claim-play-joke",
+      "title": "The only moment it isn't going up or down",
+      "rank": 3,
+      "student_facing_sketch": "A path that goes up and then down has one point that isn't on the way up or the way down. If the path could tell you only that one point, which point would you want — and why? Some writings of the same curve hand you that point; some hide it.",
+      "why_interesting": "The playful claim is a choice, not a calculation: people already know they care about the peak (or the bottom) more than a random spot on the way. The surprise is that an equation can either give that point away or bury it, even when it is still the same curve.",
+      "student_does": "Name the turning point as the one fact they would ask for. Later they will see that vertex form is the writing that answers that request, and that expanding it does not change the path.",
+      "leads_to": "Intended understanding: f(x) = a(x − h)^2 + k makes the vertex (h, k), the axis, and maximum versus minimum readable; a rewritten standard form is the same curve. The hook is the need for the high or low point, not a transformations recap. Still not a full max/min application (A3.3 stays in Lesson 5).",
+      "returns_in": "Consolidation. Return to the same claim with a fresh vertex-form equation: read the high or low point, the axis, and maximum or minimum from the writing, then retrieve that expanding it does not move the curve — the other writing was hiding the point, not changing it.",
+      "access": "No media; situation only. No login. No Gizmos. No Desmos API."
+    }
+  ]
+}

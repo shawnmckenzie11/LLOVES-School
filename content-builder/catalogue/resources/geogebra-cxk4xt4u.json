@@ -1,0 +1,36 @@
+{
+  "id": "geogebra-cxk4xt4u",
+  "source": "geogebra",
+  "source_id": "cxk4xt4u",
+  "source_url": "https://www.geogebra.org/classic/cxk4xt4u",
+  "source_revision": "checked 2026-09-09",
+  "resource_type": "applet",
+  "title": "Quadratic functions, vertex form (MathPSS / Dennis Weber)",
+  "content_or_local_path": "Change the parameters to investigate their effect on the function graph. Compare g(x) to f(x). Point A is the vertex of f(x) and B is the vertex of g(x).",
+  "topics": ["vertex form", "parameters a h k", "parabola"],
+  "prerequisites": ["graph of y = x^2"],
+  "representations": ["graph", "equation"],
+  "reading_demand": "low",
+  "mathematical_difficulty": "routine",
+  "context": "Public GeoGebra material. Sliders p, q, a with f(x) = a(x − p)^2 + q. Signed-out Classic URL loaded; Sign in remained available on the material page.",
+  "instructional_roles": [
+    "connects graph to equation",
+    "exposes a misconception",
+    "supports parameter investigation"
+  ],
+  "answer": null,
+  "answer_verification": null,
+  "embed_configuration": {
+    "material_id": "cxk4xt4u",
+    "material_page": "https://www.geogebra.org/m/cxk4xt4u",
+    "classic_url": "https://www.geogebra.org/classic/cxk4xt4u",
+    "legacy_iframe": "https://www.geogebra.org/material/iframe/id/cxk4xt4u"
+  },
+  "fallback": "Use the locally bundled JSXGraph vertex-form sliders in this lesson. Do not require GeoGebra.",
+  "licence": "GeoGebra non-commercial terms (https://www.geogebra.org/license)",
+  "attribution": "Quadratic functions, vertex form. Authors MathPSS and Dennis Weber. GeoGebra material cxk4xt4u.",
+  "permitted_use_status": "non-commercial",
+  "access_test_result": "material page /m/cxk4xt4u loaded signed-out; Classic /classic/cxk4xt4u showed sliders p,q,a and f(x)=a(x-p)^2+q; legacy material/iframe URL returned HTTP 410",
+  "checked_at": "2026-09-09T04:48:34+00:00",
+  "review_status": "selected"
+}

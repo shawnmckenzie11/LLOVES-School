@@ -1,0 +1,24 @@
+---
+description: >-
+  LMS vs content-builder boundary. Keep lesson-factory work out of the school
+  LMS. Parent integrates shared builder files. Use when producing lessons,
+  catalogues, or running curriculum-mapper through lesson-verifier.
+alwaysApply: true
+---
+
+# Content-builder ownership
+
+`content-builder/` is the math lesson factory. **`lms/` is the school LMS.** They do not share a database, deploy path, or student runtime.
+
+## Fence
+
+- Builder specialists write only under `content-builder/` (plus their assigned worktree).
+- Do **not** modify `lms/`, `tools/math-game-show/`, Fly `/data`, `.imscc` packs, or uncommitted LMS work as part of lesson production.
+- LMS feature work still edits `lms/`. Do not start a content-builder task by changing Flask routes, staff/student portals, or IMSCC ingest.
+- Catalogue SQLite lives in `content-builder/index/`. Never use `lms/data/` or production sqlite as the resource index.
+
+## Integration
+
+- **Parent agent only** merges shared files (`catalogue/`, `components/`, compiled `build/`, locks).
+- Specialists do not merge Git, do not copy into the parent checkout, and do not overwrite another specialist’s output path.
+- Overlapping code changes use an **isolated Git worktree**. Otherwise use separate output files.

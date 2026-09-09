@@ -1,0 +1,16 @@
+---
+description: >-
+  Preserve teacher-edited and approved content-builder sections during
+  regeneration. Respect locks.json. Parent applies locks at integrate time.
+globs: content-builder/**
+alwaysApply: false
+---
+
+# Content-builder review
+
+Teacher-edited and **approved** / **locked** sections survive regeneration.
+
+- Read `content-builder/lessons/{CODE}/{lesson_id}/locks.json` before rewriting.
+- Locked keys (for example `instruction.minds_on`, `questions.transfer`) are not replaced by specialists.
+- Parent is the only agent that changes lock state after Shawn edits the review page.
+- Regeneration rebuilds only unlocked sections. Say which sections were skipped because they were locked.

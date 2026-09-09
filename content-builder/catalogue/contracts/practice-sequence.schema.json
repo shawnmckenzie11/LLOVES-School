@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "practice-sequence.schema.json",
+  "title": "Practice sequence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lesson_id", "processes", "candidates"],
+  "properties": {
+    "schema_version": { "const": "practice-sequence.v1" },
+    "lesson_id": { "type": "string" },
+    "processes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "support_fade"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "support_fade": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["worked", "variation", "partial", "independent", "retrieval"],
+            "properties": {
+              "worked": { "type": "string" },
+              "variation": { "type": "string" },
+              "partial": { "type": "string" },
+              "independent": { "type": "string" },
+              "retrieval": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "description": "Disposition of every candidate, including exclusions.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_ref", "placement", "purpose"],
+        "properties": {
+          "source_ref": { "type": "string" },
+          "title": { "type": "string" },
+          "placement": {
+            "type": "string",
+            "enum": [
+              "worked_example",
+              "guided_practice",
+              "core_practice",
+              "additional_practice",
+              "extension",
+              "excluded"
+            ]
+          },
+          "process_id": { "type": "string" },
+          "purpose": { "type": "string" },
+          "visible_by_default": { "type": "boolean" },
+          "exclusion_reason": { "type": "string" }
+        }
+      }
+    },
+    "sets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "placement", "item_refs"],
+        "properties": {
+          "id": { "type": "string" },
+          "placement": { "type": "string" },
+          "visible_count": { "type": "integer", "minimum": 1 },
+          "item_refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

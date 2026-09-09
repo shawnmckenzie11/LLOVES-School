@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content-builder/catalogue/resource.schema.json",
+  "title": "Content-builder resource record",
+  "description": "One catalogue record. Committed to Git. The SQLite index is a rebuildable projection, not the LMS database.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "source",
+    "source_id",
+    "resource_type",
+    "title",
+    "licence",
+    "review_status"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "string",
+      "enum": [
+        "ontario-seed",
+        "ontario-pdf",
+        "openstax",
+        "webwork",
+        "mathnet",
+        "geogebra",
+        "desmos",
+        "jsxgraph",
+        "khan-link",
+        "other"
+      ]
+    },
+    "source_id": { "type": "string" },
+    "source_url": { "type": ["string", "null"] },
+    "source_revision": { "type": ["string", "null"] },
+    "resource_type": {
+      "type": "string",
+      "enum": [
+        "expectation",
+        "explanation",
+        "example",
+        "exercise",
+        "challenge",
+        "applet",
+        "graph",
+        "video-link",
+        "other"
+      ]
+    },
+    "title": { "type": "string" },
+    "content_or_local_path": { "type": ["string", "null"] },
+    "topics": { "type": "array", "items": { "type": "string" } },
+    "prerequisites": { "type": "array", "items": { "type": "string" } },
+    "representations": { "type": "array", "items": { "type": "string" } },
+    "reading_demand": { "type": ["string", "null"] },
+    "mathematical_difficulty": { "type": ["string", "null"] },
+    "context": { "type": ["string", "null"] },
+    "instructional_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Why this resource is instructionally useful, e.g. exposes a misconception, connects graph to equation, supports practice, tests transfer."
+    },
+    "answer": { "type": ["string", "null"] },
+    "answer_verification": { "type": ["string", "null"] },
+    "embed_configuration": { "type": ["object", "null"] },
+    "fallback": { "type": ["string", "null"] },
+    "licence": { "type": "string" },
+    "attribution": { "type": ["string", "null"] },
+    "permitted_use_status": {
+      "type": "string",
+      "enum": ["unknown", "permitted", "non-commercial", "restricted", "excluded"]
+    },
+    "access_test_result": { "type": ["string", "null"] },
+    "checked_at": { "type": ["string", "null"] },
+    "review_status": {
+      "type": "string",
+      "enum": ["unreviewed", "selected", "approved", "rejected", "locked"]
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "jsxgraph-vertex-form-board",
+  "source": "jsxgraph",
+  "source_id": "content-builder/components/vertex-form-board.js",
+  "source_url": "https://jsxgraph.org",
+  "source_revision": "jsxgraph-1.11.1",
+  "resource_type": "applet",
+  "title": "Local JSXGraph vertex-form sliders (a, h, k)",
+  "content_or_local_path": "content-builder/components/vertex-form-board.js",
+  "topics": ["vertex form", "parameters a h k"],
+  "prerequisites": [],
+  "representations": ["graph", "equation", "table"],
+  "reading_demand": "low",
+  "mathematical_difficulty": "routine",
+  "context": "Required custom interactive for M4-L1. Bundled MIT JSXGraph. No network.",
+  "instructional_roles": [
+    "connects graph to equation",
+    "exposes a misconception",
+    "supports parameter investigation"
+  ],
+  "answer": null,
+  "answer_verification": null,
+  "embed_configuration": {
+    "engine": "jsxgraph",
+    "assets": [
+      "content-builder/components/jsxgraph/jsxgraphcore.js",
+      "content-builder/components/jsxgraph/jsxgraph.css"
+    ]
+  },
+  "fallback": "Paper task in interaction-spec.json",
+  "licence": "MIT",
+  "attribution": "JSXGraph 1.11.1, MIT. See content-builder/components/jsxgraph/LICENSE.MIT",
+  "permitted_use_status": "permitted",
+  "access_test_result": "bundled locally; compiled lesson verify_lesson.py PASS 2026-09-09",
+  "checked_at": "2026-09-09T04:55:00+00:00",
+  "review_status": "selected"
+}

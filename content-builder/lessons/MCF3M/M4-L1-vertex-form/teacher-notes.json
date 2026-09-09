@@ -1,0 +1,110 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "locks_skipped": [],
+  "hook": {
+    "teacher": "Parent-selected fountain-arc-photo. Students mark a highest point with no equation. Do not recap transformations of y = x^2. A3.3 stays light: mark the peak of a given arc; do not solve a fountain-design or landing-distance problem. Listen that they chose a turning point, not a nozzle or a landing."
+  },
+  "minds_on": {
+    "teacher": "Diagnostic is plus-inside f(x) = (x + 3)^2 + 1. Do not confirm the vertex before they set the graph in Action (match-plus-inside). Listen for (3, 1) or a habit of negating every visible number. Ontario share is A2.10 vertex-form inspection; A2.5/A2.6 are prerequisite, not a new target."
+  },
+  "action": {
+    "teacher": "Worked inspection is OpenStax y = −3(x + 2)^2 + 4, including h = −2 from (x + 2). Varied inspection is the A2.6 sample’s h(x) = −2(x + 1)^2 only (k = 0, a < 0); do not reteach sketching-by-transformation. Interactives: match-plus-inside, then predict-h, then expand-same-graph. Starting parameters a = 2, h = −3, k = 1. Do not load fresh-case on Action. Live expansion is a check aid after submit, not the key to copy.\n\nThree-form contrast listen-for (OpenStax solution element, not a student key to print): the vertex is easy to identify in this writing. Students may also name axis and maximum or minimum.\n\nA2.7 independent is the Ministry sample verbatim. Seed has no key. Do not invent or print expanded coefficients for 3(x − 1)^2 + 4. Completing the square is Lesson 2 (A2.8).\n\nDo not print Nelson stems. additional-unlicensed-nelson is omitted from student-content. additional-licensed is a practice-set (visible_count 1); item copy is below."
+  },
+  "consolidation": {
+    "teacher": "Same fountain figure and situation. Fresh equation f(x) = −0.5(x − 2)^2 + 4. Do not print the keyed vertex, axis, or maximum in student-content. Family of idea only: minus-inside; maximum versus minimum from the sign of a, not from k; axis is x = h. Runtime check messages may compare named values after submit. Retrieval: expanding does not move the curve. Not MathNet 0gz2. A3.3 is not attached."
+  },
+  "listen_for": {
+    "plus-inside": "(3, 1) or always-negate; target reading is (−3, 1)",
+    "max-min-from-k": "On h(x) = −2(x + 1)^2, deciding min/max from k = 0 or from the vertex on the x-axis",
+    "axis-equation": "y = h or y = k instead of x = h",
+    "expand-changes-graph": "Claiming the expanded writing is a different parabola",
+    "three-form": "Vertex (and axis / max or min) from vertex form; not producing another writing"
+  },
+  "self_check_rubrics": {
+    "match-plus-inside-explain": [
+      "Names how (x + 3) matches (x − h), so h = −3, k = 1.",
+      "Identifies that a changed from 2 to 1 (or stretch changed) and the vertex stayed put."
+    ],
+    "predict-h-interpret": [
+      "Vertex moved horizontally; axis stayed a vertical line through the vertex.",
+      "a and k did not have to change if only h moved.",
+      "Does not claim the expanded writing is a different parabola."
+    ],
+    "expand-same-graph-rubric": [
+      "Student expanded the starting equation 2(x + 3)^2 + 1, not a different one.",
+      "A few table points from the vertex-form graph sit on the expanded writing.",
+      "Student does not claim the expansion made a new parabola."
+    ],
+    "fresh-case-explain": [
+      "Reads vertex, axis, and maximum or minimum from the writing without copying a slider label as the method.",
+      "Says expanding would not move the fountain-shaped curve.",
+      "Maximum versus minimum is tied to the sign of a, not to k or the quadrant."
+    ]
+  },
+  "additional_practice_copy": {
+    "set_id": "additional-licensed",
+    "visible_count": 1,
+    "items": [
+      {
+        "source_ref": "m51274#section-exercises-22",
+        "prompt": "Determine the domain and range of \\(f(x) = -2(x + 3)^2 - 6\\).",
+        "teacher": "OpenStax §5.1 ex. 22. Catalogue has no solution element. Do not invent the range."
+      },
+      {
+        "source_ref": "m51274#section-exercises-53",
+        "prompt": "On the same axes, graph \\(y = x^2\\), \\(y = (x - 2)^2\\), \\(y = (x - 3)^2\\), and \\(y = (x + 4)^2\\). What stays the same? What moves, and in which direction?",
+        "teacher": "OpenStax §5.1 ex. 53. Catalogue has no solution element. Do not invent a key."
+      }
+    ]
+  },
+  "paper_fallback": {
+    "action": "On paper, start with f(x) = 2(x + 3)^2 + 1. First look at f(x) = (x + 3)^2 + 1: name that vertex, then sketch both writings (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch.",
+    "consolidation": "Later, a new equation: f(x) = −0.5(x − 2)^2 + 4. Name the vertex, the axis, and whether this is a maximum or a minimum, then sketch. Do not print those answers in student copy."
+  },
+  "do_not_print_in_student": [
+    "Fresh-case vertex (2, 4), axis x = 2, or maximum as lesson copy (runtime check after submit may compare named values).",
+    "Expanded coefficients for Ministry A2.7 sample 3(x − 1)^2 + 4 (seed has no key).",
+    "Nelson stems NEL-C1-1GettingStarted-GS-p2-Q7, NEL-C1-1GettingStarted-GS-p2-Q6, NEL-C3-3ChapterSelfTest-ST-p204-Q3.",
+    "JSXGraph, GeoGebra, lesson_id, verified seed, ranks, catalogue ids."
+  ],
+  "expand_starting_equation_teacher_only": {
+    "equation": "f(x) = 2(x + 3)^2 + 1",
+    "expandStandard": { "a": 2, "b": 12, "c": 19 },
+    "note": "Local identity for the starting equation only. Not a Ministry A2.7 key."
+  },
+  "feedback_messages": {
+    "msg-match-a-near-zero": "The graph is not a parabola while \\(a\\) is at 0. Move \\(a\\) off 0, then submit again.",
+    "msg-match-all": "The graph matches \\(f(x) = (x + 3)^2 + 1\\). The vertex marker is at \\((-3, 1)\\), and the parabola opens upward.",
+    "msg-match-wrong-opening": "The vertex is at \\((-3, 1)\\), matching the target. Your graph opens downward; the target opens upward. Keep the vertex where it is and change the sign of \\(a\\).",
+    "msg-match-wrong-abs-a": "The vertex is at \\((-3, 1)\\) and the graph opens upward, like the target. The stretch does not yet match — your \\(a\\) is {a}, and you want \\(a = 1\\). Keep the vertex and change the stretch.",
+    "msg-match-h-not-k": "Your vertex is in the right horizontal position. The vertex is at \\(({h}, {k})\\); the target vertex is at \\((-3, 1)\\). The \\(x\\)-coordinates match; the \\(y\\)-coordinates do not. Adjust the control that shifts the parabola up or down.",
+    "msg-match-other": "The vertex is at \\(({h}, {k})\\), but the target vertex is at \\((-3, 1)\\) with the parabola opening upward. Compare those two points and the opening, then adjust.",
+    "msg-match-explain": "You matched the target. How did you read the vertex from \\(f(x) = (x + 3)^2 + 1\\)? What changed when you moved from \\(f(x) = 2(x + 3)^2 + 1\\) to this writing?",
+    "msg-match-follow-up": "Where is the vertex marker now, and where do you want it? Name both points.",
+    "hint-match-1-live-equation": "Look at the equation under the graph. You want it to read \\(f(x) = (x + 3)^2 + 1\\).",
+    "hint-match-2-brackets-to-h": "Vertex form uses \\((x - h)\\). Rewrite the brackets to match that pattern, then read \\(h\\).",
+    "hint-match-3-vertex-marker": "The labelled point on the graph is the vertex \\((h, k)\\). Compare it with the equation you want.",
+    "msg-predict-h-uncertain": "More than the horizontal position changed, or it is unclear which control you moved. Which quantity did you mean to change: \\(a\\), \\(h\\), or \\(k\\)? Reset if you need a clean start, then move only \\(h\\).",
+    "msg-predict-h-not-moved": "The vertex is still at \\(x = -3\\). You have not yet moved \\(h\\).",
+    "msg-predict-h-match": "The vertex is now at \\(x = {observed_h}\\), which matches the \\(x\\) you predicted ({predicted_vertex_x}).",
+    "msg-predict-h-differ": "The vertex is at \\(x = {observed_h}\\). You predicted \\(x = {predicted_vertex_x}\\). Look at the labelled vertex and the equation under the graph, then adjust \\(h\\) or revise the prediction.",
+    "msg-predict-h-interpret": "You moved the vertex horizontally. What changed on the graph and in the equation? What stayed the same? Does the expanded writing show a different parabola, or the same one?",
+    "msg-predict-h-follow-up": "How did you connect the equation to that \\(x\\)-value? Match the brackets to \\((x - h)\\) and compare with the labelled vertex.",
+    "hint-predict-h-1-name-x-first": "Write the vertex \\(x\\) you expect before you move \\(h\\).",
+    "hint-predict-h-2-watch-marker": "Move only \\(h\\). Watch the labelled vertex and the dashed vertical line.",
+    "hint-predict-h-3-equation-after-move": "After the move, read \\(h\\) from \\((x - h)\\) in the equation under the graph and compare it with the labelled vertex.",
+    "msg-expand-match": "Your expansion matches. \\(2(x + 3)^2 + 1\\) and \\(2x^2 + 12x + 19\\) are the same parabola — not a new graph. Check that a few table points sit on both writings.",
+    "msg-expand-differ": "You entered \\(a = {standard_a}\\), \\(b = {standard_b}\\), \\(c = {standard_c}\\). Those coefficients are not the expansion of \\(f(x) = 2(x + 3)^2 + 1\\). Square the binomial first, multiply by \\(a = 2\\), then add \\(k = 1\\).",
+    "hint-expand-1-square-the-binomial": "Expand \\((x + 3)^2\\) first for this starting equation.",
+    "hint-expand-2-distribute-a": "Multiply that square by \\(a = 2\\).",
+    "hint-expand-3-add-k": "Then add \\(k = 1\\). Compare graphs only after the expansion is written.",
+    "msg-fresh-reading-match": "Your vertex, axis, and maximum-or-minimum reading match this writing. You may now move exactly one of \\(a\\), \\(h\\), or \\(k\\) to see what changes. That move is a check, not a new scored target.",
+    "msg-fresh-vertex-differs": "You named the point \\(({named_vertex_x}, {named_vertex_y})\\). Match the brackets to \\((x - h)\\) and read \\(k\\) as the \\(y\\)-coordinate of the vertex, then name the point again.",
+    "msg-fresh-axis-differs": "The vertex you named matches this writing. The axis you wrote was {named_axis}. The axis of symmetry is the vertical line through the vertex.",
+    "msg-fresh-extreme-differs": "The vertex and axis you named match this writing. Look at the sign of \\(a\\) to decide whether the vertex is a maximum or a minimum, then name that again.",
+    "msg-fresh-explain": "How did you read the vertex, the axis, and whether this is a maximum or a minimum from this writing? If you expanded it, would the fountain-shaped curve move?",
+    "hint-fresh-1-match-brackets": "Match \\((x - 2)\\) to \\((x - h)\\) before you move anything.",
+    "hint-fresh-2-axis-vertical": "The axis is the vertical line through the vertex.",
+    "hint-fresh-3-sign-of-a": "Maximum or minimum comes from the sign of \\(a\\), not from \\(k\\) or from which quadrant the vertex sits in."
+  }
+}

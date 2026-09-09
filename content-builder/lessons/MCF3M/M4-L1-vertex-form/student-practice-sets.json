@@ -1,0 +1,18 @@
+{
+  "schema_version": "student-practice-sets.v1",
+  "sets": [
+    {
+      "id": "additional-licensed",
+      "items": [
+        {
+          "id": "openstax-ex-22",
+          "prompt": "Determine the domain and range of f(x) = −2(x + 3)² − 6."
+        },
+        {
+          "id": "openstax-ex-53",
+          "prompt": "On the same axes, graph y = x², y = (x − 2)², y = (x − 3)², and y = (x + 4)². What stays the same? What moves, and in which direction?"
+        }
+      ]
+    }
+  ]
+}

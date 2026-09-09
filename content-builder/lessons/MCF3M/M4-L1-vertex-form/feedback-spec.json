@@ -1,0 +1,453 @@
+{
+  "schema_version": "feedback-spec.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "cycle": "start-manipulate-submit-check-feedback-retry",
+  "tasks": [
+    {
+      "id": "match-plus-inside",
+      "tool": "jsxgraph-vertex-form-board",
+      "initial_state": {
+        "placement": "minds-on-check / action diagnostic",
+        "equation": "f(x) = (x + 3)^2 + 1",
+        "board": { "a": 2, "h": -3, "k": 1 },
+        "note": "Board starts at interaction-spec starting_parameters. Student sets sliders so the live equation is (x + 3)^2 + 1. Do not load fresh_case_parameters here."
+      },
+      "student_controls": ["a", "h", "k"],
+      "target": { "a": 1, "h": -3, "k": 1 },
+      "valid_alternatives": [
+        { "equation": "(x + 3)^2 + 1", "parameters": { "a": 1, "h": -3, "k": 1 } },
+        { "equation": "1(x − (−3))^2 + 1", "parameters": { "a": 1, "h": -3, "k": 1 } }
+      ],
+      "submission_evidence": {
+        "scored": ["slider a", "slider h", "slider k", "vertex marker (h, k)", "opening sign(a)"],
+        "not_scored": ["unrestricted explanation after a match"]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0.15,
+          "h": 0.15,
+          "k": 0.15,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "treat |a| < 0.15 as a parabola (skip a = 0)",
+          "auto-grade the explanation prompt",
+          "infer h-sign, a-vs-k, or max-min-from-a as a mental cause from slider values alone",
+          "use fresh_case_parameters {a: -0.5, h: 2, k: 4}"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "a-near-zero",
+          "when": "|a| < 0.15",
+          "message_id": "msg-match-a-near-zero",
+          "evidence": "a is at or near 0, so the graph is not a parabola. Skip this submission; ask them to move a off 0."
+        },
+        {
+          "id": "all-match",
+          "when": "|a − 1| ≤ 0.15 AND |h − (−3)| ≤ 0.15 AND |k − 1| ≤ 0.15 AND |a| ≥ 0.15",
+          "message_id": "msg-match-all",
+          "evidence": "Live a, h, k match the target. Vertex marker is at (−3, 1); parabola opens upward. Then show the separate explanation prompt (self-check)."
+        },
+        {
+          "id": "correct-vertex-wrong-opening",
+          "when": "|h − (−3)| ≤ 0.15 AND |k − 1| ≤ 0.15 AND a * 1 < 0 AND |a| ≥ 0.15",
+          "message_id": "msg-match-wrong-opening",
+          "evidence": "Vertex (h, k) matches (−3, 1). Sign of a is negative, so the parabola opens down; the target opens up. If |a| also differs, still this condition (opening first)."
+        },
+        {
+          "id": "correct-position-wrong-abs-a",
+          "when": "|h − (−3)| ≤ 0.15 AND |k − 1| ≤ 0.15 AND a > 0 AND |a − 1| > 0.15",
+          "message_id": "msg-match-wrong-abs-a",
+          "evidence": "Vertex matches (−3, 1) and a is positive (same opening as the target). |a| is not 1. Starting board {a: 2, h: −3, k: 1} is this case."
+        },
+        {
+          "id": "correct-h-wrong-k",
+          "when": "|h − (−3)| ≤ 0.15 AND |k − 1| > 0.15 AND |a| ≥ 0.15",
+          "message_id": "msg-match-h-not-k",
+          "evidence": "Vertex x matches target h (−3). Vertex y does not match target k (1). Do not claim they swapped a and k."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions; |a| ≥ 0.15",
+          "message_id": "msg-match-other",
+          "evidence": "Report observed vertex (h, k) and opening (sign of a) versus target (−3, 1) opening up. If h is near +3, still only compare those coordinates — do not label an h-sign misconception."
+        }
+      ],
+      "hint_sequence": [
+        "hint-match-1-live-equation",
+        "hint-match-2-brackets-to-h",
+        "hint-match-3-vertex-marker"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match",
+        "keep_sliders": true,
+        "try_another": false
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "explanation_prompt": {
+          "message_id": "msg-match-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "then_task_id": "predict-h"
+      },
+      "reset": {
+        "restores": { "a": 2, "h": -3, "k": 1 },
+        "source": "interaction-spec.json board.starting_parameters"
+      },
+      "follow_up_when_uncertain": "msg-match-follow-up"
+    },
+    {
+      "id": "predict-h",
+      "tool": "jsxgraph-vertex-form-board",
+      "initial_state": {
+        "placement": "action predict–move–check",
+        "equation": "f(x) = 2(x + 3)^2 + 1",
+        "board": { "a": 2, "h": -3, "k": 1 },
+        "constraint": "Move only h after a written prediction of the new vertex x. Do not load the consolidation fresh case."
+      },
+      "student_controls": ["h", "predicted_vertex_x"],
+      "target": {
+        "kind": "student-predicted-vertex-x",
+        "observable": "vertex.x",
+        "equals": "submission.predicted_vertex_x"
+      },
+      "valid_alternatives": [],
+      "submission_evidence": {
+        "scored": [
+          "predicted_vertex_x (number they wrote before or as they moved h)",
+          "observed vertex x after the move (board h / vertex marker)",
+          "whether only h changed from initial {a: 2, h: −3, k: 1}"
+        ],
+        "not_scored": ["why they chose that x", "unrestricted interpretation"]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "vertex_x": 0.15,
+          "h": 0.15,
+          "a": 0.15,
+          "k": 0.15,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "infer an h-sign misconception from the h slider alone",
+          "treat a written +3 in (x + 3) as a keyed destination",
+          "score the interpretation prompt"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "uncertain-cause",
+          "when": "|a − 2| > 0.15 OR |k − 1| > 0.15 OR more than the h slider moved",
+          "message_id": "msg-predict-h-uncertain",
+          "evidence": "a or k also changed, or the moved control is unclear. Do not diagnose h-sign. Use follow_up_when_uncertain."
+        },
+        {
+          "id": "h-not-moved",
+          "when": "only h was the intended control AND |h − (−3)| ≤ 0.15",
+          "message_id": "msg-predict-h-not-moved",
+          "evidence": "Vertex x is still −3 (starting h). They have not yet moved h."
+        },
+        {
+          "id": "vertex-x-matches-prediction",
+          "when": "only h moved AND |h − predicted_vertex_x| ≤ 0.15",
+          "message_id": "msg-predict-h-match",
+          "evidence": "Observed vertex x equals the x they predicted. State both numbers. Even if h is +3, do not name an h-sign misconception; ask the follow-up if the reading from the equation is still unclear."
+        },
+        {
+          "id": "vertex-x-differs-from-prediction",
+          "when": "only h moved AND |h − predicted_vertex_x| > 0.15",
+          "message_id": "msg-predict-h-differ",
+          "evidence": "Observed vertex x (marker / live h) is not the x they predicted. Report both. Do not infer why."
+        }
+      ],
+      "hint_sequence": [
+        "hint-predict-h-1-name-x-first",
+        "hint-predict-h-2-watch-marker",
+        "hint-predict-h-3-equation-after-move"
+      ],
+      "retry": {
+        "allowed": true,
+        "keep_prediction": true,
+        "may_move_h_again": true
+      },
+      "next_task": {
+        "after_condition": "vertex-x-matches-prediction",
+        "interpretation_prompt": {
+          "message_id": "msg-predict-h-interpret",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "try_another": {
+          "same_checker": true,
+          "reset_to_starting_then_new_h": true,
+          "do_not_key": "m51274#section-exercises-53"
+        },
+        "then_task_id": "expand-same-graph"
+      },
+      "reset": {
+        "restores": { "a": 2, "h": -3, "k": 1 },
+        "clears": ["predicted_vertex_x"]
+      },
+      "follow_up_when_uncertain": "msg-predict-h-follow-up"
+    },
+    {
+      "id": "expand-same-graph",
+      "tool": "jsxgraph-vertex-form-board",
+      "initial_state": {
+        "placement": "action expand and verify",
+        "equation": "f(x) = 2(x + 3)^2 + 1",
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "note": "Score expansion of this starting equation only. Pin the board to starting_parameters before they expand."
+      },
+      "student_controls": ["standard_a", "standard_b", "standard_c"],
+      "target": {
+        "vertex": { "a": 2, "h": -3, "k": 1 },
+        "standard": { "a": 2, "b": 12, "c": 19 },
+        "checker": "local expandStandard(2, -3, 1)",
+        "not_a_ministry_key": true
+      },
+      "valid_alternatives": [
+        { "a": 2, "b": 12, "c": 19 },
+        { "polynomial": "2x^2 + 12x + 19" }
+      ],
+      "submission_evidence": {
+        "scored": ["entered standard-form coefficients a, b, c for the starting equation"],
+        "not_scored": [
+          "reading the live expanded line off the board without entering coefficients",
+          "Ministry A2.7 sample f(x) = 3(x − 1)^2 + 4"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 1e-6,
+          "b": 1e-6,
+          "c": 1e-6,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "invent or auto-grade coefficients for Ministry A2.7 sample 3(x − 1)^2 + 4 (lms/seeds/mcf3m_expectations.json; seed has no key)",
+          "treat the live board standard-form readout as the student expansion",
+          "complete the square"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "coefficients-match",
+          "when": "|standard_a − 2| ≤ 1e-6 AND |standard_b − 12| ≤ 1e-6 AND |standard_c − 19| ≤ 1e-6",
+          "message_id": "msg-expand-match",
+          "evidence": "Entered ax^2 + bx + c matches local expandStandard of the starting vertex form. Same parabola, not a new graph. Overlay / table points may confirm; they are not a substitute for the expansion."
+        },
+        {
+          "id": "coefficients-differ",
+          "when": "entered (standard_a, standard_b, standard_c) is not (2, 12, 19) within 1e-6",
+          "message_id": "msg-expand-differ",
+          "evidence": "Report the three coefficients they entered versus expandStandard(2, −3, 1) = {a: 2, b: 12, c: 19}. Do not diagnose a specific algebra slip from the triple alone if more than one coefficient is off; ask them to expand a(x − h)^2 + k again for this starting equation."
+        }
+      ],
+      "hint_sequence": [
+        "hint-expand-1-square-the-binomial",
+        "hint-expand-2-distribute-a",
+        "hint-expand-3-add-k"
+      ],
+      "retry": {
+        "allowed": true,
+        "keep_board_at_starting": true
+      },
+      "next_task": {
+        "after_condition": "coefficients-match",
+        "ministry_a27_sample": {
+          "prompt_source": "lms/seeds/mcf3m_expectations.json",
+          "code": "A2.7",
+          "equation": "f(x) = 3(x − 1)^2 + 4",
+          "checking": "self-check",
+          "do_not_invent_coefficients": true
+        },
+        "then_task_id": "fresh-case",
+        "fresh_case_placement": "consolidation only"
+      },
+      "reset": {
+        "restores": { "a": 2, "h": -3, "k": 1 },
+        "clears": ["standard_a", "standard_b", "standard_c"]
+      }
+    },
+    {
+      "id": "fresh-case",
+      "tool": "jsxgraph-vertex-form-board",
+      "initial_state": {
+        "placement": "consolidation only",
+        "equation": "f(x) = −0.5(x − 2)^2 + 4",
+        "board_when_checking_prediction": { "a": -0.5, "h": 2, "k": 4 },
+        "note": "Predict vertex, axis, and maximum or minimum before moving sliders. After the named reading is checked, they may move exactly one parameter to see the graph change. Do not use this graph in match-plus-inside or predict-h."
+      },
+      "student_controls": [
+        "named_vertex_x",
+        "named_vertex_y",
+        "named_axis",
+        "named_extreme"
+      ],
+      "target": { "a": -0.5, "h": 2, "k": 4 },
+      "valid_alternatives": [
+        {
+          "vertex": { "x": 2, "y": 4 },
+          "axis": "x = 2",
+          "extreme": "maximum"
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "named vertex coordinates",
+          "named axis equation",
+          "named maximum or minimum"
+        ],
+        "not_scored": [
+          "unrestricted how-did-you-know",
+          "the later one-parameter slider move (self-check of the reading)"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "vertex_x": 0.15,
+          "vertex_y": 0.15,
+          "a": 0.15,
+          "h": 0.15,
+          "k": 0.15,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "print the keyed vertex, axis, or max/min in student copy (copywriter)",
+          "auto-grade unrestricted explanation",
+          "infer h-sign or max-min-from-a as a mental cause from a slider after they move one parameter",
+          "require sliders to remain at the target after the check-move"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "reading-match",
+          "when": "|named_vertex_x − 2| ≤ 0.15 AND |named_vertex_y − 4| ≤ 0.15 AND named_axis is x = 2 AND named_extreme is maximum",
+          "message_id": "msg-fresh-reading-match",
+          "evidence": "Named vertex (2, 4), axis x = 2, and a maximum match this writing. Then they may move one slider to check; that move is not re-scored against the target."
+        },
+        {
+          "id": "named-vertex-differs",
+          "when": "|named_vertex_x − 2| > 0.15 OR |named_vertex_y − 4| > 0.15",
+          "message_id": "msg-fresh-vertex-differs",
+          "evidence": "Report the point they named versus the vertex readable from a = −0.5, h = 2, k = 4, i.e. (2, 4). Coordinates only; do not label an h-sign misconception."
+        },
+        {
+          "id": "named-axis-differs",
+          "when": "vertex coordinates match AND named_axis is not x = 2",
+          "message_id": "msg-fresh-axis-differs",
+          "evidence": "Vertex matches (2, 4). The axis they named is not x = 2. Describe what they wrote (for example y = 2 or y = 4) versus the vertical line through the vertex. Do not name axis-equation as a diagnosed misconception from a slider."
+        },
+        {
+          "id": "named-extreme-differs",
+          "when": "vertex coordinates match AND named_axis is x = 2 AND named_extreme is not maximum",
+          "message_id": "msg-fresh-extreme-differs",
+          "evidence": "Vertex and axis match. They did not name a maximum. Observable: a is negative on this writing, so the vertex is a maximum. Do not say they used the sign of k unless they said so in unscored text."
+        }
+      ],
+      "hint_sequence": [
+        "hint-fresh-1-match-brackets",
+        "hint-fresh-2-axis-vertical",
+        "hint-fresh-3-sign-of-a"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "reading-match",
+        "do_not_move_sliders_while_naming": true
+      },
+      "next_task": {
+        "after_condition": "reading-match",
+        "one_parameter_check_move": {
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "explanation_prompt": {
+          "message_id": "msg-fresh-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "try_another": false,
+        "end": "consolidation"
+      },
+      "reset": {
+        "restores": { "a": -0.5, "h": 2, "k": 4 },
+        "source": "interaction-spec.json board.fresh_case_parameters"
+      }
+    }
+  ],
+  "messages": {
+    "msg-match-a-near-zero": "TEACHER DRAFT — a is at or near 0. The graph is not a parabola. Ask them to move a off 0. Do not score this as a vertex match.",
+    "msg-match-all": "TEACHER DRAFT — sliders match a = 1, h = −3, k = 1. Vertex marker (−3, 1), opens up. Then the separate explanation prompt (self-check).",
+    "msg-match-wrong-opening": "TEACHER DRAFT — vertex is at (−3, 1), same as the target. The graph opens down (a negative); the target opens up. Keep the vertex; change the sign of a. Do not infer a max-min-from-k misconception from the slider.",
+    "msg-match-wrong-abs-a": "TEACHER DRAFT — vertex is at (−3, 1) and the graph opens up, like the target. |a| is not 1 (report their a). Horizontal and vertical position can stay; change the stretch.",
+    "msg-match-h-not-k": "TEACHER DRAFT — vertex x is −3 (matches target h). Vertex y is not 1 (report their k). Keep the horizontal position; adjust the height. Do not infer they swapped a and k.",
+    "msg-match-other": "TEACHER DRAFT — report observed vertex (h, k) and whether it opens up or down, versus target (−3, 1) opening up. If h is near +3, still only those observables — do not label h-sign.",
+    "msg-match-explain": "TEACHER DRAFT — self-check, not auto-graded. After a match: how did you read the vertex from (x + 3)^2 + 1? What stayed the same as the starting graph 2(x + 3)^2 + 1?",
+    "msg-match-follow-up": "TEACHER DRAFT — cause unclear (several sliders off, or h at +3 with other mismatches). Ask: where is the vertex marker, and where do you want it? Do not name a misconception.",
+    "hint-match-1-live-equation": "TEACHER DRAFT — look at the live vertex-form equation. You want (x + 3)^2 + 1.",
+    "hint-match-2-brackets-to-h": "TEACHER DRAFT — match the brackets to (x − h). Plus inside is not h = +3.",
+    "hint-match-3-vertex-marker": "TEACHER DRAFT — the labelled point is (h, k). Compare it to the equation you want.",
+    "msg-predict-h-uncertain": "TEACHER DRAFT — a or k also moved, or the control is unclear. Ask which slider they meant to move. Do not infer h-sign from the slider.",
+    "msg-predict-h-not-moved": "TEACHER DRAFT — vertex x is still −3. They have not moved h yet.",
+    "msg-predict-h-match": "TEACHER DRAFT — vertex x is now the value they predicted (report both). Observable match only. If you still need the equation reading, use the follow-up; do not name h-sign.",
+    "msg-predict-h-differ": "TEACHER DRAFT — vertex x is {observed h}. They predicted {predicted_vertex_x}. Point at the marker and the live equation. Do not infer why.",
+    "msg-predict-h-interpret": "TEACHER DRAFT — self-check. After moving only h: what changed on the graph and in the equation? What stayed the same? Does the expanded line show a different parabola?",
+    "msg-predict-h-follow-up": "TEACHER DRAFT — how did you connect the equation to that x-value? Ask this when prediction and marker match but the reading may still be the written plus, or when a/k also moved. Do not answer with ‘you have the h-sign misconception.’",
+    "hint-predict-h-1-name-x-first": "TEACHER DRAFT — write the vertex x you expect before moving h.",
+    "hint-predict-h-2-watch-marker": "TEACHER DRAFT — move only h. Watch the labelled vertex and the dashed axis.",
+    "hint-predict-h-3-equation-after-move": "TEACHER DRAFT — after the move, read h from (x − h) on the live equation and compare to the marker.",
+    "msg-expand-match": "TEACHER DRAFT — 2(x + 3)^2 + 1 expands to 2x^2 + 12x + 19 by local expandStandard. Same graph as the vertex form, not a new parabola.",
+    "msg-expand-differ": "TEACHER DRAFT — their (a, b, c) versus expandStandard(2, −3, 1) = (2, 12, 19). Local starting-equation check only — not a Ministry key.",
+    "hint-expand-1-square-the-binomial": "TEACHER DRAFT — expand (x + 3)^2 first for this starting equation.",
+    "hint-expand-2-distribute-a": "TEACHER DRAFT — multiply that square by a = 2.",
+    "hint-expand-3-add-k": "TEACHER DRAFT — then add k = 1. Compare graphs only after the expansion is written.",
+    "msg-fresh-reading-match": "TEACHER DRAFT — named (2, 4), x = 2, maximum. Then one optional slider move, self-check, not re-scored.",
+    "msg-fresh-vertex-differs": "TEACHER DRAFT — they named ({named_vertex_x}, {named_vertex_y}). This writing has vertex (2, 4). Coordinates only; do not label h-sign.",
+    "msg-fresh-axis-differs": "TEACHER DRAFT — vertex matches. They did not write x = 2. Report what they wrote versus the vertical line through the vertex.",
+    "msg-fresh-extreme-differs": "TEACHER DRAFT — vertex and axis match. They did not name a maximum. Observable: a is negative. Do not infer they used k unless they said so.",
+    "msg-fresh-explain": "TEACHER DRAFT — self-check. How did you read vertex, axis, and maximum or minimum from −0.5(x − 2)^2 + 4?",
+    "hint-fresh-1-match-brackets": "TEACHER DRAFT — match (x − 2) to (x − h) before moving sliders.",
+    "hint-fresh-2-axis-vertical": "TEACHER DRAFT — the axis is the vertical line through the vertex.",
+    "hint-fresh-3-sign-of-a": "TEACHER DRAFT — maximum or minimum from the sign of a, not from k or the quadrant."
+  },
+  "scenario_tests": [
+    {
+      "task_id": "match-plus-inside",
+      "input": { "a": 1, "h": -3, "k": 4 },
+      "expect_condition": "correct-h-wrong-k"
+    },
+    {
+      "task_id": "match-plus-inside",
+      "input": { "a": -1, "h": -3, "k": 1 },
+      "expect_condition": "correct-vertex-wrong-opening"
+    },
+    {
+      "task_id": "match-plus-inside",
+      "input": { "a": 2, "h": -3, "k": 1 },
+      "expect_condition": "correct-position-wrong-abs-a"
+    },
+    {
+      "task_id": "match-plus-inside",
+      "input": { "a": 1, "h": -3, "k": 1 },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "expand-same-graph",
+      "input": { "standard_a": 2, "standard_b": 12, "standard_c": 19 },
+      "expect_condition": "coefficients-match"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "openstax-ca2e-m51274-advantage-verbal",
+  "source": "openstax",
+  "source_id": "m51274#fs-id1165135361332",
+  "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+  "source_revision": "789b54099106b071d1d32bfcee454fed72eb4768",
+  "resource_type": "exercise",
+  "title": "OpenStax verbal: advantage of this form",
+  "content_or_local_path": "cache/osbooks-college-algebra-bundle/modules/m51274/index.cnxml",
+  "topics": [
+    "vertex form"
+  ],
+  "prerequisites": [],
+  "representations": [
+    "verbal",
+    "equation"
+  ],
+  "reading_demand": "low",
+  "mathematical_difficulty": "routine",
+  "context": "Stem (verbatim sense): Explain the advantage of writing a quadratic function in standard form. OpenStax solution: When written in that form, the vertex can be easily identified.",
+  "instructional_roles": [
+    "supports practice",
+    "connects graph to equation"
+  ],
+  "answer": "When written in that form, the vertex can be easily identified.",
+  "answer_verification": "Copied from OpenStax solution element fs-id1165135361339",
+  "embed_configuration": null,
+  "fallback": null,
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+  "permitted_use_status": "non-commercial",
+  "access_test_result": "local CNXML present in cache clone",
+  "checked_at": "2026-09-09T04:49:06+00:00",
+  "review_status": "selected"
+}

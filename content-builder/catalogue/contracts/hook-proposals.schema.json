@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hook-proposals.schema.json",
+  "title": "Hook proposals",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lesson_id", "proposals"],
+  "properties": {
+    "schema_version": { "const": "hook-proposals.v1" },
+    "lesson_id": { "type": "string" },
+    "proposals": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "why_interesting",
+          "student_does",
+          "leads_to",
+          "returns_in",
+          "access",
+          "rank"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["everyday-or-puzzle", "clip-image-interactive", "claim-play-joke"]
+          },
+          "title": { "type": "string" },
+          "student_facing_sketch": { "type": "string" },
+          "why_interesting": { "type": "string" },
+          "student_does": { "type": "string" },
+          "leads_to": { "type": "string" },
+          "returns_in": { "type": "string" },
+          "media": {
+            "type": "object",
+            "properties": {
+              "src": { "type": "string" },
+              "alt": { "type": "string" },
+              "licence": { "type": "string" },
+              "source_url": { "type": "string" },
+              "signed_out_result": { "type": "string" }
+            }
+          },
+          "access": { "type": "string" },
+          "rank": { "type": "integer", "minimum": 1, "maximum": 3 }
+        }
+      }
+    },
+    "recommended_id": { "type": "string" }
+  }
+}

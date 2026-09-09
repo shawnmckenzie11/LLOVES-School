@@ -1,0 +1,36 @@
+{
+  "id": "ontario-seed-mcf3m-A2.7",
+  "source": "ontario-seed",
+  "source_id": "A2.7",
+  "source_url": null,
+  "source_revision": "lms/seeds/mcf3m_expectations.json",
+  "resource_type": "expectation",
+  "title": "MCF3M A2.7 (verbatim seed)",
+  "content_or_local_path": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+  "topics": [
+    "standard form",
+    "vertex form",
+    "equivalent forms"
+  ],
+  "prerequisites": [],
+  "representations": [
+    "equation",
+    "graph"
+  ],
+  "reading_demand": null,
+  "mathematical_difficulty": null,
+  "context": "Ontario specific expectation. Do not paraphrase as student copy.",
+  "instructional_roles": [
+    "curriculum identity"
+  ],
+  "answer": null,
+  "answer_verification": null,
+  "embed_configuration": null,
+  "fallback": null,
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "/Users/shawnscomputer/Documents/LLOVES-School/lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "access_test_result": "quoted from committed seed",
+  "checked_at": "2026-09-09T04:49:06+00:00",
+  "review_status": "approved"
+}

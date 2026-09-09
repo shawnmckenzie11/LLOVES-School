@@ -1,0 +1,14 @@
+{
+  "name": "lloves-content-builder",
+  "private": true,
+  "description": "Static math-lesson factory. Not the LLOVES LMS.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "jsxgraph": "1.11.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1"
+  }
+}

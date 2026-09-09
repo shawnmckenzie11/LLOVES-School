@@ -1,0 +1,9 @@
+# Content-builder authoring toolchain (not the LMS Flask app).
+# Isolated venv: content-builder/.venv
+
+jsonschema>=4.23.0
+datasets>=3.0.0
+huggingface_hub>=0.26.0
+duckdb>=1.2.0
+pytest>=8.0.0
+playwright>=1.48.0

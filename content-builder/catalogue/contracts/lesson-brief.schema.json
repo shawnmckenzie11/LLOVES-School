@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lesson-brief.schema.json",
+  "title": "Lesson director brief",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "course_code",
+    "lesson_id",
+    "title",
+    "central_question",
+    "intended_understanding",
+    "prerequisite_assumptions",
+    "purpose_map",
+    "expectations"
+  ],
+  "properties": {
+    "schema_version": { "const": "lesson-brief.v2" },
+    "course_code": { "type": "string" },
+    "lesson_id": { "type": "string" },
+    "module": { "type": "integer" },
+    "lesson_number": { "type": "integer" },
+    "title": { "type": "string" },
+    "source_refs": { "type": "object" },
+    "central_question": { "type": "string" },
+    "intended_understanding": { "type": "string" },
+    "prerequisite_assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "processes_to_teach": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "purpose_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "purpose"],
+        "properties": {
+          "section": { "type": "string" },
+          "purpose": { "type": "string" }
+        }
+      }
+    },
+    "expectations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "statement", "source"],
+        "properties": {
+          "code": { "type": "string" },
+          "statement": { "type": "string" },
+          "source": { "type": "string" }
+        }
+      }
+    },
+    "prerequisites": { "type": "array" },
+    "representations": { "type": "array" },
+    "misconceptions": { "type": "array" },
+    "hook_constraint": { "type": "string" },
+    "instructional_sequence_intent": { "type": "string" },
+    "uncertainties": { "type": "array" }
+  }
+}

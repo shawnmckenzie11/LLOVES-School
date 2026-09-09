@@ -1,0 +1,21 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "course_code": "MCF3M",
+  "checked_at": "2026-09-09T08:10:00+00:00",
+  "verifier": "lesson-verifier",
+  "verdict": "FAIL then parent patched high findings; script verify_lesson.py PASS; check_feedback.py PASS 5",
+  "first_verifier_fail": [
+    "JSXGraph copyright on graph",
+    "Consolidation board started at the fresh-case target",
+    "predict-h Check accepted any matching prediction including x=3",
+    "live expanded line visible before expand task",
+    "NaN feedback on empty Check"
+  ],
+  "parent_followup": "showCopyright false; all boards start at starting_parameters; predict-h destination h=2; hide expanded line until expand Check succeeds; block empty Check. Suggestions remaining: lock sliders until prediction; unhide expansion only on expand task (now hidden on all until expand success); named-reading layout added.",
+  "passed_after_patch": [
+    "student-content whitelist; no GeoGebra/ranks in student copy",
+    "fountain hook returns in consolidation",
+    "Check produces feedback; fresh-case not on Action",
+    "A2.7 verbatim; no Nelson in student HTML"
+  ]
+}
