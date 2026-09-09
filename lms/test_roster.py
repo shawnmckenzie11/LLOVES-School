@@ -559,7 +559,7 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(ok_ch.status_code, 200)
 
     def test_gradebook_weights_defaults_and_persist(self) -> None:
-        """Grades scaffold seeds 15/65/20 and persists weight edits."""
+        """Grades scaffold seeds 10/65/25 and persists weight edits."""
         rv = self.client.post(
             "/api/staff/classes",
             json={
@@ -573,9 +573,9 @@ class RosterTests(unittest.TestCase):
         book = self.client.get(f"/api/classes/{class_id}/gradebook")
         self.assertEqual(book.status_code, 200)
         body = book.get_json()
-        self.assertEqual(body["weights"]["participation"], 15.0)
+        self.assertEqual(body["weights"]["participation"], 10.0)
         self.assertEqual(body["weights"]["term"], 65.0)
-        self.assertEqual(body["weights"]["exam"], 20.0)
+        self.assertEqual(body["weights"]["exam"], 25.0)
         ids = [c["id"] for c in body["categories"]]
         self.assertEqual(ids, ["participation", "term", "exam"])
         self.assertEqual(body["categories"][0]["label"], "Att & Participation")

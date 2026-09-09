@@ -196,9 +196,9 @@ class OverviewTextTests(unittest.TestCase):
     """Staff Overview paragraph follows the live scheme."""
 
     def test_overview_names_weights_and_module_1_window(self) -> None:
-        """Ministry split and Sep 10–23 window appear in the prose."""
+        """Board 10/65/25 split and Sep 10–23 window appear in the prose."""
         text = gradebook_overview_text(
-            weights={"term": 65, "exam": 20, "participation": 15},
+            weights={"term": 65, "exam": 25, "participation": 10},
             window={"start": "2026-09-10", "end": "2026-09-23"},
             rules={
                 "min_sessions": 3,
@@ -208,8 +208,8 @@ class OverviewTextTests(unittest.TestCase):
             },
         )
         self.assertIn("65% Term", text)
-        self.assertIn("20% Exam", text)
-        self.assertIn("15% Attendance & Participation", text)
+        self.assertIn("25% Exam", text)
+        self.assertIn("10% Attendance & Participation", text)
         self.assertIn("2026-09-10", text)
         self.assertIn("2026-09-23", text)
         self.assertIn("3+", text)
@@ -326,8 +326,8 @@ class GradebookApiTests(unittest.TestCase):
         self.assertTrue(tests["placeholder"])
         self.assertIsNone(tests["scores"][str(aspen_id)])
 
-    def test_legacy_weights_migrate_to_ministry_split(self) -> None:
-        """Stored 15/60/25 rows rewrite to 15/65/20 on next read."""
+    def test_legacy_weights_migrate_to_board_split(self) -> None:
+        """Stored 15/60/25 and 15/65/20 rows rewrite to 10/65/25 on next read."""
         class_id, _, _ = self._populate()
         now = "2026-09-01T00:00:00"
         with self.school._lock:
@@ -348,8 +348,31 @@ class GradebookApiTests(unittest.TestCase):
                 )
             self.school.conn.commit()
         body = self.client.get(f"/api/classes/{class_id}/gradebook").get_json()
+        self.assertEqual(body["weights"]["participation"], 10.0)
         self.assertEqual(body["weights"]["term"], 65.0)
-        self.assertEqual(body["weights"]["exam"], 20.0)
+        self.assertEqual(body["weights"]["exam"], 25.0)
+
+        with self.school._lock:
+            for category, pct in (
+                ("participation", 15.0),
+                ("term", 65.0),
+                ("exam", 20.0),
+            ):
+                self.school.conn.execute(
+                    """
+                    INSERT INTO grade_category_weights (
+                        class_id, category, weight_pct, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(class_id, category) DO UPDATE SET
+                        weight_pct = excluded.weight_pct
+                    """,
+                    (class_id, category, pct, now),
+                )
+            self.school.conn.commit()
+        body = self.client.get(f"/api/classes/{class_id}/gradebook").get_json()
+        self.assertEqual(body["weights"]["participation"], 10.0)
+        self.assertEqual(body["weights"]["term"], 65.0)
+        self.assertEqual(body["weights"]["exam"], 25.0)
 
     def test_gradebook_scheme_lists_eight_editable_modules(self) -> None:
         """Term Mark JSON carries all eight module windows and default rules."""
@@ -379,7 +402,7 @@ class GradebookApiTests(unittest.TestCase):
         saved = self.client.post(
             f"/api/classes/{class_id}/grade-scheme",
             json={
-                "weights": {"term": 65, "exam": 20, "participation": 15},
+                "weights": {"term": 65, "exam": 25, "participation": 10},
                 "module_1": {
                     "min_sessions": 4,
                     "min_r1": 10,
@@ -403,7 +426,7 @@ class GradebookApiTests(unittest.TestCase):
         rv = self.client.post(
             f"/api/classes/{class_id}/grade-scheme",
             json={
-                "weights": {"term": 50, "exam": 20, "participation": 15},
+                "weights": {"term": 50, "exam": 25, "participation": 10},
                 "module_1": {"min_sessions": 3, "min_r1": 10, "min_r3": 10},
             },
         )
@@ -416,7 +439,7 @@ class GradebookApiTests(unittest.TestCase):
         saved = self.client.post(
             f"/api/classes/{class_id}/grade-scheme",
             json={
-                "weights": {"term": 65, "exam": 20, "participation": 15},
+                "weights": {"term": 65, "exam": 25, "participation": 10},
                 "module_number": 2,
                 "module": {
                     "min_sessions": 5,
@@ -442,7 +465,7 @@ class GradebookApiTests(unittest.TestCase):
         rv = self.client.post(
             f"/api/classes/{class_id}/grade-scheme",
             json={
-                "weights": {"term": 65, "exam": 20, "participation": 15},
+                "weights": {"term": 65, "exam": 25, "participation": 10},
                 "module_number": 9,
                 "module": {"min_sessions": 3, "min_r1": 10, "min_r3": 10},
             },

@@ -4108,7 +4108,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/gradebook")
     @login_required
     def api_gradebook(class_id: int):
-        """Weighted gradebook (Ontario 15/65/20) with Module 1 portfolio auto-score."""
+        """Weighted gradebook (Ontario 10/65/25) with Module 1 portfolio auto-score."""
         denied = _require_class_staff(class_id)
         if denied:
             return denied
