@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a24-sample",
+  "process_tags": [
+    "restrict-domain-range-context"
+  ],
+  "expectation_codes": [
+    "A2.4"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "Ministry A2.4 sample: ball height domain/range restrictions",
+  "stem_student": "A quadratic function represents the relationship between the height of a ball and the time elapsed since the ball was thrown. What physical factors will restrict the domain and range of the quadratic function?",
+  "stem_teacher": "Verbatim Ministry sample for A2.4 from verified seed.",
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample.",
+  "source": "ontario-seed",
+  "source_id": "A2.4-sample-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Verbatim seed sample under A2.4 examples[0]."
+}

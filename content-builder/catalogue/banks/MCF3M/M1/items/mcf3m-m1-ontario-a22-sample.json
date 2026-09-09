@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a22-sample",
+  "process_tags": [
+    "evaluate-function-notation"
+  ],
+  "expectation_codes": [
+    "A2.2"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Ministry A2.2 sample: sleeping-bag revenue r(s)",
+  "stem_student": "The relationship between the selling price of a sleeping bag, s dollars, and the revenue at that selling price, r(s) dollars, is represented by the function r(s) = −10s^2 + 1500s. Evaluate, interpret, and compare r(29.95), r(60.00), r(75.00), r(90.00), and r(130.00).",
+  "stem_teacher": "Verbatim Ministry sample for A2.2 from verified seed. Do not invent the revenue values as Ministry text.",
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample. Deterministic evaluation is allowed in teacher notes later; do not invent Ministry wording.",
+  "source": "ontario-seed",
+  "source_id": "A2.2-sample-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Verbatim seed sample under A2.2 examples[0]."
+}

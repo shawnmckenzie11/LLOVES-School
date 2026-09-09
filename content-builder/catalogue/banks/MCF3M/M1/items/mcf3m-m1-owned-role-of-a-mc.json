@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-role-of-a-mc",
+  "process_tags": [
+    "roles-of-a-h-k"
+  ],
+  "expectation_codes": [
+    "A2.5"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Owned MC: effect of changing a in a(x − h)^2 + k",
+  "stem_student": "Compared with y = x^2, what does the parameter a do in f(x) = a(x − h)^2 + k when a = −2? A) Translates the graph 2 units left. B) Translates the graph 2 units down. C) Reflects the graph in the x-axis and stretches it vertically by a factor of 2. D) Compresses the graph horizontally by a factor of 2.",
+  "stem_teacher": "LLOVES-owned MC for A2.5 roles of a (reflection + vertical stretch). Not Ministry wording.",
+  "answer": "C",
+  "answer_verification": "a < 0 reflects in the x-axis; |a| = 2 is a vertical stretch by 2.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-role-of-a-mc",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned MC for A2.5 role of a. Check-in-ready (selected)."
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a23-example",
+  "process_tags": [
+    "describe-domain-range"
+  ],
+  "expectation_codes": [
+    "A2.3"
+  ],
+  "placement_hint": "worked_example",
+  "title": "Ministry A2.3 embedded example: domain and range of y = x^2 + 1",
+  "stem_student": "For y = x^2 + 1, describe the domain and the range appropriately.",
+  "stem_teacher": "Stem is a short check built from the A2.3 seed statement's embedded example (\"for y = x^2 + 1, the domain is the set of real numbers, and the range is y ≥ 1\"). Do not invent other Ministry wording.",
+  "answer": "The domain is the set of real numbers, and the range is y ≥ 1.",
+  "answer_verification": "Matches the embedded example wording in A2.3 statement in lms/seeds/mcf3m_expectations.json.",
+  "source": "ontario-seed",
+  "source_id": "A2.3-embedded-example-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Answer text quotes the A2.3 statement embedded example from the verified seed (A2.3 has no separate sample_problem list)."
+}

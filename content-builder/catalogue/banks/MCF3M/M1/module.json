@@ -1,0 +1,58 @@
+{
+  "schema_version": "module-bank.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "title": "MCF3M Module 1 — Introduction to the Quadratic Function (first-slice owned bank)",
+  "process_slots": [
+    {
+      "id": "distinguish-function-relation",
+      "name": "Explain function vs relation that is not a function using tables, graphs, mapping, equations, and strategies such as the vertical-line test",
+      "min_approved_items": 1
+    },
+    {
+      "id": "evaluate-function-notation",
+      "name": "Substitute into and evaluate linear and quadratic functions in function notation, including application contexts",
+      "min_approved_items": 2
+    },
+    {
+      "id": "describe-domain-range",
+      "name": "Describe domain and range of linear and quadratic functions from numeric, graphical, and algebraic representations",
+      "min_approved_items": 1
+    },
+    {
+      "id": "restrict-domain-range-context",
+      "name": "Explain restrictions on domain and range of a quadratic function in real-world contexts",
+      "min_approved_items": 1
+    },
+    {
+      "id": "roles-of-a-h-k",
+      "name": "Describe the roles of a, h, and k in f(x) = a(x − h)^2 + k as transformations of f(x) = x^2",
+      "min_approved_items": 2
+    },
+    {
+      "id": "sketch-by-transformations",
+      "name": "Sketch g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2",
+      "min_approved_items": 2
+    }
+  ],
+  "items": [
+    "mcf3m-m1-ontario-a21-sample",
+    "mcf3m-m1-ontario-a22-sample",
+    "mcf3m-m1-ontario-a23-example",
+    "mcf3m-m1-ontario-a24-sample",
+    "mcf3m-m1-ontario-a25-sample",
+    "mcf3m-m1-ontario-a26-sample",
+    "mcf3m-m1-owned-vlt-table-mc",
+    "mcf3m-m1-owned-eval-f-half-numeric",
+    "mcf3m-m1-owned-eval-quadratic-fitb",
+    "mcf3m-m1-owned-domain-range-fitb",
+    "mcf3m-m1-owned-restrict-domain-mc",
+    "mcf3m-m1-owned-role-of-a-mc",
+    "mcf3m-m1-owned-vertex-shift-numeric",
+    "mcf3m-m1-owned-sketch-steps-mc"
+  ],
+  "nelson_density_oracle": {
+    "reference": "Nelson Functions 11 Ch. 1 / Getting Started density (Module 1 intro to quadratics)",
+    "notes": "Oracle only for M1 first-slice density: function vs relation diagnostics, function-notation evaluation mix (including half-inputs), domain/range wording, and a/h/k transformation language before M4 vertex-form reading. Do not paste commercial stems into student HTML. Ontario seed samples and LLOVES-owned parametric exemplars carry the student-facing load."
+  }
+}
