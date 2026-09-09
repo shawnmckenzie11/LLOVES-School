@@ -62,6 +62,7 @@ Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent
 | Specialist | Path | Output |
 |-------|------|----------|
 | Lesson director | [`.cursor/agents/lesson-director.md`](.cursor/agents/lesson-director.md) | `lesson-brief.json` |
+| Bank curator | [`.cursor/agents/bank-curator.md`](.cursor/agents/bank-curator.md) | `catalogue/banks/` + evaluations |
 | Practice designer | [`.cursor/agents/practice-designer.md`](.cursor/agents/practice-designer.md) | `practice-sequence.json` |
 | Hook curator | [`.cursor/agents/hook-curator.md`](.cursor/agents/hook-curator.md) | `hook-proposals.json` |
 | Visual experience designer | [`.cursor/agents/visual-experience-designer.md`](.cursor/agents/visual-experience-designer.md) | design tokens + student/review CSS |

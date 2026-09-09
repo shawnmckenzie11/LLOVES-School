@@ -32,13 +32,16 @@ Do not write builder artefacts into `lms/`, `tools/math-game-show/`, Fly `/data`
 ## Pipeline (parent)
 
 1. Audit (when revising) and contracts in `catalogue/contracts/`
-2. `lesson-director` → `lesson-brief.json`
-3. **Parallel:** `practice-designer`, `hook-curator`, `visual-experience-designer`, writing-model comparison
-4. `interaction-designer` and `formative-feedback-designer`
-5. `student-copywriter` → `student-content.json` (renderer whitelist)
-6. `lesson-engineer` (isolated worktree if it touches shared components)
-7. `lesson-verifier` (independent; language, flow, visual, feedback cases)
-8. Parent integrates; preserve locked/approved sections
+2. `lesson-director` → `lesson-brief.json` (process cognitive targets)
+3. When `catalogue/banks/` exists: `bank-curator` (licence, Bloom, dispositions)
+4. **Parallel:** `practice-designer` (Bloom + FAME), `hook-curator`, `visual-experience-designer`, writing-model comparison
+5. `interaction-designer` and `formative-feedback-designer` (mistakes + explanation prompts)
+6. `student-copywriter` → `student-content.json` (renderer whitelist)
+7. `lesson-engineer` (isolated worktree if it touches shared components)
+8. `lesson-verifier` (independent; language, flow, Bloom/FAME, visual, feedback cases); module-level flow verify before course-wide regen
+9. Parent integrates; preserve locked/approved sections
+
+Pedagogy: `docs/pedagogy-specialist-enhancement.md`.
 
 Revision plan: `content-builder/docs/math-content-builder-revision-plan.md`. v1 fixture: `content-builder/fixtures/M4-L1-vertex-form-v1/`. MCF3M onboarding (39 identities, curriculum, rules) lives in `packages/MCF3M-builder-input/` and `catalogue/onboarding/MCF3M/`. Finish onboarding before further revision-plan prose rewrites.
 

@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lesson-flow-verify.schema.json",
+  "title": "Lesson flow verification",
+  "description": "Structured lesson-verifier output for instructional flow, Bloom progression, and FAME checks. Parent saves the report; verifier remains readonly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lesson_id",
+    "verdict",
+    "central_question",
+    "hook_returns",
+    "fade_complete_per_process",
+    "alternating_present",
+    "bloom_progression_ok",
+    "fame_fading_ok",
+    "fame_explanation_ok",
+    "fame_mistakes_ok",
+    "remember_only_mismatch",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": { "const": "lesson-flow-verify.v1" },
+    "lesson_id": { "type": "string" },
+    "module": {
+      "oneOf": [
+        { "type": "integer" },
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["lesson", "module"],
+      "description": "lesson = single lesson; module = module-level flow verify before course-wide regen"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "FAIL"]
+    },
+    "central_question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "notes"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "text": { "type": ["string", "null"] },
+        "notes": { "type": "string" }
+      }
+    },
+    "hook_returns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Hook/context returns in consolidation or closing beat"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "fade_complete_per_process": {
+      "type": "array",
+      "description": "One entry per newly taught process (from brief / practice-sequence)",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["process_id", "complete", "missing_slots"],
+        "properties": {
+          "process_id": { "type": "string" },
+          "complete": {
+            "type": "boolean",
+            "description": "worked → variation → partial → independent → retrieval present unless process is review-only"
+          },
+          "missing_slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["worked", "variation", "partial", "independent", "retrieval"]
+            }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "alternating_present": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "I do / you do alternation before new variation where FAME Alternating applies"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "bloom_progression_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Per-process cognitive targets move lower→higher as support fades; Create not required"
+        },
+        "process_targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["process_id", "brief_target", "observed_peak"],
+            "properties": {
+              "process_id": { "type": "string" },
+              "brief_target": {
+                "type": "string",
+                "enum": [
+                  "remember",
+                  "understand",
+                  "apply",
+                  "analyze",
+                  "evaluate",
+                  "create"
+                ]
+              },
+              "observed_peak": {
+                "type": "string",
+                "enum": [
+                  "remember",
+                  "understand",
+                  "apply",
+                  "analyze",
+                  "evaluate",
+                  "create"
+                ]
+              }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "fame_fading_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Support removed toward independence; reverse-order step removal where partials exist (EEF Fading)"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "fame_explanation_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Worked examples carry think-aloud / self-explanation how/why prompts"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "fame_mistakes_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "notes"],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "Incorrect worked examples (if any) are clearly signposted and placed after competence"
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "remember_only_mismatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flagged", "notes"],
+      "properties": {
+        "flagged": {
+          "type": "boolean",
+          "description": "True if banks/sequences only quiz Remember when brief targets Apply+"
+        },
+        "item_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "area", "issue", "required_correction"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "suggestion"]
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "flow",
+              "bloom",
+              "fame",
+              "mathematics",
+              "language",
+              "interaction",
+              "visual",
+              "accessibility",
+              "runtime",
+              "review",
+              "provenance"
+            ]
+          },
+          "issue": { "type": "string" },
+          "required_correction": { "type": "string" },
+          "file": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

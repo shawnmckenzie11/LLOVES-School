@@ -18,6 +18,10 @@ Specify the instructional relationship **before** building a slider. Example for
 
 The compiled student page is **Minds On / Action / Consolidation** (three tabs; the hook lives in Minds On unless the director splits it). That is not the LMS async AU spine (Minds-On → Explore → Examples → Formative → Practice → Summary). Do not rewrite `lms/outline_from_json.py` to match this factory.
 
-Each newly taught process normally needs: fully explained example → varied second example → partial example → independent practice with feedback → later retrieval. That fade is the practice-designer’s job. Worked-example support should decrease.
+Each newly taught process normally needs: fully explained example → varied second example → partial example → independent practice with feedback → later retrieval. That fade is the practice-designer’s job. Worked-example support should decrease (**FAME Fading**: prefer removing solution steps in reverse order toward independence; EEF / Pritchard).
+
+**Worked-example explanation (FAME Explanation):** every fully worked example should include think-aloud or self-explanation prompts so students attend to how/why each step, not only the final answer. Alternate worked with similar student-complete items before a new variation (**FAME Alternating**). Signposted incorrect worked examples only after competence (**FAME Mistakes**).
+
+Use Bloom’s cognitive process dimension (Waterloo CTE) when tagging bank items and practice: prefer lower→higher as support fades; flag Remember-only quizzes when the brief targets Apply+. Details: `content-builder/docs/pedagogy-specialist-enhancement.md`.
 
 Student HTML is compiled from `student-content.json` only.
