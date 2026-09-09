@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content-builder/catalogue/banks/bank-item.schema.json",
+  "title": "Module question-bank item",
+  "description": "One tagged practice item in a module bank. Committed to Git. Nelson items carry density_notes only — never stem_student.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "course_code",
+    "module",
+    "process_tags",
+    "expectation_codes",
+    "placement_hint",
+    "title",
+    "stem_student",
+    "stem_teacher",
+    "answer",
+    "answer_verification",
+    "checker_ref",
+    "source",
+    "source_id",
+    "source_url",
+    "licence",
+    "attribution",
+    "permitted_use_status",
+    "student_html_allowed",
+    "review_status",
+    "density_notes",
+    "provenance_notes"
+  ],
+  "properties": {
+    "schema_version": { "const": "bank-item.v1" },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable id, e.g. mcf3m-m4-openstax-m51274-ex22"
+    },
+    "course_code": { "type": "string", "minLength": 1 },
+    "module": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "process_tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expectation_codes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "placement_hint": {
+      "type": "string",
+      "enum": [
+        "worked_example",
+        "guided_practice",
+        "core_practice",
+        "additional_practice",
+        "extension",
+        "unassigned"
+      ]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "stem_student": {
+      "type": ["string", "null"],
+      "description": "Student-facing stem. Must be null when student_html_allowed is false (e.g. Nelson)."
+    },
+    "stem_teacher": { "type": ["string", "null"] },
+    "answer": { "type": ["string", "null"] },
+    "answer_verification": { "type": ["string", "null"] },
+    "checker_ref": {
+      "type": ["string", "null"],
+      "description": "Path or id for a deterministic checker"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "ontario-seed",
+        "ontario-pdf",
+        "openstax",
+        "webwork",
+        "mathnet",
+        "geogebra",
+        "desmos",
+        "jsxgraph",
+        "khan-link",
+        "other",
+        "nelson_functions_11",
+        "parametric"
+      ]
+    },
+    "source_id": { "type": "string" },
+    "source_url": { "type": ["string", "null"] },
+    "licence": { "type": "string" },
+    "attribution": { "type": ["string", "null"] },
+    "permitted_use_status": {
+      "type": "string",
+      "enum": ["unknown", "permitted", "non-commercial", "restricted", "excluded"]
+    },
+    "student_html_allowed": { "type": "boolean" },
+    "review_status": {
+      "type": "string",
+      "enum": ["unreviewed", "selected", "approved", "rejected", "locked"]
+    },
+    "density_notes": {
+      "type": ["string", "null"],
+      "description": "Nelson-oracle density / coverage notes without commercial stems"
+    },
+    "provenance_notes": {
+      "type": ["string", "null"],
+      "description": "How this item was derived (candidates, catalogue record, rewrite status)"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content-builder/catalogue/banks/module-bank.schema.json",
+  "title": "Module question-bank manifest",
+  "description": "Manifest for one course module bank: process slots, item refs, optional Nelson density oracle notes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "course_code",
+    "module",
+    "title",
+    "process_slots",
+    "items"
+  ],
+  "properties": {
+    "schema_version": { "const": "module-bank.v1" },
+    "course_code": { "type": "string", "minLength": 1 },
+    "module": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "process_slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "min_approved_items"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "min_approved_items": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Minimum approved bank items tagged for this process before batch gen"
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "description": "Bank-item ids (preferred) or inline {$ref / id} objects",
+      "items": {
+        "oneOf": [
+          { "type": "string", "minLength": 1 },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "nelson_density_oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional Nelson § density notes only — never stems",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "description": "Textbook section or local bank label, e.g. Nelson Functions 11 §4.1"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Coverage / depth / mix notes without commercial stem paste"
+        }
+      }
+    }
+  }
+}
