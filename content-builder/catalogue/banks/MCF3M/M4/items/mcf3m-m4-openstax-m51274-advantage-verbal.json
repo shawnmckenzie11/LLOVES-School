@@ -3,8 +3,12 @@
   "id": "mcf3m-m4-openstax-m51274-advantage-verbal",
   "course_code": "MCF3M",
   "module": 4,
-  "process_tags": ["three-form-contrast"],
-  "expectation_codes": ["A2.10"],
+  "process_tags": [
+    "three-form-contrast"
+  ],
+  "expectation_codes": [
+    "A2.10"
+  ],
   "placement_hint": "core_practice",
   "title": "OpenStax verbal: advantage of this form",
   "stem_student": "This writing of a quadratic is f(x) = a(x − h)^2 + k. What can you read from it that is harder to see when the same function is written as ax^2 + bx + c?",
@@ -19,7 +23,7 @@
   "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
   "permitted_use_status": "non-commercial",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
   "provenance_notes": "From M4-L1 question-candidates practice rank 1; practice-sequence core_practice for three-form-contrast. Catalogue record openstax-ca2e-m51274-advantage-verbal."
 }
