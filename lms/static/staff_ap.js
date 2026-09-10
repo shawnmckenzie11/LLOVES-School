@@ -66,6 +66,8 @@ let liveStamp = "";
 let pendingScoreboard = false;
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let sessionPollTimer = null;
+/** C2/C3 are text-only: never stored in active_media_json. */
+let textOnlyChallenge = "";
 let sessionPresentIds = new Set();
 /** @type {Set<number>} */
 let sessionLateIds = new Set();
@@ -412,28 +414,34 @@ function paintActiveMediaStatus(media) {
   const allowSwap = document.getElementById("ap-root")?.dataset?.allowMediaSwap === "1";
   if (swapWrap) swapWrap.hidden = !allowSwap;
   if (!status) return;
-  const challenge = String((media && media.challenge) || "").toUpperCase();
-  if (!media || (!media.url && challenge !== "C2" && challenge !== "C3")) {
-    status.textContent = "None — students see the wait / prompt shell until you push a page.";
-    if (stemPreview) {
-      stemPreview.hidden = true;
-      stemPreview.textContent = "";
-    }
-    if (unlock) unlock.checked = false;
-    if (axes) axes.checked = false;
-    if (limited) limited.checked = false;
-    if (freeze) freeze.checked = false;
-    if (paramsWrap) paramsWrap.hidden = true;
-    if (layers) layers.hidden = true;
-    if (consWrap) consWrap.hidden = true;
-    if (preview) {
-      preview.hidden = true;
-      preview.removeAttribute("src");
-    }
-    return;
+  const mediaUrl = String((media && media.url) || "").trim();
+  if (mediaUrl) {
+    textOnlyChallenge = "";
   }
-  if (!media.url && (challenge === "C2" || challenge === "C3")) {
-    status.textContent = `${challenge} — no Real-slice / active-media defaults.`;
+  const challenge = (
+    textOnlyChallenge || String((media && media.challenge) || "")
+  ).toUpperCase();
+  if (!mediaUrl) {
+    if (challenge === "C2" || challenge === "C3") {
+      status.textContent = `${challenge} — no immersive media (active_media_json not seeded).`;
+      if (stemPreview) {
+        stemPreview.hidden = true;
+        stemPreview.textContent = "";
+      }
+      if (unlock) unlock.checked = false;
+      if (axes) axes.checked = false;
+      if (limited) limited.checked = false;
+      if (freeze) freeze.checked = false;
+      if (paramsWrap) paramsWrap.hidden = true;
+      if (layers) layers.hidden = true;
+      if (consWrap) consWrap.hidden = true;
+      if (preview) {
+        preview.hidden = true;
+        preview.removeAttribute("src");
+      }
+      return;
+    }
+    status.textContent = "None — students see the wait / prompt shell until you push a page.";
     if (stemPreview) {
       stemPreview.hidden = true;
       stemPreview.textContent = "";
@@ -581,11 +589,13 @@ function bindActiveMediaControls() {
   if (swapWrap) swapWrap.hidden = !allowSwap;
   if (c2Btn) {
     c2Btn.addEventListener("click", () => {
+      textOnlyChallenge = "C2";
       postActiveMedia({ challenge: "C2" }).catch((err) => showError("#ap-overlay-error", err));
     });
   }
   if (c3Btn) {
     c3Btn.addEventListener("click", () => {
+      textOnlyChallenge = "C3";
       postActiveMedia({ challenge: "C3" }).catch((err) => showError("#ap-overlay-error", err));
     });
   }
@@ -608,6 +618,7 @@ function bindActiveMediaControls() {
   }
   if (seedBtn) {
     seedBtn.addEventListener("click", () => {
+      textOnlyChallenge = "";
       postActiveMedia({
         url: SEED_MEDIA_URL,
         title: SEED_MEDIA_TITLE,
@@ -631,6 +642,7 @@ function bindActiveMediaControls() {
   }
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
+      textOnlyChallenge = "";
       postActiveMedia({ clear: true }).catch((err) => showError("#ap-overlay-error", err));
     });
   }

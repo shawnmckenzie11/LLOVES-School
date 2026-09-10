@@ -33,9 +33,11 @@ from live_media import (  # noqa: E402
     TOAST_STUDENT_UNLOCK,
     apply_active_media_update,
     c1_cons_catalog,
+    challenge_clears_active_media,
     get_c1_cons_item,
     live_media_url_swap_allowed,
     normalize_active_media_url,
+    public_active_media_payload,
 )
 
 
@@ -194,22 +196,42 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(len(catalog), 5)
         self.assertEqual(get_c1_cons_item("CONS-5")["id"], "C1-CONS-5")
 
-    def test_c2_c3_have_no_real_slice_defaults(self) -> None:
-        """C2/C3 stubs carry no Real-slice URL, stem, or CONS pack."""
-        c2 = apply_active_media_update(None, challenge="C2")
-        assert c2 is not None
-        self.assertEqual(c2["challenge"], "C2")
-        self.assertEqual(c2["url"], "")
-        self.assertEqual(c2["stem"], "")
-        self.assertEqual(c2["title"], "")
-        self.assertFalse(c2["frozen"])
-        self.assertEqual(c2["cons_item"], "")
-        c3 = apply_active_media_update(c2, challenge="C3")
-        assert c3 is not None
-        self.assertEqual(c3["challenge"], "C3")
-        self.assertEqual(c3["url"], "")
+    def test_peel_map_lives_on_active_media_blob(self) -> None:
+        """Peels stay on reveal_axes / L0–L4 / reveal_lateral / allow_3d_limited."""
+        current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
+        assert current is not None
+        for key in (
+            "reveal_axes",
+            "unlock_flags",
+            "reveal_lateral",
+            "allow_3d_limited",
+            "frozen",
+        ):
+            self.assertIn(key, current)
+        self.assertNotIn("flag_strip", current)
+        self.assertNotIn("FlagStrip", current)
+        self.assertEqual(
+            set(current["unlock_flags"]), {"L0", "L1", "L2", "L3", "L4"}
+        )
+
+    def test_c2_c3_do_not_seed_active_media(self) -> None:
+        """C2/C3 clear the blob instead of seeding a no-URL stub."""
+        self.assertTrue(challenge_clears_active_media("C2"))
+        self.assertTrue(challenge_clears_active_media("C3"))
+        self.assertFalse(challenge_clears_active_media("C1"))
+        self.assertIsNone(apply_active_media_update(None, challenge="C2"))
+        current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
+        frozen = apply_active_media_update(current, frozen=True)
+        assert frozen is not None
+        with_cons = apply_active_media_update(frozen, cons_item="C1-CONS-1")
+        assert with_cons is not None
+        self.assertEqual(with_cons["cons_item"], "C1-CONS-1")
+        self.assertIsNone(apply_active_media_update(with_cons, challenge="C3"))
+        self.assertIsNone(
+            public_active_media_payload({"challenge": "C2", "url": "", "stem": "nope"})
+        )
         with self.assertRaises(ValueError):
-            apply_active_media_update(c2, cons_item="C1-CONS-1")
+            apply_active_media_update(None, cons_item="C1-CONS-1")
 
     def test_production_seed_locks_real_slice_url(self) -> None:
         """Without LOCAL_DEV/testing, only the seed Real-slice URL may be set."""
@@ -522,6 +544,9 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("CONS-1 · a", html)
         self.assertIn("C2 — no immersive media", html)
         self.assertIn("C3 — no immersive media", html)
+        self.assertIn("do not seed active_media_json", html)
+        self.assertIn("not a FlagStrip", html)
+        self.assertNotIn("FlagStrip", html.replace("not a FlagStrip", ""))
         self.assertIn("out-of-page / lateral beat", html)
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
 
@@ -610,8 +635,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(hidden["active_media"]["cons_item"], "")
         self.assertIsNone(hidden.get("prompt"))
 
-    def test_c2_c3_api_drops_real_slice_defaults(self) -> None:
-        """C2/C3 POST never seeds Real-slice; GET defaults say so."""
+    def test_c2_c3_api_does_not_seed_active_media(self) -> None:
+        """C2/C3 POST clears the blob; GET defaults say they do not seed."""
         seeded = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={"url": DEFAULT_LIVE_MEDIA_URL},
@@ -622,13 +647,9 @@ class LiveMediaChannelTests(unittest.TestCase):
             json={"challenge": "C2"},
         )
         self.assertEqual(c2.status_code, 200, c2.get_json())
-        media = c2.get_json()["active_media"]
-        self.assertEqual(media["challenge"], "C2")
-        self.assertEqual(media["url"], "")
-        self.assertEqual(media["stem"], "")
+        self.assertIsNone(c2.get_json()["active_media"])
         state = self.student.get("/api/student/state").get_json()
-        self.assertEqual(state["active_media"]["url"], "")
-        self.assertEqual(state["active_media"]["stem"], "")
+        self.assertIsNone(state.get("active_media"))
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={"cons_item": "C1-CONS-1"},
@@ -637,8 +658,12 @@ class LiveMediaChannelTests(unittest.TestCase):
         defaults = self.staff.get(
             f"/api/live-sessions/{self.live_session_id}/active-media"
         ).get_json()
+        self.assertIsNone(defaults["active_media"])
         self.assertIsNone(defaults["defaults"]["c2"]["url"])
         self.assertIsNone(defaults["defaults"]["c3"]["url"])
+        self.assertFalse(defaults["defaults"]["c2"]["seed"])
+        self.assertFalse(defaults["defaults"]["c3"]["seed"])
+        self.assertIn("not seed", defaults["defaults"]["c2"]["note"].lower())
         self.assertEqual(defaults["defaults"]["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertEqual(len(defaults["cons_pack"]), 5)
 

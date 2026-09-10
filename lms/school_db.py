@@ -5448,7 +5448,7 @@ class SchoolDB(LovesDB):
             unlock_flags: Partial L0–L4 flags (delight pass).
             answers: Optional engagement choices for the current reveal.
             params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
-            challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 drop Real-slice defaults.
+            challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 clear the blob (do not seed).
             cons_item: Post-freeze CONS-1…5 id, or empty to clear.
             toast: Optional Wonder toast overlay.
             toast_key: Optional toast identity.

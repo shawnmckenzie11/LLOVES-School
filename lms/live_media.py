@@ -1,8 +1,10 @@
 """Active-media payload helpers for a live class session.
 
 One current media object per ``live_class_sessions`` row (JSON column), not a
-parallel session table and not a live-prompt kind. Teacher set/swap/clear plus
-mid-session control-state (params + student unlock) share this payload.
+parallel session table, not a live-prompt kind, and not a FlagStrip. Teacher
+set/swap/clear plus mid-session peels (``reveal_axes`` / L0–L4 /
+``reveal_lateral`` / ``allow_3d_limited``) share this blob. CONS-1…5 unlock
+on ``frozen: true`` here. C2/C3 never seed ``active_media_json``.
 """
 
 from __future__ import annotations
@@ -307,34 +309,20 @@ def is_c1_real_slice(media: dict[str, Any] | None) -> bool:
     return url == DEFAULT_LIVE_MEDIA_URL or challenge == "C1"
 
 
-def c2_c3_media_stub(challenge: str) -> dict[str, Any]:
-    """Empty active-media marker so C2/C3 never inherit C1 Real-slice defaults.
+def challenge_clears_active_media(raw: Any) -> bool:
+    """True when C2/C3 is posted: do **not** seed ``active_media_json``.
+
+    Live-Class Designer: C2/C3 are text-only (empty ArtifactViewer). C1 peels
+    (``reveal_axes`` / L0–L4 / ``reveal_lateral`` / ``allow_3d_limited`` /
+    ``frozen``) live only on the C1 Real-slice blob.
 
     Args:
-        challenge: ``C2`` or ``C3``.
+        raw: Posted challenge id.
     """
-    code = normalize_challenge(challenge)
-    if code not in C2_C3_CHALLENGES:
-        raise ValueError("C2/C3 stub requires challenge C2 or C3.")
-    return {
-        "url": "",
-        "title": "",
-        "caption": "",
-        "stem": "",
-        "entry_chip": "",
-        "student_controls_unlocked": False,
-        "reveal_axes": False,
-        "reveal_lateral": False,
-        "allow_3d_limited": False,
-        "frozen": False,
-        "unlock_flags": default_unlock_flags(),
-        "answers": [],
-        "params": dict(DEFAULT_LIVE_MEDIA_PARAMS),
-        "challenge": code,
-        "cons_item": "",
-        "toast": "",
-        "toast_key": "",
-    }
+    try:
+        return normalize_challenge(raw) in C2_C3_CHALLENGES
+    except ValueError:
+        return False
 
 
 def _as_bool(raw: Any) -> bool:
@@ -521,8 +509,8 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
 
     Lateral peel sets ``chip`` to ``DEFAULT_LIVE_MEDIA_LATERAL_CHIP``; the stored
     ``entry_chip`` and stem stay put. Encore URL is always present on C1; student
-    chrome must not show it until ``frozen``. C2/C3 may exist as a no-URL stub
-    so they never inherit Real-slice defaults.
+    chrome must not show it until ``frozen``. C2/C3 never seed this blob
+    (empty URL is treated as cleared, not a challenge stub).
 
     Args:
         stored: Dict from ``active_media_json``, possibly partial.
@@ -537,13 +525,6 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
     if url == DEFAULT_LIVE_MEDIA_URL:
         challenge = "C1"
     if not url:
-        if challenge in C2_C3_CHALLENGES:
-            stub = c2_c3_media_stub(challenge)
-            stub["updated_at"] = stored.get("updated_at")
-            stub["chip"] = ""
-            stub["encore_url"] = ""
-            stub["encore_label"] = ""
-            return stub
         return None
     params = stored.get("params")
     try:
@@ -644,7 +625,7 @@ def apply_active_media_update(
             locksteps with ``reveal_lateral``.
         answers: Optional choice list that may change with each reveal.
         params: Optional ``{a,b,c}`` overlay (merged onto current/defaults).
-        challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 drop Real-slice defaults.
+        challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 **clear** the blob (do not seed).
         cons_item: Post-freeze CONS-1…5 id, or empty to clear.
         toast: Optional explicit Wonder toast overlay.
         toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` /
@@ -661,13 +642,8 @@ def apply_active_media_update(
     """
     if clear:
         return None
-    if challenge is not _UNSET:
-        challenge_code = normalize_challenge(challenge)
-        if challenge_code in C2_C3_CHALLENGES:
-            stub = c2_c3_media_stub(challenge_code)
-            if updated_at:
-                stub["updated_at"] = updated_at
-            return public_active_media_payload(stub)
+    if challenge is not _UNSET and challenge_clears_active_media(challenge):
+        return None
     url_given = url is not _UNSET
     persist_keys = (
         "title",
@@ -715,12 +691,6 @@ def apply_active_media_update(
     elif current is None:
         raise ValueError("No active media to update. Set a /static/ URL first.")
     else:
-        if str(current.get("challenge") or "") in C2_C3_CHALLENGES and not current.get(
-            "url"
-        ):
-            raise ValueError(
-                "C2/C3 have no Real-slice channel. Show Real-slice to switch to C1."
-            )
         base = dict(current)
 
     if title is not _UNSET:

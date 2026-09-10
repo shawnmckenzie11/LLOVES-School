@@ -3273,7 +3273,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         ``reveal_lateral``, ``allow_3d_limited``, ``frozen``,
         ``student_controls_unlocked``, ``unlock_flags``, ``params``,
         stem/caption/answers, ``cons_item``, ``challenge``, toast) on the
-        current page. ``cons_item`` (CONS-1…5) is available only after freeze.
+        current page. ``cons_item`` (CONS-1…5) unlocks only after
+        ``frozen: true`` on this blob (not a FlagStrip). C2/C3 clear media
+        and do not seed ``active_media_json``.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3299,12 +3301,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         "c2": {
                             "url": None,
                             "challenge": "C2",
-                            "note": "C2 has no Real-slice / active-media defaults.",
+                            "seed": False,
+                            "note": "C2 does not seed active_media_json.",
                         },
                         "c3": {
                             "url": None,
                             "challenge": "C3",
-                            "note": "C3 has no Real-slice / active-media defaults.",
+                            "seed": False,
+                            "note": "C3 does not seed active_media_json.",
                         },
                         "allow_url_swap": live_media_url_swap_allowed(
                             testing=bool(app.config.get("TESTING"))
