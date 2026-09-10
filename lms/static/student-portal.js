@@ -344,7 +344,6 @@ function paintMedia(payload) {
 
 /**
  * Show an ephemeral Wonder toast when peel identity changes.
- * Freeze parks with a blank toast (no FlagStrip).
  * @param {any} media
  */
 function paintMediaToast(media) {
@@ -356,7 +355,7 @@ function paintMediaToast(media) {
   }
   lastToastKey = key;
   window.clearTimeout(toastHideTimer);
-  if (!line || key === "freeze") {
+  if (!line) {
     mediaToast.hidden = true;
     mediaToast.textContent = "";
     return;

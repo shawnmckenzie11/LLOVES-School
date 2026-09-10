@@ -26,6 +26,8 @@ from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_URL,
     ENCORE_LABEL,
     ENCORE_YOUTUBE_URL,
+    TOAST_CONS_1,
+    TOAST_CONS_4,
     TOAST_FREEZE,
     TOAST_REVEAL_AXES,
     TOAST_STUDENT_UNLOCK,
@@ -139,7 +141,7 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertIsNone(apply_active_media_update(current, clear=True))
 
     def test_toast_and_caption_on_peel_edges(self) -> None:
-        """Axes / unlock fill toast+caption; freeze parks both blank."""
+        """Axes / unlock / freeze / CONS-1 / CONS-4 fill toast+caption."""
         current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
         assert current is not None
         self.assertEqual(current["toast"], "")
@@ -159,8 +161,19 @@ class LiveMediaHelperTests(unittest.TestCase):
         assert frozen is not None
         self.assertEqual(frozen["toast"], TOAST_FREEZE)
         self.assertEqual(frozen["toast_key"], "freeze")
-        self.assertEqual(frozen["caption"], "")
+        self.assertEqual(frozen["caption"], TOAST_FREEZE)
         self.assertEqual(frozen["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        cons1 = apply_active_media_update(frozen, cons_item="C1-CONS-1")
+        assert cons1 is not None
+        self.assertEqual(cons1["toast"], TOAST_CONS_1)
+        self.assertEqual(cons1["toast_key"], "cons_1")
+        self.assertEqual(cons1["caption"], TOAST_CONS_1)
+        cons4 = apply_active_media_update(cons1, cons_item="C1-CONS-4")
+        assert cons4 is not None
+        self.assertEqual(cons4["toast"], TOAST_CONS_4)
+        self.assertEqual(cons4["toast_key"], "cons_4")
+        self.assertEqual(cons4["caption"], TOAST_CONS_4)
+        self.assertEqual(cons4["encore_label"], ENCORE_LABEL)
 
     def test_cons_gated_on_freeze(self) -> None:
         """CONS-1…5 raise before freeze and attach after freeze."""
@@ -175,6 +188,8 @@ class LiveMediaHelperTests(unittest.TestCase):
         assert cons is not None
         self.assertEqual(cons["cons_item"], "C1-CONS-1")
         self.assertTrue(cons["frozen"])
+        self.assertEqual(cons["toast"], TOAST_CONS_1)
+        self.assertEqual(cons["toast_key"], "cons_1")
         catalog = c1_cons_catalog()
         self.assertEqual(len(catalog), 5)
         self.assertEqual(get_c1_cons_item("CONS-5")["id"], "C1-CONS-5")
@@ -409,7 +424,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(after_freeze["active_media"]["encore_url"], ENCORE_YOUTUBE_URL)
         self.assertEqual(after_freeze["active_media"]["toast"], TOAST_FREEZE)
         self.assertEqual(after_freeze["active_media"]["toast_key"], "freeze")
-        self.assertEqual(after_freeze["active_media"]["caption"], "")
+        self.assertEqual(after_freeze["active_media"]["caption"], TOAST_FREEZE)
+        self.assertEqual(after_freeze["active_media"]["encore_label"], ENCORE_LABEL)
 
         swapped = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -506,6 +522,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("CONS-1 · a", html)
         self.assertIn("C2 — no immersive media", html)
         self.assertIn("C3 — no immersive media", html)
+        self.assertIn("out-of-page / lateral beat", html)
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
 
     def test_student_home_csp_allows_same_origin_iframe(self) -> None:
@@ -539,6 +556,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(froze.status_code, 200, froze.get_json())
         still_idle = self.student.get("/api/student/state").get_json()
         self.assertTrue(still_idle["active_media"]["frozen"])
+        self.assertEqual(still_idle["active_media"]["toast"], TOAST_FREEZE)
         self.assertIsNone(still_idle.get("prompt"))
 
         cons = self.staff.post(
@@ -548,14 +566,30 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons.status_code, 200, cons.get_json())
         media = cons.get_json()["active_media"]
         self.assertEqual(media["cons_item"], "C1-CONS-1")
+        self.assertEqual(media["toast"], TOAST_CONS_1)
+        self.assertEqual(media["toast_key"], "cons_1")
         state = self.student.get("/api/student/state").get_json()
         self.assertEqual(state["active_media"]["cons_item"], "C1-CONS-1")
+        self.assertEqual(state["active_media"]["toast"], TOAST_CONS_1)
         self.assertIsNotNone(state.get("prompt"))
         self.assertEqual(state["prompt"]["kind"], "mc")
         self.assertEqual(state["prompt"]["payload"]["item_id"], "C1-CONS-1")
         self.assertIn("this picture", state["prompt"]["payload"]["prompt"].lower())
         self.assertNotIn("key", state["prompt"]["payload"])
         self.assertNotIn("cement", state["prompt"]["payload"])
+
+        cons4 = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"cons_item": "C1-CONS-4"},
+        )
+        self.assertEqual(cons4.status_code, 200, cons4.get_json())
+        cons4_media = cons4.get_json()["active_media"]
+        self.assertEqual(cons4_media["cons_item"], "C1-CONS-4")
+        self.assertEqual(cons4_media["toast"], TOAST_CONS_4)
+        self.assertEqual(cons4_media["toast_key"], "cons_4")
+        after_cons4 = self.student.get("/api/student/state").get_json()
+        self.assertEqual(after_cons4["active_media"]["toast"], TOAST_CONS_4)
+        self.assertEqual(after_cons4["prompt"]["kind"], "draw")
 
         cons5 = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",

@@ -27,14 +27,18 @@ LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
 # Optional post-freeze encore (click-out only; never an iframe, never autoplay).
 ENCORE_YOUTUBE_URL = "https://www.youtube.com/watch?v=T647CGsuOVU&t=54s"
 ENCORE_LABEL = (
-    "Optional encore — Welch Labs, Imaginary Numbers Are Real Part 1 (~0:54)"
+    "Optional encore — Welch Labs · scrub to the out-of-page / lateral beat"
 )
 # Wonder delight toasts (ephemeral student chrome; peels stay in this blob).
 TOAST_REVEAL_AXES = "Same question. New reference."
 TOAST_STUDENT_UNLOCK = (
     "New control — same question. What changes? What doesn’t?"
 )
-TOAST_FREEZE = ""  # Park wonderings / leave blank honest after freeze.
+TOAST_FREEZE = "Park the wonderings. Leave the blank honest."
+TOAST_CONS_1 = (
+    "Argue’s parked. Time to name what this picture forced."
+)
+TOAST_CONS_4 = "Feature → claim. That’s the whole move."
 C1_CONS_PACK_ID = "C1-CONS"
 C1_CONS_SLIDE_BASE = 900
 C2_C3_CHALLENGES = frozenset({"C2", "C3"})
@@ -468,7 +472,7 @@ def _apply_wonder_peel_delight(
     caption_given: bool,
     toast_given: bool,
 ) -> None:
-    """Fill toast + caption on rising peel edges; freeze parks both blank.
+    """Fill toast + caption on rising peel edges (axes, unlock, freeze, CONS).
 
     Args:
         base: In-progress payload (mutated).
@@ -482,11 +486,21 @@ def _apply_wonder_peel_delight(
         prev.get("student_controls_unlocked")
     )
     freeze_on = bool(base.get("frozen")) and not bool(prev.get("frozen"))
+    prev_cons = str(prev.get("cons_item") or "")
+    new_cons = str(base.get("cons_item") or "")
+    cons1_on = new_cons == "C1-CONS-1" and prev_cons != "C1-CONS-1"
+    cons4_on = new_cons == "C1-CONS-4" and prev_cons != "C1-CONS-4"
     line = ""
     key = str(base.get("toast_key") or "")
     if freeze_on:
         line = TOAST_FREEZE
         key = "freeze"
+    elif cons1_on:
+        line = TOAST_CONS_1
+        key = "cons_1"
+    elif cons4_on:
+        line = TOAST_CONS_4
+        key = "cons_4"
     elif unlock_on:
         line = TOAST_STUDENT_UNLOCK
         key = "unlock"
@@ -633,7 +647,8 @@ def apply_active_media_update(
         challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 drop Real-slice defaults.
         cons_item: Post-freeze CONS-1…5 id, or empty to clear.
         toast: Optional explicit Wonder toast overlay.
-        toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` / ``freeze``).
+        toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` /
+            ``freeze`` / ``cons_1`` / ``cons_4``).
         allow_url_swap: When False, only the seed Real-slice URL (or clear) is allowed.
         updated_at: ISO timestamp stamped onto the stored object.
 
