@@ -3543,10 +3543,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         omit ``url`` to patch control-state (``reveal_axes``,
         ``reveal_lateral``, ``allow_3d_limited``, ``frozen``,
         ``student_controls_unlocked``, ``unlock_flags``, ``params``,
-        stem/caption/answers, ``cons_item``, ``challenge``, toast) on the
-        current page. ``cons_item`` (CONS-1…5) unlocks only after
-        ``frozen: true`` on this blob (not a FlagStrip). C2/C3 clear media
-        and do not seed ``active_media_json``.
+        view tools, stem/caption/answers, ``cons_item``, ``challenge``,
+        toast) on the current page. ``cons_item`` (CONS-1…5) unlocks only
+        after ``frozen: true`` on this blob (not a FlagStrip). C2/C3 clear
+        media and do not seed ``active_media_json``. CONS table checkboxes
+        in the Real-slice iframe are disabled until the next step.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3629,6 +3630,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["reveal_lateral"] = body.get("reveal_lateral")
         if "allow_3d_limited" in body:
             kwargs["allow_3d_limited"] = body.get("allow_3d_limited")
+        if "show_z_axis" in body:
+            kwargs["show_z_axis"] = body.get("show_z_axis")
+        if "student_zoom" in body:
+            kwargs["student_zoom"] = body.get("student_zoom")
+        if "freeze_zoom" in body:
+            kwargs["freeze_zoom"] = body.get("freeze_zoom")
+        if "surface_transparency" in body:
+            kwargs["surface_transparency"] = body.get("surface_transparency")
+        if "freeze_surface" in body:
+            kwargs["freeze_surface"] = body.get("freeze_surface")
+        if "student_yaw_range" in body:
+            kwargs["student_yaw_range"] = body.get("student_yaw_range")
+        if "freeze_yaw" in body:
+            kwargs["freeze_yaw"] = body.get("freeze_yaw")
         if "frozen" in body:
             kwargs["frozen"] = body.get("frozen")
         if "unlock_flags" in body:

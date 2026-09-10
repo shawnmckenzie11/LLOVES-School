@@ -485,6 +485,33 @@ function startLiveSessionPolling() {
 }
 
 /**
+ * postMessage body for the teacher Real-slice iframe (peel X updates both).
+ * @param {any} media
+ * @param {any} [params]
+ */
+function staffLiveMediaState(media, params) {
+  const row = media || {};
+  return {
+    source: "lloves-staff-live",
+    type: "live-media-state",
+    student_controls_unlocked: Boolean(row.student_controls_unlocked),
+    reveal_axes: Boolean(row.reveal_axes),
+    reveal_lateral: Boolean(row.reveal_lateral),
+    allow_3d_limited: Boolean(row.allow_3d_limited),
+    show_z_axis: Boolean(row.show_z_axis),
+    student_zoom: Number(row.student_zoom ?? 0),
+    freeze_zoom: Boolean(row.freeze_zoom),
+    surface_transparency: Number(row.surface_transparency ?? 1.5),
+    freeze_surface: Boolean(row.freeze_surface),
+    student_yaw_range: Number(row.student_yaw_range ?? 0),
+    freeze_yaw: Boolean(row.freeze_yaw),
+    frozen: Boolean(row.frozen),
+    unlock_flags: row.unlock_flags || {},
+    params: params || row.params || { a: 1, b: 0, c: 0 },
+  };
+}
+
+/**
  * Paint the Run Live Class active-media status + teacher preview.
  * @param {any} media
  */
@@ -567,7 +594,7 @@ function paintActiveMediaStatus(media) {
   if (toastLine) bits.push(`toast: ${toastLine}`);
   status.textContent = bits.length
     ? `Showing ${media.url} · ${bits.join(" · ")}`
-    : `Showing ${media.url} · entry (axes hidden, camera fixed)`;
+    : `Showing ${media.url} · entry (paper-locked, faint surface)`;
   if (consWrap) {
     consWrap.hidden = !frozenOn;
   }
@@ -618,17 +645,7 @@ function paintActiveMediaStatus(media) {
     preview.hidden = false;
     try {
       preview.contentWindow?.postMessage(
-        {
-          source: "lloves-staff-live",
-          type: "live-media-state",
-          student_controls_unlocked: unlocked,
-          reveal_axes: axesOn,
-          reveal_lateral: lateralOn,
-          allow_3d_limited: limitedOn,
-          frozen: frozenOn,
-          unlock_flags: media.unlock_flags || {},
-          params,
-        },
+        staffLiveMediaState(media, params),
         window.location.origin
       );
     } catch (_) {
@@ -728,6 +745,13 @@ function bindActiveMediaControls() {
         unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
         answers: [],
         params: { a: 1, b: 0, c: 0 },
+        show_z_axis: false,
+        student_zoom: 0,
+        freeze_zoom: false,
+        surface_transparency: 1.5,
+        freeze_surface: false,
+        student_yaw_range: 0,
+        freeze_yaw: false,
       }).catch((err) => showError("#ap-overlay-error", err));
     });
   }
@@ -799,6 +823,24 @@ function bindActiveMediaControls() {
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
     const body = { params: data.params || {} };
     if (typeof data.reveal_axes === "boolean") body.reveal_axes = data.reveal_axes;
+    if (typeof data.reveal_lateral === "boolean") body.reveal_lateral = data.reveal_lateral;
+    if (typeof data.student_controls_unlocked === "boolean") {
+      body.student_controls_unlocked = data.student_controls_unlocked;
+    }
+    if (typeof data.allow_3d_limited === "boolean") {
+      body.allow_3d_limited = data.allow_3d_limited;
+    }
+    if (typeof data.show_z_axis === "boolean") body.show_z_axis = data.show_z_axis;
+    if (Number.isFinite(Number(data.student_zoom))) body.student_zoom = Number(data.student_zoom);
+    if (typeof data.freeze_zoom === "boolean") body.freeze_zoom = data.freeze_zoom;
+    if (Number.isFinite(Number(data.surface_transparency))) {
+      body.surface_transparency = Number(data.surface_transparency);
+    }
+    if (typeof data.freeze_surface === "boolean") body.freeze_surface = data.freeze_surface;
+    if (Number.isFinite(Number(data.student_yaw_range))) {
+      body.student_yaw_range = Number(data.student_yaw_range);
+    }
+    if (typeof data.freeze_yaw === "boolean") body.freeze_yaw = data.freeze_yaw;
     window.clearTimeout(mediaPushTimer);
     mediaPushTimer = window.setTimeout(() => {
       postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
