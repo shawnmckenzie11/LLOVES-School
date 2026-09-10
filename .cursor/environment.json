@@ -1,0 +1,17 @@
+{
+  "name": "LLOVES School LMS",
+  "install": "python3 -m pip install -r lms/requirements.txt",
+  "terminals": [
+    {
+      "name": "LMS dev server",
+      "command": "LOCAL_DEV_LOGIN=1 ALLOW_DEV_VERIFICATION_CODE=1 FLASK_SECRET_KEY=dev-secret python3 lms/app.py",
+      "description": "Flask LMS dev server on http://127.0.0.1:8787 with the offline Google account picker (LOCAL_DEV_LOGIN) and on-page first-login verification code (ALLOW_DEV_VERIFICATION_CODE) so staff/IT/student portals can be exercised without real Google OAuth or email delivery."
+    }
+  ],
+  "ports": [
+    {
+      "name": "LMS dev server",
+      "port": 8787
+    }
+  ]
+}
