@@ -104,24 +104,58 @@
       width: 100%;
       accent-color: var(--gold);
     }
-    .hint {
-      margin: 0.15rem 0 0;
-      color: var(--muted);
-      font-size: 0.72rem;
+    .teacher-grid {
+      display: none;
+      grid-template-columns: minmax(9.2rem, 1.15fr) minmax(8.2rem, 1.35fr) minmax(7.2rem, 1fr) minmax(6.4rem, 0.85fr);
+      gap: 0.4rem 0.5rem;
+      align-items: center;
+      margin-top: 0.35rem;
+      padding: 0.35rem;
+      border: 1px solid transparent;
     }
-    .toggles {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.55rem 0.85rem;
-      margin-top: 0.2rem;
-    }
-    .toggles label {
+    .teacher-grid.is-on { display: grid; }
+    .teacher-grid .cell {
       display: flex;
       align-items: center;
-      gap: 0.3rem;
-      font-size: 0.78rem;
+      gap: 0.35rem;
+      min-width: 0;
+      min-height: 1.7rem;
+      padding: 0.12rem 0.2rem;
+      border: 1px solid transparent;
+    }
+    .teacher-grid .cell.check label {
+      display: flex;
+      align-items: center;
+      gap: 0.32rem;
+      font-size: 0.72rem;
+      line-height: 1.2;
       color: #c5d0dc;
       cursor: pointer;
+    }
+    .teacher-grid .cell.check input[type="checkbox"] {
+      flex: 0 0 auto;
+      margin: 0;
+    }
+    .teacher-grid .cell.check label:has(input:disabled) {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .teacher-grid .cell.tool {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 2.1rem;
+      gap: 0.28rem;
+      align-items: center;
+      font-size: 0.7rem;
+      color: #c5d0dc;
+    }
+    .teacher-grid .cell.tool span {
+      white-space: nowrap;
+      color: var(--gold);
+    }
+    .teacher-grid .cell.tool output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
   </style>
 </head>
@@ -148,12 +182,50 @@
           <output id="o-c">0.00</output>
         </label>
       </div>
-      <div class="toggles" id="toggles">
-        <label><input id="t-surface" type="checkbox" checked> 3D surface</label>
-        <label><input id="t-slice" type="checkbox" checked> Gold real-slice</label>
-        <label><input id="t-axes" type="checkbox"> Reveal axes (students)</label>
+      <div class="teacher-grid" id="teacher-grid">
+        <div class="cell check">
+          <label for="t-unlock"><input id="t-unlock" type="checkbox"> Show student view a, b, c</label>
+        </div>
+        <label class="cell tool" for="t-zoom">
+          <span>Student zoom</span>
+          <input id="t-zoom" type="range" min="0" max="10" step="0.1" value="0">
+          <output id="o-zoom">0.0</output>
+        </label>
+        <div class="cell check">
+          <label for="t-freeze-zoom"><input id="t-freeze-zoom" type="checkbox"> Freeze zoom</label>
+        </div>
+        <div class="cell check">
+          <label for="t-cons-1"><input id="t-cons-1" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
+        </div>
+        <div class="cell check">
+          <label for="t-zaxis"><input id="t-zaxis" type="checkbox"> Show z axis</label>
+        </div>
+        <label class="cell tool" for="t-surface">
+          <span>3D surface transparency</span>
+          <input id="t-surface" type="range" min="0" max="10" step="0.1" value="1.5">
+          <output id="o-surface">1.5</output>
+        </label>
+        <div class="cell check">
+          <label for="t-freeze-surface"><input id="t-freeze-surface" type="checkbox"> Freeze 3D surface</label>
+        </div>
+        <div class="cell check">
+          <label for="t-cons-2"><input id="t-cons-2" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
+        </div>
+        <div class="cell check">
+          <label for="t-lateral"><input id="t-lateral" type="checkbox"> In-pane lateral reveal</label>
+        </div>
+        <label class="cell tool" for="t-yaw">
+          <span>Student yaw range</span>
+          <input id="t-yaw" type="range" min="0" max="360" step="1" value="0">
+          <output id="o-yaw">0</output>
+        </label>
+        <div class="cell check">
+          <label for="t-freeze-yaw"><input id="t-freeze-yaw" type="checkbox"> Freeze student yaw</label>
+        </div>
+        <div class="cell check">
+          <label for="t-cons-3"><input id="t-cons-3" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
+        </div>
       </div>
-      <p class="hint" id="hint">Drag to orbit. Students stay on the paper view of y = x² until you unlock sliders.</p>
     </section>
   </div>
   <script>
@@ -165,17 +237,25 @@
   const chipEl = document.getElementById("chip");
   const dock = document.getElementById("dock");
   const dockTitle = document.getElementById("dock-title");
-  const hint = document.getElementById("hint");
-  const toggles = document.getElementById("toggles");
+  const teacherGrid = document.getElementById("teacher-grid");
   const inputA = document.getElementById("p-a");
   const inputB = document.getElementById("p-b");
   const inputC = document.getElementById("p-c");
   const outA = document.getElementById("o-a");
   const outB = document.getElementById("o-b");
   const outC = document.getElementById("o-c");
+  const tUnlock = document.getElementById("t-unlock");
+  const tZoom = document.getElementById("t-zoom");
+  const oZoom = document.getElementById("o-zoom");
+  const tFreezeZoom = document.getElementById("t-freeze-zoom");
+  const tZaxis = document.getElementById("t-zaxis");
   const tSurface = document.getElementById("t-surface");
-  const tSlice = document.getElementById("t-slice");
-  const tAxes = document.getElementById("t-axes");
+  const oSurface = document.getElementById("o-surface");
+  const tFreezeSurface = document.getElementById("t-freeze-surface");
+  const tLateral = document.getElementById("t-lateral");
+  const tYaw = document.getElementById("t-yaw");
+  const oYaw = document.getElementById("o-yaw");
+  const tFreezeYaw = document.getElementById("t-freeze-yaw");
 
   const query = new URLSearchParams(location.search);
   const embedded = window.parent !== window;
@@ -183,10 +263,18 @@
 
   const PAPER_YAW = 0.08;
   const PAPER_PITCH = -0.16;
-  const LATERAL_YAW = 1.12;
-  const LATERAL_PITCH = -0.24;
-  const LIMITED_YAW_SPAN = 0.38;
+  /**
+   * Lateral pose keeps the gold curve a parabola in projection.
+   * Slice is z = 0, so screen width scales with cos(yaw). 90° collapses
+   * the U to a line; ~38° (0.66 rad) keeps ~79% of face-on width while
+   * the saddle’s t-extent reads as a slice. Pitch −0.30 looks slightly down.
+   */
+  const LATERAL_YAW = 0.66;
+  const LATERAL_PITCH = -0.30;
+  const PAPER_DIST = 9.2;
+  const CLOSE_DIST = 3.6;
   const LATERAL_CHIP = "This picture was always a slice";
+  const ENTRY_SURFACE = 1.5;
 
   const state = {
     a: 1,
@@ -196,12 +284,16 @@
     pitch: PAPER_PITCH,
     targetYaw: PAPER_YAW,
     targetPitch: PAPER_PITCH,
-    dist: 9.2,
-    showSurface: true,
-    showSlice: true,
+    dist: PAPER_DIST,
+    showZAxis: false,
+    studentZoom: 0,
+    freezeZoom: false,
+    surfaceTransparency: ENTRY_SURFACE,
+    freezeSurface: false,
+    studentYawRange: 0,
+    freezeYaw: false,
     revealAxes: false,
     revealLateral: false,
-    allow3dLimited: false,
     studentNudged: false,
     unlocked: false,
     dragging: false,
@@ -228,6 +320,32 @@
   function fmt(n, digits) {
     const v = Math.round(n * 100) / 100;
     return v.toFixed(digits == null ? 2 : digits);
+  }
+
+  /**
+   * Camera distance: zoom 0 is paper-locked, 10 is full zoom-in.
+   * @returns {number}
+   */
+  function distFromZoom() {
+    const t = Math.max(0, Math.min(10, state.studentZoom)) / 10;
+    return PAPER_DIST + (CLOSE_DIST - PAPER_DIST) * t;
+  }
+
+  /**
+   * Saddle fill alpha: 0 is very faint, 10 is solid.
+   * @returns {number}
+   */
+  function surfaceAlpha() {
+    const t = Math.max(0, Math.min(10, state.surfaceTransparency)) / 10;
+    return 0.045 + t * 0.58;
+  }
+
+  /**
+   * Half-span of allowed student yaw after lateral, in radians.
+   * @returns {number}
+   */
+  function yawSpanRad() {
+    return (Math.max(0, Math.min(360, state.studentYawRange)) / 2) * Math.PI / 180;
   }
 
   /**
@@ -258,9 +376,22 @@
     outA.textContent = fmt(state.a);
     outB.textContent = fmt(state.b);
     outC.textContent = fmt(state.c);
-    tSurface.checked = state.showSurface;
-    tSlice.checked = state.showSlice;
-    tAxes.checked = state.revealAxes;
+    tUnlock.checked = state.unlocked;
+    tZoom.value = String(state.studentZoom);
+    oZoom.textContent = fmt(state.studentZoom, 1);
+    tFreezeZoom.checked = state.freezeZoom;
+    tZoom.disabled = state.freezeZoom;
+    tZaxis.checked = state.showZAxis;
+    tSurface.value = String(state.surfaceTransparency);
+    oSurface.textContent = fmt(state.surfaceTransparency, 1);
+    tFreezeSurface.checked = state.freezeSurface;
+    tSurface.disabled = state.freezeSurface;
+    tLateral.checked = state.revealLateral;
+    tYaw.value = String(state.studentYawRange);
+    oYaw.textContent = String(Math.round(state.studentYawRange));
+    tFreezeYaw.checked = state.freezeYaw;
+    tYaw.disabled = state.freezeYaw;
+    state.dist = distFromZoom();
     eqEl.innerHTML = equationHtml();
     const showEq = teacherMode || state.revealAxes;
     eqEl.hidden = !showEq;
@@ -275,46 +406,40 @@
   }
 
   /**
-   * Student entry: paper-locked camera, axes off, sliders locked.
-   * Lateral peel yaws in-pane; limited yaw is a small nudge, not orbit.
-   * Teacher: orbit + sliders; peels axes/controls for students when ready.
+   * Student entry: paper-locked, chip on, equation off, faint saddle, x/y on.
+   * Teacher dock holds a/b/c plus the view-tool grid. Explore a,b,c is sliders only.
    */
   function applyRoleChrome() {
     const showDock = teacherMode || state.unlocked;
     dock.classList.toggle("is-on", showDock);
     dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, b, and c";
+    teacherGrid.classList.toggle("is-on", teacherMode);
     if (teacherMode) {
-      hint.textContent = "Drag to orbit. Students enter paper-locked; L4 yaws to the slice.";
       canvas.style.cursor = "grab";
-    } else if (state.allow3dLimited && state.revealLateral) {
-      hint.textContent = "Drag a little left/right. This picture was always a slice.";
+    } else if (studentLimitedYaw()) {
       canvas.style.cursor = "ew-resize";
-    } else if (state.revealLateral) {
-      hint.textContent = "This picture was always a slice. The camera holds the side view.";
-      canvas.style.cursor = "default";
     } else {
-      hint.textContent = "Move a, b, and c. The camera stays on the familiar parabola.";
       canvas.style.cursor = "default";
     }
-    toggles.hidden = !teacherMode;
   }
 
   /**
-   * True when the student may nudge yaw around the lateral pose.
+   * True when the student may yaw around the lateral pose.
    * @returns {boolean}
    */
   function studentLimitedYaw() {
-    return !teacherMode && state.revealLateral && state.allow3dLimited;
+    return !teacherMode && state.revealLateral && state.studentYawRange > 0;
   }
 
   /**
-   * Point the student camera at paper or lateral pose. Teacher orbit is free.
+   * Point cameras at paper or lateral pose. Teacher may orbit after the peel.
+   * @param {boolean} [forcePose]
    */
-  function syncStudentCameraTargets() {
-    if (teacherMode) return;
+  function syncCameraTargets(forcePose) {
+    if (teacherMode && !forcePose) return;
     if (state.revealLateral) {
       state.targetPitch = LATERAL_PITCH;
-      if (!state.allow3dLimited || !state.studentNudged) {
+      if (teacherMode || !studentLimitedYaw() || !state.studentNudged) {
         state.targetYaw = LATERAL_YAW;
       }
     } else {
@@ -326,7 +451,7 @@
   }
 
   /**
-   * Ease yaw/pitch toward targets when the student is not dragging.
+   * Ease yaw/pitch toward targets when not dragging.
    */
   function tickCamera() {
     cameraRaf = 0;
@@ -423,35 +548,35 @@
     const span = 2.4;
     const steps = 18;
     const step = (span * 2) / steps;
+    const alpha = surfaceAlpha();
+    const strokeA = Math.min(0.22, alpha * 0.55);
 
-    if (state.showSurface) {
-      for (let i = 0; i < steps; i += 1) {
-        for (let j = 0; j < steps; j += 1) {
-          const x0 = -span + i * step;
-          const z0 = -span + j * step;
-          const x1 = x0 + step;
-          const z1 = z0 + step;
-          const p00 = { x: x0, y: height(x0, z0), z: z0 };
-          const p10 = { x: x1, y: height(x1, z0), z: z0 };
-          const p11 = { x: x1, y: height(x1, z1), z: z1 };
-          const p01 = { x: x0, y: height(x0, z1), z: z1 };
-          const n = normal(p00, p10, p01);
-          const lit = Math.max(0.18, 0.35 + 0.75 * (n.x * 0.25 + n.y * 0.9 + n.z * 0.35));
-          const mid = project(
-            { x: (x0 + x1) / 2, y: (p00.y + p11.y) / 2, z: (z0 + z1) / 2 },
-            w,
-            h
-          );
-          faces.push({
-            depth: mid.depth,
-            pts: [p00, p10, p11, p01].map((p) => project(p, w, h)),
-            fill: "rgba(" +
-              Math.round(40 + lit * 70) + "," +
-              Math.round(70 + lit * 90) + "," +
-              Math.round(110 + lit * 90) + ",0.55)",
-            stroke: "rgba(160, 200, 230, 0.18)",
-          });
-        }
+    for (let i = 0; i < steps; i += 1) {
+      for (let j = 0; j < steps; j += 1) {
+        const x0 = -span + i * step;
+        const z0 = -span + j * step;
+        const x1 = x0 + step;
+        const z1 = z0 + step;
+        const p00 = { x: x0, y: height(x0, z0), z: z0 };
+        const p10 = { x: x1, y: height(x1, z0), z: z0 };
+        const p11 = { x: x1, y: height(x1, z1), z: z1 };
+        const p01 = { x: x0, y: height(x0, z1), z: z1 };
+        const n = normal(p00, p10, p01);
+        const lit = Math.max(0.18, 0.35 + 0.75 * (n.x * 0.25 + n.y * 0.9 + n.z * 0.35));
+        const mid = project(
+          { x: (x0 + x1) / 2, y: (p00.y + p11.y) / 2, z: (z0 + z1) / 2 },
+          w,
+          h
+        );
+        faces.push({
+          depth: mid.depth,
+          pts: [p00, p10, p11, p01].map((p) => project(p, w, h)),
+          fill: "rgba(" +
+            Math.round(40 + lit * 70) + "," +
+            Math.round(70 + lit * 90) + "," +
+            Math.round(110 + lit * 90) + "," + alpha + ")",
+          stroke: "rgba(160, 200, 230, " + strokeA + ")",
+        });
       }
     }
 
@@ -468,16 +593,14 @@
       ctx.stroke();
     }
 
-    const showAxes = teacherMode || state.revealAxes;
-    if (showAxes) {
-    const axis = (from, to, color, label) => {
+    const axis = (from, to, color, label, width) => {
       const a = project(from, w, h);
       const b = project(to, w, h);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = width;
       ctx.stroke();
       if (label) {
         ctx.fillStyle = color;
@@ -485,50 +608,54 @@
         ctx.fillText(label, b.x + 4, b.y - 4);
       }
     };
-    axis({ x: -span, y: 0, z: 0 }, { x: span + 0.15, y: 0, z: 0 }, "rgba(210,220,235,0.7)", "x");
-    axis({ x: 0, y: -2.2, z: 0 }, { x: 0, y: 3.1, z: 0 }, "rgba(210,220,235,0.7)", "y");
-    axis({ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span + 0.15 }, "rgba(210,220,235,0.35)", "");
-
-    ctx.beginPath();
-    const gridN = 8;
-    for (let i = 0; i <= gridN; i += 1) {
-      const t = -span + (i / gridN) * span * 2;
-      const a = project({ x: t, y: 0, z: -span }, w, h);
-      const b = project({ x: t, y: 0, z: span }, w, h);
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      const c0 = project({ x: -span, y: 0, z: t }, w, h);
-      const c1 = project({ x: span, y: 0, z: t }, w, h);
-      ctx.moveTo(c0.x, c0.y);
-      ctx.lineTo(c1.x, c1.y);
-    }
-    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    axis({ x: -span, y: 0, z: 0 }, { x: span + 0.15, y: 0, z: 0 }, "rgba(210,220,235,0.92)", "x", 1.85);
+    axis({ x: 0, y: -2.2, z: 0 }, { x: 0, y: 3.1, z: 0 }, "rgba(210,220,235,0.92)", "y", 1.85);
+    if (state.showZAxis) {
+      axis({ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span + 0.15 }, "rgba(210,220,235,0.55)", "z", 1.5);
     }
 
-    if (state.showSlice) {
-      const pts = [];
-      for (let i = 0; i <= 80; i += 1) {
-        const x = -span + (i / 80) * span * 2;
-        pts.push(project({ x: x, y: height(x, 0), z: 0 }, w, h));
+    if (teacherMode || state.revealAxes) {
+      ctx.beginPath();
+      const gridN = 8;
+      for (let i = 0; i <= gridN; i += 1) {
+        const t = -span + (i / gridN) * span * 2;
+        const a = project({ x: t, y: 0, z: -span }, w, h);
+        const b = project({ x: t, y: 0, z: span }, w, h);
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        const c0 = project({ x: -span, y: 0, z: t }, w, h);
+        const c1 = project({ x: span, y: 0, z: t }, w, h);
+        ctx.moveTo(c0.x, c0.y);
+        ctx.lineTo(c1.x, c1.y);
       }
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.strokeStyle = "rgba(245, 197, 24, 0.25)";
-      ctx.lineWidth = 10;
-      ctx.lineJoin = "round";
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.strokeStyle = GOLD;
-      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
+      ctx.lineWidth = 1;
       ctx.stroke();
     }
+
+    const pts = [];
+    for (let i = 0; i <= 80; i += 1) {
+      const x = -span + (i / 80) * span * 2;
+      pts.push(project({ x: x, y: height(x, 0), z: 0 }, w, h));
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = "rgba(245, 197, 24, 0.25)";
+    ctx.lineWidth = 10;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.strokeStyle = GOLD;
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
   }
 
+  /**
+   * Push teacher tools + a/b/c to the parent so both iframes stay in lockstep.
+   */
   function notifyParent() {
     if (!embedded) return;
     try {
@@ -537,10 +664,17 @@
           source: "lloves-m1c1-c1",
           type: "params",
           params: { a: state.a, b: state.b, c: state.c },
-          show_surface: state.showSurface,
-          show_slice: state.showSlice,
+          student_controls_unlocked: state.unlocked,
           reveal_axes: state.revealAxes,
           reveal_lateral: state.revealLateral,
+          allow_3d_limited: state.studentYawRange > 0,
+          show_z_axis: state.showZAxis,
+          student_zoom: state.studentZoom,
+          freeze_zoom: state.freezeZoom,
+          surface_transparency: state.surfaceTransparency,
+          freeze_surface: state.freezeSurface,
+          student_yaw_range: state.studentYawRange,
+          freeze_yaw: state.freezeYaw,
         },
         window.location.origin
       );
@@ -549,14 +683,30 @@
     }
   }
 
+  /**
+   * Read a/b/c and teacher view tools from the dock.
+   * @param {boolean} fromTeacher
+   */
   function readSliders(fromTeacher) {
     state.a = Number(inputA.value);
     state.b = Number(inputB.value);
     state.c = Number(inputC.value);
     if (teacherMode) {
-      state.showSurface = tSurface.checked;
-      state.showSlice = tSlice.checked;
-      state.revealAxes = tAxes.checked;
+      const nextLateral = tLateral.checked;
+      const lateralEdge = nextLateral !== state.revealLateral;
+      state.unlocked = tUnlock.checked;
+      state.showZAxis = tZaxis.checked;
+      if (!state.freezeZoom) state.studentZoom = Number(tZoom.value);
+      state.freezeZoom = tFreezeZoom.checked;
+      if (!state.freezeSurface) state.surfaceTransparency = Number(tSurface.value);
+      state.freezeSurface = tFreezeSurface.checked;
+      if (!state.freezeYaw) state.studentYawRange = Number(tYaw.value);
+      state.freezeYaw = tFreezeYaw.checked;
+      state.revealLateral = nextLateral;
+      if (lateralEdge) {
+        state.studentNudged = false;
+        syncCameraTargets(true);
+      }
     }
     if (fromTeacher) state.acceptParentParams = true;
     if (!teacherMode) state.acceptParentParams = false;
@@ -569,9 +719,9 @@
     inputA.addEventListener(evt, () => readSliders(teacherMode));
     inputB.addEventListener(evt, () => readSliders(teacherMode));
     inputC.addEventListener(evt, () => readSliders(teacherMode));
-    tSurface.addEventListener(evt, () => readSliders(true));
-    tSlice.addEventListener(evt, () => readSliders(true));
-    tAxes.addEventListener(evt, () => readSliders(true));
+    [tUnlock, tZoom, tFreezeZoom, tZaxis, tSurface, tFreezeSurface, tLateral, tYaw, tFreezeYaw].forEach((el) => {
+      el.addEventListener(evt, () => readSliders(true));
+    });
   });
 
   canvas.addEventListener("pointerdown", (event) => {
@@ -593,10 +743,12 @@
       state.pitch = Math.max(-1.15, Math.min(0.55, state.pitch + dy * 0.008));
     } else if (studentLimitedYaw()) {
       const next = state.yaw + dx * 0.006;
-      state.yaw = Math.max(
-        LATERAL_YAW - LIMITED_YAW_SPAN,
-        Math.min(LATERAL_YAW + LIMITED_YAW_SPAN, next)
-      );
+      const span = yawSpanRad();
+      if (span >= Math.PI) {
+        state.yaw = next;
+      } else {
+        state.yaw = Math.max(LATERAL_YAW - span, Math.min(LATERAL_YAW + span, next));
+      }
       state.targetYaw = state.yaw;
       state.studentNudged = true;
     }
@@ -622,16 +774,36 @@
     if (typeof data.reveal_axes === "boolean") {
       state.revealAxes = data.reveal_axes;
     }
+    let poseEdge = false;
     if (typeof data.reveal_lateral === "boolean") {
-      if (data.reveal_lateral !== state.revealLateral) state.studentNudged = false;
+      if (data.reveal_lateral !== state.revealLateral) {
+        state.studentNudged = false;
+        poseEdge = true;
+      }
       state.revealLateral = data.reveal_lateral;
     } else if (data.unlock_flags && typeof data.unlock_flags.L4 === "boolean") {
-      if (data.unlock_flags.L4 !== state.revealLateral) state.studentNudged = false;
+      if (data.unlock_flags.L4 !== state.revealLateral) {
+        state.studentNudged = false;
+        poseEdge = true;
+      }
       state.revealLateral = data.unlock_flags.L4;
     }
-    if (typeof data.allow_3d_limited === "boolean") {
-      state.allow3dLimited = data.allow_3d_limited;
+    if (typeof data.show_z_axis === "boolean") state.showZAxis = data.show_z_axis;
+    if (Number.isFinite(Number(data.student_zoom))) {
+      state.studentZoom = Number(data.student_zoom);
     }
+    if (typeof data.freeze_zoom === "boolean") state.freezeZoom = data.freeze_zoom;
+    if (Number.isFinite(Number(data.surface_transparency))) {
+      state.surfaceTransparency = Number(data.surface_transparency);
+    }
+    if (typeof data.freeze_surface === "boolean") state.freezeSurface = data.freeze_surface;
+    if (Number.isFinite(Number(data.student_yaw_range))) {
+      state.studentYawRange = Number(data.student_yaw_range);
+    } else if (typeof data.allow_3d_limited === "boolean") {
+      if (data.allow_3d_limited && state.studentYawRange <= 0) state.studentYawRange = 44;
+      if (!data.allow_3d_limited) state.studentYawRange = 0;
+    }
+    if (typeof data.freeze_yaw === "boolean") state.freezeYaw = data.freeze_yaw;
     if (chipEl && typeof data.entry_chip === "string" && data.entry_chip.trim()) {
       chipEl.textContent = data.entry_chip.trim();
     } else if (chipEl && state.revealLateral && !teacherMode) {
@@ -644,10 +816,8 @@
       if (Number.isFinite(Number(params.b))) state.b = Number(params.b);
       if (Number.isFinite(Number(params.c))) state.c = Number(params.c);
     }
-    if (!teacherMode) {
-      if (!state.unlocked) state.acceptParentParams = true;
-      syncStudentCameraTargets();
-    }
+    if (!teacherMode && !state.unlocked) state.acceptParentParams = true;
+    syncCameraTargets(poseEdge);
     applyRoleChrome();
     syncOutputs();
     draw();

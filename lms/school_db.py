@@ -6376,6 +6376,13 @@ class SchoolDB(LovesDB):
         reveal_axes: Any = None,
         reveal_lateral: Any = None,
         allow_3d_limited: Any = None,
+        show_z_axis: Any = None,
+        student_zoom: Any = None,
+        freeze_zoom: Any = None,
+        surface_transparency: Any = None,
+        freeze_surface: Any = None,
+        student_yaw_range: Any = None,
+        freeze_yaw: Any = None,
         frozen: Any = None,
         unlock_flags: Any = None,
         answers: Any = None,
@@ -6404,6 +6411,13 @@ class SchoolDB(LovesDB):
             reveal_axes: Teacher peel for student axes/grid.
             reveal_lateral: In-pane lateral slice reveal (L4).
             allow_3d_limited: Small student yaw after lateral, not free orbit.
+            show_z_axis: Show the z-axis on student and teacher faces.
+            student_zoom: 0 = paper distance, 10 = full zoom-in.
+            freeze_zoom: Lock the student zoom slider.
+            surface_transparency: 0 = faint saddle, 10 = solid.
+            freeze_surface: Lock the 3D surface transparency slider.
+            student_yaw_range: 0 = fixed, 360 = full student yaw (degrees).
+            freeze_yaw: Lock the student yaw-range slider.
             frozen: Argue done; optional click-out encore may appear.
             unlock_flags: Partial L0–L4 flags (delight pass).
             answers: Optional engagement choices for the current reveal.
@@ -6450,6 +6464,20 @@ class SchoolDB(LovesDB):
             kwargs["reveal_lateral"] = reveal_lateral
         if allow_3d_limited is not None:
             kwargs["allow_3d_limited"] = allow_3d_limited
+        if show_z_axis is not None:
+            kwargs["show_z_axis"] = show_z_axis
+        if student_zoom is not None:
+            kwargs["student_zoom"] = student_zoom
+        if freeze_zoom is not None:
+            kwargs["freeze_zoom"] = freeze_zoom
+        if surface_transparency is not None:
+            kwargs["surface_transparency"] = surface_transparency
+        if freeze_surface is not None:
+            kwargs["freeze_surface"] = freeze_surface
+        if student_yaw_range is not None:
+            kwargs["student_yaw_range"] = student_yaw_range
+        if freeze_yaw is not None:
+            kwargs["freeze_yaw"] = freeze_yaw
         if frozen is not None:
             kwargs["frozen"] = frozen
         if unlock_flags is not None:

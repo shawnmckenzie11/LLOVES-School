@@ -3,8 +3,9 @@
 One current media object per ``live_class_sessions`` row (JSON column), not a
 parallel session table, not a live-prompt kind, and not a FlagStrip. Teacher
 set/swap/clear plus mid-session peels (``reveal_axes`` / L0–L4 /
-``reveal_lateral`` / ``allow_3d_limited``) share this blob. CONS-1…5 unlock
-on ``frozen: true`` here. C2/C3 never seed ``active_media_json``.
+``reveal_lateral`` / ``allow_3d_limited`` / view tools) share this blob.
+CONS-1…5 unlock on ``frozen: true`` here. C2/C3 never seed
+``active_media_json``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,17 @@ DEFAULT_LIVE_MEDIA_CHIP = "From this view only — what must be true?"
 DEFAULT_LIVE_MEDIA_LATERAL_CHIP = "This picture was always a slice"
 DEFAULT_LIVE_MEDIA_PARAMS: dict[str, float] = {"a": 1.0, "b": 0.0, "c": 0.0}
 LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
+# Teacher-iframe view tools (0 = fixed/faint/locked; upper bound is "full").
+STUDENT_ZOOM_MAX = 10.0
+SURFACE_TRANSPARENCY_MAX = 10.0
+STUDENT_YAW_RANGE_MAX = 360.0
+DEFAULT_STUDENT_ZOOM = 0.0
+DEFAULT_SURFACE_TRANSPARENCY = 1.5
+DEFAULT_STUDENT_YAW_RANGE = 0.0
+# Old limited-yaw span was ±0.38 rad ≈ 44° total when the staff checkbox is on.
+DEFAULT_LIMITED_YAW_DEG = 44.0
+# CONS-1…5 stay on the blob/API; the Real-slice table checkboxes are inert.
+CONS_TABLE_TOOLS_ENABLED = False
 # Optional post-freeze encore (click-out only; never an iframe, never autoplay).
 ENCORE_YOUTUBE_URL = "https://www.youtube.com/watch?v=T647CGsuOVU&t=54s"
 ENCORE_LABEL = (
@@ -96,6 +108,13 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
         "reveal_axes": False,
         "reveal_lateral": False,
         "allow_3d_limited": False,
+        "show_z_axis": False,
+        "student_zoom": DEFAULT_STUDENT_ZOOM,
+        "freeze_zoom": False,
+        "surface_transparency": DEFAULT_SURFACE_TRANSPARENCY,
+        "freeze_surface": False,
+        "student_yaw_range": DEFAULT_STUDENT_YAW_RANGE,
+        "freeze_yaw": False,
         "frozen": False,
         "unlock_flags": default_unlock_flags(),
         "answers": [],
@@ -340,7 +359,7 @@ def challenge_clears_active_media(raw: Any) -> bool:
 
     Live-Class Designer: C2/C3 are text-only (empty ArtifactViewer). C1 peels
     (``reveal_axes`` / L0–L4 / ``reveal_lateral`` / ``allow_3d_limited`` /
-    ``frozen``) live only on the C1 Real-slice blob.
+    view tools / ``frozen``) live only on the C1 Real-slice blob.
 
     Args:
         raw: Posted challenge id.
@@ -356,6 +375,26 @@ def _as_bool(raw: Any) -> bool:
     if isinstance(raw, str):
         return raw.strip().lower() in {"1", "true", "yes"}
     return bool(raw)
+
+
+def _clip_unit(raw: Any, low: float, high: float, default: float) -> float:
+    """Clamp a finite number into ``[low, high]``, else ``default``.
+
+    Args:
+        raw: Posted number.
+        low: Inclusive minimum.
+        high: Inclusive maximum.
+        default: Value when ``raw`` is missing or not finite.
+    """
+    if raw is None or raw is False:
+        return float(default)
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+    if number != number or number in (float("inf"), float("-inf")):
+        return float(default)
+    return max(low, min(high, number))
 
 
 def normalize_unlock_flags(
@@ -584,6 +623,17 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
     frozen = bool(stored.get("frozen"))
     if not frozen:
         cons_item = ""
+    yaw_range = _clip_unit(
+        stored.get("student_yaw_range"),
+        0.0,
+        STUDENT_YAW_RANGE_MAX,
+        DEFAULT_STUDENT_YAW_RANGE,
+    )
+    allow_limited = bool(stored.get("allow_3d_limited")) or yaw_range > 0
+    if allow_limited and yaw_range <= 0:
+        yaw_range = DEFAULT_LIMITED_YAW_DEG
+    if not allow_limited:
+        yaw_range = 0.0
     return {
         "url": url,
         "title": str(stored.get("title") or ""),
@@ -594,7 +644,21 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         "student_controls_unlocked": bool(stored.get("student_controls_unlocked")),
         "reveal_axes": bool(stored.get("reveal_axes")),
         "reveal_lateral": reveal_lateral,
-        "allow_3d_limited": bool(stored.get("allow_3d_limited")),
+        "allow_3d_limited": allow_limited,
+        "show_z_axis": bool(stored.get("show_z_axis")),
+        "student_zoom": _clip_unit(
+            stored.get("student_zoom"), 0.0, STUDENT_ZOOM_MAX, DEFAULT_STUDENT_ZOOM
+        ),
+        "freeze_zoom": bool(stored.get("freeze_zoom")),
+        "surface_transparency": _clip_unit(
+            stored.get("surface_transparency"),
+            0.0,
+            SURFACE_TRANSPARENCY_MAX,
+            DEFAULT_SURFACE_TRANSPARENCY,
+        ),
+        "freeze_surface": bool(stored.get("freeze_surface")),
+        "student_yaw_range": yaw_range,
+        "freeze_yaw": bool(stored.get("freeze_yaw")),
         "frozen": frozen,
         "encore_url": ENCORE_YOUTUBE_URL,
         "encore_label": ENCORE_LABEL,
@@ -622,6 +686,13 @@ def apply_active_media_update(
     reveal_axes: Any = _UNSET,
     reveal_lateral: Any = _UNSET,
     allow_3d_limited: Any = _UNSET,
+    show_z_axis: Any = _UNSET,
+    student_zoom: Any = _UNSET,
+    freeze_zoom: Any = _UNSET,
+    surface_transparency: Any = _UNSET,
+    freeze_surface: Any = _UNSET,
+    student_yaw_range: Any = _UNSET,
+    freeze_yaw: Any = _UNSET,
     frozen: Any = _UNSET,
     unlock_flags: Any = _UNSET,
     answers: Any = _UNSET,
@@ -650,6 +721,13 @@ def apply_active_media_update(
         reveal_axes: Teacher peel for axes/grid on the student face.
         reveal_lateral: In-pane yaw so the gold parabola reads as a slice (L4).
         allow_3d_limited: Small student yaw around the lateral pose only.
+        show_z_axis: Teacher peel for the z-axis (x/y stay on at entry).
+        student_zoom: 0 = paper-locked distance, 10 = full zoom-in.
+        freeze_zoom: Lock the student zoom slider.
+        surface_transparency: 0 = very faint saddle, 10 = solid.
+        freeze_surface: Lock the 3D surface transparency slider.
+        student_yaw_range: 0 = fixed camera, 360 = full student yaw (degrees).
+        freeze_yaw: Lock the student yaw-range slider.
         frozen: Argue is done; student chrome may offer the click-out encore.
         unlock_flags: Partial L0–L4 flags (delight pass); L0 stays on; L4
             locksteps with ``reveal_lateral``.
@@ -684,6 +762,13 @@ def apply_active_media_update(
         "reveal_axes",
         "reveal_lateral",
         "allow_3d_limited",
+        "show_z_axis",
+        "student_zoom",
+        "freeze_zoom",
+        "surface_transparency",
+        "freeze_surface",
+        "student_yaw_range",
+        "freeze_yaw",
         "frozen",
         "unlock_flags",
         "answers",
@@ -752,10 +837,74 @@ def apply_active_media_update(
     flags["L4"] = lateral
     base["unlock_flags"] = flags
     base["reveal_lateral"] = lateral
-    if allow_3d_limited is not _UNSET:
-        base["allow_3d_limited"] = _as_bool(allow_3d_limited)
+    if student_yaw_range is not _UNSET:
+        base["student_yaw_range"] = _clip_unit(
+            student_yaw_range,
+            0.0,
+            STUDENT_YAW_RANGE_MAX,
+            DEFAULT_STUDENT_YAW_RANGE,
+        )
     else:
-        base["allow_3d_limited"] = bool(base.get("allow_3d_limited"))
+        base["student_yaw_range"] = _clip_unit(
+            base.get("student_yaw_range"),
+            0.0,
+            STUDENT_YAW_RANGE_MAX,
+            DEFAULT_STUDENT_YAW_RANGE,
+        )
+    if allow_3d_limited is not _UNSET:
+        limited = _as_bool(allow_3d_limited)
+        base["allow_3d_limited"] = limited
+        if limited and base["student_yaw_range"] <= 0:
+            base["student_yaw_range"] = DEFAULT_LIMITED_YAW_DEG
+        if not limited and student_yaw_range is _UNSET:
+            base["student_yaw_range"] = 0.0
+    else:
+        if student_yaw_range is not _UNSET:
+            base["allow_3d_limited"] = base["student_yaw_range"] > 0
+        else:
+            base["allow_3d_limited"] = bool(base.get("allow_3d_limited"))
+            if base["allow_3d_limited"] and base["student_yaw_range"] <= 0:
+                base["student_yaw_range"] = DEFAULT_LIMITED_YAW_DEG
+            if not base["allow_3d_limited"]:
+                base["student_yaw_range"] = 0.0
+    if show_z_axis is not _UNSET:
+        base["show_z_axis"] = _as_bool(show_z_axis)
+    else:
+        base["show_z_axis"] = bool(base.get("show_z_axis"))
+    if student_zoom is not _UNSET:
+        base["student_zoom"] = _clip_unit(
+            student_zoom, 0.0, STUDENT_ZOOM_MAX, DEFAULT_STUDENT_ZOOM
+        )
+    else:
+        base["student_zoom"] = _clip_unit(
+            base.get("student_zoom"), 0.0, STUDENT_ZOOM_MAX, DEFAULT_STUDENT_ZOOM
+        )
+    if freeze_zoom is not _UNSET:
+        base["freeze_zoom"] = _as_bool(freeze_zoom)
+    else:
+        base["freeze_zoom"] = bool(base.get("freeze_zoom"))
+    if surface_transparency is not _UNSET:
+        base["surface_transparency"] = _clip_unit(
+            surface_transparency,
+            0.0,
+            SURFACE_TRANSPARENCY_MAX,
+            DEFAULT_SURFACE_TRANSPARENCY,
+        )
+    else:
+        base["surface_transparency"] = _clip_unit(
+            base.get("surface_transparency"),
+            0.0,
+            SURFACE_TRANSPARENCY_MAX,
+            DEFAULT_SURFACE_TRANSPARENCY,
+        )
+    if freeze_surface is not _UNSET:
+        base["freeze_surface"] = _as_bool(freeze_surface)
+    else:
+        base["freeze_surface"] = bool(base.get("freeze_surface"))
+    if freeze_yaw is not _UNSET:
+        base["freeze_yaw"] = _as_bool(freeze_yaw)
+    else:
+        base["freeze_yaw"] = bool(base.get("freeze_yaw"))
     if frozen is not _UNSET:
         base["frozen"] = _as_bool(frozen)
     else:

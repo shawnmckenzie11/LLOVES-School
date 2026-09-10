@@ -186,7 +186,7 @@ STUDENT_MOODS = (
     "confused",
     "excited",
 )
-STUDENT_CHARACTERS = ("char_a", "char_b", "char_c", "char_d")
+STUDENT_CHARACTERS = ("fox", "panda", "unicorn", "octopus", "dragon", "owl")
 STAT_WINDOWS = ("last_class", "last_week", "year")
 DEFAULT_STAT_WINDOW = "last_class"
 STAT_WINDOW_LABELS = {
@@ -1157,7 +1157,7 @@ class GameShowDB:
         """
         key = (character_key or "").strip()
         if key not in STUDENT_CHARACTERS:
-            raise ValueError("Choose one of the four characters.")
+            raise ValueError("Choose an avatar.")
         self.get_student(class_id, student_id)
         with self._lock:
             self.conn.execute(

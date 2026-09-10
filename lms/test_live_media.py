@@ -24,6 +24,8 @@ from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_LATERAL_CHIP,
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_URL,
+    DEFAULT_LIMITED_YAW_DEG,
+    DEFAULT_SURFACE_TRANSPARENCY,
     ENCORE_LABEL,
     ENCORE_YOUTUBE_URL,
     TOAST_CONS_4,
@@ -78,6 +80,11 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertFalse(current["reveal_axes"])
         self.assertFalse(current["reveal_lateral"])
         self.assertFalse(current["allow_3d_limited"])
+        self.assertFalse(current["show_z_axis"])
+        self.assertEqual(current["student_zoom"], 0.0)
+        self.assertEqual(current["surface_transparency"], DEFAULT_SURFACE_TRANSPARENCY)
+        self.assertEqual(current["student_yaw_range"], 0.0)
+        self.assertFalse(current["freeze_zoom"])
         self.assertFalse(current["frozen"])
         self.assertEqual(current["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertEqual(current["unlock_flags"]["L0"], True)
@@ -124,6 +131,7 @@ class LiveMediaHelperTests(unittest.TestCase):
         assert via_l4 is not None
         self.assertTrue(via_l4["reveal_lateral"])
         self.assertTrue(via_l4["allow_3d_limited"])
+        self.assertEqual(via_l4["student_yaw_range"], DEFAULT_LIMITED_YAW_DEG)
         frozen = apply_active_media_update(via_flag, frozen=True)
         assert frozen is not None
         self.assertTrue(frozen["frozen"])
@@ -214,6 +222,34 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(last["chain_index"], 5)
         self.assertEqual(last["chain_length"], 5)
 
+    def test_view_tools_patch_both_faces(self) -> None:
+        """Zoom, surface, z-axis, and yaw range persist on the blob."""
+        current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
+        assert current is not None
+        patched = apply_active_media_update(
+            current,
+            show_z_axis=True,
+            student_zoom=7,
+            freeze_zoom=True,
+            surface_transparency=8.5,
+            freeze_surface=True,
+            student_yaw_range=180,
+            freeze_yaw=True,
+        )
+        assert patched is not None
+        self.assertTrue(patched["show_z_axis"])
+        self.assertEqual(patched["student_zoom"], 7.0)
+        self.assertTrue(patched["freeze_zoom"])
+        self.assertEqual(patched["surface_transparency"], 8.5)
+        self.assertTrue(patched["freeze_surface"])
+        self.assertEqual(patched["student_yaw_range"], 180.0)
+        self.assertTrue(patched["allow_3d_limited"])
+        self.assertTrue(patched["freeze_yaw"])
+        off = apply_active_media_update(patched, student_yaw_range=0)
+        assert off is not None
+        self.assertFalse(off["allow_3d_limited"])
+        self.assertEqual(off["student_yaw_range"], 0.0)
+
     def test_peel_map_lives_on_active_media_blob(self) -> None:
         """Peels stay on reveal_axes / L0–L4 / reveal_lateral / allow_3d_limited."""
         current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
@@ -223,6 +259,10 @@ class LiveMediaHelperTests(unittest.TestCase):
             "unlock_flags",
             "reveal_lateral",
             "allow_3d_limited",
+            "show_z_axis",
+            "student_zoom",
+            "surface_transparency",
+            "student_yaw_range",
             "frozen",
         ):
             self.assertIn(key, current)
@@ -328,7 +368,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
-        self.student.post("/student/character", data={"character": "char_a"})
+        self.student.post("/student/character", data={"character": "fox"})
 
     def tearDown(self) -> None:
         """Close db and temp dir."""
@@ -359,6 +399,17 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("reveallateral", body.replace("_", "").replace(" ", ""))
         self.assertIn("lateral_yaw", body)
         self.assertIn("parabola", body)
+        self.assertIn("teacher-grid", body)
+        self.assertIn("show student view a, b, c", body)
+        self.assertIn("student zoom", body)
+        self.assertIn("show z axis", body)
+        self.assertIn("3d surface transparency", body)
+        self.assertIn("in-pane lateral reveal", body)
+        self.assertIn("student yaw range", body)
+        self.assertIn("show cons", body)
+        self.assertNotIn("gold real-slice", body)
+        self.assertNotIn("reveal axes (students)", body)
+        self.assertNotIn("drag to orbit", body)
         self.assertNotIn("youtube.com", body)
         self.assertNotIn("autoplay", body)
         self.assertNotIn("jigsaw", body)
@@ -393,9 +444,30 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertFalse(media["reveal_axes"])
         self.assertFalse(media["reveal_lateral"])
         self.assertFalse(media["allow_3d_limited"])
+        self.assertFalse(media["show_z_axis"])
+        self.assertEqual(media["student_zoom"], 0.0)
+        self.assertEqual(media["surface_transparency"], DEFAULT_SURFACE_TRANSPARENCY)
+        self.assertEqual(media["student_yaw_range"], 0.0)
         self.assertFalse(media["frozen"])
         self.assertEqual(media["answers"], [])
         self.assertEqual(media["params"]["a"], 1.0)
+
+        tools = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={
+                "show_z_axis": True,
+                "student_zoom": 4,
+                "surface_transparency": 6,
+                "student_yaw_range": 90,
+            },
+        )
+        self.assertEqual(tools.status_code, 200, tools.get_json())
+        tool_media = tools.get_json()["active_media"]
+        self.assertTrue(tool_media["show_z_axis"])
+        self.assertEqual(tool_media["student_zoom"], 4.0)
+        self.assertEqual(tool_media["surface_transparency"], 6.0)
+        self.assertEqual(tool_media["student_yaw_range"], 90.0)
+        self.assertTrue(tool_media["allow_3d_limited"])
 
         state = self.student.get("/api/student/state").get_json()
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
@@ -405,6 +477,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertFalse(state["active_media"]["reveal_axes"])
         self.assertFalse(state["active_media"]["reveal_lateral"])
         self.assertFalse(state["active_media"]["frozen"])
+        self.assertTrue(state["active_media"]["show_z_axis"])
+        self.assertEqual(state["active_media"]["student_yaw_range"], 90.0)
 
         peeled = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -558,6 +632,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("Unlock a, b, c sliders", html)
         self.assertIn("Reveal axes on student view", html)
         self.assertIn("L4 — in-pane lateral reveal", html)
+        self.assertIn("paper-locked, faint surface, x/y axes", html)
         self.assertIn("Freeze — offer optional encore", html)
         self.assertIn("Limited student yaw after lateral", html)
         self.assertIn("CONS-1 · a", html)

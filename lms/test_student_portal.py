@@ -96,7 +96,7 @@ class StudentPortalTests(unittest.TestCase):
         assert row is not None
         return self.school.game.get_student(self.class_id, int(row["id"]))
 
-    def _pick_character(self, key: str = "char_a") -> None:
+    def _pick_character(self, key: str = "fox") -> None:
         """POST the character pick step."""
         self.student.post("/student/character", data={"character": key})
 
@@ -123,7 +123,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(mood_page.status_code, 200)
         mood_html = mood_page.get_data(as_text=True)
         self.assertIn("Join Class", mood_html)
-        self.assertNotIn("Choose your character", mood_html)
+        self.assertNotIn("Choose your Avatar", mood_html)
         self.assertNotIn("Optional — pick a face", mood_html)
         self.assertNotIn("mood-label", mood_html)
         self.assertEqual(mood_html.count('name="mood"'), 3)
@@ -149,19 +149,20 @@ class StudentPortalTests(unittest.TestCase):
         char_page = self.student.get("/student/character", follow_redirects=False)
         self.assertEqual(char_page.status_code, 200)
         char_html = char_page.get_data(as_text=True)
-        self.assertIn("Choose your character", char_html)
-        self.assertIn("Avery", char_html)
-        self.assertIn('value="char_a"', char_html)
+        self.assertIn("Choose your Avatar", char_html)
+        self.assertIn("🦊", char_html)
+        self.assertIn("🦄", char_html)
+        self.assertIn('value="fox"', char_html)
 
         character = self.student.post(
             "/student/character",
-            data={"character": "char_a"},
+            data={"character": "fox"},
             follow_redirects=False,
         )
         self.assertEqual(character.status_code, 302)
         self.assertIn("/student/home", character.headers.get("Location", ""))
         maple = self._maple_row()
-        self.assertEqual(maple.get("character_key"), "char_a")
+        self.assertEqual(maple.get("character_key"), "fox")
         self.assertEqual(maple.get("mood"), "good")
 
         again = self.student.get("/student/character", follow_redirects=False)
@@ -223,17 +224,17 @@ class StudentPortalTests(unittest.TestCase):
 
         char_page = self.student.get("/student/character")
         self.assertEqual(char_page.status_code, 200)
-        self.assertIn("Choose your character", char_page.get_data(as_text=True))
+        self.assertIn("Choose your Avatar", char_page.get_data(as_text=True))
 
         character = self.student.post(
             "/student/character",
-            data={"character": "char_b"},
+            data={"character": "panda"},
             follow_redirects=False,
         )
         self.assertEqual(character.status_code, 302)
         self.assertIn("/student/home", character.headers.get("Location", ""))
         maple = self._maple_row()
-        self.assertEqual(maple.get("character_key"), "char_b")
+        self.assertEqual(maple.get("character_key"), "panda")
         self.assertIsNone(maple.get("mood"))
 
         mood_again = self.student.get("/student/mood", follow_redirects=False)

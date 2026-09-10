@@ -22,11 +22,13 @@ MOOD_LABELS = {
     "excited": "Excited",
 }
 
-CHARACTER_LABELS = {
-    "char_a": "Avery",
-    "char_b": "Jordan",
-    "char_c": "Samira",
-    "char_d": "Kenji",
+CHARACTER_AVATARS = {
+    "fox": {"label": "Fox", "emoji": "🦊"},
+    "panda": {"label": "Panda", "emoji": "🐼"},
+    "unicorn": {"label": "Unicorn", "emoji": "🦄"},
+    "octopus": {"label": "Octopus", "emoji": "🐙"},
+    "dragon": {"label": "Dragon", "emoji": "🐲"},
+    "owl": {"label": "Owl", "emoji": "🦉"},
 }
 
 # Flask session keys owned by the student-code join path.
@@ -364,8 +366,15 @@ def next_student_endpoint(
 
 
 def character_choices() -> list[dict[str, str]]:
-    """Four placeholder characters for the join screen."""
-    return [{"key": key, "label": CHARACTER_LABELS[key]} for key in STUDENT_CHARACTERS]
+    """Six emoji avatars for the join screen."""
+    return [
+        {
+            "key": key,
+            "label": CHARACTER_AVATARS[key]["label"],
+            "emoji": CHARACTER_AVATARS[key]["emoji"],
+        }
+        for key in STUDENT_CHARACTERS
+    ]
 
 
 def mood_choices() -> list[dict[str, str]]:
