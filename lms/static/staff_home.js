@@ -358,8 +358,6 @@ function initPackProgress() {
     };
     tick();
   });
-    tick();
-  });
 }
 
 initPackProgress();

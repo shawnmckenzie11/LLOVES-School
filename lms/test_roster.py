@@ -603,6 +603,9 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(home.status_code, 200)
         empty = home.get_data(as_text=True)
         self.assertIn("<span>Populate Class</span>", empty)
+        self.assertIn(
+            '<script type="module" src="/static/staff_home.js"></script>', empty
+        )
         self.assertNotIn("<span>Edit Roster</span>", empty)
         self.assertNotIn("Edit Class", empty)
         self.assertNotIn("Repopulate Class", empty)
