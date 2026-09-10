@@ -130,7 +130,7 @@ class CelebrationTests(unittest.TestCase):
         )
         self.assertIn("class=\"calc-coming-soon\"", body)
         self.assertIn("class=\"calc-sparkle\"", body)
-        css = anon.get("/static/lloves.css").get_data(as_text=True)
+        css = (LMS_DIR / "static" / "lloves.css").read_text()
         self.assertIn("calc-sparkle-once", css)
         self.assertIn("prefers-reduced-motion", css)
         self.assertNotIn("data-card=", body)
