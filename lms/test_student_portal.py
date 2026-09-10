@@ -18,6 +18,12 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from meet_team import (  # noqa: E402
+    MEET_TEAM_FIXED_CHOICES,
+    MEET_TEAM_PROMPT,
+    MEET_TEAM_WARMUP_POOL,
+    is_meet_team_payload,
+)
 from minds_on import (  # noqa: E402
     MINDS_ON_CHOICES,
     MINDS_ON_PROMPT,
@@ -627,6 +633,24 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.student.post("/student/mood", data={"mood": "good"})
 
+    def _staff_assign_two_teams(self) -> None:
+        """Mark the roster present and Generate teams (n=2, random)."""
+        begin = self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(begin.status_code, 200, begin.get_json())
+        ids = [int(student["id"]) for student in begin.get_json()["students"]]
+        self.staff.post(
+            f"/api/classes/{self.class_id}/game/attendance",
+            json={"present_ids": ids, "meeting_date": "2026-09-09"},
+        )
+        assigned = self.staff.post(
+            f"/api/classes/{self.class_id}/game/assign",
+            json={"n_teams": 2, "mode": "random"},
+        )
+        self.assertEqual(assigned.status_code, 200, assigned.get_json())
+
     def test_waiting_room_minds_on_and_wait_copy(self) -> None:
         """Join with no challenge media: Wonder wait line + M1C1 Minds-On MC."""
         self._join_maple_home()
@@ -744,6 +768,39 @@ class StudentPortalTests(unittest.TestCase):
         prompt = state.get("prompt")
         if prompt is not None:
             self.assertFalse(is_minds_on_payload(prompt.get("payload")))
+            self.assertFalse(is_meet_team_payload(prompt.get("payload")))
+
+    def test_assign_and_meet_teams_swap_minds_on_for_teammate_warmup(self) -> None:
+        """SID=18: Generate teams + Meet Teams leave waiting-room Minds-On."""
+        self._join_maple_home()
+        idle = self.student.get("/api/student/live-prompt").get_json()
+        self.assertTrue(idle["waiting_room"])
+        self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
+
+        self._staff_assign_two_teams()
+        meet = self.staff.post(
+            f"/api/classes/{self.class_id}/game/meet-teams",
+            json={"minutes": 3},
+        )
+        self.assertEqual(meet.status_code, 200, meet.get_json())
+        live_prompt = self.student.get("/api/student/live-prompt").get_json()
+        self.assertTrue(live_prompt["ok"])
+        self.assertFalse(live_prompt["waiting_room"])
+        payload = live_prompt["prompt"]["payload"]
+        self.assertEqual(payload["item_id"], "meet-team")
+        self.assertEqual(payload["prompt"], MEET_TEAM_PROMPT)
+        self.assertEqual(len(payload["choices"]), 5)
+        for fixed in MEET_TEAM_FIXED_CHOICES:
+            self.assertIn(fixed, payload["choices"])
+        extra = [
+            choice
+            for choice in payload["choices"]
+            if choice not in MEET_TEAM_FIXED_CHOICES
+        ]
+        self.assertEqual(len(extra), 2)
+        for choice in extra:
+            self.assertIn(choice, MEET_TEAM_WARMUP_POOL)
+        self.assertFalse(is_minds_on_payload(payload))
 
     def test_minds_on_clears_when_scoring_starts(self) -> None:
         """Start-rounds (live scoring) drops waiting-room Minds-On."""
@@ -751,24 +808,11 @@ class StudentPortalTests(unittest.TestCase):
         idle = self.student.get("/api/student/state").get_json()
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
 
-        begin = self.staff.post(
-            f"/api/classes/{self.class_id}/begin",
-            json={"meeting_date": "2026-09-09"},
-        )
-        self.assertEqual(begin.status_code, 200, begin.get_json())
-        ids = [int(s["id"]) for s in begin.get_json()["students"]]
-        self.staff.post(
-            f"/api/classes/{self.class_id}/game/attendance",
-            json={"present_ids": ids, "meeting_date": "2026-09-09"},
-        )
-        assigned = self.staff.post(
-            f"/api/classes/{self.class_id}/game/assign",
-            json={"n_teams": 2, "mode": "random"},
-        )
-        self.assertEqual(assigned.status_code, 200, assigned.get_json())
+        self._staff_assign_two_teams()
+        assigned = self.school.game.game_state(self.class_id)
         teams = [
             {"id": t["id"], "name": t["name"]}
-            for t in assigned.get_json()["teams"]
+            for t in assigned["teams"]
         ]
         self.staff.post(
             f"/api/classes/{self.class_id}/game/rename",
@@ -787,6 +831,7 @@ class StudentPortalTests(unittest.TestCase):
         prompt = state.get("prompt")
         if prompt is not None:
             self.assertFalse(is_minds_on_payload(prompt.get("payload")))
+            self.assertFalse(is_meet_team_payload(prompt.get("payload")))
 
     def test_waiting_room_js_has_no_start_scoring_copy(self) -> None:
         """Student portal JS must not use the scoring-phase wait line in waiting-room."""

@@ -27,6 +27,12 @@ try:
         public_feedback_fragment,
         strip_teacher_prompt_fields,
     )
+    from meet_team import (
+        MEET_TEAM_KIND,
+        MEET_TEAM_SLIDE_INDEX,
+        is_meet_team_payload,
+        meet_team_prompt_payload,
+    )
     from minds_on import (
         MINDS_ON_KIND,
         MINDS_ON_SLIDE_INDEX,
@@ -48,6 +54,12 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
         strip_teacher_prompt_fields,
+    )
+    from lms.meet_team import (
+        MEET_TEAM_KIND,
+        MEET_TEAM_SLIDE_INDEX,
+        is_meet_team_payload,
+        meet_team_prompt_payload,
     )
     from lms.minds_on import (
         MINDS_ON_KIND,
@@ -5819,12 +5831,26 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return row is not None and str(row["status"] or "") == "live"
 
-    def _session_left_waiting_room(self, session_id: int) -> bool:
-        """True when scoring is live, challenge media mounted, or Minds-On ended.
+    def _class_overlay_is_meet_teams(self, class_id: int) -> bool:
+        """True when the live overlay is in the Meet the Teams phase.
 
-        The Minds-On question is deactivated (or an inactive sentinel is
-        written) when Team Challenge media / C2–C3 mounts so lazy-seed cannot
-        bring it back.
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self.game._lock:
+            row = self.game.conn.execute(
+                """
+                SELECT overlay_phase FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        return row is not None and str(row["overlay_phase"] or "") == "meet_teams"
+
+    def _session_challenge_started(self, session_id: int) -> bool:
+        """True when scoring is live or challenge media is mounted.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -5835,7 +5861,31 @@ class SchoolDB(LovesDB):
         if self._class_game_is_live(int(session_row["class_id"])):
             return True
         media = self.live_session_active_media_payload(session_id)
+        return bool(media and media.get("url"))
+
+    def _session_left_waiting_room(self, session_id: int) -> bool:
+        """True when scoring, media, Meet Teams, or Minds-On has ended.
+
+        Generate teams / Meet Teams leave the waiting-room Minds-On stage
+        and swap in the Meet Your Team warm-up. Team Challenge media /
+        scoring still write a Minds-On sentinel so lazy-seed cannot
+        bring it back.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return True
+        class_id = int(session_row["class_id"])
+        if self._class_game_is_live(class_id):
+            return True
+        if self._class_overlay_is_meet_teams(class_id):
+            return True
+        media = self.live_session_active_media_payload(session_id)
         if media and media.get("url"):
+            return True
+        if self._meet_team_row_exists(session_id):
             return True
         if self._minds_on_row_exists(session_id):
             active = self.get_active_live_prompt(session_id)
@@ -5875,6 +5925,8 @@ class SchoolDB(LovesDB):
             The seeded prompt row, or ``None`` when skipped.
         """
         if self._session_left_waiting_room(session_id):
+            return None
+        if self._meet_team_row_exists(session_id):
             return None
         desired = minds_on_prompt_payload()
         active = self.get_active_live_prompt(session_id)
@@ -5939,6 +5991,147 @@ class SchoolDB(LovesDB):
         if live is None:
             return
         self.clear_waiting_room_minds_on(int(live["id"]))
+
+    def _prompt_at_slide(
+        self, session_id: int, slide_index: int
+    ) -> dict[str, Any] | None:
+        """Return the prompt row for one slide index, active or not.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            slide_index: Prompt slide index.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_prompts
+                WHERE live_session_id = ? AND slide_index = ?
+                LIMIT 1
+                """,
+                (int(session_id), int(slide_index)),
+            ).fetchone()
+        return self._prompt_row_to_dict(row) if row else None
+
+    def _meet_team_row_exists(self, session_id: int) -> bool:
+        """True when this session already has a Meet Your Team prompt row.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        return self._prompt_at_slide(session_id, MEET_TEAM_SLIDE_INDEX) is not None
+
+    def seed_meet_team_warmup(self, session_id: int) -> dict[str, Any] | None:
+        """Activate the session-ephemeral Meet Your Team MC.
+
+        Reuses the existing row (same rotated choices) when already seeded.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The upserted prompt row, or ``None`` when the session is missing.
+        """
+        if self.get_live_session(session_id) is None:
+            return None
+        existing = self._prompt_at_slide(session_id, MEET_TEAM_SLIDE_INDEX)
+        if existing is not None:
+            stored = existing.get("payload")
+            payload = (
+                stored
+                if isinstance(stored, dict) and is_meet_team_payload(stored)
+                else meet_team_prompt_payload()
+            )
+            return self.set_live_session_prompt(
+                session_id,
+                slide_index=MEET_TEAM_SLIDE_INDEX,
+                kind=MEET_TEAM_KIND,
+                payload=payload,
+                activate=True,
+            )
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=MEET_TEAM_SLIDE_INDEX,
+            kind=MEET_TEAM_KIND,
+            payload=meet_team_prompt_payload(),
+            activate=True,
+        )
+
+    def activate_meet_team_warmup_for_class(
+        self, class_id: int
+    ) -> dict[str, Any] | None:
+        """Clear waiting-room Minds-On and seed the Meet Your Team warm-up.
+
+        Staff Generate teams / Meet Teams path. No-op when the class has
+        no active live session.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The seeded prompt row, or ``None`` when skipped.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return None
+        session_id = int(live["id"])
+        self.clear_waiting_room_minds_on(session_id)
+        return self.seed_meet_team_warmup(session_id)
+
+    def clear_meet_team_warmup(self, session_id: int) -> None:
+        """Deactivate the Meet Your Team warm-up when Team Challenge starts.
+
+        Writes an inactive sentinel when the warm-up was never seeded so a
+        later poll cannot treat the session as still in Meet Teams.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        active = self.get_active_live_prompt(session_id)
+        if active and is_meet_team_payload(active.get("payload")):
+            self.clear_active_live_prompt(session_id)
+            return
+        if self._meet_team_row_exists(session_id):
+            return
+        if self.get_live_session(session_id) is None:
+            return
+        self.set_live_session_prompt(
+            session_id,
+            slide_index=MEET_TEAM_SLIDE_INDEX,
+            kind=MEET_TEAM_KIND,
+            payload=meet_team_prompt_payload(),
+            activate=False,
+        )
+
+    def clear_meet_team_warmup_for_class(self, class_id: int) -> None:
+        """Deactivate Meet Your Team on the class's active live session.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return
+        self.clear_meet_team_warmup(int(live["id"]))
+
+    def clear_session_warmups(self, session_id: int) -> None:
+        """Drop Minds-On and Meet Your Team when Team Challenge starts.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        self.clear_waiting_room_minds_on(session_id)
+        self.clear_meet_team_warmup(session_id)
+
+    def clear_session_warmups_for_class(self, class_id: int) -> None:
+        """Drop ephemeral warm-ups on the class's active live session.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return
+        self.clear_session_warmups(int(live["id"]))
 
     def get_live_prompt_response(
         self,
@@ -6119,6 +6312,10 @@ class SchoolDB(LovesDB):
         raw_payload = dict(prompt.get("payload") or {})
         if is_minds_on_payload(raw_payload) and not waiting_room:
             return empty
+        if is_meet_team_payload(raw_payload) and self._session_challenge_started(
+            session_id
+        ):
+            return empty
         if is_c1_cons_payload(raw_payload):
             media = self.live_session_active_media_payload(session_id)
             if not media or not media.get("frozen") or not is_c1_real_slice(media):
@@ -6282,7 +6479,7 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         if payload is not None or challenge_clears_active_media(challenge):
-            self.clear_waiting_room_minds_on(session_id)
+            self.clear_session_warmups(session_id)
         self._sync_c1_cons_prompt(session_id, payload)
         return payload
 
