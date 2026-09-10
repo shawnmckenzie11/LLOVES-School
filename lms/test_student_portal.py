@@ -121,6 +121,9 @@ class StudentPortalTests(unittest.TestCase):
 
         home = self.student.get("/student/home")
         self.assertEqual(home.status_code, 200)
+        home_html = home.get_data(as_text=True)
+        self.assertIn("Waiting room — class is about to begin.", home_html)
+        self.assertNotIn("Waiting for your teacher to start scoring.", home_html)
 
         state = self.student.get("/api/student/state")
         self.assertEqual(state.status_code, 200)
@@ -355,7 +358,7 @@ class StudentPortalTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(second.status_code, 409)
-        self.assertIn("already signed in", second.get_data(as_text=True).lower())
+        self.assertIn("already in class", second.get_data(as_text=True).lower())
         still = self.school.list_live_session_attendees(
             self.live_session_id, present_only=True
         )
@@ -386,7 +389,212 @@ class StudentPortalTests(unittest.TestCase):
             self.live_session_id, present_only=True
         )
         self.assertEqual(len(second), 1)
-        self.assertNotEqual(str(second[0]["visit_token"]), first_token)
+        self.assertEqual(str(second[0]["visit_token"]), first_token)
+        self.assertEqual(
+            str(second[0]["participant_uuid"]),
+            str(
+                self.school.list_live_session_attendees(self.live_session_id)[0][
+                    "participant_uuid"
+                ]
+            ),
+        )
+
+    def test_join_mints_stable_uuid_and_token(self) -> None:
+        """One logical person keeps the same uuid and rejoin token on refresh."""
+        from student_portal import REJOIN_COOKIE_NAME
+
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        first = self.school.list_live_session_attendees(self.live_session_id)[0]
+        uuid1 = str(first["participant_uuid"])
+        token1 = str(first["visit_token"])
+        self.assertTrue(uuid1)
+        self.assertTrue(token1)
+
+        self.student.post("/student/mood", data={"mood": "good"})
+        home = self.student.get("/student/home", follow_redirects=False)
+        self.assertEqual(home.status_code, 200)
+        still = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(still), 1)
+        self.assertEqual(str(still[0]["visit_token"]), token1)
+        self.assertEqual(str(still[0]["participant_uuid"]), uuid1)
+
+        landing = self.student.get("/", follow_redirects=False)
+        self.assertEqual(landing.status_code, 302)
+        self.assertIn("/student/home", landing.headers.get("Location", ""))
+        self.assertTrue(self.student.get_cookie(REJOIN_COOKIE_NAME))
+
+        again = self.school.list_live_session_attendees(self.live_session_id)
+        self.assertEqual(str(again[0]["visit_token"]), token1)
+        self.assertEqual(str(again[0]["participant_uuid"]), uuid1)
+
+    def test_rejoin_cookie_cleared_when_session_ends(self) -> None:
+        """Ended sessions drop the httpOnly auto-resume cookie."""
+        from student_portal import REJOIN_COOKIE_NAME
+
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertTrue(self.student.get_cookie(REJOIN_COOKIE_NAME))
+        self.school.end_live_class_session(self.live_session_id)
+        landing = self.student.get("/", follow_redirects=False)
+        self.assertEqual(landing.status_code, 200)
+        self.assertIsNone(self.student.get_cookie(REJOIN_COOKIE_NAME))
+
+    def test_pagehide_script_does_not_leave(self) -> None:
+        """student-live-session.js heartbeats instead of leaving on pagehide."""
+        text = (LMS_DIR / "static" / "student-live-session.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('addEventListener("pagehide"', text)
+        self.assertIn("/api/student/heartbeat", text)
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.get("/student/home")
+        present = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(present), 1)
+
+    def test_heartbeat_stale_marks_left(self) -> None:
+        """Missed heartbeats set left_at; the same token can still resume."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET last_heartbeat_at = '2000-01-01T00:00:00'
+                WHERE live_session_id = ?
+                """,
+                (self.live_session_id,),
+            )
+            self.school.conn.commit()
+        state = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        self.assertEqual(state.status_code, 200)
+        payload = state.get_json()
+        self.assertEqual(payload["count"], 0)
+        self.assertTrue(payload["attendees"][0].get("left_at"))
+        beat = self.student.post("/api/student/heartbeat")
+        self.assertEqual(beat.status_code, 200)
+        present = self.school.list_live_session_attendees(
+            self.live_session_id, present_only=True
+        )
+        self.assertEqual(len(present), 1)
+
+    def test_guest_empty_name_uses_delight_copy(self) -> None:
+        """Allow guests with a blank name shows the Wonder empty-name line."""
+        toggle = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/guests",
+            json={"allow_unmatched_guests": True},
+        )
+        self.assertEqual(toggle.status_code, 200)
+        guest = self.app.test_client()
+        rv = guest.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": ""},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 401)
+        self.assertIn("First name only", rv.get_data(as_text=True))
+
+    def test_guest_flag_off_rejects_unmatched(self) -> None:
+        """Allow guests defaults off; unmatched names are rejected."""
+        other = self.app.test_client()
+        rv = other.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "River"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 401)
+        self.assertEqual(
+            len(self.school.list_live_session_attendees(self.live_session_id)),
+            0,
+        )
+
+    def test_guest_flag_on_mints_unmatched_uuid(self) -> None:
+        """Checked Allow guests mints a uuid and flags the overlay row."""
+        toggle = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/guests",
+            json={"allow_unmatched_guests": True},
+        )
+        self.assertEqual(toggle.status_code, 200)
+        self.assertTrue(toggle.get_json()["allow_unmatched_guests"])
+        guest = self.app.test_client()
+        rv = guest.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "River Smith"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("/student/home", rv.headers.get("Location", ""))
+        rows = self.school.list_live_session_attendees(self.live_session_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["codename"], "River")
+        self.assertTrue(int(rows[0]["unmatched"]))
+        self.assertTrue(rows[0]["participant_uuid"])
+        self.assertIn(rows[0]["student_id"], (None, 0, ""))
+        state = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        body = state.get_json()
+        attendee = body["attendees"][0]
+        self.assertTrue(attendee["unmatched"])
+        self.assertEqual(attendee["codename"], "River")
+        self.assertNotIn("visit_token", attendee)
+        dumped = state.get_data(as_text=True)
+        self.assertNotIn(str(rows[0]["visit_token"]), dumped)
+
+    def test_state_api_strips_rejoin_token(self) -> None:
+        """Staff overlay state must not leak visit_token / rejoin secrets."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        token = str(
+            self.school.list_live_session_attendees(self.live_session_id)[0][
+                "visit_token"
+            ]
+        )
+        state = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        payload = state.get_json()
+        self.assertNotIn("visit_token", payload.get("session") or {})
+        for row in payload["attendees"]:
+            self.assertNotIn("visit_token", row)
+        self.assertNotIn(token, state.get_data(as_text=True))
+
+    def test_name_collision_picker_without_last_names(self) -> None:
+        """Two roster first names collide into a picker of Codenames."""
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE students SET first_name = 'Alex' WHERE class_id = ?",
+                (self.class_id,),
+            )
+            self.school.game.conn.commit()
+        other = self.app.test_client()
+        rv = other.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Alex"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 409)
+        html = rv.get_data(as_text=True)
+        self.assertIn("More than one student", html)
+        self.assertIn("Maple", html)
+        self.assertIn("Aspen", html)
+        self.assertNotIn("last_display", html.lower())
 
 
 if __name__ == "__main__":

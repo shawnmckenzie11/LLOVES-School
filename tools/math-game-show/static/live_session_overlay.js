@@ -58,8 +58,10 @@ function presentAttendees(state) {
   return rows
     .filter((row) => !row?.left_at)
     .map((row) => ({
-      student_id: Number(row.student_id),
-      codename: String(row.codename || "").trim() || `Student ${row.student_id}`,
+      student_id: row.student_id == null ? null : Number(row.student_id),
+      participant_uuid: String(row.participant_uuid || ""),
+      unmatched: Boolean(row.unmatched),
+      codename: String(row.codename || "").trim() || (row.unmatched ? "Guest" : `Student ${row.student_id}`),
       mood: row.mood || null,
     }))
     .sort((a, b) => a.codename.localeCompare(b.codename, undefined, { sensitivity: "base" }));
@@ -115,8 +117,9 @@ function teamByStudentId(board) {
  */
 function rosterItemHtml(row) {
   const face = moodGlyph(row.mood);
+  const guest = row.unmatched ? ' <span class="live-guest-flag">guest</span>' : "";
   const label = face ? `${face} ${escapeHtml(row.codename)}` : escapeHtml(row.codename);
-  return `<li>${label}</li>`;
+  return `<li class="${row.unmatched ? "is-guest" : ""}">${label}${guest}</li>`;
 }
 
 /**
@@ -128,7 +131,7 @@ function paintRoster() {
   const teamMode = hasTeamScoreboard(lastBoard);
   const key = [
     teamMode ? "team" : "flat",
-    present.map((row) => `${row.student_id}:${row.codename}:${row.mood || ""}`).join("|"),
+    present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.mood || ""}:${row.unmatched ? "g" : ""}`).join("|"),
     teamMode
       ? (lastBoard?.teams || [])
           .map((t) => `${t.id}:${(t.players || []).map((p) => p.student_id).join(",")}`)

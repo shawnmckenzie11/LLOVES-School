@@ -158,7 +158,7 @@ function escapeText(value) {
  */
 function waitCopyFor(payload) {
   if (!payload.scoring) {
-    return { text: "Waiting for your teacher to start scoring." };
+    return { text: "Waiting room — class is about to begin." };
   }
   const kind = String(payload.round_kind || "").toLowerCase();
   if (kind === "break") {

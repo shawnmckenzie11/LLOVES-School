@@ -17,6 +17,7 @@ from flask import (
     Flask,
     current_app,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -38,8 +39,12 @@ from school_db import (
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT, public_brand
 from student_portal import (
     bind_student_session,
+    clear_rejoin_cookie,
     clear_student_session_keys,
     next_student_endpoint,
+    rejoin_token_from_cookie,
+    set_rejoin_cookie,
+    visit_token_from_request,
 )
 
 VERIFY_SEND_COOLDOWN_SEC = 15 * 60
@@ -209,6 +214,9 @@ def landing_kwargs(**extra: Any) -> dict[str, Any]:
         "one_tap_auto": False,
         "student_error": None,
         "oauth_ready": google_oauth_ready(),
+        "student_candidates": [],
+        "student_code": "",
+        "student_name": "",
     }
     ctx.update(extra)
     return ctx
@@ -426,9 +434,10 @@ def it_required(f: Callable) -> Callable:
 def student_required(f: Callable) -> Callable:
     """Require a student-code session (no Google).
 
-    Also allows a valid ``visit_token`` query param or
-    ``X-Student-Visit-Token`` header so multiple student tabs can coexist in
-    one browser without relying on the shared Flask session cookie alone.
+    Also allows a valid ``visit_token`` query param,
+    ``X-Student-Visit-Token`` header, or the httpOnly rejoin cookie so
+    multiple student tabs can coexist and refresh can auto-resume while the
+    live session is still active.
     """
 
     @wraps(f)
@@ -436,7 +445,9 @@ def student_required(f: Callable) -> Callable:
         from student_portal import visit_token_from_request
 
         token = visit_token_from_request()
-        if token and school_db().resolve_student_visit_token(token) is not None:
+        if token and school_db().resolve_student_visit_token(
+            token, allow_left=True
+        ) is not None:
             return f(*args, **kwargs)
         if not session.get("student_offering_id") and not session.get("student_class_id"):
             return redirect(url_for("landing"))
@@ -581,7 +592,19 @@ def _disconnect_student_live_if_bound() -> None:
     """Best-effort: mark the bound student left and wipe mood/character.
 
     No-op when the Flask session is not a live-session student join.
+    Explicit Leave / logout still set ``left_at``; tab close does not.
     """
+    from student_portal import visit_token_from_request
+
+    token = visit_token_from_request() or session.get("student_visit_token")
+    if token:
+        try:
+            school_db().disconnect_live_session_by_visit_token(
+                str(token), clear_mood=True
+            )
+        except Exception:  # noqa: BLE001 - disconnect must never block logout
+            return
+        return
     live_session_id = session.get("student_live_session_id")
     student_id = session.get("student_id")
     if not live_session_id or not student_id:
@@ -815,7 +838,9 @@ def register_auth_routes(app: Flask) -> None:
         """Clear staff, IT, and student sessions."""
         _disconnect_student_live_if_bound()
         session.clear()
-        return redirect(url_for("landing"))
+        resp = redirect(url_for("landing"))
+        clear_rejoin_cookie(resp)
+        return resp
 
     @app.route("/auth/google/slides")
     @login_required
@@ -956,7 +981,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/api/student/leave", methods=["POST"])
     def api_student_leave():
-        """Best-effort student disconnect (tab close / End Game client path).
+        """Explicit student Leave (not tab close / refresh).
 
         Sets ``left_at`` and wipes mood/character for the bound live session
         attendee. Safe to call with sendBeacon; always returns 204 when the
@@ -968,24 +993,50 @@ def register_auth_routes(app: Flask) -> None:
 
         Only clears student session keys when the cookie matches that token
         so a same-browser staff login (used during local testing) is not
-        wiped by a student tab close/beacon.
+        wiped by a student tab close/beacon. Also clears the httpOnly rejoin
+        cookie so landing does not auto-resume after an explicit Leave.
         """
-        from flask import Response
+        from flask import Response, make_response
 
         from student_portal import visit_token_from_request
 
         token = visit_token_from_request()
+        cookie_token = rejoin_token_from_cookie()
         if token:
             school_db().disconnect_live_session_by_visit_token(
                 token, clear_mood=True
             )
             if session.get("student_visit_token") == token:
                 clear_student_session_keys(session)
-            return Response(status=204)
+            resp = make_response("", 204)
+            if cookie_token == token:
+                clear_rejoin_cookie(resp)
+            return resp
 
         _disconnect_student_live_if_bound()
         clear_student_session_keys(session)
-        return Response(status=204)
+        resp = make_response("", 204)
+        clear_rejoin_cookie(resp)
+        return resp
+
+    @app.route("/api/student/heartbeat", methods=["POST"])
+    def api_student_heartbeat():
+        """Keep a live attendee present (~10s client beat).
+
+        Does not set ``left_at``. Stale attendees are swept on this call and
+        on staff overlay polls.
+        """
+        from flask import jsonify
+
+        from student_portal import visit_token_from_request
+
+        token = visit_token_from_request()
+        if not token:
+            return jsonify({"ok": False, "error": "Missing visit token."}), 401
+        attendee = school_db().touch_live_session_heartbeat(token)
+        if attendee is None:
+            return jsonify({"ok": False, "error": "Session ended.", "redirect": url_for("landing")}), 401
+        return jsonify({"ok": True, "present": True})
 
     @app.route("/auth/student-code", methods=["POST"])
     def auth_student_code():
@@ -1012,7 +1063,11 @@ def register_auth_routes(app: Flask) -> None:
         payload = request.get_json(silent=True) or {}
         raw = request.form.get("code") or payload.get("code") or ""
         name = (request.form.get("name") or payload.get("name") or "").strip()
+        chosen_id_raw = (
+            request.form.get("student_id") or payload.get("student_id") or ""
+        )
         code = str(raw).strip().upper()
+        resume_token = visit_token_from_request() or rejoin_token_from_cookie()
 
         no_session_msg = (
             "No live class is running right now. Ask your teacher to start "
@@ -1022,31 +1077,62 @@ def register_auth_routes(app: Flask) -> None:
             "Double-check the code with your teacher, or make sure your "
             "username matches the roster for this course."
         )
+        pick_msg = "More than one student matches that name. Pick yours."
 
-        def _fail(msg: str, status: int = 401):
+        def _fail(
+            msg: str,
+            status: int = 401,
+            *,
+            candidates: list[dict[str, Any]] | None = None,
+        ):
             """Record a failed join toward the IP rate limit, then return error."""
             db.record_code_attempt(ip)
+            extra: dict[str, Any] = {}
+            if candidates:
+                extra["candidates"] = candidates
             if request.is_json:
-                return jsonify({"ok": False, "error": msg}), status
+                body = {"ok": False, "error": msg, **extra}
+                return jsonify(body), status
             return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
+                "landing.html",
+                **landing_kwargs(
+                    student_error=msg,
+                    student_candidates=candidates or [],
+                    student_code=code,
+                    student_name=name,
+                ),
             ), status
 
         if not db.has_active_live_sessions():
             return _fail(no_session_msg)
 
-        if not name:
-            return _fail("Enter the name on your class roster.")
+        if not name and not resume_token:
+            peek = db.get_active_live_session_by_code(code) if code else None
+            if peek is not None and db.live_session_allows_unmatched_guests(
+                int(peek["id"])
+            ):
+                return _fail("First name only — then you’re in.")
+            return _fail("Enter the first name or Codename on your class roster.")
 
-        live_session = db.get_active_live_session_by_code(code)
+        from school_db import first_name_only
+
+        display_name = first_name_only(name)
+
+        live_session = None
+        if code:
+            live_session = db.get_active_live_session_by_code(code)
+        if live_session is None and resume_token:
+            resolved = db.resolve_student_visit_token(
+                resume_token, allow_left=True
+            )
+            if resolved is not None:
+                live_session = resolved["session"]
+                if not display_name:
+                    display_name = first_name_only(
+                        str(resolved["attendee"].get("codename") or "")
+                    )
         if live_session is None:
-            return _fail(mismatch_msg)
-
-        student = db.find_roster_student_for_live_session(
-            int(live_session["id"]), name
-        )
-        if student is None:
-            return _fail(mismatch_msg)
+            return _fail(mismatch_msg if name else no_session_msg)
 
         class_id = int(live_session["class_id"])
         try:
@@ -1063,20 +1149,67 @@ def register_auth_routes(app: Flask) -> None:
         if offering is None:
             return _fail(mismatch_msg)
 
+        matches = db.list_roster_matches_for_live_session(
+            int(live_session["id"]), display_name
+        )
+        chosen_id = None
+        try:
+            if str(chosen_id_raw).strip():
+                chosen_id = int(chosen_id_raw)
+        except (TypeError, ValueError):
+            chosen_id = None
+        student = None
+        unmatched = False
+        if chosen_id is not None:
+            student = next(
+                (row for row in matches if int(row["id"]) == chosen_id),
+                None,
+            )
+            if student is None:
+                return _fail(pick_msg if matches else mismatch_msg)
+        elif len(matches) > 1:
+            labels = db.disambiguated_roster_labels(matches)
+            return _fail(pick_msg, 409, candidates=labels)
+        elif len(matches) == 1:
+            student = matches[0]
+        elif db.live_session_allows_unmatched_guests(int(live_session["id"])):
+            unmatched = True
+            if not display_name:
+                return _fail("First name only — then you’re in.")
+        else:
+            return _fail(mismatch_msg)
+
+        join_name = first_name_only(
+            str((student or {}).get("codename") or display_name)
+        )
         try:
             join_result = db.join_live_class_session(
                 int(live_session["id"]),
-                int(student["id"]),
-                codename=str(student.get("codename") or name),
+                int(student["id"]) if student is not None else None,
+                codename=join_name,
+                visit_token=resume_token,
+                unmatched=unmatched,
             )
         except ValueError as exc:
-            msg = str(exc) or "This name is already signed in to the live class."
+            msg = str(exc) or (
+                "That name’s already in class. If it’s you, reopen the "
+                "tab that’s still open — or wait a beat and try again."
+            )
             if request.is_json:
                 return jsonify({"ok": False, "error": msg}), 409
             return render_template(
-                "landing.html", **landing_kwargs(student_error=msg)
+                "landing.html",
+                **landing_kwargs(
+                    student_error=msg,
+                    student_code=code,
+                    student_name=name,
+                ),
             ), 409
         db.clear_recent_code_attempts(ip)
+        attendee = join_result.get("attendee") or {}
+        visit_token = str(attendee.get("visit_token") or "")
+        participant_uuid = str(attendee.get("participant_uuid") or "")
+        sid = attendee.get("student_id")
         try:
             db.record_access_event(
                 action="student.join",
@@ -1084,28 +1217,36 @@ def register_auth_routes(app: Flask) -> None:
                 actor_role="student",
                 tenant_id=db.tenant_id_of(offering),
                 resource_id=int(live_session["id"]),
-                student_id=int(student["id"]),
+                student_id=int(sid) if sid not in (None, "") else None,
                 ip=ip,
             )
         except Exception:  # noqa: BLE001 - join must not fail on audit write
             pass
-        attendee = join_result.get("attendee") or {}
-        visit_token = str(attendee.get("visit_token") or "")
+        guest_student = student or {
+            "id": None,
+            "codename": join_name,
+            "first_name": join_name,
+        }
         bind_student_session(
             session,
             offering,
             cls,
-            student,
+            guest_student,
             live_session_id=int(live_session["id"]),
             session_code=str(live_session.get("session_code") or code),
             visit_token=visit_token,
+            participant_uuid=participant_uuid,
+            unmatched=unmatched or bool(int(attendee.get("unmatched") or 0)),
         )
         from student_portal import student_url_with_token
 
         endpoint = next_student_endpoint(
             db,
             class_id,
-            int(student["id"]),
+            int(sid) if sid not in (None, "") else None,
             visit_token=visit_token,
+            unmatched=unmatched or bool(int(attendee.get("unmatched") or 0)),
         )
-        return redirect(student_url_with_token(endpoint, visit_token))
+        resp = redirect(student_url_with_token(endpoint, visit_token))
+        set_rejoin_cookie(resp, visit_token)
+        return resp

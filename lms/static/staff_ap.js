@@ -65,10 +65,13 @@ let roundEndsAtMs = 0;
 let liveStamp = "";
 let pendingScoreboard = false;
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
+let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
 /** C2/C3 are text-only: never stored in active_media_json. */
 let textOnlyChallenge = "";
 let sessionPresentIds = new Set();
+/** Unmatched guests currently present in the live session. */
+let sessionGuests = [];
 /** @type {Set<number>} */
 let sessionLateIds = new Set();
 let scoringLocked = false;
@@ -314,6 +317,83 @@ function setJoinStripVisible(show) {
 }
 
 /**
+ * Normalize a live join code for display and clipboard copy.
+ * @param {unknown} code
+ * @returns {string}
+ */
+function copyableJoinCode(code) {
+  return String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+/**
+ * Pull a session join code from a live-session API payload.
+ * @param {any} payload
+ * @returns {string}
+ */
+function joinCodeFromPayload(payload) {
+  return copyableJoinCode(
+    payload?.code ||
+      payload?.session?.session_code ||
+      payload?.live_session?.session_code ||
+      ""
+  );
+}
+
+/**
+ * Show or hide the in-tab join-code billboard while a session is active.
+ * @param {unknown} code
+ * @param {{ ended?: boolean }} [opts]
+ */
+function paintJoinBillboard(code, opts = {}) {
+  const board = $("ap-join-billboard");
+  const codeEl = $("ap-join-billboard-code");
+  const raw = opts.ended ? "" : copyableJoinCode(code);
+  const show = Boolean(raw) && !opts.ended;
+  if (codeEl) codeEl.textContent = show ? raw : "····";
+  if (board) board.hidden = !show;
+  if (root && show) root.dataset.liveCode = raw;
+  else if (root && !show) delete root.dataset.liveCode;
+  if (!show) {
+    const copied = $("ap-join-billboard-copied");
+    if (copied) copied.hidden = true;
+  }
+}
+
+/**
+ * Copy the in-tab join code and flash brief confirmation.
+ * @returns {Promise<void>}
+ */
+async function copyJoinBillboardCode() {
+  const code = copyableJoinCode($("ap-join-billboard-code")?.textContent || "");
+  if (!code || code === "····" || code === "—") return;
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = code;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    document.body.appendChild(area);
+    area.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      area.remove();
+    }
+  }
+  const copied = $("ap-join-billboard-copied");
+  const btn = $("ap-join-billboard-copy");
+  if (copied) copied.hidden = false;
+  if (btn) btn.textContent = "Copied";
+  if (joinBillboardCopyTimer) window.clearTimeout(joinBillboardCopyTimer);
+  joinBillboardCopyTimer = window.setTimeout(() => {
+    if (copied) copied.hidden = true;
+    if (btn) btn.textContent = "Copy";
+  }, 1600);
+}
+
+/**
  * Stop polling live-session attendees.
  */
 function stopLiveSessionPolling() {
@@ -369,11 +449,22 @@ async function pollLiveSessionAttendees() {
   try {
     const payload = await api(`/api/live-sessions/${id}/state`);
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
+      paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
       return;
     }
+    paintJoinBillboard(joinCodeFromPayload(payload));
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
+    const guests = present.filter((row) => Boolean(row.unmatched) || row.student_id == null);
+    sessionGuests = guests.map((row) => ({
+      participant_uuid: String(row.participant_uuid || ""),
+      codename: String(row.codename || "Guest").trim() || "Guest",
+      unmatched: true,
+    }));
+    syncAllowGuestsCheckbox(
+      payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
+    );
     await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
@@ -716,6 +807,18 @@ function bindActiveMediaControls() {
 }
 
 /**
+ * Keep the Allow guests checkbox in sync with the live session row.
+ * @param {unknown} raw
+ */
+function syncAllowGuestsCheckbox(raw) {
+  const box = $("ap-allow-guests");
+  const chip = $("ap-guest-on-chip");
+  const on = raw === true || raw === 1 || raw === "1" || String(raw).toLowerCase() === "true";
+  if (box) box.checked = on;
+  if (chip) chip.hidden = !on;
+}
+
+/**
  * Clear leftover MGS live/setup so Mark Attendance can open for a live session.
  * Always preserves the live_class_sessions row — never ends the join code.
  */
@@ -820,6 +923,8 @@ async function ensureLiveSessionMinted(opts = {}) {
     if (root && liveSessionId) {
       root.dataset.liveSessionId = String(liveSessionId);
     }
+    const mintedCode = joinCodeFromPayload(res);
+    if (mintedCode) paintJoinBillboard(mintedCode);
     if (liveSessionId) {
       const url = new URL(window.location.href);
       url.searchParams.set("tab", "live");
@@ -1163,6 +1268,14 @@ function renderAttendanceList() {
     row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
     list.appendChild(row);
   }
+  for (const guest of sessionGuests) {
+    const row = document.createElement("div");
+    row.className = "ap-att-row is-present is-guest";
+    row.dataset.participantUuid = guest.participant_uuid;
+    row.setAttribute("aria-pressed", "true");
+    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">✓</span><span class="ap-att-name">${escapeHtml(guest.codename)} <span class="ap-guest-flag">guest</span></span>`;
+    list.appendChild(row);
+  }
   updateAttCount();
 }
 
@@ -1171,7 +1284,7 @@ function renderAttendanceList() {
  */
 function updateAttCount() {
   const el = $("ap-att-count");
-  if (el) el.textContent = `Attendance: ${selectedPresent().length}`;
+  if (el) el.textContent = `Attendance: ${selectedPresent().length + sessionGuests.length}`;
 }
 
 /**
@@ -1433,6 +1546,23 @@ document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   btn.addEventListener("click", () => cancelOverlay());
 });
 
+$("ap-allow-guests")?.addEventListener("change", async (event) => {
+  const box = event.currentTarget;
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return;
+  const allowed = Boolean(box?.checked);
+  try {
+    const payload = await api(`/api/live-sessions/${id}/guests`, {
+      method: "POST",
+      body: JSON.stringify({ allow_unmatched_guests: allowed }),
+    });
+    syncAllowGuestsCheckbox(payload?.allow_unmatched_guests);
+  } catch (err) {
+    if (box) box.checked = !allowed;
+    showError("#ap-overlay-error", err);
+  }
+});
+
 $("ap-att-log")?.addEventListener("click", async () => {
   try {
     await withValidatedDate(sessionIso(), (d) => submitLogParticipation(d));
@@ -1493,6 +1623,23 @@ $("ap-open-overlay")?.addEventListener("click", (event) => {
   event.preventDefault();
   const reservedWin = reserveLiveSessionOverlay();
   ensureLiveSessionOverlay(reservedWin);
+});
+
+$("ap-join-billboard-copy")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  copyJoinBillboardCode();
+});
+
+$("ap-join-billboard-code")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  copyJoinBillboardCode();
+});
+
+$("ap-join-billboard-code")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    copyJoinBillboardCode();
+  }
 });
 
 $("ap-gamify-yes")?.addEventListener("click", () => {
@@ -2722,6 +2869,7 @@ setMeetMinutes(3);
 
 if (root?.dataset.apView === "live") {
   bindActiveMediaControls();
+  paintJoinBillboard(root.dataset.liveCode || "");
   (async () => {
     const resumed = await resumeLiveClassIfNeeded();
     if (!resumed) {
