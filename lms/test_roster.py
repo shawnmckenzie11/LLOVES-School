@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -596,6 +597,48 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(updated.get_json()["weights"]["participation"], 20.0)
         again = self.client.get(f"/api/classes/{class_id}/grade-weights")
         self.assertEqual(again.get_json()["weights"]["term"], 55.0)
+
+    def test_staff_home_js_parses(self) -> None:
+        """Staff home module must parse or Populate Class clicks never bind."""
+        script = LMS_DIR / "static" / "staff_home.js"
+        result = subprocess.run(
+            ["node", "--check", str(script)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = script.read_text(encoding="utf-8")
+        self.assertIn('classList.contains("btn-populate")', source)
+        # Guard the merge leftover that broke initPackProgress (extra tick + }).
+        self.assertEqual(source.count("initPackProgress();"), 1)
+        self.assertNotIn("    tick();\n  });\n    tick();", source)
+
+    def test_populate_class_works_without_module_pack(self) -> None:
+        """IT can assign MCF3M with no pack; teacher can still Populate Class."""
+        self.assertIsNone(self.offering.get("library_id"))
+        home = self.client.get("/staff")
+        self.assertEqual(home.status_code, 200)
+        html = home.get_data(as_text=True)
+        self.assertIn("<span>Populate Class</span>", html)
+        self.assertIn('class="course-action btn-populate secondary"', html)
+        self.assertNotIn("btn-populate secondary is-disabled", html)
+        status = self.client.get(
+            f"/staff/offerings/{self.offering['id']}/module-pack/status"
+        ).get_json()
+        self.assertFalse(status.get("busy"))
+        self.assertEqual(status.get("badge"), "No pack")
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json().get("ok"))
 
     def test_staff_home_populate_vs_edit(self) -> None:
         """Empty offerings say Populate Class; existing sections say Edit Roster."""

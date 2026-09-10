@@ -291,6 +291,51 @@ class ItTests(unittest.TestCase):
         self.assertEqual(offering["live_days"], "T/Th/F")
         self.assertEqual(offering["live_time"], "10:40am")
 
+    def test_assign_without_upload_still_lets_teacher_populate(self) -> None:
+        """Admin can assign MCF3M with no file; teacher Populate Class still works."""
+        self.school.activate_from_semester_json()
+        self._ensure_library("MCF3M")
+        self._login_it()
+        staff = self.school.register_staff("nopack@gmail.com")
+        rv = self.client.post(
+            f"/it/staff/{int(staff['id'])}/assign",
+            data={
+                "ontario_code": "MCF3M",
+                "live_days": "M/W/F",
+                "live_time": "2:00pm",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 302)
+        offering = self.school.get_offering_for(
+            int(self.school.get_active_semester()["id"]),
+            "MCF3M",
+            int(staff["id"]),
+        )
+        assert offering is not None
+        self.client.get("/logout")
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=nopack@gmail.com&name=NoPack")
+        user = self.school.get_user_by_email("nopack@gmail.com")
+        assert user is not None
+        self.client.post("/verify-email", data={"code": user["verification_code"]})
+        home = self.client.get("/staff")
+        self.assertEqual(home.status_code, 200)
+        html = home.get_data(as_text=True)
+        self.assertIn("<span>Populate Class</span>", html)
+        self.assertIn("btn-populate", html)
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": int(offering["id"]),
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json().get("ok"))
+
     def test_populate_uses_admin_schedule_over_body(self) -> None:
         """Staff populate ignores client days/time when Admin locked the schedule."""
         self.school.activate_from_semester_json()

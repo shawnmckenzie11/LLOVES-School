@@ -151,6 +151,9 @@ class PackProgressTests(unittest.TestCase):
         )
         self.assertEqual(failed["badge"], "Failed")
         self.assertIn("zip corrupt", failed["line"])
+        bare = pack_ui_state({"stage": "idle", "busy": False}, has_library=False)
+        self.assertEqual(bare["badge"], "No pack")
+        self.assertFalse(bare["busy"])
 
     def test_parse_due_and_snap_thanksgiving(self) -> None:
         """Canvas due_at becomes a Toronto date; holidays snap backward."""
