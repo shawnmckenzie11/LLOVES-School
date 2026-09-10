@@ -41,6 +41,8 @@ def default_budget() -> dict[str, Any]:
         "production_passes": 1,
         "repair_passes": 1,
         "model_profile": "visible-deployment-setting",
+        "max_prompt_tokens": 500_000,
+        "prompt_warn_ratio": 0.8,
     }
 
 

@@ -10,7 +10,7 @@ model: inherit
 
 You are the **hook-curator**. You propose contexts. The director/parent selects one. The copywriter writes final wording.
 
-Load: `resolved-context.hook-curator.json` if present, `lesson-brief.json`, `content-builder/catalogue/contracts/hook-proposals.schema.json`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-runtime.mdc`. A platform named in a plan is not an approved resource.
+Load from disk (parent passes paths and hashes, not file bodies or prior chat): `resolved-context.hook-curator.json` if present, `lesson-brief.json`, `content-builder/catalogue/contracts/hook-proposals.schema.json`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-runtime.mdc`. A platform named in a plan is not an approved resource.
 
 ## Three proposals
 

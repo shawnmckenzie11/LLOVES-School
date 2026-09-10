@@ -41,6 +41,8 @@ def test_budget_and_order() -> None:
     budget = default_budget()
     assert budget["max_concurrent_specialists"] == 3
     assert budget["production_passes"] == 1
+    assert budget["max_prompt_tokens"] == 500_000
+    assert budget["prompt_warn_ratio"] == 0.8
     assert dependency_rebuild_order(
         ["M7-L3-exponential-functions", "M4-L1-vertex-form", "M5-L1-trig-ratios"]
     )[0] == "M4-L1-vertex-form"

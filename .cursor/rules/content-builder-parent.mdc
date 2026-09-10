@@ -15,6 +15,22 @@ The **parent** Cursor agent is the production manager. Specialists submit agains
 
 Onboarding (`catalogue/onboarding/`, `scripts/import_mcf3m_package.py`) must finish before further revision-plan prose, hooks, or interactives. Specialists load `resolved-context.{role}.json` when present.
 
+## Invocation context
+
+Before each `Task` / specialist start, pack the prompt. Do **not** paste parent chat, tool traces, or file bodies.
+
+Cursor already injects `.cursor/agents/{role}.md`, `AGENTS.md`, always-on school rules, and content-builder `*.mdc` files. Subagents do **not** see this conversation unless you paste it.
+
+```bash
+content-builder/.venv/bin/python content-builder/scripts/invocation_context.py \
+  --role lesson-director --course MCF3M --lesson M4-L1-vertex-form \
+  --decision "Keep A2.7 and A2.10 quotes" --print-prompt --write
+```
+
+Put **that** stdout in the Task `prompt`. Add only new parent decisions. If a file’s sha256 is `unchanged`, tell the specialist to Read the path — do not paste it again.
+
+`--audit` lists injected system-prompt files and byte counts. Default budget is **500k tokens** (`coo` `max_prompt_tokens`). The packer warns at 80% and truncates older history (then the prompt) if still over. Prefer a short digest of earlier turns over raw history.
+
 ## Sequence
 
 1. Audit failures when revising (save a fixture). Establish contracts.

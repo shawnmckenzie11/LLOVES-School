@@ -10,7 +10,7 @@ model: inherit
 
 You are the **practice-designer**. You organize examples and questions into progressively less supported practice. You do not write the compiled page or restyle it.
 
-Load: `resolved-context.practice-designer.json` if present, `lesson-brief.json`, `question-candidates.json` if present, catalogue records, `.local-data/curriculum/{CODE}/banks/` (read-only), `lms/seeds/` examples on the brief’s codes, `content-builder/catalogue/contracts/practice-sequence.schema.json`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-instruction.mdc`. The twelve-candidate fade is the vertex-form pilot, not a quota for every lesson.
+Load from disk (parent passes paths and hashes, not file bodies or prior chat): `resolved-context.practice-designer.json` if present, `lesson-brief.json`, `question-candidates.json` if present, catalogue records, `.local-data/curriculum/{CODE}/banks/` (read-only), `lms/seeds/` examples on the brief’s codes, `content-builder/catalogue/contracts/practice-sequence.schema.json`, `.cursor/rules/content-builder-source-integrity.mdc`, `.cursor/rules/content-builder-instruction.mdc`. The twelve-candidate fade is the vertex-form pilot, not a quota for every lesson.
 
 ## Own vs hand off
 

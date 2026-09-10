@@ -57,7 +57,7 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 
 ## Math content builder (isolated)
 
-Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent integrates.** Do not mix with `lms/` or the LMS sqlite. Contracts: `content-builder/catalogue/contracts/`. Copywriter owns wording; director owns coherence; engineer implements specs.
+Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent integrates.** Do not mix with `lms/` or the LMS sqlite. Contracts: `content-builder/catalogue/contracts/`. Copywriter owns wording; director owns coherence; engineer implements specs. Before each specialist `Task`, pack the prompt with `content-builder/scripts/invocation_context.py` (paths + hashes, 500k token cap) — do not paste file bodies or this chat.
 
 | Specialist | Path | Output |
 |-------|------|----------|

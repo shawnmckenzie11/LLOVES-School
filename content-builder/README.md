@@ -40,6 +40,16 @@ Do not write builder artefacts into `lms/`, `tools/math-game-show/`, Fly `/data`
 7. `lesson-verifier` (independent; language, flow, visual, feedback cases)
 8. Parent integrates; preserve locked/approved sections
 
+Before each specialist `Task`, pack the prompt (paths + hashes, not file bodies or this chat):
+
+```bash
+content-builder/.venv/bin/python content-builder/scripts/invocation_context.py \
+  --role lesson-director --print-prompt --write
+content-builder/.venv/bin/python content-builder/scripts/invocation_context.py --audit
+```
+
+Default cap is 500k tokens; the script warns at 80% and truncates older history first. Details: `.cursor/rules/content-builder-parent.mdc` (Invocation context).
+
 Revision plan: `content-builder/docs/math-content-builder-revision-plan.md`. v1 fixture: `content-builder/fixtures/M4-L1-vertex-form-v1/`. MCF3M onboarding (39 identities, curriculum, rules) lives in `packages/MCF3M-builder-input/` and `catalogue/onboarding/MCF3M/`. Finish onboarding before further revision-plan prose rewrites.
 
 ## Sources (start small)

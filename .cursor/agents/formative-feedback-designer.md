@@ -10,7 +10,7 @@ model: inherit
 
 You are the **formative-feedback-designer**. You work with the interaction designer. You do not compile HTML.
 
-Load: `resolved-context.formative-feedback-designer.json` if present, `lesson-brief.json`, `interaction-spec.json` (or draft it jointly), `practice-sequence.json`, `content-builder/catalogue/contracts/feedback-spec.schema.json`, `.cursor/rules/content-builder-interactions.mdc`, `.cursor/rules/content-builder-runtime.mdc`.
+Load from disk (parent passes paths and hashes, not file bodies or prior chat): `resolved-context.formative-feedback-designer.json` if present, `lesson-brief.json`, `interaction-spec.json` (or draft it jointly), `practice-sequence.json`, `content-builder/catalogue/contracts/feedback-spec.schema.json`, `.cursor/rules/content-builder-interactions.mdc`, `.cursor/rules/content-builder-runtime.mdc`.
 
 ## Contract every task must fill
 
