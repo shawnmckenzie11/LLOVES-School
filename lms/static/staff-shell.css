@@ -1080,6 +1080,32 @@ body.staff-shell .ap-media-preview {
 body.staff-shell #ap-media-swap-wrap[hidden] {
   display: none !important;
 }
+body.staff-shell .ap-guest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.65rem 0 0.2rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+body.staff-shell .ap-guest-toggle input {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+body.staff-shell .ap-guest-flag {
+  display: inline-block;
+  margin-left: 0.3rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #1a1204;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+body.staff-shell .ap-att-row.is-guest {
+  border-left: 3px solid #f59e0b;
+}
 body.staff-shell button.linkish {
   appearance: none;
   border: 0;

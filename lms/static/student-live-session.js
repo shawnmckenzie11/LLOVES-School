@@ -1,44 +1,16 @@
 /**
- * Student live-session disconnect: tab close / unload best-effort leave.
+ * Student live-session presence: heartbeat while the tab is open.
  *
- * Runs only on ``/student/home`` so mood/join tabs do not disconnect siblings.
- * Sends the per-tab visit token so other student tabs in the same browser stay
- * connected.
+ * Runs only on ``/student/home``. Tab close/refresh no longer leaves — a
+ * ~10s heartbeat (plus staff overlay sweep) sets ``left_at`` after missed
+ * beats. Explicit Leave still posts ``/api/student/leave``.
  */
 (function () {
   if (!document.body || !document.body.classList.contains("student-home")) {
     return;
   }
 
-  var leaving = false;
-  var internalNav = false;
-
-  /**
-   * Mark the next unload as an in-app student-portal navigation.
-   */
-  function markInternalNav() {
-    internalNav = true;
-  }
-
-  document.addEventListener("submit", markInternalNav, true);
-  document.addEventListener(
-    "click",
-    function (event) {
-      var target = event.target;
-      if (!target || !target.closest) return;
-      var link = target.closest("a[href]");
-      if (!link) return;
-      try {
-        var url = new URL(link.href, window.location.href);
-        if (url.origin === window.location.origin && url.pathname.indexOf("/student") === 0) {
-          markInternalNav();
-        }
-      } catch (_err) {
-        /* ignore bad hrefs */
-      }
-    },
-    true
-  );
+  var HEARTBEAT_MS = 10000;
 
   /**
    * Resolve visit token via shared helper when loaded after student-visit-token.js.
@@ -52,24 +24,16 @@
   }
 
   /**
-   * Fire a one-shot leave beacon for this tab's attendee only.
+   * POST a presence heartbeat for this tab's attendee.
    */
-  function leaveLiveSession() {
-    if (leaving || internalNav) return;
-    leaving = true;
-    var url = "/api/student/leave";
+  function sendHeartbeat() {
+    var url = "/api/student/heartbeat";
     var token = visitToken();
     var body = JSON.stringify({ visit_token: token });
     try {
-      if (navigator.sendBeacon && token) {
-        if (
-          navigator.sendBeacon(
-            url,
-            new Blob([body], { type: "application/json" })
-          )
-        ) {
-          return;
-        }
+      if (navigator.sendBeacon && token && document.visibilityState === "hidden") {
+        navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+        return;
       }
     } catch (_err) {
       /* fall through */
@@ -91,5 +55,12 @@
     }
   }
 
-  window.addEventListener("pagehide", leaveLiveSession);
+  sendHeartbeat();
+  window.setInterval(sendHeartbeat, HEARTBEAT_MS);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      sendHeartbeat();
+    }
+  });
+  window.addEventListener("pageshow", sendHeartbeat);
 })();

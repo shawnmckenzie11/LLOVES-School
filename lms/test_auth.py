@@ -381,6 +381,11 @@ class AuthTests(unittest.TestCase):
             int(live["id"]), present_only=True
         )
         self.assertEqual(len(attendees), 1)
+        self.assertTrue(attendees[0].get("participant_uuid"))
+        self.assertTrue(attendees[0].get("visit_token"))
+        from student_portal import REJOIN_COOKIE_NAME
+
+        self.assertTrue(self.client.get_cookie(REJOIN_COOKIE_NAME))
 
     def test_student_code_rate_limit(self) -> None:
         """More than 5 *failed* joins per IP in 10 minutes is 429."""

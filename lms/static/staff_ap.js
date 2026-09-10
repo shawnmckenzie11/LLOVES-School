@@ -69,6 +69,8 @@ let sessionPollTimer = null;
 /** C2/C3 are text-only: never stored in active_media_json. */
 let textOnlyChallenge = "";
 let sessionPresentIds = new Set();
+/** Unmatched guests currently present in the live session. */
+let sessionGuests = [];
 /** @type {Set<number>} */
 let sessionLateIds = new Set();
 let scoringLocked = false;
@@ -374,6 +376,15 @@ async function pollLiveSessionAttendees() {
     }
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
+    const guests = present.filter((row) => Boolean(row.unmatched) || row.student_id == null);
+    sessionGuests = guests.map((row) => ({
+      participant_uuid: String(row.participant_uuid || ""),
+      codename: String(row.codename || "Guest").trim() || "Guest",
+      unmatched: true,
+    }));
+    syncAllowGuestsCheckbox(
+      payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
+    );
     await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
@@ -713,6 +724,17 @@ function bindActiveMediaControls() {
       postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
     }, 350);
   });
+}
+
+/**
+ * Keep the Allow guests checkbox in sync with the live session row.
+ * @param {unknown} raw
+ */
+function syncAllowGuestsCheckbox(raw) {
+  const box = $("ap-allow-guests");
+  if (!box) return;
+  const on = raw === true || raw === 1 || raw === "1" || String(raw).toLowerCase() === "true";
+  box.checked = on;
 }
 
 /**
@@ -1163,6 +1185,14 @@ function renderAttendanceList() {
     row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
     list.appendChild(row);
   }
+  for (const guest of sessionGuests) {
+    const row = document.createElement("div");
+    row.className = "ap-att-row is-present is-guest";
+    row.dataset.participantUuid = guest.participant_uuid;
+    row.setAttribute("aria-pressed", "true");
+    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">✓</span><span class="ap-att-name">${escapeHtml(guest.codename)} <span class="ap-guest-flag">guest</span></span>`;
+    list.appendChild(row);
+  }
   updateAttCount();
 }
 
@@ -1171,7 +1201,7 @@ function renderAttendanceList() {
  */
 function updateAttCount() {
   const el = $("ap-att-count");
-  if (el) el.textContent = `Attendance: ${selectedPresent().length}`;
+  if (el) el.textContent = `Attendance: ${selectedPresent().length + sessionGuests.length}`;
 }
 
 /**
@@ -1431,6 +1461,23 @@ for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
 document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   if (btn.id === "ap-score-cancel" || btn.id === "ap-validate-cancel") return;
   btn.addEventListener("click", () => cancelOverlay());
+});
+
+$("ap-allow-guests")?.addEventListener("change", async (event) => {
+  const box = event.currentTarget;
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return;
+  const allowed = Boolean(box?.checked);
+  try {
+    const payload = await api(`/api/live-sessions/${id}/guests`, {
+      method: "POST",
+      body: JSON.stringify({ allow_unmatched_guests: allowed }),
+    });
+    syncAllowGuestsCheckbox(payload?.allow_unmatched_guests);
+  } catch (err) {
+    if (box) box.checked = !allowed;
+    showError("#ap-overlay-error", err);
+  }
 });
 
 $("ap-att-log")?.addEventListener("click", async () => {

@@ -41,6 +41,7 @@ from flask import (  # noqa: E402
     Response,
     abort,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -138,10 +139,13 @@ from paths import (  # noqa: E402
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
+    clear_rejoin_cookie,
     clear_student_session_keys,
     mood_choices,
     next_student_endpoint,
+    rejoin_token_from_cookie,
     resolve_student_live_context,
+    set_rejoin_cookie,
     student_url_with_token,
     visit_token_from_request,
 )
@@ -1197,7 +1201,80 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Public ALC logo, then Teacher / Student / Admin entry.
 
         Celebrations live on the same page at ``/#celebrations`` (coming soon).
+        While a live session is active, the httpOnly rejoin cookie skips
+        code+name and sends the student back to home.
         """
+        token = rejoin_token_from_cookie()
+        if token:
+            resolved = school.resolve_student_visit_token(
+                token, allow_left=True
+            )
+            if resolved is None:
+                resp = make_response(
+                    render_template(
+                        "landing.html",
+                        **landing_kwargs(one_tap_auto=False),
+                    )
+                )
+                clear_rejoin_cookie(resp)
+                return resp
+            attendee = school.touch_live_session_heartbeat(token)
+            if attendee is None:
+                resp = make_response(
+                    render_template(
+                        "landing.html",
+                        **landing_kwargs(one_tap_auto=False),
+                    )
+                )
+                clear_rejoin_cookie(resp)
+                return resp
+            session_row = resolved["session"]
+            class_id = int(resolved["class_id"])
+            try:
+                cls = school.game.get_class(class_id)
+                offering = school.get_offering(int(session_row["offering_id"]))
+            except (KeyError, TypeError):
+                resp = make_response(
+                    render_template(
+                        "landing.html",
+                        **landing_kwargs(one_tap_auto=False),
+                    )
+                )
+                clear_rejoin_cookie(resp)
+                return resp
+            sid = resolved.get("student_id")
+            unmatched = bool(resolved.get("unmatched")) or sid in (None, "")
+            student = None
+            if not unmatched and sid not in (None, ""):
+                try:
+                    student = school.game.get_student(class_id, int(sid))
+                except (KeyError, TypeError):
+                    student = None
+                    unmatched = True
+            display = str(
+                attendee.get("codename")
+                or (student or {}).get("codename")
+                or ""
+            )
+            bind_student_session(
+                session,
+                offering,
+                cls,
+                student
+                or {"id": None, "codename": display, "first_name": display},
+                live_session_id=int(resolved["live_session_id"]),
+                session_code=str(session_row.get("session_code") or ""),
+                visit_token=token,
+                participant_uuid=str(
+                    resolved.get("participant_uuid")
+                    or attendee.get("participant_uuid")
+                    or ""
+                ),
+                unmatched=unmatched,
+            )
+            resp = redirect(student_url_with_token("student_home", token))
+            set_rejoin_cookie(resp, token)
+            return resp
         return render_template(
             "landing.html",
             **landing_kwargs(one_tap_auto=False),
@@ -2781,17 +2858,33 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         ctx = _student_live_context()
         if ctx is None:
             return None
-        return ctx["offering"], ctx["class_id"], ctx["student_id"]
+        return ctx["offering"], ctx["class_id"], ctx.get("student_id")
+
+    def _ended_student_response(*, as_json: bool = False):
+        """Clear student keys + rejoin cookie and send the student to landing."""
+        clear_student_session_keys(session)
+        if as_json:
+            resp = jsonify(
+                {
+                    "ok": True,
+                    "status": "ended",
+                    "redirect": url_for("landing"),
+                }
+            )
+        else:
+            resp = redirect(url_for("landing"))
+        clear_rejoin_cookie(resp)
+        return resp
 
     def _require_active_live_attendee(
         *,
         as_json: bool = False,
     ):
-        """Gate student home/mood/state on an active live attendee.
+        """Gate student home/mood/state on a still-active live session.
 
-        Requires an active session, attendee ``left_at IS NULL``, and resolves
-        identity from visit token (preferred) or Flask session. On failure,
-        clears student cookie keys only when the request had no valid token.
+        Identity comes from visit token / rejoin cookie (preferred) or Flask
+        session. A valid token on an active session re-admits after missed
+        heartbeats. Ended sessions clear the auto-resume cookie.
 
         Args:
             as_json: When True, return a JSON landing redirect instead of HTML.
@@ -2799,27 +2892,24 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Returns:
             ``None`` when access is allowed; otherwise a Flask response.
         """
-        ctx = _student_live_context()
         token = visit_token_from_request()
+        if token:
+            attendee = school.touch_live_session_heartbeat(token)
+            if attendee is not None:
+                return None
+            return _ended_student_response(as_json=as_json)
+        ctx = _student_live_context()
         if (
             ctx is not None
             and ctx["live_session_id"]
             and school.student_is_active_live_attendee(
-                int(ctx["live_session_id"]), int(ctx["student_id"])
+                int(ctx["live_session_id"]),
+                ctx.get("student_id"),
+                visit_token=str(ctx.get("visit_token") or ""),
             )
         ):
             return None
-        if not token or school.resolve_student_visit_token(token) is None:
-            clear_student_session_keys(session)
-        if as_json:
-            return jsonify(
-                {
-                    "ok": True,
-                    "status": "ended",
-                    "redirect": url_for("landing"),
-                }
-            )
-        return redirect(url_for("landing"))
+        return _ended_student_response(as_json=as_json)
 
     def _student_advance():
         """Redirect to pick, landing, or the next unfinished student step."""
@@ -2830,8 +2920,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 return redirect(
                     student_url_with_token("student_pick", token)
                 )
-            clear_student_session_keys(session)
-            return redirect(url_for("landing"))
+            return _ended_student_response()
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied
@@ -2839,8 +2928,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         endpoint = next_student_endpoint(
             school,
             int(ctx["class_id"]),
-            int(ctx["student_id"]),
+            ctx.get("student_id"),
             visit_token=token,
+            unmatched=bool(ctx.get("unmatched")),
         )
         return redirect(student_url_with_token(endpoint, token))
 
@@ -2851,38 +2941,63 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Does not put ``student_id`` in the URL; the cookie remains the source
         of truth after this redirect.
         """
-        resolved = school.resolve_student_visit_token(token)
+        resolved = school.resolve_student_visit_token(token, allow_left=True)
         if resolved is None:
+            resp = redirect(url_for("landing"))
             clear_student_session_keys(session)
-            return redirect(url_for("landing"))
+            clear_rejoin_cookie(resp)
+            return resp
+        attendee = school.touch_live_session_heartbeat(token)
+        if attendee is None:
+            resp = redirect(url_for("landing"))
+            clear_student_session_keys(session)
+            clear_rejoin_cookie(resp)
+            return resp
         session_row = resolved["session"]
-        attendee = resolved["attendee"]
         class_id = int(resolved["class_id"])
-        student_id = int(resolved["student_id"])
+        student_id = resolved.get("student_id")
+        unmatched = bool(resolved.get("unmatched")) or student_id in (None, "")
         try:
             cls = school.game.get_class(class_id)
-            student = school.game.get_student(class_id, student_id)
             offering = school.get_offering(int(session_row["offering_id"]))
         except (KeyError, TypeError):
+            resp = redirect(url_for("landing"))
             clear_student_session_keys(session)
-            return redirect(url_for("landing"))
+            clear_rejoin_cookie(resp)
+            return resp
+        student = None
+        if not unmatched and student_id not in (None, ""):
+            try:
+                student = school.game.get_student(class_id, int(student_id))
+            except (KeyError, TypeError):
+                unmatched = True
+        display = str(attendee.get("codename") or (student or {}).get("codename") or "")
+        visit_token = str(attendee.get("visit_token") or token)
         bind_student_session(
             session,
             offering,
             cls,
-            student,
+            student or {"id": None, "codename": display, "first_name": display},
             live_session_id=int(resolved["live_session_id"]),
             session_code=str(session_row.get("session_code") or ""),
-            visit_token=str(attendee.get("visit_token") or token),
+            visit_token=visit_token,
+            participant_uuid=str(
+                resolved.get("participant_uuid")
+                or attendee.get("participant_uuid")
+                or ""
+            ),
+            unmatched=unmatched,
         )
-        visit_token = str(attendee.get("visit_token") or token)
         endpoint = next_student_endpoint(
             school,
             class_id,
-            student_id,
+            int(student_id) if student_id not in (None, "") else None,
             visit_token=visit_token,
+            unmatched=unmatched,
         )
-        return redirect(student_url_with_token(endpoint, visit_token))
+        resp = redirect(student_url_with_token(endpoint, visit_token))
+        set_rejoin_cookie(resp, visit_token)
+        return resp
 
     @app.route("/student/waiting")
     @student_required
@@ -2908,8 +3023,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _student_advance()
         offering = ctx["offering"]
         class_id = int(ctx["class_id"])
-        student_id = int(ctx["student_id"])
+        student_id = ctx.get("student_id")
         visit_token = str(ctx.get("visit_token") or "")
+        if ctx.get("unmatched") or student_id in (None, ""):
+            return redirect(student_url_with_token("student_home", visit_token))
+        student_id = int(student_id)
         student = school.game.get_student(class_id, student_id)
         if request.method == "POST":
             mood = (request.form.get("mood") or "").strip()
@@ -2962,22 +3080,33 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _student_advance()
         offering = ctx["offering"]
         class_id = int(ctx["class_id"])
-        student_id = int(ctx["student_id"])
+        student_id = ctx.get("student_id")
         visit_token = str(ctx.get("visit_token") or "")
+        unmatched = bool(ctx.get("unmatched")) or student_id in (None, "")
         if (
             next_student_endpoint(
                 school,
                 class_id,
                 student_id,
                 visit_token=visit_token,
+                unmatched=unmatched,
             )
             != "student_home"
         ):
             return _student_advance()
-        payload = school.game.student_live_payload(class_id, student_id)
         live_session_id = int(ctx["live_session_id"])
+        pid = str(ctx.get("participant_uuid") or "")
+        if unmatched:
+            payload = school.guest_student_live_payload(
+                codename=str(ctx.get("codename") or ""),
+                class_id=class_id,
+            )
+        else:
+            payload = school.game.student_live_payload(class_id, int(student_id))
         prompt_frag = school.student_live_prompt_payload(
-            live_session_id, student_id
+            live_session_id,
+            int(student_id) if student_id not in (None, "") else None,
+            participant_uuid=pid,
         )
         payload.update(prompt_frag)
         payload["active_media"] = school.live_session_active_media_payload(
@@ -3056,9 +3185,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
-        payload = school.game.student_live_payload(class_id, student_id)
+        pid = str((ctx or {}).get("participant_uuid") or "")
+        unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
+        if unmatched:
+            payload = school.guest_student_live_payload(
+                codename=str((ctx or {}).get("codename") or session.get("student_codename") or ""),
+                class_id=int(class_id),
+            )
+        else:
+            payload = school.game.student_live_payload(class_id, int(student_id))
         payload.update(
-            school.student_live_prompt_payload(live_session_id, student_id)
+            school.student_live_prompt_payload(
+                live_session_id,
+                int(student_id) if student_id not in (None, "") else None,
+                participant_uuid=pid,
+            )
         )
         payload["active_media"] = school.live_session_active_media_payload(
             live_session_id
@@ -3082,7 +3223,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
-        frag = school.student_live_prompt_payload(live_session_id, student_id)
+        pid = str((ctx or {}).get("participant_uuid") or "")
+        frag = school.student_live_prompt_payload(
+            live_session_id,
+            int(student_id) if student_id not in (None, "") else None,
+            participant_uuid=pid,
+        )
         return jsonify({"ok": True, **frag})
 
     @app.route("/api/student/live-prompt/response", methods=["POST"])
@@ -3114,18 +3260,22 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Prompt is no longer active."}), 409
         try:
             saved = school.submit_live_prompt_response(
-                prompt_id, student_id, response
+                prompt_id,
+                int(student_id) if student_id not in (None, "") else None,
+                response,
+                participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
             )
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             return _json_error(exc)
         # Gradebook auto-insert stays stubbed for the slides-plugin branch.
-        school.apply_prompt_score_to_participation(
-            class_id,
-            student_id,
-            0.0,
-            prompt_id=prompt_id,
-            label=str(active.get("kind") or "prompt"),
-        )
+        if student_id not in (None, ""):
+            school.apply_prompt_score_to_participation(
+                class_id,
+                int(student_id),
+                0.0,
+                prompt_id=prompt_id,
+                label=str(active.get("kind") or "prompt"),
+            )
         return jsonify(
             {
                 "ok": True,
@@ -3191,6 +3341,43 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         return jsonify({"ok": True, **state})
+
+    @app.route("/api/live-sessions/<int:session_id>/guests", methods=["POST"])
+    @login_required
+    def api_live_session_guests(session_id: int):
+        """Mid-session toggle: allow names that are not on the roster.
+
+        Body JSON: ``allow_unmatched_guests`` (bool). Default for new sessions
+        is false — unmatched names are rejected until staff checks the box.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        raw = body.get("allow_unmatched_guests")
+        if isinstance(raw, str):
+            allowed = raw.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            allowed = bool(raw)
+        try:
+            updated = school.set_live_session_allow_unmatched_guests(
+                session_id, allowed
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        flag = bool(int(updated.get("allow_unmatched_guests") or 0))
+        return jsonify(
+            {
+                "ok": True,
+                "allow_unmatched_guests": flag,
+                "session": {
+                    "id": int(updated["id"]),
+                    "allow_unmatched_guests": flag,
+                },
+            }
+        )
 
     @app.route("/api/live-sessions/<int:session_id>/prompts/active")
     @login_required

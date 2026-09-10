@@ -7,6 +7,7 @@ import secrets
 import shutil
 import sqlite3
 import threading
+import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -189,7 +190,8 @@ CREATE TABLE IF NOT EXISTS live_class_sessions (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     ended_at TEXT,
-    mgs_session_id INTEGER
+    mgs_session_id INTEGER,
+    allow_unmatched_guests INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_code_active
@@ -203,16 +205,22 @@ CREATE TABLE IF NOT EXISTS live_session_attendees (
     id INTEGER PRIMARY KEY,
     live_session_id INTEGER NOT NULL
         REFERENCES live_class_sessions(id) ON DELETE CASCADE,
-    student_id INTEGER NOT NULL,
+    student_id INTEGER,
+    participant_uuid TEXT NOT NULL UNIQUE,
+    visit_token TEXT UNIQUE,
     codename TEXT NOT NULL DEFAULT '',
+    unmatched INTEGER NOT NULL DEFAULT 0,
     joined_at TEXT NOT NULL,
     left_at TEXT,
-    visit_token TEXT UNIQUE,
-    UNIQUE(live_session_id, student_id)
+    last_heartbeat_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
     ON live_session_attendees(live_session_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_attendees_roster
+    ON live_session_attendees(live_session_id, student_id)
+    WHERE student_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS live_session_prompts (
     id INTEGER PRIMARY KEY,
@@ -236,7 +244,8 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
     id INTEGER PRIMARY KEY,
     prompt_id INTEGER NOT NULL
         REFERENCES live_session_prompts(id) ON DELETE CASCADE,
-    student_id INTEGER NOT NULL,
+    student_id INTEGER,
+    participant_uuid TEXT,
     response_json TEXT NOT NULL DEFAULT '{}',
     awarded_points REAL,
     created_at TEXT NOT NULL,
@@ -400,6 +409,67 @@ def _now() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+# Missed heartbeats after this window mark an attendee left (tab close / drop).
+# ~10s client beat; 90s survives Chrome background timer throttling.
+LIVE_HEARTBEAT_INTERVAL_SECONDS = 10
+LIVE_HEARTBEAT_STALE_SECONDS = 90
+
+# Never serialize these attendee columns to overlay / staff state APIs.
+LIVE_ATTENDEE_SECRET_KEYS = ("visit_token",)
+
+
+def first_name_only(raw: str) -> str:
+    """Keep the first token of a typed name; never persist a last name.
+
+    Args:
+        raw: Student-entered name or Codename.
+
+    Returns:
+        Trimmed first token, or ``""``.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    return text.split()[0]
+
+
+def _parse_iso_datetime(raw: Any) -> datetime | None:
+    """Parse an ISO timestamp stored by ``_now()``.
+
+    Args:
+        raw: ISO datetime string or blank.
+
+    Returns:
+        Naive datetime, or ``None`` when unparseable.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def public_live_attendee(row: dict[str, Any]) -> dict[str, Any]:
+    """Copy an attendee row without rejoin secrets.
+
+    Args:
+        row: ``live_session_attendees`` mapping (may include mood).
+
+    Returns:
+        JSON-safe attendee dict for overlay / staff state.
+    """
+    item = dict(row)
+    for key in LIVE_ATTENDEE_SECRET_KEYS:
+        item.pop(key, None)
+    sid = item.get("student_id")
+    item["student_id"] = int(sid) if sid not in (None, "") else None
+    item["unmatched"] = bool(int(item.get("unmatched") or 0))
+    item["participant_uuid"] = str(item.get("participant_uuid") or "")
+    return item
+
+
 def format_human_datetime(raw: str | None) -> str:
     """Turn an ISO timestamp into a short, human-readable local string.
 
@@ -515,6 +585,7 @@ class LovesDB:
         self._ensure_archived_column()
         self._ensure_gradebook_schema()
         self._ensure_live_session_schema()
+        self._ensure_live_session_identity_schema()
         self._ensure_live_class_feature_schema()
         self._ensure_access_request_schema()
         self._seed()
@@ -1083,8 +1154,9 @@ class LovesDB:
 
         ``CREATE TABLE IF NOT EXISTS`` in ``SCHEMA`` covers new files; this
         helper re-runs the same DDL so older Fly sqlite volumes pick up the
-        session tracking tables without a recreate. Also adds ``visit_token``
-        on attendees when missing.
+        session tracking tables without a recreate. Identity columns (uuid,
+        heartbeat, nullable roster link, guest flag) are applied by
+        ``_ensure_live_session_identity_schema``.
         """
         self.conn.executescript(
             """
@@ -1097,7 +1169,8 @@ class LovesDB:
                 status TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
-                mgs_session_id INTEGER
+                mgs_session_id INTEGER,
+                allow_unmatched_guests INTEGER NOT NULL DEFAULT 0
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_code_active
                 ON live_class_sessions(session_code)
@@ -1108,15 +1181,20 @@ class LovesDB:
                 id INTEGER PRIMARY KEY,
                 live_session_id INTEGER NOT NULL
                     REFERENCES live_class_sessions(id) ON DELETE CASCADE,
-                student_id INTEGER NOT NULL,
+                student_id INTEGER,
+                participant_uuid TEXT NOT NULL UNIQUE,
+                visit_token TEXT UNIQUE,
                 codename TEXT NOT NULL DEFAULT '',
+                unmatched INTEGER NOT NULL DEFAULT 0,
                 joined_at TEXT NOT NULL,
                 left_at TEXT,
-                visit_token TEXT UNIQUE,
-                UNIQUE(live_session_id, student_id)
+                last_heartbeat_at TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
                 ON live_session_attendees(live_session_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_attendees_roster
+                ON live_session_attendees(live_session_id, student_id)
+                WHERE student_id IS NOT NULL;
             CREATE TABLE IF NOT EXISTS live_session_prompts (
                 id INTEGER PRIMARY KEY,
                 live_session_id INTEGER NOT NULL
@@ -1136,7 +1214,8 @@ class LovesDB:
                 id INTEGER PRIMARY KEY,
                 prompt_id INTEGER NOT NULL
                     REFERENCES live_session_prompts(id) ON DELETE CASCADE,
-                student_id INTEGER NOT NULL,
+                student_id INTEGER,
+                participant_uuid TEXT,
                 response_json TEXT NOT NULL DEFAULT '{}',
                 awarded_points REAL,
                 created_at TEXT NOT NULL,
@@ -1147,15 +1226,44 @@ class LovesDB:
                 ON live_session_responses(prompt_id);
             """
         )
-        attendee_cols = {
+
+    def _ensure_live_session_identity_schema(self) -> None:
+        """Add participant uuid, stable token, heartbeat, and guest flag.
+
+        Rebuilds ``live_session_attendees`` when ``student_id`` is still
+        NOT NULL so unmatched guests can join without a roster row.
+        """
+        sess_cols = {
             str(row[1])
             for row in self.conn.execute(
-                "PRAGMA table_info(live_session_attendees)"
+                "PRAGMA table_info(live_class_sessions)"
             ).fetchall()
         }
-        if "visit_token" not in attendee_cols:
+        if "allow_unmatched_guests" not in sess_cols:
             self.conn.execute(
-                "ALTER TABLE live_session_attendees ADD COLUMN visit_token TEXT"
+                """
+                ALTER TABLE live_class_sessions
+                ADD COLUMN allow_unmatched_guests INTEGER NOT NULL DEFAULT 0
+                """
+            )
+
+        att_info = list(
+            self.conn.execute("PRAGMA table_info(live_session_attendees)").fetchall()
+        )
+        att_cols = {str(row[1]): row for row in att_info}
+        student_notnull = bool(
+            att_cols.get("student_id") is not None and int(att_cols["student_id"][3])
+        )
+        needs_rebuild = student_notnull or "participant_uuid" not in att_cols
+        if needs_rebuild and att_cols:
+            self._rebuild_live_session_attendees_identity(att_cols)
+        elif "participant_uuid" in att_cols:
+            self.conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_attendees_roster
+                ON live_session_attendees(live_session_id, student_id)
+                WHERE student_id IS NOT NULL
+                """
             )
             self.conn.execute(
                 """
@@ -1165,7 +1273,178 @@ class LovesDB:
                 WHERE visit_token IS NOT NULL
                 """
             )
-            self.conn.commit()
+
+        resp_info = list(
+            self.conn.execute("PRAGMA table_info(live_session_responses)").fetchall()
+        )
+        resp_cols = {str(row[1]): row for row in resp_info}
+        resp_student_notnull = bool(
+            resp_cols.get("student_id") is not None and int(resp_cols["student_id"][3])
+        )
+        if "participant_uuid" not in resp_cols:
+            self.conn.execute(
+                "ALTER TABLE live_session_responses ADD COLUMN participant_uuid TEXT"
+            )
+            resp_cols["participant_uuid"] = True
+        if resp_student_notnull:
+            self._rebuild_live_session_responses_identity()
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_responses_prompt_uuid
+            ON live_session_responses(prompt_id, participant_uuid)
+            WHERE participant_uuid IS NOT NULL AND TRIM(participant_uuid) != ''
+            """
+        )
+        self.conn.commit()
+
+    def _rebuild_live_session_responses_identity(self) -> None:
+        """Recreate prompt responses with a nullable roster ``student_id``.
+
+        Existing rows keep their ids and JSON; ``participant_uuid`` is copied
+        when present so live-session identity survives the rebuild.
+        """
+        self.conn.execute("PRAGMA foreign_keys = OFF")
+        self.conn.executescript(
+            """
+            CREATE TABLE live_session_responses_identity (
+                id INTEGER PRIMARY KEY,
+                prompt_id INTEGER NOT NULL
+                    REFERENCES live_session_prompts(id) ON DELETE CASCADE,
+                student_id INTEGER,
+                participant_uuid TEXT,
+                response_json TEXT NOT NULL DEFAULT '{}',
+                awarded_points REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO live_session_responses_identity (
+                id, prompt_id, student_id, participant_uuid, response_json,
+                awarded_points, created_at, updated_at
+            )
+            SELECT id, prompt_id, student_id, participant_uuid, response_json,
+                   awarded_points, created_at, updated_at
+            FROM live_session_responses
+            """
+        )
+        self.conn.execute("DROP TABLE live_session_responses")
+        self.conn.execute(
+            "ALTER TABLE live_session_responses_identity RENAME TO live_session_responses"
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
+            ON live_session_responses(prompt_id)
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_responses_prompt_student
+            ON live_session_responses(prompt_id, student_id)
+            WHERE student_id IS NOT NULL
+            """
+        )
+        self.conn.execute("PRAGMA foreign_keys = ON")
+
+    def _rebuild_live_session_attendees_identity(
+        self, att_cols: dict[str, Any]
+    ) -> None:
+        """Recreate attendees with uuid, heartbeat, and a nullable roster link.
+
+        Args:
+            att_cols: ``PRAGMA table_info`` rows keyed by column name.
+        """
+        has_uuid = "participant_uuid" in att_cols
+        has_unmatched = "unmatched" in att_cols
+        has_heartbeat = "last_heartbeat_at" in att_cols
+        has_token = "visit_token" in att_cols
+        select_uuid = (
+            "participant_uuid" if has_uuid else "NULL"
+        )
+        select_unmatched = "unmatched" if has_unmatched else "0"
+        select_heartbeat = (
+            "last_heartbeat_at" if has_heartbeat else "joined_at"
+        )
+        select_token = "visit_token" if has_token else "NULL"
+        self.conn.execute("PRAGMA foreign_keys = OFF")
+        self.conn.executescript(
+            """
+            CREATE TABLE live_session_attendees_identity (
+                id INTEGER PRIMARY KEY,
+                live_session_id INTEGER NOT NULL
+                    REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+                student_id INTEGER,
+                participant_uuid TEXT NOT NULL UNIQUE,
+                visit_token TEXT UNIQUE,
+                codename TEXT NOT NULL DEFAULT '',
+                unmatched INTEGER NOT NULL DEFAULT 0,
+                joined_at TEXT NOT NULL,
+                left_at TEXT,
+                last_heartbeat_at TEXT
+            );
+            """
+        )
+        rows = self.conn.execute(
+            f"""
+            SELECT id, live_session_id, student_id, {select_uuid} AS participant_uuid,
+                   {select_token} AS visit_token, codename, {select_unmatched} AS unmatched,
+                   joined_at, left_at, {select_heartbeat} AS last_heartbeat_at
+            FROM live_session_attendees
+            """
+        ).fetchall()
+        for row in rows:
+            item = dict(row)
+            pid = str(item.get("participant_uuid") or "").strip() or str(uuid.uuid4())
+            token = str(item.get("visit_token") or "").strip() or secrets.token_urlsafe(24)
+            sid = item.get("student_id")
+            self.conn.execute(
+                """
+                INSERT INTO live_session_attendees_identity (
+                    id, live_session_id, student_id, participant_uuid, visit_token,
+                    codename, unmatched, joined_at, left_at, last_heartbeat_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(item["id"]),
+                    int(item["live_session_id"]),
+                    int(sid) if sid not in (None, "") else None,
+                    pid,
+                    token,
+                    str(item.get("codename") or ""),
+                    int(item.get("unmatched") or 0),
+                    str(item.get("joined_at") or _now()),
+                    item.get("left_at"),
+                    item.get("last_heartbeat_at") or item.get("joined_at"),
+                ),
+            )
+        self.conn.execute("DROP TABLE live_session_attendees")
+        self.conn.execute(
+            "ALTER TABLE live_session_attendees_identity RENAME TO live_session_attendees"
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_session_attendees_session
+            ON live_session_attendees(live_session_id)
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_attendees_roster
+            ON live_session_attendees(live_session_id, student_id)
+            WHERE student_id IS NOT NULL
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_attendees_visit_token
+            ON live_session_attendees(visit_token)
+            WHERE visit_token IS NOT NULL
+            """
+        )
+        self.conn.execute("PRAGMA foreign_keys = ON")
 
     def _ensure_live_class_feature_schema(self) -> None:
         """Add slides columns, Google API tokens, problem bank, and evidence tables.
@@ -4966,72 +5245,302 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(sql, (int(session_id),)).fetchall()
         return [dict(row) for row in rows]
 
-    def record_live_session_attendee(
-        self,
-        session_id: int,
-        student_id: int,
-        *,
-        codename: str = "",
-    ) -> dict[str, Any]:
-        """Upsert a student into the live session roster (join / rejoin).
-
-        Refuses a second join while this student is still present (``left_at``
-        is null). After they leave, a new visit token is minted.
+    def sweep_stale_live_attendees(
+        self, session_id: int, *, except_token: str = ""
+    ) -> int:
+        """Set ``left_at`` when heartbeats have been missing too long.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Game-show ``students.id``.
-            codename: Display name for overlay / IT listings.
+            except_token: Optional rejoin token to leave present (the caller).
+
+        Returns:
+            Number of attendees marked left.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None or session_row.get("status") != "active":
+            return 0
+        now = datetime.now().replace(microsecond=0)
+        skip = (except_token or "").strip()
+        marked = 0
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, visit_token, left_at, last_heartbeat_at, joined_at
+                FROM live_session_attendees
+                WHERE live_session_id = ? AND left_at IS NULL
+                """,
+                (int(session_id),),
+            ).fetchall()
+            stamp = _now()
+            for row in rows:
+                token = str(row["visit_token"] or "")
+                if skip and token == skip:
+                    continue
+                last = _parse_iso_datetime(
+                    row["last_heartbeat_at"] or row["joined_at"]
+                )
+                if last is None:
+                    continue
+                age = (now - last).total_seconds()
+                if age < LIVE_HEARTBEAT_STALE_SECONDS:
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE live_session_attendees
+                    SET left_at = ?
+                    WHERE id = ? AND left_at IS NULL
+                    """,
+                    (stamp, int(row["id"])),
+                )
+                marked += 1
+            if marked:
+                self.conn.commit()
+        return marked
+
+    def set_live_session_allow_unmatched_guests(
+        self, session_id: int, allowed: bool
+    ) -> dict[str, Any]:
+        """Persist the mid-session Allow guests checkbox.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            allowed: True when unmatched names may join.
+
+        Returns:
+            Updated session row.
+
+        Raises:
+            KeyError: If the session is missing.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        flag = 1 if allowed else 0
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET allow_unmatched_guests = ?
+                WHERE id = ?
+                """,
+                (flag, int(session_id)),
+            )
+            self.conn.commit()
+        updated = self.get_live_session(session_id)
+        assert updated is not None
+        return updated
+
+    def live_session_allows_unmatched_guests(self, session_id: int) -> bool:
+        """True when this live session accepts names that are not on the roster.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return False
+        return bool(int(session_row.get("allow_unmatched_guests") or 0))
+
+    def record_live_session_attendee(
+        self,
+        session_id: int,
+        student_id: int | None = None,
+        *,
+        codename: str = "",
+        visit_token: str = "",
+        unmatched: bool = False,
+    ) -> dict[str, Any]:
+        """Upsert a logical person into the live session (join / resume).
+
+        Mints ``participant_uuid`` and a stable rejoin token once per
+        (session × person). Refresh and rejoin keep the same token while the
+        session is active. A second device using the same name while the first
+        is still present is rejected.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Optional roster ``students.id``.
+            codename: Display first name / Codename (last names are stripped).
+            visit_token: Rejoin cookie or request token when resuming.
+            unmatched: True for a guest whose name is not on the roster.
 
         Returns:
             The attendee row after upsert.
 
         Raises:
             KeyError: If the session does not exist or is not active.
-            ValueError: If this roster name is already signed in to the session.
+            ValueError: If this name is already signed in with a different token.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         if session_row.get("status") != "active":
             raise KeyError(f"live session {session_id} is not active")
-        name = (codename or "").strip()
+        name = first_name_only(codename)
+        token_in = (visit_token or "").strip()
+        sid = int(student_id) if student_id not in (None, "") else None
+        self.sweep_stale_live_attendees(session_id, except_token=token_in)
+
+        if token_in:
+            by_token = self._attendee_by_visit_token(token_in)
+            if (
+                by_token is not None
+                and int(by_token["live_session_id"]) == int(session_id)
+            ):
+                token_name = first_name_only(str(by_token.get("codename") or ""))
+                same_person = (not name) or (
+                    token_name.lower() == name.lower()
+                ) or (
+                    sid is not None
+                    and by_token.get("student_id") not in (None, "")
+                    and int(by_token["student_id"]) == sid
+                )
+                if same_person:
+                    return self._resume_live_attendee(
+                        by_token, name=name or token_name
+                    )
+
+        existing = None
+        if sid is not None:
+            existing = self.get_live_session_attendee(session_id, sid)
+        elif unmatched and name:
+            existing = self._guest_attendee_by_codename(session_id, name)
+
+        if existing is not None:
+            existing_token = str(existing.get("visit_token") or "")
+            present = not existing.get("left_at")
+            if present and token_in and existing_token and token_in != existing_token:
+                raise ValueError(
+                    "That name is already signed in. If this is you, reopen "
+                    "the tab that’s already in class, or wait a moment and "
+                    "join from the same device."
+                )
+            if present and not token_in:
+                raise ValueError(
+                    "That name is already signed in. If this is you, reopen "
+                    "the tab that’s already in class, or wait a moment and "
+                    "join from the same device."
+                )
+            return self._resume_live_attendee(existing, name=name or str(existing.get("codename") or ""))
+
         now = _now()
-        existing = self.get_live_session_attendee(session_id, student_id)
-        if existing and not existing.get("left_at"):
-            raise ValueError(
-                "This name is already signed in to the live class."
-            )
-        visit_token = secrets.token_urlsafe(24)
+        participant_uuid = str(uuid.uuid4())
+        new_token = secrets.token_urlsafe(24)
         with self._lock:
             self.conn.execute(
                 """
                 INSERT INTO live_session_attendees (
-                    live_session_id, student_id, codename, joined_at, left_at,
-                    visit_token
-                ) VALUES (?, ?, ?, ?, NULL, ?)
-                ON CONFLICT(live_session_id, student_id) DO UPDATE SET
-                    codename = excluded.codename,
-                    joined_at = excluded.joined_at,
-                    left_at = NULL,
-                    visit_token = excluded.visit_token
+                    live_session_id, student_id, participant_uuid, visit_token,
+                    codename, unmatched, joined_at, left_at, last_heartbeat_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
                 """,
-                (int(session_id), int(student_id), name, now, visit_token),
+                (
+                    int(session_id),
+                    sid,
+                    participant_uuid,
+                    new_token,
+                    name,
+                    1 if unmatched else 0,
+                    now,
+                    now,
+                ),
             )
             self.conn.commit()
             row = self.conn.execute(
                 """
                 SELECT * FROM live_session_attendees
-                WHERE live_session_id = ? AND student_id = ?
+                WHERE visit_token = ?
                 """,
-                (int(session_id), int(student_id)),
+                (new_token,),
             ).fetchone()
         return dict(row) if row else {}
+
+    def _attendee_by_visit_token(self, token: str) -> dict[str, Any] | None:
+        """Return an attendee row for a rejoin token, ignoring left/ended.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def _guest_attendee_by_codename(
+        self, session_id: int, name: str
+    ) -> dict[str, Any] | None:
+        """Return the unmatched guest row for this display name, if any.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            name: First-name / Codename already passed through ``first_name_only``.
+        """
+        needle = first_name_only(name).lower()
+        if not needle:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE live_session_id = ?
+                  AND unmatched = 1
+                  AND lower(codename) = ?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (int(session_id), needle),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def _resume_live_attendee(
+        self, existing: dict[str, Any], *, name: str = ""
+    ) -> dict[str, Any]:
+        """Clear ``left_at``, keep uuid + token, refresh heartbeat.
+
+        Args:
+            existing: Current attendee row.
+            name: Optional display-name refresh (first token only).
+        """
+        display = first_name_only(name) or str(existing.get("codename") or "")
+        now = _now()
+        token = str(existing.get("visit_token") or "").strip()
+        if not token:
+            token = secrets.token_urlsafe(24)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET left_at = NULL,
+                    last_heartbeat_at = ?,
+                    visit_token = ?,
+                    codename = CASE
+                        WHEN ? != '' THEN ? ELSE codename
+                    END
+                WHERE id = ?
+                """,
+                (now, token, display, display, int(existing["id"])),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM live_session_attendees WHERE id = ?",
+                (int(existing["id"]),),
+            ).fetchone()
+        return dict(row) if row else dict(existing)
 
     def get_live_session_attendee(
         self, session_id: int, student_id: int
     ) -> dict[str, Any] | None:
-        """Return one attendee row, or ``None`` if not joined.
+        """Return one roster-linked attendee row, or ``None`` if not joined.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -5048,59 +5557,88 @@ class SchoolDB(LovesDB):
         return dict(row) if row else None
 
     def student_is_active_live_attendee(
-        self, session_id: int, student_id: int
+        self,
+        session_id: int,
+        student_id: int | None = None,
+        *,
+        visit_token: str = "",
     ) -> bool:
-        """True when the live session is active and the attendee has not left.
+        """True when the live session is active and this person has not left.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Game-show ``students.id``.
+            student_id: Optional roster ``students.id``.
+            visit_token: Optional stable rejoin token.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return False
-        attendee = self.get_live_session_attendee(session_id, student_id)
+        attendee = None
+        token = (visit_token or "").strip()
+        if token:
+            attendee = self._attendee_by_visit_token(token)
+            if attendee is not None and int(attendee["live_session_id"]) != int(
+                session_id
+            ):
+                attendee = None
+        elif student_id not in (None, ""):
+            attendee = self.get_live_session_attendee(session_id, int(student_id))
         if attendee is None or attendee.get("left_at"):
             return False
         return True
 
-    def resolve_student_visit_token(self, token: str) -> dict[str, Any] | None:
-        """Resolve an opaque visit token to session + attendee context.
+    def touch_live_session_heartbeat(self, token: str) -> dict[str, Any] | None:
+        """Refresh heartbeat and re-admit a still-active session attendee.
 
         Args:
             token: ``live_session_attendees.visit_token``.
 
         Returns:
-            Dict with ``attendee``, ``session``, ``class_id``, ``student_id``
-            when the token is valid and the session is still active with the
-            attendee present; otherwise ``None``.
+            Updated attendee row, or ``None`` when the token/session is invalid.
         """
-        cleaned = (token or "").strip()
-        if not cleaned:
-            return None
-        with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT * FROM live_session_attendees
-                WHERE visit_token = ?
-                LIMIT 1
-                """,
-                (cleaned,),
-            ).fetchone()
-        if row is None:
-            return None
-        attendee = dict(row)
-        if attendee.get("left_at"):
+        attendee = self._attendee_by_visit_token(token)
+        if attendee is None:
             return None
         session_row = self.get_live_session(int(attendee["live_session_id"]))
         if session_row is None or session_row.get("status") != "active":
             return None
+        self.sweep_stale_live_attendees(
+            int(attendee["live_session_id"]), except_token=str(token)
+        )
+        return self._resume_live_attendee(attendee)
+
+    def resolve_student_visit_token(
+        self, token: str, *, allow_left: bool = False
+    ) -> dict[str, Any] | None:
+        """Resolve an opaque rejoin token to session + attendee context.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+            allow_left: When True, include attendees with ``left_at`` set so
+                cookie auto-resume can re-admit them while the session is live.
+
+        Returns:
+            Dict with ``attendee``, ``session``, ``class_id``, ``student_id``
+            when the token is valid and the session is still active;
+            otherwise ``None``.
+        """
+        attendee = self._attendee_by_visit_token(token)
+        if attendee is None:
+            return None
+        if attendee.get("left_at") and not allow_left:
+            return None
+        session_row = self.get_live_session(int(attendee["live_session_id"]))
+        if session_row is None or session_row.get("status") != "active":
+            return None
+        sid = attendee.get("student_id")
         return {
             "attendee": attendee,
             "session": session_row,
             "class_id": int(session_row["class_id"]),
-            "student_id": int(attendee["student_id"]),
+            "student_id": int(sid) if sid not in (None, "") else None,
             "live_session_id": int(attendee["live_session_id"]),
+            "participant_uuid": str(attendee.get("participant_uuid") or ""),
+            "unmatched": bool(int(attendee.get("unmatched") or 0)),
         }
 
     def _prompt_row_to_dict(self, row: Any) -> dict[str, Any]:
@@ -5244,22 +5782,38 @@ class SchoolDB(LovesDB):
             self.conn.commit()
 
     def get_live_prompt_response(
-        self, prompt_id: int, student_id: int
+        self,
+        prompt_id: int,
+        student_id: int | None = None,
+        *,
+        participant_uuid: str = "",
     ) -> dict[str, Any] | None:
         """Return one student's response to a prompt, if any.
 
         Args:
             prompt_id: ``live_session_prompts.id``.
-            student_id: Game-show ``students.id``.
+            student_id: Optional game-show ``students.id``.
+            participant_uuid: Preferred live-session person key.
         """
+        pid = (participant_uuid or "").strip()
         with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT * FROM live_session_responses
-                WHERE prompt_id = ? AND student_id = ?
-                """,
-                (int(prompt_id), int(student_id)),
-            ).fetchone()
+            row = None
+            if pid:
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_responses
+                    WHERE prompt_id = ? AND participant_uuid = ?
+                    """,
+                    (int(prompt_id), pid),
+                ).fetchone()
+            if row is None and student_id not in (None, ""):
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_responses
+                    WHERE prompt_id = ? AND student_id = ?
+                    """,
+                    (int(prompt_id), int(student_id)),
+                ).fetchone()
         if row is None:
             return None
         payload = dict(row)
@@ -5274,25 +5828,33 @@ class SchoolDB(LovesDB):
     def submit_live_prompt_response(
         self,
         prompt_id: int,
-        student_id: int,
-        response: dict[str, Any] | None,
+        student_id: int | None = None,
+        response: dict[str, Any] | None = None,
+        *,
+        participant_uuid: str = "",
     ) -> dict[str, Any]:
         """Upsert a student response for an active-style prompt.
 
-        Does not award points yet — callers may later invoke
-        ``apply_prompt_score_to_participation``.
+        Keys off ``participant_uuid`` when provided so guests (no roster id)
+        can still answer. Does not award points yet.
 
         Args:
             prompt_id: ``live_session_prompts.id``.
-            student_id: Game-show ``students.id``.
+            student_id: Optional game-show ``students.id``.
             response: Student answer JSON (choice, number, share text, …).
+            participant_uuid: Live-session person key.
 
         Returns:
             The response row (with parsed ``response``).
 
         Raises:
             KeyError: If the prompt does not exist.
+            ValueError: If neither uuid nor student_id is provided.
         """
+        pid = (participant_uuid or "").strip()
+        sid = int(student_id) if student_id not in (None, "") else None
+        if not pid and sid is None:
+            raise ValueError("participant_uuid or student_id is required")
         with self._lock:
             prompt = self.conn.execute(
                 "SELECT id FROM live_session_prompts WHERE id = ?",
@@ -5303,20 +5865,48 @@ class SchoolDB(LovesDB):
         now = _now()
         body = json.dumps(response or {})
         with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO live_session_responses (
-                    prompt_id, student_id, response_json, awarded_points,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, NULL, ?, ?)
-                ON CONFLICT(prompt_id, student_id) DO UPDATE SET
-                    response_json = excluded.response_json,
-                    updated_at = excluded.updated_at
-                """,
-                (int(prompt_id), int(student_id), body, now, now),
-            )
+            existing = None
+            if pid:
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM live_session_responses
+                    WHERE prompt_id = ? AND participant_uuid = ?
+                    """,
+                    (int(prompt_id), pid),
+                ).fetchone()
+            if existing is None and sid is not None:
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM live_session_responses
+                    WHERE prompt_id = ? AND student_id = ?
+                    """,
+                    (int(prompt_id), sid),
+                ).fetchone()
+            if existing is not None:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_responses
+                    SET response_json = ?, updated_at = ?,
+                        participant_uuid = COALESCE(?, participant_uuid),
+                        student_id = COALESCE(?, student_id)
+                    WHERE id = ?
+                    """,
+                    (body, now, pid or None, sid, int(existing["id"])),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    INSERT INTO live_session_responses (
+                        prompt_id, student_id, participant_uuid, response_json,
+                        awarded_points, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+                    """,
+                    (int(prompt_id), sid, pid or None, body, now, now),
+                )
             self.conn.commit()
-        result = self.get_live_prompt_response(prompt_id, student_id)
+        result = self.get_live_prompt_response(
+            prompt_id, sid, participant_uuid=pid
+        )
         return result or {}
 
     def apply_prompt_score_to_participation(
@@ -5345,13 +5935,18 @@ class SchoolDB(LovesDB):
         return None
 
     def student_live_prompt_payload(
-        self, session_id: int, student_id: int
+        self,
+        session_id: int,
+        student_id: int | None = None,
+        *,
+        participant_uuid: str = "",
     ) -> dict[str, Any]:
         """Build the student-facing active prompt + prior response fragment.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Game-show ``students.id``.
+            student_id: Optional game-show ``students.id``.
+            participant_uuid: Live-session person key.
 
         Returns:
             Dict with ``prompt`` (or ``None``) and optional ``my_response``.
@@ -5368,7 +5963,9 @@ class SchoolDB(LovesDB):
             student_payload.pop("cement", None)
             prompt = dict(prompt)
             prompt["payload"] = student_payload
-        prior = self.get_live_prompt_response(int(prompt["id"]), student_id)
+        prior = self.get_live_prompt_response(
+            int(prompt["id"]), student_id, participant_uuid=participant_uuid
+        )
         my_response = None
         if prior is not None:
             my_response = {
@@ -5557,32 +6154,54 @@ class SchoolDB(LovesDB):
         )
 
     def mark_live_session_attendee_left(
-        self, session_id: int, student_id: int
+        self,
+        session_id: int,
+        student_id: int | None = None,
+        *,
+        attendee_id: int | None = None,
     ) -> dict[str, Any] | None:
         """Set ``left_at`` for one attendee without ending the session.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Game-show ``students.id``.
+            student_id: Optional game-show ``students.id``.
+            attendee_id: Optional ``live_session_attendees.id``.
         """
         now = _now()
         with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_session_attendees
-                SET left_at = ?
-                WHERE live_session_id = ? AND student_id = ? AND left_at IS NULL
-                """,
-                (now, int(session_id), int(student_id)),
-            )
-            self.conn.commit()
-            row = self.conn.execute(
-                """
-                SELECT * FROM live_session_attendees
-                WHERE live_session_id = ? AND student_id = ?
-                """,
-                (int(session_id), int(student_id)),
-            ).fetchone()
+            if attendee_id is not None:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_attendees
+                    SET left_at = ?
+                    WHERE id = ? AND live_session_id = ? AND left_at IS NULL
+                    """,
+                    (now, int(attendee_id), int(session_id)),
+                )
+                self.conn.commit()
+                row = self.conn.execute(
+                    "SELECT * FROM live_session_attendees WHERE id = ?",
+                    (int(attendee_id),),
+                ).fetchone()
+            elif student_id not in (None, ""):
+                self.conn.execute(
+                    """
+                    UPDATE live_session_attendees
+                    SET left_at = ?
+                    WHERE live_session_id = ? AND student_id = ? AND left_at IS NULL
+                    """,
+                    (now, int(session_id), int(student_id)),
+                )
+                self.conn.commit()
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_attendees
+                    WHERE live_session_id = ? AND student_id = ?
+                    """,
+                    (int(session_id), int(student_id)),
+                ).fetchone()
+            else:
+                return None
         return dict(row) if row else None
 
     def clear_attendee_moods_and_characters(self, session_id: int) -> int:
@@ -5599,7 +6218,11 @@ class SchoolDB(LovesDB):
             return 0
         class_id = int(session_row["class_id"])
         attendees = self.list_live_session_attendees(session_id)
-        student_ids = [int(row["student_id"]) for row in attendees]
+        student_ids = [
+            int(row["student_id"])
+            for row in attendees
+            if row.get("student_id") not in (None, "")
+        ]
         if not student_ids:
             return 0
         self.game.clear_students_live_presence(class_id, student_ids)
@@ -5841,20 +6464,32 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
+        self.sweep_stale_live_attendees(session_id)
         attendees = self.list_live_session_attendees(session_id)
         moods = self.game.today_moods(int(session_row["class_id"]))
+        public_rows: list[dict[str, Any]] = []
         for row in attendees:
-            sid = int(row["student_id"])
-            row["mood"] = moods.get(sid)
-        present = [row for row in attendees if not row.get("left_at")]
+            sid = row.get("student_id")
+            item = public_live_attendee(row)
+            if sid not in (None, ""):
+                item["mood"] = moods.get(int(sid))
+            else:
+                item["mood"] = None
+            public_rows.append(item)
+        present = [row for row in public_rows if not row.get("left_at")]
         phase = "ended" if session_row.get("status") == "ended" else "live"
+        session_public = dict(session_row)
+        session_public["allow_unmatched_guests"] = bool(
+            int(session_public.get("allow_unmatched_guests") or 0)
+        )
         return {
-            "session": session_row,
+            "session": session_public,
             "code": session_row.get("session_code"),
             "count": len(present),
-            "attendees": attendees,
+            "attendees": public_rows,
             "phase": phase,
             "active_media": self.live_session_active_media_payload(session_id),
+            "allow_unmatched_guests": session_public["allow_unmatched_guests"],
         }
 
     def has_active_live_sessions(self) -> bool:
@@ -5879,50 +6514,183 @@ class SchoolDB(LovesDB):
             name: Student-entered roster username / Codename.
 
         Returns:
-            Student row dict, or ``None`` when the session is missing/ended
-            or the name is not on that class roster.
+            Student row dict, or ``None`` when the session is missing/ended,
+            the name is not on that class roster, or more than one row matches.
+        """
+        matches = self.list_roster_matches_for_live_session(session_id, name)
+        if len(matches) != 1:
+            return None
+        return matches[0]
+
+    def list_roster_matches_for_live_session(
+        self, session_id: int, name: str
+    ) -> list[dict[str, Any]]:
+        """Roster rows whose Codename or first name matches ``name``.
+
+        Matching is case-insensitive and uses the first token only so last
+        names are never required or stored.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            name: Student-entered name.
+
+        Returns:
+            Matching student dicts (possibly empty).
         """
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
-            return None
-        return self.game.find_student_by_codename(
-            int(session_row["class_id"]), name
+            return []
+        needle = first_name_only(name).lower()
+        if not needle:
+            return []
+        class_id = int(session_row["class_id"])
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT * FROM students
+                WHERE class_id = ?
+                  AND (
+                      lower(trim(codename)) = ?
+                      OR lower(trim(first_name)) = ?
+                  )
+                ORDER BY id ASC
+                """,
+                (class_id, needle, needle),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def disambiguated_roster_labels(
+        self, matches: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Build picker labels for colliding first names without last names.
+
+        Args:
+            matches: Roster student rows.
+
+        Returns:
+            Dicts with ``student_id``, ``label``, and ``codename``.
+        """
+        from collections import Counter
+
+        firsts = Counter(
+            first_name_only(
+                str(row.get("first_name") or row.get("codename") or "")
+            ).lower()
+            for row in matches
         )
+        payload: list[dict[str, Any]] = []
+        for row in matches:
+            first = first_name_only(str(row.get("first_name") or ""))
+            code = first_name_only(str(row.get("codename") or first))
+            if firsts[first.lower()] > 1 and code.lower() != first.lower():
+                label = f"{first} ({code})"
+            elif firsts[first.lower()] > 1:
+                label = code or first
+            else:
+                label = code or first
+            payload.append(
+                {
+                    "student_id": int(row["id"]),
+                    "label": label,
+                    "codename": code,
+                }
+            )
+        seen: dict[str, int] = {}
+        for item in payload:
+            key = item["label"].lower()
+            seen[key] = seen.get(key, 0) + 1
+        if any(count > 1 for count in seen.values()):
+            counters: dict[str, int] = {}
+            for item in payload:
+                key = item["label"].lower()
+                if seen[key] > 1:
+                    counters[key] = counters.get(key, 0) + 1
+                    item["label"] = f"{item['label']} ({counters[key]})"
+        return payload
+
+    def guest_student_live_payload(
+        self, *, codename: str, class_id: int
+    ) -> dict[str, Any]:
+        """Minimal student-home payload for an unmatched live-class guest.
+
+        Args:
+            codename: Display first name.
+            class_id: Class primary key for scoreboard context.
+
+        Returns:
+            Same shape as ``student_live_payload`` without roster scoring.
+        """
+        display = first_name_only(codename)
+        try:
+            scoreboard = self.game.scoreboard(class_id)
+        except Exception:  # noqa: BLE001 - guest home must still render
+            scoreboard = {"teams": [], "final": False}
+        return {
+            "ok": True,
+            "status": "waiting",
+            "scoring": False,
+            "show_rank": False,
+            "class_id": int(class_id),
+            "round_label": "",
+            "round_kind": "",
+            "unmatched": True,
+            "me": {
+                "id": None,
+                "codename": display,
+                "character": None,
+                "mood": None,
+                "points": 0,
+                "team_name": None,
+                "team_points": 0,
+            },
+            "scoreboard": scoreboard,
+        }
 
     def join_live_class_session(
         self,
         session_id: int,
-        student_id: int,
+        student_id: int | None = None,
         *,
         codename: str = "",
+        visit_token: str = "",
+        unmatched: bool = False,
     ) -> dict[str, Any]:
-        """Record a student join and best-effort auto-mark attendance.
+        """Record a student or guest join and best-effort auto-mark attendance.
 
         Upserts ``live_session_attendees`` (feeds the live overlay) and, when
-        an open Mark Attendance / live game exists for the class, sets that
-        student present on the meeting column.
+        a roster ``student_id`` is present and an open Mark Attendance / live
+        game exists, sets that student present on the meeting column.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Game-show ``students.id``.
-            codename: Display name for overlay / IT listings.
+            student_id: Optional game-show ``students.id``.
+            codename: Display first name / Codename.
+            visit_token: Stable rejoin token when resuming from cookie.
+            unmatched: True for names not on the roster.
 
         Returns:
             Dict with ``attendee``, ``session``, and ``attendance_marked``.
 
         Raises:
             KeyError: If the session does not exist or is not active.
-            ValueError: If this roster name is already signed in to the session.
+            ValueError: If this name is already signed in to the session.
         """
         attendee = self.record_live_session_attendee(
-            session_id, student_id, codename=codename
+            session_id,
+            student_id,
+            codename=codename,
+            visit_token=visit_token,
+            unmatched=unmatched,
         )
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
-        marked = self.game.mark_student_present_on_open_session(
-            int(session_row["class_id"]), int(student_id)
-        )
+        marked = False
+        sid = attendee.get("student_id")
+        if sid not in (None, "") and not unmatched:
+            marked = self.game.mark_student_present_on_open_session(
+                int(session_row["class_id"]), int(sid)
+            )
         return {
             "attendee": attendee,
             "session": session_row,
@@ -5992,11 +6760,18 @@ class SchoolDB(LovesDB):
         attendee = dict(row)
         if attendee.get("left_at"):
             return attendee
-        return self.disconnect_live_session_student(
+        sid = attendee.get("student_id")
+        session_row = self.get_live_session(int(attendee["live_session_id"]))
+        updated = self.mark_live_session_attendee_left(
             int(attendee["live_session_id"]),
-            int(attendee["student_id"]),
-            clear_mood=clear_mood,
+            int(sid) if sid not in (None, "") else None,
+            attendee_id=int(attendee["id"]),
         )
+        if clear_mood and session_row is not None and sid not in (None, ""):
+            self.game.clear_students_live_presence(
+                int(session_row["class_id"]), [int(sid)]
+            )
+        return updated
 
     def upsert_document(self, **fields: Any) -> int:
         """Insert or update a curriculum PDF registry row."""

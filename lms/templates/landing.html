@@ -32,9 +32,21 @@
     </div>
     <form class="student-code-panel{% if not student_error %} hidden{% endif %}" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Course code</label>
-      <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required placeholder="8-character code">
-      <label class="field" for="student-name">Name</label>
-      <input id="student-name" name="name" autocomplete="name" required placeholder="Name on the roster">
+      <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required placeholder="8-character code" value="{{ student_code or '' }}">
+      <label class="field" for="student-name">First name or Codename</label>
+      <input id="student-name" name="name" autocomplete="given-name" required placeholder="First name on the roster" value="{{ student_name or '' }}">
+      {% if student_candidates %}
+      <p class="hint" id="student-pick-hint">More than one student matches that name. Pick yours:</p>
+      <fieldset class="student-name-picker" id="student-name-picker">
+        <legend class="visually-hidden">Choose your roster name</legend>
+        {% for cand in student_candidates %}
+        <label class="student-pick-option">
+          <input type="radio" name="student_id" value="{{ cand.student_id }}" required>
+          <span>{{ cand.label }}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      {% endif %}
       <div class="row-actions" style="margin-top:0.75rem">
         <button type="submit">Join</button>
       </div>
