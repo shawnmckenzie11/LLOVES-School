@@ -43,9 +43,9 @@
   <section class="wrap calc-wrap" id="celebrations" hidden>
     <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>
     <article class="calc-coming-soon">
-      <h2>Celebrations</h2>
-      <p class="calc-coming-line">Coming soon.</p>
-      <p class="sub">We’ll shout out strong work and engagement here when it’s ready.</p>
+      <h2>Celebrations <span class="calc-sparkle-dot" aria-hidden="true"></span></h2>
+      <p class="calc-coming-line">Coming soon — the shout-outs are warming up.</p>
+      <p class="sub">Good work deserves a spotlight; we’re still setting the lights.</p>
     </article>
   </section>
   <script>
@@ -110,6 +110,17 @@
       if (!signIn || !board) return;
 
       /**
+       * One-shot pulse on the Celebrations sparkle-dot (CSS no-ops under reduced motion).
+       */
+      function pulseSparkle() {
+        var sparkle = board.querySelector(".calc-sparkle-dot");
+        if (!sparkle) return;
+        sparkle.classList.remove("is-pulse");
+        void sparkle.offsetWidth;
+        sparkle.classList.add("is-pulse");
+      }
+
+      /**
        * Show sign-in or the #celebrations board from the URL hash.
        */
       function syncLandingHash() {
@@ -117,6 +128,9 @@
         document.body.classList.toggle("is-celebrations", celebrations);
         signIn.hidden = celebrations;
         board.hidden = !celebrations;
+        if (celebrations) {
+          pulseSparkle();
+        }
       }
 
       window.addEventListener("hashchange", syncLandingHash);
