@@ -11,6 +11,8 @@ const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
+const mediaCaption = document.getElementById("media-caption");
+const mediaToast = document.getElementById("media-toast");
 const mediaAnswers = document.getElementById("media-answers");
 const mediaEncore = document.getElementById("media-encore");
 const mediaEncoreLink = document.getElementById("media-encore-link");
@@ -22,6 +24,10 @@ let lastPromptId = null;
 let lastMediaUrl = "";
 /** @type {string} */
 let lastMediaSig = "";
+/** @type {string} */
+let lastToastKey = "";
+/** @type {number} */
+let toastHideTimer = 0;
 
 /** Open Question waiting copy shown on the Phone during that round. */
 const OPEN_QUESTION_WAIT_HTML = `
@@ -252,10 +258,16 @@ function paintMedia(payload) {
     mediaChip.hidden = !chip;
   }
   if (mediaStem) {
-    const stem = String((media && (media.stem || media.caption)) || "").trim();
+    const stem = String((media && media.stem) || "").trim();
     mediaStem.textContent = stem;
     mediaStem.hidden = !stem;
   }
+  if (mediaCaption) {
+    const caption = String((media && media.caption) || "").trim();
+    mediaCaption.textContent = caption;
+    mediaCaption.hidden = !caption;
+  }
+  paintMediaToast(media);
   if (mediaAnswers) {
     const answers = Array.isArray(media && media.answers) ? media.answers : [];
     mediaAnswers.innerHTML = "";
@@ -293,6 +305,11 @@ function paintMedia(payload) {
     mediaFrame.removeAttribute("src");
     lastMediaUrl = "";
     lastMediaSig = "";
+    lastToastKey = "";
+    if (mediaToast) {
+      mediaToast.hidden = true;
+      mediaToast.textContent = "";
+    }
     return;
   }
   mediaPane.hidden = false;
@@ -308,6 +325,9 @@ function paintMedia(payload) {
     params: media.params || {},
     entry_chip: media.entry_chip || "",
     chip: media.chip || "",
+    caption: media.caption || "",
+    toast_key: media.toast_key || "",
+    cons_item: media.cons_item || "",
   });
   if (url !== lastMediaUrl) {
     lastMediaUrl = url;
@@ -320,6 +340,32 @@ function paintMedia(payload) {
     lastMediaSig = sig;
     postMediaState(media);
   }
+}
+
+/**
+ * Show an ephemeral Wonder toast when peel identity changes.
+ * Freeze parks with a blank toast (no FlagStrip).
+ * @param {any} media
+ */
+function paintMediaToast(media) {
+  if (!mediaToast) return;
+  const key = String((media && media.toast_key) || "");
+  const line = String((media && media.toast) || "").trim();
+  if (!key || key === lastToastKey) {
+    return;
+  }
+  lastToastKey = key;
+  window.clearTimeout(toastHideTimer);
+  if (!line || key === "freeze") {
+    mediaToast.hidden = true;
+    mediaToast.textContent = "";
+    return;
+  }
+  mediaToast.textContent = line;
+  mediaToast.hidden = false;
+  toastHideTimer = window.setTimeout(() => {
+    mediaToast.hidden = true;
+  }, 4200);
 }
 
 /**
@@ -370,20 +416,27 @@ function paintPrompt(payload) {
       </label>
       <button type="button" class="prompt-submit" id="prompt-numeric-submit">Submit</button>
     `;
-  } else if (kind === "share") {
+  } else if (kind === "share" || kind === "draw") {
+    const placeholder = escapeText(
+      data.placeholder || "Type a short note…"
+    );
     controls = `
       <label class="prompt-share">
-        <span>Share your work</span>
-        <textarea id="prompt-share-input" rows="3" maxlength="2000" placeholder="Type a short note…"></textarea>
+        <span>${kind === "draw" ? "Mark and name" : "Share your work"}</span>
+        <textarea id="prompt-share-input" rows="3" maxlength="2000" placeholder="${placeholder}"></textarea>
       </label>
       <button type="button" class="prompt-submit" id="prompt-share-submit">Share</button>
     `;
   } else {
     controls = `<p class="prompt-idle">Unsupported prompt kind.</p>`;
   }
+  const itemId = String(data.item_id || "").trim();
+  const kindLine = itemId
+    ? itemId
+    : `${kind.toUpperCase()} · slide ${escapeText(prompt.slide_index)}`;
   promptShell.hidden = false;
   promptShell.innerHTML = `
-    <p class="prompt-kind">${escapeText(kind.toUpperCase())} · slide ${escapeText(prompt.slide_index)}</p>
+    <p class="prompt-kind">${escapeText(kindLine)}</p>
     <h2 class="prompt-title">${title}</h2>
     <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
   `;

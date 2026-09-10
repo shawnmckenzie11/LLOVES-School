@@ -13,11 +13,25 @@ from typing import Any
 
 try:
     from codes import generate_live_access_code
-    from live_media import apply_active_media_update, public_active_media_payload
+    from live_media import (
+        apply_active_media_update,
+        get_c1_cons_item,
+        is_c1_cons_payload,
+        is_c1_real_slice,
+        public_active_media_payload,
+        staff_cons_prompt_payload,
+    )
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
-    from lms.live_media import apply_active_media_update, public_active_media_payload
+    from lms.live_media import (
+        apply_active_media_update,
+        get_c1_cons_item,
+        is_c1_cons_payload,
+        is_c1_real_slice,
+        public_active_media_payload,
+        staff_cons_prompt_payload,
+    )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
@@ -5142,7 +5156,7 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             slide_index: Zero-based slide index from the future slides plugin.
-            kind: ``mc``, ``numeric``, ``share``, or ``idle``.
+            kind: ``mc``, ``numeric``, ``share``, ``draw``, or ``idle``.
             payload: Kind-specific JSON (choices, prompt text, etc.).
             activate: When True, deactivate other prompts for this session.
 
@@ -5157,8 +5171,16 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         kind_norm = (kind or "idle").strip().lower()
-        if kind_norm not in {"mc", "numeric", "share", "idle"}:
+        if kind_norm not in {"mc", "numeric", "share", "draw", "idle"}:
             raise ValueError(f"unsupported prompt kind: {kind}")
+        if is_c1_cons_payload(payload):
+            media = self.live_session_active_media_payload(session_id)
+            if not media or not media.get("frozen"):
+                raise ValueError("Consolidation is available only after freeze.")
+            if not is_c1_real_slice(media):
+                raise ValueError(
+                    "C1 consolidation is only for the Real-slice channel."
+                )
         body = json.dumps(payload or {})
         now = _now()
         with self._lock:
@@ -5337,6 +5359,15 @@ class SchoolDB(LovesDB):
         prompt = self.get_active_live_prompt(session_id)
         if prompt is None or prompt.get("kind") == "idle":
             return {"prompt": None, "my_response": None}
+        if is_c1_cons_payload(prompt.get("payload")):
+            media = self.live_session_active_media_payload(session_id)
+            if not media or not media.get("frozen") or not is_c1_real_slice(media):
+                return {"prompt": None, "my_response": None}
+            student_payload = dict(prompt.get("payload") or {})
+            student_payload.pop("key", None)
+            student_payload.pop("cement", None)
+            prompt = dict(prompt)
+            prompt["payload"] = student_payload
         prior = self.get_live_prompt_response(int(prompt["id"]), student_id)
         my_response = None
         if prior is not None:
@@ -5389,6 +5420,11 @@ class SchoolDB(LovesDB):
         unlock_flags: Any = None,
         answers: Any = None,
         params: Any = None,
+        challenge: Any = None,
+        cons_item: Any = None,
+        toast: Any = None,
+        toast_key: Any = None,
+        allow_url_swap: bool = True,
         merge: bool = False,
     ) -> dict[str, Any] | None:
         """Set, swap, patch control-state, or clear session active media.
@@ -5412,6 +5448,11 @@ class SchoolDB(LovesDB):
             unlock_flags: Partial L0–L4 flags (delight pass).
             answers: Optional engagement choices for the current reveal.
             params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
+            challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 drop Real-slice defaults.
+            cons_item: Post-freeze CONS-1…5 id, or empty to clear.
+            toast: Optional Wonder toast overlay.
+            toast_key: Optional toast identity.
+            allow_url_swap: When False, production seed-locks the Real-slice URL.
             merge: When True, treat omitted url as a patch of current media.
 
         Returns:
@@ -5419,13 +5460,18 @@ class SchoolDB(LovesDB):
 
         Raises:
             KeyError: If the live session is missing.
-            ValueError: Invalid URL/params, or merge with no current media.
+            ValueError: Invalid URL/params, CONS before freeze, or merge with
+                no current media.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         current = self.live_session_active_media_payload(session_id)
-        kwargs: dict[str, Any] = {"clear": clear, "updated_at": _now()}
+        kwargs: dict[str, Any] = {
+            "clear": clear,
+            "updated_at": _now(),
+            "allow_url_swap": allow_url_swap,
+        }
         if not merge:
             kwargs["url"] = url
         if title is not None:
@@ -5452,6 +5498,14 @@ class SchoolDB(LovesDB):
             kwargs["answers"] = answers
         if params is not None:
             kwargs["params"] = params
+        if challenge is not None:
+            kwargs["challenge"] = challenge
+        if cons_item is not None:
+            kwargs["cons_item"] = cons_item
+        if toast is not None:
+            kwargs["toast"] = toast
+        if toast_key is not None:
+            kwargs["toast_key"] = toast_key
         payload = apply_active_media_update(current, **kwargs)
         encoded = json.dumps(payload) if payload else None
         with self._lock:
@@ -5464,7 +5518,43 @@ class SchoolDB(LovesDB):
                 (encoded, int(session_id)),
             )
             self.conn.commit()
+        self._sync_c1_cons_prompt(session_id, payload)
         return payload
+
+    def _sync_c1_cons_prompt(
+        self, session_id: int, media: dict[str, Any] | None
+    ) -> None:
+        """Push or clear the live-prompt row to match ``cons_item`` after freeze.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            media: Public active-media payload, or ``None`` when cleared.
+        """
+        wanted = ""
+        if media and media.get("frozen") and is_c1_real_slice(media):
+            wanted = str(media.get("cons_item") or "").strip()
+        active = self.get_active_live_prompt(session_id)
+        if not wanted:
+            if active and is_c1_cons_payload(active.get("payload")):
+                self.clear_active_live_prompt(session_id)
+            return
+        item = get_c1_cons_item(wanted)
+        if item is None:
+            if active and is_c1_cons_payload(active.get("payload")):
+                self.clear_active_live_prompt(session_id)
+            return
+        current_id = ""
+        if active and is_c1_cons_payload(active.get("payload")):
+            current_id = str((active.get("payload") or {}).get("item_id") or "")
+        if current_id == item["id"] and active and active.get("kind") == item["kind"]:
+            return
+        self.set_live_session_prompt(
+            session_id,
+            slide_index=int(item["slide_index"]),
+            kind=str(item["kind"]),
+            payload=staff_cons_prompt_payload(item),
+            activate=True,
+        )
 
     def mark_live_session_attendee_left(
         self, session_id: int, student_id: int
