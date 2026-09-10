@@ -368,7 +368,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
-        self.student.post("/student/character", data={"character": "char_a"})
+        self.student.post("/student/character", data={"character": "fox"})
 
     def tearDown(self) -> None:
         """Close db and temp dir."""
