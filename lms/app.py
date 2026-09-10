@@ -4668,7 +4668,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if rounds is not None and not isinstance(rounds, list):
                 raise ValueError("rounds must be a list")
             state = school.game.start_live_with_rounds(class_id, rounds)
-            school.clear_waiting_room_meet_math_for_class(class_id)
+            school.clear_waiting_room_minds_on_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
@@ -4686,7 +4686,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if not isinstance(spec, dict):
                 raise ValueError("round must be an object")
             state = school.game.append_and_start_round(class_id, spec)
-            school.clear_waiting_room_meet_math_for_class(class_id)
+            school.clear_waiting_room_minds_on_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
@@ -4748,7 +4748,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(body):
             """Apply one staff JSON mutation for this class."""
             state = school.game.start_round(class_id, int(body.get("round") or 0))
-            school.clear_waiting_room_meet_math_for_class(class_id)
+            school.clear_waiting_room_minds_on_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
