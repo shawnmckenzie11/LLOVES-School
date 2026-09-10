@@ -1,6 +1,9 @@
-"""Public student-celebration board for ``alc.mckenzian.com#celebrations``.
+"""Staff celebration helpers for ``alc.mckenzian.com#celebrations``.
 
-Cards:
+The public student page is a Coming soon panel until the board has real
+data. Ranking and the teacher-picked Awards setting stay here for staff.
+
+Cards (when the public board is live):
 
 * **Awards** — teacher-picked Codename (school setting)
 * **Most Engaged** — most presents, then participation points
