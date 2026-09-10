@@ -16,22 +16,36 @@ try:
     from codes import generate_live_access_code
     from live_media import (
         apply_active_media_update,
+        challenge_clears_active_media,
         get_c1_cons_item,
         is_c1_cons_payload,
         is_c1_real_slice,
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from meet_math import (
+        MEET_MATH_KIND,
+        MEET_MATH_SLIDE_INDEX,
+        is_meet_math_payload,
+        meet_math_prompt_payload,
+    )
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
     from lms.live_media import (
         apply_active_media_update,
+        challenge_clears_active_media,
         get_c1_cons_item,
         is_c1_cons_payload,
         is_c1_real_slice,
         public_active_media_payload,
         staff_cons_prompt_payload,
+    )
+    from lms.meet_math import (
+        MEET_MATH_KIND,
+        MEET_MATH_SLIDE_INDEX,
+        is_meet_math_payload,
+        meet_math_prompt_payload,
     )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
@@ -5779,6 +5793,125 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
 
+    def _class_game_is_live(self, class_id: int) -> bool:
+        """True when this class has a live scoring game (not setup/ended).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self.game._lock:
+            row = self.game.conn.execute(
+                """
+                SELECT status FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        return row is not None and str(row["status"] or "") == "live"
+
+    def _session_left_waiting_room(self, session_id: int) -> bool:
+        """True when scoring is live, challenge media mounted, or meet-math ended.
+
+        Meet-math is deactivated (or an inactive sentinel is written) when Team
+        Challenge media / C2–C3 mounts so lazy-seed cannot bring it back.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return True
+        if self._class_game_is_live(int(session_row["class_id"])):
+            return True
+        media = self.live_session_active_media_payload(session_id)
+        if media and media.get("url"):
+            return True
+        if self._meet_math_row_exists(session_id):
+            active = self.get_active_live_prompt(session_id)
+            if not (active and is_meet_math_payload(active.get("payload"))):
+                return True
+        return False
+
+    def _meet_math_row_exists(self, session_id: int) -> bool:
+        """True when this session already has a meet-math prompt row.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM live_session_prompts
+                WHERE live_session_id = ? AND slide_index = ?
+                LIMIT 1
+                """,
+                (int(session_id), int(MEET_MATH_SLIDE_INDEX)),
+            ).fetchone()
+        return row is not None
+
+    def ensure_waiting_room_meet_math(self, session_id: int) -> dict[str, Any] | None:
+        """Seed the M1C1 meet-math MC if this session is still waiting-room.
+
+        Lazy-seeds existing smoke sessions that started before this prompt
+        existed. Does not recreate the row after Team Challenge / scoring
+        cleared it.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The seeded prompt row, or ``None`` when skipped.
+        """
+        if self._meet_math_row_exists(session_id):
+            return None
+        if self._session_left_waiting_room(session_id):
+            return None
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=MEET_MATH_SLIDE_INDEX,
+            kind=MEET_MATH_KIND,
+            payload=meet_math_prompt_payload(),
+            activate=True,
+        )
+
+    def clear_waiting_room_meet_math(self, session_id: int) -> None:
+        """Deactivate meet-math when the waiting-room ends.
+
+        Writes an inactive sentinel row when meet-math was never seeded so a
+        later student poll cannot lazy-seed it after Team Challenge starts.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        active = self.get_active_live_prompt(session_id)
+        if active and is_meet_math_payload(active.get("payload")):
+            self.clear_active_live_prompt(session_id)
+            return
+        if self._meet_math_row_exists(session_id):
+            return
+        if self.get_live_session(session_id) is None:
+            return
+        self.set_live_session_prompt(
+            session_id,
+            slide_index=MEET_MATH_SLIDE_INDEX,
+            kind=MEET_MATH_KIND,
+            payload=meet_math_prompt_payload(),
+            activate=False,
+        )
+
+    def clear_waiting_room_meet_math_for_class(self, class_id: int) -> None:
+        """Deactivate meet-math on the class's active live session, if any.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return
+        self.clear_waiting_room_meet_math(int(live["id"]))
+
     def get_live_prompt_response(
         self,
         prompt_id: int,
@@ -5949,13 +6082,18 @@ class SchoolDB(LovesDB):
         Returns:
             Dict with ``prompt`` (or ``None``) and optional ``my_response``.
         """
+        self.ensure_waiting_room_meet_math(session_id)
+        waiting_room = not self._session_left_waiting_room(session_id)
         prompt = self.get_active_live_prompt(session_id)
+        empty = {"prompt": None, "my_response": None, "waiting_room": waiting_room}
         if prompt is None or prompt.get("kind") == "idle":
-            return {"prompt": None, "my_response": None}
+            return empty
+        if is_meet_math_payload(prompt.get("payload")) and not waiting_room:
+            return empty
         if is_c1_cons_payload(prompt.get("payload")):
             media = self.live_session_active_media_payload(session_id)
             if not media or not media.get("frozen") or not is_c1_real_slice(media):
-                return {"prompt": None, "my_response": None}
+                return empty
             student_payload = dict(prompt.get("payload") or {})
             student_payload.pop("key", None)
             student_payload.pop("cement", None)
@@ -5979,6 +6117,7 @@ class SchoolDB(LovesDB):
                 "payload": prompt.get("payload") or {},
             },
             "my_response": my_response,
+            "waiting_room": waiting_room,
         }
 
     def live_session_active_media_payload(
@@ -6113,6 +6252,8 @@ class SchoolDB(LovesDB):
                 (encoded, int(session_id)),
             )
             self.conn.commit()
+        if payload is not None or challenge_clears_active_media(challenge):
+            self.clear_waiting_room_meet_math(session_id)
         self._sync_c1_cons_prompt(session_id, payload)
         return payload
 
@@ -6407,6 +6548,7 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
+        self.ensure_waiting_room_meet_math(session_id)
         return session_row
 
 

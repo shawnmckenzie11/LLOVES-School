@@ -151,14 +151,30 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
+/** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
+const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
+
+/**
+ * True when the session is still waiting-room (no scoring, no challenge media).
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function isWaitingRoom(payload) {
+  if (typeof payload.waiting_room === "boolean") {
+    return payload.waiting_room;
+  }
+  const hasMedia = Boolean(payload.active_media && payload.active_media.url);
+  return !payload.scoring && !hasMedia;
+}
+
 /**
  * Waiting / guidance copy for the live response shell.
  * @param {any} payload
  * @returns {{html?: string, text?: string}}
  */
 function waitCopyFor(payload) {
-  if (!payload.scoring) {
-    return { text: "Waiting room — class is about to begin." };
+  if (isWaitingRoom(payload)) {
+    return { text: WAITING_ROOM_WAIT_LINE };
   }
   const kind = String(payload.round_kind || "").toLowerCase();
   if (kind === "break") {
@@ -177,11 +193,14 @@ function waitCopyFor(payload) {
 function applyLayout(payload) {
   const live = Boolean(payload.scoring);
   const hasMedia = Boolean(payload.active_media && payload.active_media.url);
+  const waitingRoom = isWaitingRoom(payload);
   body.classList.toggle("is-live", live);
   body.classList.toggle("has-media", hasMedia);
+  body.classList.toggle("is-waiting-room", waitingRoom);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
-    if (hasPrompt || hasMedia) {
+    // Waiting-room keeps Wonder's line even when meet-math MC is showing.
+    if (!waitingRoom && (hasPrompt || hasMedia)) {
       waitEl.hidden = true;
       waitEl.textContent = "";
       waitEl.innerHTML = "";
@@ -430,7 +449,10 @@ function paintPrompt(payload) {
     controls = `<p class="prompt-idle">Unsupported prompt kind.</p>`;
   }
   const itemId = String(data.item_id || "").trim();
-  const kindLine = itemId
+  const label = String(data.label || "").trim();
+  const kindLine = label
+    ? label
+    : itemId
     ? itemId
     : `${kind.toUpperCase()} · slide ${escapeText(prompt.slide_index)}`;
   promptShell.hidden = false;
