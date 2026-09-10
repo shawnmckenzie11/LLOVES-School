@@ -83,9 +83,10 @@ let setupRoundNumber = 1;
 let mediaPushTimer = 0;
 
 const SEED_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html";
-const SEED_MEDIA_TITLE = "C1 Real-slice";
-const SEED_MEDIA_STEM =
-  "When looking at the parabola represented by y = ax^2 + bx + c, what do you know about a, b, and c?";
+const SEED_MEDIA_TITLE =
+  "Consider the parabola represented by y = ax^2 + bx + c. What do you know about a, b, and c?";
+const SEED_MEDIA_STEM = SEED_MEDIA_TITLE;
+let mediaSeedInFlight = false;
 
 const ROUND_KIND_OPTIONS = [
   { kind: "open", label: "Open Question Round", defaultMin: 20 },
@@ -470,6 +471,7 @@ async function pollLiveSessionAttendees() {
       present
     );
     paintActiveMediaStatus(payload?.active_media || payload?.session?.active_media);
+    ensureC1MediaSeeded();
   } catch (_) {
     /* keep polling */
   }
@@ -495,162 +497,92 @@ function staffLiveMediaState(media, params) {
     source: "lloves-staff-live",
     type: "live-media-state",
     student_controls_unlocked: Boolean(row.student_controls_unlocked),
+    param_push: row.param_push || { a: false, b: false, c: false },
+    param_frozen: row.param_frozen || { a: true, b: true, c: true },
     reveal_axes: Boolean(row.reveal_axes),
     reveal_lateral: Boolean(row.reveal_lateral),
     allow_3d_limited: Boolean(row.allow_3d_limited),
     show_z_axis: Boolean(row.show_z_axis),
     student_zoom: Number(row.student_zoom ?? 0),
     freeze_zoom: Boolean(row.freeze_zoom),
-    surface_transparency: Number(row.surface_transparency ?? 1.5),
+    surface_transparency: Number(row.surface_transparency ?? 0.75),
     freeze_surface: Boolean(row.freeze_surface),
     student_yaw_range: Number(row.student_yaw_range ?? 0),
     freeze_yaw: Boolean(row.freeze_yaw),
     frozen: Boolean(row.frozen),
     unlock_flags: row.unlock_flags || {},
     params: params || row.params || { a: 1, b: 0, c: 0 },
+    stem: row.stem || SEED_MEDIA_STEM,
+    entry_chip: row.entry_chip || "",
   };
 }
 
 /**
- * Paint the Run Live Class active-media status + teacher preview.
+ * Teacher preview iframe for the C1 Real-slice. Controls live in the frame.
  * @param {any} media
  */
 function paintActiveMediaStatus(media) {
-  const status = $("ap-active-media-status");
-  const stemPreview = $("ap-active-media-stem-preview");
-  const unlock = $("ap-media-unlock");
-  const axes = $("ap-media-axes");
-  const limited = $("ap-media-limited");
-  const freeze = $("ap-media-freeze");
-  const paramsWrap = $("ap-media-params");
-  const layers = $("ap-media-layers");
   const preview = $("ap-media-preview");
-  const urlInput = $("ap-media-url");
-  const consWrap = $("ap-media-cons");
-  const consStatus = $("ap-media-cons-status");
-  const swapWrap = $("ap-media-swap-wrap");
-  const allowSwap = document.getElementById("ap-root")?.dataset?.allowMediaSwap === "1";
-  if (swapWrap) swapWrap.hidden = !allowSwap;
-  if (!status) return;
-  const mediaUrl = String((media && media.url) || "").trim();
-  if (mediaUrl) {
-    textOnlyChallenge = "";
+  if (!preview) return;
+  const mediaUrl = String((media && media.url) || SEED_MEDIA_URL).trim();
+  const teacherSrc = mediaUrl.includes("?")
+    ? `${mediaUrl}&role=teacher`
+    : `${mediaUrl}?role=teacher`;
+  if (preview.getAttribute("src") !== teacherSrc) {
+    preview.src = teacherSrc;
   }
-  const challenge = (
-    textOnlyChallenge || String((media && media.challenge) || "")
-  ).toUpperCase();
-  if (!mediaUrl) {
-    if (challenge === "C2" || challenge === "C3") {
-      status.textContent = `${challenge} — no immersive media (active_media_json not seeded).`;
-      if (stemPreview) {
-        stemPreview.hidden = true;
-        stemPreview.textContent = "";
-      }
-      if (unlock) unlock.checked = false;
-      if (axes) axes.checked = false;
-      if (limited) limited.checked = false;
-      if (freeze) freeze.checked = false;
-      if (paramsWrap) paramsWrap.hidden = true;
-      if (layers) layers.hidden = true;
-      if (consWrap) consWrap.hidden = true;
-      if (preview) {
-        preview.hidden = true;
-        preview.removeAttribute("src");
-      }
+  preview.hidden = false;
+  const params = (media && media.params) || { a: 1, b: 0, c: 0 };
+  try {
+    preview.contentWindow?.postMessage(
+      staffLiveMediaState(media, params),
+      window.location.origin
+    );
+  } catch (_) {
+    /* preview may still be loading */
+  }
+}
+
+/**
+ * Seed C1 Real-slice onto the live session when the blob is empty.
+ */
+async function ensureC1MediaSeeded() {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || mediaSeedInFlight || textOnlyChallenge) return;
+  mediaSeedInFlight = true;
+  try {
+    const res = await api(`/api/live-sessions/${sessionId}/active-media`);
+    if (res.active_media && res.active_media.url) {
+      paintActiveMediaStatus(res.active_media);
       return;
     }
-    status.textContent = "None — students see the wait / prompt shell until you push a page.";
-    if (stemPreview) {
-      stemPreview.hidden = true;
-      stemPreview.textContent = "";
-    }
-    if (unlock) unlock.checked = false;
-    if (axes) axes.checked = false;
-    if (limited) limited.checked = false;
-    if (freeze) freeze.checked = false;
-    if (paramsWrap) paramsWrap.hidden = true;
-    if (layers) layers.hidden = true;
-    if (consWrap) consWrap.hidden = true;
-    if (preview) {
-      preview.hidden = true;
-      preview.removeAttribute("src");
-    }
-    return;
-  }
-  const unlocked = Boolean(media.student_controls_unlocked);
-  const axesOn = Boolean(media.reveal_axes);
-  const lateralOn = Boolean(media.reveal_lateral);
-  const limitedOn = Boolean(media.allow_3d_limited);
-  const frozenOn = Boolean(media.frozen);
-  const bits = [];
-  if (axesOn) bits.push("axes revealed");
-  if (lateralOn) bits.push("lateral slice");
-  if (limitedOn) bits.push("limited yaw");
-  if (unlocked) bits.push("sliders unlocked");
-  if (frozenOn) bits.push("frozen (encore offered)");
-  const consItem = String(media.cons_item || "").trim();
-  if (consItem) bits.push(consItem);
-  const toastLine = String(media.toast || "").trim();
-  if (toastLine) bits.push(`toast: ${toastLine}`);
-  status.textContent = bits.length
-    ? `Showing ${media.url} · ${bits.join(" · ")}`
-    : `Showing ${media.url} · entry (paper-locked, faint surface)`;
-  if (consWrap) {
-    consWrap.hidden = !frozenOn;
-  }
-  if (consStatus) {
-    consStatus.textContent = consItem
-      ? `Students see ${consItem}.`
-      : frozenOn
-        ? "Frozen — push CONS-1…5 when ready. Students do not see CONS until you step."
-        : "";
-  }
-  if (stemPreview) {
-    const stem = String(media.stem || "").trim();
-    const caption = String(media.caption || "").trim();
-    const line = caption ? `${stem}${stem ? " — " : ""}${caption}` : stem;
-    stemPreview.textContent = line;
-    stemPreview.hidden = !line;
-  }
-  if (unlock) unlock.checked = unlocked;
-  if (axes) axes.checked = axesOn;
-  if (limited) limited.checked = limitedOn;
-  if (freeze) freeze.checked = frozenOn;
-  if (urlInput && document.activeElement !== urlInput) {
-    urlInput.value = media.url;
-  }
-  const params = media.params || {};
-  const aEl = $("ap-media-a");
-  const bEl = $("ap-media-b");
-  const cEl = $("ap-media-c");
-  if (aEl && document.activeElement !== aEl) aEl.value = String(params.a ?? 1);
-  if (bEl && document.activeElement !== bEl) bEl.value = String(params.b ?? 0);
-  if (cEl && document.activeElement !== cEl) cEl.value = String(params.c ?? 0);
-  if (paramsWrap) paramsWrap.hidden = false;
-  if (layers) {
-    layers.hidden = false;
-    const flags = media.unlock_flags || {};
-    layers.querySelectorAll("input[data-layer]").forEach((box) => {
-      const key = box.getAttribute("data-layer") || "";
-      box.checked = Boolean(flags[key]);
+    await postActiveMedia({
+      url: SEED_MEDIA_URL,
+      title: SEED_MEDIA_TITLE,
+      stem: SEED_MEDIA_STEM,
+      caption: "",
+      entry_chip: "",
+      student_controls_unlocked: false,
+      param_push: { a: false, b: false, c: false },
+      param_frozen: { a: true, b: true, c: true },
+      reveal_axes: false,
+      reveal_lateral: false,
+      allow_3d_limited: false,
+      frozen: false,
+      challenge: "C1",
+      cons_item: "",
+      toast: "",
+      toast_key: "",
+      unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
+      answers: [],
+      params: { a: 1, b: 0, c: 0 },
+      show_z_axis: false,
+      surface_transparency: 0.75,
     });
-  }
-  if (preview) {
-    const teacherSrc = media.url.includes("?")
-      ? `${media.url}&role=teacher`
-      : `${media.url}?role=teacher`;
-    if (preview.getAttribute("src") !== teacherSrc) {
-      preview.src = teacherSrc;
-    }
-    preview.hidden = false;
-    try {
-      preview.contentWindow?.postMessage(
-        staffLiveMediaState(media, params),
-        window.location.origin
-      );
-    } catch (_) {
-      /* preview may still be loading */
-    }
+  } catch (_err) {
+    paintActiveMediaStatus(null);
+  } finally {
+    mediaSeedInFlight = false;
   }
 }
 
@@ -676,152 +608,22 @@ async function postActiveMedia(body) {
 }
 
 /**
- * Bind Show Real-slice / clear / swap / unlock / params controls.
+ * Bind iframe → session patches. All teacher tools live in the Real-slice frame.
  */
 function bindActiveMediaControls() {
-  const seedBtn = $("ap-media-seed");
-  const clearBtn = $("ap-media-clear");
-  const swapBtn = $("ap-media-swap");
-  const c2Btn = $("ap-media-c2");
-  const c3Btn = $("ap-media-c3");
-  const unlock = $("ap-media-unlock");
-  const axes = $("ap-media-axes");
-  const limited = $("ap-media-limited");
-  const freeze = $("ap-media-freeze");
-  const pushParams = $("ap-media-params-push");
-  const layers = $("ap-media-layers");
-  const consRow = $("ap-media-cons-row");
-  const consClear = $("ap-media-cons-clear");
-  const swapWrap = $("ap-media-swap-wrap");
-  const allowSwap = document.getElementById("ap-root")?.dataset?.allowMediaSwap === "1";
-  if (swapWrap) swapWrap.hidden = !allowSwap;
-  if (c2Btn) {
-    c2Btn.addEventListener("click", () => {
-      textOnlyChallenge = "C2";
-      postActiveMedia({ challenge: "C2" }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (c3Btn) {
-    c3Btn.addEventListener("click", () => {
-      textOnlyChallenge = "C3";
-      postActiveMedia({ challenge: "C3" }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (consRow) {
-    consRow.querySelectorAll("button[data-cons]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const item = btn.getAttribute("data-cons");
-        postActiveMedia({ cons_item: item }).catch((err) =>
-          showError("#ap-overlay-error", err)
-        );
-      });
-    });
-  }
-  if (consClear) {
-    consClear.addEventListener("click", () => {
-      postActiveMedia({ cons_item: "" }).catch((err) =>
-        showError("#ap-overlay-error", err)
-      );
-    });
-  }
-  if (seedBtn) {
-    seedBtn.addEventListener("click", () => {
-      textOnlyChallenge = "";
-      postActiveMedia({
-        url: SEED_MEDIA_URL,
-        title: SEED_MEDIA_TITLE,
-        stem: SEED_MEDIA_STEM,
-        caption: "",
-        entry_chip: "From this view only — what must be true?",
-        student_controls_unlocked: false,
-        reveal_axes: false,
-        reveal_lateral: false,
-        allow_3d_limited: false,
-        frozen: false,
-        challenge: "C1",
-        cons_item: "",
-        toast: "",
-        toast_key: "",
-        unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
-        answers: [],
-        params: { a: 1, b: 0, c: 0 },
-        show_z_axis: false,
-        student_zoom: 0,
-        freeze_zoom: false,
-        surface_transparency: 1.5,
-        freeze_surface: false,
-        student_yaw_range: 0,
-        freeze_yaw: false,
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      textOnlyChallenge = "";
-      postActiveMedia({ clear: true }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (swapBtn) {
-    swapBtn.addEventListener("click", () => {
-      const url = String($("ap-media-url")?.value || "").trim();
-      postActiveMedia({ url }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (unlock) {
-    unlock.addEventListener("change", () => {
-      postActiveMedia({
-        student_controls_unlocked: unlock.checked,
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (axes) {
-    axes.addEventListener("change", () => {
-      postActiveMedia({
-        reveal_axes: axes.checked,
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (limited) {
-    limited.addEventListener("change", () => {
-      postActiveMedia({
-        allow_3d_limited: limited.checked,
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (freeze) {
-    freeze.addEventListener("change", () => {
-      postActiveMedia({
-        frozen: freeze.checked,
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
-  if (layers) {
-    layers.querySelectorAll("input[data-layer]").forEach((box) => {
-      box.addEventListener("change", () => {
-        const key = box.getAttribute("data-layer");
-        if (!key) return;
-        const body = { unlock_flags: { [key]: box.checked } };
-        if (key === "L4") body.reveal_lateral = box.checked;
-        postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
-      });
-    });
-  }
-  if (pushParams) {
-    pushParams.addEventListener("click", () => {
-      postActiveMedia({
-        params: {
-          a: Number($("ap-media-a")?.value || 1),
-          b: Number($("ap-media-b")?.value || 0),
-          c: Number($("ap-media-c")?.value || 0),
-        },
-      }).catch((err) => showError("#ap-overlay-error", err));
-    });
-  }
+  paintActiveMediaStatus(null);
+  ensureC1MediaSeeded();
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
     const body = { params: data.params || {} };
+    if (data.param_push && typeof data.param_push === "object") {
+      body.param_push = data.param_push;
+    }
+    if (data.param_frozen && typeof data.param_frozen === "object") {
+      body.param_frozen = data.param_frozen;
+    }
     if (typeof data.reveal_axes === "boolean") body.reveal_axes = data.reveal_axes;
     if (typeof data.reveal_lateral === "boolean") body.reveal_lateral = data.reveal_lateral;
     if (typeof data.student_controls_unlocked === "boolean") {
@@ -831,16 +633,9 @@ function bindActiveMediaControls() {
       body.allow_3d_limited = data.allow_3d_limited;
     }
     if (typeof data.show_z_axis === "boolean") body.show_z_axis = data.show_z_axis;
-    if (Number.isFinite(Number(data.student_zoom))) body.student_zoom = Number(data.student_zoom);
-    if (typeof data.freeze_zoom === "boolean") body.freeze_zoom = data.freeze_zoom;
     if (Number.isFinite(Number(data.surface_transparency))) {
       body.surface_transparency = Number(data.surface_transparency);
     }
-    if (typeof data.freeze_surface === "boolean") body.freeze_surface = data.freeze_surface;
-    if (Number.isFinite(Number(data.student_yaw_range))) {
-      body.student_yaw_range = Number(data.student_yaw_range);
-    }
-    if (typeof data.freeze_yaw === "boolean") body.freeze_yaw = data.freeze_yaw;
     window.clearTimeout(mediaPushTimer);
     mediaPushTimer = window.setTimeout(() => {
       postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));

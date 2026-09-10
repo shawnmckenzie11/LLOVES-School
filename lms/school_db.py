@@ -6373,6 +6373,8 @@ class SchoolDB(LovesDB):
         stem: Any = None,
         entry_chip: Any = None,
         student_controls_unlocked: Any = None,
+        param_push: Any = None,
+        param_frozen: Any = None,
         reveal_axes: Any = None,
         reveal_lateral: Any = None,
         allow_3d_limited: Any = None,
@@ -6408,6 +6410,8 @@ class SchoolDB(LovesDB):
             stem: Optional student stem.
             entry_chip: Optional entry chip overlay.
             student_controls_unlocked: Teacher unlock for student sliders.
+            param_push: Optional ``{a,b,c}`` push-to-student-view flags.
+            param_frozen: Optional ``{a,b,c}`` freeze flags.
             reveal_axes: Teacher peel for student axes/grid.
             reveal_lateral: In-pane lateral slice reveal (L4).
             allow_3d_limited: Small student yaw after lateral, not free orbit.
@@ -6458,6 +6462,10 @@ class SchoolDB(LovesDB):
             kwargs["entry_chip"] = entry_chip
         if student_controls_unlocked is not None:
             kwargs["student_controls_unlocked"] = student_controls_unlocked
+        if param_push is not None:
+            kwargs["param_push"] = param_push
+        if param_frozen is not None:
+            kwargs["param_frozen"] = param_frozen
         if reveal_axes is not None:
             kwargs["reveal_axes"] = reveal_axes
         if reveal_lateral is not None:
