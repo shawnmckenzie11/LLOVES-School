@@ -24,6 +24,13 @@ from minds_on import (  # noqa: E402
     is_minds_on_payload,
     minds_on_prompt_payload,
 )
+from quick_hitter import (  # noqa: E402
+    CLEAR_ON_TEAM_CHALLENGE,
+    QUICK_HITTER_ARTIFACT_ID,
+    QUICK_HITTER_CHANNEL,
+    RIDE_CONS,
+    RIDE_MINDS_ON,
+)
 
 
 class MindsOnHelperTests(unittest.TestCase):
@@ -48,6 +55,23 @@ class MindsOnHelperTests(unittest.TestCase):
         )
         self.assertNotIn("start scoring", WAITING_ROOM_WAIT_LINE)
         self.assertNotIn("meet-math", payload["label"].lower())
+        self.assertEqual(payload["artifact_id"], QUICK_HITTER_ARTIFACT_ID)
+        self.assertEqual(payload["ride"], RIDE_MINDS_ON)
+        self.assertEqual(payload["channel"], QUICK_HITTER_CHANNEL)
+        self.assertTrue(payload["ephemeral"])
+        self.assertFalse(payload["durable_store"])
+        self.assertEqual(payload["clear_on"], CLEAR_ON_TEAM_CHALLENGE)
+        self.assertEqual(payload["chain_index"], 1)
+        self.assertEqual(payload["chain_length"], 1)
+        self.assertFalse(
+            is_minds_on_payload(
+                {
+                    "artifact_id": QUICK_HITTER_ARTIFACT_ID,
+                    "ride": RIDE_CONS,
+                    "item_id": "C1-CONS-1",
+                }
+            )
+        )
 
 
 if __name__ == "__main__":

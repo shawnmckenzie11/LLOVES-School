@@ -11,6 +11,23 @@ from __future__ import annotations
 
 from typing import Any
 
+try:
+    from quick_hitter import (
+        CLEAR_ON_TEAM_CHALLENGE,
+        QUICK_HITTER_ARTIFACT_ID,
+        RIDE_CONS,
+        RIDE_MINDS_ON,
+        quick_hitter_packaging,
+    )
+except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.quick_hitter import (
+        CLEAR_ON_TEAM_CHALLENGE,
+        QUICK_HITTER_ARTIFACT_ID,
+        RIDE_CONS,
+        RIDE_MINDS_ON,
+        quick_hitter_packaging,
+    )
+
 MINDS_ON_ITEM_ID = "minds_on"
 MINDS_ON_PACK_ID = "minds_on"
 MINDS_ON_SLIDE_INDEX = 800
@@ -39,15 +56,27 @@ def minds_on_prompt_payload() -> dict[str, Any]:
     """Student-facing MC payload for the waiting-room Minds-On question.
 
     Returns:
-        Live-prompt payload with ``item_id`` ``minds_on``.
+        Live-prompt payload with ``item_id`` ``minds_on`` on the
+        ``quick-hitter-question-chain`` artifact (usually one item).
     """
-    return {
-        "pack": MINDS_ON_PACK_ID,
-        "item_id": MINDS_ON_ITEM_ID,
-        "label": MINDS_ON_LABEL,
-        "prompt": MINDS_ON_PROMPT,
-        "choices": list(MINDS_ON_CHOICES),
-    }
+    payload = quick_hitter_packaging(
+        ride=RIDE_MINDS_ON,
+        chain_index=1,
+        chain_length=1,
+        ephemeral=True,
+        durable_store=False,
+        clear_on=CLEAR_ON_TEAM_CHALLENGE,
+    )
+    payload.update(
+        {
+            "pack": MINDS_ON_PACK_ID,
+            "item_id": MINDS_ON_ITEM_ID,
+            "label": MINDS_ON_LABEL,
+            "prompt": MINDS_ON_PROMPT,
+            "choices": list(MINDS_ON_CHOICES),
+        }
+    )
+    return payload
 
 
 def is_minds_on_payload(payload: Any) -> bool:
@@ -58,6 +87,13 @@ def is_minds_on_payload(payload: Any) -> bool:
     """
     if not isinstance(payload, dict):
         return False
+    artifact = str(payload.get("artifact_id") or "").strip()
+    ride = str(payload.get("ride") or "").strip().lower()
+    if artifact == QUICK_HITTER_ARTIFACT_ID:
+        if ride == RIDE_CONS:
+            return False
+        if ride == RIDE_MINDS_ON:
+            return True
     item_id = str(payload.get("item_id") or "").strip().lower()
     pack = str(payload.get("pack") or "").strip().lower()
     return item_id in _LEGACY_ITEM_IDS or pack in _LEGACY_PACK_IDS

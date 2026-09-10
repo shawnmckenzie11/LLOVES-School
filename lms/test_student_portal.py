@@ -638,6 +638,11 @@ class StudentPortalTests(unittest.TestCase):
         prompt = state["prompt"]
         self.assertEqual(prompt["payload"]["item_id"], "minds_on")
         self.assertEqual(prompt["payload"]["label"], "Minds-On")
+        self.assertEqual(prompt["payload"]["artifact_id"], "quick-hitter-question-chain")
+        self.assertEqual(prompt["payload"]["ride"], "minds_on")
+        self.assertTrue(prompt["payload"]["ephemeral"])
+        self.assertFalse(prompt["payload"]["durable_store"])
+        self.assertEqual(prompt["payload"]["clear_on"], "team_challenge_start")
         self.assertEqual(prompt["kind"], "mc")
         self.assertIn("Every step up adds the same amount", prompt["payload"]["choices"])
 
