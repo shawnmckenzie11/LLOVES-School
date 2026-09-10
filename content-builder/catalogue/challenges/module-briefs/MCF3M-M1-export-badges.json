@@ -1,0 +1,42 @@
+{
+  "updated": "2026-09-10T09:26:10Z",
+  "module": "MCF3M-M1",
+  "rule": "Never show Exact/CEMC on student or public export for these three. All are adapted.",
+  "challenges": [
+    {
+      "slot": "C1",
+      "id": "adapted-MCF3M-M1-C1-immersive-yx2-v1",
+      "stem_status": "adapted",
+      "export_badge": "Adapted \u00b7 not CEMC",
+      "exact_forbidden": true,
+      "stem_path": "module-briefs/MCF3M-M1-C1-stem-and-slide.md",
+      "note": "B lock \u2014 immersive y=x^2 stem media; Fermat 2007 #20 bank inspiration only"
+    },
+    {
+      "slot": "C2",
+      "id": "adapted-MCF3M-M1-C2-yx2-transforms-v1",
+      "stem_status": "adapted",
+      "export_badge": "Adapted \u00b7 not CEMC",
+      "exact_forbidden": true,
+      "stem_path": "module-briefs/MCF3M-M1-C2-stem-and-slide.md",
+      "media": "none for team-challenge",
+      "note": "MD locked overnight; no Exact/CEMC on student slide"
+    },
+    {
+      "slot": "C3",
+      "id": "adapted-MCF3M-M1-C3-domain-range-v1",
+      "stem_status": "adapted",
+      "export_badge": "Adapted \u00b7 not CEMC",
+      "exact_forbidden": true,
+      "stem_path": "module-briefs/MCF3M-M1-C3-stem-and-slide.md",
+      "media": "none required",
+      "note": "MD locked overnight; Adapted / not Exact on student surface"
+    }
+  ],
+  "export_surfaces": [
+    "module-briefs/MCF3M-M1-export-badges.json",
+    "module-briefs/MCF3M-M1-export-badges.md",
+    "module-briefs/MCF3M-M1-visual-curator-layer.md",
+    "shortlist.md"
+  ]
+}
