@@ -209,6 +209,47 @@ body.student-home.has-media .student-live-response {
   display: none !important;
 }
 
+.media-caption {
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  color: #c5d4e8;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.media-caption[hidden] {
+  display: none !important;
+}
+
+.media-toast {
+  margin: 0;
+  align-self: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(245, 197, 24, 0.16);
+  border: 1px solid rgba(245, 197, 24, 0.55);
+  color: #f5c518;
+  font-size: 0.86rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  animation: media-toast-in 0.25s ease-out;
+}
+
+.media-toast[hidden] {
+  display: none !important;
+}
+
+@keyframes media-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .media-answers {
   margin: 0;
   padding: 0;

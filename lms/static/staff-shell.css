@@ -1056,6 +1056,19 @@ body.staff-shell .ap-media-preview[hidden] {
 body.staff-shell .ap-media-params .hint {
   grid-column: 1 / -1;
 }
+body.staff-shell .ap-media-cons {
+  margin: 0.55rem 0 0.35rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+body.staff-shell .ap-media-cons[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-media-cons .ap-active-media-row {
+  margin-top: 0.35rem;
+}
 body.staff-shell .ap-media-preview {
   width: 100%;
   min-height: 16rem;
@@ -1063,6 +1076,9 @@ body.staff-shell .ap-media-preview {
   border: 1px solid #c5d0dc;
   border-radius: 8px;
   background: #070b14;
+}
+body.staff-shell #ap-media-swap-wrap[hidden] {
+  display: none !important;
 }
 body.staff-shell button.linkish {
   appearance: none;

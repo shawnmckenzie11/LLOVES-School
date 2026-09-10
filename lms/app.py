@@ -73,6 +73,8 @@ from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_TITLE,
     DEFAULT_LIVE_MEDIA_URL,
+    c1_cons_catalog,
+    live_media_url_swap_allowed,
 )
 from components import (  # noqa: E402
     blob_file_path,
@@ -2387,6 +2389,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             pack_error=pack_error,
             pack_ok=pack_ok,
             show_portfolio_tab=show_portfolio_tab,
+            allow_media_url_swap=live_media_url_swap_allowed(
+                testing=bool(app.config.get("TESTING"))
+            ),
         )
 
     @app.route("/staff/class/<int:class_id>/module-pack", methods=["POST"])
@@ -3202,7 +3207,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/live-sessions/<int:session_id>/prompts", methods=["POST"])
     @login_required
     def api_live_session_prompt_set(session_id: int):
-        """Staff driver stub: set/activate a slide-index prompt (mc/numeric/share).
+        """Staff driver stub: set/activate a slide-index prompt (mc/numeric/share/draw).
 
         Body JSON: ``slide_index``, ``kind``, optional ``payload``, optional
         ``active`` (default true). ``kind=idle`` or ``active=false`` clears the
@@ -3267,7 +3272,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         omit ``url`` to patch control-state (``reveal_axes``,
         ``reveal_lateral``, ``allow_3d_limited``, ``frozen``,
         ``student_controls_unlocked``, ``unlock_flags``, ``params``,
-        stem/caption/answers) on the current page.
+        stem/caption/answers, ``cons_item``, ``challenge``, toast) on the
+        current page. ``cons_item`` (CONS-1…5) unlocks only after
+        ``frozen: true`` on this blob (not a FlagStrip). C2/C3 clear media
+        and do not seed ``active_media_json``.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3285,11 +3293,36 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         "url": DEFAULT_LIVE_MEDIA_URL,
                         "title": DEFAULT_LIVE_MEDIA_TITLE,
                         "stem": DEFAULT_LIVE_MEDIA_STEM,
+                        "challenge": "C1",
                         "reveal_axes": False,
                         "reveal_lateral": False,
                         "allow_3d_limited": False,
                         "frozen": False,
+                        "c2": {
+                            "url": None,
+                            "challenge": "C2",
+                            "seed": False,
+                            "note": "C2 does not seed active_media_json.",
+                        },
+                        "c3": {
+                            "url": None,
+                            "challenge": "C3",
+                            "seed": False,
+                            "note": "C3 does not seed active_media_json.",
+                        },
+                        "allow_url_swap": live_media_url_swap_allowed(
+                            testing=bool(app.config.get("TESTING"))
+                        ),
                     },
+                    "cons_pack": [
+                        {
+                            "id": item["id"],
+                            "index": item["index"],
+                            "kind": item["kind"],
+                            "prompt": item["prompt"],
+                        }
+                        for item in c1_cons_catalog()
+                    ],
                 }
             )
         body = request.get_json(silent=True) or {}
@@ -3298,7 +3331,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             clear = clear.strip().lower() in {"1", "true", "yes"}
         url_posted = "url" in body
         merge = not clear and not url_posted
-        kwargs: dict[str, Any] = {"clear": bool(clear), "merge": merge}
+        kwargs: dict[str, Any] = {
+            "clear": bool(clear),
+            "merge": merge,
+            "allow_url_swap": live_media_url_swap_allowed(
+                testing=bool(app.config.get("TESTING"))
+            ),
+        }
         if url_posted:
             kwargs["url"] = body.get("url")
         if "title" in body:
@@ -3327,6 +3366,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["answers"] = body.get("answers")
         if "params" in body:
             kwargs["params"] = body.get("params")
+        if "challenge" in body:
+            kwargs["challenge"] = body.get("challenge")
+        if "cons_item" in body:
+            kwargs["cons_item"] = body.get("cons_item")
+        if "toast" in body:
+            kwargs["toast"] = body.get("toast")
+        if "toast_key" in body:
+            kwargs["toast_key"] = body.get("toast_key")
         try:
             media = school.set_live_session_active_media(session_id, **kwargs)
         except (KeyError, ValueError) as exc:

@@ -66,6 +66,8 @@ let liveStamp = "";
 let pendingScoreboard = false;
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let sessionPollTimer = null;
+/** C2/C3 are text-only: never stored in active_media_json. */
+let textOnlyChallenge = "";
 let sessionPresentIds = new Set();
 /** @type {Set<number>} */
 let sessionLateIds = new Set();
@@ -406,8 +408,39 @@ function paintActiveMediaStatus(media) {
   const layers = $("ap-media-layers");
   const preview = $("ap-media-preview");
   const urlInput = $("ap-media-url");
+  const consWrap = $("ap-media-cons");
+  const consStatus = $("ap-media-cons-status");
+  const swapWrap = $("ap-media-swap-wrap");
+  const allowSwap = document.getElementById("ap-root")?.dataset?.allowMediaSwap === "1";
+  if (swapWrap) swapWrap.hidden = !allowSwap;
   if (!status) return;
-  if (!media || !media.url) {
+  const mediaUrl = String((media && media.url) || "").trim();
+  if (mediaUrl) {
+    textOnlyChallenge = "";
+  }
+  const challenge = (
+    textOnlyChallenge || String((media && media.challenge) || "")
+  ).toUpperCase();
+  if (!mediaUrl) {
+    if (challenge === "C2" || challenge === "C3") {
+      status.textContent = `${challenge} — no immersive media (active_media_json not seeded).`;
+      if (stemPreview) {
+        stemPreview.hidden = true;
+        stemPreview.textContent = "";
+      }
+      if (unlock) unlock.checked = false;
+      if (axes) axes.checked = false;
+      if (limited) limited.checked = false;
+      if (freeze) freeze.checked = false;
+      if (paramsWrap) paramsWrap.hidden = true;
+      if (layers) layers.hidden = true;
+      if (consWrap) consWrap.hidden = true;
+      if (preview) {
+        preview.hidden = true;
+        preview.removeAttribute("src");
+      }
+      return;
+    }
     status.textContent = "None — students see the wait / prompt shell until you push a page.";
     if (stemPreview) {
       stemPreview.hidden = true;
@@ -419,6 +452,7 @@ function paintActiveMediaStatus(media) {
     if (freeze) freeze.checked = false;
     if (paramsWrap) paramsWrap.hidden = true;
     if (layers) layers.hidden = true;
+    if (consWrap) consWrap.hidden = true;
     if (preview) {
       preview.hidden = true;
       preview.removeAttribute("src");
@@ -436,13 +470,29 @@ function paintActiveMediaStatus(media) {
   if (limitedOn) bits.push("limited yaw");
   if (unlocked) bits.push("sliders unlocked");
   if (frozenOn) bits.push("frozen (encore offered)");
+  const consItem = String(media.cons_item || "").trim();
+  if (consItem) bits.push(consItem);
+  const toastLine = String(media.toast || "").trim();
+  if (toastLine) bits.push(`toast: ${toastLine}`);
   status.textContent = bits.length
     ? `Showing ${media.url} · ${bits.join(" · ")}`
     : `Showing ${media.url} · entry (axes hidden, camera fixed)`;
+  if (consWrap) {
+    consWrap.hidden = !frozenOn;
+  }
+  if (consStatus) {
+    consStatus.textContent = consItem
+      ? `Students see ${consItem}.`
+      : frozenOn
+        ? "Frozen — push CONS-1…5 when ready. Students do not see CONS until you step."
+        : "";
+  }
   if (stemPreview) {
-    const stem = String(media.stem || media.caption || "").trim();
-    stemPreview.textContent = stem;
-    stemPreview.hidden = !stem;
+    const stem = String(media.stem || "").trim();
+    const caption = String(media.caption || "").trim();
+    const line = caption ? `${stem}${stem ? " — " : ""}${caption}` : stem;
+    stemPreview.textContent = line;
+    stemPreview.hidden = !line;
   }
   if (unlock) unlock.checked = unlocked;
   if (axes) axes.checked = axesOn;
@@ -524,14 +574,51 @@ function bindActiveMediaControls() {
   const seedBtn = $("ap-media-seed");
   const clearBtn = $("ap-media-clear");
   const swapBtn = $("ap-media-swap");
+  const c2Btn = $("ap-media-c2");
+  const c3Btn = $("ap-media-c3");
   const unlock = $("ap-media-unlock");
   const axes = $("ap-media-axes");
   const limited = $("ap-media-limited");
   const freeze = $("ap-media-freeze");
   const pushParams = $("ap-media-params-push");
   const layers = $("ap-media-layers");
+  const consRow = $("ap-media-cons-row");
+  const consClear = $("ap-media-cons-clear");
+  const swapWrap = $("ap-media-swap-wrap");
+  const allowSwap = document.getElementById("ap-root")?.dataset?.allowMediaSwap === "1";
+  if (swapWrap) swapWrap.hidden = !allowSwap;
+  if (c2Btn) {
+    c2Btn.addEventListener("click", () => {
+      textOnlyChallenge = "C2";
+      postActiveMedia({ challenge: "C2" }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (c3Btn) {
+    c3Btn.addEventListener("click", () => {
+      textOnlyChallenge = "C3";
+      postActiveMedia({ challenge: "C3" }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (consRow) {
+    consRow.querySelectorAll("button[data-cons]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = btn.getAttribute("data-cons");
+        postActiveMedia({ cons_item: item }).catch((err) =>
+          showError("#ap-overlay-error", err)
+        );
+      });
+    });
+  }
+  if (consClear) {
+    consClear.addEventListener("click", () => {
+      postActiveMedia({ cons_item: "" }).catch((err) =>
+        showError("#ap-overlay-error", err)
+      );
+    });
+  }
   if (seedBtn) {
     seedBtn.addEventListener("click", () => {
+      textOnlyChallenge = "";
       postActiveMedia({
         url: SEED_MEDIA_URL,
         title: SEED_MEDIA_TITLE,
@@ -543,6 +630,10 @@ function bindActiveMediaControls() {
         reveal_lateral: false,
         allow_3d_limited: false,
         frozen: false,
+        challenge: "C1",
+        cons_item: "",
+        toast: "",
+        toast_key: "",
         unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
         answers: [],
         params: { a: 1, b: 0, c: 0 },
@@ -551,6 +642,7 @@ function bindActiveMediaControls() {
   }
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
+      textOnlyChallenge = "";
       postActiveMedia({ clear: true }).catch((err) => showError("#ap-overlay-error", err));
     });
   }

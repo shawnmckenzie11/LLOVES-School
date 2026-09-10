@@ -96,7 +96,8 @@
          data-participate="{{ '1' if log_participation or live_step == 'gamify' else '0' }}"
          data-live-session-id="{{ live_session_id or '' }}"
          data-live-step="{{ live_step or '' }}"
-         data-run="{{ '1' if run_live else '0' }}">
+         data-run="{{ '1' if run_live else '0' }}"
+         data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
       <section class="ap-active-media" id="ap-active-media">
         <h2>Active media</h2>
@@ -104,8 +105,11 @@
         <p class="hint compact" id="ap-active-media-stem-preview" hidden></p>
         <div class="ap-active-media-row">
           <button type="button" id="ap-media-seed">Show Real-slice</button>
+          <button type="button" class="secondary" id="ap-media-c2">C2 — no immersive media</button>
+          <button type="button" class="secondary" id="ap-media-c3">C3 — no immersive media</button>
           <button type="button" class="secondary" id="ap-media-clear">Clear</button>
         </div>
+        <p class="hint compact">C1 only uses the Real-slice channel. C2/C3 do not seed active_media_json (empty pane).</p>
         <label class="ap-unlock" for="ap-media-axes">
           <input type="checkbox" id="ap-media-axes">
           Reveal axes on student view
@@ -129,12 +133,26 @@
           <input type="checkbox" id="ap-media-freeze">
           Freeze — offer optional encore (never autoplay)
         </label>
-        <p class="hint compact">Encore is Welch Labs Part 1 at 0:54, click-out only after freeze. Do not play it mid-argue.</p>
+        <p class="hint compact">Encore is Welch Labs, click-out only after freeze — scrub to the out-of-page / lateral beat. Do not play it mid-argue.</p>
+        <div class="ap-media-cons" id="ap-media-cons" hidden>
+          <p class="hint compact">Consolidation after freeze on this blob (not a FlagStrip). Students see CONS-1…5 only when frozen. Step one at a time.</p>
+          <div class="ap-active-media-row" id="ap-media-cons-row">
+            <button type="button" class="secondary" data-cons="C1-CONS-1">CONS-1 · a</button>
+            <button type="button" class="secondary" data-cons="C1-CONS-2">CONS-2 · c</button>
+            <button type="button" class="secondary" data-cons="C1-CONS-3">CONS-3 · b</button>
+            <button type="button" class="secondary" data-cons="C1-CONS-4">CONS-4 · feature</button>
+            <button type="button" class="secondary" data-cons="C1-CONS-5">CONS-5 · still unknown</button>
+            <button type="button" class="secondary" id="ap-media-cons-clear">Clear CONS</button>
+          </div>
+          <p class="hint compact" id="ap-media-cons-status"></p>
+        </div>
+        <div id="ap-media-swap-wrap">
         <label class="field" for="ap-media-url">Same-origin /static/… URL
           <input id="ap-media-url" type="text" value="/static/live-media/m1c1-c1-real-slice.html" autocomplete="off">
         </label>
         <div class="ap-active-media-row">
           <button type="button" class="secondary" id="ap-media-swap">Swap to pasted URL</button>
+        </div>
         </div>
         <div class="ap-media-params" id="ap-media-params" hidden>
           <p class="hint compact">Teacher quadratic params (students stay on the paper view of y = x² until unlock).</p>
