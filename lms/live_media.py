@@ -19,8 +19,14 @@ DEFAULT_LIVE_MEDIA_STEM = (
 )
 DEFAULT_LIVE_MEDIA_CAPTION = ""
 DEFAULT_LIVE_MEDIA_CHIP = "From this view only — what must be true?"
+DEFAULT_LIVE_MEDIA_LATERAL_CHIP = "This picture was always a slice"
 DEFAULT_LIVE_MEDIA_PARAMS: dict[str, float] = {"a": 1.0, "b": 0.0, "c": 0.0}
 LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
+# Optional post-freeze encore (click-out only; never an iframe, never autoplay).
+ENCORE_YOUTUBE_URL = "https://www.youtube.com/watch?v=T647CGsuOVU&t=54s"
+ENCORE_LABEL = (
+    "Optional encore — Welch Labs, Imaginary Numbers Are Real Part 1 (~0:54)"
+)
 
 _UNSET = object()
 
@@ -54,6 +60,9 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
         "entry_chip": DEFAULT_LIVE_MEDIA_CHIP,
         "student_controls_unlocked": False,
         "reveal_axes": False,
+        "reveal_lateral": False,
+        "allow_3d_limited": False,
+        "frozen": False,
         "unlock_flags": default_unlock_flags(),
         "answers": [],
         "params": dict(DEFAULT_LIVE_MEDIA_PARAMS),
@@ -61,7 +70,7 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
 
 
 def default_unlock_flags() -> dict[str, bool]:
-    """L0 is entry (always on). L1–L4 are teacher peels; copy lives in delight pass."""
+    """L0 is entry (always on). L1–L3 are unnamed peels; L4 is in-pane lateral."""
     return {"L0": True, "L1": False, "L2": False, "L3": False, "L4": False}
 
 
@@ -196,6 +205,10 @@ def _clip_text(raw: Any, field: str) -> str:
 def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return the student/staff JSON fragment, or ``None`` when media is cleared.
 
+    Lateral peel sets ``chip`` to ``DEFAULT_LIVE_MEDIA_LATERAL_CHIP``; the stored
+    ``entry_chip`` and stem stay put. Encore URL is always present; student
+    chrome must not show it until ``frozen``.
+
     Args:
         stored: Dict from ``active_media_json``, possibly partial.
     """
@@ -213,15 +226,30 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         answer_list = normalize_answers(stored.get("answers") or [])
     except ValueError:
         answer_list = []
+    flags = normalize_unlock_flags(stored.get("unlock_flags"))
+    reveal_lateral = bool(stored.get("reveal_lateral")) or bool(flags.get("L4"))
+    flags["L4"] = reveal_lateral
+    stored_chip = str(stored.get("entry_chip") or "")
+    if stored_chip == DEFAULT_LIVE_MEDIA_LATERAL_CHIP:
+        stored_chip = DEFAULT_LIVE_MEDIA_CHIP
+    display_chip = (
+        DEFAULT_LIVE_MEDIA_LATERAL_CHIP if reveal_lateral else stored_chip
+    )
     return {
         "url": url,
         "title": str(stored.get("title") or ""),
         "caption": str(stored.get("caption") or ""),
         "stem": str(stored.get("stem") or ""),
-        "entry_chip": str(stored.get("entry_chip") or ""),
+        "entry_chip": stored_chip,
+        "chip": display_chip,
         "student_controls_unlocked": bool(stored.get("student_controls_unlocked")),
         "reveal_axes": bool(stored.get("reveal_axes")),
-        "unlock_flags": normalize_unlock_flags(stored.get("unlock_flags")),
+        "reveal_lateral": reveal_lateral,
+        "allow_3d_limited": bool(stored.get("allow_3d_limited")),
+        "frozen": bool(stored.get("frozen")),
+        "encore_url": ENCORE_YOUTUBE_URL,
+        "encore_label": ENCORE_LABEL,
+        "unlock_flags": flags,
         "answers": answer_list,
         "params": coeffs,
         "updated_at": stored.get("updated_at"),
@@ -239,6 +267,9 @@ def apply_active_media_update(
     entry_chip: Any = _UNSET,
     student_controls_unlocked: Any = _UNSET,
     reveal_axes: Any = _UNSET,
+    reveal_lateral: Any = _UNSET,
+    allow_3d_limited: Any = _UNSET,
+    frozen: Any = _UNSET,
     unlock_flags: Any = _UNSET,
     answers: Any = _UNSET,
     params: Any = _UNSET,
@@ -259,7 +290,11 @@ def apply_active_media_update(
         entry_chip: Optional chip overlay (entry vibe).
         student_controls_unlocked: Teacher unlock for student sliders.
         reveal_axes: Teacher peel for axes/grid on the student face.
-        unlock_flags: Partial L0–L4 flags (delight pass); L0 stays on.
+        reveal_lateral: In-pane yaw so the gold parabola reads as a slice (L4).
+        allow_3d_limited: Small student yaw around the lateral pose only.
+        frozen: Argue is done; student chrome may offer the click-out encore.
+        unlock_flags: Partial L0–L4 flags (delight pass); L0 stays on; L4
+            locksteps with ``reveal_lateral``.
         answers: Optional choice list that may change with each reveal.
         params: Optional ``{a,b,c}`` overlay (merged onto current/defaults).
         updated_at: ISO timestamp stamped onto the stored object.
@@ -280,6 +315,9 @@ def apply_active_media_update(
         "entry_chip",
         "student_controls_unlocked",
         "reveal_axes",
+        "reveal_lateral",
+        "allow_3d_limited",
+        "frozen",
         "unlock_flags",
         "answers",
         "params",
@@ -328,6 +366,23 @@ def apply_active_media_update(
         base["unlock_flags"] = normalize_unlock_flags(
             None, base=base.get("unlock_flags")
         )
+    flags = normalize_unlock_flags(None, base=base.get("unlock_flags"))
+    lateral = bool(base.get("reveal_lateral")) or bool(flags.get("L4"))
+    if unlock_flags is not _UNSET and isinstance(unlock_flags, dict) and "L4" in unlock_flags:
+        lateral = _as_bool(unlock_flags["L4"])
+    if reveal_lateral is not _UNSET:
+        lateral = _as_bool(reveal_lateral)
+    flags["L4"] = lateral
+    base["unlock_flags"] = flags
+    base["reveal_lateral"] = lateral
+    if allow_3d_limited is not _UNSET:
+        base["allow_3d_limited"] = _as_bool(allow_3d_limited)
+    else:
+        base["allow_3d_limited"] = bool(base.get("allow_3d_limited"))
+    if frozen is not _UNSET:
+        base["frozen"] = _as_bool(frozen)
+    else:
+        base["frozen"] = bool(base.get("frozen"))
     if answers is not _UNSET:
         base["answers"] = normalize_answers(answers)
     else:

@@ -254,6 +254,25 @@ body.student-home.has-media .student-live-response {
   background: #070b14;
 }
 
+.media-encore {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px dashed rgba(245, 197, 24, 0.4);
+  border-radius: 10px;
+  background: rgba(10, 18, 32, 0.45);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.media-encore[hidden] {
+  display: none !important;
+}
+
+.media-encore a {
+  color: #f5c518;
+  font-weight: 650;
+}
+
 body.student-home.is-live .student-live-response {
   flex: 1 1 auto;
 }

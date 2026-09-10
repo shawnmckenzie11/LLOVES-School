@@ -400,6 +400,8 @@ function paintActiveMediaStatus(media) {
   const stemPreview = $("ap-active-media-stem-preview");
   const unlock = $("ap-media-unlock");
   const axes = $("ap-media-axes");
+  const limited = $("ap-media-limited");
+  const freeze = $("ap-media-freeze");
   const paramsWrap = $("ap-media-params");
   const layers = $("ap-media-layers");
   const preview = $("ap-media-preview");
@@ -413,6 +415,8 @@ function paintActiveMediaStatus(media) {
     }
     if (unlock) unlock.checked = false;
     if (axes) axes.checked = false;
+    if (limited) limited.checked = false;
+    if (freeze) freeze.checked = false;
     if (paramsWrap) paramsWrap.hidden = true;
     if (layers) layers.hidden = true;
     if (preview) {
@@ -423,8 +427,17 @@ function paintActiveMediaStatus(media) {
   }
   const unlocked = Boolean(media.student_controls_unlocked);
   const axesOn = Boolean(media.reveal_axes);
-  status.textContent = axesOn
-    ? `Showing ${media.url} · axes revealed${unlocked ? " · sliders unlocked" : ""}`
+  const lateralOn = Boolean(media.reveal_lateral);
+  const limitedOn = Boolean(media.allow_3d_limited);
+  const frozenOn = Boolean(media.frozen);
+  const bits = [];
+  if (axesOn) bits.push("axes revealed");
+  if (lateralOn) bits.push("lateral slice");
+  if (limitedOn) bits.push("limited yaw");
+  if (unlocked) bits.push("sliders unlocked");
+  if (frozenOn) bits.push("frozen (encore offered)");
+  status.textContent = bits.length
+    ? `Showing ${media.url} · ${bits.join(" · ")}`
     : `Showing ${media.url} · entry (axes hidden, camera fixed)`;
   if (stemPreview) {
     const stem = String(media.stem || media.caption || "").trim();
@@ -433,6 +446,8 @@ function paintActiveMediaStatus(media) {
   }
   if (unlock) unlock.checked = unlocked;
   if (axes) axes.checked = axesOn;
+  if (limited) limited.checked = limitedOn;
+  if (freeze) freeze.checked = frozenOn;
   if (urlInput && document.activeElement !== urlInput) {
     urlInput.value = media.url;
   }
@@ -467,6 +482,9 @@ function paintActiveMediaStatus(media) {
           type: "live-media-state",
           student_controls_unlocked: unlocked,
           reveal_axes: axesOn,
+          reveal_lateral: lateralOn,
+          allow_3d_limited: limitedOn,
+          frozen: frozenOn,
           unlock_flags: media.unlock_flags || {},
           params,
         },
@@ -508,6 +526,8 @@ function bindActiveMediaControls() {
   const swapBtn = $("ap-media-swap");
   const unlock = $("ap-media-unlock");
   const axes = $("ap-media-axes");
+  const limited = $("ap-media-limited");
+  const freeze = $("ap-media-freeze");
   const pushParams = $("ap-media-params-push");
   const layers = $("ap-media-layers");
   if (seedBtn) {
@@ -520,6 +540,9 @@ function bindActiveMediaControls() {
         entry_chip: "From this view only — what must be true?",
         student_controls_unlocked: false,
         reveal_axes: false,
+        reveal_lateral: false,
+        allow_3d_limited: false,
+        frozen: false,
         unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
         answers: [],
         params: { a: 1, b: 0, c: 0 },
@@ -551,14 +574,28 @@ function bindActiveMediaControls() {
       }).catch((err) => showError("#ap-overlay-error", err));
     });
   }
+  if (limited) {
+    limited.addEventListener("change", () => {
+      postActiveMedia({
+        allow_3d_limited: limited.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (freeze) {
+    freeze.addEventListener("change", () => {
+      postActiveMedia({
+        frozen: freeze.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
   if (layers) {
     layers.querySelectorAll("input[data-layer]").forEach((box) => {
       box.addEventListener("change", () => {
         const key = box.getAttribute("data-layer");
         if (!key) return;
-        postActiveMedia({
-          unlock_flags: { [key]: box.checked },
-        }).catch((err) => showError("#ap-overlay-error", err));
+        const body = { unlock_flags: { [key]: box.checked } };
+        if (key === "L4") body.reveal_lateral = box.checked;
+        postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
       });
     });
   }

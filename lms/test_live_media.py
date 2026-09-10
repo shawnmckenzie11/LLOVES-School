@@ -20,8 +20,11 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_CHIP,
+    DEFAULT_LIVE_MEDIA_LATERAL_CHIP,
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_URL,
+    ENCORE_LABEL,
+    ENCORE_YOUTUBE_URL,
     apply_active_media_update,
     normalize_active_media_url,
 )
@@ -61,9 +64,13 @@ class LiveMediaHelperTests(unittest.TestCase):
         assert current is not None
         self.assertFalse(current["student_controls_unlocked"])
         self.assertFalse(current["reveal_axes"])
+        self.assertFalse(current["reveal_lateral"])
+        self.assertFalse(current["allow_3d_limited"])
+        self.assertFalse(current["frozen"])
         self.assertEqual(current["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertEqual(current["unlock_flags"]["L0"], True)
         self.assertEqual(current["unlock_flags"]["L1"], False)
+        self.assertEqual(current["unlock_flags"]["L4"], False)
         self.assertEqual(current["stem"], DEFAULT_LIVE_MEDIA_STEM)
         patched = apply_active_media_update(
             current,
@@ -83,6 +90,41 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(patched["params"]["a"], -1.0)
         self.assertEqual(patched["params"]["b"], 2.0)
         self.assertEqual(patched["stem"], DEFAULT_LIVE_MEDIA_STEM)
+
+    def test_lateral_peel_holds_stem_and_gates_encore(self) -> None:
+        """L4 / reveal_lateral yaws in-pane; encore URL exists but frozen is off."""
+        current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
+        assert current is not None
+        via_flag = apply_active_media_update(current, reveal_lateral=True)
+        assert via_flag is not None
+        self.assertTrue(via_flag["reveal_lateral"])
+        self.assertTrue(via_flag["unlock_flags"]["L4"])
+        self.assertEqual(via_flag["chip"], DEFAULT_LIVE_MEDIA_LATERAL_CHIP)
+        self.assertEqual(via_flag["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertEqual(via_flag["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertFalse(via_flag["frozen"])
+        self.assertFalse(via_flag["allow_3d_limited"])
+        self.assertEqual(via_flag["encore_url"], ENCORE_YOUTUBE_URL)
+        self.assertEqual(via_flag["encore_label"], ENCORE_LABEL)
+        via_l4 = apply_active_media_update(
+            current, unlock_flags={"L4": True}, allow_3d_limited=True
+        )
+        assert via_l4 is not None
+        self.assertTrue(via_l4["reveal_lateral"])
+        self.assertTrue(via_l4["allow_3d_limited"])
+        frozen = apply_active_media_update(via_flag, frozen=True)
+        assert frozen is not None
+        self.assertTrue(frozen["frozen"])
+        self.assertEqual(frozen["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(frozen["chip"], DEFAULT_LIVE_MEDIA_LATERAL_CHIP)
+        self.assertEqual(frozen["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        off = apply_active_media_update(frozen, reveal_lateral=False)
+        assert off is not None
+        self.assertFalse(off["reveal_lateral"])
+        self.assertFalse(off["unlock_flags"]["L4"])
+        self.assertEqual(off["chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertEqual(off["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertEqual(off["stem"], DEFAULT_LIVE_MEDIA_STEM)
 
     def test_clear_drops_payload(self) -> None:
         """Clear returns None so the student iframe hides."""
@@ -161,6 +203,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("media-pane", html)
         self.assertIn("media-stem", html)
         self.assertIn("media-chip", html)
+        self.assertIn("media-encore", html)
 
     def test_seed_page_served_and_quarantined(self) -> None:
         """Seed Real-slice HTML exists, frames same-origin, no jigsaw chrome."""
@@ -170,8 +213,12 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("real-slice", body)
         self.assertIn("ax²", body.replace("ax^2", "ax²"))
         self.assertIn("from this view only", body)
-        self.assertIn("revealaxes", body.replace("_", "").replace(" ", ""))
+        self.assertIn("this picture was always a slice", body)
+        self.assertIn("reveallateral", body.replace("_", "").replace(" ", ""))
+        self.assertIn("lateral_yaw", body)
         self.assertIn("parabola", body)
+        self.assertNotIn("youtube.com", body)
+        self.assertNotIn("autoplay", body)
         self.assertNotIn("jigsaw", body)
         self.assertNotIn("mean±d", body)
         self.assertNotIn("mean+/-d", body)
@@ -199,8 +246,12 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(media["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertEqual(media["stem"], DEFAULT_LIVE_MEDIA_STEM)
         self.assertEqual(media["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertEqual(media["chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertFalse(media["student_controls_unlocked"])
         self.assertFalse(media["reveal_axes"])
+        self.assertFalse(media["reveal_lateral"])
+        self.assertFalse(media["allow_3d_limited"])
+        self.assertFalse(media["frozen"])
         self.assertEqual(media["answers"], [])
         self.assertEqual(media["params"]["a"], 1.0)
 
@@ -210,6 +261,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(state["active_media"]["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertFalse(state["active_media"]["student_controls_unlocked"])
         self.assertFalse(state["active_media"]["reveal_axes"])
+        self.assertFalse(state["active_media"]["reveal_lateral"])
+        self.assertFalse(state["active_media"]["frozen"])
 
         peeled = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -229,6 +282,42 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertTrue(after_peel["active_media"]["reveal_axes"])
         self.assertEqual(after_peel["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
         self.assertEqual(after_peel["active_media"]["answers"], ["a is positive"])
+
+        lateral = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"reveal_lateral": True, "allow_3d_limited": True},
+        )
+        self.assertEqual(lateral.status_code, 200, lateral.get_json())
+        lat_media = lateral.get_json()["active_media"]
+        self.assertEqual(lat_media["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(lat_media["chip"], DEFAULT_LIVE_MEDIA_LATERAL_CHIP)
+        self.assertEqual(lat_media["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertTrue(lat_media["reveal_lateral"])
+        self.assertTrue(lat_media["unlock_flags"]["L4"])
+        self.assertTrue(lat_media["allow_3d_limited"])
+        self.assertFalse(lat_media["frozen"])
+        after_lat = self.student.get("/api/student/state").get_json()
+        self.assertEqual(
+            after_lat["active_media"]["chip"], DEFAULT_LIVE_MEDIA_LATERAL_CHIP
+        )
+        self.assertEqual(
+            after_lat["active_media"]["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP
+        )
+        self.assertEqual(after_lat["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertFalse(after_lat["active_media"]["frozen"])
+
+        froze = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"frozen": True},
+        )
+        self.assertEqual(froze.status_code, 200, froze.get_json())
+        froze_media = froze.get_json()["active_media"]
+        self.assertTrue(froze_media["frozen"])
+        self.assertEqual(froze_media["encore_url"], ENCORE_YOUTUBE_URL)
+        self.assertEqual(froze_media["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        after_freeze = self.student.get("/api/student/state").get_json()
+        self.assertTrue(after_freeze["active_media"]["frozen"])
+        self.assertEqual(after_freeze["active_media"]["encore_url"], ENCORE_YOUTUBE_URL)
 
         swapped = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -319,6 +408,9 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("Show Real-slice", html)
         self.assertIn("Unlock a, b, c sliders", html)
         self.assertIn("Reveal axes on student view", html)
+        self.assertIn("L4 — in-pane lateral reveal", html)
+        self.assertIn("Freeze — offer optional encore", html)
+        self.assertIn("Limited student yaw after lateral", html)
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
 
     def test_student_home_csp_allows_same_origin_iframe(self) -> None:

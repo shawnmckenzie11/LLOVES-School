@@ -12,6 +12,8 @@ const mediaFrame = document.getElementById("media-frame");
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
 const mediaAnswers = document.getElementById("media-answers");
+const mediaEncore = document.getElementById("media-encore");
+const mediaEncoreLink = document.getElementById("media-encore-link");
 const body = document.body;
 
 /** @type {number | null} */
@@ -218,11 +220,14 @@ function postMediaState(media) {
         type: "live-media-state",
         student_controls_unlocked: Boolean(media.student_controls_unlocked),
         reveal_axes: Boolean(media.reveal_axes),
+        reveal_lateral: Boolean(media.reveal_lateral),
+        allow_3d_limited: Boolean(media.allow_3d_limited),
+        frozen: Boolean(media.frozen),
         unlock_flags: media.unlock_flags || {},
         params: media.params || { a: 1, b: 0, c: 0 },
         stem: media.stem || "",
         caption: media.caption || "",
-        entry_chip: media.entry_chip || "",
+        entry_chip: media.chip || media.entry_chip || "",
         answers: media.answers || [],
       },
       window.location.origin
@@ -240,7 +245,9 @@ function paintMedia(payload) {
   const media = payload.active_media;
   const url = media ? safeMediaUrl(media.url) : "";
   if (mediaChip) {
-    const chip = String((media && media.entry_chip) || "").trim();
+    const chip = String(
+      (media && (media.chip || media.entry_chip)) || ""
+    ).trim();
     mediaChip.textContent = chip;
     mediaChip.hidden = !chip;
   }
@@ -263,6 +270,23 @@ function paintMedia(payload) {
       });
     }
   }
+  if (mediaEncore && mediaEncoreLink) {
+    const frozen = Boolean(media && media.frozen);
+    const encoreUrl = String((media && media.encore_url) || "").trim();
+    const encoreLabel = String((media && media.encore_label) || "").trim();
+    const youtubeOk =
+      encoreUrl.startsWith("https://www.youtube.com/watch?") ||
+      encoreUrl.startsWith("https://youtu.be/");
+    if (frozen && youtubeOk && encoreLabel) {
+      mediaEncoreLink.href = encoreUrl;
+      mediaEncoreLink.textContent = encoreLabel;
+      mediaEncore.hidden = false;
+    } else {
+      mediaEncore.hidden = true;
+      mediaEncoreLink.removeAttribute("href");
+      mediaEncoreLink.textContent = "";
+    }
+  }
   if (!mediaPane || !mediaFrame) return;
   if (!url) {
     mediaPane.hidden = true;
@@ -276,9 +300,14 @@ function paintMedia(payload) {
     url,
     unlocked: Boolean(media.student_controls_unlocked),
     reveal_axes: Boolean(media.reveal_axes),
+    reveal_lateral: Boolean(media.reveal_lateral),
+    allow_3d_limited: Boolean(media.allow_3d_limited),
+    frozen: Boolean(media.frozen),
     unlock_flags: media.unlock_flags || {},
     answers: media.answers || [],
     params: media.params || {},
+    entry_chip: media.entry_chip || "",
+    chip: media.chip || "",
   });
   if (url !== lastMediaUrl) {
     lastMediaUrl = url;

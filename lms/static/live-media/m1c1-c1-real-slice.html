@@ -183,6 +183,10 @@
 
   const PAPER_YAW = 0.08;
   const PAPER_PITCH = -0.16;
+  const LATERAL_YAW = 1.12;
+  const LATERAL_PITCH = -0.24;
+  const LIMITED_YAW_SPAN = 0.38;
+  const LATERAL_CHIP = "This picture was always a slice";
 
   const state = {
     a: 1,
@@ -190,16 +194,22 @@
     c: 0,
     yaw: PAPER_YAW,
     pitch: PAPER_PITCH,
+    targetYaw: PAPER_YAW,
+    targetPitch: PAPER_PITCH,
     dist: 9.2,
     showSurface: true,
     showSlice: true,
     revealAxes: false,
+    revealLateral: false,
+    allow3dLimited: false,
+    studentNudged: false,
     unlocked: false,
     dragging: false,
     lastX: 0,
     lastY: 0,
     acceptParentParams: true,
   };
+  let cameraRaf = 0;
 
   /**
    * Height of the real-part saddle: Re(a z^2 + b z + c) with z = x + i t.
@@ -255,23 +265,91 @@
     const showEq = teacherMode || state.revealAxes;
     eqEl.hidden = !showEq;
     if (chipEl) {
-      chipEl.hidden = teacherMode || state.revealAxes || state.unlocked;
+      if (!teacherMode && state.revealLateral) {
+        chipEl.hidden = false;
+        if (!chipEl.textContent.trim()) chipEl.textContent = LATERAL_CHIP;
+      } else {
+        chipEl.hidden = teacherMode || state.revealAxes || state.unlocked;
+      }
     }
   }
 
   /**
    * Student entry: paper-locked camera, axes off, sliders locked.
+   * Lateral peel yaws in-pane; limited yaw is a small nudge, not orbit.
    * Teacher: orbit + sliders; peels axes/controls for students when ready.
    */
   function applyRoleChrome() {
     const showDock = teacherMode || state.unlocked;
     dock.classList.toggle("is-on", showDock);
     dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, b, and c";
-    hint.textContent = teacherMode
-      ? "Drag to orbit. Students enter with axes hidden and sliders locked."
-      : "Move a, b, and c. The camera stays on the familiar parabola.";
+    if (teacherMode) {
+      hint.textContent = "Drag to orbit. Students enter paper-locked; L4 yaws to the slice.";
+      canvas.style.cursor = "grab";
+    } else if (state.allow3dLimited && state.revealLateral) {
+      hint.textContent = "Drag a little left/right. This picture was always a slice.";
+      canvas.style.cursor = "ew-resize";
+    } else if (state.revealLateral) {
+      hint.textContent = "This picture was always a slice. The camera holds the side view.";
+      canvas.style.cursor = "default";
+    } else {
+      hint.textContent = "Move a, b, and c. The camera stays on the familiar parabola.";
+      canvas.style.cursor = "default";
+    }
     toggles.hidden = !teacherMode;
-    canvas.style.cursor = teacherMode ? "grab" : "default";
+  }
+
+  /**
+   * True when the student may nudge yaw around the lateral pose.
+   * @returns {boolean}
+   */
+  function studentLimitedYaw() {
+    return !teacherMode && state.revealLateral && state.allow3dLimited;
+  }
+
+  /**
+   * Point the student camera at paper or lateral pose. Teacher orbit is free.
+   */
+  function syncStudentCameraTargets() {
+    if (teacherMode) return;
+    if (state.revealLateral) {
+      state.targetPitch = LATERAL_PITCH;
+      if (!state.allow3dLimited || !state.studentNudged) {
+        state.targetYaw = LATERAL_YAW;
+      }
+    } else {
+      state.studentNudged = false;
+      state.targetYaw = PAPER_YAW;
+      state.targetPitch = PAPER_PITCH;
+    }
+    kickCamera();
+  }
+
+  /**
+   * Ease yaw/pitch toward targets when the student is not dragging.
+   */
+  function tickCamera() {
+    cameraRaf = 0;
+    if (state.dragging) return;
+    const dy = state.targetYaw - state.yaw;
+    const dp = state.targetPitch - state.pitch;
+    if (Math.abs(dy) < 0.002 && Math.abs(dp) < 0.002) {
+      state.yaw = state.targetYaw;
+      state.pitch = state.targetPitch;
+      draw();
+      return;
+    }
+    state.yaw += dy * 0.14;
+    state.pitch += dp * 0.14;
+    draw();
+    cameraRaf = window.requestAnimationFrame(tickCamera);
+  }
+
+  /**
+   * Start the camera ease if it is not already running.
+   */
+  function kickCamera() {
+    if (!cameraRaf) cameraRaf = window.requestAnimationFrame(tickCamera);
   }
 
   function resize() {
@@ -462,6 +540,7 @@
           show_surface: state.showSurface,
           show_slice: state.showSlice,
           reveal_axes: state.revealAxes,
+          reveal_lateral: state.revealLateral,
         },
         window.location.origin
       );
@@ -496,27 +575,37 @@
   });
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (!teacherMode) return;
+    if (!(teacherMode || studentLimitedYaw())) return;
     state.dragging = true;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
     canvas.setPointerCapture(event.pointerId);
-    canvas.style.cursor = "grabbing";
+    canvas.style.cursor = teacherMode ? "grabbing" : "ew-resize";
   });
   canvas.addEventListener("pointermove", (event) => {
-    if (!teacherMode || !state.dragging) return;
+    if (!state.dragging) return;
     const dx = event.clientX - state.lastX;
     const dy = event.clientY - state.lastY;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
-    state.yaw += dx * 0.008;
-    state.pitch = Math.max(-1.15, Math.min(0.55, state.pitch + dy * 0.008));
+    if (teacherMode) {
+      state.yaw += dx * 0.008;
+      state.pitch = Math.max(-1.15, Math.min(0.55, state.pitch + dy * 0.008));
+    } else if (studentLimitedYaw()) {
+      const next = state.yaw + dx * 0.006;
+      state.yaw = Math.max(
+        LATERAL_YAW - LIMITED_YAW_SPAN,
+        Math.min(LATERAL_YAW + LIMITED_YAW_SPAN, next)
+      );
+      state.targetYaw = state.yaw;
+      state.studentNudged = true;
+    }
     draw();
   });
   const endDrag = (event) => {
-    if (!teacherMode) return;
+    if (!(teacherMode || studentLimitedYaw())) return;
     state.dragging = false;
-    canvas.style.cursor = "grab";
+    canvas.style.cursor = teacherMode ? "grab" : (studentLimitedYaw() ? "ew-resize" : "default");
     try { canvas.releasePointerCapture(event.pointerId); } catch (_err) { /* ignore */ }
   };
   canvas.addEventListener("pointerup", endDrag);
@@ -533,8 +622,20 @@
     if (typeof data.reveal_axes === "boolean") {
       state.revealAxes = data.reveal_axes;
     }
+    if (typeof data.reveal_lateral === "boolean") {
+      if (data.reveal_lateral !== state.revealLateral) state.studentNudged = false;
+      state.revealLateral = data.reveal_lateral;
+    } else if (data.unlock_flags && typeof data.unlock_flags.L4 === "boolean") {
+      if (data.unlock_flags.L4 !== state.revealLateral) state.studentNudged = false;
+      state.revealLateral = data.unlock_flags.L4;
+    }
+    if (typeof data.allow_3d_limited === "boolean") {
+      state.allow3dLimited = data.allow_3d_limited;
+    }
     if (chipEl && typeof data.entry_chip === "string" && data.entry_chip.trim()) {
       chipEl.textContent = data.entry_chip.trim();
+    } else if (chipEl && state.revealLateral && !teacherMode) {
+      chipEl.textContent = LATERAL_CHIP;
     }
     const ignoreParams = !teacherMode && state.unlocked && !state.acceptParentParams;
     const params = data.params || {};
@@ -544,9 +645,8 @@
       if (Number.isFinite(Number(params.c))) state.c = Number(params.c);
     }
     if (!teacherMode) {
-      state.yaw = PAPER_YAW;
-      state.pitch = PAPER_PITCH;
       if (!state.unlocked) state.acceptParentParams = true;
+      syncStudentCameraTargets();
     }
     applyRoleChrome();
     syncOutputs();
