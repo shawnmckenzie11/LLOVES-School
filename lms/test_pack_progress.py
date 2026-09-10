@@ -288,6 +288,20 @@ class PackProgressTests(unittest.TestCase):
             f"/staff/offerings/{self.offering['id']}/module-pack/status", html
         )
         self.assertIn("course-card-pack-progress", html)
+        self.assertIn(
+            '<script type="module" src="/static/staff_home.js"></script>', html
+        )
+
+
+class StaffHomeScriptTests(unittest.TestCase):
+    """staff_home.js must parse as an ES module (Populate Class handlers live there)."""
+
+    def test_staff_home_js_has_no_duplicate_foreach_close(self) -> None:
+        """Merge leftover `tick(); });` after forEach must not reappear."""
+        source = (LMS_DIR / "static" / "staff_home.js").read_text(encoding="utf-8")
+        self.assertNotIn("tick();\n  });\n    tick();\n  });", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+        self.assertEqual(source.count("("), source.count(")"))
 
 
 if __name__ == "__main__":
