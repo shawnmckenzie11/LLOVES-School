@@ -209,7 +209,17 @@ def landing_kwargs(**extra: Any) -> dict[str, Any]:
         "one_tap_auto": False,
         "student_error": None,
         "oauth_ready": google_oauth_ready(),
+        "celebration_cards": [],
     }
+    try:
+        try:
+            from celebration import build_celebration_board
+        except ImportError:
+            from lms.celebration import build_celebration_board
+
+        ctx["celebration_cards"] = build_celebration_board(school_db())["cards"]
+    except RuntimeError:
+        pass
     ctx.update(extra)
     return ctx
 

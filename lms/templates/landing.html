@@ -17,6 +17,7 @@
     <span class="brand-edge">Attendance</span> &amp; <span class="brand-edge">Live Lessons</span>
   </h1>
   <div class="wrap landing-wrap" id="sign-in">
+    <p class="landing-hash-nav"><a href="#celebrations">Student awards</a></p>
     <p class="role-prompt">Select your role:</p>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <div class="role-cards" id="role-cards">
@@ -39,6 +40,43 @@
       </div>
     </form>
   </div>
+  <section class="wrap calc-wrap" id="celebrations" hidden>
+    <header class="calc-header">
+      <p class="kicker">Student awards</p>
+      <h2>Celebrations</h2>
+      <p class="sub">Codenames from live class — not legal names.</p>
+      <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>
+    </header>
+    {% if celebration_cards %}
+    {% set award = celebration_cards[0] %}
+    <article class="calc-card calc-card-award" data-card="{{ award.key }}">
+      <p class="kicker">{{ award.kicker }}</p>
+      <h3>{{ award.title }}</h3>
+      {% if award.name %}
+      <p class="calc-winner">{{ award.name }}</p>
+      {% if award.course %}<p class="hint">{{ award.course }}</p>{% endif %}
+      {% if award.detail %}<p class="calc-detail">{{ award.detail }}</p>{% endif %}
+      {% else %}
+      <p class="calc-waiting">{{ award.waiting }}</p>
+      {% endif %}
+    </article>
+    <div class="calc-rank-grid">
+      {% for card in celebration_cards[1:] %}
+      <article class="calc-card" data-card="{{ card.key }}">
+        <p class="kicker">{{ card.kicker }}</p>
+        <h3>{{ card.title }}</h3>
+        {% if card.name %}
+        <p class="calc-winner">{{ card.name }}</p>
+        {% if card.course %}<p class="hint">{{ card.course }}</p>{% endif %}
+        {% if card.detail %}<p class="calc-detail">{{ card.detail }}</p>{% endif %}
+        {% else %}
+        <p class="calc-waiting">{{ card.waiting }}</p>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
   <script>
     (function () {
       var btn = document.getElementById("student-role-btn");
@@ -93,6 +131,25 @@
           });
       });
       if (!panel.classList.contains("hidden") && input) input.focus();
+    })();
+
+    (function () {
+      var signIn = document.getElementById("sign-in");
+      var board = document.getElementById("celebrations");
+      if (!signIn || !board) return;
+
+      /**
+       * Show sign-in or the #celebrations board from the URL hash.
+       */
+      function syncLandingHash() {
+        var celebrations = location.hash === "#celebrations";
+        document.body.classList.toggle("is-celebrations", celebrations);
+        signIn.hidden = celebrations;
+        board.hidden = !celebrations;
+      }
+
+      window.addEventListener("hashchange", syncLandingHash);
+      syncLandingHash();
     })();
   </script>
 </body>
