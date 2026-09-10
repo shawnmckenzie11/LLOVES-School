@@ -1,0 +1,946 @@
+{
+  "schema_version": "lesson-assembly.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "course_code": "MCF3M",
+  "pool_path": "catalogue/pools/MCF3M/M4-L1-vertex-form.json",
+  "baseline_path": "catalogue/sources/internal/nelson-mcf3m-4-1/question-baseline.json",
+  "scope": "A2.7 and the vertex-form share of A2.10. Completing the square, the quadratic formula, discriminant, regression, and the full applications lesson stay out of scope.",
+  "page_prints_all_accepted": false,
+  "practice_sets_status": "pool-locked",
+  "practice_sets_current_ids": [
+    "vf-error-h-sign",
+    "vf-claim-axis-is-y",
+    "vf-ministry-expand",
+    "vf-method-equivalence",
+    "vf-error-expand-distribute",
+    "vf-table-not-proof",
+    "vf-form-choice-defend",
+    "vf-zeros-inverse",
+    "vf-vertex-and-point",
+    "vf-bridge-graph-equation",
+    "vf-construct-same-vertex-different-a",
+    "vf-maximum-from-vertex-form",
+    "vf-model-arc-domain"
+  ],
+  "practice_sets_note": "student-practice-sets.json keyed to assembled accepted vf-* ids. Independent and retrieval items are practice-sets. Worked examples, the plus-inside diagnostic, predict-h, and vf-fresh-read stay as cards or example blocks. Do not compile question-candidates.json.",
+  "richness_must_assemble": [
+    "error-diagnosis",
+    "claim-testing",
+    "constraint-construction",
+    "method-choice"
+  ],
+  "families": [
+    {
+      "id": "read-vertex-features",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Example 3", "Q1", "Q2", "Q4", "Q11"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["understand", "apply"],
+      "representations": ["symbolic", "graph", "table"],
+      "pool_ids": [
+        "vf-read-plus-inside",
+        "vf-read-open-down",
+        "vf-k-zero-maximum",
+        "vf-range-from-vertex",
+        "vf-fresh-read"
+      ],
+      "assembled_ids": [
+        "vf-read-plus-inside",
+        "vf-read-open-down",
+        "vf-k-zero-maximum",
+        "vf-fresh-read"
+      ],
+      "drawer_ids": ["vf-range-from-vertex"]
+    },
+    {
+      "id": "equivalent-forms",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Example 1", "Q3", "Q13", "Q16"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["apply", "evaluate"],
+      "representations": ["symbolic", "graph", "table", "verbal"],
+      "pool_ids": [
+        "vf-expand-half",
+        "vf-ministry-expand",
+        "vf-table-not-proof",
+        "vf-compare-two-writings"
+      ],
+      "assembled_ids": [
+        "vf-expand-half",
+        "vf-ministry-expand",
+        "vf-table-not-proof"
+      ],
+      "drawer_ids": ["vf-compare-two-writings"]
+    },
+    {
+      "id": "maximum-from-representations",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Example 2", "Q7", "Q10"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["apply"],
+      "representations": ["context", "symbolic"],
+      "pool_ids": ["vf-maximum-from-vertex-form"],
+      "assembled_ids": ["vf-maximum-from-vertex-form"],
+      "drawer_ids": []
+    },
+    {
+      "id": "zeros-from-vertex-form",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Example 4", "Q5"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["apply", "evaluate"],
+      "representations": ["symbolic"],
+      "pool_ids": ["vf-zeros-inverse", "vf-zeros-method-choice"],
+      "assembled_ids": ["vf-zeros-inverse"],
+      "drawer_ids": ["vf-zeros-method-choice"]
+    },
+    {
+      "id": "vertex-and-point-to-function",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Example 5", "Q8", "Q9"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["create", "analyze"],
+      "representations": ["coordinates", "symbolic", "verbal"],
+      "pool_ids": [
+        "vf-vertex-and-point",
+        "vf-insufficient-vertex-only",
+        "vf-unique-opening-and-point"
+      ],
+      "assembled_ids": ["vf-vertex-and-point"],
+      "drawer_ids": [
+        "vf-insufficient-vertex-only",
+        "vf-unique-opening-and-point"
+      ]
+    },
+    {
+      "id": "form-affordances",
+      "needed": true,
+      "kind": "nelson-family",
+      "nelson_refs": ["Reflecting B-C", "Q6", "Q14"],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["understand", "evaluate"],
+      "representations": ["symbolic", "verbal"],
+      "pool_ids": ["vf-form-advantage", "vf-form-choice-defend"],
+      "assembled_ids": ["vf-form-advantage", "vf-form-choice-defend"],
+      "drawer_ids": []
+    },
+    {
+      "id": "data-modelling",
+      "needed": false,
+      "kind": "nelson-family",
+      "nelson_refs": ["Q15"],
+      "disposition": "excluded",
+      "reason": "Out of approved L1 scope; regression / historical cigarette table. Recorded exception, not a quota filler. Nelson wording stays internal.",
+      "bloom": ["evaluate"],
+      "representations": ["table", "graph", "equation"],
+      "pool_ids": [],
+      "assembled_ids": [],
+      "drawer_ids": []
+    },
+    {
+      "id": "error-diagnosis",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": "Richness gap: must appear as student work, not drawer-only.",
+      "bloom": ["analyze"],
+      "representations": ["symbolic", "verbal"],
+      "pool_ids": [
+        "vf-error-h-sign",
+        "vf-error-max-from-k",
+        "vf-error-expand-distribute"
+      ],
+      "assembled_ids": [
+        "vf-error-h-sign",
+        "vf-error-expand-distribute"
+      ],
+      "drawer_ids": ["vf-error-max-from-k"]
+    },
+    {
+      "id": "method-choice",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": "Richness gap: must appear as student work, not drawer-only.",
+      "bloom": ["evaluate"],
+      "representations": ["symbolic"],
+      "pool_ids": ["vf-method-equivalence"],
+      "assembled_ids": ["vf-method-equivalence"],
+      "drawer_ids": []
+    },
+    {
+      "id": "claim-testing",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": "Richness gap: must appear as student work, not drawer-only.",
+      "bloom": ["evaluate"],
+      "representations": ["symbolic"],
+      "pool_ids": ["vf-claim-axis-is-y"],
+      "assembled_ids": ["vf-claim-axis-is-y"],
+      "drawer_ids": []
+    },
+    {
+      "id": "constraint-construction",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": "Richness gap: must appear as student work, not drawer-only.",
+      "bloom": ["create"],
+      "representations": ["coordinates", "symbolic", "graph"],
+      "pool_ids": ["vf-construct-same-vertex-different-a"],
+      "assembled_ids": ["vf-construct-same-vertex-different-a"],
+      "drawer_ids": []
+    },
+    {
+      "id": "model-critique",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["evaluate"],
+      "representations": ["context", "symbolic", "verbal"],
+      "pool_ids": ["vf-model-arc-domain"],
+      "assembled_ids": ["vf-model-arc-domain"],
+      "drawer_ids": []
+    },
+    {
+      "id": "representation-bridge",
+      "needed": true,
+      "kind": "expansion-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["analyze"],
+      "representations": ["graph", "coordinates", "table", "symbolic", "verbal"],
+      "pool_ids": [
+        "vf-bridge-graph-equation",
+        "vf-bridge-features-table"
+      ],
+      "assembled_ids": ["vf-bridge-graph-equation"],
+      "drawer_ids": ["vf-bridge-features-table"]
+    },
+    {
+      "id": "predict-parameter-change",
+      "needed": true,
+      "kind": "pool-family",
+      "nelson_refs": [],
+      "disposition": "assemble",
+      "reason": null,
+      "bloom": ["apply"],
+      "representations": ["symbolic", "graph"],
+      "pool_ids": ["vf-predict-h-only"],
+      "assembled_ids": ["vf-predict-h-only"],
+      "drawer_ids": []
+    }
+  ],
+  "expansion_recipes": [
+    {
+      "recipe": "representation-bridge",
+      "disposition": "assemble",
+      "bloom": "analyze",
+      "evidence": "Map corresponding features across two forms or a form and graph.",
+      "pool_ids": [
+        "vf-bridge-graph-equation",
+        "vf-bridge-features-table"
+      ],
+      "assembled_ids": ["vf-bridge-graph-equation"],
+      "drawer_ids": ["vf-bridge-features-table"],
+      "reason": null
+    },
+    {
+      "recipe": "error-diagnosis",
+      "disposition": "assemble",
+      "bloom": "analyze",
+      "evidence": "Locate the first invalid step, explain the misconception, and repair it.",
+      "pool_ids": [
+        "vf-error-h-sign",
+        "vf-error-max-from-k",
+        "vf-error-expand-distribute"
+      ],
+      "assembled_ids": [
+        "vf-error-h-sign",
+        "vf-error-expand-distribute"
+      ],
+      "drawer_ids": ["vf-error-max-from-k"],
+      "reason": "Richness gap: must appear as student work, not drawer-only."
+    },
+    {
+      "recipe": "method-choice",
+      "disposition": "assemble",
+      "bloom": "evaluate",
+      "evidence": "Choose between valid methods using a stated mathematical criterion.",
+      "pool_ids": [
+        "vf-method-equivalence",
+        "vf-zeros-method-choice",
+        "vf-form-choice-defend"
+      ],
+      "assembled_ids": [
+        "vf-method-equivalence",
+        "vf-form-choice-defend"
+      ],
+      "drawer_ids": ["vf-zeros-method-choice"],
+      "reason": "Richness gap: must appear as student work, not drawer-only. vf-form-choice-defend is family form-affordances with this recipe."
+    },
+    {
+      "recipe": "claim-testing",
+      "disposition": "assemble",
+      "bloom": "evaluate",
+      "evidence": "Prove, qualify, or refute a claim with a case, counterexample, or structural argument.",
+      "pool_ids": [
+        "vf-table-not-proof",
+        "vf-claim-axis-is-y"
+      ],
+      "assembled_ids": [
+        "vf-table-not-proof",
+        "vf-claim-axis-is-y"
+      ],
+      "drawer_ids": [],
+      "reason": "Richness gap: must appear as student work, not drawer-only."
+    },
+    {
+      "recipe": "constraint-construction",
+      "disposition": "assemble",
+      "bloom": "create",
+      "evidence": "Construct a function satisfying several constraints and justify whether the result is unique.",
+      "pool_ids": [
+        "vf-vertex-and-point",
+        "vf-insufficient-vertex-only",
+        "vf-construct-same-vertex-different-a",
+        "vf-unique-opening-and-point"
+      ],
+      "assembled_ids": [
+        "vf-vertex-and-point",
+        "vf-construct-same-vertex-different-a"
+      ],
+      "drawer_ids": [
+        "vf-insufficient-vertex-only",
+        "vf-unique-opening-and-point"
+      ],
+      "reason": "Richness gap: must appear as student work, not drawer-only."
+    },
+    {
+      "recipe": "model-critique",
+      "disposition": "assemble",
+      "bloom": "evaluate",
+      "evidence": "Interpret domain and assumptions, then judge where the model is useful.",
+      "pool_ids": ["vf-model-arc-domain"],
+      "assembled_ids": ["vf-model-arc-domain"],
+      "drawer_ids": [],
+      "reason": "Original stream model, not Nelson bungee. Regression remains excluded."
+    }
+  ],
+  "fade": [
+    {
+      "process_id": "inspect-vertex-form",
+      "name": "Inspect vertex form: vertex (h, k) including plus-inside, axis x = h, maximum or minimum from the sign of a",
+      "tentative": true,
+      "pending_director": false,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-read-open-down",
+          "exception": null,
+          "reason": null,
+          "note": "OpenStax downward-opening reading, including (x + 2) as h = −2."
+        },
+        "variation": {
+          "pool_id": "vf-k-zero-maximum",
+          "exception": null,
+          "reason": null,
+          "note": "Ministry plus-inside with k = 0 so max/min cannot be taken from k."
+        },
+        "partial": {
+          "pool_id": "vf-read-plus-inside",
+          "exception": null,
+          "reason": null,
+          "note": "Minds On diagnostic before the match-plus-inside board."
+        },
+        "independent": {
+          "pool_id": "vf-error-h-sign",
+          "exception": null,
+          "reason": null,
+          "note": "Student locates the h-sign error; not a second numeric clone."
+        },
+        "retrieval": {
+          "pool_id": "vf-fresh-read",
+          "exception": null,
+          "reason": null,
+          "note": "Consolidation fresh equation; expansion does not move the curve."
+        }
+      }
+    },
+    {
+      "process_id": "predict-parameter-change",
+      "name": "Predict what changing one of a, h, or k will do, then check the graph and the rewritten equation",
+      "tentative": true,
+      "pending_director": false,
+      "cells": {
+        "worked": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "The predict-h JSXGraph cycle already runs predict → move one parameter → check.",
+          "note": null
+        },
+        "variation": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "The same board already varies a second parameter after h; do not reteach A2.5/A2.6 as a new target.",
+          "note": null
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "match-plus-inside is the partial scaffold: name the vertex before sliders move.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-predict-h-only",
+          "exception": null,
+          "reason": null,
+          "note": "Write the new equation before moving a graph."
+        },
+        "retrieval": {
+          "pool_id": "vf-fresh-read",
+          "exception": null,
+          "reason": null,
+          "note": "Fresh downward-opening case in consolidation."
+        }
+      }
+    },
+    {
+      "process_id": "expand-and-verify",
+      "name": "Expand vertex form into standard form and verify equivalent representations",
+      "tentative": true,
+      "pending_director": false,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-expand-half",
+          "exception": null,
+          "reason": null,
+          "note": "Worked expansion plus two-value check."
+        },
+        "variation": {
+          "pool_id": "vf-error-expand-distribute",
+          "exception": null,
+          "reason": null,
+          "note": "Repair a binomial-square distribution error."
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "The expand-same-graph board already has students complete an expansion and see the curve stay put.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-ministry-expand",
+          "exception": null,
+          "reason": null,
+          "note": "Verbatim A2.7 sample; authored expansion, not a Ministry key."
+        },
+        "retrieval": {
+          "pool_id": "vf-table-not-proof",
+          "exception": null,
+          "reason": null,
+          "note": "Claim-testing: a finite table corroborates, it does not prove identity."
+        }
+      }
+    },
+    {
+      "process_id": "three-form-contrast",
+      "name": "Describe what can be read from vertex form compared with standard form and factored form",
+      "tentative": true,
+      "pending_director": false,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-form-advantage",
+          "exception": null,
+          "reason": null,
+          "note": "What vertex form makes readable without producing another form."
+        },
+        "variation": {
+          "pool_id": "vf-form-choice-defend",
+          "exception": null,
+          "reason": null,
+          "note": "Defend a form for a stated decision (highest point)."
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "Module 3 already taught inspecting standard form and factored form (A2.10 share). This lesson adds vertex form only.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-method-equivalence",
+          "exception": null,
+          "reason": null,
+          "note": "Choose algebra vs graph to prove two writings are the same curve."
+        },
+        "retrieval": {
+          "pool_id": "vf-fresh-read",
+          "exception": null,
+          "reason": null,
+          "note": "Would expanding move the curve?"
+        }
+      }
+    },
+    {
+      "process_id": "diagnose-vertex-errors",
+      "name": "Locate the first invalid step in a vertex-form reading or expansion and repair it",
+      "tentative": true,
+      "pending_director": true,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-error-h-sign",
+          "exception": null,
+          "reason": null,
+          "note": null
+        },
+        "variation": {
+          "pool_id": "vf-error-expand-distribute",
+          "exception": null,
+          "reason": null,
+          "note": null
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "Minds On plus-inside diagnostic already surfaces the h-sign habit before the board.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-claim-axis-is-y",
+          "exception": null,
+          "reason": null,
+          "note": "Refute a switched-coordinate axis claim."
+        },
+        "retrieval": {
+          "pool_id": "vf-fresh-read",
+          "exception": null,
+          "reason": null,
+          "note": "Independent retrieval of (h, k) and the sign of a."
+        }
+      }
+    },
+    {
+      "process_id": "zeros-from-vertex-form",
+      "name": "Find zeros from vertex form by inverse operations (no quadratic formula)",
+      "tentative": true,
+      "pending_director": true,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-zeros-inverse",
+          "exception": null,
+          "reason": null,
+          "note": "Only one zeros stem is assembled; variation lives in the drawer."
+        },
+        "variation": {
+          "pool_id": null,
+          "exception": "review-only",
+          "reason": "vf-zeros-method-choice stays in the drawer so the page is not a dump of every method-choice stem.",
+          "note": null
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "Inverse operations are shown in the worked zeros item; no third scaffolded stem.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-zeros-inverse",
+          "exception": null,
+          "reason": null,
+          "note": "Same assembled stem serves independent practice until the director splits a second zeros item."
+        },
+        "retrieval": {
+          "pool_id": "vf-model-arc-domain",
+          "exception": null,
+          "reason": null,
+          "note": "Landing zeros of a height model, then domain critique."
+        }
+      }
+    },
+    {
+      "process_id": "construct-from-constraints",
+      "name": "Construct a vertex-form equation from a vertex and further constraints; say what is still free",
+      "tentative": true,
+      "pending_director": true,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-vertex-and-point",
+          "exception": null,
+          "reason": null,
+          "note": "Recover a; uniqueness is asked in the stem."
+        },
+        "variation": {
+          "pool_id": "vf-construct-same-vertex-different-a",
+          "exception": null,
+          "reason": null,
+          "note": "Two equations, same turning point."
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "review-only",
+          "reason": "vf-insufficient-vertex-only (degrees of freedom) stays in the drawer; uniqueness is already inside vf-vertex-and-point.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-bridge-graph-equation",
+          "exception": null,
+          "reason": null,
+          "note": "Graph features to a, h, k."
+        },
+        "retrieval": {
+          "pool_id": "vf-construct-same-vertex-different-a",
+          "exception": null,
+          "reason": null,
+          "note": "Same assembled construction as variation until the director adds a second retrieval stem."
+        }
+      }
+    },
+    {
+      "process_id": "interpret-context-vertex",
+      "name": "Read a maximum from vertex form in a modelled interval and judge a meaningful domain",
+      "tentative": true,
+      "pending_director": true,
+      "cells": {
+        "worked": {
+          "pool_id": "vf-maximum-from-vertex-form",
+          "exception": null,
+          "reason": null,
+          "note": "Read k when a < 0; no completing the square."
+        },
+        "variation": {
+          "pool_id": null,
+          "exception": "already-taught",
+          "reason": "The fountain hook and fresh-case board already ask for a high point from an equation.",
+          "note": null
+        },
+        "partial": {
+          "pool_id": null,
+          "exception": "review-only",
+          "reason": "Not a full A3.3 applications lesson. Domain critique is the independent item, not a second modelled max.",
+          "note": null
+        },
+        "independent": {
+          "pool_id": "vf-model-arc-domain",
+          "exception": null,
+          "reason": null,
+          "note": "Original stream model; not Nelson bungee."
+        },
+        "retrieval": {
+          "pool_id": "vf-fresh-read",
+          "exception": null,
+          "reason": null,
+          "note": "Symbolic retrieval of vertex and maximum."
+        }
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "id": "vf-excluded-nelson-bank",
+      "reason": "Restricted pending reuse rights. Do not export Nelson Functions 11 wording or crops. Use original prompts in accepted records instead."
+    },
+    {
+      "id": "vf-excluded-mathnet-0gz2",
+      "reason": "Olympiad difficulty; contest stem is not classroom copy. Convenience key unverified."
+    },
+    {
+      "id": "vf-excluded-regression",
+      "reason": "Q15-style data fitting is out of this lesson’s approved scope. Recorded as a coverage exception, not a quota filler."
+    }
+  ],
+  "practice_sequence_seed": [
+    {
+      "id": "vf-read-plus-inside",
+      "status": "accepted",
+      "placement": "guided_practice",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": true,
+      "purpose": "Minds On plus-inside diagnostic before the board.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-read-open-down",
+      "status": "accepted",
+      "placement": "worked_example",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": true,
+      "purpose": "Worked inspection: vertex, axis, maximum from the sign of a.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-k-zero-maximum",
+      "status": "accepted",
+      "placement": "worked_example",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": true,
+      "purpose": "Varied inspection: k = 0, max from a not from k.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-range-from-vertex",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": false,
+      "purpose": "Drawer: domain and range from vertex form. A2.3 already taught; extra retrieval only.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-fresh-read",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": true,
+      "purpose": "Consolidation retrieval of inspection plus A2.7 awareness.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-expand-half",
+      "status": "accepted",
+      "placement": "worked_example",
+      "process_id": "expand-and-verify",
+      "visible_by_default": true,
+      "purpose": "Worked expansion of ½(x + 2)² − 3 with a two-value check.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-ministry-expand",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "visible_by_default": true,
+      "purpose": "Independent A2.7 sample. Authored expansion, not a Ministry key.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-table-not-proof",
+      "status": "accepted",
+      "placement": "extension",
+      "process_id": "expand-and-verify",
+      "visible_by_default": true,
+      "purpose": "Claim-testing: matching table values do not prove identity.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-compare-two-writings",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "expand-and-verify",
+      "visible_by_default": false,
+      "purpose": "Drawer: same identity as the worked expand plus method-choice.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-form-advantage",
+      "status": "accepted",
+      "placement": "worked_example",
+      "process_id": "three-form-contrast",
+      "visible_by_default": true,
+      "purpose": "What vertex form makes readable versus standard form.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-form-choice-defend",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "three-form-contrast",
+      "visible_by_default": true,
+      "purpose": "Defend vertex form for a highest-point decision (method-choice recipe).",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-error-h-sign",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "diagnose-vertex-errors",
+      "visible_by_default": true,
+      "purpose": "Error-diagnosis must be on the page: first invalid step h = 3.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-error-max-from-k",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "diagnose-vertex-errors",
+      "visible_by_default": false,
+      "purpose": "Drawer: k-vs-a max/min error; same misconception as vf-k-zero-maximum.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-error-expand-distribute",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "visible_by_default": true,
+      "purpose": "Error-diagnosis of an expansion; must be on the page.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-method-equivalence",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "visible_by_default": true,
+      "purpose": "Method-choice must be on the page: prove-for-all-x vs graph corroboration.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-zeros-inverse",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "zeros-from-vertex-form",
+      "visible_by_default": true,
+      "purpose": "Zeros by inverse operations; no quadratic formula.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-zeros-method-choice",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "zeros-from-vertex-form",
+      "visible_by_default": false,
+      "purpose": "Drawer: extra method-choice on zeros; family already assembled via vf-method-equivalence.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-vertex-and-point",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "visible_by_default": true,
+      "purpose": "Construct a from vertex + point; uniqueness.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-insufficient-vertex-only",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "construct-from-constraints",
+      "visible_by_default": false,
+      "purpose": "Drawer: degrees of freedom when only the vertex is known.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-unique-opening-and-point",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "construct-from-constraints",
+      "visible_by_default": false,
+      "purpose": "Drawer: extra uniqueness variant.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-construct-same-vertex-different-a",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "visible_by_default": true,
+      "purpose": "Constraint-construction must be on the page: same vertex, different a.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-bridge-graph-equation",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "visible_by_default": true,
+      "purpose": "Representation-bridge: labelled graph to vertex form.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-bridge-features-table",
+      "status": "accepted",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "visible_by_default": false,
+      "purpose": "Drawer: table-to-vertex-form bridge; graph bridge is on the page.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-claim-axis-is-y",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "diagnose-vertex-errors",
+      "visible_by_default": true,
+      "purpose": "Claim-testing must be on the page: axis is x = h, not y = h.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-model-arc-domain",
+      "status": "accepted",
+      "placement": "extension",
+      "process_id": "interpret-context-vertex",
+      "visible_by_default": true,
+      "purpose": "Model-critique of a simple height model. Not Nelson bungee.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-maximum-from-vertex-form",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "interpret-context-vertex",
+      "visible_by_default": true,
+      "purpose": "Read a maximum from vertex form in a modelled interval.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-predict-h-only",
+      "status": "accepted",
+      "placement": "core_practice",
+      "process_id": "predict-parameter-change",
+      "visible_by_default": true,
+      "purpose": "Independent one-parameter h change after the board has taught predict/check.",
+      "exclusion_reason": null
+    },
+    {
+      "id": "vf-excluded-nelson-bank",
+      "status": "excluded",
+      "placement": "excluded",
+      "process_id": null,
+      "visible_by_default": false,
+      "purpose": "Nelson 4.1 bank stays internal.",
+      "exclusion_reason": "Restricted pending reuse rights. Do not export source wording or crops."
+    },
+    {
+      "id": "vf-excluded-mathnet-0gz2",
+      "status": "excluded",
+      "placement": "excluded",
+      "process_id": null,
+      "visible_by_default": false,
+      "purpose": "MathNet contest stem is not classroom copy.",
+      "exclusion_reason": "Olympiad difficulty; contest stem is not classroom copy. Convenience key unverified."
+    },
+    {
+      "id": "vf-excluded-regression",
+      "status": "excluded",
+      "placement": "excluded",
+      "process_id": null,
+      "visible_by_default": false,
+      "purpose": "Regression / historical table is out of L1 scope.",
+      "exclusion_reason": "Q15-style data fitting is labelled historical and out of this lesson’s approved scope."
+    }
+  ],
+  "blockers": {
+    "director": [],
+    "copywriter": [],
+    "practice_sequence": []
+  }
+}

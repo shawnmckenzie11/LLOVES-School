@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "student-content-patch.schema.json",
+  "title": "Student-content revision patch",
+  "description": "Replace editable fields on stable block ids. Teacher/internal files are never patched here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ops"],
+  "properties": {
+    "ops": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "field", "value"],
+        "properties": {
+          "op": { "const": "replace" },
+          "block_id": { "type": "string", "minLength": 1 },
+          "field": { "enum": ["text", "prompt", "alt", "label"] },
+          "value": { "type": "string" }
+        }
+      }
+    }
+  }
+}

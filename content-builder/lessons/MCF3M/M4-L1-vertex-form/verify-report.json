@@ -1,21 +1,89 @@
 {
+  "schema_version": "verify-report.v1",
   "lesson_id": "M4-L1-vertex-form",
   "course_code": "MCF3M",
-  "checked_at": "2026-09-09T08:10:00+00:00",
+  "checked_at": "2026-09-09T17:26:00+00:00",
   "verifier": "lesson-verifier",
-  "verdict": "FAIL then parent patched high findings; script verify_lesson.py PASS; check_feedback.py PASS 5",
-  "first_verifier_fail": [
-    "JSXGraph copyright on graph",
-    "Consolidation board started at the fresh-case target",
-    "predict-h Check accepted any matching prediction including x=3",
-    "live expanded line visible before expand task",
-    "NaN feedback on empty Check"
+  "verdict": "pass",
+  "summary": "Bank-backed M4-L1 pass. The student page uses 13 assembled vf-* practice items plus faded cards and four vertex-board cycles. No Nelson leak, no leftover OpenStax pair, Check feedback on the boards. Parent saved this report from the independent verifier; no repair loop.",
+  "exports_checked": [
+    "content-builder/build/MCF3M/M4-L1-vertex-form/index.html",
+    "http://127.0.0.1:8790/build/MCF3M/M4-L1-vertex-form/index.html"
   ],
-  "parent_followup": "showCopyright false; all boards start at starting_parameters; predict-h destination h=2; hide expanded line until expand Check succeeds; block empty Check. Suggestions remaining: lock sliders until prediction; unhide expansion only on expand task (now hidden on all until expand success); named-reading layout added.",
-  "passed_after_patch": [
-    "student-content whitelist; no GeoGebra/ranks in student copy",
-    "fountain hook returns in consolidation",
-    "Check produces feedback; fresh-case not on Action",
-    "A2.7 verbatim; no Nelson in student HTML"
-  ]
+  "blockers": [],
+  "checks": [
+    {"id": "assembled-families-on-page", "status": "pass"},
+    {"id": "nelson-leak", "status": "pass"},
+    {"id": "star-convention", "status": "pass"},
+    {"id": "board-check-feedback", "status": "pass"},
+    {"id": "fountain-photo-marking", "status": "pass"},
+    {"id": "equation-above-graph", "status": "pass"},
+    {"id": "pool-used-not-openstax-leftovers", "status": "pass"},
+    {"id": "the-writing", "status": "pass"},
+    {"id": "three-tabs-not-the-water", "status": "pass"},
+    {"id": "practice-set-ids-accepted-vf", "status": "pass"},
+    {"id": "pool-size-24-36", "status": "pass"},
+    {"id": "feedback-scenario-tests", "status": "pass"}
+  ],
+  "failed": [],
+  "passed": [
+    "13 practice-set items, all accepted vf-* ids, plus faded cards/examples. Not two OpenStax leftovers.",
+    "Assembled families on the student page: read-vertex-features, equivalent-forms, maximum-from-representations, zeros-from-vertex-form, vertex-and-point-to-function, form-affordances, error-diagnosis, method-choice, claim-testing, constraint-construction, model-critique, representation-bridge, predict-parameter-change.",
+    "All 20 assembled_ids appear as cards, examples, board tasks, or practice-sets.",
+    "Pool is 27 accepted (target 24–36) plus 3 excluded. Drawer remainder stays in practice-sequence.json and the pool.",
+    "No bungee, cigarettes sold, nelson functions 11, or libfile_ in student HTML or student-content.json.",
+    "No word-problem solution on the student page. Teacher-only STAR in teacher-notes.json is Search / Translate / Answer / Review + diagram, not Situation / Task / Action / Result.",
+    "Check on match-plus-inside, predict-h, and fresh-case produces visible feedback.",
+    "check_feedback.py: PASS 5 scenario tests.",
+    "Fountain: The photograph cannot be marked. No overlay.",
+    "Live equation labelled Vertex form is above the graph. No under the graph.",
+    "the writing absent from student-content, practice-sets, and compiled HTML.",
+    "Three tabs only: Minds On / Action / Consolidation. No The water tab.",
+    "No JSXGraph / GeoGebra / Desmos in student prose."
+  ],
+  "uncertain": [
+    {
+      "id": "drawer-vs-brief-items",
+      "issue": "Director beats name vf-error-max-from-k, vf-insufficient-vertex-only, and vf-zeros-method-choice as student work; assembly drawers them. Families are still on the page.",
+      "status": "not-a-fail"
+    },
+    {
+      "id": "fade-cell-mismatch",
+      "issue": "assembly.json fade cells for inspect-vertex-form do not match practice-sequence.json. Both items are on the page either way.",
+      "status": "not-a-fail"
+    },
+    {
+      "id": "review-drawer-truncation",
+      "issue": "Review Candidate drawer slices to 24 of 30 pool records, so vf-unique-opening-and-point is not listed in that UI. The pool file still holds it.",
+      "status": "not-a-fail"
+    }
+  ],
+  "notes": [
+    "One more to try is unused because visible_count equals each set length. Every assembled practice item is already visible.",
+    "Practice-sets have no Check. Those stems are unrestricted explanations and must not be auto-graded.",
+    "Ghost target and intended-slider are still not built. Say which quantity is prose only. Hide-expansion-until-submit and coefficient inputs are built on expand-same-graph.",
+    "assembly.json blockers.copywriter was stale (claimed openstax-ex-22 / openstax-ex-53). Parent cleared those blockers after this pass.",
+    "Worked expand renders ½ as (1)/(2). Readable, ugly."
+  ],
+  "suggestions": [
+    {
+      "severity": "suggestion",
+      "owner": "lesson-engineer",
+      "issue": "Worked expand renders ½ as (1)/(2)."
+    },
+    {
+      "severity": "suggestion",
+      "owner": "parent",
+      "issue": "Review Candidate drawer truncates at 24 of 30 pool records."
+    }
+  ],
+  "teacher_decisions_that_change_the_result": [
+    "Requiring on-page (not drawer) vf-error-max-from-k, vf-insufficient-vertex-only, or vf-zeros-method-choice.",
+    "Printing STAR labels on student word-problem stems (brief currently forbids that).",
+    "Moving A2.7 to Lesson 2, or attaching A3.3 here (brief uncertainties; not decided)."
+  ],
+  "script_notes": {
+    "check_feedback.py": "PASS 5 scenario tests"
+  },
+  "prior_enrichment_verify": "Replaced. Earlier 2026-09-09 14:41Z report covered the original eight interface failures; this file is the bank-backed assembly verify."
 }

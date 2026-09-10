@@ -6,6 +6,7 @@ Shared contracts for the math lesson factory. Specialists submit against these f
 |---|---|---|
 | `lesson-brief.json` | lesson-director | no |
 | `hook-proposals.json` | hook-curator | no (selected hook copy lives in student-content) |
+| `assembly.json` | parent | no (pool assemble vs drawer; fade cells) |
 | `practice-sequence.json` | practice-designer | no (practice-set ids only) |
 | `interaction-spec.json` | interaction-designer | ids only |
 | `feedback-spec.json` | formative-feedback-designer | no (engine uses it) |

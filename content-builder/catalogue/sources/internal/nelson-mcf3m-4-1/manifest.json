@@ -1,0 +1,10 @@
+{
+  "schema_version": "internal-source.v1",
+  "source_id": "nelson-mcf3m-4-1",
+  "rights_status": "restricted_pending_review",
+  "student_export_policy": "Do not export page crops, publisher illustrations, calculator screenshots, or source wording until reuse rights are confirmed.",
+  "files": {
+    "source-map.json": "1cd0b0b368b814b9de6bf3b4e35de66a582ded28cd5bccbde1709fce4c6d9f25",
+    "question-baseline.json": "8038e30bfb23cb1b689ebc7168dcf679588474fd3b0ba8f97bbf3a5ec844e43a"
+  }
+}

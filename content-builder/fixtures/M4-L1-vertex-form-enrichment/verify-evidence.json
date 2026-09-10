@@ -1,0 +1,907 @@
+{
+  "minds_on_desktop": {
+    "tabs": [
+      {
+        "text": "Minds On",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "true"
+      },
+      {
+        "text": "Action",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Consolidation",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      }
+    ],
+    "cards": [
+      {
+        "label": "Look at the streams",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Match the equation you already read",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Change only h",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Expand, then check the same graph",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Return to the stream",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Read a new equation",
+        "svgAriaHidden": "true"
+      }
+    ],
+    "eqAbove": {
+      "liveText": "Vertex form: f(x) = 2(x + 3)\u00b2 + 1",
+      "liveTop": 0,
+      "graphTop": 0,
+      "above": false
+    },
+    "nav": [
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2191"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2192"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      }
+    ],
+    "copy": [],
+    "bodyHasGeoGebra": false,
+    "bodyHasJSXGraph": false,
+    "photoCannotBeMarked": true,
+    "markHighest": false,
+    "checkButtons": [
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check"
+    ],
+    "questionOnly": 0,
+    "feedback": {
+      "hidden": true,
+      "text": "",
+      "className": "feedback"
+    },
+    "hint": {
+      "hidden": true,
+      "text": ""
+    },
+    "scripts": [
+      "jsxgraphcore.js",
+      "vertex-form-board.js",
+      "vertex-form-checker.js",
+      "formative-cycle.js"
+    ]
+  },
+  "action_check_desktop": {
+    "tabs": [
+      {
+        "text": "Minds On",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Action",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "true"
+      },
+      {
+        "text": "Consolidation",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      }
+    ],
+    "cards": [
+      {
+        "label": "Look at the streams",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Match the equation you already read",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Change only h",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Expand, then check the same graph",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Return to the stream",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Read a new equation",
+        "svgAriaHidden": "true"
+      }
+    ],
+    "eqAbove": {
+      "liveText": "Vertex form: f(x) = 2(x + 3)\u00b2 + 1",
+      "liveTop": -276.046875,
+      "graphTop": -147.328125,
+      "above": true
+    },
+    "nav": [
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2191"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2192"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      }
+    ],
+    "copy": [],
+    "bodyHasGeoGebra": false,
+    "bodyHasJSXGraph": false,
+    "photoCannotBeMarked": false,
+    "markHighest": false,
+    "checkButtons": [
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check"
+    ],
+    "questionOnly": 0,
+    "feedback": {
+      "hidden": false,
+      "text": "The vertex is at (\u22123, 1) and the graph opens upward, like the target. The stretch does not yet match \u2014 your a is 2, and you want a = 1. Keep the vertex and change the stretch.",
+      "className": "feedback is-retry"
+    },
+    "hint": {
+      "hidden": true,
+      "text": ""
+    },
+    "scripts": [
+      "jsxgraphcore.js",
+      "vertex-form-board.js",
+      "vertex-form-checker.js",
+      "formative-cycle.js"
+    ]
+  },
+  "action_hint_desktop": {
+    "tabs": [
+      {
+        "text": "Minds On",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Action",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "true"
+      },
+      {
+        "text": "Consolidation",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      }
+    ],
+    "cards": [
+      {
+        "label": "Look at the streams",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Match the equation you already read",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Change only h",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Expand, then check the same graph",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Return to the stream",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Read a new equation",
+        "svgAriaHidden": "true"
+      }
+    ],
+    "eqAbove": {
+      "liveText": "Vertex form: f(x) = 2(x + 3)\u00b2 + 1",
+      "liveTop": -276.046875,
+      "graphTop": -147.328125,
+      "above": true
+    },
+    "nav": [
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2191"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2192"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      }
+    ],
+    "copy": [],
+    "bodyHasGeoGebra": false,
+    "bodyHasJSXGraph": false,
+    "photoCannotBeMarked": false,
+    "markHighest": false,
+    "checkButtons": [
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check"
+    ],
+    "questionOnly": 0,
+    "feedback": {
+      "hidden": false,
+      "text": "The vertex is at (\u22123, 1) and the graph opens upward, like the target. The stretch does not yet match \u2014 your a is 2, and you want a = 1. Keep the vertex and change the stretch.",
+      "className": "feedback is-retry"
+    },
+    "hint": {
+      "hidden": false,
+      "text": "Look at the equation under the graph. You want it to read f(x) = (x + 3)\u00b2 + 1."
+    },
+    "scripts": [
+      "jsxgraphcore.js",
+      "vertex-form-board.js",
+      "vertex-form-checker.js",
+      "formative-cycle.js"
+    ]
+  },
+  "consolidation_desktop": {
+    "tabs": [
+      {
+        "text": "Minds On",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Action",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Consolidation",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "true"
+      }
+    ],
+    "cards": [
+      {
+        "label": "Look at the streams",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Match the equation you already read",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Change only h",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Expand, then check the same graph",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Return to the stream",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Read a new equation",
+        "svgAriaHidden": "true"
+      }
+    ],
+    "eqAbove": {
+      "liveText": "Vertex form: f(x) = 2(x + 3)\u00b2 + 1",
+      "liveTop": 0,
+      "graphTop": 0,
+      "above": false
+    },
+    "nav": [
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2191"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2192"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      }
+    ],
+    "copy": [],
+    "bodyHasGeoGebra": false,
+    "bodyHasJSXGraph": false,
+    "photoCannotBeMarked": false,
+    "markHighest": false,
+    "checkButtons": [
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check"
+    ],
+    "questionOnly": 0,
+    "feedback": {
+      "hidden": false,
+      "text": "The vertex is at (\u22123, 1) and the graph opens upward, like the target. The stretch does not yet match \u2014 your a is 2, and you want a = 1. Keep the vertex and change the stretch.",
+      "className": "feedback is-retry"
+    },
+    "hint": {
+      "hidden": false,
+      "text": "Look at the equation under the graph. You want it to read f(x) = (x + 3)\u00b2 + 1."
+    },
+    "scripts": [
+      "jsxgraphcore.js",
+      "vertex-form-board.js",
+      "vertex-form-checker.js",
+      "formative-cycle.js"
+    ]
+  },
+  "action_check_phone": {
+    "tabs": [
+      {
+        "text": "Minds On",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      },
+      {
+        "text": "Action",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "true"
+      },
+      {
+        "text": "Consolidation",
+        "tag": "BUTTON",
+        "type": "button",
+        "ariaSelected": "false"
+      }
+    ],
+    "cards": [
+      {
+        "label": "Look at the streams",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Match the equation you already read",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Change only h",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Expand, then check the same graph",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Return to the stream",
+        "svgAriaHidden": "true"
+      },
+      {
+        "label": "Read a new equation",
+        "svgAriaHidden": "true"
+      }
+    ],
+    "eqAbove": {
+      "liveText": "Vertex form: f(x) = 2(x + 3)\u00b2 + 1",
+      "liveTop": -304.078125,
+      "graphTop": -175.359375,
+      "above": true
+    },
+    "nav": [
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2191"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2192"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2013"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "o"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "+"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2190"
+      },
+      {
+        "tag": "SPAN",
+        "aria": null,
+        "title": null,
+        "text": "\u2193"
+      }
+    ],
+    "copy": [],
+    "bodyHasGeoGebra": false,
+    "bodyHasJSXGraph": false,
+    "photoCannotBeMarked": false,
+    "markHighest": false,
+    "checkButtons": [
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check",
+      "BUTTON:button:Check"
+    ],
+    "questionOnly": 0,
+    "feedback": {
+      "hidden": false,
+      "text": "The vertex is at (\u22123, 1) and the graph opens upward, like the target. The stretch does not yet match \u2014 your a is 2, and you want a = 1. Keep the vertex and change the stretch.",
+      "className": "feedback is-retry"
+    },
+    "hint": {
+      "hidden": true,
+      "text": ""
+    },
+    "scripts": [
+      "jsxgraphcore.js",
+      "vertex-form-board.js",
+      "vertex-form-checker.js",
+      "formative-cycle.js"
+    ]
+  },
+  "other": [
+    {
+      "lesson": "M5-L1-trig-ratios",
+      "title": "Lesson 1: Trigonometric Ratios",
+      "tabs": [
+        {
+          "text": "Minds On",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "true"
+        },
+        {
+          "text": "Action",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "false"
+        },
+        {
+          "text": "Consolidation",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "false"
+        }
+      ],
+      "cards": [
+        {
+          "label": "Name the sides first",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "Read the names from the triangle",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "Choose a ratio",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "A measured angle and one side",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "Write the three ratios",
+          "svgAriaHidden": "true"
+        }
+      ],
+      "eqAbove": null,
+      "nav": [],
+      "copy": [],
+      "bodyHasGeoGebra": false,
+      "bodyHasJSXGraph": false,
+      "photoCannotBeMarked": false,
+      "markHighest": false,
+      "checkButtons": [],
+      "questionOnly": 0,
+      "feedback": null,
+      "hint": null,
+      "scripts": []
+    },
+    {
+      "lesson": "M7-L3-exponential-functions",
+      "title": "Exploring Exponential Functions, Growth & Decay",
+      "tabs": [
+        {
+          "text": "Minds On",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "true"
+        },
+        {
+          "text": "Action",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "false"
+        },
+        {
+          "text": "Consolidation",
+          "tag": "BUTTON",
+          "type": "button",
+          "ariaSelected": "false"
+        }
+      ],
+      "cards": [
+        {
+          "label": "Multiply or add?",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "Two equations, same family",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "Not every curve is exponential",
+          "svgAriaHidden": "true"
+        },
+        {
+          "label": "What a and b control",
+          "svgAriaHidden": "true"
+        }
+      ],
+      "eqAbove": null,
+      "nav": [],
+      "copy": [],
+      "bodyHasGeoGebra": false,
+      "bodyHasJSXGraph": false,
+      "photoCannotBeMarked": false,
+      "markHighest": false,
+      "checkButtons": [],
+      "questionOnly": 0,
+      "feedback": null,
+      "hint": null,
+      "scripts": []
+    }
+  ],
+  "review": {
+    "title": "Content builder review",
+    "hasLessonSelect": true,
+    "lessonOptions": [
+      "M4-L1-vertex-form",
+      "M5-L1-trig-ratios",
+      "M7-L3-exponential-functions"
+    ],
+    "saveStudent": true,
+    "saveInstruction": false,
+    "saveInstructionText": false,
+    "blockTextareas": 78,
+    "status": "Loaded M4-L1-vertex-form",
+    "previewSrc": "http://127.0.0.1:8790/build/MCF3M/M4-L1-vertex-form/index.html?t=1788964686609",
+    "copy": true
+  }
+}

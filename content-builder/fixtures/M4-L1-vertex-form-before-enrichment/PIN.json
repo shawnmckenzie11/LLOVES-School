@@ -1,0 +1,8 @@
+{
+  "schema_version": "fixture-pin.v1",
+  "label": "M4-L1 before enrichment phases 1-3",
+  "from_branch": "content-builder",
+  "from_commit": "7ef7b7b6e6d2d9b10127e6b2c2b19e12d71523d1",
+  "plan_named_commit": "16e6db249e4917e07181ebf2fd589eb7d5cf5ebb",
+  "note": "Four-tab compiled page (hook as The water). Frozen before STAR/three-tab/authoring-path repair. Do not treat as student export."
+}

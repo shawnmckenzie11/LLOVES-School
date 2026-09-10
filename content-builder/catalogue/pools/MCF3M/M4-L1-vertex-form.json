@@ -1,0 +1,2248 @@
+{
+  "schema_version": "question-pool.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "course_code": "MCF3M",
+  "scope": "A2.7 and the vertex-form share of A2.10. Completing the square, the quadratic formula, discriminant, regression, and the full applications lesson stay out of scope.",
+  "coverage": {
+    "families": [
+      {
+        "id": "read-vertex-features",
+        "needed": true,
+        "notes": "Inspect (h, k), axis, max/min from a."
+      },
+      {
+        "id": "equivalent-forms",
+        "needed": true,
+        "notes": "Expand vertex form; sampled tables corroborate only."
+      },
+      {
+        "id": "form-affordances",
+        "needed": true,
+        "notes": "Choose vertex form for vertex/axis/max without producing other forms."
+      },
+      {
+        "id": "zeros-from-vertex-form",
+        "needed": true,
+        "notes": "Inverse operations only; no quadratic formula."
+      },
+      {
+        "id": "vertex-and-point-to-function",
+        "needed": true,
+        "notes": "Construct a from vertex + point; uniqueness."
+      },
+      {
+        "id": "error-diagnosis",
+        "needed": true,
+        "notes": "h-sign, max-from-k, expand errors."
+      },
+      {
+        "id": "method-choice",
+        "needed": true,
+        "notes": "Prove-for-all-x vs graph corroboration."
+      },
+      {
+        "id": "claim-testing",
+        "needed": true,
+        "notes": "Axis claim; table-as-proof."
+      },
+      {
+        "id": "constraint-construction",
+        "needed": true,
+        "notes": "Same vertex different a; uniqueness."
+      },
+      {
+        "id": "model-critique",
+        "needed": true,
+        "notes": "Meaningful domain of a simple height model; not Nelson bungee."
+      },
+      {
+        "id": "representation-bridge",
+        "needed": true,
+        "notes": "Graph/table features ↔ vertex form."
+      },
+      {
+        "id": "maximum-from-representations",
+        "needed": true,
+        "notes": "Read max from vertex form in a modelled interval."
+      },
+      {
+        "id": "predict-parameter-change",
+        "needed": true,
+        "notes": "Change only h."
+      },
+      {
+        "id": "data-modelling",
+        "needed": false,
+        "notes": "Regression / historical cigarette table.",
+        "exception": "Out of approved L1 scope; do not pad."
+      }
+    ],
+    "gaps": [
+      "error-diagnosis",
+      "method-choice",
+      "claim-testing",
+      "constraint-construction",
+      "model-critique",
+      "zeros-from-vertex-form",
+      "vertex-and-point-to-function",
+      "representation-bridge"
+    ],
+    "counting_rule": "Count distinct reasoning families separately from numeric or surface-context variants (variant_of).",
+    "target_accepted": [
+      24,
+      36
+    ]
+  },
+  "candidates": [
+    {
+      "id": "vf-read-plus-inside",
+      "status": "accepted",
+      "title": "Name the vertex when the brackets show a plus",
+      "student_facing": "Consider f(x) = (x + 3)^2 + 1. Name the vertex and the axis of symmetry. Do not sketch yet.",
+      "role": "diagnostic",
+      "family_id": "read-vertex-features",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Students match the given equation to a(x − h)^2 + k and report (h, k)."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "entry",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 3
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [
+          "rewrite x + 3 as x − (−3)"
+        ],
+        "expected_evidence": [
+          "vertex (−3, 1)",
+          "axis x = −3"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Match (x + 3) to (x − h), so h = −3. k = 1. Vertex (−3, 1). Axis x = −3. a = 1 > 0 so a minimum.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "match-to-vertex-form",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "88850078091c637c339d3b3ed845db88dff2b3c7a5d2f70bab00d503d76b9f0b",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-read-open-down",
+      "status": "accepted",
+      "title": "Vertex and maximum from a negative a",
+      "student_facing": "Consider y = −3(x + 2)^2 + 4. Name the vertex. Is the vertex a maximum or a minimum? How did you know?",
+      "role": "guided_example",
+      "family_id": "read-vertex-features",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Reading (h, k) and using the sign of a, not the sign of k."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "h = −2, k = 4. Vertex (−2, 4). a = −3 < 0 so the parabola opens downward: the vertex is a maximum.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "match-to-vertex-form",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "3c9868e14d4f95e553a56156b092ab67c190edc67130ec6a426ab6bc898a86fa",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-k-zero-maximum",
+      "status": "accepted",
+      "title": "Maximum when k is zero",
+      "student_facing": "Consider h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum? Could you decide that from k alone?",
+      "role": "guided_example",
+      "family_id": "read-vertex-features",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "understand",
+        "secondary": "apply",
+        "rationale": "k = 0, so maximum versus minimum cannot be read from k; it comes from a."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "entry",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "h = −1, k = 0. Vertex (−1, 0). a = −2 < 0, so a maximum. k alone does not decide max vs min.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "match-to-vertex-form",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "ministry-sample",
+        "source_id": "A2.6-example-0",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "c5db3f88d978c7e8a60fee344425604baa15c5d55f3d9dd1db81b0de3b64bb17",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-expand-half",
+      "status": "accepted",
+      "title": "Expand ½(x + 2)^2 − 3",
+      "student_facing": "Rewrite g(x) = (1/2)(x + 2)^2 − 3 in standard form, meaning g(x) = ax^2 + bx + c. Then check two x-values in both forms.",
+      "role": "guided_example",
+      "family_id": "equivalent-forms",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Carry out expansion; checking values corroborates but does not prove identity."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "compute",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic",
+          "table"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "(x + 2)^2 = x^2 + 4x + 4. Multiply by 1/2: (1/2)x^2 + 2x + 2. Add −3: (1/2)x^2 + 2x − 1. At x = −2 both give −3; at x = 0 both give −1.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "expand-a-h-k: a=1/2, h=-2, k=-3 → (1/2, 2, -1)",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "abff5a9895f8b786364bfe3628fee17ee4821ac2fc691419f4fe5f9c6c77d1da",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-ministry-expand",
+      "status": "accepted",
+      "title": "Ministry sample: expand 3(x − 1)^2 + 4",
+      "student_facing": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+      "role": "practice",
+      "family_id": "equivalent-forms",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Ministry sample for A2.7: expand and compare graphs."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "compute",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Authored expansion (not a Ministry key): 3(x^2 − 2x + 1) + 4 = 3x^2 − 6x + 3 + 4 = 3x^2 − 6x + 7. Graphs of both writings coincide.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "expand-a-h-k: a=3, h=1, k=4 → (3, -6, 7)",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "ministry-sample",
+        "source_id": "ontario-seed-mcf3m-A2.7-sample",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "32d4c7ef294bed604c5eae31b2269d6203459a4ddfe37fec5da86fe993102f59",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-form-advantage",
+      "status": "accepted",
+      "title": "What vertex form makes readable",
+      "student_facing": "Consider f(x) = a(x − h)^2 + k. What can you read from vertex form that is harder to see when the same function is written in standard form f(x) = ax^2 + bx + c? Do not rewrite the function.",
+      "role": "practice",
+      "family_id": "form-affordances",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "understand",
+        "secondary": null,
+        "rationale": "Identify the affordance of vertex form without producing another form."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "three-form-contrast"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Vertex (h, k), axis x = h, and maximum versus minimum from the sign of a. Standard form makes the y-intercept c easy to see; zeros are not obvious in either of those two writings unless they happen to sit on an axis.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "curriculum-A2.10-share",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "openstax",
+        "source_id": "openstax-ca2e-m51274-advantage-verbal",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "c41c542574bb0623c6ae8fea8b649ad0395884453dcb7bbd6a47a18da519187e",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-range-from-vertex",
+      "status": "accepted",
+      "title": "Domain and range from vertex form",
+      "student_facing": "Determine the domain and range of f(x) = −2(x + 3)^2 − 6.",
+      "role": "practice",
+      "family_id": "read-vertex-features",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Range follows from k and the sign of a after the vertex is named."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Vertex (−3, −6), opens downward. Domain: all real x. Range: y ≤ −6.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "vertex-and-opening",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "openstax",
+        "source_id": "m51274-ex-22-authored",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "f0592b0492fed0ed8d664278fdd1c0149ae0c82e554507007957ef9964480600",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-table-not-proof",
+      "status": "accepted",
+      "title": "Why matching table values do not prove identity",
+      "student_facing": "Two writings give the same three table values. A student says that proves the writings are the same function for every x. Prove, qualify, or refute that claim.",
+      "role": "transfer",
+      "family_id": "equivalent-forms",
+      "variant_of": null,
+      "expansion_recipe": "claim-testing",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "A finite table corroborates but does not prove algebraic identity."
+      },
+      "knowledge": "metacognitive",
+      "difficulty": {
+        "level": "extension",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 6
+      },
+      "task_family": "justify",
+      "representations": {
+        "input": [
+          "table",
+          "symbolic"
+        ],
+        "output": [
+          "verbal"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "qualified claim: table corroborates, expansion proves"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Refute as a proof: finitely many matching outputs cannot guarantee agreement for all real x. Algebraic expansion (or an identity argument) is what proves the writings are the same function. The table is supporting evidence only.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "editorial-math-flag",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "74c9a6659a7431a2b2029155b137b43e668457ddcbe21ae1427eeab000b3cb52",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-error-h-sign",
+      "status": "accepted",
+      "title": "First invalid step: reading +3 as h = 3",
+      "student_facing": "A student writes: “f(x) = (x + 3)^2 + 1, so h = 3, vertex (3, 1).” Locate the first invalid step, explain what went wrong, and repair it.",
+      "role": "practice",
+      "family_id": "error-diagnosis",
+      "variant_of": null,
+      "expansion_recipe": "error-diagnosis",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "The work to do is locate and repair the mismatch with (x − h)."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "diagnose",
+      "representations": {
+        "input": [
+          "symbolic",
+          "verbal"
+        ],
+        "output": [
+          "verbal",
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "first invalid clause identified",
+          "repaired vertex"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Invalid at “h = 3”. Vertex form uses (x − h), so x + 3 = x − (−3) and h = −3. The vertex is (−3, 1).",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "match-to-vertex-form",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "bacbc3e29694f550e11ebc5d2a251f6f3c4ea124971bbda79dd1208cfd5a5350",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-error-max-from-k",
+      "status": "accepted",
+      "title": "First invalid step: maximum from the sign of k",
+      "student_facing": "A student writes: “y = −2(x + 1)^2 has k = 0, so it is not a maximum or a minimum.” Locate the first invalid step, explain it, and repair it.",
+      "role": "practice",
+      "family_id": "error-diagnosis",
+      "variant_of": null,
+      "expansion_recipe": "error-diagnosis",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "Diagnose using k instead of a for max/min."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "diagnose",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Invalid at the claim that k = 0 means there is no max/min. a = −2 < 0, so the graph opens down: the vertex (−1, 0) is a maximum (the maximum value is 0).",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "sign-of-a",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "01405d4a64855869b0abd6298884bf40554cb0efc443368f394a72756de0f35a",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-error-expand-distribute",
+      "status": "accepted",
+      "title": "First invalid step in an expansion",
+      "student_facing": "A student expands 2(x + 3)^2 + 1 as 2x^2 + 3^2 + 1 = 2x^2 + 10. Locate the first invalid step, explain it, and repair the expansion.",
+      "role": "practice",
+      "family_id": "error-diagnosis",
+      "variant_of": null,
+      "expansion_recipe": "error-diagnosis",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "The binomial must be squared before distributing a."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "diagnose",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Invalid at replacing (x + 3)^2 by 3^2. Square the binomial: x^2 + 6x + 9. Then distribute 2: 2x^2 + 12x + 18. Add 1: 2x^2 + 12x + 19.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "expand-a-h-k: a=2, h=-3, k=1 → (2, 12, 19)",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "9e068adc675bd743dc730483de108309a7a0eafd65e8a1b7cacb392bf5023a2e",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-method-equivalence",
+      "status": "accepted",
+      "title": "Choose how to check that two writings are the same curve",
+      "student_facing": "You have f(x) = 2(x + 3)^2 + 1 and a candidate standard form. You may expand algebraically or compare graphs. Using the criterion “prove they are the same function for every x,” which method would you choose, and why?",
+      "role": "transfer",
+      "family_id": "method-choice",
+      "variant_of": null,
+      "expansion_recipe": "method-choice",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Select among valid methods using a stated criterion (prove for all x)."
+      },
+      "knowledge": "metacognitive",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "justify",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Choose algebraic expansion (or an equivalent identity). Graphing technology in a window, or a finite table, can corroborate but does not prove agreement for every x. After expanding to 2x^2 + 12x + 19, a graph check is a useful confirmation.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "editorial-math-flag",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "9c1f981b3a1b3165d918c48be2998ef8a8d304a97da8f67cffe55365a8941a25",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-zeros-inverse",
+      "status": "accepted",
+      "title": "Zeros from vertex form by inverse operations",
+      "student_facing": "The graph of f(x) = (x − 1)^2 − 9 meets the x-axis where f(x) = 0. Determine those zeros by inverse operations. You may check on a graph afterward.",
+      "role": "practice",
+      "family_id": "zeros-from-vertex-form",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Set the vertex form equal to zero and undo the operations; no quadratic formula."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "compute",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [
+          "isolate the square",
+          "remember both signs"
+        ],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "(x − 1)^2 − 9 = 0 → (x − 1)^2 = 9 → x − 1 = 3 or x − 1 = −3 → x = 4 or x = −2. The zeros are −2 and 4; the x-intercepts are (−2, 0) and (4, 0). Square root notation names the principal (non-negative) root; the ± comes from solving u^2 = 9.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "inverse-operations",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "a61dba0d5a4537e002ea8ed60fabf54b65b28cacb377b6658e6ba3805882ec2d",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-zeros-method-choice",
+      "status": "accepted",
+      "title": "Choose a method for zeros of a vertex-form equation",
+      "student_facing": "You need the zeros of f(x) = (x − 1)^2 − 9. Inverse operations, a graph, and factoring after expanding are all available. Using the criterion “exact values with the least extra algebra,” which method would you choose, and why?",
+      "role": "transfer",
+      "family_id": "zeros-from-vertex-form",
+      "variant_of": null,
+      "expansion_recipe": "method-choice",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Choose among valid methods with a stated efficiency/reliability criterion."
+      },
+      "knowledge": "metacognitive",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "justify",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Inverse operations on the vertex form: the square is already isolated after adding 9. Expanding first then factoring works but adds algebra. A graph can suggest −2 and 4 but may not certify exactness.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "method-criterion",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "d0b7067aabfc7983216325edec9bec07be2091287b29db63edf1035b5aa98dae",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-vertex-and-point",
+      "status": "accepted",
+      "title": "Recover a from a vertex and another point",
+      "student_facing": "A parabola has vertex (1, −2) and passes through (3, 2). Determine the vertex-form equation. Is this equation unique given those two conditions?",
+      "role": "practice",
+      "family_id": "vertex-and-point-to-function",
+      "variant_of": null,
+      "expansion_recipe": "constraint-construction",
+      "bloom": {
+        "primary": "create",
+        "secondary": null,
+        "rationale": "Construct a(x − h)^2 + k from constraints and address uniqueness."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "extension",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 6
+      },
+      "task_family": "construct",
+      "representations": {
+        "input": [
+          "coordinates"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "h = 1, k = −2. Plug in (3, 2): a(3 − 1)^2 − 2 = 2 → 4a = 4 → a = 1. So f(x) = (x − 1)^2 − 2. Unique among vertex-form quadratics: a is determined once x ≠ h.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "substitute-second-point",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "2c2e2bbfef35c70355d6da0681745171cbd83bf51b22fee54006d822a182c1dd",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-insufficient-vertex-only",
+      "status": "accepted",
+      "title": "What remains free if you only know the vertex",
+      "student_facing": "You know a quadratic in vertex form has vertex (2, 5). Is the function uniquely determined? If not, what still needs to be chosen, and what stays the same?",
+      "role": "transfer",
+      "family_id": "vertex-and-point-to-function",
+      "variant_of": null,
+      "expansion_recipe": "constraint-construction",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "Identify remaining degrees of freedom (a) when only (h, k) is known."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "investigate",
+      "representations": {
+        "input": [
+          "coordinates"
+        ],
+        "output": [
+          "verbal"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Not unique. h = 2 and k = 5 are fixed, so the axis x = 2 and the turning point stay put. a is still free (except a ≠ 0): different stretches and a possible reflection. One more non-vertex point, or a stated value of a, would determine the function.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "degrees-of-freedom",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "3a4494f45626f8acb515e083e80456f6112cc89b4b6f79316496464136497445",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-construct-same-vertex-different-a",
+      "status": "accepted",
+      "title": "Two vertex forms with the same turning point",
+      "student_facing": "Construct two different vertex-form equations that both have vertex (0, 3). What is the same on both graphs, and what changes?",
+      "role": "practice",
+      "family_id": "constraint-construction",
+      "variant_of": null,
+      "expansion_recipe": "constraint-construction",
+      "bloom": {
+        "primary": "create",
+        "secondary": null,
+        "rationale": "Create examples meeting a constraint and compare."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "construct",
+      "representations": {
+        "input": [
+          "coordinates"
+        ],
+        "output": [
+          "symbolic",
+          "graph"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Any a ≠ 0 works: for example f(x) = (x − 0)^2 + 3 = x^2 + 3 and g(x) = −2x^2 + 3. Both have vertex (0, 3) and axis x = 0. Opening and steepness change with a.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "same-h-k-different-a",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "4ba70c240af4c774d319724b1575262fbacb7c0d6973bbca3c540acfad9428b1",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-bridge-graph-equation",
+      "status": "accepted",
+      "title": "Map a labelled graph to vertex form",
+      "student_facing": "A graph of a parabola is labelled with vertex (−4, 1) and one other point (0, −3), and it opens downward. Write a vertex-form equation that fits those features. Name which graph facts became a, h, and k.",
+      "role": "practice",
+      "family_id": "representation-bridge",
+      "variant_of": null,
+      "expansion_recipe": "representation-bridge",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "Map corresponding features across a graph and vertex form."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "graph",
+          "coordinates"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "h = −4, k = 1. Opens down so a < 0. Using (0, −3): a(0 + 4)^2 + 1 = −3 → 16a = −4 → a = −1/4. f(x) = −(1/4)(x + 4)^2 + 1.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "substitute-second-point",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "ae583c666bde861c8cbd15451022778d39505ea5fda869eecae7bd4f3fb2602e",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-bridge-features-table",
+      "status": "accepted",
+      "title": "Match vertex-form features to a table",
+      "student_facing": "A table of f shows a highest output of 5 at x = −1, and the y-values fall as x moves away from −1 on both sides. Which vertex-form facts does that force, and which fact is still free?",
+      "role": "practice",
+      "family_id": "representation-bridge",
+      "variant_of": null,
+      "expansion_recipe": "representation-bridge",
+      "bloom": {
+        "primary": "analyze",
+        "secondary": null,
+        "rationale": "Translate table symmetry and an extremum into (h, k) and the sign of a."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "table"
+        ],
+        "output": [
+          "symbolic",
+          "verbal"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Vertex (−1, 5), so h = −1, k = 5. Highest output means a < 0. |a| is not determined by those table facts alone.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "table-extremum",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "643af0a0845665308e2c2025fea56c015cdcb2c1d03f85a0fb06329f4b3cc2e4",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-claim-axis-is-y",
+      "status": "accepted",
+      "title": "Test the claim that the axis is y = h",
+      "student_facing": "A student says: “For f(x) = 2(x − 4)^2 + 1 the axis of symmetry is y = 4.” Prove, qualify, or refute the claim.",
+      "role": "practice",
+      "family_id": "claim-testing",
+      "variant_of": null,
+      "expansion_recipe": "claim-testing",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Refute a switched coordinate for the axis."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "justify",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Refute. The axis is the vertical line through the vertex: x = h = 4, not y = 4. y = 4 would be a horizontal line through the vertex height k = 1 only if k were 4; here k = 1, and that line is not the axis.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "axis-is-x-equals-h",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "f89672bb453e697d37b82da3143aea01ebdc7c7e4165ffddeed8538ddaa1a649",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-form-choice-defend",
+      "status": "accepted",
+      "title": "Defend a form for a stated decision",
+      "student_facing": "You need the highest point of a quadratic path, not the x-intercepts. Which of standard form, vertex form, or factored form would you choose, and why? Mention what that form does not make obvious.",
+      "role": "transfer",
+      "family_id": "form-affordances",
+      "variant_of": null,
+      "expansion_recipe": "method-choice",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Select and defend the most informative form for a stated decision."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "justify",
+      "representations": {
+        "input": [
+          "verbal"
+        ],
+        "output": [
+          "verbal"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "three-form-contrast"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Choose vertex form: the vertex (h, k) is the high or low point and the sign of a tells which. Factored form makes zeros obvious, not the vertex. Standard form makes the y-intercept obvious; the vertex needs more work (not asked here).",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "A2.10-share",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "0006793cba654fa34f9ae859304bf2143c4f44ec434ff78ffad7728bd5e7c9f6",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-model-arc-domain",
+      "status": "accepted",
+      "title": "Meaningful domain of a rising-then-falling model",
+      "student_facing": "A water stream is modelled by h(x) = −0.5(x − 2)^2 + 4 for horizontal distance x in metres and height h in metres. The nozzle is at x = 0 and the water lands at h = 0. Determine the vertex. Then state a meaningful domain for this model and say where the equation should not be trusted as a description of the stream.",
+      "role": "transfer",
+      "family_id": "model-critique",
+      "variant_of": null,
+      "expansion_recipe": "model-critique",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Interpret vertex features, then judge domain and limits of the model. Not a full applications lesson and not a physical bungee model."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "extension",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 7
+      },
+      "task_family": "model",
+      "representations": {
+        "input": [
+          "context",
+          "symbolic"
+        ],
+        "output": [
+          "symbolic",
+          "verbal"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Vertex (2, 4): highest point 4 m when x = 2. h(x) = 0 → −0.5(x − 2)^2 + 4 = 0 → (x − 2)^2 = 8 → x = 2 ± √8 = 2 ± 2√2. The landing in front of the nozzle is x = 2 + 2√2 ≈ 4.83 m (x = 2 − 2√2 is behind the nozzle if x = 0 is the nozzle). A meaningful domain is from the nozzle to the landing, about 0 ≤ x ≤ 2 + 2√2. Outside that interval the quadratic is not a model of this stream.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "vertex-and-zeros-then-domain",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "443f84ac3639e84b3fc7a02cd19b68ec09b5ad262c4a95d32e215e4dd5f32fe1",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-maximum-from-vertex-form",
+      "status": "accepted",
+      "title": "Read a maximum without completing the square",
+      "student_facing": "A ball’s height in metres is modelled by h(t) = −4.9(t − 1.2)^2 + 8 on the flight interval. What is the maximum height, and when does it occur? What in the equation told you?",
+      "role": "practice",
+      "family_id": "maximum-from-representations",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "The maximum is k when a < 0; no completing-the-square."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "context",
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "a = −4.9 < 0 so the vertex is a maximum. h = 1.2, k = 8. Maximum height 8 m at t = 1.2 s, within the modelled flight interval.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "read-k-and-sign-a",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "1cd0b1e783857f44a91f3d51c961a135e95b04d4fb742e2c32c0da646804aa4b",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-compare-two-writings",
+      "status": "accepted",
+      "title": "Same curve, two writings",
+      "student_facing": "Consider f(x) = 2(x + 3)^2 + 1 and g(x) = 2x^2 + 12x + 19. What should be the same about their graphs, and what is easier to read from f than from g?",
+      "role": "practice",
+      "family_id": "equivalent-forms",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "understand",
+        "secondary": "apply",
+        "rationale": "Connect expansion to readable vertex features."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "compare",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.7",
+          "A2.10"
+        ],
+        "process_ids": [
+          "expand-and-verify"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "They are the same function: expanding f gives g. Graphs coincide. From f you read vertex (−3, 1), axis x = −3, and a minimum (a > 0). From g those facts are not visible by inspection.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "expand-a-h-k: a=2, h=-3, k=1 → (2, 12, 19)",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "68c618f3d2c058525984491f96398672e1e1bb67ea551c2bf7ab39724b1aff5a",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-predict-h-only",
+      "status": "accepted",
+      "title": "Predict a horizontal shift from h",
+      "student_facing": "Start from f(x) = 2(x + 3)^2 + 1. If only h changes so the vertex sits at x = 2, what happens to the graph, and what is the new equation? Write that before you move a graph.",
+      "role": "practice",
+      "family_id": "predict-parameter-change",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Predict one-parameter change, then check."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "investigate",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic",
+          "graph"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "predict-parameter-change"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "New vertex x is 2, so h = 2. a = 2 and k = 1 stay. New equation f(x) = 2(x − 2)^2 + 1. The graph translates horizontally; vertex moves from (−3, 1) to (2, 1).",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "replace-h-only",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "f882f6eb55ae13950da8bb8c7d0cd7b2ad2f193a9fdc83d52de14dabd0d88fd5",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-fresh-read",
+      "status": "accepted",
+      "title": "Read a new downward-opening vertex form",
+      "student_facing": "Consider f(x) = −0.5(x − 2)^2 + 4. Name the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum. If you expanded it to standard form, would the curve move?",
+      "role": "transfer",
+      "family_id": "read-vertex-features",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Independent retrieval of inspection plus A2.7 awareness."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "interpret",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10",
+          "A2.7"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "Vertex (2, 4). Axis x = 2. a = −0.5 < 0: maximum. Expansion gives −0.5x^2 + 2x + 2; the graph does not move.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "match-to-vertex-form and expand-a-h-k: a=-0.5, h=2, k=4 → (-0.5, 2, 2)",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "5577acd2b9714fad50004789a32cf6d8e97db549a44dbed2781e3ffaa47aa671",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-unique-opening-and-point",
+      "status": "accepted",
+      "title": "Vertex, opening, and a point: is a unique?",
+      "student_facing": "A parabola has vertex (2, 5), opens downward, and passes through (0, 1). Write its vertex-form equation. Could a different negative a still work?",
+      "role": "practice",
+      "family_id": "vertex-and-point-to-function",
+      "variant_of": null,
+      "expansion_recipe": "constraint-construction",
+      "bloom": {
+        "primary": "create",
+        "secondary": null,
+        "rationale": "Construct and test uniqueness when opening is constrained."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "extension",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "construct",
+      "representations": {
+        "input": [
+          "coordinates"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": true
+      },
+      "verification": {
+        "answer_kind": "authored",
+        "authored_solution": "h = 2, k = 5, a < 0. Through (0, 1): a(0 − 2)^2 + 5 = 1 → 4a = −4 → a = −1. f(x) = −(x − 2)^2 + 5. No other a works: the extra point fixes a.",
+        "source_key": null,
+        "verified": true,
+        "verified_by": "substitute-second-point",
+        "notes": null
+      },
+      "lineage": {
+        "origin": "original",
+        "source_id": null,
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "90d9ac10ff6992c5f367b21f6074facf6108627d21e32166a1cad17abe8f809c",
+        "review_version": 1
+      },
+      "exclusion_reason": null,
+      "student_export": true
+    },
+    {
+      "id": "vf-excluded-nelson-bank",
+      "status": "excluded",
+      "title": "Nelson bank items (internal only)",
+      "student_facing": "[not for student export — Nelson Functions 11 local-bank stems]",
+      "role": "practice",
+      "family_id": "internal-restricted",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "apply",
+        "secondary": null,
+        "rationale": "Placeholder family for excluded commercial stems."
+      },
+      "knowledge": "factual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "compute",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": false
+      },
+      "verification": {
+        "answer_kind": "none",
+        "authored_solution": null,
+        "source_key": null,
+        "verified": false,
+        "verified_by": null,
+        "notes": "Restricted pending reuse rights. Do not export source wording or crops. Use original prompts in accepted records instead."
+      },
+      "lineage": {
+        "origin": "internal-source",
+        "source_id": "nelson-mcf3m-4-1",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "4f5a12766fcbe47175a38f978fee6eaef03142fe1c1b1d6b562f96d5552c2c53",
+        "review_version": 1
+      },
+      "exclusion_reason": "Restricted pending reuse rights. Do not export source wording or crops. Use original prompts in accepted records instead.",
+      "student_export": false
+    },
+    {
+      "id": "vf-excluded-mathnet-0gz2",
+      "status": "excluded",
+      "title": "MathNet 0gz2 olympiad stem",
+      "student_facing": "[not for student export — contest packing]",
+      "role": "practice",
+      "family_id": "internal-restricted",
+      "variant_of": null,
+      "expansion_recipe": null,
+      "bloom": {
+        "primary": "create",
+        "secondary": null,
+        "rationale": "Contest item is out of lesson difficulty and licence gate."
+      },
+      "knowledge": "procedural",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "construct",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": false
+      },
+      "verification": {
+        "answer_kind": "none",
+        "authored_solution": null,
+        "source_key": null,
+        "verified": false,
+        "verified_by": null,
+        "notes": "Olympiad difficulty; contest stem is not classroom copy. Convenience key unverified."
+      },
+      "lineage": {
+        "origin": "internal-source",
+        "source_id": "mathnet-0gz2",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "ec9e93e693295865d8001dc51399759f6e0ab47e2408bf3d2dc2333f99c84dd2",
+        "review_version": 1
+      },
+      "exclusion_reason": "Olympiad difficulty; contest stem is not classroom copy. Convenience key unverified.",
+      "student_export": false
+    },
+    {
+      "id": "vf-excluded-regression",
+      "status": "excluded",
+      "title": "Historical data-fitting (out of scope)",
+      "student_facing": "[not for this lesson — regression and full model-from-data stay in later lessons]",
+      "role": "practice",
+      "family_id": "data-modelling",
+      "variant_of": null,
+      "expansion_recipe": "model-critique",
+      "bloom": {
+        "primary": "evaluate",
+        "secondary": null,
+        "rationale": "Documented exception: do not manufacture A3.3/regression padding in L1."
+      },
+      "knowledge": "conceptual",
+      "difficulty": {
+        "level": "developing",
+        "prerequisites": [
+          "vertex-form-notation"
+        ],
+        "est_minutes": 4
+      },
+      "task_family": "model",
+      "representations": {
+        "input": [
+          "symbolic"
+        ],
+        "output": [
+          "symbolic"
+        ]
+      },
+      "structure": {
+        "concept_ids": [
+          "vertex-form"
+        ],
+        "relationships": [],
+        "constraints": [],
+        "solution_strategies": [],
+        "expected_evidence": [
+          "named features or a justified claim"
+        ]
+      },
+      "alignment": {
+        "expectation_codes": [
+          "A2.10"
+        ],
+        "process_ids": [
+          "inspect-vertex-form"
+        ],
+        "in_scope": false
+      },
+      "verification": {
+        "answer_kind": "none",
+        "authored_solution": null,
+        "source_key": null,
+        "verified": false,
+        "verified_by": null,
+        "notes": "Q15-style data fitting is labelled historical and out of this lesson’s approved scope. Recorded as a coverage exception, not a quota filler."
+      },
+      "lineage": {
+        "origin": "internal-source",
+        "source_id": "nelson-mcf3m-4-1-q15",
+        "source_page": null,
+        "source_region": null,
+        "parent_id": null,
+        "prompt_hash": "3a0873d389d821b7af91a3cbbc3feccacc1252d47e50d6f953dbd399f5a9a697",
+        "review_version": 1
+      },
+      "exclusion_reason": "Q15-style data fitting is labelled historical and out of this lesson’s approved scope. Recorded as a coverage exception, not a quota filler.",
+      "student_export": false
+    }
+  ]
+}

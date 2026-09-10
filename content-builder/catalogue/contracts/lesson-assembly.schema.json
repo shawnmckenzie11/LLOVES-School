@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lesson-assembly.schema.json",
+  "title": "Lesson pool assembly",
+  "description": "Parent-owned coverage matrix. Assemble vs drawer. Fade cells are pool ids or explicit exceptions. Not student-facing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lesson_id",
+    "course_code",
+    "pool_path",
+    "scope",
+    "page_prints_all_accepted",
+    "practice_sets_status",
+    "richness_must_assemble",
+    "families",
+    "expansion_recipes",
+    "fade",
+    "excluded"
+  ],
+  "properties": {
+    "schema_version": { "const": "lesson-assembly.v1" },
+    "lesson_id": { "type": "string" },
+    "course_code": { "type": "string" },
+    "pool_path": { "type": "string" },
+    "baseline_path": { "type": ["string", "null"] },
+    "scope": { "type": "string" },
+    "page_prints_all_accepted": { "type": "boolean" },
+    "practice_sets_status": {
+      "type": "string",
+      "enum": ["pending_copywriter", "pool-locked"]
+    },
+    "practice_sets_current_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "practice_sets_note": { "type": "string" },
+    "richness_must_assemble": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "families": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/family" }
+    },
+    "expansion_recipes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/recipe" }
+    },
+    "fade": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fade_process" }
+    },
+    "excluded": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/excluded" }
+    },
+    "practice_sequence_seed": {
+      "type": "array",
+      "description": "Parent seed for a later practice-sequence rewrite. Not a compile input.",
+      "items": { "$ref": "#/$defs/seed" }
+    },
+    "blockers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "director": { "type": "array", "items": { "type": "string" } },
+        "copywriter": { "type": "array", "items": { "type": "string" } },
+        "practice_sequence": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "needed",
+        "kind",
+        "disposition",
+        "bloom",
+        "representations",
+        "pool_ids",
+        "assembled_ids",
+        "drawer_ids"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "needed": { "type": "boolean" },
+        "kind": {
+          "type": "string",
+          "enum": ["nelson-family", "expansion-family", "pool-family"]
+        },
+        "nelson_refs": { "type": "array", "items": { "type": "string" } },
+        "disposition": { "type": "string", "enum": ["assemble", "drawer", "excluded"] },
+        "reason": { "type": ["string", "null"] },
+        "bloom": { "type": "array", "items": { "type": "string" } },
+        "representations": { "type": "array", "items": { "type": "string" } },
+        "pool_ids": { "type": "array", "items": { "type": "string" } },
+        "assembled_ids": { "type": "array", "items": { "type": "string" } },
+        "drawer_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipe",
+        "disposition",
+        "bloom",
+        "evidence",
+        "pool_ids",
+        "assembled_ids",
+        "drawer_ids"
+      ],
+      "properties": {
+        "recipe": { "type": "string" },
+        "disposition": { "type": "string", "enum": ["assemble", "drawer", "excluded"] },
+        "bloom": { "type": "string" },
+        "evidence": { "type": "string" },
+        "pool_ids": { "type": "array", "items": { "type": "string" } },
+        "assembled_ids": { "type": "array", "items": { "type": "string" } },
+        "drawer_ids": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": ["string", "null"] }
+      }
+    },
+    "fade_process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process_id", "name", "tentative", "cells"],
+      "properties": {
+        "process_id": { "type": "string" },
+        "name": { "type": "string" },
+        "tentative": { "type": "boolean" },
+        "pending_director": { "type": "boolean" },
+        "cells": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["worked", "variation", "partial", "independent", "retrieval"],
+          "properties": {
+            "worked": { "$ref": "#/$defs/fade_cell" },
+            "variation": { "$ref": "#/$defs/fade_cell" },
+            "partial": { "$ref": "#/$defs/fade_cell" },
+            "independent": { "$ref": "#/$defs/fade_cell" },
+            "retrieval": { "$ref": "#/$defs/fade_cell" }
+          }
+        }
+      }
+    },
+    "fade_cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pool_id": { "type": ["string", "null"] },
+        "exception": {
+          "type": ["string", "null"],
+          "enum": ["review-only", "already-taught", null]
+        },
+        "reason": { "type": ["string", "null"] },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "excluded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reason"],
+      "properties": {
+        "id": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "placement", "purpose"],
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string", "enum": ["accepted", "excluded"] },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "worked_example",
+            "guided_practice",
+            "core_practice",
+            "additional_practice",
+            "extension",
+            "excluded"
+          ]
+        },
+        "process_id": { "type": ["string", "null"] },
+        "visible_by_default": { "type": "boolean" },
+        "purpose": { "type": "string" },
+        "exclusion_reason": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

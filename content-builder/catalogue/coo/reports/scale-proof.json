@@ -1,0 +1,46 @@
+{
+  "schema_version": "coo-report.v1",
+  "name": "scale-proof",
+  "updated_at": "2026-09-09T13:21:04+00:00",
+  "lessons": [
+    "M4-L1-vertex-form",
+    "M5-L1-trig-ratios",
+    "M7-L3-exponential-functions"
+  ],
+  "jobs": [
+    "ed66c43f",
+    "75198fea",
+    "f786cf22"
+  ],
+  "gates": [
+    {
+      "lesson_id": "M4-L1-vertex-form",
+      "ok": true,
+      "html": "/Users/shawnscomputer/Documents/LLOVES-School/content-builder/build/MCF3M/M4-L1-vertex-form/index.html",
+      "html_failures": [],
+      "lint_hits": [],
+      "vertex_tasks": true,
+      "edits_reach_export": true
+    },
+    {
+      "lesson_id": "M5-L1-trig-ratios",
+      "ok": true,
+      "html": "/Users/shawnscomputer/Documents/LLOVES-School/content-builder/build/MCF3M/M5-L1-trig-ratios/index.html",
+      "html_failures": [],
+      "lint_hits": [],
+      "vertex_tasks": false,
+      "edits_reach_export": true
+    },
+    {
+      "lesson_id": "M7-L3-exponential-functions",
+      "ok": true,
+      "html": "/Users/shawnscomputer/Documents/LLOVES-School/content-builder/build/MCF3M/M7-L3-exponential-functions/index.html",
+      "html_failures": [],
+      "lint_hits": [],
+      "vertex_tasks": false,
+      "edits_reach_export": true
+    }
+  ],
+  "ok": true,
+  "rollout": "Do not start the remaining 39-lesson rollout until this report is green."
+}

@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "question-pool.schema.json",
+  "title": "Lesson question pool",
+  "description": "Qualified and excluded candidates with Bloom, knowledge, family, representation, alignment, verification, and lineage. Distinct families are counted separately from numeric variants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lesson_id", "coverage", "candidates"],
+  "properties": {
+    "schema_version": { "const": "question-pool.v1" },
+    "lesson_id": { "type": "string" },
+    "course_code": { "type": "string" },
+    "scope": { "type": "string" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/candidate" }
+    }
+  },
+  "$defs": {
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["families", "gaps", "counting_rule"],
+      "properties": {
+        "families": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "needed", "notes"],
+            "properties": {
+              "id": { "type": "string" },
+              "needed": { "type": "boolean" },
+              "notes": { "type": "string" },
+              "exception": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "gaps": { "type": "array", "items": { "type": "string" } },
+        "counting_rule": { "type": "string" },
+        "target_accepted": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "title",
+        "student_facing",
+        "family_id",
+        "bloom",
+        "knowledge",
+        "difficulty",
+        "task_family",
+        "representations",
+        "alignment",
+        "verification",
+        "lineage"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "enum": ["accepted", "excluded", "internal_seed"] },
+        "title": { "type": "string" },
+        "student_facing": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["diagnostic", "guided_example", "practice", "transfer", "extension"]
+        },
+        "family_id": { "type": "string" },
+        "variant_of": { "type": ["string", "null"] },
+        "expansion_recipe": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "representation-bridge",
+            "error-diagnosis",
+            "method-choice",
+            "claim-testing",
+            "constraint-construction",
+            "model-critique"
+          ]
+        },
+        "bloom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary", "rationale"],
+          "properties": {
+            "primary": {
+              "enum": ["remember", "understand", "apply", "analyze", "evaluate", "create"]
+            },
+            "secondary": {
+              "type": ["string", "null"],
+              "enum": [null, "remember", "understand", "apply", "analyze", "evaluate", "create"]
+            },
+            "rationale": { "type": "string" }
+          }
+        },
+        "knowledge": { "enum": ["factual", "conceptual", "procedural", "metacognitive"] },
+        "difficulty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level"],
+          "properties": {
+            "level": { "enum": ["entry", "developing", "extension"] },
+            "prerequisites": { "type": "array", "items": { "type": "string" } },
+            "est_minutes": { "type": "number" }
+          }
+        },
+        "task_family": {
+          "enum": [
+            "compute",
+            "interpret",
+            "compare",
+            "diagnose",
+            "justify",
+            "investigate",
+            "construct",
+            "model"
+          ]
+        },
+        "representations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input", "output"],
+          "properties": {
+            "input": { "type": "array", "items": { "type": "string" } },
+            "output": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "structure": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "concept_ids": { "type": "array", "items": { "type": "string" } },
+            "relationships": { "type": "array", "items": { "type": "string" } },
+            "constraints": { "type": "array", "items": { "type": "string" } },
+            "solution_strategies": { "type": "array", "items": { "type": "string" } },
+            "expected_evidence": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "alignment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectation_codes", "in_scope"],
+          "properties": {
+            "expectation_codes": { "type": "array", "items": { "type": "string" } },
+            "process_ids": { "type": "array", "items": { "type": "string" } },
+            "in_scope": { "type": "boolean" }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["answer_kind", "verified"],
+          "properties": {
+            "answer_kind": { "enum": ["authored", "ministry_sample", "source_key", "none"] },
+            "authored_solution": { "type": ["string", "null"] },
+            "source_key": { "type": ["string", "null"] },
+            "verified": { "type": "boolean" },
+            "verified_by": { "type": ["string", "null"] },
+            "notes": { "type": ["string", "null"] }
+          }
+        },
+        "lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["origin", "prompt_hash", "review_version"],
+          "properties": {
+            "origin": { "enum": ["original", "adaptation", "ministry-sample", "openstax", "internal-source"] },
+            "source_id": { "type": ["string", "null"] },
+            "source_page": { "type": ["string", "null"] },
+            "source_region": { "type": ["string", "null"] },
+            "parent_id": { "type": ["string", "null"] },
+            "prompt_hash": { "type": "string" },
+            "review_version": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "exclusion_reason": { "type": ["string", "null"] },
+        "student_export": { "type": "boolean" }
+      }
+    }
+  }
+}

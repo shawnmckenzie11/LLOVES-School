@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ALC Math Content Builder - Enrichment Implementation Plan</title>
+  <style>
+    :root{--ink:#172033;--muted:#5d687c;--line:#d8dde7;--paper:#fff;--bg:#f5f7fb;--brand:#4f3dc7;--teal:#087f73;--amber:#a55b00;--soft:#efedff;--good:#eaf7f4}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}.shell{max-width:1120px;margin:auto;padding:28px}header{background:linear-gradient(135deg,#21165f,#5944d8);color:#fff;border-radius:24px;padding:34px 38px;box-shadow:0 16px 42px #22165f26}.eyebrow{font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.8}h1{font-size:clamp(2rem,5vw,3.7rem);line-height:1.02;margin:.2em 0}.lede{font-size:1.1rem;max-width:78ch;margin:.8em 0 0}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.pill{border:1px solid #ffffff55;border-radius:999px;padding:5px 10px;font-size:.82rem}nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}nav a{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 11px;color:var(--brand);font-weight:700;text-decoration:none}section{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:24px 28px;margin:16px 0}h2{font-size:1.55rem;margin:0 0 .5rem}h3{font-size:1.1rem;margin:1.4rem 0 .35rem;color:#322593}p{margin:.55rem 0}.callout{background:var(--good);border-left:5px solid var(--teal);padding:14px 16px;border-radius:0 12px 12px 0}.warn{background:#fff5e8;border-left-color:var(--amber)}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.93rem}th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:9px 10px}th{background:#f1f2f8}.table-wrap{overflow:auto}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:12px 0}.flow div{background:var(--soft);border-radius:12px;padding:11px;text-align:center;font-weight:750}.flow span{display:block;color:var(--muted);font-size:.76rem;font-weight:600;margin-top:3px}code{background:#f0f2f6;border-radius:5px;padding:.08em .3em}pre{background:#172033;color:#eef2ff;padding:16px;border-radius:12px;overflow:auto;font-size:.84rem}ul,ol{padding-left:1.3rem}li{margin:.35rem 0}.gate{border-left:4px solid var(--brand);padding-left:14px}.small{font-size:.88rem;color:var(--muted)}@media(max-width:760px){.shell{padding:12px}header,section{padding:20px}.flow{grid-template-columns:1fr 1fr}th,td{min-width:150px}}@media print{body{background:#fff}.shell{max-width:none;padding:0}header{box-shadow:none}nav{display:none}section{break-inside:avoid}}
+  </style>
+</head>
+<body><div class="shell">
+  <header>
+    <div class="eyebrow">ALC Math · Cursor implementation</div>
+    <h1>Content Builder<br>Enrichment Plan</h1>
+    <p class="lede">Fix the broken authoring loop first, then establish a verified Nelson source baseline, expand questions by reasoning family and cognitive demand, and place a bounded COO above the existing specialist team.</p>
+    <div class="meta"><span class="pill">Astra · medium specialist analysis</span><span class="pill">Branch: content-builder</span><span class="pill">Baseline: MCF3M M4-L1</span><span class="pill">No repo changes made</span></div>
+  </header>
+
+  <nav aria-label="Plan sections"><a href="#decision">Decision</a><a href="#source">Nelson</a><a href="#pool">Question pool</a><a href="#language">Language</a><a href="#experience">Experience</a><a href="#builder">Builder UX</a><a href="#agents">Agents</a><a href="#sequence">Sequence</a></nav>
+
+  <section id="decision">
+    <h2>1. Immediate decision</h2>
+    <div class="callout"><strong>The first dependency is not more content.</strong> The review page edits <code>instruction.json</code>, while the renderer compiles <code>student-content.json</code>. A teacher can save edits successfully and rebuild without changing the lesson. Repair this canonical authoring path before expanding the interface or candidate pool.</div>
+    <p>The active implementation is on <code>content-builder</code> at commit <code>16e6db249e4917e07181ebf2fd589eb7d5cf5ebb</code>. The pilot is <strong>MCF3M Module 4, Lesson 1: The Vertex Form of a Quadratic Function</strong>. It is not Module 1. Preserve its approved lesson scope: A2.7 and the vertex-form portion of A2.10. Richness must come from deeper reasoning, not from silently teaching completing the square, the quadratic formula, discriminant, regression, or the full applications lesson early.</p>
+    <h3>Canonical content repair</h3>
+    <ol><li>Retire the review page's write path to <code>instruction.json</code>.</li><li>Expose editable, stable blocks from <code>student-content.json</code>.</li><li>Save a revision patch against a base version; validate it; rebuild only affected blocks; refresh the same renderer used for export.</li><li>Add a save → build → preview integration test. The preview must display the exact saved change.</li></ol>
+  </section>
+
+  <section id="source">
+    <h2>2. Nelson 4.1 image-processing baseline</h2>
+    <p>The attached ten-page extract (printed pp. 196–205) was rendered and visually reviewed. It contains five worked examples, four Reflecting prompts, and sixteen numbered exercise groups. Raw extraction is unsafe: minus signs, equals signs, ±, exponents, radicals, coordinates, set notation, and multi-column ordering are corrupted.</p>
+    <div class="table-wrap"><table><thead><tr><th>Source area</th><th>Instructional value</th><th>Builder treatment</th></tr></thead><tbody>
+      <tr><td>Examples 1–2</td><td>Equivalent forms; maximum through zeros, symmetry, graph and vertex form</td><td>Separate prompt, working, commentary, graph/table. Do not call sampled agreement a proof of identity.</td></tr>
+      <tr><td>Examples 3–5</td><td>Read features; solve zeros by several methods; recover a function from vertex + point</td><td>Preserve cross-page dependencies and graph inputs. Rebuild graphs as deterministic accessible assets.</td></tr>
+      <tr><td>Reflecting B–C; Q6, Q12, Q14, Q16</td><td>Best source seeds for comparison, limits, construction and transfer</td><td>Use as internal conceptual seeds; author original student wording and independently verified solutions.</td></tr>
+      <tr><td>Q4 and Q9</td><td>Feature table and graph-to-equation set</td><td>Keep as grouped objects, not unrelated snippets. Q9 needs four linked graph records.</td></tr>
+      <tr><td>Q7 and Q10</td><td>Quadratic models with maxima and target values</td><td>State meaningful domains. The bungee equation is not a complete physical model.</td></tr>
+      <tr><td>Q15</td><td>Data fitting and model critique</td><td>Label it historical; add fit/limitation judgment or replace with documented current data.</td></tr>
+    </tbody></table></div>
+    <p class="small">The companion source map records page objects, cross-page dependencies, verified visual regions, crop coordinates at 1200×1500 rendering, OCR hazards, and editorial math flags. Page crops remain internal: the attachment does not establish redistribution rights.</p>
+    <div class="callout warn"><strong>Rights gate:</strong> do not place Nelson wording, illustrations, screenshots, or page crops in a distributed lesson until reuse rights are confirmed. Store source/page/region provenance internally; produce new prompts and deterministic graphs/tables for student export.</div>
+  </section>
+
+  <section id="pool">
+    <h2>3. Expand the question pool by family, not by volume</h2>
+    <p>The current file contains exactly 12 candidates: three each for diagnostic, guided example, practice and transfer. Several have null answers because “do not invent a source key” has been treated as “do not solve the problem.” Separate those concepts: never fabricate an official key, but do derive an <em>authored solution</em> and independently verify it.</p>
+    <div class="flow"><div>Inventory<span>collapse duplicates</span></div><div>Coverage brief<span>identify reasoning gaps</span></div><div>Targeted expansion<span>2–3× distinct families</span></div><div>Independent review<span>approve current version</span></div></div>
+    <h3>Required metadata axes</h3>
+    <div class="table-wrap"><table><thead><tr><th>Axis</th><th>Required record</th></tr></thead><tbody>
+      <tr><td>Cognitive demand</td><td>Remember, Understand, Apply, Analyze, Evaluate or Create; primary/secondary category plus evidence-based rationale.</td></tr>
+      <tr><td>Knowledge</td><td>Factual, conceptual, procedural or metacognitive.</td></tr>
+      <tr><td>Difficulty</td><td>Entry, developing or extension; prerequisites and estimated time. Never equate difficulty with Bloom level.</td></tr>
+      <tr><td>Mathematical structure</td><td>Concept IDs, relationships, constraints, solution strategies and expected evidence.</td></tr>
+      <tr><td>Representation</td><td>Input/output: symbolic, graphical, tabular, verbal, diagrammatic, concrete or contextual.</td></tr>
+      <tr><td>Task family</td><td>Compute, interpret, compare, diagnose, justify, investigate, construct or model.</td></tr>
+      <tr><td>Lineage</td><td>Source/page/region, original/adaptation status, family ID, parent ID, hashes and current review version.</td></tr>
+    </tbody></table></div>
+    <p>Bloom's revised taxonomy classifies the work a student performs; it is not a verb lookup and not a difficulty scale. “Explain” may still be Understand. Routine equation creation may still be Apply. Connect / Justify / Transfer remain separate portfolio metadata.</p>
+    <h3>Efficient expansion recipes</h3>
+    <ul><li><strong>Representation bridge:</strong> map corresponding features across forms or graph/equation.</li><li><strong>Error diagnosis:</strong> locate the first invalid step, explain it, repair it.</li><li><strong>Method choice:</strong> select between valid approaches using a stated criterion.</li><li><strong>Claim testing:</strong> prove, qualify or refute a claim.</li><li><strong>Constraint construction:</strong> create a quadratic meeting several conditions and address uniqueness.</li><li><strong>Model critique:</strong> interpret assumptions, meaningful domain and limits.</li></ul>
+    <p><strong>Pilot target:</strong> 24–36 accepted candidates from a baseline of 12, while reporting distinct families separately from numeric variants. A proposed default is that at least 40% of newly accepted families require Analyze/Evaluate/Create when the approved objectives support them. Record exceptions; do not manufacture higher-order padding. The assembled lesson does not need to use every candidate.</p>
+    <h3>Resource-efficient pipeline</h3>
+    <ol><li>Render and segment a source once; cache by source hash + page + region + extraction version.</li><li>Run schema, equation, domain, unit, link and duplicate checks before model review.</li><li>Retrieve only the relevant source regions, terminology profile and lesson brief for a job.</li><li>Generate small batches against ranked coverage gaps; stop when the accepted-family target is met.</li><li>Track cost per accepted distinct family, rejection rate and teacher correction burden.</li></ol>
+  </section>
+
+  <section id="language">
+    <h2>4. Mathematical language becomes governed data</h2>
+    <p>Add a versioned Canadian-English terminology registry with precedence: explicit teacher decision → verified course convention → Ontario curriculum wording → approved topic lexicon. For MCF3M A2.7–A2.11, use <strong>standard form</strong>, <strong>vertex form</strong> and <strong>factored form</strong>. “The writing” is not a substitute for “form.”</p>
+    <div class="table-wrap"><table><thead><tr><th>Weak</th><th>Required direction</th></tr></thead><tbody>
+      <tr><td>The equation is y = … Look at the writing.</td><td>Consider <em>y = …</em>. Which form makes the vertex easiest to identify?</td></tr>
+      <tr><td>Starting from y = …, do the vertex.</td><td>Rewrite <em>y = …</em> in vertex form.</td></tr>
+      <tr><td>The roots are (1,0) and (5,0).</td><td>The zeros are 1 and 5, so the x-intercepts are (1,0) and (5,0).</td></tr>
+      <tr><td>Use the graph below.</td><td>Name the graph by its stable label and require only actions that object supports.</td></tr>
+    </tbody></table></div>
+    <p>Use purposeful verbs—<em>consider, compare, determine, sketch, factor, expand, rewrite, estimate, justify, construct, test</em>—without mechanically varying openings. A copy edit must preserve mathematical meaning and cognitive demand.</p>
+    <h3>Remark visibility</h3>
+    <ul><li><strong>Essential:</strong> remains in the main flow.</li><li><strong>Optional support:</strong> labelled disclosure such as “Term reminder.”</li><li><strong>Convention note:</strong> labelled “Other terminology,” only when a verified conflict is relevant.</li><li><strong>Teacher/editorial:</strong> never enters the student renderer.</li></ul>
+    <p>Replace “Some books swap those names; this course does not” with direct course terminology. Add a short optional note only if a real source conflict needs explanation. Restore Shawn's exact model-STAR rule: <strong>Search, Translate, Answer, Review + supporting diagram</strong>; the current rule's Situation/Task/Action/Result definition is incorrect.</p>
+  </section>
+
+  <section id="experience">
+    <h2>5. One compact, accessible card system</h2>
+    <p>The Experience Director owns one component contract shared by interaction, formative-feedback and visual designers. Use cards for bounded learner action, not every paragraph.</p>
+    <div class="table-wrap"><table><thead><tr><th>Card</th><th>Visible cue</th><th>Purpose</th></tr></thead><tbody>
+      <tr><td>Explore</td><td>Compass + “Explore”</td><td>Prompt, representation/tool, observable action.</td></tr>
+      <tr><td>Worked example</td><td>Book + “Example 1: Comparing methods”</td><td>Problem, purposeful solution sequence, explanation.</td></tr>
+      <tr><td>Try</td><td>Pencil + “Try it”</td><td>Prompt, response, check, hints and retry.</td></tr>
+      <tr><td>Discuss</td><td>Speech bubbles + “Discuss”</td><td>Shared question and evidence to bring.</td></tr>
+      <tr><td>Check</td><td>Check-circle + label</td><td>Diagnostic task, feedback and next step.</td></tr>
+      <tr><td>Optional remark</td><td>Information icon + descriptive label</td><td>Short collapsed support; never essential content.</td></tr>
+    </tbody></table></div>
+    <p>Icons reinforce text and never carry meaning alone. Decorative SVGs use <code>aria-hidden</code>. Do not use hover-only or question-mark-only help. A native disclosure or button with accurate <code>aria-expanded</code> is sufficient.</p>
+    <h3>Artifact-aware narrative contract</h3>
+    <p>Every image, graph or tool has a stable object ID, label, capability list, accessibility equivalent and unavailable-state fallback. Copy may reference only declared capabilities. The current pilot violates this twice: it refers to an equation “under” a graph although the live equation is above it, and asks students to mark a highest point on a plain image with no marking interaction.</p>
+    <p>Every response card defines initial, incomplete, incorrect, partially correct, correct, ungradable and unavailable-tool states. Algebraic checks accept equivalent expressions unless form is the objective. Open explanations use criteria/self-check/teacher review—not unreliable keyword grading.</p>
+  </section>
+
+  <section id="builder">
+    <h2>6. Replace file editing with a real builder workflow</h2>
+    <div class="flow"><div>Select<span>course/module/lesson</span></div><div>Build<span>draft from approved inputs</span></div><div>Review<span>edit cards in context</span></div><div>Approve<span>version, not publish</span></div></div>
+    <ul><li>Persistent course → module → lesson picker; test a lesson from another module without leaving the tool.</li><li>Coverage brief showing goals, prerequisites, source status and candidate gaps.</li><li>Student preview rendered by the same compiler as the export.</li><li>Block-, section-, lesson- and shared-rule feedback scopes with stable IDs.</li><li>Candidate drawer showing Bloom rationale, family, representation, provenance, answer status and why it fills a gap.</li><li>Natural-language revision actions such as “shorten this explanation” or “add a contrasting Analyze task.”</li><li>Before/after diff; accept, reject or revise; preserve locks and unaffected approved blocks.</li><li>Autosave, explicit failure/retry, cancellation, resume and revision history.</li><li>“Approve version” remains distinct from “Publish.” Raw JSON stays internal.</li></ul>
+    <h3>Runtime generalization required before scaling</h3>
+    <ul><li>Replace four hard-coded vertex exercise IDs and unconditional vertex-component bundling with a typed component registry.</li><li>Replace the current limited math-text substitutions with a local, accessible math-rendering strategy that handles fractions, roots, powers and subscripts.</li><li>Validate complete schemas recursively; verify student-safe projections, internal-field leakage and object references.</li><li>Split generic contract tests, component tests and lesson-specific fixtures. The current verifier must stop requiring the vertex title, “The water” tab, JSXGraph and four exact cycles.</li><li>Return to the canonical three tabs: <strong>Minds On, Action, Consolidation</strong>. Put the hook inside Minds On unless Shawn explicitly approves separate navigation.</li></ul>
+  </section>
+
+  <section id="agents">
+    <h2>7. COO-led agent architecture</h2>
+    <p>The COO is a bounded workflow controller, not an autonomous “agent company.” It scopes work, assigns budgets, pins source/rule versions, schedules directors, enforces gates and assembles results. It does not rewrite pedagogy or approve publication.</p>
+    <div class="table-wrap"><table><thead><tr><th>Layer</th><th>Owns</th><th>Team</th></tr></thead><tbody>
+      <tr><td>Production COO</td><td>Job scope, dependencies, budgets, provenance, revision state, release readiness</td><td>Instantiates only needed directors.</td></tr>
+      <tr><td>Lesson Director</td><td>Pedagogical throughline, prerequisites, sequence, challenge/portfolio connections</td><td>Question curator/practice designer, hook curator, student copywriter.</td></tr>
+      <tr><td>Experience Director</td><td>Component choice, interaction flow, visual hierarchy, feedback and accessibility</td><td>Interaction, feedback, visual and accessibility specialists.</td></tr>
+      <tr><td>Verification Director</td><td>Independent rejection/pass reports</td><td>Mathematical verifier and render/accessibility reviewer as needed.</td></tr>
+    </tbody></table></div>
+    <p>Extend the nine existing builder specialists; do not recreate them. Directors are responsibility boundaries, not mandatory model calls. One artifact has one writer. Workers return proposed patches against a base revision. The parent/integration writer merges disjoint patches and returns semantic conflicts to the responsible director.</p>
+    <h3>Workflow states</h3>
+    <p><code>Draft → Grounded → Planned → Producing → Verifying → Review-ready → Approved → Exported</code>. Any state may become <code>Blocked</code>. Publication is a separate explicitly authorized transition.</p>
+    <h3>Operating defaults</h3>
+    <ul><li>At most three concurrent specialists per lesson job.</li><li>One production pass plus one targeted repair pass, then return a blocker.</li><li>Cache source extraction, curriculum mapping, glossary and component specs by version/hash.</li><li>A specialist is commissioned only for a bounded artifact with testable acceptance criteria.</li><li>Use Astra at medium reasoning for the current specialist baseline; make model choice a visible deployment setting.</li></ul>
+  </section>
+
+  <section id="sequence">
+    <h2>8. Implementation sequence and gates</h2>
+    <ol class="gate">
+      <li><strong>Freeze the pilot.</strong> Pin branch/hash and keep the current rendered lesson as a before fixture.</li>
+      <li><strong>Resolve authority conflicts.</strong> Restore STAR, three-tab structure and <code>student-content.json</code> as the canonical editable document.</li>
+      <li><strong>Repair editing.</strong> Add stable block IDs, revision/patch/lock contracts and save-build-preview integration.</li>
+      <li><strong>Ingest Nelson safely.</strong> Add the source map, math-region verification, rights status and source-key/authored-solution distinction.</li>
+      <li><strong>Upgrade pool contracts/index.</strong> Bloom + knowledge + family + representation + alignment + verification metadata; FTS filters/ranking; deduplication.</li>
+      <li><strong>Expand to 24–36 qualified candidates.</strong> Generate only against documented coverage gaps; independently solve and review.</li>
+      <li><strong>Install language and card systems.</strong> Terminology registry, contextual lint, object bindings, component registry and shared feedback states.</li>
+      <li><strong>Replace the review page.</strong> In-tool lesson selection, candidate comparison, targeted revisions, diff, autosave and approval.</li>
+      <li><strong>Add COO orchestration.</strong> Bounded jobs, budgets, progress, cancel/resume, dependency-aware rebuild and gate reports.</li>
+      <li><strong>Scale only after proof.</strong> Rebuild M4-L1 and two contrasting lessons; verify edits reach export, cognitive coverage is real, assets/fallbacks work, and generic tests pass before the remaining 39-lesson rollout.</li>
+    </ol>
+    <h3>Release gates</h3>
+    <ul><li>Every released question has traceable provenance, verified alignment, an answer specification and approval of the current version.</li><li>Every higher-order classification names the reasoning evidence required.</li><li>No unverified OCR mathematics, broken object reference, student-visible internal note or inaccessible essential asset.</li><li>Keyboard, focus, screen-reader, 320 px reflow, 200% zoom, print and unavailable-tool paths pass.</li><li>Teacher can select another lesson, revise one card, compare, save and approve without touching JSON or leaving the builder.</li><li>No repository commit, PR, merge, deployment or publication without Shawn's explicit approval.</li></ul>
+  </section>
+
+  <section>
+    <h2>9. Cursor execution brief</h2>
+    <pre>Implement this plan on a feature branch from content-builder commit
+16e6db249e4917e07181ebf2fd589eb7d5cf5ebb.
+
+Start with Phases 1-3 only: freeze fixtures, resolve authority conflicts,
+and repair the canonical student-content save -> validate -> rebuild -> preview path.
+Do not expand the question pool or redesign the review UI until that test passes.
+
+Then import the supplied Nelson source-map and question-baseline records as
+internal source data. Do not export copyrighted crops or source wording.
+Return a diff, test evidence, and the next bounded phase. Do not commit,
+push, merge, deploy, or publish without Shawn's explicit approval.</pre>
+    <p class="small">Reference guidance: <a href="https://uwaterloo.ca/centre-for-teaching-excellence/catalogs/tip-sheets/blooms-taxonomy">University of Waterloo — Bloom's Taxonomy</a>; <a href="https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/">W3C disclosure pattern</a>; <a href="https://www.w3.org/TR/WCAG22/">WCAG 2.2</a>; Ontario Grades 11–12 Mathematics curriculum (MCF3M A2.7–A2.11).</p>
+  </section>
+</div></body></html>

@@ -37,14 +37,20 @@ Student: “Move the horizontal slider until the vertex is at \(x=3\). What chan
 
 ## Word-problem solutions (worked examples)
 
-Use **model-STAR** plus a diagram:
+Use Shawn’s exact **model-STAR** convention plus a supporting diagram. Do **not** use Situation / Task / Action / Result.
 
-| Letter | Meaning |
+| Step | Meaning |
 |---|---|
-| **S**ituation | What is happening. Diagram first. |
-| **T**ask | What we need to find out. |
-| **A**ction | How the mathematical model is used. |
-| **R**esult | Check that the result fits the situation. |
+| **S**earch the word problem | One sentence identifying the clues, key numbers, and what must be found. Highlight the relevant information. |
+| **T**ranslate the words into an equation | One sentence explaining how the words lead to the mathematical statement, with quantities and operations identified. Do not present an unexplained initial equation. |
+| **A**nswer the problem | Carry out the calculation with the chosen strategy or tool and show the reasoning. |
+| **R**eview the solution | Check the result in minimal steps against the original conditions. |
+
+Include a supporting diagram. Keep labels, units, and the equation consistent. If supplied information is insufficient, identify what is missing. Any added numerical scenario must be clearly marked as a constructed example, never presented as the original sourced problem.
+
+## Course terminology (MCF3M A2.7–A2.11)
+
+Preferred names: **vertex form**, **standard form**, **factored form**. Do not use “the writing” as a substitute for “form.” Do not write “Some books swap those names.” An optional “Other terminology” remark is allowed only when a verified conflict must be explained. A zero is a number; an x-intercept is a point.
 
 ## Challenge / group investigation
 

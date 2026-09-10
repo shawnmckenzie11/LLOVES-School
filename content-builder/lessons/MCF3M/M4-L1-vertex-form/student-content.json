@@ -9,55 +9,71 @@
   ],
   "parts": [
     {
-      "id": "hook",
-      "nav_label": "The water",
-      "blocks": [
-        {
-          "type": "figure",
-          "src": "media/fountain-arc-500.jpg",
-          "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."
-        },
-        {
-          "type": "p",
-          "text": "Look at the water leaving the fountain. Each stream goes up and comes down."
-        },
-        {
-          "type": "task",
-          "prompt": "Choose one stream. Mark the highest point of that stream — the place the water does not go above. Do not measure, and do not write an equation yet."
-        }
-      ]
-    },
-    {
       "id": "minds-on",
-      "nav_label": "Minds on",
+      "nav_label": "Minds On",
       "blocks": [
         {
-          "type": "p",
-          "text": "That turning point is the fact we will want from an equation of the curve. Vertex form is the writing that makes the high or low point readable."
+          "type": "card",
+          "id": "minds-on--card--1",
+          "kind": "explore",
+          "label": "Look at the streams",
+          "object_ids": [
+            "fountain-photo"
+          ],
+          "blocks": [
+            {
+              "type": "figure",
+              "src": "media/fountain-arc-500.jpg",
+              "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+              "id": "minds-on--figure--1",
+              "object_id": "fountain-photo"
+            },
+            {
+              "type": "p",
+              "text": "Look at the water leaving the fountain. Each stream goes up and comes down.",
+              "id": "minds-on--p--1"
+            },
+            {
+              "type": "task",
+              "prompt": "Choose one stream. Name the highest point of that stream, the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.",
+              "id": "minds-on--task--1"
+            }
+          ]
         },
         {
           "type": "p",
-          "text": "A quadratic written as"
+          "text": "That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.",
+          "id": "minds-on--p--2"
+        },
+        {
+          "type": "p",
+          "text": "A quadratic written as",
+          "id": "minds-on--p--3"
         },
         {
           "type": "equation",
-          "text": "\\(f(x) = a(x - h)^2 + k\\)"
+          "text": "\\(f(x) = a(x - h)^2 + k\\)",
+          "id": "minds-on--equation--1"
         },
         {
           "type": "p",
-          "text": "is in vertex form. The vertex is the point \\((h, k)\\). The axis of symmetry is the vertical line \\(x = h\\). The sign of \\(a\\) tells you whether that vertex is a maximum or a minimum: negative \\(a\\) opens downward, so the vertex is a highest point; positive \\(a\\) opens upward, so the vertex is a lowest point."
+          "text": "is in vertex form. The vertex is the point \\((h, k)\\). The axis of symmetry is the vertical line \\(x = h\\). The sign of \\(a\\) tells you whether that vertex is a maximum or a minimum: negative \\(a\\) opens downward, so the vertex is a highest point; positive \\(a\\) opens upward, so the vertex is a lowest point.",
+          "id": "minds-on--p--4"
         },
         {
           "type": "p",
-          "text": "Look at \\(f(x) = (x + 3)^2 + 1\\). The equation is already in vertex form, but notice the sign inside the brackets."
+          "text": "Consider \\(f(x) = (x + 3)^2 + 1\\). The equation is already in vertex form, but notice the sign inside the brackets.",
+          "id": "minds-on--p--5"
         },
         {
           "type": "equation",
-          "text": "\\(f(x) = (x + 3)^2 + 1\\)"
+          "text": "\\(f(x) = (x + 3)^2 + 1\\)",
+          "id": "minds-on--equation--2"
         },
         {
           "type": "task",
-          "prompt": "Where is the vertex? Write its coordinates before you check on the graph."
+          "prompt": "Name the vertex and the axis of symmetry. Do not sketch yet.",
+          "id": "minds-on--task--2"
         }
       ]
     },
@@ -67,15 +83,18 @@
       "blocks": [
         {
           "type": "p",
-          "text": "In this course, \\(f(x) = a(x - h)^2 + k\\) is vertex form. The expanded writing \\(f(x) = ax^2 + bx + c\\) is standard form. Some books swap those names; this course does not."
+          "text": "In this course, \\(f(x) = a(x - h)^2 + k\\) is vertex form. The expanded equation \\(f(x) = ax^2 + bx + c\\) is standard form.",
+          "id": "action--p--1"
         },
         {
           "type": "h2",
-          "text": "Read the turning point from the equation"
+          "text": "Read the turning point from the equation",
+          "id": "action--h2--1"
         },
         {
           "type": "p",
-          "text": "You named a vertex from a plus inside the brackets. Read this next equation the same way — vertex, axis, and whether the turning point is a maximum or a minimum."
+          "text": "You named a vertex from a plus inside the brackets. Read this next equation the same way: vertex, axis, and whether the turning point is a maximum or a minimum.",
+          "id": "action--p--2"
         },
         {
           "type": "example",
@@ -83,45 +102,51 @@
           "blocks": [
             {
               "type": "p",
-              "text": "Sketch a parabola that opens downward and turns at a point left of the origin and above the \\(x\\)-axis. Label that turning point. Draw a dashed vertical line through it."
-            },
-            {
-              "type": "p",
-              "text": "The equation of that graph is"
+              "text": "Consider",
+              "id": "action--example--1--p--1"
             },
             {
               "type": "equation",
-              "text": "\\(y = -3(x + 2)^2 + 4\\)"
+              "text": "\\(y = -3(x + 2)^2 + 4\\)",
+              "id": "action--example--1--equation--1"
             },
             {
               "type": "p",
-              "text": "We need the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum."
+              "text": "Name the vertex. Is the vertex a maximum or a minimum? How did you know?",
+              "id": "action--example--1--p--2"
             },
             {
               "type": "p",
-              "text": "Compare the equation with \\(y = a(x - h)^2 + k\\)."
+              "text": "Compare the equation with \\(y = a(x - h)^2 + k\\).",
+              "id": "action--example--1--p--3"
             },
             {
               "type": "p",
-              "text": "The brackets contain \\((x + 2)\\). Vertex form uses \\((x - h)\\), so rewrite \\(x + 2\\) as \\(x - (-2)\\). That makes \\(h = -2\\). The constant outside the brackets is \\(+4\\), so \\(k = 4\\)."
+              "text": "The brackets contain \\((x + 2)\\). Vertex form uses \\((x - h)\\), so rewrite \\(x + 2\\) as \\(x - (-2)\\). That makes \\(h = -2\\). The constant outside the brackets is \\(+4\\), so \\(k = 4\\).",
+              "id": "action--example--1--p--4"
             },
             {
               "type": "p",
-              "text": "The vertex is \\((-2, 4)\\). The axis of symmetry is the vertical line through the vertex, \\(x = -2\\)."
+              "text": "The vertex is \\((-2, 4)\\). The axis of symmetry is the vertical line through the vertex, \\(x = -2\\).",
+              "id": "action--example--1--p--5"
             },
             {
               "type": "p",
-              "text": "The coefficient in front of the brackets is \\(-3\\). Because \\(a\\) is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is \\(4\\), and it occurs when \\(x = -2\\)."
+              "text": "The coefficient in front of the brackets is \\(-3\\). Because \\(a\\) is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is \\(4\\), and it occurs when \\(x = -2\\).",
+              "id": "action--example--1--p--6"
             },
             {
               "type": "p",
-              "text": "That highest point is the same kind of fact you marked on the water stream, now read from the writing."
+              "text": "That highest point is the same kind of fact you named on the water stream, now read from the equation.",
+              "id": "action--example--1--p--7"
             }
-          ]
+          ],
+          "id": "action--example--1"
         },
         {
           "type": "h2",
-          "text": "A second equation, with nothing added outside"
+          "text": "A second equation, with nothing added outside",
+          "id": "action--h2--2"
         },
         {
           "type": "example",
@@ -129,87 +154,143 @@
           "blocks": [
             {
               "type": "p",
-              "text": "The last equation had a constant outside the brackets, so \\(k\\) was easy to see as a height. This Ontario sample includes"
+              "text": "The last equation had a constant outside the brackets, so \\(k\\) was easy to see as a height. Consider",
+              "id": "action--example--2--p--1"
             },
             {
               "type": "equation",
-              "text": "\\(h(x) = -2(x + 1)^2\\)"
+              "text": "\\(h(x) = -2(x + 1)^2\\)",
+              "id": "action--example--2--equation--1"
             },
             {
               "type": "p",
-              "text": "as one of the graphs to read from \\(f(x) = x^2\\). Use it here to inspect vertex form. (The sample also names \\(g(x) = x^2 - 4\\); stay with \\(h(x)\\).)"
+              "text": "The brackets contain \\((x + 1)\\). Rewrite \\(x + 1\\) as \\(x - (-1)\\), so \\(h = -1\\). There is no constant added outside, so \\(k = 0\\). The vertex is \\((-1, 0)\\), and the axis is \\(x = -1\\).",
+              "id": "action--example--2--p--2"
             },
             {
               "type": "p",
-              "text": "The brackets contain \\((x + 1)\\). Rewrite \\(x + 1\\) as \\(x - (-1)\\), so \\(h = -1\\). There is no constant added outside, so \\(k = 0\\). The vertex is \\((-1, 0)\\), and the axis is \\(x = -1\\)."
-            },
-            {
-              "type": "p",
-              "text": "The coefficient is \\(-2\\), so \\(a\\) is negative and the parabola opens downward. The vertex is a maximum even though \\(k = 0\\). Maximum versus minimum comes from the sign of \\(a\\), not from whether \\(k\\) looks positive."
+              "text": "The coefficient is \\(-2\\), so \\(a\\) is negative and the parabola opens downward. The vertex is a maximum even though \\(k = 0\\). Maximum versus minimum comes from the sign of \\(a\\), not from whether \\(k\\) looks positive.",
+              "id": "action--example--2--p--3"
             },
             {
               "type": "task",
-              "prompt": "Could you have decided maximum versus minimum from \\(k\\) on this equation? Say why or why not."
+              "prompt": "Where is the vertex? Does this graph have a maximum or a minimum? Could you decide that from \\(k\\) alone?",
+              "id": "action--example--2--task--1"
+            }
+          ],
+          "id": "action--example--2"
+        },
+        {
+          "type": "h2",
+          "text": "Match the equation you already read",
+          "id": "action--h2--3"
+        },
+        {
+          "type": "p",
+          "text": "You named a vertex and an axis for \\(f(x) = (x + 3)^2 + 1\\). The graph starts at a different equation with the same brackets:",
+          "id": "action--p--3"
+        },
+        {
+          "type": "equation",
+          "text": "\\(f(x) = 2(x + 3)^2 + 1\\)",
+          "id": "action--equation--1"
+        },
+        {
+          "type": "card",
+          "id": "action--card--1",
+          "kind": "check",
+          "label": "Match the equation you already read",
+          "object_ids": [
+            "vertex-form-graph"
+          ],
+          "blocks": [
+            {
+              "type": "p",
+              "text": "Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches \\(f(x) = (x + 3)^2 + 1\\). Submit when the live equation labelled Vertex form, above the graph, matches that equation.",
+              "id": "action--p--4"
+            },
+            {
+              "type": "interactive",
+              "spec_id": "match-plus-inside",
+              "id": "action--interactive--1",
+              "object_id": "vertex-form-graph"
             }
           ]
         },
         {
-          "type": "h2",
-          "text": "Match the equation you already read"
-        },
-        {
-          "type": "p",
-          "text": "You named a vertex for \\(f(x) = (x + 3)^2 + 1\\). The graph starts at a different writing with the same brackets:"
-        },
-        {
-          "type": "equation",
-          "text": "\\(f(x) = 2(x + 3)^2 + 1\\)"
-        },
-        {
-          "type": "p",
-          "text": "Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches \\(f(x) = (x + 3)^2 + 1\\). Submit when the equation under the graph matches that writing."
-        },
-        {
-          "type": "interactive",
-          "spec_id": "match-plus-inside"
-        },
-        {
           "type": "self-check",
-          "prompt": "Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this writing?",
-          "rubric_id": "match-plus-inside-explain"
+          "prompt": "Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this equation?",
+          "rubric_id": "match-plus-inside-explain",
+          "id": "action--self-check--1"
         },
         {
           "type": "h2",
-          "text": "Change only the horizontal position"
+          "text": "Someone else’s first step",
+          "id": "action--h2--4"
         },
         {
           "type": "p",
-          "text": "The graph is back at \\(f(x) = 2(x + 3)^2 + 1\\). Do not move the graph yet."
+          "text": "You just matched \\((x + 3)\\) to vertex form. These next items ask you to locate an invalid first step, and to test a claim about the axis.",
+          "id": "action--p--5"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "error-diagnosis-and-axis-claim",
+          "visible_count": 2,
+          "id": "action--practice-set--1"
+        },
+        {
+          "type": "h2",
+          "text": "Change only the horizontal position",
+          "id": "action--h2--5"
+        },
+        {
+          "type": "p",
+          "text": "The graph is back at \\(f(x) = 2(x + 3)^2 + 1\\). Do not move the graph yet.",
+          "id": "action--p--6"
         },
         {
           "type": "task",
-          "prompt": "If you change only \\(h\\) so the vertex sits at \\(x = 2\\), what will happen to the graph, and what will the new equation look like? Write that first."
+          "prompt": "Start from \\(f(x) = 2(x + 3)^2 + 1\\). If only \\(h\\) changes so the vertex sits at \\(x = 2\\), what happens to the graph, and what is the new equation? Write that before you move a graph.",
+          "id": "action--task--1"
         },
         {
-          "type": "p",
-          "text": "Then move the graph so the vertex is at \\(x = 2\\), changing only \\(h\\) if you can. Submit. Say which quantity you meant to change: \\(a\\), \\(h\\), or \\(k\\)."
-        },
-        {
-          "type": "interactive",
-          "spec_id": "predict-h"
+          "type": "card",
+          "id": "action--card--2",
+          "kind": "try",
+          "label": "Change only h",
+          "object_ids": [
+            "vertex-form-graph"
+          ],
+          "blocks": [
+            {
+              "type": "p",
+              "text": "Then move the graph so the vertex is at \\(x = 2\\), changing only \\(h\\) if you can. Submit. Say which quantity you meant to change: \\(a\\), \\(h\\), or \\(k\\).",
+              "id": "action--p--7"
+            },
+            {
+              "type": "interactive",
+              "spec_id": "predict-h",
+              "id": "action--interactive--2",
+              "object_id": "vertex-form-graph"
+            }
+          ]
         },
         {
           "type": "self-check",
-          "prompt": "Look at the equation under the graph and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?",
-          "rubric_id": "predict-h-interpret"
+          "prompt": "Look at the live equation labelled Vertex form, above the graph, and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?",
+          "rubric_id": "predict-h-interpret",
+          "id": "action--self-check--2"
         },
         {
           "type": "h2",
-          "text": "The same curve, two writings"
+          "text": "The same curve, two forms",
+          "id": "action--h2--6"
         },
         {
           "type": "p",
-          "text": "Vertex form makes the turning point easy to read. Expanding that writing into \\(ax^2 + bx + c\\) should not move the curve."
+          "text": "Vertex form makes the turning point easy to read. Expanding that form into \\(ax^2 + bx + c\\) should not move the curve.",
+          "id": "action--p--8"
         },
         {
           "type": "example",
@@ -217,91 +298,187 @@
           "blocks": [
             {
               "type": "p",
-              "text": "Sketch a parabola that opens upward, turning left of the origin and below the \\(x\\)-axis. Mark the vertex. A writing that fits that sketch is"
+              "text": "Rewrite",
+              "id": "action--example--3--p--1"
             },
             {
               "type": "equation",
-              "text": "\\(g(x) = \\frac{1}{2}(x + 2)^2 - 3\\)"
+              "text": "\\(g(x) = \\frac{1}{2}(x + 2)^2 - 3\\)",
+              "id": "action--example--3--equation--1"
             },
             {
               "type": "p",
-              "text": "The task is to write the same function as \\(ax^2 + bx + c\\), then check that both writings give the same outputs."
+              "text": "in standard form, meaning \\(g(x) = ax^2 + bx + c\\). Then check two \\(x\\)-values in both forms.",
+              "id": "action--example--3--p--2"
             },
             {
               "type": "p",
-              "text": "Square the binomial: \\((x + 2)^2 = x^2 + 4x + 4\\)."
+              "text": "Square the binomial: \\((x + 2)^2 = x^2 + 4x + 4\\).",
+              "id": "action--example--3--p--3"
             },
             {
               "type": "p",
-              "text": "Multiply by \\(a = \\frac{1}{2}\\): \\(\\frac{1}{2}x^2 + 2x + 2\\)."
+              "text": "Multiply by \\(a = \\frac{1}{2}\\): \\(\\frac{1}{2}x^2 + 2x + 2\\).",
+              "id": "action--example--3--p--4"
             },
             {
               "type": "p",
-              "text": "Add \\(k = -3\\): \\(\\frac{1}{2}x^2 + 2x - 1\\)."
+              "text": "Add \\(k = -3\\): \\(\\frac{1}{2}x^2 + 2x - 1\\).",
+              "id": "action--example--3--p--5"
             },
             {
               "type": "equation",
-              "text": "\\(g(x) = \\frac{1}{2}x^2 + 2x - 1\\)"
+              "text": "\\(g(x) = \\frac{1}{2}x^2 + 2x - 1\\)",
+              "id": "action--example--3--equation--2"
             },
             {
               "type": "p",
-              "text": "Check a few inputs. At \\(x = -2\\), both writings give \\(-3\\). At \\(x = 0\\), both give \\(-1\\). At \\(x = -4\\), both give \\(-1\\). The table points sit on the same graph: expanding did not make a new parabola."
+              "text": "At \\(x = -2\\), both forms give \\(-3\\). At \\(x = 0\\), both give \\(-1\\). Those table points sit on the same graph: expanding did not make a new parabola.",
+              "id": "action--example--3--p--6"
+            }
+          ],
+          "id": "action--example--3"
+        },
+        {
+          "type": "p",
+          "text": "Now expand the starting equation from the graph, \\(f(x) = 2(x + 3)^2 + 1\\). If you rewrite it as \\(ax^2 + bx + c\\), will the graph be a different parabola or the same one? Write that down before you expand.",
+          "id": "action--p--9"
+        },
+        {
+          "type": "card",
+          "id": "action--card--3",
+          "kind": "try",
+          "label": "Expand, then check the same graph",
+          "object_ids": [
+            "vertex-form-graph"
+          ],
+          "blocks": [
+            {
+              "type": "p",
+              "text": "Expand on paper. Enter your \\(b\\) and \\(c\\) (\\(a\\) should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried.",
+              "id": "action--p--10"
+            },
+            {
+              "type": "interactive",
+              "spec_id": "expand-same-graph",
+              "id": "action--interactive--3",
+              "object_id": "vertex-form-graph"
             }
           ]
         },
         {
-          "type": "p",
-          "text": "Now expand the starting equation from the graph, \\(f(x) = 2(x + 3)^2 + 1\\). If you rewrite it as \\(ax^2 + bx + c\\), will the graph be a different parabola or the same one? Write that down before you expand."
-        },
-        {
-          "type": "p",
-          "text": "Expand on paper. Enter your \\(b\\) and \\(c\\) (\\(a\\) should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried."
-        },
-        {
-          "type": "interactive",
-          "spec_id": "expand-same-graph"
-        },
-        {
           "type": "self-check",
-          "prompt": "Do a few table points sit on both writings? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?",
-          "rubric_id": "expand-same-graph-rubric"
+          "prompt": "Do a few table points sit on both forms? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?",
+          "rubric_id": "expand-same-graph-rubric",
+          "id": "action--self-check--3"
         },
         {
           "type": "h2",
-          "text": "What this writing is for"
+          "text": "Expand a new equation yourself",
+          "id": "action--h2--7"
         },
         {
           "type": "p",
-          "text": "You have been reading vertex form. Factored form \\(f(x) = a(x - r)(x - s)\\) makes the \\(x\\)-intercepts easy to see. Standard form \\(f(x) = ax^2 + bx + c\\) makes the \\(y\\)-intercept easy to see. Vertex form does not make those intercepts as obvious — and the vertex is not an intercept unless it actually sits on an axis."
-        },
-        {
-          "type": "task",
-          "prompt": "What can you read from vertex form \\(f(x) = a(x - h)^2 + k\\) that is harder to see when the same function is written as \\(f(x) = ax^2 + bx + c\\)? Do not rewrite the function in another form."
-        },
-        {
-          "type": "h2",
-          "text": "Expand a new writing yourself"
-        },
-        {
-          "type": "task",
-          "prompt": "Given the vertex form \\(f(x) = 3(x - 1)^2 + 4\\), express the equation in standard form. Use technology to compare the graphs of these two forms of the equation."
-        },
-        {
-          "type": "p",
-          "text": "Here, standard form means \\(f(x) = ax^2 + bx + c\\). Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph."
-        },
-        {
-          "type": "h2",
-          "text": "One more to try"
+          "text": "Here, standard form means \\(f(x) = ax^2 + bx + c\\). Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph.",
+          "id": "action--p--11"
         },
         {
           "type": "practice-set",
-          "set_id": "additional-licensed",
-          "visible_count": 1
+          "set_id": "independent-expand",
+          "visible_count": 1,
+          "id": "action--practice-set--2"
+        },
+        {
+          "type": "h2",
+          "text": "How you know two forms are the same",
+          "id": "action--h2--8"
         },
         {
           "type": "p",
-          "text": "If the graph is not available, work on paper with \\(f(x) = 2(x + 3)^2 + 1\\). First look at \\(f(x) = (x + 3)^2 + 1\\): name that vertex, then sketch both writings (same turning point, different stretch). From the starting equation, predict what happens if you change only \\(h\\) to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch."
+          "text": "You expanded and checked a few table points. These next items ask which method proves the forms match for every \\(x\\), and they ask you to repair a first invalid expansion step.",
+          "id": "action--p--12"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "method-choice-and-expand-error",
+          "visible_count": 2,
+          "id": "action--practice-set--3"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "table-claim-testing",
+          "visible_count": 1,
+          "id": "action--practice-set--4"
+        },
+        {
+          "type": "h2",
+          "text": "What vertex form is for",
+          "id": "action--h2--9"
+        },
+        {
+          "type": "example",
+          "stage": "worked",
+          "blocks": [
+            {
+              "type": "p",
+              "text": "Consider \\(f(x) = a(x - h)^2 + k\\). What can you read from vertex form that is harder to see when the same function is written in standard form \\(f(x) = ax^2 + bx + c\\)? Do not rewrite the function.",
+              "id": "action--example--4--p--1"
+            },
+            {
+              "type": "p",
+              "text": "From vertex form you can read the vertex \\((h, k)\\), the axis \\(x = h\\), and whether the vertex is a maximum or a minimum from the sign of \\(a\\). Standard form makes the \\(y\\)-intercept \\(c\\) easy to see. Zeros are not obvious in either of those two forms unless they happen to sit on an axis.",
+              "id": "action--example--4--p--2"
+            },
+            {
+              "type": "p",
+              "text": "Factored form \\(f(x) = a(x - r)(x - s)\\) makes the \\(x\\)-intercepts easy to see. Vertex form does not make those intercepts as obvious, and the vertex is not an intercept unless it actually sits on an axis.",
+              "id": "action--example--4--p--3"
+            }
+          ],
+          "id": "action--example--4"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "defend-form-choice",
+          "visible_count": 1,
+          "id": "action--practice-set--5"
+        },
+        {
+          "type": "h2",
+          "text": "Zeros from vertex form",
+          "id": "action--h2--10"
+        },
+        {
+          "type": "p",
+          "text": "Intercepts are not readable from vertex form the way they are from factored form. You can still find zeros by undoing the operations in the equation.",
+          "id": "action--p--13"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "zeros-inverse",
+          "visible_count": 1,
+          "id": "action--practice-set--6"
+        },
+        {
+          "type": "h2",
+          "text": "Write an equation from stated facts",
+          "id": "action--h2--11"
+        },
+        {
+          "type": "p",
+          "text": "You have been reading \\(a\\), \\(h\\), and \\(k\\) from a given equation. These next items ask you to write a vertex-form equation from a vertex and another point, from a labelled graph, or from a turning point that does not fix \\(a\\).",
+          "id": "action--p--14"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "construct-from-constraints",
+          "visible_count": 3,
+          "id": "action--practice-set--7"
+        },
+        {
+          "type": "p",
+          "text": "If the graph is not available, work on paper with \\(f(x) = 2(x + 3)^2 + 1\\). First look at \\(f(x) = (x + 3)^2 + 1\\): name that vertex, then sketch both equations (same turning point, different stretch). From the starting equation, predict what happens if you change only \\(h\\) to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch.",
+          "id": "action--p--15"
         }
       ]
     },
@@ -310,60 +487,143 @@
       "nav_label": "Consolidation",
       "blocks": [
         {
-          "type": "figure",
-          "src": "media/fountain-arc-500.jpg",
-          "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."
+          "type": "card",
+          "id": "consolidation--card--1",
+          "kind": "explore",
+          "label": "Return to the stream",
+          "object_ids": [
+            "fountain-photo"
+          ],
+          "blocks": [
+            {
+              "type": "figure",
+              "src": "media/fountain-arc-500.jpg",
+              "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+              "id": "consolidation--figure--1",
+              "object_id": "fountain-photo"
+            },
+            {
+              "type": "p",
+              "text": "You named the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.",
+              "id": "consolidation--p--1"
+            },
+            {
+              "type": "equation",
+              "text": "\\(f(x) = -0.5(x - 2)^2 + 4\\)",
+              "id": "consolidation--equation--1"
+            },
+            {
+              "type": "task",
+              "prompt": "Do not move the graph yet. Name the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum. If you expanded it to standard form, would the curve move?",
+              "id": "consolidation--task--1"
+            }
+          ]
         },
         {
-          "type": "p",
-          "text": "You marked the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream."
-        },
-        {
-          "type": "equation",
-          "text": "\\(f(x) = -0.5(x - 2)^2 + 4\\)"
-        },
-        {
-          "type": "task",
-          "prompt": "Do not move the graph yet. Name the vertex, the axis of symmetry, and whether this vertex is a maximum or a minimum."
-        },
-        {
-          "type": "p",
-          "text": "Then set the graph to match that writing and submit."
-        },
-        {
-          "type": "interactive",
-          "spec_id": "fresh-case"
+          "type": "card",
+          "id": "consolidation--card--2",
+          "kind": "check",
+          "label": "Read a new equation",
+          "object_ids": [
+            "vertex-form-graph"
+          ],
+          "blocks": [
+            {
+              "type": "p",
+              "text": "Then set the graph to match that equation and submit. Watch the live equation labelled Vertex form, above the graph.",
+              "id": "consolidation--p--2"
+            },
+            {
+              "type": "interactive",
+              "spec_id": "fresh-case",
+              "id": "consolidation--interactive--1",
+              "object_id": "vertex-form-graph"
+            }
+          ]
         },
         {
           "type": "self-check",
-          "prompt": "How did you read the high or low point from this writing? If you expanded it into \\(ax^2 + bx + c\\), would the fountain-shaped curve move?",
-          "rubric_id": "fresh-case-explain"
+          "prompt": "How did you read the high or low point from this equation? If you expanded it into \\(ax^2 + bx + c\\), would the fountain-shaped curve move?",
+          "rubric_id": "fresh-case-explain",
+          "id": "consolidation--self-check--1"
         },
         {
           "type": "p",
-          "text": "If you are on paper: sketch from the equation, then change one of \\(a\\), \\(h\\), or \\(k\\) and sketch again."
+          "text": "If you are on paper: sketch from the equation, then change one of \\(a\\), \\(h\\), or \\(k\\) and sketch again.",
+          "id": "consolidation--p--3"
         },
         {
           "type": "h2",
-          "text": "What the writing gives you"
+          "text": "A high point from a given model",
+          "id": "consolidation--h2--1"
         },
         {
           "type": "p",
-          "text": "Vertex form \\(f(x) = a(x - h)^2 + k\\) makes the vertex \\((h, k)\\) and the axis \\(x = h\\) readable. Maximum versus minimum comes from the sign of \\(a\\), not from the sign of \\(k\\) and not from which quadrant the vertex sits in."
+          "text": "You just read a high point from an equation of a path like the stream. These next models are already in vertex form.",
+          "id": "consolidation--p--4"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "consolidation-retrieval",
+          "visible_count": 1,
+          "id": "consolidation--practice-set--1"
+        },
+        {
+          "type": "practice-set",
+          "set_id": "consolidation-model-critique",
+          "visible_count": 1,
+          "id": "consolidation--practice-set--2"
+        },
+        {
+          "type": "h2",
+          "text": "What vertex form gives you",
+          "id": "consolidation--h2--2"
         },
         {
           "type": "p",
-          "text": "Match the brackets to \\((x - h)\\). A plus inside the brackets does not mean the vertex is on the positive side of the \\(x\\)-axis."
+          "text": "Vertex form \\(f(x) = a(x - h)^2 + k\\) makes the vertex \\((h, k)\\) and the axis \\(x = h\\) readable. Maximum versus minimum comes from the sign of \\(a\\), not from the sign of \\(k\\) and not from which quadrant the vertex sits in.",
+          "id": "consolidation--p--5"
         },
         {
           "type": "p",
-          "text": "\\(a\\) stretches or flips the graph. \\(k\\) moves the vertex up or down. Those two jobs are not the same."
+          "text": "Match the brackets to \\((x - h)\\). A plus inside the brackets does not mean the vertex is on the positive side of the \\(x\\)-axis.",
+          "id": "consolidation--p--6"
         },
         {
           "type": "p",
-          "text": "Expanding vertex form into \\(f(x) = ax^2 + bx + c\\) gives the same parabola, not a new one. The graphs should land on top of each other."
+          "text": "\\(a\\) stretches or flips the graph. \\(k\\) moves the vertex up or down. Those two jobs are not the same.",
+          "id": "consolidation--p--7"
+        },
+        {
+          "type": "p",
+          "text": "Expanding vertex form into \\(f(x) = ax^2 + bx + c\\) gives the same parabola, not a new one. The graphs should land on top of each other.",
+          "id": "consolidation--p--8"
         }
       ]
+    }
+  ],
+  "objects": [
+    {
+      "id": "fountain-photo",
+      "kind": "image",
+      "label": "fountain photograph",
+      "capabilities": [
+        "look"
+      ],
+      "fallback": "Look at a stream of water that goes up and comes down. Name the highest point of that stream."
+    },
+    {
+      "id": "vertex-form-graph",
+      "kind": "graph-tool",
+      "label": "vertex-form graph",
+      "capabilities": [
+        "set-a-h-k",
+        "show-vertex-form-equation",
+        "show-axis",
+        "vertex-marker",
+        "shared-table"
+      ],
+      "fallback": "Sketch the parabola on paper from the labelled vertex-form equation."
     }
   ]
 }

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 1: Trigonometric Ratios</title>
+  <link rel="stylesheet" href="student.css">
+</head>
+<body>
+  <article class="lesson">
+    <h1>Lesson 1: Trigonometric Ratios</h1>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-minds-on" aria-controls="panel-minds-on" aria-selected="true">Minds On</button><button type="button" role="tab" id="tab-action" aria-controls="panel-action" aria-selected="false">Action</button><button type="button" role="tab" id="tab-consolidation" aria-controls="panel-consolidation" aria-selected="false">Consolidation</button>
+    </div>
+    <section class="panel active" id="panel-minds-on" role="tabpanel" aria-labelledby="tab-minds-on"><div class="prose"><section class="card-block is-explore" data-block-id="minds-on--card--1" data-card="explore" data-object-ids="right-triangle"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"/></svg><span>Name the sides first</span></h3><p data-block-id="minds-on--p--1">Sketch a right triangle. Mark the right angle. Choose one of the other angles and keep that angle in mind.</p>
+<div class="task" data-block-id="minds-on--task--1"><p>For the angle you chose, which side is opposite, which is adjacent, and which is the hypotenuse? Do not write a ratio yet.</p></div></section></div></section><section class="panel" id="panel-action" role="tabpanel" aria-labelledby="tab-action" hidden><div class="prose"><p data-block-id="action--p--1">The primary trigonometric ratios for an acute angle in a right triangle are sine = opposite / hypotenuse, cosine = adjacent / hypotenuse, and tangent = opposite / adjacent.</p>
+<section class="card-block is-worked-example" data-block-id="action--card--1" data-card="worked-example" data-object-ids="right-triangle"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M6 4h9l3 3v13H6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 10h6M9 14h6" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Read the names from the triangle</span></h3><p data-block-id="action--card--1--p--1">Keep the same sketched triangle and the same marked acute angle.</p>
+<p data-block-id="action--card--1--p--2">The hypotenuse is the side across from the right angle. The opposite side is across from the marked acute angle. The adjacent side is the remaining leg that meets that angle.</p></section>
+<section class="card-block is-try" data-block-id="action--card--2" data-card="try"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M4 20l1-6 9-9 4 4-9 9-6 2z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Choose a ratio</span></h3><div class="task" data-block-id="action--task--1"><p>You know an acute angle and the hypotenuse, and you need the opposite side. Which primary trigonometric ratio would you use, and what would you still need to decide before calculating?</p></div></section></div></section><section class="panel" id="panel-consolidation" role="tabpanel" aria-labelledby="tab-consolidation" hidden><div class="prose"><section class="card-block is-discuss" data-block-id="consolidation--card--1" data-card="discuss"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 6h9a3 3 0 013 3v4a3 3 0 01-3 3H9l-4 3V6z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>A measured angle and one side</span></h3><div class="task" data-block-id="consolidation--task--1"><p>A surveyor can measure an angle of elevation and one side of a right triangle. Which primary trigonometric ratio would you choose to find another side, and what does that choice depend on?</p></div></section>
+<section class="card-block is-check" data-block-id="consolidation--card--2" data-card="check"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12l2.5 2.5L16 9" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Write the three ratios</span></h3><div class="task" data-block-id="consolidation--task--2"><p>Write sine, cosine, and tangent using opposite, adjacent, and hypotenuse. Do not invent extra names.</p></div></section></div></section>
+    <div class="credits"><p>Ontario curriculum sample: Queen’s Printer for Ontario</p></div>
+  </article>
+
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll('[role="tab"]');
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          tabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
+          tab.setAttribute("aria-selected", "true");
+          document.querySelectorAll('[role="tabpanel"]').forEach(function (panel) {
+            var on = panel.getAttribute("aria-labelledby") === tab.id;
+            panel.classList.toggle("active", on);
+            panel.hidden = !on;
+          });
+        });
+      });
+    })();
+  </script>
+
+</body>
+</html>

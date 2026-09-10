@@ -6,13 +6,22 @@
   "lesson_number": 1,
   "title": "Lesson 1: The Vertex Form of a Quadratic Function",
   "module_title": "Quadratic Models",
+  "tabs": [
+    "Minds On",
+    "Action",
+    "Consolidation"
+  ],
+  "hook_placement": "inside Minds On",
   "source_refs": {
     "module_lessons": ".local-data/curriculum/MCF3M/module-lessons.json",
     "module_strand_map": ".local-data/curriculum/MCF3M/module-strand-map.json",
-    "expectations_seed": "lms/seeds/mcf3m_expectations.json"
+    "expectations_seed": "lms/seeds/mcf3m_expectations.json",
+    "pool": "content-builder/catalogue/pools/MCF3M/M4-L1-vertex-form.json",
+    "nelson_family_map": "content-builder/catalogue/sources/internal/nelson-mcf3m-4-1/question-baseline.json",
+    "coverage_brief": "content-builder/lessons/MCF3M/M4-L1-vertex-form/coverage-brief.json"
   },
   "central_question": "If you only have the equation of a curve that rises and then falls (or the other way around), how do you know where the high or low point is — and how do you know a rewritten equation is still the same curve?",
-  "intended_understanding": "A quadratic written as f(x) = a(x − h)^2 + k makes the vertex (h, k), the axis of symmetry, and the maximum or minimum readable from the equation; changing a, h, or k moves the graph in a way students can predict and then check. Expanding that vertex-form equation produces an equivalent standard form, which graphing technology confirms.",
+  "intended_understanding": "A quadratic written as f(x) = a(x − h)^2 + k makes the vertex (h, k), the axis of symmetry, and the maximum or minimum readable from the equation; changing a, h, or k moves the graph in a way students can predict and then check. Expanding that vertex-form equation produces an equivalent standard form, which graphing technology confirms as the same curve, not a new one.",
   "prerequisite_assumptions": [
     "Students can evaluate f(x) in function notation, so they can talk about the vertex as the point where f(h) = k (Module 1 Lesson 3; A2.2).",
     "Roles of a, h, and k as transformations of y = x^2 are already taught (Module 1 Lesson 4; A2.5). This lesson reuses that language to read vertex form; it does not reteach stretching, reflecting, or sliding.",
@@ -23,52 +32,250 @@
     "Students have already located a vertex from x-intercepts in factored form (A2.9), so vertex form is a second way to see the same point."
   ],
   "processes_to_teach": [
-    "Inspect vertex form f(x) = a(x − h)^2 + k: name the vertex (h, k) including plus-inside (x + …), the axis of symmetry x = h, and whether the vertex is a maximum or a minimum from the sign of a (not from k or the quadrant).",
-    "Predict from the equation what changing one of a, h, or k will do to the graph, then check that prediction against the graph and the rewritten equation (one parameter at a time).",
-    "Expand f(x) = a(x − h)^2 + k into f(x) = ax^2 + bx + c and verify, using graphing technology, that the two writings are equivalent representations.",
-    "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings."
+    "Inspect vertex form f(x) = a(x − h)^2 + k: name the vertex (h, k) including plus-inside (x + …), the axis of symmetry x = h, and whether the vertex is a maximum or a minimum from the sign of a (not from k or the quadrant). Full fade: worked → variation → partial → independent → retrieval.",
+    "Expand f(x) = a(x − h)^2 + k into f(x) = ax^2 + bx + c and verify, using graphing technology, that the two writings are equivalent representations. Full fade: worked → variation → partial → independent → retrieval.",
+    "Describe what can be read from vertex form compared with standard form and factored form, and defend vertex form when the decision is the high or low point, without producing those other writings. Full fade (compact: the contrast is conceptual, not a new algorithm).",
+    "Find zeros of a given vertex-form equation by inverse operations only (no quadratic formula, no completing the square). Compact full fade. Supports A2.10’s intercepts example; intercepts are not readable by inspection the way they are from factored form.",
+    "Construct a vertex-form equation from a vertex plus another point (or from stated constraints), and say what remains free if only the vertex is known. Compact full fade. Occupies families vertex-and-point-to-function and constraint-construction.",
+    "Predict from the equation what changing one of a, h, or k will do to the graph, then check that prediction against the graph and the rewritten equation (one parameter at a time). Interactive already teaches predict/check on the vertex board. Do not add a second paper fade. Pool family predict-parameter-change lives in that Action beat only."
+  ],
+  "process_fade": [
+    {
+      "id": "inspect-vertex-form",
+      "fade": "full",
+      "families": [
+        "read-vertex-features"
+      ],
+      "partial_via": [
+        "error-diagnosis"
+      ],
+      "note": "Partial slot is student error-diagnosis (h-sign, max-from-k), not a third identical reading. Axis claim-testing is independent/transfer of this process."
+    },
+    {
+      "id": "expand-and-verify",
+      "fade": "full",
+      "families": [
+        "equivalent-forms"
+      ],
+      "partial_via": [
+        "error-diagnosis"
+      ],
+      "note": "Partial slot is the expansion error-diagnosis item. Method-choice (prove for all x) and table claim-testing are transfer of this process, not extra expand drills."
+    },
+    {
+      "id": "three-form-contrast",
+      "fade": "full-compact",
+      "families": [
+        "form-affordances"
+      ],
+      "note": "Worked contrast, then students defend a form for a stated decision (form-affordances method-choice item)."
+    },
+    {
+      "id": "zeros-from-vertex-form",
+      "fade": "full-compact",
+      "families": [
+        "zeros-from-vertex-form"
+      ],
+      "note": "Inverse operations only. The zeros method-choice item is variation/transfer, not a formula lesson."
+    },
+    {
+      "id": "construct-from-constraints",
+      "fade": "full-compact",
+      "families": [
+        "vertex-and-point-to-function",
+        "constraint-construction",
+        "representation-bridge"
+      ],
+      "note": "Worked: recover a from vertex and a point. Variation: graph/table features mapped to a, h, k. Partial/independent: same vertex different a; vertex-only degrees of freedom."
+    },
+    {
+      "id": "predict-parameter-change",
+      "fade": "interactive-already-teaches",
+      "families": [
+        "predict-parameter-change"
+      ],
+      "note": "Vertex-board predict → move one parameter → submit → check. No duplicate paper sequence."
+    }
   ],
   "purpose_map": [
     {
-      "section": "hook",
-      "purpose": "Put students in a situation where the high or low point of a quadratic model is the thing they need, before any reminder that they already know transformations of y = x^2."
+      "section": "hook (inside Minds On tab)",
+      "purpose": "Put students in a situation where the high or low point of a quadratic model is the thing they need, before any reminder that they already know transformations of y = x^2. Pool family: maximum-from-representations (situation only; do not solve the later retrieval item here)."
     },
     {
       "section": "minds-on",
-      "purpose": "Have students commit to a vertex from a plus-inside vertex-form equation so the h-sign reading is visible before they use the graph."
+      "purpose": "Have students commit to a vertex from a plus-inside vertex-form equation so the h-sign reading is visible before they use the graph. Pool family: read-vertex-features (diagnostic)."
     },
     {
       "section": "action: worked inspection",
-      "purpose": "Fully demonstrate how to read vertex, axis, and maximum or minimum from one vertex-form equation, including matching (x + …) to (x − h)."
+      "purpose": "Fully demonstrate how to read vertex, axis, and maximum or minimum from one vertex-form equation, including matching (x + …) to (x − h). Pool family: read-vertex-features (worked)."
     },
     {
       "section": "action: varied inspection",
-      "purpose": "Repeat that reading on a second equation that varies the sign of a or the inside of the brackets, so the first example is not a template to copy."
+      "purpose": "Repeat that reading on a second equation that varies the sign of a or uses k = 0, so maximum versus minimum cannot be taken from k. Pool family: read-vertex-features (variation)."
+    },
+    {
+      "section": "action: error-diagnosis and axis claim",
+      "purpose": "Students locate and repair a first invalid step in someone else’s vertex reading (h-sign; maximum from the sign of k), then prove, qualify, or refute the claim that the axis is y = h. Assembled student work, not drawer-only. Pool families: error-diagnosis (inspection errors); claim-testing (axis). This is the partial-to-independent work for inspect-vertex-form."
     },
     {
       "section": "action: predict–move–check",
-      "purpose": "Students predict a vertex or graph change from the equation, move exactly one parameter, submit evidence, and explain what the graph and equation now say; keep the consolidation fresh-case graph out of this beat."
+      "purpose": "Students predict a graph and equation change from altering one parameter, move that parameter, submit evidence, and explain what the graph and equation now say. The board already teaches predict/check — do not add a paper fade. Keep the consolidation fresh-case graph out of this beat. Pool family: predict-parameter-change."
     },
     {
       "section": "action: expand and verify",
-      "purpose": "Students expand vertex form into standard form themselves, then use graphing technology to confirm the two writings are the same parabola, not a new graph."
+      "purpose": "Students expand vertex form into standard form themselves, then use graphing technology to confirm the two writings are the same parabola. Full fade of equivalent-forms (worked, variation, then independent ministry expand). Pool family: equivalent-forms."
+    },
+    {
+      "section": "action: method-choice, table claim, expand error",
+      "purpose": "Students choose algebra versus a graph under the criterion “prove they are the same function for every x,” refute the claim that matching table values prove identity, and repair a first invalid expansion step. Assembled student work, not drawer-only. Pool families: method-choice; claim-testing (table-as-proof); error-diagnosis (expand). Transfer and partial slots for expand-and-verify."
     },
     {
       "section": "action: three-form contrast",
-      "purpose": "Name what vertex form makes readable compared with standard and factored form, without asking students to produce those other writings."
+      "purpose": "Name what vertex form makes readable compared with standard and factored form, then defend a form for a stated decision (highest point, not intercepts), without asking students to produce those other writings. Pool family: form-affordances."
+    },
+    {
+      "section": "action: zeros by inverse operations",
+      "purpose": "From a given vertex-form equation, find zeros by undoing operations (both signs); then choose a method under “exact values with the least extra algebra.” No quadratic formula. Pool family: zeros-from-vertex-form (includes its method-choice item)."
+    },
+    {
+      "section": "action: construct from constraints",
+      "purpose": "Students write a vertex-form equation from a vertex and another point (or from a labelled graph/table), construct two different writings with the same vertex, and say what is still free if only the vertex is known. Assembled student work, not drawer-only. Pool families: vertex-and-point-to-function; constraint-construction; representation-bridge."
     },
     {
       "section": "consolidation",
-      "purpose": "Return to the hook situation with a fresh vertex-form equation: read vertex, axis, and maximum or minimum independently, and retrieve that expanding the writing does not move the curve."
+      "purpose": "Return to the hook situation with a fresh vertex-form equation: read vertex, axis, and maximum or minimum independently; retrieve that expanding the writing does not move the curve; read a maximum from a given vertex-form model; judge a meaningful domain for that given model (not a full applications lesson). Pool families: read-vertex-features (retrieval); equivalent-forms (retrieval); maximum-from-representations (retrieval); model-critique (assembled once; not A3.3)."
     }
   ],
+  "family_to_beat": [
+    {
+      "family_id": "read-vertex-features",
+      "disposition": "assembled",
+      "beats": [
+        "minds-on",
+        "action: worked inspection",
+        "action: varied inspection",
+        "consolidation"
+      ]
+    },
+    {
+      "family_id": "error-diagnosis",
+      "disposition": "assembled",
+      "beats": [
+        "action: error-diagnosis and axis claim",
+        "action: method-choice, table claim, expand error"
+      ],
+      "must_not_be_drawer_only": true
+    },
+    {
+      "family_id": "claim-testing",
+      "disposition": "assembled",
+      "beats": [
+        "action: error-diagnosis and axis claim",
+        "action: method-choice, table claim, expand error"
+      ],
+      "must_not_be_drawer_only": true
+    },
+    {
+      "family_id": "predict-parameter-change",
+      "disposition": "assembled",
+      "beats": [
+        "action: predict–move–check"
+      ],
+      "fade_exception": "interactive-already-teaches"
+    },
+    {
+      "family_id": "equivalent-forms",
+      "disposition": "assembled",
+      "beats": [
+        "action: expand and verify",
+        "consolidation"
+      ]
+    },
+    {
+      "family_id": "method-choice",
+      "disposition": "assembled",
+      "beats": [
+        "action: method-choice, table claim, expand error",
+        "action: zeros by inverse operations"
+      ],
+      "must_not_be_drawer_only": true
+    },
+    {
+      "family_id": "form-affordances",
+      "disposition": "assembled",
+      "beats": [
+        "action: three-form contrast"
+      ]
+    },
+    {
+      "family_id": "zeros-from-vertex-form",
+      "disposition": "assembled",
+      "beats": [
+        "action: zeros by inverse operations"
+      ]
+    },
+    {
+      "family_id": "vertex-and-point-to-function",
+      "disposition": "assembled",
+      "beats": [
+        "action: construct from constraints"
+      ]
+    },
+    {
+      "family_id": "constraint-construction",
+      "disposition": "assembled",
+      "beats": [
+        "action: construct from constraints"
+      ],
+      "must_not_be_drawer_only": true
+    },
+    {
+      "family_id": "representation-bridge",
+      "disposition": "assembled",
+      "beats": [
+        "action: construct from constraints"
+      ]
+    },
+    {
+      "family_id": "maximum-from-representations",
+      "disposition": "assembled",
+      "beats": [
+        "hook (inside Minds On tab)",
+        "consolidation"
+      ]
+    },
+    {
+      "family_id": "model-critique",
+      "disposition": "assembled",
+      "beats": [
+        "consolidation"
+      ],
+      "note": "Given vertex-form model; meaningful domain only. Not fitting data and not the Module 4 Lesson 5 applications lesson."
+    },
+    {
+      "family_id": "data-modelling",
+      "disposition": "drawer",
+      "beats": [],
+      "reason": "Pool marks needed: false. Regression / historical table is out of approved L1 scope. Do not assemble."
+    }
+  ],
+  "assembled_not_drawer": [
+    "error-diagnosis",
+    "claim-testing",
+    "constraint-construction",
+    "method-choice"
+  ],
+  "drawer_policy": "Parent maps fade cells to accepted vf-* ids. Extra accepted items in an assembled family may remain in the drawer after those cells are filled. Excluded records (Nelson bank, MathNet 0gz2, regression) stay out of the student page. data-modelling is drawer-only.",
+  "solution_convention": "Word-problem solutions (maximum-from-representations, model-critique, hook return) use Search / Translate / Answer / Review plus a supporting diagram. That structure is for authored solutions only. Do not put STAR labels, or Situation/Task/Action/Result, into student-facing copy in this brief or later stems.",
   "hook_constraint": "Need a situation where the high or low point of a quadratic model is the decision students care about (path, throw, fountain, height, and similar). The lesson must return to that same situation in consolidation. Do not open by reminding students that they already know stretching, flipping, or sliding y = x^2. A fountain or water-arc image is allowed only if a reusable signed-out source exists; otherwise use a situation that needs no photo. No required login, Gizmos, or Desmos API.",
-  "instructional_sequence_intent": "Need the high or low point from an equation (hook) → predict the vertex from a plus-inside writing → worked then varied inspection → predict, move one parameter, compare graph and equation, explain → expand vertex form and verify equivalent graphs → fresh case that returns to the hook.",
+  "instructional_sequence_intent": "Need the high or low point from an equation (hook, family maximum-from-representations) → plus-inside diagnostic (read-vertex-features) → worked then varied inspection → student error-diagnosis and axis claim-testing → predict/move/check on the board only (predict-parameter-change) → expand fade (equivalent-forms) → method-choice, table claim-testing, expand error-diagnosis → form-affordances → zeros by inverse operations → construct from constraints (vertex-and-point, constraint-construction, representation-bridge) → consolidation retrieval on the hook equation plus light model-critique.",
   "expectations": [
     {
       "code": "A2.7",
       "statement": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
       "source": "lms/seeds/mcf3m_expectations.json",
+      "sample_problem": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
       "why_this_lesson": "The named lesson starts from vertex form. Expanding to standard form and checking graphs is the algebraic identity of that form, without completing the square."
     },
     {
@@ -79,6 +286,7 @@
       "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
     }
   ],
+  "package_mapping_note": "resolved-context.lesson-director.json also lists A2.5 and A2.6 as package_proposal mappings to this lesson. Strand map places both in module 1. This brief treats them as prerequisites, not new M4 targets. No wording disagreement between the seed and module-lessons.json (the latter has the title 'Lesson 1: The Vertex Form of a Quadratic Function' and no expectation text).",
   "not_this_lesson": [
     {
       "code": "A2.5",
@@ -116,7 +324,7 @@
     },
     {
       "code": "A3.3",
-      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Vertex-form max/min in context is possible here but not attached."
+      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Vertex-form max/min in context is possible here but not attached as that expectation."
     }
   ],
   "prerequisites": [
@@ -235,12 +443,12 @@
     {
       "type": "table",
       "must_connect": true,
-      "note": "Shared points after a parameter change or after expanding, to show the representations match."
+      "note": "Shared points after a parameter change or after expanding, to show the representations match; also the claim that a finite table does not prove identity."
     },
     {
       "type": "diagram",
       "must_connect": true,
-      "note": "Labelled vertex and axis on a sketch; not a new representation family beyond graph."
+      "note": "Labelled vertex and axis on a sketch; supporting diagram on word-problem solutions. Not a new representation family beyond graph."
     },
     {
       "type": "equation",
@@ -279,12 +487,17 @@
       "label": "instructional_hypothesis",
       "id": "max-min-from-a",
       "hypothesis": "Students decide maximum versus minimum from the sign of k, or from whether the vertex is in quadrant I, instead of from the sign of a."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "table-as-proof",
+      "hypothesis": "Students treat a few matching table values or a graphing-window overlap as a proof that two writings are the same function for every x."
     }
   ],
   "uncertainties": [
-    "A2.10 is one Ministry statement about all three forms. This brief attaches the full verbatim code because M4's share is vertex-form inspection, but factored/standard inspection is already Module 3. Shawn should confirm listing A2.10 here (with that share) rather than treating it as fully done in M3.",
-    "A2.7 (expand vertex → standard, verify with technology) matches the lesson name and the seed sample. This brief now includes expansion as an action beat and a process to teach. Confirm A2.7 stays in Lesson 1 rather than moving beside A2.8 in Lesson 2.",
-    "A3.3 is deferred to Lesson 5. Confirm that a single contextual max/min from a given vertex-form model is not required in this lesson.",
+    "A2.7 (expand vertex → standard, verify with technology) matches the lesson name and the seed sample. This brief keeps expansion as an Action beat and a full-fade process. Shawn should confirm A2.7 stays in Lesson 1 rather than moving beside A2.8 in Lesson 2. Do not decide here.",
+    "A2.10 is one Ministry statement about all three forms. This brief attaches the full verbatim code because M4's share is vertex-form inspection, but factored/standard inspection is already Module 3. Shawn should confirm listing A2.10 here (with that share) rather than treating it as fully done in M3. Do not decide here.",
+    "A3.3 stays Module 4 Lesson 5. This brief assembles a light model-critique (meaningful domain of a given vertex-form model) in consolidation and does not attach A3.3. Shawn should confirm that a single contextual max/min from a given vertex-form model is not required as that expectation. Do not decide here.",
     "module-lessons.json title is 'Lesson 1: The Vertex Form of a Quadratic Function'; lesson_number is also 1. No disagreement with the seed (the seed has no per-lesson titles)."
   ]
 }

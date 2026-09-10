@@ -1,0 +1,62 @@
+{
+  "schema_version": "terminology.v1",
+  "id": "mcf3m-a2-quadratic-forms",
+  "course_code": "MCF3M",
+  "scope": "A2.7–A2.11",
+  "precedence": ["teacher_decision", "course_convention", "ontario_curriculum", "topic_lexicon"],
+  "terms": {
+    "vertex_form": {
+      "preferred": "vertex form",
+      "means": "f(x) = a(x − h)^2 + k",
+      "avoid": ["the writing"]
+    },
+    "standard_form": {
+      "preferred": "standard form",
+      "means": "f(x) = ax^2 + bx + c"
+    },
+    "factored_form": {
+      "preferred": "factored form",
+      "means": "f(x) = a(x − r)(x − s)"
+    },
+    "zero": {
+      "preferred": "zero",
+      "note": "A zero is a number. The x-intercept is the point (zero, 0)."
+    },
+    "axis": {
+      "preferred": "axis of symmetry",
+      "means": "the vertical line x = h"
+    }
+  },
+  "lint": [
+    {
+      "id": "writing-for-form",
+      "pattern": "the writing",
+      "direction": "Use vertex form, standard form, or factored form — not “the writing” as a substitute for “form”."
+    },
+    {
+      "id": "expanded-writing",
+      "pattern": "expanded writing",
+      "direction": "Say standard form or “expanded equation”."
+    },
+    {
+      "id": "books-swap-names",
+      "pattern": "some books swap",
+      "direction": "Use this course’s names directly. Add an optional “Other terminology” remark only if a real conflict must be explained."
+    },
+    {
+      "id": "equation-under-graph",
+      "pattern": "under the graph",
+      "direction": "Name the object (the vertex-form equation above the graph, or the live equation labelled Vertex form)."
+    },
+    {
+      "id": "do-the-vertex",
+      "pattern": "do the vertex",
+      "direction": "Rewrite … in vertex form, or name the vertex."
+    },
+    {
+      "id": "roots-as-points",
+      "pattern": "roots are \\(",
+      "direction": "Zeros are numbers; x-intercepts are points."
+    }
+  ]
+}

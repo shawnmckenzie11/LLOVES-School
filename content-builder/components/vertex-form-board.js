@@ -109,7 +109,7 @@
       boundingbox: [-8, 10, 8, -6],
       axis: true,
       showCopyright: false,
-      showNavigation: true,
+      showNavigation: false,
       keepaspectratio: false,
     });
 

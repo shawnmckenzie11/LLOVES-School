@@ -1,0 +1,107 @@
+{
+  "schema_version": "source-map.v1",
+  "source": {
+    "id": "nelson-mcf3m-4-1",
+    "file_name": "MCF3M Nelson Lesson 4.1.pdf",
+    "library_file_id": "libfile_e2d03712cde48191abf78770941d36c9",
+    "pdf_pages": 10,
+    "printed_pages": "196-205",
+    "lesson_title": "The Vertex Form of a Quadratic Function",
+    "rights_status": "restricted_pending_review",
+    "student_export_policy": "Do not export page crops, publisher illustrations, calculator screenshots, or source wording until reuse rights are confirmed. Recreate mathematical diagrams deterministically and author new wording."
+  },
+  "extraction_quality": {
+    "raw_ocr_status": "unsafe_for_automatic_promotion",
+    "observed_errors": [
+      "equals signs read as 5",
+      "minus signs read as 2",
+      "plus-minus read as 6",
+      "superscript 2 detached or attached to the wrong expression",
+      "negative coordinate signs lost",
+      "radicals, inequalities, set notation, and column order corrupted",
+      "worked equations interleaved with explanatory margin text"
+    ],
+    "required_gate": "Visual comparison of every math-bearing region against the rendered page before candidate approval."
+  },
+  "page_inventory": [
+    {"pdf_page": 1, "printed_page": 196, "objects": ["lesson goal", "garden model", "two area functions", "Example 1 algebra method"]},
+    {"pdf_page": 2, "printed_page": 197, "objects": ["Example 1 graph/table method", "Example 2 maximum-area start"]},
+    {"pdf_page": 3, "printed_page": 198, "objects": ["Example 2 continuation", "vertex-form definition", "Reflecting A-D"]},
+    {"pdf_page": 4, "printed_page": 199, "objects": ["Example 3 feature reading, sketch, domain and range"]},
+    {"pdf_page": 5, "printed_page": 200, "objects": ["Example 3 graph", "Example 4 expanding/factoring method"]},
+    {"pdf_page": 6, "printed_page": 201, "objects": ["Example 4 inverse-operations and calculator methods"]},
+    {"pdf_page": 7, "printed_page": 202, "objects": ["Example 4 conclusion", "Example 5 graph-to-equation start"]},
+    {"pdf_page": 8, "printed_page": 203, "objects": ["Example 5 conclusion", "summary", "questions 1-3"]},
+    {"pdf_page": 9, "printed_page": 204, "objects": ["question 4 feature table", "question 5 zeros", "question 6 form comparison", "question 7 bungee model", "question 8 vertex-plus-point construction"]},
+    {"pdf_page": 10, "printed_page": 205, "objects": ["question 9 four graphs", "question 10 ball model", "question 11 sketching", "question 12 zeros-plus-point construction", "questions 13-14 explanation/comparison", "question 15 historical dataset", "question 16 form conversion"]}
+  ],
+  "verified_visual_regions": [
+    {
+      "id": "p204-q4-table",
+      "pdf_page": 9,
+      "printed_page": 204,
+      "item": "Q4",
+      "type": "table",
+      "render_px": [1200, 1500],
+      "crop_px": [300, 70, 820, 440],
+      "required_content": ["six functions", "vertex", "axis of symmetry", "opening", "range", "sketch"],
+      "visual_verified": true,
+      "publish_crop": false
+    },
+    {
+      "id": "p204-q7-q8",
+      "pdf_page": 9,
+      "printed_page": 204,
+      "item": "Q7-Q8",
+      "type": "context-and-symbolic-prompts",
+      "render_px": [1200, 1500],
+      "crop_px": [50, 820, 1080, 520],
+      "required_content": ["bungee illustration and model", "vertex-plus-point cases"],
+      "visual_verified": true,
+      "publish_crop": false
+    },
+    {
+      "id": "p205-q9-graphs",
+      "pdf_page": 10,
+      "printed_page": 205,
+      "item": "Q9a-d",
+      "type": "four-graph-set",
+      "render_px": [1200, 1500],
+      "crop_px": [150, 55, 650, 560],
+      "required_content": ["axes", "scales", "vertices", "one additional point per graph", "part labels a-d"],
+      "visual_verified": true,
+      "publish_crop": false,
+      "rebuild_recommendation": "Recreate as four accessible SVG or graph-component records linked to one question family."
+    },
+    {
+      "id": "p205-q15-table",
+      "pdf_page": 10,
+      "printed_page": 205,
+      "item": "Q15",
+      "type": "data-table",
+      "render_px": [1200, 1500],
+      "crop_px": [860, 825, 300, 570],
+      "required_content": ["year 1994-2005", "cigarettes sold in millions of units"],
+      "visual_verified": true,
+      "publish_crop": false,
+      "pedagogical_flag": "Historical dataset; label as historical and add model-fit/limitations judgment, or replace with a documented current dataset."
+    }
+  ],
+  "cross_page_dependencies": [
+    {"object": "Example 1", "pages": [1, 2]},
+    {"object": "Example 2", "pages": [2, 3]},
+    {"object": "Example 3", "pages": [4, 5]},
+    {"object": "Example 4", "pages": [5, 6, 7]},
+    {"object": "Example 5", "pages": [7, 8]},
+    {"object": "Q2", "depends_on": "Q1 functions"},
+    {"object": "Q9", "depends_on": "four graph regions"},
+    {"object": "Q15", "depends_on": "historical data table"}
+  ],
+  "editorial_math_flags": [
+    "A finite table or matching graph window supports but does not prove algebraic equivalence for all inputs.",
+    "Write: solving u^2 = 36 gives u = plus or minus 6; do not say the square root itself is positive or negative.",
+    "Distinguish h from the axis equation x = h, k from the extremum value, and (h,k) from the vertex.",
+    "Separate algebraic domain from the meaningful domain of a garden, projectile, or other context.",
+    "Do not present the bungee quadratic as a complete physical model without stating the modelled interval."
+  ]
+}

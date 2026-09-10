@@ -27,7 +27,7 @@ Load: `resolved-context.student-copywriter.json` if present, `lesson-brief.json`
 
 Follow the student-language rule exactly. Address the student. Say what to do, what to attend to, and why it matters when that helps. Introduce objects before referring to them. Connect each task to something already seen. No artificial enthusiasm, canned transitions, or itinerary narration. Never mention JSXGraph, GeoGebra, ranks, catalogue ids, agent names, or “verified seed.”
 
-Word-problem **solutions**: model-STAR + diagram. Do not solve transfer/challenge stems.
+Word-problem **solutions**: model-STAR is Search, Translate, Answer, Review plus a supporting diagram — never Situation/Task/Action/Result. Do not solve transfer/challenge stems.
 
 Feedback messages: observable evidence only (see formative-feedback-designer). Do not diagnose a hidden misconception from a slider value.
 

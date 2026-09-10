@@ -1,0 +1,36 @@
+{
+  "schema_version": "question-baseline.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "source_id": "nelson-mcf3m-4-1",
+  "scope": "A2.7 and the vertex-form share of A2.10; later completing-square, formula, discriminant, regression, and full-application instruction remain out of scope unless separately approved.",
+  "counts": {"worked_examples": 5, "reflection_prompts": 4, "numbered_exercise_groups": 16},
+  "families": [
+    {"id": "equivalent-forms", "source_refs": ["Example 1", "Q3", "Q13", "Q16"], "bloom_default": "apply", "higher_order_path": "Analyze why algebra proves equivalence while sampled tables/graphs only corroborate it.", "representations": ["symbolic", "graph", "table"]},
+    {"id": "maximum-from-representations", "source_refs": ["Example 2", "Q7", "Q10"], "bloom_default": "apply", "higher_order_path": "Compare methods and critique meaningful contextual domain.", "representations": ["context", "factored form", "vertex form", "graph"]},
+    {"id": "read-vertex-features", "source_refs": ["Example 3", "Q1", "Q2", "Q4", "Q11"], "bloom_default": "understand/apply", "higher_order_path": "Diagnose sign errors or construct a function from constraints.", "representations": ["vertex form", "graph", "table"]},
+    {"id": "zeros-from-vertex-form", "source_refs": ["Example 4", "Q5"], "bloom_default": "apply", "higher_order_path": "Compare inverse operations, factoring, and graphing for efficiency and reliability.", "representations": ["symbolic", "graph", "calculator"]},
+    {"id": "vertex-and-point-to-function", "source_refs": ["Example 5", "Q8", "Q9"], "bloom_default": "apply", "higher_order_path": "Identify insufficient or inconsistent information and explain remaining degrees of freedom.", "representations": ["graph", "coordinates", "vertex form"]},
+    {"id": "form-affordances", "source_refs": ["Reflecting B-C", "Q6", "Q14"], "bloom_default": "understand", "higher_order_path": "Select and defend the most informative form for a stated decision.", "representations": ["standard form", "vertex form", "factored form"]},
+    {"id": "data-modelling", "source_refs": ["Q15"], "bloom_default": "apply", "higher_order_path": "Create and evaluate a model by defending fit, domain, and limits of extrapolation.", "representations": ["table", "regression", "graph", "equation"]}
+  ],
+  "expansion_recipes": [
+    {"recipe": "representation-bridge", "bloom": "analyze", "evidence": "Map corresponding features across two forms or a form and graph."},
+    {"recipe": "error-diagnosis", "bloom": "analyze", "evidence": "Locate the first invalid step, explain the misconception, and repair it."},
+    {"recipe": "method-choice", "bloom": "evaluate", "evidence": "Choose between valid methods using a stated mathematical criterion."},
+    {"recipe": "claim-testing", "bloom": "evaluate", "evidence": "Prove, qualify, or refute a claim with a case, counterexample, or structural argument."},
+    {"recipe": "constraint-construction", "bloom": "create", "evidence": "Construct a function satisfying several constraints and justify whether the result is unique."},
+    {"recipe": "model-critique", "bloom": "evaluate", "evidence": "Interpret domain and assumptions, then judge where the model is useful."}
+  ],
+  "pilot_target": {
+    "baseline_current_builder_candidates": 12,
+    "qualified_candidate_target": [24, 36],
+    "counting_rule": "Count distinct reasoning families separately from numeric or surface-context instances.",
+    "proposed_new-family_mix": "At least 40% of newly accepted families at Analyze/Evaluate/Create when lesson objectives support it; record exceptions instead of manufacturing quota fillers.",
+    "selection_rule": "The lesson itself need not use every candidate or every Bloom level. The pool supports coherent selection."
+  },
+  "rights_and_verification": {
+    "source_extracts": "restricted_pending_review",
+    "recommended_student_use": "Author original prompts and deterministic representations from approved mathematical families; retain source/page provenance internally.",
+    "answer_policy": "Never fabricate an official publisher key. Independently derive a solution, label it authored, and require mathematical verification before approval."
+  }
+}

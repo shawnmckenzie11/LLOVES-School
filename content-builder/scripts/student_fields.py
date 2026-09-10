@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-ALLOWED_PART_IDS = frozenset({"hook", "minds-on", "action", "consolidation"})
+ALLOWED_PART_IDS = frozenset({"minds-on", "action", "consolidation"})
+ALLOWED_TOP_KEYS = frozenset(
+    {"schema_version", "lesson_id", "title", "credits", "objects", "parts"}
+)
 ALLOWED_BLOCK_TYPES = frozenset(
     {
         "p",
@@ -14,18 +17,25 @@ ALLOWED_BLOCK_TYPES = frozenset(
         "practice-set",
         "example",
         "self-check",
+        "card",
+    }
+)
+ALLOWED_CARD_KINDS = frozenset(
+    {
+        "explore",
+        "worked-example",
+        "try",
+        "discuss",
+        "check",
+        "optional-remark",
     }
 )
 FORBIDDEN_STUDENT_SUBSTRINGS = (
     "JSXGraph",
     "GeoGebra",
-    "lesson_id",
     "interactive_bridge",
     "teacher_notes",
     "YOUR_API_KEY",
-    "rank 1",
-    "catalogue",
-    "agent",
     "verified seed",
     "no student login",
 )
@@ -38,22 +48,44 @@ def assert_student_content(doc: dict) -> None:
     if "teacher_notes" in doc or "provenance" in doc:
         raise ValueError("teacher_notes and provenance must not live in student-content.json")
     for key in doc:
-        if key not in {"schema_version", "lesson_id", "title", "credits", "parts"}:
+        if key not in ALLOWED_TOP_KEYS:
             raise ValueError(f"unpermitted student field: {key}")
+    object_ids = {item.get("id") for item in doc.get("objects") or [] if item.get("id")}
+    ids = [part.get("id") for part in doc.get("parts") or []]
+    if ids != ["minds-on", "action", "consolidation"]:
+        raise ValueError(f"parts must be minds-on, action, consolidation in order, got {ids}")
     for part in doc.get("parts", []):
         if part.get("id") not in ALLOWED_PART_IDS:
             raise ValueError(f"unpermitted part id: {part.get('id')}")
-        _walk_blocks(part.get("blocks") or [])
+        _walk_blocks(part.get("blocks") or [], object_ids)
 
 
-def _walk_blocks(blocks: list) -> None:
+def _walk_blocks(blocks: list, object_ids: set[str]) -> None:
     for block in blocks:
         kind = block.get("type")
         if kind not in ALLOWED_BLOCK_TYPES:
             raise ValueError(f"unpermitted block type: {kind}")
+        if not block.get("id"):
+            raise ValueError("every student block needs a stable id")
+        if kind == "card":
+            if block.get("kind") not in ALLOWED_CARD_KINDS:
+                raise ValueError(f"unpermitted card kind: {block.get('kind')}")
+            if not (block.get("label") or "").strip():
+                raise ValueError(f"card {block.get('id')} needs a text label")
+            for oid in block.get("object_ids") or []:
+                if oid not in object_ids:
+                    raise ValueError(f"card {block.get('id')} references unknown object {oid}")
+            _walk_blocks(block.get("blocks") or [], object_ids)
         if kind == "example":
-            _walk_blocks(block.get("blocks") or [])
-        blob = " ".join(str(v) for k, v in block.items() if k != "blocks" and not isinstance(v, (dict, list)))
+            _walk_blocks(block.get("blocks") or [], object_ids)
+        oid = block.get("object_id")
+        if oid and oid not in object_ids:
+            raise ValueError(f"block {block.get('id')} references unknown object {oid}")
+        blob = " ".join(
+            str(v)
+            for k, v in block.items()
+            if k != "blocks" and not isinstance(v, (dict, list))
+        )
         for needle in FORBIDDEN_STUDENT_SUBSTRINGS:
             if needle.lower() in blob.lower() and needle in (
                 "interactive_bridge",

@@ -6,198 +6,426 @@
       "id": "inspect-vertex-form",
       "name": "Inspect vertex form: vertex (h, k) including plus-inside, axis x = h, maximum or minimum from the sign of a",
       "support_fade": {
-        "worked": "openstax-ca2e-m51274-vertex-form-definition",
-        "variation": "A2.6-example-0",
-        "partial": "geogebra-cxk4xt4u",
-        "independent": "interaction-spec.json#fresh_case_equation",
-        "retrieval": "m51274#section-exercises-22"
-      }
-    },
-    {
-      "id": "predict-parameter-change",
-      "name": "Predict what changing one of a, h, or k will do, then check the graph and the rewritten equation",
-      "support_fade": {
-        "worked": "jsxgraph-vertex-form-board#predict-h",
-        "variation": "jsxgraph-vertex-form-board#predict-a-or-k",
-        "partial": "geogebra-cxk4xt4u",
-        "independent": "m51274#section-exercises-53",
-        "retrieval": "interaction-spec.json#fresh_case_equation"
+        "worked": "vf-read-open-down",
+        "variation": "vf-k-zero-maximum",
+        "partial": "vf-error-h-sign",
+        "independent": "vf-claim-axis-is-y",
+        "retrieval": "vf-fresh-read"
       }
     },
     {
       "id": "expand-and-verify",
-      "name": "Expand vertex form into standard form and verify equivalent representations with graphing technology",
+      "name": "Expand vertex form into standard form and verify equivalent representations",
       "support_fade": {
-        "worked": "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand",
-        "variation": "interaction-spec.json#starting_equation",
-        "partial": "interaction-spec.json#starting_equation#complete-the-expansion",
-        "independent": "ontario-seed-mcf3m-A2.7-sample",
-        "retrieval": "jsxgraph-vertex-form-board#live-expansion"
+        "worked": "vf-expand-half",
+        "variation": "already-taught:interaction-spec.json#expand-same-graph",
+        "partial": "vf-error-expand-distribute",
+        "independent": "vf-ministry-expand",
+        "retrieval": "vf-table-not-proof"
       }
     },
     {
       "id": "three-form-contrast",
       "name": "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings",
       "support_fade": {
-        "worked": "openstax-ca2e-m51274-advantage-verbal",
-        "variation": "lms/seeds/mcf3m_expectations.json#A2.10",
-        "partial": "lms/seeds/mcf3m_expectations.json#A2.10",
-        "independent": "openstax-ca2e-m51274-advantage-verbal",
-        "retrieval": "interaction-spec.json#fresh_case_equation"
+        "worked": "vf-form-advantage",
+        "variation": "vf-form-choice-defend",
+        "partial": "already-taught:module-3-standard-and-factored-inspection",
+        "independent": "vf-form-choice-defend",
+        "retrieval": "already-taught:no-separate-three-form-retrieval"
+      }
+    },
+    {
+      "id": "zeros-from-vertex-form",
+      "name": "Find zeros of a given vertex-form equation by inverse operations only (no quadratic formula, no completing the square)",
+      "support_fade": {
+        "worked": "vf-zeros-inverse",
+        "variation": "review-only:zeros-method-choice-stays-drawer",
+        "partial": "already-taught:inverse-operations-in-worked-zeros",
+        "independent": "vf-zeros-inverse",
+        "retrieval": "vf-model-arc-domain"
+      }
+    },
+    {
+      "id": "construct-from-constraints",
+      "name": "Construct a vertex-form equation from a vertex plus another point (or stated constraints), and say what remains free if only the vertex is known",
+      "support_fade": {
+        "worked": "vf-vertex-and-point",
+        "variation": "vf-bridge-graph-equation",
+        "partial": "review-only:vertex-only-degrees-of-freedom-stays-drawer",
+        "independent": "vf-construct-same-vertex-different-a",
+        "retrieval": "vf-construct-same-vertex-different-a"
+      }
+    },
+    {
+      "id": "predict-parameter-change",
+      "name": "Predict from the equation what changing one of a, h, or k will do to the graph, then check that prediction against the graph and the rewritten equation",
+      "support_fade": {
+        "worked": "already-taught:interaction-spec.json#predict-h",
+        "variation": "already-taught:interaction-spec.json#predict-h",
+        "partial": "already-taught:interaction-spec.json#match-plus-inside",
+        "independent": "vf-predict-h-only",
+        "retrieval": "already-taught:fresh-case-board-stays-on-inspect-vertex-form"
       }
     }
   ],
   "candidates": [
     {
-      "source_ref": "NEL-C1-1GettingStarted-GS-p2-Q7",
-      "title": "Vertex of y = −2(x + 3)^2 + 5 (h-sign)",
-      "placement": "additional_practice",
-      "process_id": "inspect-vertex-form",
-      "purpose": "Extra plus-inside vertex reading if a licence exists; use part (d) only. The full bank item also asks for a transformation list (A2.5/A2.6), which is not this lesson.",
-      "visible_by_default": false,
-      "exclusion_reason": "Unknown commercial licence (Nelson Functions 11 local bank). Do not print the bank stem in student HTML."
-    },
-    {
-      "source_ref": "geogebra-cxk4xt4u",
-      "title": "Predict vertex of (x + 3)^2 + 1, then check sliders",
+      "source_ref": "vf-read-plus-inside",
+      "title": "Name the vertex when the brackets show a plus",
       "placement": "guided_practice",
       "process_id": "inspect-vertex-form",
-      "purpose": "Partial support for plus-inside inspection: name the vertex before any slider moves, then check on the local board (GeoGebra is analogue only; do not require it). The same board then carries predict–move–check for one parameter.",
+      "purpose": "Minds On diagnostic: commit to a vertex from a plus-inside equation before the graph. Not the inspect partial cell — that cell is error-diagnosis.",
       "visible_by_default": true
     },
     {
-      "source_ref": "A2.6-example-0",
-      "title": "Ministry A2.6 sample: vertex of −2(x + 1)^2",
+      "source_ref": "vf-read-open-down",
+      "title": "Vertex and maximum from a negative a",
       "placement": "worked_example",
       "process_id": "inspect-vertex-form",
-      "purpose": "Varied second inspection: plus-inside with k = 0 so maximum versus minimum cannot be taken from k, and a < 0. Quote the seed sample; do not treat sketching-by-transformation as a new M4 target.",
+      "purpose": "Worked inspection: vertex, axis, and maximum from the sign of a, including matching (x + 2) to (x − h).",
       "visible_by_default": true
     },
     {
-      "source_ref": "openstax-ca2e-m51274-vertex-form-definition",
-      "title": "OpenStax worked reading: y = −3(x + 2)^2 + 4",
+      "source_ref": "vf-k-zero-maximum",
+      "title": "Maximum when k is zero",
       "placement": "worked_example",
       "process_id": "inspect-vertex-form",
-      "purpose": "Fully explained first inspection: match (x + 2) to (x − h), name vertex, axis, and maximum from the sign of a. Keep OpenStax wording in the source field; Ontario name is vertex form.",
+      "purpose": "Varied inspection: k = 0 so maximum versus minimum cannot be taken from k.",
       "visible_by_default": true
     },
     {
-      "source_ref": "ontario-seed-mcf3m-A2.7-sample",
-      "title": "MCF3M A2.7 sample: expand 3(x − 1)^2 + 4",
+      "source_ref": "vf-error-h-sign",
+      "title": "First invalid step: reading +3 as h = 3",
       "placement": "core_practice",
-      "process_id": "expand-and-verify",
-      "purpose": "Independent expand-and-verify after a worked expansion. Verbatim Ministry sample. Seed has no key; do not invent expanded coefficients.",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Assembled error-diagnosis (not drawer-only). Partial slot for inspect-vertex-form: locate and repair the h-sign error. Folded from assembly process diagnose-vertex-errors.",
       "visible_by_default": true
     },
     {
-      "source_ref": "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand",
-      "title": "OpenStax: expand ½(x + 2)^2 − 3 and check a table",
-      "placement": "worked_example",
-      "process_id": "expand-and-verify",
-      "purpose": "Fully explained expansion of vertex form, then table check that both writings give the same outputs. Same catalogue record as the inspection reading; this is the Figure 7 expand path only.",
-      "visible_by_default": true
-    },
-    {
-      "source_ref": "openstax-ca2e-m51274-advantage-verbal",
-      "title": "OpenStax verbal: advantage of this form",
+      "source_ref": "vf-claim-axis-is-y",
+      "title": "Test the claim that the axis is y = h",
       "placement": "core_practice",
-      "process_id": "three-form-contrast",
-      "purpose": "Independent verbal contrast: what vertex form makes readable versus ax^2 + bx + c. Do not ask students to produce another writing. Copywriter must not call a(x − h)^2 + k “standard form” in student prose.",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Assembled claim-testing (not drawer-only). Independent/transfer of inspect-vertex-form: prove, qualify, or refute the axis-as-y claim. Folded from assembly process diagnose-vertex-errors.",
       "visible_by_default": true
     },
     {
-      "source_ref": "NEL-C1-1GettingStarted-GS-p2-Q6",
-      "title": "Nelson: label vertex and axis from mixed equations",
+      "source_ref": "vf-error-max-from-k",
+      "title": "First invalid step: maximum from the sign of k",
       "placement": "additional_practice",
       "process_id": "inspect-vertex-form",
-      "purpose": "Further vertex and axis labelling on vertex-form equations if a licence exists. Skip the standard-form part (vertex not readable by inspection; completing the square is Lesson 2).",
-      "visible_by_default": false,
-      "exclusion_reason": "Unknown commercial licence (Nelson Functions 11 local bank). Do not print the bank stem in student HTML."
-    },
-    {
-      "source_ref": "m51274#section-exercises-22",
-      "title": "OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6",
-      "placement": "additional_practice",
-      "process_id": "inspect-vertex-form",
-      "purpose": "Later retrieval of plus-inside inspection via domain and range from k and the sign of a. Catalogue has no solution element; do not invent the range. Not yet its own catalogue record.",
+      "purpose": "Drawer: k-versus-a max/min error. Same misconception as vf-k-zero-maximum; extra diagnosis only.",
       "visible_by_default": false
     },
     {
-      "source_ref": "NEL-C3-3ChapterSelfTest-ST-p204-Q3",
-      "title": "Which form for which information (A2.10)",
+      "source_ref": "vf-range-from-vertex",
+      "title": "Domain and range from vertex form",
       "placement": "additional_practice",
-      "process_id": "three-form-contrast",
-      "purpose": "Further three-form contrast if a licence exists: which writing for vertex, intercepts, zeros, axis, domain and range. Use only the readable prompt; ignore garbled OCR.",
-      "visible_by_default": false,
-      "exclusion_reason": "Unknown commercial licence (Nelson Functions 11 local bank). Do not print the bank stem in student HTML."
+      "process_id": "inspect-vertex-form",
+      "purpose": "Drawer: domain and range from vertex form. A2.3 already taught; extra retrieval only.",
+      "visible_by_default": false
     },
     {
-      "source_ref": "m51274#section-exercises-53",
-      "title": "OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2",
-      "placement": "additional_practice",
+      "source_ref": "vf-predict-h-only",
+      "title": "Predict a horizontal shift from h",
+      "placement": "core_practice",
       "process_id": "predict-parameter-change",
-      "purpose": "Independent try-another for one-parameter change in h, including plus-inside versus minus-inside. Catalogue has no solution element; do not invent a key. Not yet its own catalogue record.",
+      "purpose": "Action predict–move–check beat. Independent one-parameter h change after the vertex board has taught predict/check. No second paper fade.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-expand-half",
+      "title": "Expand ½(x + 2)^2 − 3",
+      "placement": "worked_example",
+      "process_id": "expand-and-verify",
+      "purpose": "Worked expansion of ½(x + 2)² − 3 with a two-value check. Table values corroborate; they do not prove identity.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-ministry-expand",
+      "title": "Ministry sample: expand 3(x − 1)^2 + 4",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "purpose": "Independent A2.7 sample after the expand-same-graph board. Authored expansion, not a Ministry key.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-method-equivalence",
+      "title": "Choose how to check that two writings are the same curve",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "purpose": "Assembled method-choice (not drawer-only). Transfer of expand-and-verify: algebra versus a graph under “prove they are the same function for every x.” Not a three-form-contrast cell.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-table-not-proof",
+      "title": "Why matching table values do not prove identity",
+      "placement": "extension",
+      "process_id": "expand-and-verify",
+      "purpose": "Assembled claim-testing (not drawer-only). Retrieval/transfer of expand-and-verify: a finite table corroborates, it does not prove identity.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-error-expand-distribute",
+      "title": "First invalid step in an expansion",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "purpose": "Assembled error-diagnosis (not drawer-only). Partial slot for expand-and-verify: repair a binomial-square distribution error. Folded from assembly process diagnose-vertex-errors.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-compare-two-writings",
+      "title": "Same curve, two writings",
+      "placement": "additional_practice",
+      "process_id": "expand-and-verify",
+      "purpose": "Drawer: same identity as the worked expand plus readable-features contrast. Not a second assembled expand drill.",
       "visible_by_default": false
     },
     {
-      "source_ref": "mathnet-0gz2",
-      "title": "MathNet 0gz2 (olympiad; rewrite required)",
+      "source_ref": "vf-form-advantage",
+      "title": "What vertex form makes readable",
+      "placement": "worked_example",
+      "process_id": "three-form-contrast",
+      "purpose": "Worked contrast: what vertex form makes readable versus standard form, without producing another writing.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-form-choice-defend",
+      "title": "Defend a form for a stated decision",
+      "placement": "core_practice",
+      "process_id": "three-form-contrast",
+      "purpose": "Assembled method-choice recipe on form-affordances (not drawer-only). Compact variation and independent: defend vertex form for a highest-point decision, not intercepts.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-zeros-inverse",
+      "title": "Zeros from vertex form by inverse operations",
+      "placement": "core_practice",
+      "process_id": "zeros-from-vertex-form",
+      "purpose": "Compact worked and independent zeros: undo operations (both signs). No quadratic formula. Same assembled stem serves both fade cells.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-zeros-method-choice",
+      "title": "Choose a method for zeros of a vertex-form equation",
+      "placement": "additional_practice",
+      "process_id": "zeros-from-vertex-form",
+      "purpose": "Drawer: extra method-choice on zeros. Director beat names this stem; assembly keeps it off the page so the page is not a dump of every method-choice item. Richness family method-choice is already assembled via vf-method-equivalence and vf-form-choice-defend.",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "vf-vertex-and-point",
+      "title": "Recover a from a vertex and another point",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Worked construction: recover a from vertex plus a point; uniqueness is asked in the stem.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-bridge-graph-equation",
+      "title": "Map a labelled graph to vertex form",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Variation: labelled graph features mapped to a, h, and k. Representation-bridge on the page.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-construct-same-vertex-different-a",
+      "title": "Two vertex forms with the same turning point",
+      "placement": "core_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Assembled constraint-construction (not drawer-only). Compact independent and retrieval: two different writings with the same vertex.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-insufficient-vertex-only",
+      "title": "What remains free if you only know the vertex",
+      "placement": "additional_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Drawer: degrees of freedom when only the vertex is known. Director wanted this as assembled partial/independent; assembly keeps it drawer because uniqueness is already inside vf-vertex-and-point.",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "vf-unique-opening-and-point",
+      "title": "Vertex, opening, and a point: is a unique?",
+      "placement": "additional_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Drawer: extra uniqueness variant (opening constrained plus a point).",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "vf-bridge-features-table",
+      "title": "Match vertex-form features to a table",
+      "placement": "additional_practice",
+      "process_id": "construct-from-constraints",
+      "purpose": "Drawer: table-to-vertex-form bridge. Graph bridge is on the page. Folded from assembly seed process inspect-vertex-form into construct-from-constraints (director representation-bridge beat).",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "vf-fresh-read",
+      "title": "Read a new downward-opening vertex form",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Consolidation retrieval of inspection plus A2.7 awareness (expanding does not move the curve). Same situation family as the hook equation, not a predict-parameter paper fade.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-maximum-from-vertex-form",
+      "title": "Read a maximum without completing the square",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Consolidation retrieval of a maximum from a given vertex-form model (maximum-from-representations). Hook is situation-only; do not solve this item in Minds On. Folded from assembly process interpret-context-vertex. Authored solution uses Search / Translate / Answer / Review plus a diagram — teacher-only structure, not student-facing labels.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-model-arc-domain",
+      "title": "Meaningful domain of a rising-then-falling model",
+      "placement": "extension",
+      "process_id": "zeros-from-vertex-form",
+      "purpose": "Consolidation model-critique of a given vertex-form height model (original stream, not A3.3). Retrieval of zeros-from-vertex-form via landing zeros, then a meaningful domain. Folded from assembly process interpret-context-vertex. Authored solution uses Search / Translate / Answer / Review plus a diagram — teacher-only structure, not student-facing labels.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "vf-excluded-nelson-bank",
+      "title": "Nelson bank items (internal only)",
       "placement": "excluded",
-      "purpose": "Olympiad packing and difficulty; not an MCF3M worksheet. Contest stem is not classroom copy. Rewrite was not accepted for this lesson.",
+      "purpose": "Nelson 4.1 bank stays internal. Do not export Functions 11 wording or crops.",
       "visible_by_default": false,
-      "exclusion_reason": "Excessive difficulty (Ukraine olympiad). Licence not confirmed for classroom use of the contest text; MathNet convenience key is unverified. Do not print the contest stem."
+      "exclusion_reason": "Restricted pending reuse rights. Do not export source wording or crops. Use original prompts in accepted records instead."
+    },
+    {
+      "source_ref": "vf-excluded-mathnet-0gz2",
+      "title": "MathNet 0gz2 olympiad stem",
+      "placement": "excluded",
+      "purpose": "MathNet contest stem is not classroom copy.",
+      "visible_by_default": false,
+      "exclusion_reason": "Olympiad difficulty; contest stem is not classroom copy. Convenience key unverified."
+    },
+    {
+      "source_ref": "vf-excluded-regression",
+      "title": "Historical data-fitting (out of scope)",
+      "placement": "excluded",
+      "purpose": "Regression / historical table is out of L1 scope. Recorded exception, not a quota filler. data-modelling stays off the student page.",
+      "visible_by_default": false,
+      "exclusion_reason": "Q15-style data fitting is labelled historical and out of this lesson’s approved scope. Recorded as a coverage exception, not a quota filler."
     }
   ],
   "sets": [
     {
+      "id": "minds-on-plus-inside",
+      "placement": "guided_practice",
+      "visible_count": 1,
+      "item_refs": ["vf-read-plus-inside"]
+    },
+    {
       "id": "worked-inspection",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["openstax-ca2e-m51274-vertex-form-definition"]
+      "item_refs": ["vf-read-open-down"]
     },
     {
       "id": "varied-inspection",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["A2.6-example-0"]
+      "item_refs": ["vf-k-zero-maximum"]
+    },
+    {
+      "id": "error-diagnosis-and-axis-claim",
+      "placement": "core_practice",
+      "visible_count": 2,
+      "item_refs": ["vf-error-h-sign", "vf-claim-axis-is-y"]
+    },
+    {
+      "id": "predict-parameter-change",
+      "placement": "core_practice",
+      "visible_count": 1,
+      "item_refs": ["vf-predict-h-only"]
     },
     {
       "id": "worked-expand",
       "placement": "worked_example",
       "visible_count": 1,
-      "item_refs": ["openstax-ca2e-m51274-vertex-form-definition#figure-7-expand"]
+      "item_refs": ["vf-expand-half"]
     },
     {
-      "id": "guided-h-sign",
-      "placement": "guided_practice",
+      "id": "independent-expand",
+      "placement": "core_practice",
       "visible_count": 1,
-      "item_refs": ["geogebra-cxk4xt4u"]
+      "item_refs": ["vf-ministry-expand"]
     },
     {
-      "id": "core-independent",
+      "id": "method-choice-and-expand-error",
       "placement": "core_practice",
       "visible_count": 2,
-      "item_refs": [
-        "openstax-ca2e-m51274-advantage-verbal",
-        "ontario-seed-mcf3m-A2.7-sample"
-      ]
+      "item_refs": ["vf-method-equivalence", "vf-error-expand-distribute"]
     },
     {
-      "id": "additional-licensed",
-      "placement": "additional_practice",
+      "id": "table-claim-testing",
+      "placement": "extension",
       "visible_count": 1,
+      "item_refs": ["vf-table-not-proof"]
+    },
+    {
+      "id": "worked-three-form",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": ["vf-form-advantage"]
+    },
+    {
+      "id": "defend-form-choice",
+      "placement": "core_practice",
+      "visible_count": 1,
+      "item_refs": ["vf-form-choice-defend"]
+    },
+    {
+      "id": "zeros-inverse",
+      "placement": "core_practice",
+      "visible_count": 1,
+      "item_refs": ["vf-zeros-inverse"]
+    },
+    {
+      "id": "construct-from-constraints",
+      "placement": "core_practice",
+      "visible_count": 3,
       "item_refs": [
-        "m51274#section-exercises-22",
-        "m51274#section-exercises-53"
+        "vf-vertex-and-point",
+        "vf-bridge-graph-equation",
+        "vf-construct-same-vertex-different-a"
       ]
     },
     {
-      "id": "additional-unlicensed-nelson",
+      "id": "consolidation-retrieval",
+      "placement": "additional_practice",
+      "visible_count": 2,
+      "item_refs": ["vf-fresh-read", "vf-maximum-from-vertex-form"]
+    },
+    {
+      "id": "consolidation-model-critique",
+      "placement": "extension",
+      "visible_count": 1,
+      "item_refs": ["vf-model-arc-domain"]
+    },
+    {
+      "id": "drawer",
       "placement": "additional_practice",
       "item_refs": [
-        "NEL-C1-1GettingStarted-GS-p2-Q7",
-        "NEL-C1-1GettingStarted-GS-p2-Q6",
-        "NEL-C3-3ChapterSelfTest-ST-p204-Q3"
+        "vf-range-from-vertex",
+        "vf-error-max-from-k",
+        "vf-compare-two-writings",
+        "vf-zeros-method-choice",
+        "vf-insufficient-vertex-only",
+        "vf-unique-opening-and-point",
+        "vf-bridge-features-table"
+      ]
+    },
+    {
+      "id": "excluded",
+      "placement": "excluded",
+      "item_refs": [
+        "vf-excluded-nelson-bank",
+        "vf-excluded-mathnet-0gz2",
+        "vf-excluded-regression"
       ]
     }
   ]

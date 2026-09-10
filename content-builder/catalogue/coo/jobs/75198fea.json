@@ -1,0 +1,68 @@
+{
+  "schema_version": "coo-job.v1",
+  "id": "75198fea",
+  "course": "MCF3M",
+  "lesson_id": "M5-L1-trig-ratios",
+  "kind": "scale-proof",
+  "state": "approved",
+  "budget": {
+    "max_concurrent_specialists": 3,
+    "production_passes": 1,
+    "repair_passes": 1,
+    "model_profile": "visible-deployment-setting"
+  },
+  "progress": {
+    "step": 6,
+    "detail": "approved"
+  },
+  "cancel_requested": false,
+  "gates": [
+    {
+      "lesson_id": "M5-L1-trig-ratios",
+      "ok": true,
+      "html": "/Users/shawnscomputer/Documents/LLOVES-School/content-builder/build/MCF3M/M5-L1-trig-ratios/index.html",
+      "html_failures": [],
+      "lint_hits": [],
+      "vertex_tasks": false,
+      "edits_reach_export": true
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "created",
+      "note": "bounded proof rebuild"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "grounded"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "planned"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "producing"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "verifying"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "review-ready"
+    },
+    {
+      "at": "2026-09-09T13:21:04+00:00",
+      "event": "advance",
+      "note": "approved"
+    }
+  ],
+  "updated_at": "2026-09-09T13:21:04+00:00"
+}

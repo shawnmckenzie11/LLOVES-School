@@ -71,7 +71,8 @@ button:hover {
 button[type="submit"],
 .review-head button,
 #load,
-#save-instruction,
+#save-student,
+#approve,
 #save-locks,
 .regen {
   background: var(--btn-primary-bg);
@@ -82,7 +83,8 @@ button[type="submit"],
 button[type="submit"]:hover,
 .review-head button:hover,
 #load:hover,
-#save-instruction:hover,
+#save-student:hover,
+#approve:hover,
 #save-locks:hover,
 .regen:hover {
   background: var(--btn-primary-hover);
@@ -91,7 +93,8 @@ button[type="submit"]:hover,
 
 button:focus-visible,
 #load:focus-visible,
-#save-instruction:focus-visible,
+#save-student:focus-visible,
+#approve:focus-visible,
 #save-locks:focus-visible {
   outline-color: var(--focus-on-accent);
 }
@@ -491,6 +494,19 @@ main:not(.review-main) {
   padding: var(--space-2) var(--space-3);
   border-left: 4px solid var(--accent);
   background: var(--accent-soft);
+}
+
+.diff-add {
+  background: var(--ok-bg);
+  border-left: 3px solid var(--ok-line);
+  padding: var(--space-2) var(--space-3);
+}
+
+.diff-del {
+  background: var(--retry-bg);
+  border-left: 3px solid var(--retry-line);
+  padding: var(--space-2) var(--space-3);
+  text-decoration: line-through;
 }
 
 .conflict-card pre {

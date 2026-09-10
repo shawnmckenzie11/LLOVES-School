@@ -1,0 +1,213 @@
+{
+  "schema_version": "pool-math-review.v1",
+  "reviewed_at": "2026-09-09T14:35:00-04:00",
+  "reviewer": "lesson-director / pedagogy",
+  "lesson_id": "M4-L1-vertex-form",
+  "course_code": "MCF3M",
+  "pool_path": "content-builder/catalogue/pools/MCF3M/M4-L1-vertex-form.json",
+  "student_content_path": "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+  "compiled_html_path": "content-builder/build/MCF3M/M4-L1-vertex-form/index.html",
+  "scope": "A2.7 and the vertex-form share of A2.10 only. Completing the square, quadratic formula, discriminant, regression, and the full applications lesson stay out of scope.",
+  "method": "Independent re-solve of six accepted items (Python arithmetic check; Wolfram MCP timed out). Match by id, then by student_facing when the requested id differs.",
+  "items": [
+    {
+      "requested_id": "vf-plus-inside-vertex",
+      "id": "vf-read-plus-inside",
+      "id_note": "Requested id not present; matched student_facing f(x) = (x + 3)^2 + 1, name vertex and axis.",
+      "bloom_primary": "apply",
+      "family": "read-vertex-features",
+      "student_facing": "Consider f(x) = (x + 3)^2 + 1. Name the vertex and the axis of symmetry. Do not sketch yet.",
+      "independent_solution": "Vertex form is a(x − h)^2 + k. Rewrite x + 3 as x − (−3), so h = −3 and k = 1. Vertex (−3, 1). Axis of symmetry is the vertical line x = −3. a = 1 > 0, so the vertex is a minimum. That last fact is extra relative to the stem, which asked only for vertex and axis.",
+      "authored_solution": "Match (x + 3) to (x − h), so h = −3. k = 1. Vertex (−3, 1). Axis x = −3. a = 1 > 0 so a minimum.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Authored key is mathematically correct. Mentioning minimum is consistent with the equation and with expected_evidence; the stem itself only required vertex and axis."
+    },
+    {
+      "requested_id": "vf-expand-half",
+      "id": "vf-expand-half",
+      "id_note": null,
+      "bloom_primary": "apply",
+      "family": "equivalent-forms",
+      "student_facing": "Rewrite g(x) = (1/2)(x + 2)^2 − 3 in standard form, meaning g(x) = ax^2 + bx + c. Then check two x-values in both forms.",
+      "independent_solution": "(x + 2)^2 = x^2 + 4x + 4. Multiply by 1/2: (1/2)x^2 + 2x + 2. Subtract 3: (1/2)x^2 + 2x − 1. Check x = −2: both forms give −3. Check x = 0: both forms give −1. (A third check used in student-content, x = −4, also gives −1 on both forms.)",
+      "authored_solution": "(x + 2)^2 = x^2 + 4x + 4. Multiply by 1/2: (1/2)x^2 + 2x + 2. Add −3: (1/2)x^2 + 2x − 1. At x = −2 both give −3; at x = 0 both give −1.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Expansion and sampled values match. Table checks corroborate; they do not prove identity. No completing-the-square."
+    },
+    {
+      "requested_id": "vf-zeros-inverse",
+      "id": "vf-zeros-inverse",
+      "id_note": null,
+      "bloom_primary": "apply",
+      "family": "zeros-from-vertex-form",
+      "student_facing": "The graph of f(x) = (x − 1)^2 − 9 meets the x-axis where f(x) = 0. Determine those zeros by inverse operations. You may check on a graph afterward.",
+      "independent_solution": "(x − 1)^2 − 9 = 0 → (x − 1)^2 = 9 → x − 1 = 3 or x − 1 = −3 → x = 4 or x = −2. Zeros are −2 and 4. x-intercepts are the points (−2, 0) and (4, 0). Inverse operations only; no quadratic formula.",
+      "authored_solution": "(x − 1)^2 − 9 = 0 → (x − 1)^2 = 9 → x − 1 = 3 or x − 1 = −3 → x = 4 or x = −2. The zeros are −2 and 4; the x-intercepts are (−2, 0) and (4, 0). Square root notation names the principal (non-negative) root; the ± comes from solving u^2 = 9.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Zero vs x-intercept distinction is correct. The square-root remark is optional pedagogy, not a math error."
+    },
+    {
+      "requested_id": "vf-vertex-point-unique",
+      "id": "vf-vertex-and-point",
+      "id_note": "Requested id not present; matched student_facing vertex (1, −2) through (3, 2).",
+      "bloom_primary": "create",
+      "family": "vertex-and-point-to-function",
+      "student_facing": "A parabola has vertex (1, −2) and passes through (3, 2). Determine the vertex-form equation. Is this equation unique given those two conditions?",
+      "independent_solution": "h = 1, k = −2, so f(x) = a(x − 1)^2 − 2. Substitute (3, 2): a(2)^2 − 2 = 2 → 4a = 4 → a = 1. Equation f(x) = (x − 1)^2 − 2. Unique among vertex-form quadratics because x ≠ h, so a is determined. Not unique among all functions of x.",
+      "authored_solution": "h = 1, k = −2. Plug in (3, 2): a(3 − 1)^2 − 2 = 2 → 4a = 4 → a = 1. So f(x) = (x − 1)^2 − 2. Unique among vertex-form quadratics: a is determined once x ≠ h.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Uniqueness claim is correctly restricted to vertex-form quadratics."
+    },
+    {
+      "requested_id": "vf-axis-claim",
+      "id": "vf-claim-axis-is-y",
+      "id_note": "Requested id not present; matched student_facing axis y = 4 claim.",
+      "bloom_primary": "evaluate",
+      "family": "claim-testing",
+      "student_facing": "A student says: “For f(x) = 2(x − 4)^2 + 1 the axis of symmetry is y = 4.” Prove, qualify, or refute the claim.",
+      "independent_solution": "Refute. Vertex is (4, 1). The axis of symmetry is the vertical line x = h = 4, not y = 4. y = 4 is a horizontal line; it does not even pass through this vertex (k = 1). A horizontal line through the vertex would be y = 1, and that still would not be the axis.",
+      "authored_solution": "Refute. The axis is the vertical line through the vertex: x = h = 4, not y = 4. y = 4 would be a horizontal line through the vertex height k = 1 only if k were 4; here k = 1, and that line is not the axis.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Mathematics matches. Authored sentence about y = 4 and k is slightly tangled but not wrong: y = 4 would meet the vertex only if k = 4, and even then it would not be the axis."
+    },
+    {
+      "requested_id": "vf-model-domain",
+      "id": "vf-model-arc-domain",
+      "id_note": "Requested id not present; matched student_facing water-stream meaningful domain.",
+      "bloom_primary": "evaluate",
+      "family": "model-critique",
+      "student_facing": "A water stream is modelled by h(x) = −0.5(x − 2)^2 + 4 for horizontal distance x in metres and height h in metres. The nozzle is at x = 0 and the water lands at h = 0. Determine the vertex. Then state a meaningful domain for this model and say where the equation should not be trusted as a description of the stream.",
+      "independent_solution": "Vertex (2, 4): maximum height 4 m at x = 2 m. Set h(x) = 0: −0.5(x − 2)^2 + 4 = 0 → (x − 2)^2 = 8 → x = 2 ± 2√2. Numerically ≈ −0.83 and 4.83. h(0) = 2, so the nozzle is 2 m above the landing height, not on the ground. The physical landing in front of the nozzle is x = 2 + 2√2. The other root is behind the nozzle. A defensible meaningful domain is 0 ≤ x ≤ 2 + 2√2. Outside that interval the quadratic is not a model of this stream. Inverse operations on vertex form; no quadratic formula.",
+      "authored_solution": "Vertex (2, 4): highest point 4 m when x = 2. h(x) = 0 → −0.5(x − 2)^2 + 4 = 0 → (x − 2)^2 = 8 → x = 2 ± √8 = 2 ± 2√2. The landing in front of the nozzle is x = 2 + 2√2 ≈ 4.83 m (x = 2 − 2√2 is behind the nozzle if x = 0 is the nozzle). A meaningful domain is from the nozzle to the landing, about 0 ≤ x ≤ 2 + 2√2. Outside that interval the quadratic is not a model of this stream.",
+      "match": true,
+      "verdict": "match",
+      "notes": "Vertex, zeros, and domain judgment match. Authored solution omits h(0) = 2; that does not make the key wrong. Domain wording ‘about’ is only needed for the decimal 4.83; the exact interval does not need it. Whether a landing-distance / domain critique belongs in L1 versus A3.3 Lesson 5 is an unresolved placement decision, not a math error."
+    }
+  ],
+  "summary": {
+    "reviewed": 6,
+    "match": 6,
+    "mismatch": 0,
+    "fabricated_nelson_keys": false
+  },
+  "star": {
+    "convention_required": "Search the word problem; Translate the words into an equation; Answer the problem; Review the solution; plus supporting diagram. Never Situation/Task/Action/Result.",
+    "word_problem_worked_solution_in_student_content": false,
+    "note": "This lesson has no word-problem worked solution in student-content.json. The fountain is a look-and-name hook, not a STAR example. The expansion examples are algebraic, not word problems. Pool item vf-model-arc-domain is a word problem with a teacher authored_solution, but that solution is not STAR-structured and is not printed on the student page. If it is later exported as a student worked example, copywriter must recast it as Search / Translate / Answer / Review plus a diagram. Do not add that example here without a decision on A3.3."
+  },
+  "language_scan": {
+    "student_content_after_patch": {
+      "the_writing": false,
+      "under_the_graph": false,
+      "some_books_swap": false,
+      "mark_the_highest_point_on_photo": false,
+      "geogebra": false,
+      "jsxgraph": false,
+      "nelson_leaks_bungee_cigarettes_libfile": false,
+      "terminology_lint_hits": []
+    },
+    "patch_applied": [
+      {
+        "file": "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+        "block_id": "action--example--1--p--8",
+        "before": "That highest point is the same kind of fact you marked on the water stream, now read from the equation.",
+        "after": "That highest point is the same kind of fact you named on the water stream, now read from the equation.",
+        "reason": "Minds On already says the photograph cannot be marked. ‘You marked’ reintroduces a marking interaction the photo does not have."
+      }
+    ],
+    "compiled_html_still_shows": [
+      "action--example--1--p--8 still says ‘you marked’ until rebuild",
+      "formative messages still contain ‘the equation under the graph’ (hint-match-1-live-equation, msg-predict-h-differ, hint-predict-h-3-equation-after-move)",
+      "formative messages still use ‘this writing’ / ‘expanded writing’ / ‘both writings’ / ‘match this writing’"
+    ],
+    "not_patched_this_pass": [
+      "student-feedback.json (out of director file fence; remaining R5/R6 failure for feedback designer + engineer)",
+      "pool student_facing vf-table-not-proof still says ‘Two writings…’ (catalogue, not student-content)",
+      "pool authored_solutions that say ‘writings’ (teacher keys)",
+      "student-practice-sets.json openstax-ex-53 graphs y = x^2 translations (A2.5/A2.6 reteach; not decided here)",
+      "teacher-notes.json still tells the teacher students mark a highest point"
+    ]
+  },
+  "coverage_check": {
+    "accepted_count": 27,
+    "target_accepted": [24, 36],
+    "in_target": true,
+    "distinct_families": 13,
+    "item_bloom_primary_counts": {
+      "apply": 9,
+      "understand": 3,
+      "analyze": 6,
+      "evaluate": 6,
+      "create": 3
+    },
+    "analyze_evaluate_create_item_pct": 55.6,
+    "newly_filled_gap_families": [
+      "error-diagnosis",
+      "method-choice",
+      "claim-testing",
+      "constraint-construction",
+      "model-critique",
+      "zeros-from-vertex-form",
+      "vertex-and-point-to-function",
+      "representation-bridge"
+    ],
+    "newly_filled_families_with_aec_item": 8,
+    "newly_filled_aec_family_pct": 100,
+    "zeros_family_note": "zeros-from-vertex-form core item vf-zeros-inverse is Apply; the family also has Evaluate (vf-zeros-method-choice). Either counting rule is still ≥40%.",
+    "recorded_exception": "data-modelling / regression excluded (vf-excluded-regression); not used to pad L1.",
+    "pool_coverage_gaps_field_stale": "Pool JSON coverage.gaps still lists families that coverage-brief.json marks filled. Catalogue housekeeping; not a student-page change."
+  },
+  "requirements": {
+    "R2": {
+      "title": "Exact model-STAR and three tabs",
+      "status": "pass_with_notes",
+      "evidence": "student-content.json has exactly three parts: Minds On, Action, Consolidation. Fountain hook is inside Minds On. Rule text is Search/Translate/Answer/Review, not Situation/Task/Action/Result. No word-problem worked solution on the student page, so STAR steps are correctly absent rather than misnamed."
+    },
+    "R3": {
+      "title": "Nelson internal; no student export of crops or wording",
+      "status": "pass_on_student_surfaces",
+      "evidence": "student-content.json and compiled HTML body/credits have no Nelson, bungee, cigarettes, or libfile. Pool marks vf-excluded-nelson-bank excluded, student_export false. Internal Nelson records remain in lesson teacher/provenance files, which is allowed."
+    },
+    "R4": {
+      "title": "24–36 accepted by family; authored verified solutions",
+      "status": "pass_on_sample",
+      "evidence": "27 accepted across 13 families. Six requested authored_solutions independently re-solved: all match. Newly filled families are 100% Analyze/Evaluate/Create at family level (≥40%). Assembled lesson does not use every pool item."
+    },
+    "R5": {
+      "title": "Governed terminology on student copy",
+      "status": "partial",
+      "evidence": "student-content.json after patch: no ‘the writing’, no ‘under the graph’, no ‘Some books swap’, no photo-marking prompt. Registry lint patterns: 0 hits. Remaining student-visible failures live in student-feedback.json baked into compiled HTML, and in one pool student_facing stem (vf-table-not-proof)."
+    }
+  },
+  "unresolved_educational_decisions": [
+    {
+      "id": "A2.7-in-L1-vs-L2",
+      "decision": "Whether A2.7 (expand vertex form to standard form and verify with technology) stays in Lesson 1 or moves beside A2.8 completing the square in Lesson 2.",
+      "current_state_not_redesigned": "L1 currently teaches expansion (worked example ½(x+2)^2−3, Ministry sample 3(x−1)^2+4, expand-same-graph interactive). Completing the square is still named Lesson 2. No move made this pass."
+    },
+    {
+      "id": "A2.10-vs-Module-3",
+      "decision": "Whether listing A2.10 on this lesson (vertex-form share only) is correct, given that inspecting standard and factored form is already Module 3.",
+      "current_state_not_redesigned": "Brief and pool keep A2.10 with the vertex-form share. Three-form contrast is present without producing other forms. No remap."
+    },
+    {
+      "id": "A3.3-stays-Lesson-5",
+      "decision": "Whether a single contextual max/min or domain critique from a given vertex-form model is required in L1, or stays entirely in Lesson 5.",
+      "current_state_not_redesigned": "Student page uses the fountain as a look-and-name hook and a fresh vertex-form read, not a landing-distance problem. Pool item vf-model-arc-domain exists as transfer/model-critique but is not a student-page worked solution. Not attached or removed this pass."
+    }
+  ],
+  "notes_for_experience_and_engineering": [
+    "Rebuild student HTML from the patched student-content.json so action--example--1--p--8 reads ‘named’, not ‘you marked’.",
+    "Formative copy is not compiled from student-content.json. Patch student-feedback.json (and any feedback-spec strings) so hints say ‘the live equation labelled Vertex form’ above the graph, not ‘under the graph’. Replace ‘this writing’ / ‘expanded writing’ / ‘both writings’ with vertex form / standard form / ‘both forms’.",
+    "Live equation labelled Vertex form is already above the graph in the compiled board markup; only the hint strings are wrong.",
+    "Do not name JSXGraph or GeoGebra in student prose. Bundled jsxgraphcore.js / jsxgraph.css may remain as engine assets.",
+    "additional-licensed second item (openstax-ex-53) reteaches y = x^2 translations (A2.5/A2.6). Brief says not a new M4 target. Practice designer / parent should decide; director did not swap the item.",
+    "Teacher-notes.json still says students mark a highest point on the fountain. Align teacher notes with the no-marking photo after the student rebuild.",
+    "Do not compile from this director pass. Do not edit lms/."
+  ]
+}

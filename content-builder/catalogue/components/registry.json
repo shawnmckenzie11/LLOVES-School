@@ -1,0 +1,49 @@
+{
+  "schema_version": "component-registry.v1",
+  "components": {
+    "jsxgraph-vertex-form-board": {
+      "id": "jsxgraph-vertex-form-board",
+      "kind": "graph-tool",
+      "label": "vertex-form graph",
+      "assets": [
+        "jsxgraph/jsxgraphcore.js",
+        "jsxgraph/jsxgraph.css",
+        "jsxgraph/LICENSE.MIT",
+        "vertex-form-board.js",
+        "vertex-form-checker.js",
+        "formative-cycle.js"
+      ],
+      "capabilities": [
+        "set-a-h-k",
+        "show-vertex-form-equation",
+        "show-axis",
+        "vertex-marker",
+        "shared-table"
+      ],
+      "unavailable_fallback": "Sketch the parabola on paper from the labelled vertex-form equation."
+    }
+  },
+  "tasks": {
+    "match-plus-inside": {
+      "component": "jsxgraph-vertex-form-board",
+      "inputs": [],
+      "card_kind": "check"
+    },
+    "predict-h": {
+      "component": "jsxgraph-vertex-form-board",
+      "inputs": ["predicted-x"],
+      "card_kind": "try"
+    },
+    "expand-same-graph": {
+      "component": "jsxgraph-vertex-form-board",
+      "inputs": ["standard-coefficients"],
+      "card_kind": "try"
+    },
+    "fresh-case": {
+      "component": "jsxgraph-vertex-form-board",
+      "inputs": ["named-reading"],
+      "card_kind": "check"
+    }
+  },
+  "always_copy": ["design-tokens.css", "student.css"]
+}

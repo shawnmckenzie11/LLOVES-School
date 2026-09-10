@@ -466,6 +466,12 @@ details.solution[open] summary::before {
   border-color: var(--line);
 }
 
+/* Zoom/pan glyphs are unlabeled; sliders are the student controls. */
+.JXG_navigation,
+.jxgbox .JXG_navigation {
+  display: none !important;
+}
+
 .board-evidence {
   display: flex;
   flex-direction: column;
@@ -735,6 +741,78 @@ table.data th,
   .board-actions button {
     flex: 1 1 100%;
   }
+}
+
+/* ---- Cards (bounded actions; label text is required, icon is decorative) ---- */
+
+.card-block {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.card-block.is-explore {
+  border-left: 4px solid var(--accent);
+}
+
+.card-block.is-worked-example {
+  background: var(--example-bg);
+  border-color: var(--example-line);
+}
+
+.card-block.is-try {
+  background: var(--practice-bg);
+  border-color: var(--practice-line);
+}
+
+.card-block.is-check {
+  border-left: 4px solid var(--ok-line);
+}
+
+.card-block.is-discuss {
+  background: var(--task-bg);
+  border-left: 4px solid var(--task-rule);
+}
+
+.card-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-h3);
+}
+
+.card-icon {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+details.card-block.is-optional-remark {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-muted);
+}
+
+details.card-block.is-optional-remark summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.cycle[data-feedback-state="correct"] {
+  border-color: var(--ok-line);
+}
+
+.cycle[data-feedback-state="incorrect"] {
+  border-color: var(--retry-line);
+}
+
+.cycle[data-feedback-state="incomplete"] {
+  border-color: var(--hint-line);
 }
 
 @media print {

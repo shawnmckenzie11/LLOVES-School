@@ -1,0 +1,111 @@
+{
+  "schema_version": "student-content.v1",
+  "lesson_id": "M7-L3-exponential-functions",
+  "title": "Exploring Exponential Functions, Growth & Decay",
+  "credits": [
+    "Ontario curriculum sample: Queen’s Printer for Ontario"
+  ],
+  "objects": [
+    {
+      "id": "growth-decay-sketch",
+      "kind": "diagram",
+      "label": "growth and decay sketches",
+      "capabilities": ["compare-curves"],
+      "fallback": "On paper, sketch y = 2^x and y = (1/2)^x from a short table of integer x."
+    }
+  ],
+  "parts": [
+    {
+      "id": "minds-on",
+      "nav_label": "Minds On",
+      "blocks": [
+        {
+          "type": "card",
+          "id": "minds-on--card--1",
+          "kind": "explore",
+          "label": "Multiply or add?",
+          "blocks": [
+            {
+              "type": "p",
+              "id": "minds-on--p--1",
+              "text": "A quantity starts at a value and is multiplied by the same factor at every step."
+            },
+            {
+              "type": "task",
+              "id": "minds-on--task--1",
+              "prompt": "How is that different from adding the same amount at every step? Do not write an equation yet."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "action",
+      "nav_label": "Action",
+      "blocks": [
+        {
+          "type": "p",
+          "id": "action--p--1",
+          "text": "An exponential function can be written y = a(b)^x with a > 0, b > 0, and b ≠ 1. If b > 1 the values grow. If 0 < b < 1 the values decay."
+        },
+        {
+          "type": "card",
+          "id": "action--card--1",
+          "kind": "try",
+          "label": "Two equations, same family",
+          "object_ids": ["growth-decay-sketch"],
+          "blocks": [
+            {
+              "type": "equation",
+              "id": "action--equation--1",
+              "text": "\\(f(x) = 2^x\\)"
+            },
+            {
+              "type": "equation",
+              "id": "action--equation--2",
+              "text": "\\(g(x) = (\\frac{1}{2})^x\\)"
+            },
+            {
+              "type": "task",
+              "id": "action--task--1",
+              "prompt": "Compare those two. What stays the same? What changes? Sketch from a short table if the graph is not available."
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "id": "action--card--2",
+          "kind": "discuss",
+          "label": "Not every curve is exponential",
+          "blocks": [
+            {
+              "type": "task",
+              "id": "action--task--2",
+              "prompt": "How can you tell an exponential function from a quadratic one from a table or a graph, without naming a formula first?"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consolidation",
+      "nav_label": "Consolidation",
+      "blocks": [
+        {
+          "type": "card",
+          "id": "consolidation--card--1",
+          "kind": "check",
+          "label": "What a and b control",
+          "object_ids": ["growth-decay-sketch"],
+          "blocks": [
+            {
+              "type": "task",
+              "id": "consolidation--task--1",
+              "prompt": "For y = a(b)^x, what do a and b each control? If the graph is not available, sketch from a short table of integer x."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

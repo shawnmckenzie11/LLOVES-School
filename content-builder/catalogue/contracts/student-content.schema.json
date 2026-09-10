@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "student-content.schema.json",
   "title": "Student content",
-  "description": "The only JSON the student HTML renderer may read. additionalProperties is false.",
+  "description": "The only JSON the student HTML renderer may read. additionalProperties is false. Three tabs only; hook copy lives inside Minds On.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "lesson_id", "title", "parts"],
@@ -15,13 +15,37 @@
       "items": { "type": "string" },
       "description": "Short source labels shown at the end of the lesson."
     },
+    "objects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/lessonObject" }
+    },
     "parts": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 3,
+      "maxItems": 3,
       "items": { "$ref": "#/$defs/part" }
     }
   },
   "$defs": {
+    "lessonObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label", "capabilities", "fallback"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["image", "graph-tool", "diagram", "table", "equation"]
+        },
+        "label": { "type": "string" },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "fallback": { "type": "string" }
+      }
+    },
     "part": {
       "type": "object",
       "additionalProperties": false,
@@ -29,7 +53,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "enum": ["hook", "minds-on", "action", "consolidation"]
+          "enum": ["minds-on", "action", "consolidation"]
         },
         "nav_label": { "type": "string" },
         "blocks": {
@@ -40,70 +64,81 @@
     },
     "block": {
       "type": "object",
-      "required": ["type"],
+      "required": ["type", "id"],
       "oneOf": [
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "p" },
+            "id": { "type": "string" },
             "text": { "type": "string" }
           },
-          "required": ["type", "text"]
+          "required": ["type", "id", "text"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "h2" },
+            "id": { "type": "string" },
             "text": { "type": "string" }
           },
-          "required": ["type", "text"]
+          "required": ["type", "id", "text"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "equation" },
-            "text": { "type": "string" }
+            "id": { "type": "string" },
+            "text": { "type": "string" },
+            "object_id": { "type": "string" }
           },
-          "required": ["type", "text"]
+          "required": ["type", "id", "text"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "task" },
+            "id": { "type": "string" },
             "prompt": { "type": "string" }
           },
-          "required": ["type", "prompt"]
+          "required": ["type", "id", "prompt"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "figure" },
+            "id": { "type": "string" },
             "src": { "type": "string" },
-            "alt": { "type": "string" }
+            "alt": { "type": "string" },
+            "object_id": { "type": "string" }
           },
-          "required": ["type", "src", "alt"]
+          "required": ["type", "id", "src", "alt"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "interactive" },
-            "spec_id": { "type": "string" }
+            "id": { "type": "string" },
+            "spec_id": { "type": "string" },
+            "object_id": { "type": "string" }
           },
-          "required": ["type", "spec_id"]
+          "required": ["type", "id", "spec_id"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "practice-set" },
+            "id": { "type": "string" },
             "set_id": { "type": "string" },
             "visible_count": { "type": "integer", "minimum": 1 }
           },
-          "required": ["type", "set_id"]
+          "required": ["type", "id", "set_id"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "example" },
+            "id": { "type": "string" },
             "stage": {
               "type": "string",
               "enum": ["worked", "variation", "partial", "independent", "retrieval"]
@@ -113,16 +148,45 @@
               "items": { "$ref": "#/$defs/block" }
             }
           },
-          "required": ["type", "stage", "blocks"]
+          "required": ["type", "id", "stage", "blocks"]
         },
         {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "self-check" },
+            "id": { "type": "string" },
             "prompt": { "type": "string" },
             "rubric_id": { "type": "string" }
           },
-          "required": ["type", "prompt"]
+          "required": ["type", "id", "prompt"]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "card" },
+            "id": { "type": "string" },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "explore",
+                "worked-example",
+                "try",
+                "discuss",
+                "check",
+                "optional-remark"
+              ]
+            },
+            "label": { "type": "string" },
+            "object_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "blocks": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/block" }
+            }
+          },
+          "required": ["type", "id", "kind", "label", "blocks"]
         }
       ]
     }

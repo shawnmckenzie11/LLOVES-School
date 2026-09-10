@@ -6,10 +6,10 @@
   <title>Content builder review</title>
   <link rel="stylesheet" href="review.css">
 </head>
-<body>
-  <main>
+<body class="review">
+  <main class="review-shell">
     <h1>Lesson review</h1>
-    <p class="muted">Local factory only — not the school LMS. Course MCF3M, lesson M4-L1-vertex-form.</p>
+    <p class="muted">Local factory only — not the school LMS. Student preview uses the same compiler as export. Approve is not publish.</p>
 
     <section id="onboarding" class="onboarding">
       <h2>Course onboarding</h2>
@@ -20,87 +20,52 @@
       <div id="onboard-modules"></div>
     </section>
 
-    <p>      <label>Course <input id="course" value="MCF3M"></label>
-      <label>Lesson <input id="lesson" value="M4-L1-vertex-form"></label>
+    <p class="review-head">
+      <label>Course <input id="course" value="MCF3M"></label>
+      <label>Lesson
+        <select id="lesson"></select>
+      </label>
       <button type="button" id="load">Load</button>
+      <button type="button" id="approve">Approve version</button>
     </p>
     <p id="status"></p>
+    <p class="muted" id="revision"></p>
 
-    <h2>1. Intended understanding</h2>
-    <p id="goal"></p>
-    <p class="muted" id="codes"></p>
+    <h2>Coverage</h2>
+    <div id="coverage" class="card"></div>
 
-    <h2>2. Question candidates</h2>
-    <div id="questions"></div>
+    <h2>Candidate drawer</h2>
+    <p class="muted">Reads GET /api/pool (accepted question pool). Not question-candidates.json — that 12-item file is retired as a compile source.</p>
+    <div id="pool"></div>
 
-    <h2>3. Interaction</h2>
-    <pre id="interaction" class="card"></pre>
-
-    <h2>4. Preview (three-tab export)</h2>
+    <h2>Student preview (same compiler as export)</h2>
     <p><a id="export-link" href="/build/MCF3M/M4-L1-vertex-form/index.html">Open compiled HTML</a></p>
     <iframe id="preview" title="Compiled lesson preview" src="/build/MCF3M/M4-L1-vertex-form/index.html"></iframe>
 
-    <h2>5. Edit instructional sequence</h2>
-    <label>Minds On student<textarea id="minds"></textarea></label>
-    <label>Action student<textarea id="action"></textarea></label>
-    <label>Guided example<textarea id="guided"></textarea></label>
-    <label>Interactive bridge<textarea id="bridge"></textarea></label>
-    <label>Practice<textarea id="practice"></textarea></label>
-    <label>Consolidation student<textarea id="cons"></textarea></label>
-    <button type="button" id="save-instruction">Save instruction.json</button>
+    <h2>Edit student blocks</h2>
+    <p class="muted">Saves a patch against student-content.json, rebuilds, and refreshes this preview. instruction.json is not an authoring target.</p>
+    <form id="block-form"></form>
+    <p>
+      <button type="button" id="save-student">Save, rebuild, preview</button>
+    </p>
 
-    <h2>6. Lock approved sections</h2>
-    <div class="row">
-      <label><input type="checkbox" value="instruction.minds_on"> instruction.minds_on</label>
-      <label><input type="checkbox" value="instruction.action"> instruction.action</label>
-      <label><input type="checkbox" value="instruction.consolidation"> instruction.consolidation</label>
-      <label><input type="checkbox" value="questions.transfer"> questions.transfer</label>
-    </div>
+    <h2>Diff versus approved version</h2>
+    <pre id="diff" class="card"></pre>
+
+    <h2>Lock blocks</h2>
+    <div id="locks" class="row"></div>
     <button type="button" id="save-locks">Save locks.json</button>
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    let instruction = null;
+    let revision = "";
+    let blocks = [];
 
     async function loadJson(path) {
       const res = await fetch(path);
-      if (!res.ok) throw new Error(path + " " + res.status);
-      return res.json();
-    }
-
-    async function loadAll() {
-      const course = $("course").value.trim();
-      const lesson = $("lesson").value.trim();
-      const base = "/lessons/" + course + "/" + lesson + "/";
-      $("status").textContent = "Loading…";
-      const brief = await loadJson(base + "lesson-brief.json");
-      const questions = await loadJson(base + "question-candidates.json");
-      const spec = await loadJson(base + "interaction-spec.json");
-      instruction = await loadJson(base + "instruction.json");
-      $("goal").textContent = brief.intended_understanding || "";
-      $("codes").textContent = (brief.expectations || []).map((e) => e.code).join(", ");
-      $("questions").innerHTML = (questions.candidates || []).map((c) => (
-        "<div class='card'><strong>" + c.role + " #" + c.rank + "</strong> — " +
-        (c.title || "") + "<p>" + (c.student_facing || "") + "</p>" +
-        "<p class='muted'>" + (c.reason || "") + " · " + (c.provenance && c.provenance.source) + "</p></div>"
-      )).join("");
-      $("interaction").textContent = JSON.stringify({
-        engine: spec.engine,
-        prediction: spec.prediction_prompt,
-        action: spec.student_action,
-        interpretation: spec.interpretation_prompt,
-        fallback: spec.fallback
-      }, null, 2);
-      $("minds").value = instruction.minds_on.student;
-      $("action").value = instruction.action.student;
-      $("guided").value = instruction.action.guided_example;
-      $("bridge").value = instruction.action.interactive_bridge;
-      $("practice").value = instruction.action.practice;
-      $("cons").value = instruction.consolidation.student;
-      const preview = "/build/" + course + "/" + lesson + "/index.html";
-      $("preview").src = preview;
-      $("export-link").href = preview;
-      $("status").textContent = "Loaded " + lesson;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error || (path + " " + res.status));
+      return data;
     }
 
     function escapeHtml(value) {
@@ -109,6 +74,113 @@
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    async function loadLessons() {
+      const course = $("course").value.trim() || "MCF3M";
+      const data = await loadJson("/api/lessons?course=" + encodeURIComponent(course));
+      const select = $("lesson");
+      const current = select.value || "M4-L1-vertex-form";
+      select.innerHTML = (data.lessons || []).map((row) => (
+        "<option value='" + escapeHtml(row.internal_id) + "'" +
+        (row.internal_id === current ? " selected" : "") + ">" +
+        escapeHtml(row.internal_id) + " — " + escapeHtml(row.title) + "</option>"
+      )).join("");
+      if (![...select.options].some((opt) => opt.value === current) && select.options.length) {
+        select.selectedIndex = 0;
+      }
+    }
+
+    function renderBlocks(rows) {
+      blocks = rows;
+      $("block-form").innerHTML = rows.map((block) => (
+        "<label>" + escapeHtml(block.id) + " · " + escapeHtml(block.type) +
+        (block.label ? " · " + escapeHtml(block.label) : "") +
+        "<textarea data-block-id='" + escapeHtml(block.id) + "' data-field='" +
+        escapeHtml(block.field) + "'>" + escapeHtml(block.value) + "</textarea></label>"
+      )).join("");
+      $("locks").innerHTML = rows.map((block) => (
+        "<label><input type='checkbox' value='block:" + escapeHtml(block.id) + "'> " +
+        escapeHtml(block.id) + "</label>"
+      )).join("");
+    }
+
+    async function loadAll() {
+      const course = $("course").value.trim();
+      const lesson = $("lesson").value.trim();
+      $("status").textContent = "Loading…";
+      const content = await loadJson(
+        "/api/student-content?course=" + encodeURIComponent(course) +
+        "&lesson=" + encodeURIComponent(lesson)
+      );
+      revision = content.revision;
+      $("revision").textContent = "Revision " + revision.slice(0, 12);
+      renderBlocks(content.blocks || []);
+      const preview = content.preview || ("/build/" + course + "/" + lesson + "/index.html");
+      $("preview").src = preview + "?t=" + Date.now();
+      $("export-link").href = preview;
+      const coverage = await loadJson(
+        "/api/coverage?course=" + encodeURIComponent(course) +
+        "&lesson=" + encodeURIComponent(lesson)
+      );
+      const cov = coverage.coverage || {};
+      $("coverage").innerHTML =
+        "<p><strong>" + escapeHtml(cov.accepted || 0) + "</strong> accepted · families " +
+        escapeHtml((cov.distinct_families || []).join(", ") || "—") + "</p>" +
+        "<p class='muted'>" + escapeHtml(cov.scope || "") + "</p>";
+      const pool = await loadJson(
+        "/api/pool?course=" + encodeURIComponent(course) +
+        "&lesson=" + encodeURIComponent(lesson)
+      );
+      $("pool").innerHTML = (dataCandidates(pool) || []).slice(0, 24).map((item) => (
+        "<div class='card candidate'><strong>" + escapeHtml(item.status) + "</strong> " +
+        escapeHtml(item.title || item.id) +
+        "<p>" + escapeHtml(item.student_facing || "") + "</p>" +
+        "<p class='muted'>" + escapeHtml(item.family_id || "") + " · Bloom " +
+        escapeHtml((item.bloom && item.bloom.primary) || "") + " · " +
+        escapeHtml(item.task_family || "") + " · verified " +
+        escapeHtml(String(item.verified)) + "</p></div>"
+      )).join("") || "<p class='muted'>No pool for this lesson.</p>";
+      const diff = await loadJson(
+        "/api/diff?course=" + encodeURIComponent(course) +
+        "&lesson=" + encodeURIComponent(lesson)
+      );
+      $("diff").textContent = JSON.stringify(diff.rows || [], null, 2);
+      $("status").textContent = "Loaded " + lesson;
+    }
+
+    function dataCandidates(pool) {
+      return pool.candidates;
+    }
+
+    async function saveStudent() {
+      const course = $("course").value.trim();
+      const lesson = $("lesson").value.trim();
+      const ops = [...document.querySelectorAll("#block-form textarea")].map((el) => ({
+        op: "replace",
+        block_id: el.getAttribute("data-block-id"),
+        field: el.getAttribute("data-field"),
+        value: el.value
+      }));
+      const res = await fetch("/api/student-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          course,
+          lesson_id: lesson,
+          base_revision: revision,
+          ops
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        $("status").textContent = data.error || "Save failed";
+        return;
+      }
+      revision = data.revision;
+      $("revision").textContent = "Revision " + revision.slice(0, 12);
+      $("preview").src = (data.preview || $("export-link").href) + "?t=" + Date.now();
+      $("status").textContent = "Saved student-content.json and rebuilt preview.";
     }
 
     async function resolveConflict(id, resolution) {
@@ -128,7 +200,7 @@
 
     async function loadOnboarding() {
       const course = $("course").value.trim() || "MCF3M";
-      const data = await loadJson("/api/onboarding?course=" + encodeURIComponent(course));
+      const data = await fetch("/api/onboarding?course=" + encodeURIComponent(course)).then((res) => res.json());
       if (data.ok === false) throw new Error(data.error || "onboarding unavailable");
       const batch = data.batch || {};
       $("onboard-summary").textContent =
@@ -193,27 +265,22 @@
       loadAll().catch((e) => { $("status").textContent = e.message; });
     });
     $("load").addEventListener("click", () => loadAll().catch((e) => { $("status").textContent = e.message; }));
-    $("save-instruction").addEventListener("click", async () => {
-      instruction.minds_on.student = $("minds").value;
-      instruction.action.student = $("action").value;
-      instruction.action.guided_example = $("guided").value;
-      instruction.action.interactive_bridge = $("bridge").value;
-      instruction.action.practice = $("practice").value;
-      instruction.consolidation.student = $("cons").value;
-      const res = await fetch("/api/instruction", {
+    $("save-student").addEventListener("click", () => saveStudent().catch((e) => { $("status").textContent = e.message; }));
+    $("approve").addEventListener("click", async () => {
+      const res = await fetch("/api/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           course: $("course").value.trim(),
-          lesson_id: $("lesson").value.trim(),
-          instruction
+          lesson_id: $("lesson").value.trim()
         })
       });
       const data = await res.json();
-      $("status").textContent = data.ok ? "Saved instruction.json — rebuild the HTML to refresh the preview." : data.error;
+      $("status").textContent = data.ok ? "Approved this version (not published)." : data.error;
+      loadAll().catch((e) => { $("status").textContent = e.message; });
     });
     $("save-locks").addEventListener("click", async () => {
-      const locked = [...document.querySelectorAll("input[type=checkbox]:checked")].map((el) => el.value);
+      const locked = [...document.querySelectorAll("#locks input[type=checkbox]:checked")].map((el) => el.value);
       const res = await fetch("/api/locks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -226,8 +293,10 @@
       const data = await res.json();
       $("status").textContent = data.ok ? "Saved locks: " + locked.join(", ") : data.error;
     });
+    loadLessons()
+      .then(() => loadAll())
+      .catch((e) => { $("status").textContent = e.message; });
     loadOnboarding().catch((e) => { $("onboard-summary").textContent = e.message; });
-    loadAll().catch((e) => { $("status").textContent = e.message; });
   </script>
 </body>
 </html>

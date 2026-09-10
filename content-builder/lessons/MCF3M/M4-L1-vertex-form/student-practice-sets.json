@@ -2,15 +2,99 @@
   "schema_version": "student-practice-sets.v1",
   "sets": [
     {
-      "id": "additional-licensed",
+      "id": "error-diagnosis-and-axis-claim",
       "items": [
         {
-          "id": "openstax-ex-22",
-          "prompt": "Determine the domain and range of f(x) = −2(x + 3)² − 6."
+          "id": "vf-error-h-sign",
+          "prompt": "A student writes: “\\(f(x) = (x + 3)^2 + 1\\), so \\(h = 3\\), vertex \\((3, 1)\\).” Locate the first invalid step, explain what went wrong, and repair it."
         },
         {
-          "id": "openstax-ex-53",
-          "prompt": "On the same axes, graph y = x², y = (x − 2)², y = (x − 3)², and y = (x + 4)². What stays the same? What moves, and in which direction?"
+          "id": "vf-claim-axis-is-y",
+          "prompt": "A student says: “For \\(f(x) = 2(x - 4)^2 + 1\\) the axis of symmetry is \\(y = 4\\).” Prove, qualify, or refute the claim."
+        }
+      ]
+    },
+    {
+      "id": "independent-expand",
+      "items": [
+        {
+          "id": "vf-ministry-expand",
+          "prompt": "Given the vertex form \\(f(x) = 3(x - 1)^2 + 4\\), express the equation in standard form. Use technology to compare the graphs of these two forms of the equation."
+        }
+      ]
+    },
+    {
+      "id": "method-choice-and-expand-error",
+      "items": [
+        {
+          "id": "vf-method-equivalence",
+          "prompt": "You have \\(f(x) = 2(x + 3)^2 + 1\\) and a candidate standard form. You may expand algebraically or compare graphs. Using the criterion “prove they are the same function for every \\(x\\),” which method would you choose, and why?"
+        },
+        {
+          "id": "vf-error-expand-distribute",
+          "prompt": "A student expands \\(2(x + 3)^2 + 1\\) as \\(2x^2 + 3^2 + 1 = 2x^2 + 10\\). Locate the first invalid step, explain it, and repair the expansion."
+        }
+      ]
+    },
+    {
+      "id": "table-claim-testing",
+      "items": [
+        {
+          "id": "vf-table-not-proof",
+          "prompt": "Two forms give the same three table values. A student says that proves the forms are the same function for every \\(x\\). Prove, qualify, or refute that claim."
+        }
+      ]
+    },
+    {
+      "id": "defend-form-choice",
+      "items": [
+        {
+          "id": "vf-form-choice-defend",
+          "prompt": "You need the highest point of a quadratic path, not the \\(x\\)-intercepts. Which of standard form, vertex form, or factored form would you choose, and why? Mention what that form does not make obvious."
+        }
+      ]
+    },
+    {
+      "id": "zeros-inverse",
+      "items": [
+        {
+          "id": "vf-zeros-inverse",
+          "prompt": "The graph of \\(f(x) = (x - 1)^2 - 9\\) meets the \\(x\\)-axis where \\(f(x) = 0\\). Determine those zeros by inverse operations. You may check on a graph afterward."
+        }
+      ]
+    },
+    {
+      "id": "construct-from-constraints",
+      "items": [
+        {
+          "id": "vf-vertex-and-point",
+          "prompt": "A parabola has vertex \\((1, -2)\\) and passes through \\((3, 2)\\). Determine the vertex-form equation. Is this equation unique given those two conditions?"
+        },
+        {
+          "id": "vf-bridge-graph-equation",
+          "prompt": "A graph of a parabola is labelled with vertex \\((-4, 1)\\) and one other point \\((0, -3)\\), and it opens downward. Write a vertex-form equation that fits those features. Name which graph facts became \\(a\\), \\(h\\), and \\(k\\)."
+        },
+        {
+          "id": "vf-construct-same-vertex-different-a",
+          "prompt": "Construct two different vertex-form equations that both have vertex \\((0, 3)\\). What is the same on both graphs, and what changes?"
+        }
+      ]
+    },
+    {
+      "id": "consolidation-retrieval",
+      "items": [
+        {
+          "id": "vf-maximum-from-vertex-form",
+          "prompt": "A ball’s height in metres is modelled by \\(h(t) = -4.9(t - 1.2)^2 + 8\\) on the flight interval. What is the maximum height, and when does it occur? What in the equation told you?"
+        }
+      ]
+    },
+    {
+      "id": "consolidation-model-critique",
+      "items": [
+        {
+          "id": "vf-model-arc-domain",
+          "prompt": "A water stream is modelled by \\(h(x) = -0.5(x - 2)^2 + 4\\) for horizontal distance \\(x\\) in metres and height \\(h\\) in metres. The nozzle is at \\(x = 0\\) and the water lands at \\(h = 0\\). Determine the vertex. Then state a meaningful domain for this model and say where the equation should not be trusted as a description of the stream."
         }
       ]
     }

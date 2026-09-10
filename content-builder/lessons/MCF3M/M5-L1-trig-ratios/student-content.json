@@ -1,0 +1,119 @@
+{
+  "schema_version": "student-content.v1",
+  "lesson_id": "M5-L1-trig-ratios",
+  "title": "Lesson 1: Trigonometric Ratios",
+  "credits": [
+    "Ontario curriculum sample: Queen’s Printer for Ontario"
+  ],
+  "objects": [
+    {
+      "id": "right-triangle",
+      "kind": "diagram",
+      "label": "right triangle",
+      "capabilities": ["show-right-angle", "name-sides"],
+      "fallback": "Sketch a right triangle. Mark the right angle. For one acute angle, name the opposite side, the adjacent side, and the hypotenuse."
+    }
+  ],
+  "parts": [
+    {
+      "id": "minds-on",
+      "nav_label": "Minds On",
+      "blocks": [
+        {
+          "type": "card",
+          "id": "minds-on--card--1",
+          "kind": "explore",
+          "label": "Name the sides first",
+          "object_ids": ["right-triangle"],
+          "blocks": [
+            {
+              "type": "p",
+              "id": "minds-on--p--1",
+              "text": "Sketch a right triangle. Mark the right angle. Choose one of the other angles and keep that angle in mind."
+            },
+            {
+              "type": "task",
+              "id": "minds-on--task--1",
+              "prompt": "For the angle you chose, which side is opposite, which is adjacent, and which is the hypotenuse? Do not write a ratio yet."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "action",
+      "nav_label": "Action",
+      "blocks": [
+        {
+          "type": "p",
+          "id": "action--p--1",
+          "text": "The primary trigonometric ratios for an acute angle in a right triangle are sine = opposite / hypotenuse, cosine = adjacent / hypotenuse, and tangent = opposite / adjacent."
+        },
+        {
+          "type": "card",
+          "id": "action--card--1",
+          "kind": "worked-example",
+          "label": "Read the names from the triangle",
+          "object_ids": ["right-triangle"],
+          "blocks": [
+            {
+              "type": "p",
+              "id": "action--card--1--p--1",
+              "text": "Keep the same sketched triangle and the same marked acute angle."
+            },
+            {
+              "type": "p",
+              "id": "action--card--1--p--2",
+              "text": "The hypotenuse is the side across from the right angle. The opposite side is across from the marked acute angle. The adjacent side is the remaining leg that meets that angle."
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "id": "action--card--2",
+          "kind": "try",
+          "label": "Choose a ratio",
+          "blocks": [
+            {
+              "type": "task",
+              "id": "action--task--1",
+              "prompt": "You know an acute angle and the hypotenuse, and you need the opposite side. Which primary trigonometric ratio would you use, and what would you still need to decide before calculating?"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consolidation",
+      "nav_label": "Consolidation",
+      "blocks": [
+        {
+          "type": "card",
+          "id": "consolidation--card--1",
+          "kind": "discuss",
+          "label": "A measured angle and one side",
+          "blocks": [
+            {
+              "type": "task",
+              "id": "consolidation--task--1",
+              "prompt": "A surveyor can measure an angle of elevation and one side of a right triangle. Which primary trigonometric ratio would you choose to find another side, and what does that choice depend on?"
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "id": "consolidation--card--2",
+          "kind": "check",
+          "label": "Write the three ratios",
+          "blocks": [
+            {
+              "type": "task",
+              "id": "consolidation--task--2",
+              "prompt": "Write sine, cosine, and tangent using opposite, adjacent, and hypotenuse. Do not invent extra names."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

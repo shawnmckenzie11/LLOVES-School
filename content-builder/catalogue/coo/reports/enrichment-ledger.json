@@ -1,0 +1,232 @@
+{
+  "schema_version": "coo-ledger.v1",
+  "job": "enrichment-full-revision",
+  "coo_job_id": "111f135d",
+  "coo_job_path": "content-builder/catalogue/coo/jobs/111f135d.json",
+  "branch": "content-builder-gpt-onboarding-implementation-plan",
+  "inspected_at": "2026-09-09T14:36:06+00:00",
+  "pin": {
+    "content_builder_commit": "16e6db249e4917e07181ebf2fd589eb7d5cf5ebb",
+    "branch_tip_at_inspect": "7ef7b7b",
+    "before_fixture": "content-builder/fixtures/M4-L1-vertex-form-before-enrichment/"
+  },
+  "live_review": {
+    "url": "http://127.0.0.1:8790/review/",
+    "process_started_at": "2026-09-09T05:00:22.011Z",
+    "note": "Static review/index.html is current on disk. The long-running serve_review.py process still uses the pre-repair handler."
+  },
+  "inspection_findings": [
+    "STAR in .cursor/rules/content-builder-student-language.mdc is Search / Translate / Answer / Review. Situation/Task/Action/Result appears only as the forbidden expansion.",
+    "Compiled M4 (disk and cache-busted http://127.0.0.1:8790/build/MCF3M/M4-L1-vertex-form/index.html?t=enrichment-ledger) has exactly three tabs: Minds On, Action, Consolidation. Hook copy lives in Minds On as card Look at the streams. No tab labelled The water.",
+    "review/index.html has no control labelled Save instruction.json. Visible controls: Load, Approve version, Save, rebuild, preview, Save locks.json.",
+    "Live 8790 process: GET /api/lessons, /api/student-content, /api/coverage, /api/pool, /api/diff, /api/onboarding, /api/coo/jobs all 404. POST /api/student-content returns {ok:false, error:'unknown endpoint'}. POST /api/instruction returns 400 {ok:false, error:\"'course'\"} — not 410. Review chrome therefore cannot load blocks, coverage, or the candidate drawer.",
+    "Current source serve_review.py refuses POST /api/instruction with 410 and writes via POST /api/student-content. test_authoring.py (8 tests) passed against handler_for().",
+    "Live student-content.json has three parts (minds-on / action / consolidation). language_lint on M4 is []. Compiled HTML matches that JSON (photograph cannot be marked; Vertex form makes the high or low point readable).",
+    "student-feedback.json is still compiled into the page messages object and still contains under the graph, this writing, expanded writing. Hint on Action surfaces those strings.",
+    "Nelson internal records present; rights_status restricted_pending_review; no crops/; no bungee/cigarettes/libfile in student-content or build HTML. Pool accepted 27 / 13 families; vf-excluded-nelson-bank is excluded.",
+    "verify_lesson.py no longer requires a The water tab (it fails if that tab is present). It still hard-codes VERTEX_TASKS = match-plus-inside, predict-h, expand-same-graph, fresh-case. coo.generic_gate_for imports verify_lesson.generic_html_gates, which does not exist.",
+    "math_text still turns \\frac{1}{2} into (1)/(2). No KaTeX/CDN script on the compiled page.",
+    "scale-proof.json ok:true is not evidence. This pass does not treat it as a gate."
+  ],
+  "tests_this_pass": {
+    "passed": [
+      "content-builder/scripts/test_authoring.py",
+      "content-builder/scripts/test_language.py",
+      "content-builder/scripts/test_nelson_internal.py",
+      "content-builder/scripts/test_pool.py",
+      "content-builder/scripts/test_coo.py"
+    ],
+    "passed_count": 18,
+    "failed": [
+      {
+        "path": "content-builder/scripts/test_generic_lessons.py",
+        "reason": "Playwright Chromium executable missing in this environment; not used as a green gate. Tabs confirmed from compiled HTML and the live page instead."
+      }
+    ]
+  },
+  "requirements": [
+    {
+      "id": "R1-canonical-authoring",
+      "title": "Save student-content.json; rebuild; preview shows the saved change",
+      "director": "engineering",
+      "owner": "integration + lesson-engineer",
+      "status": "partial",
+      "acceptance": "A teacher edit in the review UI writes student-content.json, rebuilds the same compiler as export, and the preview/export HTML contains the saved string. POST /api/instruction is refused.",
+      "affected_files": [
+        "content-builder/review/index.html",
+        "content-builder/scripts/serve_review.py",
+        "content-builder/scripts/student_authoring.py",
+        "content-builder/scripts/test_authoring.py",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+        "content-builder/build/MCF3M/M4-L1-vertex-form/index.html"
+      ],
+      "evidence": "Disk UI label is Save, rebuild, preview; helper text: instruction.json is not an authoring target. fetch POST /api/student-content. Source POST /api/instruction returns 410. test_instruction_retired_and_http_save_reaches_preview and test_save_rebuild_preview_shows_change passed (marker SAVE_PREVIEW_MARKER_9f3c). Live 8790: GET /api/student-content 404; POST /api/student-content unknown endpoint; POST /api/instruction 400 missing course — not refused.",
+      "remaining_failures": [
+        "Live review process on :8790 still treats POST /api/instruction as a write path and does not expose POST /api/student-content. Restart serve_review.py from current source before claiming the teacher loop.",
+        "This COO pass did not click Save, rebuild, preview on the live UI because block textareas never loaded."
+      ]
+    },
+    {
+      "id": "R2-authority-star-tabs",
+      "title": "Exact model-STAR and three tabs",
+      "director": "pedagogy",
+      "owner": "lesson-director + student-copywriter",
+      "status": "pass",
+      "acceptance": "Rule text is Search/Translate/Answer/Review + diagram. Compiled student page has only Minds On, Action, Consolidation. Hook lives inside Minds On.",
+      "affected_files": [
+        ".cursor/rules/content-builder-student-language.mdc",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+        "content-builder/build/MCF3M/M4-L1-vertex-form/index.html"
+      ],
+      "evidence": "Rule table: S Search the word problem / T Translate the words into an equation / A Answer the problem / R Review the solution. Do not use Situation / Task / Action / Result. Live JSON parts: minds-on/Minds On, action/Action, consolidation/Consolidation. Cache-busted compiled page tablist: Minds On, Action, Consolidation. Hook card in Minds On: Look at the streams. Look at the water leaving the fountain is body copy, not a tab. No id=tab-hook, no The water tab.",
+      "remaining_failures": [
+        "M4 worked examples do not show STAR step labels. That is acceptable for these non-word-problem examples; copywriter should still use STAR when a word-problem solution is written."
+      ]
+    },
+    {
+      "id": "R3-nelson-internal",
+      "title": "Nelson 4.1 internal source map; no student export of crops or wording",
+      "director": "pedagogy",
+      "owner": "practice-designer + parent ingest",
+      "status": "pass",
+      "acceptance": "Internal records present; RIGHTS.md; no bungee/cigarettes/libfile in student-content or export HTML; no crops directory.",
+      "affected_files": [
+        "content-builder/catalogue/sources/internal/nelson-mcf3m-4-1/manifest.json",
+        "content-builder/catalogue/sources/internal/nelson-mcf3m-4-1/source-map.json",
+        "content-builder/catalogue/sources/internal/nelson-mcf3m-4-1/question-baseline.json",
+        "content-builder/catalogue/sources/internal/nelson-mcf3m-4-1/RIGHTS.md",
+        "content-builder/scripts/test_nelson_internal.py"
+      ],
+      "evidence": "manifest rights_status restricted_pending_review. source-map student_export_policy starts Do not export. RIGHTS.md: Do not export page crops, publisher illustrations, calculator screenshots, or source wording. No crops/. test_nelson_internal.py passed. Grep of build/ found no bungee, cigarettes, libfile, nelson-mcf3m. Pool item vf-excluded-nelson-bank status excluded; student_facing [not for student export — Nelson Functions 11 local-bank stems].",
+      "remaining_failures": []
+    },
+    {
+      "id": "R4-question-pool",
+      "title": "24–36 accepted candidates by family with Bloom + authored verified solutions",
+      "director": "pedagogy",
+      "owner": "practice-designer",
+      "status": "pass",
+      "acceptance": "Pool validates; 24–36 accepted; distinct families counted separately; ≥40% of newly accepted families Analyze/Evaluate/Create or recorded exception; independently checked sample solutions; assembled lesson need not use every item.",
+      "affected_files": [
+        "content-builder/catalogue/pools/MCF3M/M4-L1-vertex-form.json",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/coverage-brief.json",
+        "content-builder/scripts/question_pool.py",
+        "content-builder/scripts/test_pool.py"
+      ],
+      "evidence": "coverage-brief.json accepted 27, 13 distinct_families, higher_order_new_family_pct 1.0. question_pool.coverage_report agrees. test_pool.py passed. All accepted answer_kind authored and verified true. COO sample: vf-read-plus-inside vertex (−3, 1) axis x = −3; vf-read-open-down vertex (−2, 4) maximum; vf-claim-axis-is-y refute y = 4, axis is x = 4. Live /api/pool 404 so the candidate drawer did not render this process.",
+      "remaining_failures": [
+        "Candidate drawer empty on live :8790 until the review process is restarted (R7). Not a pool-content failure."
+      ]
+    },
+    {
+      "id": "R5-terminology",
+      "title": "Governed Canadian-English terminology; lint clean on student copy",
+      "director": "pedagogy",
+      "owner": "student-copywriter",
+      "status": "partial",
+      "acceptance": "Registry preferred terms: vertex form, standard form, factored form. No the writing as a form substitute. No Some books swap. Zeros vs x-intercepts. language_lint on M4 is empty.",
+      "affected_files": [
+        "content-builder/catalogue/terminology/mcf3m-a2-quadratic-forms.json",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-feedback.json",
+        "content-builder/scripts/language_lint.py",
+        "content-builder/scripts/test_language.py",
+        "content-builder/build/MCF3M/M4-L1-vertex-form/index.html"
+      ],
+      "evidence": "Registry preferred: vertex form, standard form, factored form. test_m4_l1_language_lint_clean passed; lint_lesson([]) empty. Action render: In this course, f(x) = a(x - h)² + k is vertex form. The expanded equation f(x) = ax² + bx + c is standard form. student-content has no the writing / some books swap. Compiled HTML still contains under the graph, this writing, expanded writing from student-feedback.json messages (hint-match-1-live-equation: Look at the equation under the graph.).",
+      "remaining_failures": [
+        "student-feedback.json (and therefore compiled messages/hints) still uses under the graph, this writing, expanded writing, both writings. language_lint does not scan that file. Owner: student-copywriter + formative-feedback-designer."
+      ]
+    },
+    {
+      "id": "R6-cards-artifacts",
+      "title": "Shared card contract and artifact-aware instructions",
+      "director": "experience",
+      "owner": "visual + interaction + copywriter",
+      "status": "partial",
+      "acceptance": "Explore / Worked example / Try / Discuss / Check / Optional remark with text labels and aria-hidden icons. Objects have id, capabilities, fallback. Copy does not ask to mark a static photo or refer to an equation under the graph.",
+      "affected_files": [
+        "content-builder/catalogue/contracts/student-content.schema.json",
+        "content-builder/catalogue/components/registry.json",
+        "content-builder/components/student.css",
+        "content-builder/scripts/build_lesson.py",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-content.json",
+        "content-builder/lessons/MCF3M/M4-L1-vertex-form/student-feedback.json",
+        "content-builder/build/MCF3M/M4-L1-vertex-form/index.html"
+      ],
+      "evidence": "Minds On card: section.card-block.is-explore, svg.card-icon aria-hidden=true, heading Look at the streams. Task: The photograph cannot be marked. Objects: fountain-photo capabilities [look]; vertex-form-graph capabilities include show-vertex-form-equation. Action interactive: Vertex form: live equation is above the jxgbox. Stem: Submit when the live equation labelled Vertex form matches that equation. Card kinds used on M4: explore, try, check. Schema/CSS/renderer also define worked-example, discuss, optional-remark.",
+      "remaining_failures": [
+        "Hint strings still say Look at the equation under the graph even though the live equation is above the graph.",
+        "M4 Action still says the same kind of fact you marked on the water stream after telling students the photograph cannot be marked.",
+        "M4 does not instantiate discuss or optional-remark cards; worked examples use type=example with a Worked example cue rather than kind=worked-example cards."
+      ]
+    },
+    {
+      "id": "R7-builder-workflow",
+      "title": "Builder: pick lesson, edit blocks, coverage, diff, approve (not publish)",
+      "director": "experience",
+      "owner": "review UI + serve_review",
+      "status": "partial",
+      "acceptance": "Persistent course/module/lesson picker. Block editors bound to student-content ids. Candidate drawer. Diff vs approved. Approve version ≠ publish. Raw JSON is internal.",
+      "affected_files": [
+        "content-builder/review/index.html",
+        "content-builder/scripts/serve_review.py"
+      ],
+      "evidence": "Live heading Lesson review. Copy: Student preview uses the same compiler as export. Approve is not publish. Controls: Course textbox MCF3M, Lesson combobox, Load, Approve version. Sections: Coverage, Candidate drawer, Student preview, Edit student blocks, Diff versus approved version, Lock blocks. No Save instruction.json. Source APIs: GET /api/lessons, /api/student-content, /api/coverage, /api/pool, /api/diff; POST /api/student-content, /api/approve, /api/locks. Live process 404s those GETs; onboarding shows Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON; status /api/lessons?course=MCF3M 404. No dedicated Module dropdown (modules only inside Course onboarding HTML). test_list_lessons_and_approve passed against handler_for().",
+      "remaining_failures": [
+        "Restart serve_review.py so the live UI matches current source.",
+        "No first-class course → module → lesson picker (only Course + Lesson, plus onboarding module list).",
+        "No autosave and no natural-language revision actions from the enrichment plan."
+      ]
+    },
+    {
+      "id": "R8-runtime-generic",
+      "title": "Component registry, math rendering, generic verifier",
+      "director": "engineering",
+      "owner": "lesson-engineer",
+      "status": "partial",
+      "acceptance": "No unconditional vertex-board bundling. Verifier does not require Vertex Form, The water, or four exact cycles. Fractions/powers readable without a CDN. Schema recursive; student-safe projection.",
+      "affected_files": [
+        "content-builder/catalogue/components/registry.json",
+        "content-builder/catalogue/contracts/student-content.schema.json",
+        "content-builder/scripts/build_lesson.py",
+        "content-builder/scripts/verify_lesson.py",
+        "content-builder/scripts/student_fields.py",
+        "content-builder/scripts/coo.py",
+        "content-builder/build/MCF3M/M5-L1-trig-ratios/index.html",
+        "content-builder/build/MCF3M/M7-L3-exponential-functions/index.html"
+      ],
+      "evidence": "lesson_uses_vertex_board gates jsxgraph copy. M5 and M7 compiled HTML have the three tabs and do not include jsxgraphcore.js. verify_lesson GENERIC_TABS = Minds On, Action, Consolidation; The water tab is a failure if present, not a requirement. Schema parts enum minds-on/action/consolidation, minItems=maxItems=3, recursive card/example blocks, objects require id/capabilities/fallback. assert_student_content whitelist. No cdn. or katex.min.js in compiled M4. Fractions render as g(x) = (1)/(2)(x + 2)² - 3.",
+      "remaining_failures": [
+        "verify_lesson.VERTEX_TASKS still hard-codes the four M4 cycle ids when a vertex board is present.",
+        "coo.py generic_gate_for imports verify_lesson.generic_html_gates — that symbol does not exist. coo --proof cannot run.",
+        "math_text is still regex substitutions; stacked fractions/roots are not a local accessible renderer."
+      ]
+    },
+    {
+      "id": "R9-coo-scale",
+      "title": "COO jobs + M4 plus two contrasting lessons carry the contracts forward",
+      "director": "coo",
+      "owner": "parent integrator",
+      "status": "partial",
+      "acceptance": "Job states, budget, cancel/resume. M4, a trigonometry lesson, and an exponential lesson each validate, compile, and keep three tabs. A save on M4 appears in preview and export. Incomplete items stay marked incomplete.",
+      "affected_files": [
+        "content-builder/scripts/coo.py",
+        "content-builder/scripts/test_coo.py",
+        "content-builder/catalogue/coo/jobs/111f135d.json",
+        "content-builder/lessons/MCF3M/M5-L1-trig-ratios/student-content.json",
+        "content-builder/lessons/MCF3M/M7-L3-exponential-functions/student-content.json",
+        "content-builder/build/MCF3M/M5-L1-trig-ratios/index.html",
+        "content-builder/build/MCF3M/M7-L3-exponential-functions/index.html",
+        "content-builder/catalogue/coo/reports/scale-proof.json"
+      ],
+      "evidence": "test_coo.py passed (cancel/resume, budget max_concurrent_specialists=3, M4 first in rebuild order). This pass created job 111f135d kind=enrichment-full-revision state=verifying budget.max_concurrent_specialists=3. M5 title Lesson 1: Trigonometric Ratios and M7 Exploring Exponential Functions, Growth & Decay each have nav_label Minds On / Action / Consolidation in JSON and the same three role=tab buttons in compiled HTML. Isolated save→preview is proven by test_authoring.py, not by the live 8790 UI. scale-proof.json ok:true is recorded and ignored.",
+      "remaining_failures": [
+        "Live M4 save → preview → export was not demonstrated on :8790 (R1).",
+        "generic_html_gates missing; do not run or trust coo --proof / scale-proof.json.",
+        "test_generic_lessons.py could not launch Chromium here; tabs were confirmed from files and the live M4 page instead.",
+        "39-lesson rollout stays blocked."
+      ]
+    }
+  ]
+}

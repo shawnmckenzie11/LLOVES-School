@@ -78,7 +78,33 @@
       "note": "Verbatim Ministry sample. Seed has no key; expanded coefficients are not printed."
     },
     {
-      "role": "additional-practice",
+      "role": "assembled-practice-sets",
+      "id": "student-practice-sets",
+      "source": "catalogue-pool",
+      "source_id": "catalogue/pools/MCF3M/M4-L1-vertex-form.json",
+      "source_url": null,
+      "licence": null,
+      "used_in_student_content": true,
+      "used_in_practice_set": true,
+      "pool_ids": [
+        "vf-error-h-sign",
+        "vf-claim-axis-is-y",
+        "vf-ministry-expand",
+        "vf-method-equivalence",
+        "vf-error-expand-distribute",
+        "vf-table-not-proof",
+        "vf-form-choice-defend",
+        "vf-zeros-inverse",
+        "vf-vertex-and-point",
+        "vf-bridge-graph-equation",
+        "vf-construct-same-vertex-different-a",
+        "vf-maximum-from-vertex-form",
+        "vf-model-arc-domain"
+      ],
+      "note": "Compiled from student-practice-sets.json. Original and ministry-sample prompts. Unrestricted explanations are not auto-graded. OpenStax extras 22 and 53 are not compiled."
+    },
+    {
+      "role": "drawer-not-compiled",
       "id": "m51274#section-exercises-22",
       "source": "openstax",
       "source_id": "m51274#section-exercises-22",
@@ -86,11 +112,11 @@
       "licence": "CC BY-NC-SA 4.0",
       "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
       "used_in_student_content": false,
-      "used_in_practice_set": "additional-licensed",
-      "note": "No solution element in catalogue; do not invent the range."
+      "used_in_practice_set": false,
+      "note": "Not assembled. Pool record vf-range-from-vertex stays in the drawer. Do not invent the range."
     },
     {
-      "role": "additional-practice",
+      "role": "retired-not-assembled",
       "id": "m51274#section-exercises-53",
       "source": "openstax",
       "source_id": "m51274#section-exercises-53",
@@ -98,8 +124,8 @@
       "licence": "CC BY-NC-SA 4.0",
       "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274)",
       "used_in_student_content": false,
-      "used_in_practice_set": "additional-licensed",
-      "note": "No solution element in catalogue; do not invent a key."
+      "used_in_practice_set": false,
+      "note": "Retired from the student page. Was A2.5/A2.6 translation reteach (openstax-ex-53). Do not invent a key."
     },
     {
       "role": "guided-interactive-analogue",

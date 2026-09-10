@@ -1,0 +1,48 @@
+{
+  "schema_version": "coo-job.v1",
+  "id": "111f135d",
+  "course": "MCF3M",
+  "lesson_id": "M4-L1-vertex-form",
+  "kind": "enrichment-full-revision",
+  "state": "verifying",
+  "budget": {
+    "max_concurrent_specialists": 3,
+    "production_passes": 1,
+    "repair_passes": 1,
+    "model_profile": "visible-deployment-setting"
+  },
+  "progress": {
+    "step": 4,
+    "detail": "verifying"
+  },
+  "cancel_requested": false,
+  "gates": [],
+  "log": [
+    {
+      "at": "2026-09-09T14:36:06+00:00",
+      "event": "created",
+      "note": "COO verifying enrichment R1–R9. Do not treat scale-proof.json as evidence. Approve is not publish."
+    },
+    {
+      "at": "2026-09-09T14:36:06+00:00",
+      "event": "advance",
+      "note": "grounded"
+    },
+    {
+      "at": "2026-09-09T14:36:06+00:00",
+      "event": "advance",
+      "note": "planned"
+    },
+    {
+      "at": "2026-09-09T14:36:06+00:00",
+      "event": "advance",
+      "note": "producing"
+    },
+    {
+      "at": "2026-09-09T14:36:06+00:00",
+      "event": "advance",
+      "note": "verifying"
+    }
+  ],
+  "updated_at": "2026-09-09T14:36:06+00:00"
+}

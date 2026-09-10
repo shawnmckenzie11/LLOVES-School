@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Exploring Exponential Functions, Growth &amp; Decay</title>
+  <link rel="stylesheet" href="student.css">
+</head>
+<body>
+  <article class="lesson">
+    <h1>Exploring Exponential Functions, Growth &amp; Decay</h1>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-minds-on" aria-controls="panel-minds-on" aria-selected="true">Minds On</button><button type="button" role="tab" id="tab-action" aria-controls="panel-action" aria-selected="false">Action</button><button type="button" role="tab" id="tab-consolidation" aria-controls="panel-consolidation" aria-selected="false">Consolidation</button>
+    </div>
+    <section class="panel active" id="panel-minds-on" role="tabpanel" aria-labelledby="tab-minds-on"><div class="prose"><section class="card-block is-explore" data-block-id="minds-on--card--1" data-card="explore"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"/></svg><span>Multiply or add?</span></h3><p data-block-id="minds-on--p--1">A quantity starts at a value and is multiplied by the same factor at every step.</p>
+<div class="task" data-block-id="minds-on--task--1"><p>How is that different from adding the same amount at every step? Do not write an equation yet.</p></div></section></div></section><section class="panel" id="panel-action" role="tabpanel" aria-labelledby="tab-action" hidden><div class="prose"><p data-block-id="action--p--1">An exponential function can be written y = a(b)^x with a &gt; 0, b &gt; 0, and b ≠ 1. If b &gt; 1 the values grow. If 0 &lt; b &lt; 1 the values decay.</p>
+<section class="card-block is-try" data-block-id="action--card--1" data-card="try" data-object-ids="growth-decay-sketch"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M4 20l1-6 9-9 4 4-9 9-6 2z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Two equations, same family</span></h3><p class="equation" data-block-id="action--equation--1">f(x) = 2^x</p>
+<p class="equation" data-block-id="action--equation--2">g(x) = ((1)/(2))^x</p>
+<div class="task" data-block-id="action--task--1"><p>Compare those two. What stays the same? What changes? Sketch from a short table if the graph is not available.</p></div></section>
+<section class="card-block is-discuss" data-block-id="action--card--2" data-card="discuss"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 6h9a3 3 0 013 3v4a3 3 0 01-3 3H9l-4 3V6z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Not every curve is exponential</span></h3><div class="task" data-block-id="action--task--2"><p>How can you tell an exponential function from a quadratic one from a table or a graph, without naming a formula first?</p></div></section></div></section><section class="panel" id="panel-consolidation" role="tabpanel" aria-labelledby="tab-consolidation" hidden><div class="prose"><section class="card-block is-check" data-block-id="consolidation--card--1" data-card="check" data-object-ids="growth-decay-sketch"><h3 class="card-label"><svg class="card-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12l2.5 2.5L16 9" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>What a and b control</span></h3><div class="task" data-block-id="consolidation--task--1"><p>For y = a(b)^x, what do a and b each control? If the graph is not available, sketch from a short table of integer x.</p></div></section></div></section>
+    <div class="credits"><p>Ontario curriculum sample: Queen’s Printer for Ontario</p></div>
+  </article>
+
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll('[role="tab"]');
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          tabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
+          tab.setAttribute("aria-selected", "true");
+          document.querySelectorAll('[role="tabpanel"]').forEach(function (panel) {
+            var on = panel.getAttribute("aria-labelledby") === tab.id;
+            panel.classList.toggle("active", on);
+            panel.hidden = !on;
+          });
+        });
+      });
+    })();
+  </script>
+
+</body>
+</html>

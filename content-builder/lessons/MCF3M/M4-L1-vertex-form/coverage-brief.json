@@ -1,0 +1,52 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "scope": "A2.7 and the vertex-form share of A2.10. Completing the square, the quadratic formula, discriminant, regression, and the full applications lesson stay out of scope.",
+  "accepted": 27,
+  "distinct_families": [
+    "claim-testing",
+    "constraint-construction",
+    "equivalent-forms",
+    "error-diagnosis",
+    "form-affordances",
+    "maximum-from-representations",
+    "method-choice",
+    "model-critique",
+    "predict-parameter-change",
+    "read-vertex-features",
+    "representation-bridge",
+    "vertex-and-point-to-function",
+    "zeros-from-vertex-form"
+  ],
+  "new_or_higher_order_families": [
+    "claim-testing",
+    "constraint-construction",
+    "equivalent-forms",
+    "error-diagnosis",
+    "form-affordances",
+    "method-choice",
+    "model-critique",
+    "representation-bridge",
+    "vertex-and-point-to-function",
+    "zeros-from-vertex-form"
+  ],
+  "higher_order_new_family_pct": 1.0,
+  "target": [
+    24,
+    36
+  ],
+  "gaps_filled": [
+    "error-diagnosis",
+    "method-choice",
+    "claim-testing",
+    "constraint-construction",
+    "model-critique",
+    "zeros-from-vertex-form",
+    "vertex-and-point-to-function",
+    "representation-bridge"
+  ],
+  "excluded": [
+    "vf-excluded-nelson-bank",
+    "vf-excluded-mathnet-0gz2",
+    "vf-excluded-regression"
+  ]
+}
