@@ -411,6 +411,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(uuid1)
         self.assertTrue(token1)
 
+        self.student.post("/student/mood", data={"mood": "good"})
         home = self.student.get("/student/home", follow_redirects=False)
         self.assertEqual(home.status_code, 200)
         still = self.school.list_live_session_attendees(
