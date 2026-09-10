@@ -38,6 +38,7 @@ from live_media import (  # noqa: E402
     live_media_url_swap_allowed,
     normalize_active_media_url,
     public_active_media_payload,
+    student_cons_prompt_payload,
 )
 
 
@@ -200,6 +201,18 @@ class LiveMediaHelperTests(unittest.TestCase):
         catalog = c1_cons_catalog()
         self.assertEqual(len(catalog), 5)
         self.assertEqual(get_c1_cons_item("CONS-5")["id"], "C1-CONS-5")
+        cons_prompt = student_cons_prompt_payload(catalog[0])
+        self.assertEqual(cons_prompt["artifact_id"], "quick-hitter-question-chain")
+        self.assertEqual(cons_prompt["ride"], "cons")
+        self.assertEqual(cons_prompt["channel"], "live-prompt")
+        self.assertTrue(cons_prompt["ephemeral"])
+        self.assertFalse(cons_prompt["durable_store"])
+        self.assertNotIn("clear_on", cons_prompt)
+        self.assertEqual(cons_prompt["chain_index"], 1)
+        self.assertEqual(cons_prompt["chain_length"], 5)
+        last = student_cons_prompt_payload(catalog[-1])
+        self.assertEqual(last["chain_index"], 5)
+        self.assertEqual(last["chain_length"], 5)
 
     def test_peel_map_lives_on_active_media_blob(self) -> None:
         """Peels stay on reveal_axes / L0–L4 / reveal_lateral / allow_3d_limited."""
@@ -605,6 +618,11 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIsNotNone(state.get("prompt"))
         self.assertEqual(state["prompt"]["kind"], "mc")
         self.assertEqual(state["prompt"]["payload"]["item_id"], "C1-CONS-1")
+        self.assertEqual(
+            state["prompt"]["payload"]["artifact_id"],
+            "quick-hitter-question-chain",
+        )
+        self.assertEqual(state["prompt"]["payload"]["ride"], "cons")
         self.assertIn("this picture", state["prompt"]["payload"]["prompt"].lower())
         self.assertNotIn("key", state["prompt"]["payload"])
         self.assertNotIn("cement", state["prompt"]["payload"])
@@ -686,6 +704,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIsNone(state.get("active_media"))
         self.assertFalse(state.get("waiting_room"))
         prompt = state.get("prompt") or {}
+        self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "minds_on")
         self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "meet-math")
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",

@@ -14,6 +14,19 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+try:
+    from quick_hitter import (
+        QUICK_HITTER_ARTIFACT_ID,
+        RIDE_CONS,
+        quick_hitter_packaging,
+    )
+except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.quick_hitter import (
+        QUICK_HITTER_ARTIFACT_ID,
+        RIDE_CONS,
+        quick_hitter_packaging,
+    )
+
 # Seed C1 Real-slice page (Grade-11 parabola / real slice of the 3D saddle).
 DEFAULT_LIVE_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html"
 DEFAULT_LIVE_MEDIA_TITLE = "C1 Real-slice"
@@ -245,11 +258,20 @@ def student_cons_prompt_payload(item: dict[str, Any]) -> dict[str, Any]:
     Args:
         item: Row from ``c1_cons_catalog``.
     """
-    payload: dict[str, Any] = {
-        "pack": C1_CONS_PACK_ID,
-        "item_id": item["id"],
-        "prompt": item["prompt"],
-    }
+    payload: dict[str, Any] = quick_hitter_packaging(
+        ride=RIDE_CONS,
+        chain_index=int(item.get("index") or 1),
+        chain_length=len(c1_cons_catalog()),
+        ephemeral=True,
+        durable_store=False,
+    )
+    payload.update(
+        {
+            "pack": C1_CONS_PACK_ID,
+            "item_id": item["id"],
+            "prompt": item["prompt"],
+        }
+    )
     if item.get("kind") == "mc":
         payload["choices"] = list(item.get("choices") or [])
     if item.get("share_alt"):
@@ -277,6 +299,10 @@ def is_c1_cons_payload(payload: Any) -> bool:
     """
     if not isinstance(payload, dict):
         return False
+    artifact = str(payload.get("artifact_id") or "").strip()
+    ride = str(payload.get("ride") or "").strip().lower()
+    if artifact == QUICK_HITTER_ARTIFACT_ID and ride == RIDE_CONS:
+        return True
     pack = str(payload.get("pack") or "").strip().upper()
     item_id = str(payload.get("item_id") or "").strip().upper()
     return pack == C1_CONS_PACK_ID or item_id.startswith("C1-CONS-")

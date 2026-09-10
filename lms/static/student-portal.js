@@ -151,6 +151,15 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Escape prompt copy and render copywriter ``**bold**`` markers.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatPromptHtml(value) {
+  return escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 /** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
 const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
 
@@ -199,7 +208,7 @@ function applyLayout(payload) {
   body.classList.toggle("is-waiting-room", waitingRoom);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
-    // Waiting-room keeps Wonder's line even when meet-math MC is showing.
+    // Waiting-room keeps Wonder's line even when the Minds-On question is showing.
     if (!waitingRoom && (hasPrompt || hasMedia)) {
       waitEl.hidden = true;
       waitEl.textContent = "";
@@ -388,6 +397,7 @@ function paintMediaToast(media) {
 
 /**
  * Render placeholder widgets for mc / numeric / share prompts.
+ * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
  * @param {any} payload
  */
 function paintPrompt(payload) {
@@ -417,7 +427,7 @@ function paintPrompt(payload) {
   }
   const kind = String(prompt.kind);
   const data = prompt.payload || {};
-  const title = escapeText(data.prompt || data.question || "Live response");
+  const title = formatPromptHtml(data.prompt || data.question || "Live response");
   let controls = "";
   if (kind === "mc") {
     const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];

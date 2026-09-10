@@ -26,7 +26,7 @@ from live_prompt_feedback import (  # noqa: E402
     resolve_live_prompt_feedback,
     strip_teacher_prompt_fields,
 )
-from meet_math import meet_math_prompt_payload  # noqa: E402
+from minds_on import MINDS_ON_CHOICES, minds_on_prompt_payload  # noqa: E402
 
 
 KEYS_MD = (
@@ -45,13 +45,13 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
 
     def test_minds_on_by_choice_letter_and_text(self) -> None:
         """Linear-rate MC key A returns the by_choice line."""
-        payload = meet_math_prompt_payload()
+        payload = minds_on_prompt_payload()
         key_line = M1C1_FEEDBACK["minds_on"]["by_choice"]["A"]
         via_letter = resolve_live_prompt_feedback(payload, {"choice": "A"})
         self.assertEqual(via_letter["source"], "by_choice")
         self.assertEqual(via_letter["text"], key_line)
         via_text = resolve_live_prompt_feedback(
-            payload, {"choice": "Every step up adds the same amount"}
+            payload, {"choice": MINDS_ON_CHOICES[0]}
         )
         self.assertEqual(via_text["text"], key_line)
         other = resolve_live_prompt_feedback(payload, {"choice": "The graph curves"})
@@ -121,6 +121,14 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 "by_choice": {"B": "hidden"},
                 "on_submit": "hidden",
                 "feedback": {"text": "hidden"},
+                "items": [
+                    {
+                        "item_id": "minds_on",
+                        "key": "A",
+                        "cement": "hidden",
+                        "prompt": "stem",
+                    }
+                ],
             }
         )
         self.assertEqual(cleaned["item_id"], "C1-CONS-1")
@@ -133,6 +141,9 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             "feedback",
         ):
             self.assertNotIn(field, cleaned)
+        self.assertNotIn("key", cleaned["items"][0])
+        self.assertNotIn("cement", cleaned["items"][0])
+        self.assertEqual(cleaned["items"][0]["prompt"], "stem")
 
     def test_keys_brief_lists_soft_keys(self) -> None:
         """Authoring brief stays in lockstep with the runtime table."""
