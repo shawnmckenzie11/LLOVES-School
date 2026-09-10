@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-vlt-table-mc",
+  "process_tags": [
+    "distinguish-function-relation"
+  ],
+  "expectation_codes": [
+    "A2.1"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Owned MC: which table fails the function test?",
+  "stem_student": "Which table of values does NOT represent a function of x? A) x: −2, −1, 0, 1  |  y: 4, 1, 0, 1   B) x: 1, 2, 3, 2  |  y: 5, 7, 9, 11   C) x: −1, 0, 1, 2  |  y: 2, 2, 2, 2   D) x: 0, 1, 2, 3  |  y: 0, 1, 4, 9",
+  "stem_teacher": "LLOVES-owned MC. B repeats an x-input with two different y-outputs, so it is not a function. Aligns to A2.1 table representation; not Ministry wording.",
+  "answer": "B",
+  "answer_verification": "In B the input x = 2 appears twice with y = 7 and y = 11.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-vlt-table-mc",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned MC exemplar for A2.1 table representation. Check-in-ready (selected)."
+}

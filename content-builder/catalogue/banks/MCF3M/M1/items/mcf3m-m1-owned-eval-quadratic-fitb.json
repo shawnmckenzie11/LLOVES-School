@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-eval-quadratic-fitb",
+  "process_tags": [
+    "evaluate-function-notation"
+  ],
+  "expectation_codes": [
+    "A2.2"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "Owned FITB: evaluate g(−3) for g(x) = x^2 − 5x",
+  "stem_student": "Let g(x) = x^2 − 5x. Find g(−3).",
+  "stem_teacher": "LLOVES-owned FITB/numeric. Not Ministry wording.",
+  "answer": "24",
+  "answer_verification": "g(−3) = (−3)^2 − 5(−3) = 9 + 15 = 24.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-eval-quadratic-fitb",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned FITB for A2.2. Check-in-ready (selected)."
+}

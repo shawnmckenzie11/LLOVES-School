@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0.0",
+  "course_code": "MCF3M",
+  "title": "Functions and Applications, Grade 11, University/College Preparation",
+  "course_folder_id": "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+  "observed_parent_id": "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40",
+  "modules": [
+    {
+      "module_number": 1,
+      "title": "Introduction to the Quadratic Function",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "drive_folder_title": "Module 1 - temp",
+      "drive_folder_url": "https://drive.google.com/drive/folders/12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+      "lesson_parent_folder_id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+      "lesson_count": 7
+    },
+    {
+      "module_number": 2,
+      "title": "Algebra of Quadratic Expressions",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "drive_folder_title": "Module 2",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "lesson_parent_folder_id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+      "lesson_count": 6
+    },
+    {
+      "module_number": 3,
+      "title": "Working with Quadratic Functions",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "drive_folder_title": "Module 3",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "lesson_parent_folder_id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+      "lesson_count": 5
+    },
+    {
+      "module_number": 4,
+      "title": "Quadratic Models",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "drive_folder_title": "Module 4",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "lesson_parent_folder_id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+      "lesson_count": 5
+    },
+    {
+      "module_number": 5,
+      "title": "Trigonometry & Acute Triangles",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "drive_folder_title": "Module 5",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "lesson_parent_folder_id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+      "lesson_count": 5
+    },
+    {
+      "module_number": 6,
+      "title": "Sinusoidal Functions",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "drive_folder_title": "Module 6",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "lesson_parent_folder_id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+      "lesson_count": 3
+    },
+    {
+      "module_number": 7,
+      "title": "Exponential Functions",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "drive_folder_title": "Module 7",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "lesson_parent_folder_id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+      "lesson_count": 3
+    },
+    {
+      "module_number": 8,
+      "title": "Solving Financial Problems Involving Exponential Functions",
+      "title_source": "sources/original-lesson-list.json",
+      "drive_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "drive_folder_title": "Module 8",
+      "drive_folder_url": "https://drive.google.com/drive/folders/1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "lesson_parent_folder_id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+      "lesson_count": 5
+    }
+  ],
+  "module_0": {
+    "folder_id": "18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+    "included_in_async_generation": false,
+    "reason": "No asynchronous topic list supplied; existing live introduction is separate."
+  },
+  "existing_support_folders": {
+    "examples": "1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx",
+    "team_challenge": "1wQtlWXmwdxpe0lxg5DnqsHloWV8spclN",
+    "module_1_live_slides": "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW",
+    "module_0_live_slides": "1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a"
+  },
+  "folder_policy": "Reuse observed IDs. Do not create, move, rename or delete Drive folders as part of importing this package."
+}

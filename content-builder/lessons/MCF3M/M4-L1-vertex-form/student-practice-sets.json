@@ -1,0 +1,76 @@
+{
+  "schema_version": "student-practice-sets.v1",
+  "sets": [
+    {
+      "id": "worked-inspect",
+      "items": [
+        {
+          "id": "mcf3m-m4-openstax-m51274-vertex-read",
+          "prompt": "The equation is y = −3(x + 2)^2 + 4. Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew."
+        }
+      ]
+    },
+    {
+      "id": "guided-inspect-you-do",
+      "items": [
+        {
+          "id": "mcf3m-m4-geogebra-cxk4xt4u",
+          "prompt": "Before you move anything, name the vertex of f(x) = (x + 3)^2 + 1. Then set the sliders so the graph matches that equation and check."
+        }
+      ]
+    },
+    {
+      "id": "varied-inspect",
+      "items": [
+        {
+          "id": "mcf3m-m4-ontario-a26-example-0",
+          "prompt": "Starting from y = x^2, sketch h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum?"
+        }
+      ]
+    },
+    {
+      "id": "worked-expand-compare",
+      "items": [
+        {
+          "id": "mcf3m-m4-openstax-m51274-figure7-expand",
+          "prompt": "A graph looks like y = x^2 moved left 2 and down 3, then stretched by one-half: g(x) = (1/2)(x + 2)^2 − 3. Expand this to the ax^2 + bx + c form. Check a few points in a table to see that both writings give the same outputs."
+        }
+      ]
+    },
+    {
+      "id": "guided-three-form",
+      "items": [
+        {
+          "id": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+          "prompt": "OpenStax writes a quadratic as f(x) = a(x − h)^2 + k and calls that writing standard form. What other name does OpenStax give that same writing?"
+        }
+      ]
+    },
+    {
+      "id": "core-independent",
+      "items": [
+        {
+          "id": "mcf3m-m4-ontario-a27-sample",
+          "prompt": "Given f(x) = 3(x − 1)^2 + 4, write the same function as ax^2 + bx + c. Use graphing technology to compare the two graphs."
+        },
+        {
+          "id": "mcf3m-m4-openstax-m51274-advantage-verbal",
+          "prompt": "This writing of a quadratic is f(x) = a(x − h)^2 + k. What can you read from it that is harder to see when the same function is written as ax^2 + bx + c?"
+        }
+      ]
+    },
+    {
+      "id": "additional-licensed",
+      "items": [
+        {
+          "id": "mcf3m-m4-openstax-m51274-ex22",
+          "prompt": "Determine the domain and range of f(x) = −2(x + 3)^2 − 6."
+        },
+        {
+          "id": "mcf3m-m4-openstax-m51274-ex53",
+          "prompt": "On the same axes, graph y = x^2, y = (x − 2)^2, y = (x − 3)^2, and y = (x + 4)^2. What stays the same? What moves, and in which direction?"
+        }
+      ]
+    }
+  ]
+}

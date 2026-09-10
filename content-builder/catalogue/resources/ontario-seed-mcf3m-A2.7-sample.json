@@ -1,0 +1,37 @@
+{
+  "id": "ontario-seed-mcf3m-A2.7-sample",
+  "source": "ontario-seed",
+  "source_id": "A2.7-example-0",
+  "source_url": null,
+  "source_revision": "lms/seeds/mcf3m_expectations.json",
+  "resource_type": "example",
+  "title": "MCF3M A2.7 sample problem (verbatim seed)",
+  "content_or_local_path": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.",
+  "topics": [
+    "vertex form",
+    "standard form"
+  ],
+  "prerequisites": [],
+  "representations": [
+    "equation",
+    "graph"
+  ],
+  "reading_demand": "low",
+  "mathematical_difficulty": "routine",
+  "context": "Ministry sample in the seed. Guided example / practice candidate.",
+  "instructional_roles": [
+    "supports practice",
+    "connects graph to equation",
+    "tests equivalent representations"
+  ],
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample.",
+  "embed_configuration": null,
+  "fallback": null,
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "/Users/shawnscomputer/Documents/LLOVES-School/lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "access_test_result": "quoted from committed seed",
+  "checked_at": "2026-09-09T04:49:06+00:00",
+  "review_status": "selected"
+}

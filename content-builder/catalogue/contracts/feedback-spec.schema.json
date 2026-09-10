@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "feedback-spec.schema.json",
+  "title": "Formative feedback specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lesson_id", "cycle", "tasks"],
+  "properties": {
+    "schema_version": { "const": "feedback-spec.v1" },
+    "lesson_id": { "type": "string" },
+    "cycle": {
+      "const": "start-manipulate-submit-check-feedback-retry"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tool",
+          "initial_state",
+          "student_controls",
+          "target",
+          "valid_alternatives",
+          "submission_evidence",
+          "checking",
+          "feedback_conditions",
+          "hint_sequence",
+          "retry",
+          "next_task",
+          "reset"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "tool": { "type": "string" },
+          "initial_state": { "type": "object" },
+          "student_controls": { "type": "array", "items": { "type": "string" } },
+          "target": { "type": "object" },
+          "valid_alternatives": { "type": "array" },
+          "submission_evidence": {
+            "type": "object",
+            "description": "What is scored. Unrestricted explanations are not auto-graded."
+          },
+          "checking": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["method", "tolerances"],
+            "properties": {
+              "method": { "type": "string", "enum": ["deterministic-math", "self-check", "teacher-review"] },
+              "tolerances": { "type": "object" },
+              "do_not": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "feedback_conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "when", "message_id", "evidence"],
+              "properties": {
+                "id": { "type": "string" },
+                "when": { "type": "string" },
+                "message_id": { "type": "string" },
+                "evidence": { "type": "string" }
+              }
+            }
+          },
+          "hint_sequence": { "type": "array", "items": { "type": "string" } },
+          "retry": { "type": "object" },
+          "next_task": { "type": "object" },
+          "reset": { "type": "object" },
+          "follow_up_when_uncertain": { "type": "string" }
+        }
+      }
+    },
+    "messages": {
+      "type": "object",
+      "description": "Message ids resolved by the copywriter into student_content; this file may hold teacher-facing drafts only until copy is approved.",
+      "additionalProperties": { "type": "string" }
+    },
+    "scenario_tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "input", "expect_condition"],
+        "properties": {
+          "task_id": { "type": "string" },
+          "input": { "type": "object" },
+          "expect_condition": { "type": "string" }
+        }
+      }
+    }
+  }
+}

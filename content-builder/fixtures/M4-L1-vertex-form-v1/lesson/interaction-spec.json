@@ -1,0 +1,68 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "brief_path": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+  "engine": "jsxgraph",
+  "existing_embed": null,
+  "student_action": "Predict the vertex, axis, and maximum or minimum from the displayed vertex-form equation before touching a slider. Then move exactly one parameter (a, h, or k). Compare the live equation with the parabola, vertex marker, and axis. Explain what changed. Then take a fresh equation and predict again before moving anything.",
+  "changing_quantities": ["a", "h", "k"],
+  "invariant": "The displayed graph is the same parabola as f(x) = a(x − h)^2 + k. The vertex stays (h, k) and the axis stays x = h. Expanding to standard form does not make a different graph.",
+  "intended_observation": "h is the x-coordinate of the vertex as written in (x − h), not whichever sign appears in the equation. a controls stretch, reflection, and maximum versus minimum. k is the vertical shift and the y-coordinate of the vertex. Graph, vertex-form equation, expanded standard form, and a few shared table points stay aligned.",
+  "prediction_prompt": "Before you move a slider, look at the equation. Where is the vertex? What is the axis of symmetry? Is this a maximum or a minimum? Then predict: if you change only h, what will happen to the graph and to the equation?",
+  "interpretation_prompt": "After you moved one slider, compare the graph and the equation. What changed? What stayed the same? How can you read the new vertex from the equation? Does the expanded form show a different parabola, or the same one?",
+  "fresh_case_prompt": "Here is a new equation. Do not move the sliders yet. Name the vertex, the axis, and whether this is a maximum or a minimum. Then move one parameter to check.",
+  "sequence": [
+    "Predict the vertex, axis, and max or min from the starting vertex-form equation.",
+    "Move exactly one parameter (prefer h first, to test the sign of h).",
+    "Compare the live vertex-form equation with the graph, vertex marker, and axis.",
+    "Explain the change in words (what a, h, or k did; what stayed readable).",
+    "Solve a fresh case: predict from a new equation, then check with the board."
+  ],
+  "board": {
+    "size": "small",
+    "bundled_assets": [
+      "content-builder/components/jsxgraph/jsxgraphcore.js",
+      "content-builder/components/jsxgraph/jsxgraph.css"
+    ],
+    "starting_equation": "f(x) = 2(x + 3)^2 + 1",
+    "starting_parameters": { "a": 2, "h": -3, "k": 1 },
+    "fresh_case_equation": "f(x) = −0.5(x − 2)^2 + 4",
+    "fresh_case_parameters": { "a": -0.5, "h": 2, "k": 4 },
+    "show": [
+      "parabola for f(x) = a(x − h)^2 + k",
+      "vertex marker labelled (h, k)",
+      "dashed axis of symmetry x = h",
+      "live vertex-form equation using Ontario names a, h, k",
+      "live expanded standard form ax^2 + bx + c (same graph; not completing the square)",
+      "short table of shared (x, f(x)) points that update with the graph"
+    ],
+    "sliders": [
+      { "name": "a", "role": "stretch, reflection, maximum versus minimum" },
+      { "name": "h", "role": "horizontal location of the vertex; written in (x − h)" },
+      { "name": "k", "role": "vertical location of the vertex" }
+    ],
+    "do_not_include": [
+      "completing the square",
+      "quadratic formula",
+      "required GeoGebra or Desmos embed",
+      "remote computation",
+      "login or API key"
+    ]
+  },
+  "instructional_roles": [
+    "connects graph to equation",
+    "exposes a misconception",
+    "supports parameter investigation",
+    "tests transfer"
+  ],
+  "misconceptions_in_play": ["h-sign", "a-vs-k", "expand-changes-graph", "axis-equation", "max-min-from-a"],
+  "fallback": "Paper or static diagram, no login and no remote tool. Give f(x) = 2(x + 3)^2 + 1. Students name the vertex, axis, and maximum or minimum, then sketch. They change only h to 2, rewrite the equation, and sketch again. They expand the starting equation and check that a few table points still sit on the same sketch. Fresh case on paper: f(x) = −0.5(x − 2)^2 + 4.",
+  "fallback_student": "On paper, use f(x) = 2(x + 3)^2 + 1. Name the vertex, the axis, and whether this is a maximum or a minimum, then sketch. Change only h to 2, rewrite the equation, and sketch again. Expand the starting equation and check that a few table points still sit on the same sketch. Fresh case on paper: f(x) = −0.5(x − 2)^2 + 4.",
+  "licence_notes": "Required board uses locally bundled JSXGraph (MIT) under content-builder/components/jsxgraph/ (see LICENSE.MIT). Do not require GeoGebra. Catalogue analogue geogebra-cxk4xt4u (Quadratic functions, vertex form; MathPSS / Dennis Weber) was checked 2026-09-09: https://www.geogebra.org/m/cxk4xt4u and https://www.geogebra.org/classic/cxk4xt4u loaded signed-out with sliders p, q, a and f(x)=a(x-p)^2+q. Legacy https://www.geogebra.org/material/iframe/id/cxk4xt4u returned HTTP 410 — do not require that embed. GeoGebra non-commercial terms apply only if a teacher optionally opens that material; the student lesson must not depend on it.",
+  "reason": "The brief asks students to read vertex, axis, and max/min from f(x) = a(x − h)^2 + k and to check that a parameter change, and an expansion to standard form, stay on the same graph. A small local JSXGraph board can run that exact sequence (predict vertex → move one parameter → compare graph and equation → interpret → fresh case) with Ontario names a, h, k, a live expansion, and a short table. The verified GeoGebra cxk4xt4u is a useful analogue but uses p and q, needs the network, and has a dead legacy iframe, so it is not the required engine.",
+  "untested": [
+    "This spec does not re-test GeoGebra signed-out access; that check is already recorded on catalogue record geogebra-cxk4xt4u (checked 2026-09-09).",
+    "JSXGraph board is not yet implemented; lesson-engineer must build and verify it locally with no network.",
+    "Live expansion coefficients and table points are specified, not computed here.",
+    "Signed-out GeoGebra material page still offered a Sign in control; unused because GeoGebra is not required."
+  ]
+}

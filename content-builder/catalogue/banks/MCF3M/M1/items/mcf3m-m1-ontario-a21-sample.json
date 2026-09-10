@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a21-sample",
+  "process_tags": [
+    "distinguish-function-relation"
+  ],
+  "expectation_codes": [
+    "A2.1"
+  ],
+  "placement_hint": "worked_example",
+  "title": "Ministry A2.1 sample: is x = y^2 a function?",
+  "stem_student": "Investigate, using numeric and graphical representations, whether the relation x = y^2 is a function, and justify your reasoning.",
+  "stem_teacher": "Verbatim Ministry sample for A2.1 from lms/seeds/mcf3m_expectations.json. Do not invent Ministry wording beyond the seed.",
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample.",
+  "source": "ontario-seed",
+  "source_id": "A2.1-sample-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Verbatim seed sample under A2.1 examples[0]."
+}

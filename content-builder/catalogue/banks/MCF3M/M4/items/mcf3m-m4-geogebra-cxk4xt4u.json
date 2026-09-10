@@ -1,0 +1,30 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-geogebra-cxk4xt4u",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "inspect-vertex-form",
+    "predict-parameter-change"
+  ],
+  "expectation_codes": [
+    "A2.10"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "Predict vertex of (x + 3)^2 + 1, then check sliders",
+  "stem_student": "Before you move anything, name the vertex of f(x) = (x + 3)^2 + 1. Then set the sliders so the graph matches that equation and check.",
+  "stem_teacher": "Original classroom prompt on the GeoGebra/JSXGraph analogue. Source applet description is not student copy. Fallback: locally bundled JSXGraph; do not require GeoGebra.",
+  "answer": null,
+  "answer_verification": "GeoGebra applet has no key. The brief’s exact (x + 3)^2 + 1 stem is not a catalogue exercise; this is a focused prompt on the selected applet (sliders p, q, a with f(x) = a(x − p)^2 + q).",
+  "checker_ref": null,
+  "source": "geogebra",
+  "source_id": "geogebra-cxk4xt4u",
+  "source_url": "https://www.geogebra.org/classic/cxk4xt4u",
+  "licence": "GeoGebra non-commercial terms (https://www.geogebra.org/license)",
+  "attribution": "Quadratic functions, vertex form. Authors MathPSS and Dennis Weber. GeoGebra material cxk4xt4u.",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "approved",
+  "density_notes": null,
+  "provenance_notes": "From M4-L1 question-candidates diagnostic rank 2; practice-sequence guided_practice for inspect-vertex-form. Catalogue record geogebra-cxk4xt4u."
+}

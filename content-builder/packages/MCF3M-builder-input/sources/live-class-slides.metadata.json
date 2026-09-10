@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "metadataType": "alc-math-live-class-slide-structure",
+  "version": "1.0.0",
+  "authorityTag": "#slides",
+  "status": "authoritative",
+  "appliesTo": "All future ALC Math live-class presentations created from Lesson Theme Template #1",
+  "templateContract": {
+    "useSlideNames": true,
+    "preserveNamedSlideOrder": true,
+    "slidesPerDeck": 7,
+    "classesPerModule": 3,
+    "planningAssumption": "Each module has three classes because each related strand has three Gold-ranked team-challenge questions.",
+    "classCodeFormat": "M{moduleNumber}C{classNumber}",
+    "deckTitleFormat": "{COURSE_CODE} - M{moduleNumber}C{classNumber}",
+    "deckTitleExample": "MCR3M - M2C1"
+  },
+  "slides": [
+    {
+      "index": 1,
+      "name": "TITLE_CLASS",
+      "required": true,
+      "content": {
+        "title": "{COURSE_CODE} - M{moduleNumber}C{classNumber}",
+        "left": {
+          "position": "below title",
+          "contentType": "agenda",
+          "instruction": "List the agenda for the live class."
+        },
+        "right": {
+          "position": "below title",
+          "contentType": "curriculum_expectations",
+          "instruction": "List the exact specific and overall course expectations connected to the team-challenge problem. Never invent or paraphrase Ministry wording when exact wording is available."
+        }
+      }
+    },
+    {
+      "index": 2,
+      "name": "TEAM_INTRO",
+      "required": true,
+      "content": {
+        "exactText": "Meet the Teams",
+        "allowAdditionalContent": false
+      }
+    },
+    {
+      "index": 3,
+      "name": "OPEN_QUESTIONS_ROUND",
+      "required": true,
+      "content": {
+        "blank": true,
+        "allowAdditionalContent": false
+      }
+    },
+    {
+      "index": 4,
+      "name": "TEAM_CHALLENGE_ROUND_CONTEXT",
+      "required": true,
+      "content": {
+        "largeText": "Team Challenge Round",
+        "leftSubtitle": "{TEAM_CHALLENGE_TITLE}",
+        "rightText": "{TEAM_CHALLENGE_CONTEXT}"
+      }
+    },
+    {
+      "index": 5,
+      "name": "TEAM_CHALLENGE_ROUND_QUESTION",
+      "required": true,
+      "content": {
+        "primaryText": "{TEAM_CHALLENGE_QUESTION}",
+        "instruction": "Place the complete team-challenge question on this slide."
+      }
+    },
+    {
+      "index": 6,
+      "name": "TEAM_CHALLENGE_REFLECTION",
+      "required": true,
+      "content": {
+        "contentType": "solutions",
+        "statusUntilSupplied": "wait",
+        "dependency": {
+          "description": "Solutions will be passed or linked by the designated solution agent.",
+          "conversationUrl": "https://chatgpt.com/share/6aa05f33-c050-83ea-bca5-bcb46fe7f482"
+        },
+        "instruction": "Do not invent, pre-empt, or finalize solutions before they are supplied through the dependency."
+      }
+    },
+    {
+      "index": 7,
+      "name": "CONSOLIDATION_ROUND",
+      "required": true,
+      "content": {
+        "contentType": "three_typical_math_questions",
+        "questionCount": 3,
+        "source": "The specific expectations listed on slide 1.",
+        "selectionRule": "Choose the three most central or fundamental typical-math questions supported by those expectations.",
+        "studentPrompt": "Choose question 1, 2, or 3 to solve on today’s Formative page and get feedback. You may solve more than one."
+      }
+    }
+  ],
+  "currentDependencies": {
+    "MCR3U_M1C2_question": "in progress",
+    "MCF3M_M1C2_question": "in progress"
+  },
+  "globalRules": [
+    "Use the template slide names as semantic roles.",
+    "Keep visible copy direct, concise, and student-facing.",
+    "Do not include timed Do Now labels.",
+    "Do not place a course-code subtitle on a separate title line because the course code belongs in the main title.",
+    "Use exact curriculum expectation wording from the course source.",
+    "Leave OPEN_QUESTIONS_ROUND blank.",
+    "Do not populate TEAM_CHALLENGE_REFLECTION until its solutions are supplied."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-owned-vertex-shift-numeric",
+  "process_tags": [
+    "roles-of-a-h-k",
+    "sketch-by-transformations"
+  ],
+  "expectation_codes": [
+    "A2.5",
+    "A2.6"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "Owned numeric: read h and k from −3(x + 4)^2 − 1",
+  "stem_student": "The graph of y = −3(x + 4)^2 − 1 is obtained from y = x^2 by transformations. Enter the vertex as an ordered pair (h, k).",
+  "stem_teacher": "LLOVES-owned numeric. Plus-inside means h = −4; k = −1. Supports A2.5 roles and A2.6 sketch readiness.",
+  "answer": "(-4, -1)",
+  "answer_verification": "x − h = x + 4 ⇒ h = −4; k = −1.",
+  "source": "parametric",
+  "source_id": "mcf3m-m1-owned-vertex-shift-numeric",
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M1 owned bank first slice",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "Original owned numeric for A2.5/A2.6. Check-in-ready (selected)."
+}

@@ -1,0 +1,55 @@
+---
+description: >-
+  Student-facing language standard for the math content builder. Separate
+  student_content, teacher_notes, and provenance. The renderer never prints
+  internal fields.
+globs: content-builder/**
+alwaysApply: false
+---
+
+# Content-builder student language
+
+The student renderer reads **only** `student-content.json` fields listed in `catalogue/contracts/student-content.schema.json`. It must refuse `teacher_notes`, `provenance` internals, ranks, agent reasons, and engine/integration notes.
+
+## Voice
+
+- Address the student directly.
+- State what to do, what to attend to, and why it matters when that reason is useful.
+- Introduce objects and notation before referring to them.
+- Connect each new task to something the student has already seen.
+- Use concrete verbs and precise mathematical language.
+- Avoid artificial enthusiasm, repetitive encouragement, canned transitions, and unnecessary narration.
+- Never expose provider configuration, integration notes, retrieval rankings, or agent instructions.
+- Preserve necessary attribution through tidy source labels or credits (`credits` array or a `credits` block), not licence essays inside a worked example.
+- Read naturally aloud without sounding childish.
+
+## Forbidden in student_content
+
+Do not write: JSXGraph, GeoGebra, Desmos API, `lesson_id`, catalogue ids, rank numbers, “verified seed,” “interactive_bridge,” “no student login,” agent names, or itinerary sentences (“First you will… then you will…”).
+
+Teacher-facing engine notes belong in `teacher-notes.json`.
+
+## Rewrite example
+
+Developer: “Manipulate the JSXGraph parameters to explore transformation behaviour.”
+
+Student: “Move the horizontal slider until the vertex is at \(x=3\). What changed in the equation?”
+
+## Word-problem solutions (worked examples)
+
+Use **model-STAR** plus a diagram:
+
+| Letter | Meaning |
+|---|---|
+| **S**ituation | What is happening. Diagram first. |
+| **T**ask | What we need to find out. |
+| **A**ction | How the mathematical model is used. |
+| **R**esult | Check that the result fits the situation. |
+
+## Challenge / group investigation
+
+Stay at the situation. Do not pack numbers, notation, or the solution into TEAM CHALLENGE–style stems unless Shawn asks.
+
+## Writer reference
+
+Approved and rejected snippets live in `content-builder/writer-reference/`. The copywriter’s model is set from a comparison in that folder, not by assuming the best coding model writes the best prose.

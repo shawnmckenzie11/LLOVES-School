@@ -1,0 +1,17 @@
+---
+description: >-
+  Content-builder student lessons stay static: no required login, API key, or
+  remote computation. External resources need an equivalent local task.
+globs: content-builder/**
+alwaysApply: false
+---
+
+# Content-builder runtime
+
+Student lessons are **static**. No required student login, API key, or remote computation.
+
+- Authoring tools may use authenticated connections (Drive, Hugging Face). The exported page must not.
+- Public embeds may need internet. Provide an **equivalent local task** (JSXGraph, image, or paper prompt) when the embed fails or is blocked.
+- Exclude **Gizmos** from required activities (account/preview limits).
+- Exclude the programmable **Desmos API** (needs a key). Public provider embed code, tested signed out, is allowed.
+- Do not ship credentials in `build/` HTML.

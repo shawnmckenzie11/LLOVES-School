@@ -1,0 +1,13 @@
+{
+  "internal_id": "M4-L1-vertex-form",
+  "captured_at": "2026-09-09T10:19:02+00:00",
+  "files": {
+    "student-content.json": "ae50dde1a2cb14a5bc36a393d83d9ee3ddb8f78528893eb1f6f49d0923e24450",
+    "teacher-notes.json": "e38eefce0daef83946f29a4904d6dd3a21e168fcd7779c758ab4bdbf399c0bb1",
+    "provenance.json": "5bc7dc05d5ad192bce8a2934e1f3af9566cdf2f944e059da3ce9f42adb846a29",
+    "lesson-brief.json": "6f606259d4a1f9fbbf5798d614883b181b13322f6be1240c485a4b76cea842d9",
+    "instruction.json": "2f250a79ea40fd628e4e0bc9c3f13db642c204c183a36164f270c4abcf6f415f",
+    "build/index.html": "75b59e5365f2790e0b307207329bcb69bfa0aae05efbcec7985a34f608b0fcdb"
+  },
+  "note": "Pilot baseline after onboarding. Do not treat as approval."
+}

@@ -1,0 +1,417 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "brief_path": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+  "engine": "jsxgraph",
+  "existing_embed": null,
+  "cycle": "predict-manipulate-submit-check-feedback-retry",
+  "student_action": "Commit a prediction from the equation. Move the board to match or test that prediction. Submit evidence. Read the check. Retry the same case or try the next task. The fountain photo is the hook only; it is not the graph tool.",
+  "changing_quantities": ["a", "h", "k"],
+  "invariant": "The displayed graph is the same parabola as f(x) = a(x − h)^2 + k. The vertex stays (h, k) and the axis stays x = h. Expanding to standard form does not make a different graph.",
+  "intended_observation": "h is the x-coordinate of the vertex as written in (x − h), not whichever sign appears in the equation. a controls stretch, reflection, and maximum versus minimum. k is the vertical shift and the y-coordinate of the vertex. Graph, vertex-form equation, expanded standard form, and a few shared table points stay aligned.",
+  "prediction_prompt": "Before you move a slider, look at the equation. Where is the vertex? What is the axis of symmetry? Is this a maximum or a minimum? Then predict: if you change only h, what will happen to the graph and to the equation?",
+  "interpretation_prompt": "After you submitted, compare the graph and the equation. What changed? What stayed the same? How can you read the new vertex from the equation? Does the expanded form show a different parabola, or the same one?",
+  "fresh_case_prompt": "Here is a new equation. Do not move the sliders yet. Name the vertex, the axis, and whether this is a maximum or a minimum. Then set the graph to match that writing and submit.",
+  "sequence": [
+    "Hook: mark the highest point of one fountain stream (bundled photo). No equation yet.",
+    "Predict the vertex of the plus-inside writing, then on the board match f(x) = (x + 3)^2 + 1 from the starting parameters and submit (match-plus-inside).",
+    "From the starting equation, predict a change in h only, move h, submit parameters and which slider you meant to change (predict-h).",
+    "Expand the starting equation yourself; submit coefficients or use the self-check. Live expansion is a check aid after submit, not the key to copy (expand-same-graph).",
+    "Consolidation only: predict from the fresh equation, then match a = −0.5, h = 2, k = 4 and submit (fresh-case). No fresh-case control on Action."
+  ],
+  "hook": {
+    "id": "fountain-arc-photo",
+    "kind": "figure",
+    "spec_id": null,
+    "src": "media/fountain-arc-500.jpg",
+    "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+    "engine": null,
+    "required_interactive": false,
+    "note": "Parent-selected hook. Bundled JPEG. Not GeoGebra. Copywriter embeds as a figure block, not an interactive spec_id."
+  },
+  "board": {
+    "size": "small",
+    "tool": "jsxgraph-vertex-form-board",
+    "bundled_assets": [
+      "content-builder/components/jsxgraph/jsxgraphcore.js",
+      "content-builder/components/jsxgraph/jsxgraph.css"
+    ],
+    "starting_equation": "f(x) = 2(x + 3)^2 + 1",
+    "starting_parameters": { "a": 2, "h": -3, "k": 1 },
+    "fresh_case_equation": "f(x) = −0.5(x − 2)^2 + 4",
+    "fresh_case_parameters": { "a": -0.5, "h": 2, "k": 4 },
+    "layout": [
+      "prediction commit (required before first slider move on that task)",
+      "board-wrap: graph, vertex marker, dashed axis",
+      "board-evidence: live vertex-form equation, axis, table; live standard form per task rules",
+      "sliders a, h, k",
+      "cycle-actions: Submit (required), hint, retry, try another — not a sandbox",
+      "interpretation after check"
+    ],
+    "show": [
+      "parabola for f(x) = a(x − h)^2 + k",
+      "vertex marker labelled (h, k)",
+      "dashed axis of symmetry x = h",
+      "live vertex-form equation using Ontario names a, h, k",
+      "live expanded standard form ax^2 + bx + c as a check aid (hidden until after submit on expand-same-graph)",
+      "short table of shared (x, f(x)) points that update with the graph"
+    ],
+    "sliders": [
+      {
+        "name": "a",
+        "role": "stretch, reflection, maximum versus minimum",
+        "min": -3,
+        "max": 3,
+        "step": 0.1,
+        "skip_zero": true
+      },
+      {
+        "name": "h",
+        "role": "horizontal location of the vertex; written in (x − h)",
+        "min": -5,
+        "max": 5,
+        "step": 0.1
+      },
+      {
+        "name": "k",
+        "role": "vertical location of the vertex",
+        "min": -5,
+        "max": 8,
+        "step": 0.1
+      }
+    ],
+    "action": {
+      "show_fresh_case": false,
+      "toolbar": ["reset-start"],
+      "exclude": ["fresh-case", "btn-fresh"],
+      "match_control": {
+        "allowed": true,
+        "used_by": ["match-plus-inside"],
+        "preferred": "Ghost or target writing for f(x) = (x + 3)^2 + 1. Student still moves sliders from starting_parameters (must change a) and Submit.",
+        "if_sets_sliders": "Still requires Submit. Match must not auto-pass, skip the cycle, or load fresh_case_parameters."
+      },
+      "note": "Do not put a Fresh-case button on Action. Do not apply fresh_case_parameters on this tab."
+    },
+    "consolidation": {
+      "show_fresh_case": true,
+      "toolbar": ["reset-start"],
+      "load_fresh_parameters": "only after the student is on consolidation and has committed the fresh-case prediction, or as the target they match from starting_parameters — never on Action"
+    },
+    "do_not_include": [
+      "completing the square",
+      "quadratic formula",
+      "required GeoGebra or Desmos embed",
+      "remote computation",
+      "login or API key",
+      "Fresh-case button on Action",
+      "Gizmos"
+    ]
+  },
+  "instructional_roles": [
+    "connects graph to equation",
+    "exposes a misconception",
+    "supports parameter investigation",
+    "tests transfer"
+  ],
+  "misconceptions_in_play": [
+    "h-sign",
+    "a-vs-k",
+    "expand-changes-graph",
+    "axis-equation",
+    "max-min-from-a"
+  ],
+  "tasks": [
+    {
+      "id": "match-plus-inside",
+      "spec_id": "match-plus-inside",
+      "process_id": "inspect-vertex-form",
+      "section": "action",
+      "visible_on": ["action"],
+      "tool": "jsxgraph-vertex-form-board",
+      "instructional_roles": ["exposes a misconception", "connects graph to equation"],
+      "misconceptions_in_play": ["h-sign"],
+      "student_action": "Name the vertex of the plus-inside writing before touching sliders. Then change the board from the starting equation so it matches that writing, and submit.",
+      "changing_quantities": ["a"],
+      "invariant": "h and k already match the plus-inside target; only a needs to change from the start. Vertex stays readable as (h, k).",
+      "intended_observation": "f(x) = (x + 3)^2 + 1 has the same vertex as the starting equation; a is 1, not 2. Plus inside the brackets is not a vertex at positive x.",
+      "prediction_prompt": "Look at f(x) = (x + 3)^2 + 1. Do not move a slider yet. Write the vertex as a point. You will check it on the graph next.",
+      "action_prompt": "The board starts at f(x) = 2(x + 3)^2 + 1. Move the graph so it matches f(x) = (x + 3)^2 + 1. Submit when the live equation matches that writing.",
+      "interpretation_prompt": "Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this writing?",
+      "initial_state": {
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "equation": "f(x) = 2(x + 3)^2 + 1",
+        "sliders_enabled": ["a", "h", "k"],
+        "live_standard_form": "visible",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "slider-a",
+        "slider-h",
+        "slider-k",
+        "optional match-target writing or ghost parabola",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": ["equation-vertex", "graph", "vertex-marker", "axis", "table"],
+      "target": {
+        "equation": "f(x) = (x + 3)^2 + 1",
+        "parameters": { "a": 1, "h": -3, "k": 1 },
+        "vertex": { "x": -3, "y": 1 }
+      },
+      "valid_alternatives": [],
+      "submission_evidence": {
+        "parameters": ["a", "h", "k"],
+        "prediction_vertex": "optional point; deterministic if they enter coordinates",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to target {1,-3,1}",
+        "tolerances": { "a": 0.1, "h": 0.1, "k": 0.1 },
+        "do_not": [
+          "treat a Match click as a pass",
+          "infer the h-sign misconception from a slider value alone; describe where the vertex landed versus the target",
+          "load or reveal fresh-case parameters"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_sliders": true,
+        "require_submit": true,
+        "retry": "reset sliders to starting_parameters; keep the same target",
+        "try_another": "next_task_id predict-h"
+      },
+      "reset": { "parameters": { "a": 2, "h": -3, "k": 1 } },
+      "next_task_id": "predict-h"
+    },
+    {
+      "id": "predict-h",
+      "spec_id": "predict-h",
+      "process_id": "predict-parameter-change",
+      "section": "action",
+      "visible_on": ["action"],
+      "tool": "jsxgraph-vertex-form-board",
+      "instructional_roles": ["supports parameter investigation", "connects graph to equation"],
+      "misconceptions_in_play": ["h-sign", "a-vs-k", "axis-equation"],
+      "student_action": "From the starting equation, predict what changing only h will do. Move sliders, intending to change only h, until the vertex is at x = 2. Submit the three parameters and which slider you meant to change.",
+      "changing_quantities": ["h"],
+      "invariant": "a and k stay 2 and 1 if only h changes. Axis remains a vertical line through the vertex.",
+      "intended_observation": "Moving h slides the vertex horizontally and rewrites (x − h). a and k do not have to change. The axis is x = h, not y = h.",
+      "prediction_prompt": "The board shows f(x) = 2(x + 3)^2 + 1. Do not move a slider yet. If you change only h so the vertex sits at x = 2, what will happen to the graph, and what will the new equation look like?",
+      "action_prompt": "Move sliders so the vertex is at x = 2, changing only h if you can. Then submit. Say which slider you meant to change: a, h, or k.",
+      "interpretation_prompt": "Look at the live equation and the dashed axis. What changed? What stayed the same? How do you read the new vertex from the equation?",
+      "initial_state": {
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "equation": "f(x) = 2(x + 3)^2 + 1",
+        "sliders_enabled": ["a", "h", "k"],
+        "live_standard_form": "visible",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "slider-a",
+        "slider-h",
+        "slider-k",
+        "intended-slider choice (a, h, or k)",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": ["equation-vertex", "graph", "vertex-marker", "axis", "table", "equation-standard"],
+      "target": {
+        "parameters": { "a": 2, "h": 2, "k": 1 },
+        "equation": "f(x) = 2(x − 2)^2 + 1",
+        "intended_slider": "h",
+        "vertex": { "x": 2, "y": 1 }
+      },
+      "valid_alternatives": [
+        {
+          "note": "Parameters match target but intended_slider is not h — still score the graph; ask which control they used (do not name a misconception from the control alone)."
+        }
+      ],
+      "submission_evidence": {
+        "parameters": ["a", "h", "k"],
+        "intended_slider": "a | h | k",
+        "prediction_text": "unrestricted; self-check or teacher-review"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {2, 2, 1}; record intended_slider",
+        "tolerances": { "a": 0.1, "h": 0.1, "k": 0.1 },
+        "do_not": [
+          "auto-grade the prediction sentence",
+          "infer a-vs-k from intended_slider without describing the graph evidence",
+          "reveal fresh-case"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_sliders": true,
+        "require_submit": true,
+        "retry": "reset to starting_parameters",
+        "try_another": "same board, later optional only-a or only-k; required next is expand-same-graph"
+      },
+      "reset": { "parameters": { "a": 2, "h": -3, "k": 1 } },
+      "next_task_id": "expand-same-graph"
+    },
+    {
+      "id": "expand-same-graph",
+      "spec_id": "expand-same-graph",
+      "process_id": "expand-and-verify",
+      "section": "action",
+      "visible_on": ["action"],
+      "tool": "jsxgraph-vertex-form-board",
+      "instructional_roles": ["connects graph to equation"],
+      "misconceptions_in_play": ["expand-changes-graph"],
+      "student_action": "Expand the starting vertex-form equation yourself. Submit b and c (and a if asked), or use the self-check rubric. The live expanded line is a check aid after submit, not the answer to copy.",
+      "changing_quantities": [],
+      "invariant": "a(x − h)^2 + k and ax^2 + bx + c are the same parabola when the expansion is of that same vertex form.",
+      "intended_observation": "Expanding the starting writing does not move the curve. Shared table points still sit on the same graph.",
+      "prediction_prompt": "The board shows f(x) = 2(x + 3)^2 + 1. If you expand this into the form ax^2 + bx + c, will the graph be a different parabola or the same one? Write that down before you expand.",
+      "action_prompt": "Expand f(x) = 2(x + 3)^2 + 1 on paper. Enter your b and c (a should stay 2), then submit — or use the self-check if you are not entering numbers. Do not copy a live expanded line until after you have tried.",
+      "interpretation_prompt": "Do a few table points sit on both writings? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?",
+      "initial_state": {
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "equation": "f(x) = 2(x + 3)^2 + 1",
+        "sliders_enabled": ["a", "h", "k"],
+        "prefer_sliders_locked_at_start": true,
+        "live_standard_form": "hidden-until-after-submit",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for expanded a, b, c (optional if using self-check)",
+        "optional overlay of student standard-form graph",
+        "submit",
+        "self-check rubric",
+        "retry",
+        "reset-start"
+      ],
+      "representations": ["equation-vertex", "equation-standard", "graph", "table"],
+      "target": {
+        "starting_equation_only": true,
+        "expandStandard": { "a": 2, "h": -3, "k": 1 },
+        "standard_coefficients": { "a": 2, "b": 12, "c": 19 },
+        "note": "Local identity expandStandard(2, −3, 1). Not a Ministry A2.7 key. Do not use 3(x − 1)^2 + 4 coefficients here; that sample has no seed key."
+      },
+      "valid_alternatives": [
+        {
+          "method": "self-check",
+          "rubric": [
+            "Student expanded the starting equation, not a different one.",
+            "A few table points from the vertex-form graph sit on the expanded writing.",
+            "Student does not claim the expansion made a new parabola."
+          ]
+        }
+      ],
+      "submission_evidence": {
+        "coefficients": ["a", "b", "c"],
+        "equivalent_graphs": "optional overlay compare",
+        "prediction_same_or_different": "self-check",
+        "unrestricted_algebra_work": "self-check unless numbers are entered"
+      },
+      "checking_handoff": {
+        "prefer": "self-check for expansion coefficients when they do not enter numbers",
+        "if_numbers_entered": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,b,c} to expandStandard(2,-3,1) = {a:2,b:12,c:19}",
+          "tolerances": { "a": 0, "b": 0, "c": 0 }
+        },
+        "optional_overlay": "deterministic same-graph if they plot ax^2+bx+c against the vertex-form parabola",
+        "do_not": [
+          "treat the live board expansion as the student answer",
+          "invent a key for the Ministry A2.7 sample 3(x − 1)^2 + 4",
+          "auto-grade unrestricted algebra writing"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_sliders": true,
+        "require_submit": true,
+        "reveal_live_standard_form": "after submit, as check aid",
+        "retry": "clear coefficient inputs; keep starting_parameters; hide live expansion again",
+        "try_another": "Ministry A2.7 sample lives in practice-sequence, not this board target"
+      },
+      "reset": {
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "clear_coefficient_inputs": true
+      },
+      "next_task_id": "fresh-case"
+    },
+    {
+      "id": "fresh-case",
+      "spec_id": "fresh-case",
+      "process_id": "inspect-vertex-form",
+      "section": "consolidation",
+      "visible_on": ["consolidation"],
+      "hidden_until": "consolidation",
+      "tool": "jsxgraph-vertex-form-board",
+      "instructional_roles": ["tests transfer", "connects graph to equation"],
+      "misconceptions_in_play": ["h-sign", "max-min-from-a", "axis-equation", "expand-changes-graph"],
+      "student_action": "Return to the fountain-arc situation with a new equation. Predict vertex, axis, and maximum or minimum. Then set the board to that writing and submit. Do not see this graph during Action.",
+      "changing_quantities": ["a", "h", "k"],
+      "invariant": "Vertex (h, k), axis x = h, maximum or minimum from the sign of a. Expanding still does not move the curve.",
+      "intended_observation": "Minus-inside; a is negative so the vertex is a maximum, not because k is positive. This is the same kind of high point as the fountain stream, now read from an equation.",
+      "prediction_prompt": "Here is a new equation. Do not move the sliders yet. Name the vertex, the axis of symmetry, and whether this is a maximum or a minimum.",
+      "action_prompt": "Set the graph to match that equation. Submit when the live writing matches. You may then move one parameter to see what changes.",
+      "interpretation_prompt": "How did you read the high or low point from this writing? If you expanded it, would the fountain-shaped curve move?",
+      "initial_state": {
+        "parameters": { "a": 2, "h": -3, "k": 1 },
+        "target_shown_as_text": "f(x) = −0.5(x − 2)^2 + 4",
+        "sliders_enabled": ["a", "h", "k"],
+        "live_standard_form": "visible after they match, as retrieval that expansion does not move the curve",
+        "fresh_case_available": true,
+        "action_tab_must_not_load_this": true
+      },
+      "student_controls": [
+        "slider-a",
+        "slider-h",
+        "slider-k",
+        "optional prediction fields for vertex, axis, max-or-min",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": ["equation-vertex", "graph", "vertex-marker", "axis", "table"],
+      "target": {
+        "equation": "f(x) = −0.5(x − 2)^2 + 4",
+        "parameters": { "a": -0.5, "h": 2, "k": 4 },
+        "vertex": { "x": 2, "y": 4 },
+        "axis": "x = 2",
+        "max_or_min": "maximum"
+      },
+      "valid_alternatives": [],
+      "submission_evidence": {
+        "parameters": ["a", "h", "k"],
+        "prediction": ["vertex", "axis", "max_or_min"],
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {-0.5, 2, 4}; optional prediction fields against vertex (2, 4), axis x = 2, maximum",
+        "tolerances": { "a": 0.1, "h": 0.1, "k": 0.1 },
+        "do_not": [
+          "print the vertex, axis, or max/min in student-facing copy",
+          "expose this target graph or a Fresh-case button on Action",
+          "auto-grade unrestricted interpretation"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_sliders": true,
+        "require_submit": true,
+        "retry": "reset to starting_parameters; keep the same fresh target",
+        "try_another": "none required; retrieval complete"
+      },
+      "reset": { "parameters": { "a": 2, "h": -3, "k": 1 } },
+      "next_task_id": null
+    }
+  ],
+  "fallback": "Paper or static diagram, no login and no remote tool. Give f(x) = 2(x + 3)^2 + 1. Students name the vertex of f(x) = (x + 3)^2 + 1, then sketch both (same vertex, different stretch). They predict what happens if only h changes to 2, rewrite, and sketch again. They expand the starting equation themselves and check that a few table points still sit on the same sketch. Fresh case on paper, later: f(x) = −0.5(x − 2)^2 + 4 — name vertex, axis, and maximum or minimum, then sketch.",
+  "fallback_student": "On paper, start with f(x) = 2(x + 3)^2 + 1. First look at f(x) = (x + 3)^2 + 1: name that vertex, then sketch both writings (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch. Later, a new equation: f(x) = −0.5(x − 2)^2 + 4. Name the vertex, the axis, and whether this is a maximum or a minimum, then sketch.",
+  "licence_notes": "Required board uses locally bundled JSXGraph (MIT) under content-builder/components/jsxgraph/ (see LICENSE.MIT). Do not require GeoGebra. Hook image is the bundled file media/fountain-arc-500.jpg (Wikimedia Commons File:ParabolicWaterTrajectory.jpg, CC BY-SA 3.0; see hook-proposals.json). Catalogue analogue geogebra-cxk4xt4u was checked 2026-09-09 signed-out; it is optional teacher analogue only. Legacy https://www.geogebra.org/material/iframe/id/cxk4xt4u returned HTTP 410 — do not require that embed.",
+  "reason": "The brief needs plus-inside inspection, one-parameter predict–move–check with Submit, expand-and-verify without copying the live line, and a consolidation fresh case that returns to the fountain hook. Bundled JSXGraph can run that cycle locally with Ontario names a, h, k. GeoGebra is not required. Fresh-case parameters stay off Action so consolidation remains transfer.",
+  "untested": [
+    "Submit / check / retry / try-another cycle is specified, not implemented in the current board script.",
+    "Ghost target overlay, coefficient inputs, intended-slider control, and hiding live expansion until after submit are specified, not built.",
+    "Action must not expose fresh-case; current compiled HTML still has a Fresh-case button — engineer change, not re-tested here.",
+    "This spec does not re-test GeoGebra signed-out access; unused because GeoGebra is not required.",
+    "Fountain JPEG is already bundled at media/fountain-arc-500.jpg; Wikimedia hotlink is not required and was not re-fetched.",
+    "expandStandard(2, −3, 1) = {a: 2, b: 12, c: 19} is local algebra for the starting equation only, not a Ministry key.",
+    "Signed-out GeoGebra material page still offered a Sign in control on the earlier check; unused."
+  ]
+}

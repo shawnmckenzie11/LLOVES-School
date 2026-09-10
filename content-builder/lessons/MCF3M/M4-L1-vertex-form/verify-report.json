@@ -1,0 +1,32 @@
+{
+  "lesson_id": "M4-L1-vertex-form",
+  "course_code": "MCF3M",
+  "checked_at": "2026-09-09T13:28:00-04:00",
+  "verifier": "lesson-verifier",
+  "verdict": "PASS — Nelson-bar pedagogical raise",
+  "scripts": {
+    "build_lesson.py": "PASS",
+    "check_feedback.py": "PASS 5 scenario tests",
+    "verify_lesson.py": "PASS"
+  },
+  "pedagogical_checklist": {
+    "decision_hook_or_compare_two_models": "PASS — Action opens with fountain-consistent two writings",
+    "dual_solution_paths": "PASS — Alex algebra / Jordan table+graph",
+    "reflect_block_before_heavy_apply": "PASS — Reflect A–D before inspections/interactives volume",
+    "key_idea_need_to_know": "PASS — consolidation chrome",
+    "support_fade_visible_in_html": "PASS — Check→Practise→Extend aside",
+    "hook_returns_in_consolidation": "PASS — fountain figure + fresh case",
+    "no_nelson_or_developer_prose": "PASS"
+  },
+  "deferred_documented": [
+    "zeros three ways (not core)",
+    "equation from graph vertex+point→a (not core)",
+    "A2.8 completing the square → M4-L2"
+  ],
+  "remaining_vs_full_nelson_bar": [
+    "Full Nelson practice volume / Extending analogues",
+    "Writer exemplars for dual-voice solutions in writer-reference/",
+    "Sketch + domain/range as thicker Ex3-style beat",
+    "Optional equation-from-graph additional if licensed"
+  ]
+}

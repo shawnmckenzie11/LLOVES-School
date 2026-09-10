@@ -13,6 +13,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+node_modules/
 !.cursor/
 
 # Local / secrets
@@ -38,3 +39,10 @@ lms/.venv/
 # Never commit IMSCC packs (Admin uploads to Fly volume only)
 *.imscc
 **/imscc-unpacked/
+
+# Content-builder downloaded sources and local search index (not LMS sqlite).
+# Path patterns also listed in content-builder/.gitignore.
+content-builder/cache/
+content-builder/index/*.sqlite
+content-builder/index/*.db
+content-builder/index/*.duckdb

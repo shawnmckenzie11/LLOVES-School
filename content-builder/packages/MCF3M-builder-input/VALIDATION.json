@@ -1,0 +1,27 @@
+{
+  "status": "passed",
+  "course": "MCF3M",
+  "lessons": 39,
+  "modules": 8,
+  "module_counts": [
+    7,
+    6,
+    5,
+    5,
+    5,
+    3,
+    3,
+    5
+  ],
+  "specific_expectations": 53,
+  "overall_expectations": 9,
+  "mathematical_process_expectations": 7,
+  "unique_drive_folder_ids": 39,
+  "title_differences": 3,
+  "missing_folder_ids": 0,
+  "invalid_curriculum_references": 0,
+  "mapping_status": "proposed_review_required",
+  "curriculum_text_check": "Exact equality with saved source extraction, not a new full Ministry PDF glyph audit",
+  "network_calls": 0,
+  "drive_mutations": 0
+}

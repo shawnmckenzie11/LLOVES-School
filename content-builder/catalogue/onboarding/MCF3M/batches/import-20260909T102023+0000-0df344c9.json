@@ -1,0 +1,30 @@
+{
+  "id": "import-20260909T102023+0000-0df344c9",
+  "package_version": "1.0.0",
+  "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+  "imported_at": "2026-09-09T10:20:23+00:00",
+  "source_snapshot_date": "2026-09-09",
+  "change_summary": {
+    "imported": 39,
+    "matched": 0,
+    "created": 0,
+    "unchanged": 39,
+    "conflicted": 2
+  },
+  "outcome": "noop",
+  "fingerprint_before": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+  "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+  "rollback_files": [
+    "course.json",
+    "identities.json",
+    "curriculum-sources.json",
+    "mappings.json",
+    "rules.json",
+    "conflicts.json",
+    "lesson-revisions.json",
+    "change-index.json",
+    "known-concerns.json",
+    "HEAD.json",
+    "batches/index.json"
+  ]
+}

@@ -1,0 +1,1308 @@
+{
+  "course": {
+    "results": [
+      {
+        "created_at": "2026-09-09T01:34:22.021Z",
+        "display_title": "Module 2",
+        "display_url": "https://drive.google.com/drive/folders/1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "file_or_folder": "folder",
+        "id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 2",
+        "updated_at": "2026-09-09T02:14:21.239Z",
+        "url": "https://drive.google.com/drive/folders/1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "viewedByMeTime": "2026-09-09T02:14:28.766Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:32.962Z",
+        "display_title": "Module 3",
+        "display_url": "https://drive.google.com/drive/folders/1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "file_or_folder": "folder",
+        "id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 3",
+        "updated_at": "2026-09-09T02:14:15.001Z",
+        "url": "https://drive.google.com/drive/folders/1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "viewedByMeTime": "2026-09-09T02:13:27.324Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:27.875Z",
+        "display_title": "Module 4",
+        "display_url": "https://drive.google.com/drive/folders/1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "file_or_folder": "folder",
+        "id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 4",
+        "updated_at": "2026-09-09T02:14:10.945Z",
+        "url": "https://drive.google.com/drive/folders/1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "viewedByMeTime": "2026-09-09T01:48:00.963Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:39.355Z",
+        "display_title": "Module 5",
+        "display_url": "https://drive.google.com/drive/folders/1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "file_or_folder": "folder",
+        "id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 5",
+        "updated_at": "2026-09-09T02:14:06.067Z",
+        "url": "https://drive.google.com/drive/folders/1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "viewedByMeTime": "2026-09-09T01:48:19.069Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:46.209Z",
+        "display_title": "Module 6",
+        "display_url": "https://drive.google.com/drive/folders/1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "file_or_folder": "folder",
+        "id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 6",
+        "updated_at": "2026-09-09T02:14:00.938Z",
+        "url": "https://drive.google.com/drive/folders/1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "viewedByMeTime": "2026-09-09T01:48:31.364Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:51.827Z",
+        "display_title": "Module 7",
+        "display_url": "https://drive.google.com/drive/folders/1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "file_or_folder": "folder",
+        "id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 7",
+        "updated_at": "2026-09-09T02:13:55.566Z",
+        "url": "https://drive.google.com/drive/folders/1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "viewedByMeTime": "2026-09-09T01:48:39.331Z"
+      },
+      {
+        "created_at": "2026-09-07T16:04:30.997Z",
+        "display_title": "Module 1 - temp",
+        "display_url": "https://drive.google.com/drive/folders/12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "file_or_folder": "folder",
+        "id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 1 - temp",
+        "updated_at": "2026-09-09T01:55:17.464Z",
+        "url": "https://drive.google.com/drive/folders/12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "viewedByMeTime": "2026-09-09T03:19:09.586Z"
+      },
+      {
+        "created_at": "2026-09-09T01:34:58.153Z",
+        "display_title": "Module 8",
+        "display_url": "https://drive.google.com/drive/folders/1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "file_or_folder": "folder",
+        "id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 8",
+        "updated_at": "2026-09-09T01:34:58.153Z",
+        "url": "https://drive.google.com/drive/folders/1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "viewedByMeTime": "2026-09-09T01:48:46.856Z"
+      },
+      {
+        "created_at": "2026-09-08T07:33:13.280Z",
+        "display_title": "team-challenge",
+        "display_url": "https://drive.google.com/drive/folders/1wQtlWXmwdxpe0lxg5DnqsHloWV8spclN",
+        "file_or_folder": "folder",
+        "id": "1wQtlWXmwdxpe0lxg5DnqsHloWV8spclN",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "team-challenge",
+        "updated_at": "2026-09-08T07:33:13.280Z",
+        "url": "https://drive.google.com/drive/folders/1wQtlWXmwdxpe0lxg5DnqsHloWV8spclN",
+        "viewedByMeTime": "2026-09-08T13:48:33.174Z"
+      },
+      {
+        "created_at": "2026-09-07T21:14:20.929Z",
+        "display_title": "Module 0",
+        "display_url": "https://drive.google.com/drive/folders/18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "file_or_folder": "folder",
+        "id": "18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 0",
+        "updated_at": "2026-09-07T21:14:20.929Z",
+        "url": "https://drive.google.com/drive/folders/18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "viewedByMeTime": "2026-09-09T01:09:36.347Z"
+      },
+      {
+        "created_at": "2026-09-07T01:21:37.168Z",
+        "display_title": "examples",
+        "display_url": "https://drive.google.com/drive/folders/1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx",
+        "file_or_folder": "folder",
+        "id": "1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "examples",
+        "updated_at": "2026-09-07T01:21:37.168Z",
+        "url": "https://drive.google.com/drive/folders/1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx",
+        "viewedByMeTime": "2026-09-09T00:53:00.913Z"
+      },
+      {
+        "created_at": "2026-09-07T00:59:00.147Z",
+        "display_title": "MCF3M-specific-expectations.md",
+        "display_url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM",
+        "mime_type": "application/vnd.google-apps.document",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": "6904",
+        "title": "MCF3M-specific-expectations.md",
+        "updated_at": "2026-09-07T00:59:01.334Z",
+        "url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-07T01:02:59.390Z"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:22.021Z",
+        "display_title": "Module 2",
+        "display_url": "https://drive.google.com/drive/folders/1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "file_or_folder": "folder",
+        "id": "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 2",
+        "updated_at": "2026-09-09T02:14:21.239Z",
+        "url": "https://drive.google.com/drive/folders/1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644",
+        "viewedByMeTime": "2026-09-09T02:14:28.766Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:54:41.374Z",
+            "display_title": "Lesson 2: Expanding Polynomials",
+            "display_url": "https://drive.google.com/drive/folders/1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx",
+            "file_or_folder": "folder",
+            "id": "1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Expanding Polynomials",
+            "updated_at": "2026-09-09T01:54:41.374Z",
+            "url": "https://drive.google.com/drive/folders/1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx",
+            "viewedByMeTime": "2026-09-09T01:54:41.374Z"
+          },
+          {
+            "created_at": "2026-09-09T01:37:34.723Z",
+            "display_title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+            "display_url": "https://drive.google.com/drive/folders/1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI",
+            "file_or_folder": "folder",
+            "id": "1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+            "updated_at": "2026-09-09T01:54:21.926Z",
+            "url": "https://drive.google.com/drive/folders/1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:56.460Z",
+            "display_title": "Lesson 5: Factoring Harder Trinomials",
+            "display_url": "https://drive.google.com/drive/folders/1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0",
+            "file_or_folder": "folder",
+            "id": "1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 5: Factoring Harder Trinomials",
+            "updated_at": "2026-09-09T01:37:56.460Z",
+            "url": "https://drive.google.com/drive/folders/1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:50.623Z",
+            "display_title": "Lesson 6: Special Cases",
+            "display_url": "https://drive.google.com/drive/folders/1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd",
+            "file_or_folder": "folder",
+            "id": "1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 6: Special Cases",
+            "updated_at": "2026-09-09T01:37:50.623Z",
+            "url": "https://drive.google.com/drive/folders/1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:40.206Z",
+            "display_title": "Lesson 4: Factoring Simple Trinomials",
+            "display_url": "https://drive.google.com/drive/folders/1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G",
+            "file_or_folder": "folder",
+            "id": "1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 4: Factoring Simple Trinomials",
+            "updated_at": "2026-09-09T01:37:40.206Z",
+            "url": "https://drive.google.com/drive/folders/1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:36:57.259Z",
+            "display_title": "Lesson 3: Common Factoring",
+            "display_url": "https://drive.google.com/drive/folders/13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp-",
+            "file_or_folder": "folder",
+            "id": "13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp-",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1jBdSXxv0n1ANTxrLu-oSf7HyD-kmZ644"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Common Factoring",
+            "updated_at": "2026-09-09T01:36:57.259Z",
+            "url": "https://drive.google.com/drive/folders/13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp-",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:32.962Z",
+        "display_title": "Module 3",
+        "display_url": "https://drive.google.com/drive/folders/1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "file_or_folder": "folder",
+        "id": "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 3",
+        "updated_at": "2026-09-09T02:14:15.001Z",
+        "url": "https://drive.google.com/drive/folders/1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM",
+        "viewedByMeTime": "2026-09-09T02:13:27.324Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:37:33.217Z",
+            "display_title": "Lesson 5: Creating a Quadratic Model from Data",
+            "display_url": "https://drive.google.com/drive/folders/1emm9lSmsAuZy1yImZYeE7pgDCismFT1H",
+            "file_or_folder": "folder",
+            "id": "1emm9lSmsAuZy1yImZYeE7pgDCismFT1H",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 5: Creating a Quadratic Model from Data",
+            "updated_at": "2026-09-09T01:37:33.217Z",
+            "url": "https://drive.google.com/drive/folders/1emm9lSmsAuZy1yImZYeE7pgDCismFT1H",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:28.066Z",
+            "display_title": "Lesson 4: Solving Problems Involving Quadratics",
+            "display_url": "https://drive.google.com/drive/folders/1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_",
+            "file_or_folder": "folder",
+            "id": "1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 4: Solving Problems Involving Quadratics",
+            "updated_at": "2026-09-09T01:37:28.066Z",
+            "url": "https://drive.google.com/drive/folders/1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:23.135Z",
+            "display_title": "Lesson 3: Solving Quadratic Functions by Factoring",
+            "display_url": "https://drive.google.com/drive/folders/1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw",
+            "file_or_folder": "folder",
+            "id": "1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Solving Quadratic Functions by Factoring",
+            "updated_at": "2026-09-09T01:37:23.135Z",
+            "url": "https://drive.google.com/drive/folders/1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:17.988Z",
+            "display_title": "Lesson 1: Relating Standard & Factored Form",
+            "display_url": "https://drive.google.com/drive/folders/1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y",
+            "file_or_folder": "folder",
+            "id": "1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: Relating Standard & Factored Form",
+            "updated_at": "2026-09-09T01:37:17.988Z",
+            "url": "https://drive.google.com/drive/folders/1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:13.046Z",
+            "display_title": "Lesson 2: Solving Quadratic Equations by Graphing",
+            "display_url": "https://drive.google.com/drive/folders/152WxNDwZLr6_YdrJj0G3IIJd_NafPowu",
+            "file_or_folder": "folder",
+            "id": "152WxNDwZLr6_YdrJj0G3IIJd_NafPowu",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1trRrjF44jXwuxD1vC8jObBlUJEBS8VMM"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Solving Quadratic Equations by Graphing",
+            "updated_at": "2026-09-09T01:37:13.046Z",
+            "url": "https://drive.google.com/drive/folders/152WxNDwZLr6_YdrJj0G3IIJd_NafPowu",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:27.875Z",
+        "display_title": "Module 4",
+        "display_url": "https://drive.google.com/drive/folders/1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "file_or_folder": "folder",
+        "id": "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 4",
+        "updated_at": "2026-09-09T02:14:10.945Z",
+        "url": "https://drive.google.com/drive/folders/1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad",
+        "viewedByMeTime": "2026-09-09T01:48:00.963Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:37:47.565Z",
+            "display_title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+            "display_url": "https://drive.google.com/drive/folders/1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_",
+            "file_or_folder": "folder",
+            "id": "1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+            "updated_at": "2026-09-09T01:48:16.151Z",
+            "url": "https://drive.google.com/drive/folders/1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:47.310Z",
+            "display_title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+            "display_url": "https://drive.google.com/drive/folders/1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL",
+            "file_or_folder": "folder",
+            "id": "1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+            "updated_at": "2026-09-09T01:38:47.310Z",
+            "url": "https://drive.google.com/drive/folders/1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:25.298Z",
+            "display_title": "Lesson 1: The Vertex Form of a Quadratic Function",
+            "display_url": "https://drive.google.com/drive/folders/1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4",
+            "file_or_folder": "folder",
+            "id": "1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+            "updated_at": "2026-09-09T01:38:25.298Z",
+            "url": "https://drive.google.com/drive/folders/1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:05.258Z",
+            "display_title": "Lesson 4: Discriminant",
+            "display_url": "https://drive.google.com/drive/folders/1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW",
+            "file_or_folder": "folder",
+            "id": "1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 4: Discriminant",
+            "updated_at": "2026-09-09T01:38:05.258Z",
+            "url": "https://drive.google.com/drive/folders/1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:37:58.590Z",
+            "display_title": "Lesson 5: Using Quadratic Models to Solve Problems",
+            "display_url": "https://drive.google.com/drive/folders/1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo",
+            "file_or_folder": "folder",
+            "id": "1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1J8Ml2efQ7LVdCvtFLCvWePFw6ZageGad"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 5: Using Quadratic Models to Solve Problems",
+            "updated_at": "2026-09-09T01:37:58.590Z",
+            "url": "https://drive.google.com/drive/folders/1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:39.355Z",
+        "display_title": "Module 5",
+        "display_url": "https://drive.google.com/drive/folders/1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "file_or_folder": "folder",
+        "id": "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 5",
+        "updated_at": "2026-09-09T02:14:06.067Z",
+        "url": "https://drive.google.com/drive/folders/1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS",
+        "viewedByMeTime": "2026-09-09T01:48:19.069Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:39:04.173Z",
+            "display_title": "Lesson 1: Trigonometric Ratios",
+            "display_url": "https://drive.google.com/drive/folders/1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN",
+            "file_or_folder": "folder",
+            "id": "1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: Trigonometric Ratios",
+            "updated_at": "2026-09-09T01:39:04.173Z",
+            "url": "https://drive.google.com/drive/folders/1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:34.041Z",
+            "display_title": "Lesson 5: Solving Problems by Using Acute-Triangle Models",
+            "display_url": "https://drive.google.com/drive/folders/1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP-",
+            "file_or_folder": "folder",
+            "id": "1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP-",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 5: Solving Problems by Using Acute-Triangle Models",
+            "updated_at": "2026-09-09T01:38:34.041Z",
+            "url": "https://drive.google.com/drive/folders/1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP-",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:22.700Z",
+            "display_title": "Lesson 3: Solving Problems by Using Right-Triangle Models",
+            "display_url": "https://drive.google.com/drive/folders/1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E",
+            "file_or_folder": "folder",
+            "id": "1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Solving Problems by Using Right-Triangle Models",
+            "updated_at": "2026-09-09T01:38:22.700Z",
+            "url": "https://drive.google.com/drive/folders/1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:17.203Z",
+            "display_title": "Lesson 2: Applying the Primary Trig Ratios",
+            "display_url": "https://drive.google.com/drive/folders/1o_brErciMB_xJimfTUWYBoybvYAz8MMK",
+            "file_or_folder": "folder",
+            "id": "1o_brErciMB_xJimfTUWYBoybvYAz8MMK",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Applying the Primary Trig Ratios",
+            "updated_at": "2026-09-09T01:38:17.203Z",
+            "url": "https://drive.google.com/drive/folders/1o_brErciMB_xJimfTUWYBoybvYAz8MMK",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:13.997Z",
+            "display_title": "Lesson 4: Cosine & Sine Law",
+            "display_url": "https://drive.google.com/drive/folders/1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl",
+            "file_or_folder": "folder",
+            "id": "1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Df-STDJ_E_mT5t5fEUpiNv6Jj3GIwYhS"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 4: Cosine & Sine Law",
+            "updated_at": "2026-09-09T01:38:13.997Z",
+            "url": "https://drive.google.com/drive/folders/1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:46.209Z",
+        "display_title": "Module 6",
+        "display_url": "https://drive.google.com/drive/folders/1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "file_or_folder": "folder",
+        "id": "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 6",
+        "updated_at": "2026-09-09T02:14:00.938Z",
+        "url": "https://drive.google.com/drive/folders/1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP",
+        "viewedByMeTime": "2026-09-09T01:48:31.364Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:38:44.381Z",
+            "display_title": "Lesson 2: Sinusoidal Functions",
+            "display_url": "https://drive.google.com/drive/folders/1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ",
+            "file_or_folder": "folder",
+            "id": "1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Sinusoidal Functions",
+            "updated_at": "2026-09-09T01:38:44.381Z",
+            "url": "https://drive.google.com/drive/folders/1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:38.111Z",
+            "display_title": "Lesson 3: Transformations of the Sine Function",
+            "display_url": "https://drive.google.com/drive/folders/1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym",
+            "file_or_folder": "folder",
+            "id": "1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Transformations of the Sine Function",
+            "updated_at": "2026-09-09T01:38:38.111Z",
+            "url": "https://drive.google.com/drive/folders/1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:26.420Z",
+            "display_title": "Lesson 1: Periodic Functions",
+            "display_url": "https://drive.google.com/drive/folders/1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB",
+            "file_or_folder": "folder",
+            "id": "1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1lHYkcSlkJzmz1eTd01bTwBhTvCNKZzkP"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: Periodic Functions",
+            "updated_at": "2026-09-09T01:38:26.420Z",
+            "url": "https://drive.google.com/drive/folders/1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:51.827Z",
+        "display_title": "Module 7",
+        "display_url": "https://drive.google.com/drive/folders/1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "file_or_folder": "folder",
+        "id": "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 7",
+        "updated_at": "2026-09-09T02:13:55.566Z",
+        "url": "https://drive.google.com/drive/folders/1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa",
+        "viewedByMeTime": "2026-09-09T01:48:39.331Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:39:07.479Z",
+            "display_title": "Exploring Exponential Functions, Growth & Decay",
+            "display_url": "https://drive.google.com/drive/folders/10UkNkns4mbrJtw7qIK27RNO2phvDuRXB",
+            "file_or_folder": "folder",
+            "id": "10UkNkns4mbrJtw7qIK27RNO2phvDuRXB",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Exploring Exponential Functions, Growth & Decay",
+            "updated_at": "2026-09-09T01:39:07.479Z",
+            "url": "https://drive.google.com/drive/folders/10UkNkns4mbrJtw7qIK27RNO2phvDuRXB",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:39:01.918Z",
+            "display_title": "Working with Rational Exponents",
+            "display_url": "https://drive.google.com/drive/folders/132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr",
+            "file_or_folder": "folder",
+            "id": "132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Working with Rational Exponents",
+            "updated_at": "2026-09-09T01:39:01.918Z",
+            "url": "https://drive.google.com/drive/folders/132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:44.016Z",
+            "display_title": "Laws of Exponents & Integer Exponents",
+            "display_url": "https://drive.google.com/drive/folders/18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn",
+            "file_or_folder": "folder",
+            "id": "18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1Vqn4M2J8GBPGg8XtkwgCgrFqmwQgRiSa"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Laws of Exponents & Integer Exponents",
+            "updated_at": "2026-09-09T01:38:44.016Z",
+            "url": "https://drive.google.com/drive/folders/18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-07T16:04:30.997Z",
+        "display_title": "Module 1 - temp",
+        "display_url": "https://drive.google.com/drive/folders/12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "file_or_folder": "folder",
+        "id": "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 1 - temp",
+        "updated_at": "2026-09-09T01:55:17.464Z",
+        "url": "https://drive.google.com/drive/folders/12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB",
+        "viewedByMeTime": "2026-09-09T03:19:09.586Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T02:14:57.191Z",
+            "display_title": "Async Lessons",
+            "display_url": "https://drive.google.com/drive/folders/1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+            "file_or_folder": "folder",
+            "id": "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Async Lessons",
+            "updated_at": "2026-09-09T02:14:57.191Z",
+            "url": "https://drive.google.com/drive/folders/1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU",
+            "viewedByMeTime": "2026-09-09T04:43:41.490Z"
+          },
+          {
+            "created_at": "2026-09-09T01:10:52.051Z",
+            "display_title": "Live Lesson Slides",
+            "display_url": "https://drive.google.com/drive/folders/1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW",
+            "file_or_folder": "folder",
+            "id": "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "12f39AFdxSV7GreDPsO3iSkeXWaDOL0CB"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Live Lesson Slides",
+            "updated_at": "2026-09-09T01:10:52.051Z",
+            "url": "https://drive.google.com/drive/folders/1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW",
+            "viewedByMeTime": "2026-09-09T01:10:52.051Z"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-09T01:34:58.153Z",
+        "display_title": "Module 8",
+        "display_url": "https://drive.google.com/drive/folders/1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "file_or_folder": "folder",
+        "id": "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 8",
+        "updated_at": "2026-09-09T01:34:58.153Z",
+        "url": "https://drive.google.com/drive/folders/1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE",
+        "viewedByMeTime": "2026-09-09T01:48:46.856Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:39:36.655Z",
+            "display_title": "Lesson 3: Compound Interest - Present Value",
+            "display_url": "https://drive.google.com/drive/folders/10_WVhf17ToYrbL3F88FLkaseavX6gq8r",
+            "file_or_folder": "folder",
+            "id": "10_WVhf17ToYrbL3F88FLkaseavX6gq8r",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 3: Compound Interest - Present Value",
+            "updated_at": "2026-09-09T01:39:36.655Z",
+            "url": "https://drive.google.com/drive/folders/10_WVhf17ToYrbL3F88FLkaseavX6gq8r",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:39:15.684Z",
+            "display_title": "Lesson 1: Simple & Compound Interest",
+            "display_url": "https://drive.google.com/drive/folders/1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5",
+            "file_or_folder": "folder",
+            "id": "1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 1: Simple & Compound Interest",
+            "updated_at": "2026-09-09T01:39:15.684Z",
+            "url": "https://drive.google.com/drive/folders/1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:51.210Z",
+            "display_title": "Lesson 5: Regular/Simple Annuities - Present Value",
+            "display_url": "https://drive.google.com/drive/folders/1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr",
+            "file_or_folder": "folder",
+            "id": "1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 5: Regular/Simple Annuities - Present Value",
+            "updated_at": "2026-09-09T01:38:51.210Z",
+            "url": "https://drive.google.com/drive/folders/1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:45.581Z",
+            "display_title": "Lesson 4: Annuities - Future Value",
+            "display_url": "https://drive.google.com/drive/folders/1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq",
+            "file_or_folder": "folder",
+            "id": "1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 4: Annuities - Future Value",
+            "updated_at": "2026-09-09T01:38:45.581Z",
+            "url": "https://drive.google.com/drive/folders/1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq",
+            "viewedByMeTime": null
+          },
+          {
+            "created_at": "2026-09-09T01:38:36.003Z",
+            "display_title": "Lesson 2: Compound Interest - Future Value",
+            "display_url": "https://drive.google.com/drive/folders/1qgfk85lXXelbWn5f325n5NTtRXOG5cdF",
+            "file_or_folder": "folder",
+            "id": "1qgfk85lXXelbWn5f325n5NTtRXOG5cdF",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "1urBEr5FwkJFthVFjdY1sgjwsN3QyFiCE"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Lesson 2: Compound Interest - Future Value",
+            "updated_at": "2026-09-09T01:38:36.003Z",
+            "url": "https://drive.google.com/drive/folders/1qgfk85lXXelbWn5f325n5NTtRXOG5cdF",
+            "viewedByMeTime": null
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "created_at": "2026-09-07T21:14:20.929Z",
+        "display_title": "Module 0",
+        "display_url": "https://drive.google.com/drive/folders/18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "file_or_folder": "folder",
+        "id": "18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Module 0",
+        "updated_at": "2026-09-07T21:14:20.929Z",
+        "url": "https://drive.google.com/drive/folders/18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D",
+        "viewedByMeTime": "2026-09-09T01:09:36.347Z"
+      },
+      "children": {
+        "results": [
+          {
+            "created_at": "2026-09-09T01:09:53.334Z",
+            "display_title": "Live Lesson Slides",
+            "display_url": "https://drive.google.com/drive/folders/1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a",
+            "file_or_folder": "folder",
+            "id": "1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a",
+            "mime_type": "application/vnd.google-apps.folder",
+            "parent_ids": [
+              "18R2KdXYtyvZYaOeQZJN-5f2SpnFLQs8D"
+            ],
+            "shared": false,
+            "size": null,
+            "title": "Live Lesson Slides",
+            "updated_at": "2026-09-09T01:09:53.334Z",
+            "url": "https://drive.google.com/drive/folders/1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a",
+            "viewedByMeTime": "2026-09-09T01:09:53.334Z"
+          }
+        ]
+      }
+    }
+  ],
+  "m1async": {
+    "results": [
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:20:44.059Z",
+        "display_title": "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+        "display_url": "https://drive.google.com/drive/folders/1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh",
+        "file_or_folder": "folder",
+        "id": "1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions",
+        "updated_at": "2026-09-09T03:21:03.373Z",
+        "url": "https://drive.google.com/drive/folders/1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh",
+        "viewedByMeTime": "2026-09-09T03:20:44.059Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:20:54.554Z",
+        "display_title": "Lesson 7: The Domain and Range of a Quadratic Function",
+        "display_url": "https://drive.google.com/drive/folders/1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a",
+        "file_or_folder": "folder",
+        "id": "1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 7: The Domain and Range of a Quadratic Function",
+        "updated_at": "2026-09-09T03:20:54.554Z",
+        "url": "https://drive.google.com/drive/folders/1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a",
+        "viewedByMeTime": "2026-09-09T03:20:54.554Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:20:32.378Z",
+        "display_title": "Lesson 5: Graphing Quadratic Functions using Transformations",
+        "display_url": "https://drive.google.com/drive/folders/1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd",
+        "file_or_folder": "folder",
+        "id": "1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 5: Graphing Quadratic Functions using Transformations",
+        "updated_at": "2026-09-09T03:20:32.378Z",
+        "url": "https://drive.google.com/drive/folders/1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd",
+        "viewedByMeTime": "2026-09-09T03:20:32.378Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:20:22.474Z",
+        "display_title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+        "display_url": "https://drive.google.com/drive/folders/1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A",
+        "file_or_folder": "folder",
+        "id": "1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+        "updated_at": "2026-09-09T03:20:22.474Z",
+        "url": "https://drive.google.com/drive/folders/1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A",
+        "viewedByMeTime": "2026-09-09T03:20:22.474Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:20:10.195Z",
+        "display_title": "Lesson 3: Function Notation",
+        "display_url": "https://drive.google.com/drive/folders/1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF",
+        "file_or_folder": "folder",
+        "id": "1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 3: Function Notation",
+        "updated_at": "2026-09-09T03:20:10.195Z",
+        "url": "https://drive.google.com/drive/folders/1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF",
+        "viewedByMeTime": "2026-09-09T03:20:10.195Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:19:57.521Z",
+        "display_title": "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+        "display_url": "https://drive.google.com/drive/folders/1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v",
+        "file_or_folder": "folder",
+        "id": "1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions",
+        "updated_at": "2026-09-09T03:19:57.521Z",
+        "url": "https://drive.google.com/drive/folders/1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v",
+        "viewedByMeTime": "2026-09-09T03:19:57.521Z"
+      },
+      {
+        "can_download": true,
+        "can_list_children": true,
+        "created_at": "2026-09-09T03:19:48.039Z",
+        "display_title": "Lesson 1: Characteristics of a Function",
+        "display_url": "https://drive.google.com/drive/folders/1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW",
+        "file_or_folder": "folder",
+        "id": "1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1VNqqhQHMTMgG9wjWmWhPXcLGJKDpeahU"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "Lesson 1: Characteristics of a Function",
+        "updated_at": "2026-09-09T03:19:48.039Z",
+        "url": "https://drive.google.com/drive/folders/1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW",
+        "viewedByMeTime": "2026-09-09T03:19:48.039Z"
+      }
+    ]
+  },
+  "discovery": {
+    "results": [
+      {
+        "created_at": "2026-09-07T00:31:38.339Z",
+        "display_title": "MCF3M",
+        "display_url": "https://drive.google.com/drive/folders/1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+        "file_or_folder": "folder",
+        "id": "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+        "mime_type": "application/vnd.google-apps.folder",
+        "parent_ids": [
+          "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40"
+        ],
+        "shared": false,
+        "size": null,
+        "title": "MCF3M",
+        "updated_at": "2026-09-07T00:31:38.339Z",
+        "url": "https://drive.google.com/drive/folders/1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g",
+        "viewedByMeTime": "2026-09-09T03:19:06.050Z"
+      },
+      {
+        "created_at": "2026-09-07T01:29:14.412Z",
+        "display_title": "MCF3M-examples",
+        "display_url": "https://docs.google.com/document/d/10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0",
+        "mime_type": "application/vnd.google-apps.document",
+        "parent_ids": [
+          "1PbqXnyGRvtmJmDfGd0K_NMtP5PhNBWEx"
+        ],
+        "shared": false,
+        "size": "4616",
+        "title": "MCF3M-examples",
+        "updated_at": "2026-09-07T01:29:15.481Z",
+        "url": "https://docs.google.com/document/d/10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-09T00:53:02.419Z"
+      },
+      {
+        "created_at": "2026-09-07T21:14:26.709Z",
+        "display_title": "MCF3M M0L1",
+        "display_url": "https://docs.google.com/presentation/d/1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M",
+        "mime_type": "application/vnd.google-apps.presentation",
+        "parent_ids": [
+          "1xz2p4cBNFaSweqcLug6Kx1D-CJcf47_a"
+        ],
+        "shared": false,
+        "size": "998941",
+        "title": "MCF3M M0L1",
+        "updated_at": "2026-09-09T02:50:45.096Z",
+        "url": "https://docs.google.com/presentation/d/1pmi4nKdekvoLBcsvLTH3CpPVRwFGJLDYLHzBYi_Yc-M/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-09T04:41:36.128Z"
+      },
+      {
+        "created_at": "2026-09-07T16:05:03.133Z",
+        "display_title": "MCF3M M1C2",
+        "display_url": "https://docs.google.com/presentation/d/1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA",
+        "mime_type": "application/vnd.google-apps.presentation",
+        "parent_ids": [
+          "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+        ],
+        "shared": false,
+        "size": "66313",
+        "title": "MCF3M M1C2",
+        "updated_at": "2026-09-08T19:39:50.823Z",
+        "url": "https://docs.google.com/presentation/d/1iMUV5oTptlneazpHL0g-jTMI_hGowUKrIq4trWhtVTA/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-08T19:41:31.403Z"
+      },
+      {
+        "created_at": "2026-09-07T16:05:11.805Z",
+        "display_title": "MCF3M M1C1 — Square and Near-Square Arrangements",
+        "display_url": "https://docs.google.com/presentation/d/15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0",
+        "mime_type": "application/vnd.google-apps.presentation",
+        "parent_ids": [
+          "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+        ],
+        "shared": false,
+        "size": "571928",
+        "title": "MCF3M M1C1 — Square and Near-Square Arrangements",
+        "updated_at": "2026-09-07T17:05:36.870Z",
+        "url": "https://docs.google.com/presentation/d/15hZuoj90VM7Ig9tcwzODvmxRJA_o1tnhfdAxD9-x2J0/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-08T14:13:34.761Z"
+      },
+      {
+        "created_at": "2026-09-07T23:04:48.701Z",
+        "display_title": "MCF3M Module 1 Portfolio Assignment",
+        "display_url": "https://docs.google.com/document/d/1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q",
+        "mime_type": "application/vnd.google-apps.document",
+        "parent_ids": [
+          "0AJUnPUQeCT75Uk9PVA"
+        ],
+        "shared": false,
+        "size": "2096",
+        "title": "MCF3M Module 1 Portfolio Assignment",
+        "updated_at": "2026-09-07T23:30:00.094Z",
+        "url": "https://docs.google.com/document/d/1I6ZloMtJ794crUnog2h_dXMTkgJr1xPBe682JyBWH8Q/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-07T23:30:00.094Z"
+      },
+      {
+        "created_at": "2026-09-07T16:05:54.332Z",
+        "display_title": "MCF3M M1C3 — Reading a Quadratic Model",
+        "display_url": "https://docs.google.com/presentation/d/1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM",
+        "mime_type": "application/vnd.google-apps.presentation",
+        "parent_ids": [
+          "1gTmRz9wFsOTmycrdcuknlgWI5g12kvxW"
+        ],
+        "shared": false,
+        "size": "660163",
+        "title": "MCF3M M1C3 — Reading a Quadratic Model",
+        "updated_at": "2026-09-07T17:40:55.723Z",
+        "url": "https://docs.google.com/presentation/d/1rubG69XJFWIsZ6vrF_XNGHCw9iZc7tVA9Xml7tpRwtM/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-07T17:40:55.723Z"
+      },
+      {
+        "created_at": "2026-09-07T00:59:00.147Z",
+        "display_title": "MCF3M-specific-expectations.md",
+        "display_url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM",
+        "mime_type": "application/vnd.google-apps.document",
+        "parent_ids": [
+          "1ScZ4sGlasPjkD3VMY9GI7ESkZp9gjt0g"
+        ],
+        "shared": false,
+        "size": "6904",
+        "title": "MCF3M-specific-expectations.md",
+        "updated_at": "2026-09-07T00:59:01.334Z",
+        "url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-07T01:02:59.390Z"
+      },
+      {
+        "created_at": "2026-09-07T00:39:18.692Z",
+        "display_title": "README",
+        "display_url": "https://docs.google.com/document/d/1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk/edit?usp=drivesdk",
+        "file_or_folder": "file",
+        "id": "1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk",
+        "mime_type": "application/vnd.google-apps.document",
+        "parent_ids": [
+          "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40"
+        ],
+        "shared": false,
+        "size": "1024",
+        "title": "README",
+        "updated_at": "2026-09-07T00:39:19.807Z",
+        "url": "https://docs.google.com/document/d/1CasiTNBOU3Y8cb_o4YgoCQgLWMJSUGFT_VfQyqlNZzk/edit?usp=drivesdk",
+        "viewedByMeTime": "2026-09-07T00:41:00.133Z"
+      }
+    ]
+  }
+}

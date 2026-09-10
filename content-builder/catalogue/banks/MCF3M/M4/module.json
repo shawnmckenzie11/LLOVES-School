@@ -1,0 +1,52 @@
+{
+  "schema_version": "module-bank.v1",
+  "course_code": "MCF3M",
+  "module": 4,
+  "title": "MCF3M Module 4 \u2014 quadratic vertex form (seed bank from M4-L1)",
+  "process_slots": [
+    {
+      "id": "compare-two-equivalent-models",
+      "name": "Compare two equivalent writings of one model; decide which shows the vertex; verify by algebra and by table/graph",
+      "min_approved_items": 2
+    },
+    {
+      "id": "inspect-vertex-form",
+      "name": "Inspect vertex form: vertex (h, k) including plus-inside, axis x = h, maximum or minimum from the sign of a",
+      "min_approved_items": 4
+    },
+    {
+      "id": "predict-parameter-change",
+      "name": "Predict what changing one of a, h, or k will do, then check the graph and the rewritten equation",
+      "min_approved_items": 2
+    },
+    {
+      "id": "expand-and-verify",
+      "name": "Expand vertex form into standard form and verify equivalent representations with graphing technology",
+      "min_approved_items": 2
+    },
+    {
+      "id": "three-form-contrast",
+      "name": "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings",
+      "min_approved_items": 2
+    }
+  ],
+  "items": [
+    "mcf3m-m4-nelson-gs-p2-q7",
+    "mcf3m-m4-geogebra-cxk4xt4u",
+    "mcf3m-m4-ontario-a26-example-0",
+    "mcf3m-m4-openstax-m51274-vertex-read",
+    "mcf3m-m4-ontario-a27-sample",
+    "mcf3m-m4-openstax-m51274-figure7-expand",
+    "mcf3m-m4-openstax-m51274-advantage-verbal",
+    "mcf3m-m4-nelson-gs-p2-q6",
+    "mcf3m-m4-openstax-m51274-ex22",
+    "mcf3m-m4-nelson-st-p204-q3",
+    "mcf3m-m4-openstax-m51274-ex53",
+    "mcf3m-m4-mathnet-0gz2",
+    "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
+  ],
+  "nelson_density_oracle": {
+    "reference": "Nelson Functions 11 \u00a74.1 / local Getting Started + Chapter Self-Test bank labels",
+    "notes": "Oracle only for M4 vertex-form density: plus-inside h-sign diagnostic, mixed vertex/axis labelling (skip standard-form complete-the-square parts for L1), and three-form \u201cwhich writing for which information\u201d transfer. Three local bank ids are recorded as excluded items with stem_student null. Do not paste commercial stems into student HTML. Licensed OpenStax/Ontario/GeoGebra analogues carry the student-facing load."
+  }
+}

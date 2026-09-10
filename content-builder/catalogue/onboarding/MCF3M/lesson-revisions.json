@@ -1,0 +1,1140 @@
+[
+  {
+    "internal_id": "MCF3M-M1L1",
+    "stable_key": "MCF3M-M1L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.1"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L2",
+    "stable_key": "MCF3M-M1L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.1",
+      "MCF3M.specific.B1.6"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L3",
+    "stable_key": "MCF3M-M1L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L4",
+    "stable_key": "MCF3M-M1L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.5"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L5",
+    "stable_key": "MCF3M-M1L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.6"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L6",
+    "stable_key": "MCF3M-M1L6",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.5",
+      "MCF3M.specific.A2.6"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M1L7",
+    "stable_key": "MCF3M-M1L7",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.3",
+      "MCF3M.specific.A2.4"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L1",
+    "stable_key": "MCF3M-M2L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L2",
+    "stable_key": "MCF3M-M2L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L3",
+    "stable_key": "MCF3M-M2L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L4",
+    "stable_key": "MCF3M-M2L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L5",
+    "stable_key": "MCF3M-M2L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M2L6",
+    "stable_key": "MCF3M-M2L6",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M3L1",
+    "stable_key": "MCF3M-M3L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.10",
+      "MCF3M.specific.A2.11",
+      "MCF3M.specific.A2.9"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M3L2",
+    "stable_key": "MCF3M-M3L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.1",
+      "MCF3M.specific.A1.7",
+      "MCF3M.specific.A1.8"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M3L3",
+    "stable_key": "MCF3M-M3L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.4",
+      "MCF3M.specific.A1.5",
+      "MCF3M.specific.A1.8"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M3L4",
+    "stable_key": "MCF3M-M3L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.1",
+      "MCF3M.specific.A3.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M3L5",
+    "stable_key": "MCF3M-M3L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A3.1",
+      "MCF3M.specific.A3.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "M4-L1-vertex-form",
+    "stable_key": "MCF3M-M4L1",
+    "content_revision": "ae50dde1a2cb14a5bc36a393d83d9ee3ddb8f78528893eb1f6f49d0923e24450",
+    "source_dependencies": [
+      "MCF3M.specific.A2.10",
+      "MCF3M.specific.A2.5",
+      "MCF3M.specific.A2.6",
+      "MCF3M.specific.A2.7"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": [],
+    "coverage_task_supported": true
+  },
+  {
+    "internal_id": "MCF3M-M4L2",
+    "stable_key": "MCF3M-M4L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.11",
+      "MCF3M.specific.A2.7",
+      "MCF3M.specific.A2.8"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M4L3",
+    "stable_key": "MCF3M-M4L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.6",
+      "MCF3M.specific.A1.8"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M4L4",
+    "stable_key": "MCF3M-M4L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A1.7"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M4L5",
+    "stable_key": "MCF3M-M4L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.A2.4",
+      "MCF3M.specific.A3.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M5L1",
+    "stable_key": "MCF3M-M5L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C1.1"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M5L2",
+    "stable_key": "MCF3M-M5L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C1.1"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M5L3",
+    "stable_key": "MCF3M-M5L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C1.1",
+      "MCF3M.specific.C1.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M5L4",
+    "stable_key": "MCF3M-M5L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C1.3",
+      "MCF3M.specific.C1.4"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M5L5",
+    "stable_key": "MCF3M-M5L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C1.4",
+      "MCF3M.specific.C1.5"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M6L1",
+    "stable_key": "MCF3M-M6L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C2.1",
+      "MCF3M.specific.C2.2",
+      "MCF3M.specific.C3.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M6L2",
+    "stable_key": "MCF3M-M6L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C2.3",
+      "MCF3M.specific.C2.4",
+      "MCF3M.specific.C3.1",
+      "MCF3M.specific.C3.2",
+      "MCF3M.specific.C3.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M6L3",
+    "stable_key": "MCF3M-M6L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.C2.5",
+      "MCF3M.specific.C2.6",
+      "MCF3M.specific.C2.7",
+      "MCF3M.specific.C3.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M7L1",
+    "stable_key": "MCF3M-M7L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B1.2",
+      "MCF3M.specific.B1.5"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M7L2",
+    "stable_key": "MCF3M-M7L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B1.1",
+      "MCF3M.specific.B1.2"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M7L3",
+    "stable_key": "MCF3M-M7L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B1.3",
+      "MCF3M.specific.B1.4",
+      "MCF3M.specific.B1.6",
+      "MCF3M.specific.B2.1",
+      "MCF3M.specific.B2.2",
+      "MCF3M.specific.B2.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M8L1",
+    "stable_key": "MCF3M-M8L1",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B3.1",
+      "MCF3M.specific.B3.3"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M8L2",
+    "stable_key": "MCF3M-M8L2",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B3.2",
+      "MCF3M.specific.B3.4"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M8L3",
+    "stable_key": "MCF3M-M8L3",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B3.2",
+      "MCF3M.specific.B3.3",
+      "MCF3M.specific.B3.4"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M8L4",
+    "stable_key": "MCF3M-M8L4",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B3.5",
+      "MCF3M.specific.B3.6",
+      "MCF3M.specific.B3.7"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  },
+  {
+    "internal_id": "MCF3M-M8L5",
+    "stable_key": "MCF3M-M8L5",
+    "content_revision": null,
+    "source_dependencies": [
+      "MCF3M.specific.B3.5",
+      "MCF3M.specific.B3.6",
+      "MCF3M.specific.B3.7"
+    ],
+    "rule_dependencies": [
+      "rule.authority-and-scope",
+      "rule.teaching-purpose",
+      "rule.three-part-html",
+      "rule.student-language",
+      "rule.practice-feedback",
+      "rule.model-star",
+      "rule.questions-hooks-resources",
+      "rule.live-slides",
+      "rule.review-production"
+    ],
+    "teacher_overrides": [],
+    "locks": [],
+    "review_state": {
+      "source_verification": "package_verified",
+      "mapping_review": "proposed_review_required",
+      "content_approval": "not_approved",
+      "validation_result": null
+    },
+    "needs_review": []
+  }
+]

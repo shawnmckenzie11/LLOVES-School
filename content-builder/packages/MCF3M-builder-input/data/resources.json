@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0.0",
+  "approved_resources": [],
+  "status": "not_researched_in_this_package",
+  "policy": "An empty list is intentional. Named platforms in rules are candidates, not approved or verified embeds."
+}

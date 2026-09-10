@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Content-builder lesson locks",
+  "description": "Teacher-approved section keys. Specialists skip these during regeneration. Parent updates after Shawn edits.",
+  "type": "object",
+  "required": ["lesson_id", "locked_keys"],
+  "properties": {
+    "lesson_id": { "type": "string" },
+    "locked_keys": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "e.g. instruction.minds_on, questions.transfer, build.html.action"
+    },
+    "notes": { "type": ["string", "null"] }
+  }
+}

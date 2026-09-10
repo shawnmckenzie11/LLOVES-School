@@ -1,0 +1,57 @@
+{
+  "snapshot_date": "2026-09-09",
+  "planned_lessons": 39,
+  "confirmed_lesson_folders": 39,
+  "missing_lesson_folders": [],
+  "duplicate_lesson_ids": [],
+  "title_differences": [
+    {
+      "lesson_id": "MCF3M-M2L1",
+      "original_title": "Lesson 1: Expanding Polynomials PART 1",
+      "drive_title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+      "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+    },
+    {
+      "lesson_id": "MCF3M-M2L2",
+      "original_title": "Lesson 2: Expanding Polynomials PART 2",
+      "drive_title": "Lesson 2: Expanding Polynomials",
+      "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+    },
+    {
+      "lesson_id": "MCF3M-M4L2",
+      "original_title": "Lesson2: Relating the Standard & Vertex Forms: Completing the Square",
+      "drive_title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+      "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F01",
+      "detail": "Earlier rich-lesson plan said 32 folders and Module 1 empty. Fresh Drive search confirms all seven Module 1 folders; use 39."
+    },
+    {
+      "id": "F02",
+      "detail": "Module 1 is still named Module 1 - temp. Preserve this folder ID/name; module topic title comes from original JSON."
+    },
+    {
+      "id": "F03",
+      "detail": "Module topic names are not Drive folder names. Drive has Module n; topic names come from the user-supplied JSON."
+    },
+    {
+      "id": "F04",
+      "detail": "Module 7 folder names have no lesson prefix. Order is explicitly taken from original JSON."
+    },
+    {
+      "id": "F05",
+      "detail": "Drive hierarchy has MCF3M directly under observed parent 1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40. Earlier path/root descriptions are not used to reconstruct or move folders."
+    },
+    {
+      "id": "F06",
+      "detail": "Lesson/curriculum associations in this package are proposed mappings, not Ministry-authored or teacher-approved coverage claims."
+    },
+    {
+      "id": "F07",
+      "detail": "Historical live-slide metadata contains a MCR3M title example and in-progress statuses for two classes. Use MCF3M for this package; historical status fields are not refreshed operational state."
+    }
+  ]
+}

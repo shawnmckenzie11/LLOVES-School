@@ -1,0 +1,235 @@
+{
+  "schema_version": "practice-sequence.v1",
+  "lesson_id": "M4-L1-vertex-form",
+  "processes": [
+    {
+      "id": "inspect-vertex-form",
+      "name": "Inspect vertex form: vertex (h, k) including plus-inside, axis x = h, maximum or minimum from the sign of a",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-m51274-vertex-read",
+        "variation": "mcf3m-m4-ontario-a26-example-0",
+        "partial": "mcf3m-m4-geogebra-cxk4xt4u",
+        "independent": "mcf3m-m4-openstax-m51274-ex22",
+        "retrieval": "mcf3m-m4-openstax-m51274-ex22"
+      }
+    },
+    {
+      "id": "expand-and-verify",
+      "name": "Expand vertex form into standard form and verify equivalent representations with graphing technology",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-m51274-figure7-expand",
+        "variation": "mcf3m-m4-openstax-m51274-figure7-expand",
+        "partial": "mcf3m-m4-ontario-a27-sample",
+        "independent": "mcf3m-m4-ontario-a27-sample",
+        "retrieval": "mcf3m-m4-ontario-a27-sample"
+      }
+    },
+    {
+      "id": "compare-two-equivalent-models",
+      "name": "Compare two equivalent writings of one model; decide which shows the vertex; verify by algebra and by table/graph",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-m51274-figure7-expand",
+        "variation": "mcf3m-m4-openstax-m51274-figure7-expand",
+        "partial": "mcf3m-m4-ontario-a27-sample",
+        "independent": "mcf3m-m4-ontario-a27-sample",
+        "retrieval": "mcf3m-m4-ontario-a27-sample"
+      }
+    },
+    {
+      "id": "predict-parameter-change",
+      "name": "Predict what changing one of a, h, or k will do, then check the graph and the rewritten equation",
+      "support_fade": {
+        "worked": "mcf3m-m4-geogebra-cxk4xt4u",
+        "variation": "mcf3m-m4-geogebra-cxk4xt4u",
+        "partial": "mcf3m-m4-geogebra-cxk4xt4u",
+        "independent": "mcf3m-m4-openstax-m51274-ex53",
+        "retrieval": "mcf3m-m4-openstax-m51274-ex53"
+      }
+    },
+    {
+      "id": "three-form-contrast",
+      "name": "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-m51274-advantage-verbal",
+        "variation": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+        "partial": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+        "independent": "mcf3m-m4-openstax-m51274-advantage-verbal",
+        "retrieval": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-vertex-read",
+      "title": "OpenStax worked reading: y = −3(x + 2)^2 + 4",
+      "placement": "worked_example",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Bloom Understand/Apply. FAME Fading worked + Explanation: fully explained first inspection — match (x + 2) to (x − h), name vertex, axis, max/min from sign of a; self-explanation prompt how/why each step. Bank id mcf3m-m4-openstax-m51274-vertex-read (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-ontario-a26-example-0",
+      "title": "Ministry A2.6 sample: vertex of −2(x + 1)^2",
+      "placement": "worked_example",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Bloom Apply. FAME Fading variation after I-do/you-do: plus-inside with k = 0 so max/min cannot be taken from k, and a < 0. Quote seed sample only; do not invent Ministry wording. Bank id mcf3m-m4-ontario-a26-example-0 (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-figure7-expand",
+      "title": "OpenStax: expand ½(x + 2)^2 − 3 and check a table",
+      "placement": "worked_example",
+      "process_id": "expand-and-verify",
+      "purpose": "Bloom Understand/Apply. FAME Fading worked + Explanation for expand-and-verify and compare-two-equivalent-models: expand vertex→standard then table-check equivalence; think-aloud how/why each expand step. Bank id mcf3m-m4-openstax-m51274-figure7-expand (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-geogebra-cxk4xt4u",
+      "title": "Predict vertex of (x + 3)^2 + 1, then check sliders",
+      "placement": "guided_practice",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Bloom Apply (supported). FAME Alternating you-do after worked inspect; also Fading partial + Predict-parameter-change: name vertex before any slider moves, then check on local board (GeoGebra analogue only). Bank id mcf3m-m4-geogebra-cxk4xt4u (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+      "title": "OpenStax verbal: another name for their standard form",
+      "placement": "guided_practice",
+      "process_id": "three-form-contrast",
+      "purpose": "Bloom Understand/Apply. FAME Alternating student item for three-form-contrast after advantage verbal: OpenStax naming vs Ontario vertex form note (teacher copy). Bank id mcf3m-m4-openstax-m51274-verbal-q4-vertex-name (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-ontario-a27-sample",
+      "title": "MCF3M A2.7 sample: expand 3(x − 1)^2 + 4",
+      "placement": "core_practice",
+      "process_id": "expand-and-verify",
+      "purpose": "Bloom Apply. FAME Alternating independent after figure-7 worked expand; also compare-two-equivalent-models. Verbatim Ministry sample; seed has no key — do not invent coefficients. Bank id mcf3m-m4-ontario-a27-sample (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-advantage-verbal",
+      "title": "OpenStax verbal: advantage of this form",
+      "placement": "core_practice",
+      "process_id": "three-form-contrast",
+      "purpose": "Bloom Understand/Apply (+ Explanation prompt on worked fade slot). What vertex form makes readable vs ax^2+bx+c; do not ask students to produce another writing; do not call a(x−h)^2+k “standard form” in student prose. Bank id mcf3m-m4-openstax-m51274-advantage-verbal (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-ex22",
+      "title": "OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6",
+      "placement": "additional_practice",
+      "process_id": "inspect-vertex-form",
+      "purpose": "Bloom Analyze (retrieval). FAME Fading retrieval after competence: plus-inside inspection via domain/range from k and sign of a. No invented range key. Bank id mcf3m-m4-openstax-m51274-ex22 (approved).",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-m51274-ex53",
+      "title": "OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2",
+      "placement": "additional_practice",
+      "process_id": "predict-parameter-change",
+      "purpose": "Bloom Apply/Analyze. FAME Fading independent/retrieval for one-parameter h change (plus- vs minus-inside). No invented key. Bank id mcf3m-m4-openstax-m51274-ex53 (approved).",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "mcf3m-m4-nelson-gs-p2-q7",
+      "title": "Nelson density-oracle: vertex of y = −2(x + 3)^2 + 5 (h-sign)",
+      "placement": "excluded",
+      "purpose": "Density oracle only for inspect-vertex-form coverage depth. Not in bank-sourced-candidates.",
+      "visible_by_default": false,
+      "exclusion_reason": "Nelson Functions 11 — student_html_allowed false / permitted_use excluded. Do not print stem in student HTML."
+    },
+    {
+      "source_ref": "mcf3m-m4-nelson-gs-p2-q6",
+      "title": "Nelson density-oracle: label vertex and axis from mixed equations",
+      "placement": "excluded",
+      "purpose": "Density oracle only. Not in bank-sourced-candidates.",
+      "visible_by_default": false,
+      "exclusion_reason": "Nelson Functions 11 — student_html_allowed false / permitted_use excluded. Do not print stem in student HTML."
+    },
+    {
+      "source_ref": "mcf3m-m4-nelson-st-p204-q3",
+      "title": "Nelson density-oracle: which form for which information (A2.10)",
+      "placement": "excluded",
+      "purpose": "Density oracle only for three-form-contrast. Not in bank-sourced-candidates.",
+      "visible_by_default": false,
+      "exclusion_reason": "Nelson Functions 11 — student_html_allowed false / permitted_use excluded. Do not print stem in student HTML."
+    },
+    {
+      "source_ref": "mcf3m-m4-mathnet-0gz2",
+      "title": "MathNet 0gz2 (olympiad; not student-html-allowed)",
+      "placement": "excluded",
+      "purpose": "Olympiad packing; not MCF3M classroom copy. Not in bank-sourced-candidates.",
+      "visible_by_default": false,
+      "exclusion_reason": "student_html_allowed false; excessive difficulty / licence not confirmed for contest stem. Do not print contest stem."
+    },
+    {
+      "source_ref": "original-fountain-dual-path",
+      "title": "Fountain arc dual-path (hand-authored; superseded by bank expand/compare)",
+      "placement": "excluded",
+      "purpose": "Hand-authored question-candidates dual-path hook. Bank-sourced figure7 + A2.7 now cover expand-and-verify and compare-two-equivalent-models; prefer bank ids.",
+      "visible_by_default": false,
+      "exclusion_reason": "Superseded by approved bank items mcf3m-m4-openstax-m51274-figure7-expand and mcf3m-m4-ontario-a27-sample. Keep hand-authored question-candidates.json for context only."
+    }
+  ],
+  "sets": [
+    {
+      "id": "worked-inspect",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-m51274-vertex-read"
+      ]
+    },
+    {
+      "id": "guided-inspect-you-do",
+      "placement": "guided_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-geogebra-cxk4xt4u"
+      ]
+    },
+    {
+      "id": "varied-inspect",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-ontario-a26-example-0"
+      ]
+    },
+    {
+      "id": "worked-expand-compare",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-m51274-figure7-expand"
+      ]
+    },
+    {
+      "id": "guided-three-form",
+      "placement": "guided_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
+      ]
+    },
+    {
+      "id": "core-independent",
+      "placement": "core_practice",
+      "visible_count": 2,
+      "item_refs": [
+        "mcf3m-m4-ontario-a27-sample",
+        "mcf3m-m4-openstax-m51274-advantage-verbal"
+      ]
+    },
+    {
+      "id": "additional-licensed",
+      "placement": "additional_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-m51274-ex22",
+        "mcf3m-m4-openstax-m51274-ex53"
+      ]
+    }
+  ]
+}

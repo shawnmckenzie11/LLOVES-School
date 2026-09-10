@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a25-sample",
+  "process_tags": [
+    "roles-of-a-h-k"
+  ],
+  "expectation_codes": [
+    "A2.5"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "Ministry A2.5 sample: role of h in 3(x − h)^2 + 5",
+  "stem_student": "Investigate the graph f(x) = 3(x − h)^2 + 5 for various values of h, using technology, and describe the effects of changing h in terms of a transformation.",
+  "stem_teacher": "Verbatim Ministry sample for A2.5 from verified seed.",
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample.",
+  "source": "ontario-seed",
+  "source_id": "A2.5-sample-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Verbatim seed sample under A2.5 examples[0]."
+}

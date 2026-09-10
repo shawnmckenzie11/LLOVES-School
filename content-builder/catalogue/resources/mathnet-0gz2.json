@@ -1,0 +1,39 @@
+{
+  "id": "mathnet-0gz2",
+  "source": "mathnet",
+  "source_id": "0gz2",
+  "source_url": "https://mathnet.mit.edu/explorer.html?id=0gz2",
+  "source_revision": "local-duckdb:.local-data/mathnet/all_text.duckdb",
+  "resource_type": "challenge",
+  "title": "MathNet 0gz2: parabola through two points, vertex x-coordinate",
+  "content_or_local_path": "Parabola $y = ax^2 + bx + c$ passes through the points $A(-2, 1)$ and $B(2, 9)$, and does not intersect $x$-axis. Find all possible values of $x$ coordinate of the vertex of the parabola.",
+  "topics": [
+    "Algebra > Intermediate Algebra > Quadratic functions",
+    "vertex of a parabola"
+  ],
+  "prerequisites": [
+    "parabola in general form",
+    "vertex x-coordinate"
+  ],
+  "representations": [
+    "equation",
+    "graph",
+    "verbal"
+  ],
+  "reading_demand": "high",
+  "mathematical_difficulty": "olympiad",
+  "context": "Ukraine / 50th Mathematical Olympiad in Ukraine, Fourth Round (March 23, 2010). Not a Grade 11 worksheet. Use only as a transfer candidate after rewrite.",
+  "instructional_roles": [
+    "tests transfer"
+  ],
+  "answer": "(-4, -1)",
+  "answer_verification": "Copied from MathNet final_answer convenience field; LLM-assisted, not official key",
+  "embed_configuration": null,
+  "fallback": "Keep original stem in source field; do not use olympiad stem as student copy.",
+  "licence": "CC BY 4.0 unless the contest/country asserts otherwise; see row country/competition",
+  "attribution": "MathNet id 0gz2, 50th Mathematical Olympiad in Ukraine, Fourth Round (March 23, 2010), Ukraine. https://huggingface.co/datasets/ShadenA/MathNet. Language: English.",
+  "permitted_use_status": "unknown",
+  "access_test_result": "read from local DuckDB cache",
+  "checked_at": "2026-09-09T04:49:07+00:00",
+  "review_status": "selected"
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "course_code": "MCF3M",
+  "module": 1,
+  "checker_ref": null,
+  "source_url": null,
+  "density_notes": null,
+  "id": "mcf3m-m1-ontario-a26-sample",
+  "process_tags": [
+    "sketch-by-transformations"
+  ],
+  "expectation_codes": [
+    "A2.6"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Ministry A2.6 sample: sketch x^2 − 4 and −2(x + 1)^2",
+  "stem_student": "Transform the graph of f(x) = x^2 to sketch the graphs of g(x) = x^2 − 4 and h(x) = −2(x + 1)^2.",
+  "stem_teacher": "Verbatim Ministry sample for A2.6 from verified seed. Same family as M4 ontario A2.6 example reuse; M1 owns the transformation-sketch target.",
+  "answer": null,
+  "answer_verification": "Seed has no key for this sample.",
+  "source": "ontario-seed",
+  "source_id": "A2.6-sample-0",
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+  "attribution": "lms/seeds/mcf3m_expectations.json",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "provenance_notes": "First-slice M1 bank. Verbatim seed sample under A2.6 examples[0]."
+}

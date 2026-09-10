@@ -1,0 +1,30 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-m51274-ex22",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "inspect-vertex-form"
+  ],
+  "expectation_codes": [
+    "A2.10",
+    "A2.3"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6",
+  "stem_student": "Determine the domain and range of f(x) = −2(x + 3)^2 − 6.",
+  "stem_teacher": "Same (x + 3) family as the Nelson h-sign diagnostic, now for range from k and the sign of a. Not yet its own catalogue resource record.",
+  "answer": null,
+  "answer_verification": "Student-facing OpenStax page lists the exercise only; no solution element was copied into the catalogue. Do not invent the range.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "m51274#section-exercises-22",
+  "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274) §5.1 exercise 22. CC BY-NC-SA 4.0.",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "approved",
+  "density_notes": null,
+  "provenance_notes": "From M4-L1 question-candidates practice rank 3; practice-sequence additional_practice for inspect-vertex-form (retrieval). Parent may add a dedicated catalogue resource later."
+}

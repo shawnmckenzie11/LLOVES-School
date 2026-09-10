@@ -1,0 +1,121 @@
+{
+  "schema_version": "onboarding-store.v1",
+  "previewed_at": "2026-09-09T10:20:23+00:00",
+  "package_hash": "f2e85a50017806da0316bff69b70599f864c42b39da1df4bea7dde3e8e8da5b0",
+  "validation": {
+    "status": "passed",
+    "course": "MCF3M",
+    "lessons": 39,
+    "modules": 8,
+    "module_counts": [
+      7,
+      6,
+      5,
+      5,
+      5,
+      3,
+      3,
+      5
+    ],
+    "specific_expectations": 53,
+    "overall_expectations": 9,
+    "mathematical_process_expectations": 7,
+    "unique_drive_folder_ids": 39,
+    "title_differences": 3,
+    "missing_folder_ids": 0,
+    "invalid_curriculum_references": 0,
+    "mapping_status": "proposed_review_required",
+    "curriculum_text_check": "Exact equality with saved source extraction, not a new full Ministry PDF glyph audit",
+    "network_calls": 0,
+    "drive_mutations": 0
+  },
+  "fingerprint_before": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+  "fingerprint_after": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+  "noop": true,
+  "report": {
+    "course": "MCF3M",
+    "counts": {
+      "imported": 39,
+      "matched": 0,
+      "created": 0,
+      "unchanged": 39,
+      "conflicted": 2
+    },
+    "module_counts": [
+      7,
+      6,
+      5,
+      5,
+      5,
+      3,
+      3,
+      5
+    ],
+    "title_differences": [
+      {
+        "lesson_id": "MCF3M-M2L1",
+        "original_title": "Lesson 1: Expanding Polynomials PART 1",
+        "drive_title": "Lesson 1: Expanding Adding & Subtracting Polynomials",
+        "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+      },
+      {
+        "lesson_id": "MCF3M-M2L2",
+        "original_title": "Lesson 2: Expanding Polynomials PART 2",
+        "drive_title": "Lesson 2: Expanding Polynomials",
+        "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+      },
+      {
+        "lesson_id": "MCF3M-M4L2",
+        "original_title": "Lesson2: Relating the Standard & Vertex Forms: Completing the Square",
+        "drive_title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+        "resolution": "Use current Drive title; preserve original as provenance. No rename performed."
+      }
+    ],
+    "unresolved_conflicts": [
+      {
+        "id": "conflict.seed-text.A1.1",
+        "record": "curriculum_source",
+        "field": "text",
+        "existing": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems",
+        "incoming": "pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems (e.g., \"From the graph of the height of a ball versus time, can you tell me how high the ball was thrown and the time when it hit the ground?\")",
+        "evidence": "lms/seeds wording differs from package source for A1.1.",
+        "status": "unresolved",
+        "auto_resolvable": false
+      },
+      {
+        "id": "conflict.mapping.codes.MCF3M-M4L1",
+        "record": "curriculum_mapping",
+        "field": "specific_codes",
+        "existing": [
+          "A2.7",
+          "A2.10"
+        ],
+        "incoming": [
+          "A2.5",
+          "A2.6",
+          "A2.7",
+          "A2.10"
+        ],
+        "evidence": "Package proposal differs from existing brief expectation codes. Keep both; do not auto-approve.",
+        "status": "unresolved",
+        "auto_resolvable": false
+      }
+    ],
+    "resources_preserved": [
+      "geogebra-cxk4xt4u",
+      "jsxgraph-vertex-form-board",
+      "mathnet-0gz2",
+      "ontario-seed-mcf3m-A2.7-sample",
+      "ontario-seed-mcf3m-A2.7",
+      "openstax-ca2e-m51274-advantage-verbal",
+      "openstax-ca2e-m51274-vertex-form-definition"
+    ],
+    "package_resources": {
+      "schema_version": "1.0.0",
+      "approved_resources": [],
+      "status": "not_researched_in_this_package",
+      "policy": "An empty list is intentional. Named platforms in rules are candidates, not approved or verified embeds."
+    },
+    "fingerprint": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da"
+  }
+}

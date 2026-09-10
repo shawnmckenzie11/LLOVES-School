@@ -1,0 +1,312 @@
+{
+  "schema_version": "lesson-brief.v2",
+  "course_code": "MCF3M",
+  "lesson_id": "M4-L1-vertex-form",
+  "module": 4,
+  "lesson_number": 1,
+  "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+  "module_title": "Quadratic Models",
+  "source_refs": {
+    "module_lessons": ".local-data/curriculum/MCF3M/module-lessons.json",
+    "module_strand_map": ".local-data/curriculum/MCF3M/module-strand-map.json",
+    "expectations_seed": "lms/seeds/mcf3m_expectations.json"
+  },
+  "central_question": "If you only have the equation of a curve that rises and then falls (or the other way around), how do you know where the high or low point is — and how do you know a rewritten equation is still the same curve?",
+  "intended_understanding": "A quadratic written as f(x) = a(x − h)^2 + k makes the vertex (h, k), the axis of symmetry, and the maximum or minimum readable from the equation; changing a, h, or k moves the graph in a way students can predict and then check. Expanding that vertex-form equation produces an equivalent standard form, which graphing technology confirms.",
+  "prerequisite_assumptions": [
+    "Students can evaluate f(x) in function notation, so they can talk about the vertex as the point where f(h) = k (Module 1 Lesson 3; A2.2).",
+    "Roles of a, h, and k as transformations of y = x^2 are already taught (Module 1 Lesson 4; A2.5). This lesson reuses that language to read vertex form; it does not reteach stretching, reflecting, or sliding.",
+    "Students can already sketch g(x) = a(x − h)^2 + k from y = x^2 (Module 1 Lessons 5–6; A2.6).",
+    "Students already know that the vertex is a maximum or a minimum that bounds the range (Module 1 Lesson 7; A2.3).",
+    "Students can expand and simplify quadratic expressions, including binomial squares, so they can expand a(x − h)^2 + k (Module 2 Lessons 1–2; A1.2).",
+    "Students have already inspected standard form and factored form for intercepts and related features (Module 3; A2.10 share). This lesson adds vertex-form inspection to that three-form comparison.",
+    "Students have already located a vertex from x-intercepts in factored form (A2.9), so vertex form is a second way to see the same point."
+  ],
+  "processes_to_teach": [
+    "Compare two equivalent writings of one quadratic model and decide which form makes the vertex (high or low point) readable; verify equivalence by expanding and by shared table/graph points.",
+    "Inspect vertex form f(x) = a(x − h)^2 + k: name the vertex (h, k) including plus-inside (x + …), the axis of symmetry x = h, and whether the vertex is a maximum or a minimum from the sign of a (not from k or the quadrant).",
+    "Predict from the equation what changing one of a, h, or k will do to the graph, then check that prediction against the graph and the rewritten equation (one parameter at a time).",
+    "Expand f(x) = a(x − h)^2 + k into f(x) = ax^2 + bx + c and verify, using graphing technology, that the two writings are equivalent representations.",
+    "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings."
+  ],
+  "purpose_map": [
+    {
+      "section": "hook",
+      "purpose": "Put students in a situation where the high or low point of a quadratic model is the thing they need, before any reminder that they already know transformations of y = x^2."
+    },
+    {
+      "section": "minds-on",
+      "purpose": "Have students commit to a vertex from a plus-inside vertex-form equation so the h-sign reading is visible before they use the graph."
+    },
+    {
+      "section": "action: decision / compare two equivalent models",
+      "purpose": "Give two writings of the same fountain-arc model (vertex form and expanded standard form). Students decide which writing makes the peak easier to name, then verify the writings describe the same curve."
+    },
+    {
+      "section": "action: dual solution paths",
+      "purpose": "On that same decision problem, show two strategies side by side: expand and compare algebraically, and check shared table points / graph — licence-safe dual-voice texture, original wording."
+    },
+    {
+      "section": "action: reflect",
+      "purpose": "Four short meta questions after the first connect (decision + dual paths), before heavy Apply (parameter moves, independent expand, practice sets)."
+    },
+    {
+      "section": "action: worked inspection",
+      "purpose": "Fully demonstrate how to read vertex, axis, and maximum or minimum from one vertex-form equation, including matching (x + …) to (x − h)."
+    },
+    {
+      "section": "action: varied inspection",
+      "purpose": "Repeat that reading on a second equation that varies the sign of a or the inside of the brackets, so the first example is not a template to copy."
+    },
+    {
+      "section": "action: predict–move–check",
+      "purpose": "Students predict a vertex or graph change from the equation, move exactly one parameter, submit evidence, and explain what the graph and equation now say; keep the consolidation fresh-case graph out of this beat."
+    },
+    {
+      "section": "action: expand and verify",
+      "purpose": "Students expand vertex form into standard form themselves, then use graphing technology to confirm the two writings are the same parabola, not a new graph."
+    },
+    {
+      "section": "action: three-form contrast",
+      "purpose": "Name what vertex form makes readable compared with standard and factored form, without asking students to produce those other writings."
+    },
+    {
+      "section": "consolidation",
+      "purpose": "Return to the hook situation with a fresh vertex-form equation: read vertex, axis, and maximum or minimum independently, and retrieve that expanding the writing does not move the curve."
+    }
+  ],
+  "hook_constraint": "Need a situation where the high or low point of a quadratic model is the decision students care about (path, throw, fountain, height, and similar). The lesson must return to that same situation in consolidation. Do not open by reminding students that they already know stretching, flipping, or sliding y = x^2. A fountain or water-arc image is allowed only if a reusable signed-out source exists; otherwise use a situation that needs no photo. No required login, Gizmos, or Desmos API.",
+  "instructional_sequence_intent": "Need the high or low point from an equation (hook) → predict the vertex from a plus-inside writing → compare two equivalent fountain-arc writings and decide which shows the peak → dual paths (algebra expand/verify + graph/table) → Reflect A–D → worked then varied inspection → predict, move one parameter, compare graph and equation, explain → expand vertex form and verify equivalent graphs → fresh case that returns to the hook with Key Idea / Need to Know.",
+  "expectations": [
+    {
+      "code": "A2.7",
+      "statement": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "why_this_lesson": "The named lesson starts from vertex form. Expanding to standard form and checking graphs is the algebraic identity of that form, without completing the square."
+    },
+    {
+      "code": "A2.10",
+      "statement": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "why_this_lesson": "This lesson addresses inspecting vertex form for vertex, maximum or minimum, and axis. The Ministry statement also names standard and factored form; those inspection shares were Module 3 (strand-map note: A2.10 spans M3 and M4).",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    }
+  ],
+  "not_this_lesson": [
+    {
+      "code": "A2.5",
+      "reason": "Module 1 already mapped transformations / roles of a, h, k. Treat as prerequisite, not a new M4 target.",
+      "mapped_in": "module-strand-map.json module_number 1"
+    },
+    {
+      "code": "A2.6",
+      "reason": "Module 1 already mapped sketching by transforming y = x^2. Treat as prerequisite, not a new M4 target.",
+      "mapped_in": "module-strand-map.json module_number 1"
+    },
+    {
+      "code": "A2.8",
+      "reason": "Completing the square (standard to vertex) is Module 4 Lesson 2."
+    },
+    {
+      "code": "A2.11",
+      "reason": "Sketching from standard form by completing the square or factoring belongs with Lesson 2 / later M4 work, not introducing vertex form."
+    },
+    {
+      "code": "A1.6",
+      "reason": "Quadratic formula is Module 4 Lesson 3."
+    },
+    {
+      "code": "A1.7",
+      "reason": "Discriminant is Module 4 Lesson 4."
+    },
+    {
+      "code": "A1.8",
+      "reason": "Comparing graphing, factoring, and the quadratic formula spans later M4 lessons, not Lesson 1."
+    },
+    {
+      "code": "A3.2",
+      "reason": "Fitting a quadratic to scatter-plot data is Module 4 Lesson 5."
+    },
+    {
+      "code": "A3.3",
+      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Vertex-form max/min in context is possible here but not attached."
+    },
+    {
+      "code_or_topic": "zeros three ways (expand/factor, inverse ops, graph)",
+      "reason": "Pedagogy mirror of a deeper §4.1 beat; deferred so this lesson stays on A2.7/A2.10 vertex-form inspection and expand-and-verify. Revisit later in M4 if A2.10 share expands."
+    },
+    {
+      "code_or_topic": "equation from graph (vertex + point → a)",
+      "reason": "Optional additional practice only; not core for the A2.7/A2.10 pilot. May appear in later M4 practice if licensed analogues exist."
+    }
+  ],
+  "prerequisites": [
+    {
+      "kind": "prior_lesson",
+      "module": 1,
+      "lesson_number": 3,
+      "title": "Lesson 3: Function Notation",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.2",
+      "related_statement": "substitute into and evaluate linear and quadratic functions represented using function notation [e.g., evaluate f(½), given f(x) = 2x^2 + 3x − 1], including functions arising from real-world applications",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already evaluate f(x) so they can talk about f(h) = k at the vertex."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 1,
+      "lesson_number": 4,
+      "title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.5",
+      "related_statement": "determine, through investigation using technology, the roles of a, h, and k in quadratic functions of the form f(x) = a(x − h)^2 + k, and describe these roles in terms of transformations on the graph of f(x) = x^2 (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Roles of a, h, and k as transformations are already taught. This lesson reuses that parameter language to read vertex form, not to introduce transformations."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 1,
+      "lesson_numbers": [
+        5,
+        6
+      ],
+      "titles": [
+        "Lesson 5: Graphing Quadratic Functions using Transformations",
+        "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.6",
+      "related_statement": "sketch graphs of g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students can already sketch g(x) = a(x − h)^2 + k from y = x^2."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 1,
+      "lesson_number": 7,
+      "title": "Lesson 7: The Domain and Range of a Quadratic Function",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.3",
+      "related_statement": "explain the meanings of the terms domain and range, through investigation using numeric, graphical, and algebraic representations of linear and quadratic functions, and describe the domain and range of a function appropriately (e.g., for y = x^2 + 1, the domain is the set of real numbers, and the range is y ≥ 1)",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Range from a vertex (maximum or minimum) is already available when they inspect vertex form."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 2,
+      "lesson_numbers": [
+        1,
+        2
+      ],
+      "titles": [
+        "Lesson 1: Expanding Polynomials PART 1",
+        "Lesson 2: Expanding Polynomials PART 2"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A1.2",
+      "related_statement": "represent situations (e.g., the area of a picture frame of variable width) using quadratic expressions in one variable, and expand and simplify quadratic expressions in one variable [e.g., 2x(x + 4) − (x + 3)^2]*",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Expanding a(x − h)^2 + k into ax^2 + bx + c (A2.7) needs Module 2 expansion skill."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 3,
+      "lesson_number": 1,
+      "title": "Lesson 1: Relating Standard & Factored Form",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.10",
+      "related_statement": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Module 3 already treated inspecting standard and factored form. This lesson adds vertex-form inspection to that three-form comparison.",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    },
+    {
+      "kind": "prior_skill",
+      "module": 3,
+      "related_code": "A2.9",
+      "related_statement": "sketch graphs of quadratic functions in the factored form f(x) = a(x − r)(x − s) by using the x-intercepts to determine the vertex",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "source_module_lessons": "Lesson 2/3 graphing and factoring work in Module 3 (.local-data/curriculum/MCF3M/module-lessons.json); A2.9 is mapped to module_number 3 in module-strand-map.json.",
+      "role": "Students have already located a vertex from x-intercepts in factored form, so vertex form is a second way to see the same point."
+    }
+  ],
+  "representations": [
+    {
+      "type": "equation",
+      "form": "vertex",
+      "must_connect": true,
+      "note": "f(x) = a(x − h)^2 + k as the object of inspection."
+    },
+    {
+      "type": "graph",
+      "must_connect": true,
+      "note": "Parabola with vertex, axis of symmetry, and vertical stretch/reflection visible."
+    },
+    {
+      "type": "equation",
+      "form": "standard",
+      "must_connect": true,
+      "note": "Expanded ax^2 + bx + c compared with the vertex-form graph (A2.7)."
+    },
+    {
+      "type": "verbal",
+      "must_connect": true,
+      "note": "Name vertex, axis, maximum or minimum, and describe what a parameter change does."
+    },
+    {
+      "type": "table",
+      "must_connect": true,
+      "note": "Shared points after a parameter change or after expanding, to show the representations match."
+    },
+    {
+      "type": "diagram",
+      "must_connect": true,
+      "note": "Labelled vertex and axis on a sketch; not a new representation family beyond graph."
+    },
+    {
+      "type": "equation",
+      "form": "factored",
+      "must_connect": false,
+      "note": "Available from Module 3 for contrast (what intercepts you can and cannot read). Not a production target for this lesson."
+    }
+  ],
+  "misconceptions": [
+    {
+      "label": "instructional_hypothesis",
+      "id": "h-sign",
+      "hypothesis": "Students take the vertex as (−h, k) or (h, k) by looking at the written sign instead of reading (x − h), so f(x) = (x + 3)^2 + 1 is placed at (3, 1) or they always negate every number they see."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "a-vs-k",
+      "hypothesis": "Students swap the roles of a and k: a stretch or reflection is described as a vertical shift, or k is treated as a stretch factor."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "expand-changes-graph",
+      "hypothesis": "Students think expanding vertex form into standard form produces a different parabola rather than an equivalent representation."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "intercepts-from-vertex-form",
+      "hypothesis": "Students expect x-intercepts to be as immediately readable from vertex form as they are from factored form, or they treat (h, k) as an intercept."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "axis-equation",
+      "hypothesis": "Students write the axis of symmetry as y = h (or y = k) instead of x = h."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "max-min-from-a",
+      "hypothesis": "Students decide maximum versus minimum from the sign of k, or from whether the vertex is in quadrant I, instead of from the sign of a."
+    }
+  ],
+  "uncertainties": [
+    "A2.10 is one Ministry statement about all three forms. This brief attaches the full verbatim code because M4's share is vertex-form inspection, but factored/standard inspection is already Module 3. Shawn should confirm listing A2.10 here (with that share) rather than treating it as fully done in M3.",
+    "A2.7 (expand vertex → standard, verify with technology) matches the lesson name and the seed sample. This brief now includes expansion as an action beat and a process to teach. Confirm A2.7 stays in Lesson 1 rather than moving beside A2.8 in Lesson 2.",
+    "A3.3 is deferred to Lesson 5. Confirm that a single contextual max/min from a given vertex-form model is not required in this lesson.",
+    "module-lessons.json title is 'Lesson 1: The Vertex Form of a Quadratic Function'; lesson_number is also 1. No disagreement with the seed (the seed has no per-lesson titles).",
+    "Zeros-three-ways and equation-from-graph stay deferred after the Nelson-bar raise; confirm they remain out of core M4-L1 unless the director expands A2.10 share."
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "retrieved_on": "2026-09-09",
+  "sources": [
+    {
+      "id": "drive-specific-expectations",
+      "title": "MCF3M-specific-expectations.md",
+      "drive_id": "197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM",
+      "url": "https://docs.google.com/document/d/197toOKG8z2CqdaDtuYTD0Z1JaMXhKG8JVmrMo30gsvM/edit",
+      "local_file": "sources/drive-specific-expectations.md"
+    },
+    {
+      "id": "drive-examples",
+      "title": "MCF3M-examples",
+      "drive_id": "10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0",
+      "url": "https://docs.google.com/document/d/10Ih4SDUzyiKdy2AGyM0_hcfCAf_cvdWR3OoOMyssxG0/edit",
+      "local_file": "sources/drive-examples.md"
+    },
+    {
+      "id": "ministry-2007",
+      "title": "The Ontario Curriculum, Grades 11 and 12: Mathematics, 2007",
+      "author": "Ontario Ministry of Education",
+      "url": "https://www.edu.gov.on.ca/eng/curriculum/secondary/math1112currb.pdf",
+      "overall_printed_pages": [
+        59,
+        62,
+        65
+      ],
+      "overall_pdf_pages_1_based": [
+        61,
+        64,
+        67
+      ],
+      "copyright": "© Queen’s Printer for Ontario, 2007. Crown copyright acknowledged. Reproduced for personal/non-commercial educational preparation.",
+      "reuse_terms_url": "https://www.ontario.ca/page/copyright-information"
+    },
+    {
+      "id": "original-lessons",
+      "title": "mcf3m-async-module-lessons.json",
+      "library_file_id": "libfile_a91703107d488191a1e58a63d6276b9e",
+      "local_file": "sources/original-lesson-list.json",
+      "origin": "User-provided file"
+    },
+    {
+      "id": "prior-build-plan",
+      "title": "MCF3M-rich-lesson-html-plan.md",
+      "library_file_id": "libfile_5752fc89cc388191868438f076c6b1d9",
+      "local_file": "sources/rich-lesson-html-plan.md",
+      "status": "Prior plan; its inventory is superseded by fresh Drive metadata"
+    },
+    {
+      "id": "revision-plan",
+      "title": "math-content-builder-revision-plan.md",
+      "library_file_id": "libfile_c7db8b22b0548191bbc4d4f59bbade4b",
+      "local_file": "sources/math-content-builder-revision-plan.md",
+      "status": "Latest recovered revision plan. Language/reinforcement constraints carry forward; model choice and implementation proposals require evidence from the current repo."
+    },
+    {
+      "id": "slide-contract",
+      "title": "live-class-slides.metadata.json",
+      "library_file_id": "libfile_433fdc10c5d08191a6f479ace6d31607",
+      "local_file": "sources/live-class-slides.metadata.json",
+      "status": "Historical authoritative slide-role contract; do not treat currentDependencies as fresh status."
+    },
+    {
+      "id": "user-instructions",
+      "title": "ALC Math project instructions and explicit model-STAR/student-language rules",
+      "origin": "User-provided project/conversation context"
+    }
+  ]
+}

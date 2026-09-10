@@ -1,0 +1,47 @@
+{
+  "status": "passed",
+  "validation": {
+    "status": "passed",
+    "course": "MCF3M",
+    "lessons": 39,
+    "modules": 8,
+    "module_counts": [
+      7,
+      6,
+      5,
+      5,
+      5,
+      3,
+      3,
+      5
+    ],
+    "specific_expectations": 53,
+    "overall_expectations": 9,
+    "mathematical_process_expectations": 7,
+    "unique_drive_folder_ids": 39,
+    "title_differences": 3,
+    "missing_folder_ids": 0,
+    "invalid_curriculum_references": 0,
+    "mapping_status": "proposed_review_required",
+    "curriculum_text_check": "Exact equality with saved source extraction, not a new full Ministry PDF glyph audit",
+    "network_calls": 0,
+    "drive_mutations": 0
+  },
+  "module_counts": [
+    7,
+    6,
+    5,
+    5,
+    5,
+    3,
+    3,
+    5
+  ],
+  "identities": 39,
+  "unresolved_conflicts": 2,
+  "fingerprint": "a2bb16592b7c9b10947094e9d18a266009f89b4013fab79db9d39323e2ab12da",
+  "failures": [],
+  "repeat_import": "content-builder/.venv/bin/python content-builder/scripts/import_mcf3m_package.py --apply",
+  "rollback": "content-builder/.venv/bin/python content-builder/scripts/import_mcf3m_package.py --rollback BATCH_ID",
+  "rollback_boundary": "Restores only files the named latest batch wrote. Later teacher edits in those same files would also revert; do not rollback after subsequent lesson edits."
+}

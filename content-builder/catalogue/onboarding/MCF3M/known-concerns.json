@@ -1,0 +1,98 @@
+[
+  {
+    "id": "B1.6-partial-M1L2",
+    "detail": "Partial B1.6 comparison in M1L2 (linear/quadratic only).",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "B3.4-tvm",
+    "detail": "B3.4 requires TVM Solver work for rate or number of periods.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "B2-C3-data-application",
+    "detail": "B2 and C3 need actual data-collection/application tasks, not titles alone.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M1L2.49fd849144",
+    "stable_key": "MCF3M-M1L2",
+    "codes": [
+      "A2.1",
+      "B1.6"
+    ],
+    "detail": "B1.6 explicitly compares exponential, linear, and quadratic functions. This early lesson covers only the linear/quadratic part; revisit in M7L3. Do not claim B1.6 is fully covered here.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M6L1.fd9c2d35e7",
+    "stable_key": "MCF3M-M6L1",
+    "codes": [
+      "C2.1",
+      "C2.2",
+      "C3.2"
+    ],
+    "detail": "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M6L2.fd9c2d35e7",
+    "stable_key": "MCF3M-M6L2",
+    "codes": [
+      "C2.3",
+      "C2.4",
+      "C3.1",
+      "C3.2",
+      "C3.3"
+    ],
+    "detail": "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M6L3.fd9c2d35e7",
+    "stable_key": "MCF3M-M6L3",
+    "codes": [
+      "C2.5",
+      "C2.6",
+      "C2.7",
+      "C3.3"
+    ],
+    "detail": "Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M7L3.4d2a5b2665",
+    "stable_key": "MCF3M-M7L3",
+    "codes": [
+      "B1.3",
+      "B1.4",
+      "B1.6",
+      "B2.1",
+      "B2.2",
+      "B2.3"
+    ],
+    "detail": "This broad lesson carries six proposed expectations. Plan enough investigation, data collection and practice, or record uncovered parts.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M8L2.02b329e6b3",
+    "stable_key": "MCF3M-M8L2",
+    "codes": [
+      "B3.2",
+      "B3.4"
+    ],
+    "detail": "B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it.",
+    "review_status": "unresolved"
+  },
+  {
+    "id": "note.MCF3M-M8L3.02b329e6b3",
+    "stable_key": "MCF3M-M8L3",
+    "codes": [
+      "B3.2",
+      "B3.3",
+      "B3.4"
+    ],
+    "detail": "B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it.",
+    "review_status": "unresolved"
+  }
+]
