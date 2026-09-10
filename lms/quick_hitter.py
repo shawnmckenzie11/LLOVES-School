@@ -1,11 +1,12 @@
-"""Quick-hitter question chain — shared packaging for Minds-On and CONS.
+"""Quick-hitter question chain — shared packaging for live-prompt rides.
 
-Both rides use live-prompt as the primary channel. ``active_media`` stays
+Rides use live-prompt as the primary channel. ``active_media`` stays
 for visuals (Real-slice etc.) only. Not a gradebook writeback.
 
 Minds-On (``ride=minds_on``) is **one MC** — ``items`` length 1. Do not
-build a Minds-On carousel. CONS (``ride=cons``) is the multi-item ride
-(3–5; C1 is 5).
+build a Minds-On carousel. Meet Your Team (``ride=meet_team``) is one
+universal ephemeral MC after Generate teams / Meet Teams. CONS
+(``ride=cons``) is the multi-item ride (3–5; C1 is 5).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Any
 QUICK_HITTER_ARTIFACT_ID = "quick-hitter-question-chain"
 QUICK_HITTER_CHANNEL = "live-prompt"
 RIDE_MINDS_ON = "minds_on"
+RIDE_MEET_TEAM = "meet_team"
 RIDE_CONS = "cons"
 CLEAR_ON_TEAM_CHALLENGE = "team_challenge_start"
 
@@ -31,7 +33,7 @@ def quick_hitter_packaging(
     """Return shared artifact fields for one ride of the question chain.
 
     Args:
-        ride: ``minds_on`` or ``cons``.
+        ride: ``minds_on``, ``meet_team``, or ``cons``.
         chain_index: 1-based item index on this ride.
         chain_length: 1 for Minds-On (never a carousel); 3–5 for CONS.
         ephemeral: True when the prompt is session-scoped.

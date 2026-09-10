@@ -18,6 +18,7 @@ try:
         CLEAR_ON_TEAM_CHALLENGE,
         QUICK_HITTER_ARTIFACT_ID,
         RIDE_CONS,
+        RIDE_MEET_TEAM,
         RIDE_MINDS_ON,
         quick_hitter_packaging,
     )
@@ -26,6 +27,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         CLEAR_ON_TEAM_CHALLENGE,
         QUICK_HITTER_ARTIFACT_ID,
         RIDE_CONS,
+        RIDE_MEET_TEAM,
         RIDE_MINDS_ON,
         quick_hitter_packaging,
     )
@@ -124,7 +126,7 @@ def is_minds_on_payload(payload: Any) -> bool:
     artifact = str(payload.get("artifact_id") or "").strip()
     ride = str(payload.get("ride") or "").strip().lower()
     if artifact == QUICK_HITTER_ARTIFACT_ID:
-        if ride == RIDE_CONS:
+        if ride == RIDE_CONS or ride == RIDE_MEET_TEAM:
             return False
         if ride == RIDE_MINDS_ON:
             return True

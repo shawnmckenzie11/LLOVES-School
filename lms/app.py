@@ -4683,19 +4683,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/assign", methods=["POST"])
     @login_required
     def api_assign(class_id: int):
-        """Assign teams."""
+        """Assign teams and seed the Meet Your Team warm-up."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
             raw_assignments = body.get("assignments")
             if raw_assignments is not None and not isinstance(raw_assignments, list):
                 raise ValueError("assignments must be a list")
-            return school.game.assign_teams(
+            state = school.game.assign_teams(
                 class_id,
                 int(body.get("n_teams") or 0),
                 str(body.get("mode") or ""),
                 assignments=raw_assignments,
             )
+            school.activate_meet_team_warmup_for_class(class_id)
+            return state
 
         return _staff_post(class_id, run)
 
@@ -4733,7 +4735,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if rounds is not None and not isinstance(rounds, list):
                 raise ValueError("rounds must be a list")
             state = school.game.start_live_with_rounds(class_id, rounds)
-            school.clear_waiting_room_minds_on_for_class(class_id)
+            school.clear_session_warmups_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
@@ -4751,7 +4753,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if not isinstance(spec, dict):
                 raise ValueError("round must be an object")
             state = school.game.append_and_start_round(class_id, spec)
-            school.clear_waiting_room_minds_on_for_class(class_id)
+            school.clear_session_warmups_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
@@ -4759,7 +4761,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/meet-teams", methods=["POST"])
     @login_required
     def api_meet_teams(class_id: int):
-        """Start Meet the Teams overlay timer (default 3 minutes)."""
+        """Start Meet the Teams overlay and seed the teammate warm-up."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
@@ -4768,7 +4770,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 minutes_i = int(minutes)
             except (TypeError, ValueError) as exc:
                 raise ValueError("minutes must be an integer") from exc
-            return school.game.start_meet_teams(class_id, minutes_i)
+            state = school.game.start_meet_teams(class_id, minutes_i)
+            school.activate_meet_team_warmup_for_class(class_id)
+            return state
 
         return _staff_post(class_id, run)
 
@@ -4813,7 +4817,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(body):
             """Apply one staff JSON mutation for this class."""
             state = school.game.start_round(class_id, int(body.get("round") or 0))
-            school.clear_waiting_room_minds_on_for_class(class_id)
+            school.clear_session_warmups_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)

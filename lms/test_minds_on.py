@@ -27,11 +27,13 @@ from minds_on import (  # noqa: E402
     is_minds_on_payload,
     minds_on_prompt_payload,
 )
+from meet_team import meet_team_prompt_payload  # noqa: E402
 from quick_hitter import (  # noqa: E402
     CLEAR_ON_TEAM_CHALLENGE,
     QUICK_HITTER_ARTIFACT_ID,
     QUICK_HITTER_CHANNEL,
     RIDE_CONS,
+    RIDE_MEET_TEAM,
     RIDE_MINDS_ON,
 )
 
@@ -120,6 +122,16 @@ class MindsOnHelperTests(unittest.TestCase):
                 }
             )
         )
+        self.assertFalse(
+            is_minds_on_payload(
+                {
+                    "artifact_id": QUICK_HITTER_ARTIFACT_ID,
+                    "ride": RIDE_MEET_TEAM,
+                    "item_id": "meet-team",
+                }
+            )
+        )
+        self.assertFalse(is_minds_on_payload(meet_team_prompt_payload()))
 
 
 if __name__ == "__main__":
