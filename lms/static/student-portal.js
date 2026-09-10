@@ -398,20 +398,23 @@ function paintPrompt(payload) {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
     lastPromptId = null;
-    if (promptAck) promptAck.hidden = true;
+    if (promptAck) {
+      promptAck.hidden = true;
+      promptAck.classList.remove("is-feedback");
+    }
     return;
   }
   if (answered) {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
-    if (promptAck) {
-      promptAck.hidden = false;
-      promptAck.textContent = "Response received.";
-    }
+    showPromptAck(feedbackLine(payload.my_response));
     lastPromptId = Number(prompt.id);
     return;
   }
-  if (promptAck) promptAck.hidden = true;
+  if (promptAck) {
+    promptAck.hidden = true;
+    promptAck.classList.remove("is-feedback");
+  }
   const kind = String(prompt.kind);
   const data = prompt.payload || {};
   const title = escapeText(data.prompt || data.question || "Live response");
@@ -496,6 +499,30 @@ function wirePromptControls(prompt) {
 }
 
 /**
+ * One short feedback line from submit JSON or my_response.
+ * @param {any} data
+ * @returns {string}
+ */
+function feedbackLine(data) {
+  const top = data && data.feedback && data.feedback.text;
+  const mine =
+    data && data.my_response && data.my_response.feedback && data.my_response.feedback.text;
+  return String(top || mine || "").trim();
+}
+
+/**
+ * Show the post-submit beat: one calm line, or the generic ack.
+ * @param {string} line
+ */
+function showPromptAck(line) {
+  if (!promptAck) return;
+  const text = String(line || "").trim();
+  promptAck.hidden = false;
+  promptAck.textContent = text || "Response received.";
+  promptAck.classList.toggle("is-feedback", Boolean(text));
+}
+
+/**
  * POST a student response for the active prompt.
  * @param {number} promptId
  * @param {Record<string, unknown>} response
@@ -521,10 +548,7 @@ async function submitResponse(promptId, response) {
         promptShell.hidden = true;
         promptShell.innerHTML = "";
       }
-      if (promptAck) {
-        promptAck.hidden = false;
-        promptAck.textContent = "Response received.";
-      }
+      showPromptAck(feedbackLine(data));
     }
   } catch (_err) {
     /* keep UI; next poll retries */

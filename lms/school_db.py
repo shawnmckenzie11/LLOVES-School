@@ -23,6 +23,10 @@ try:
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from live_prompt_feedback import (
+        public_feedback_fragment,
+        strip_teacher_prompt_fields,
+    )
     from meet_math import (
         MEET_MATH_KIND,
         MEET_MATH_SLIDE_INDEX,
@@ -40,6 +44,10 @@ except ImportError:  # ``python3 lms/app.py`` package import
         is_c1_real_slice,
         public_active_media_payload,
         staff_cons_prompt_payload,
+    )
+    from lms.live_prompt_feedback import (
+        public_feedback_fragment,
+        strip_teacher_prompt_fields,
     )
     from lms.meet_math import (
         MEET_MATH_KIND,
@@ -6088,17 +6096,13 @@ class SchoolDB(LovesDB):
         empty = {"prompt": None, "my_response": None, "waiting_room": waiting_room}
         if prompt is None or prompt.get("kind") == "idle":
             return empty
-        if is_meet_math_payload(prompt.get("payload")) and not waiting_room:
+        raw_payload = dict(prompt.get("payload") or {})
+        if is_meet_math_payload(raw_payload) and not waiting_room:
             return empty
-        if is_c1_cons_payload(prompt.get("payload")):
+        if is_c1_cons_payload(raw_payload):
             media = self.live_session_active_media_payload(session_id)
             if not media or not media.get("frozen") or not is_c1_real_slice(media):
                 return empty
-            student_payload = dict(prompt.get("payload") or {})
-            student_payload.pop("key", None)
-            student_payload.pop("cement", None)
-            prompt = dict(prompt)
-            prompt["payload"] = student_payload
         prior = self.get_live_prompt_response(
             int(prompt["id"]), student_id, participant_uuid=participant_uuid
         )
@@ -6109,12 +6113,17 @@ class SchoolDB(LovesDB):
                 "awarded_points": prior.get("awarded_points"),
                 "updated_at": prior.get("updated_at"),
             }
+            fragment = public_feedback_fragment(
+                raw_payload, my_response["response"]
+            )
+            if fragment:
+                my_response["feedback"] = fragment
         return {
             "prompt": {
                 "id": int(prompt["id"]),
                 "slide_index": int(prompt["slide_index"]),
                 "kind": str(prompt["kind"]),
-                "payload": prompt.get("payload") or {},
+                "payload": strip_teacher_prompt_fields(raw_payload),
             },
             "my_response": my_response,
             "waiting_room": waiting_room,

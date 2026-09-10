@@ -608,6 +608,21 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("this picture", state["prompt"]["payload"]["prompt"].lower())
         self.assertNotIn("key", state["prompt"]["payload"])
         self.assertNotIn("cement", state["prompt"]["payload"])
+        self.assertNotIn("by_choice", state["prompt"]["payload"])
+        self.assertNotIn("soft_key", state["prompt"]["payload"])
+        cons1_submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": state["prompt"]["id"],
+                "response": {"choice": "a > 0"},
+            },
+        )
+        self.assertEqual(cons1_submit.status_code, 200, cons1_submit.get_json())
+        cons1_body = cons1_submit.get_json()
+        self.assertEqual(cons1_body["feedback"]["source"], "by_choice")
+        self.assertEqual(cons1_body["feedback"]["text"], "Opens upward → a > 0.")
+        self.assertEqual(state["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertNotIn("feedback", state["active_media"])
 
         cons4 = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -621,6 +636,19 @@ class LiveMediaChannelTests(unittest.TestCase):
         after_cons4 = self.student.get("/api/student/state").get_json()
         self.assertEqual(after_cons4["active_media"]["toast"], TOAST_CONS_4)
         self.assertEqual(after_cons4["prompt"]["kind"], "draw")
+        cons4_submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": after_cons4["prompt"]["id"],
+                "response": {"text": "opens up so a is positive"},
+            },
+        )
+        self.assertEqual(cons4_submit.status_code, 200, cons4_submit.get_json())
+        self.assertEqual(cons4_submit.get_json()["feedback"]["source"], "on_submit")
+        self.assertEqual(
+            cons4_submit.get_json()["feedback"]["text"],
+            "Feature → claim. That’s the whole move.",
+        )
 
         cons5 = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
