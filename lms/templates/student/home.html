@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
 </head>
-<body class="student-portal student-home{% if payload.scoring %} is-live{% endif %}"
+<body class="student-portal student-home{% if payload.scoring %} is-live{% elif payload.waiting_room != false %} is-waiting-room{% endif %}"
       data-scoring="{{ '1' if payload.scoring else '0' }}"
       data-visit-token="{{ visit_token or '' }}"
       data-codename="{{ codename or '' }}">

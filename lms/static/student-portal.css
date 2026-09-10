@@ -495,11 +495,16 @@ body.student-home.is-live .student-live-response {
 }
 
 body.is-live .student-wait.is-paused,
-body.is-live .student-wait.is-plain {
+body.is-live .student-wait.is-plain,
+body.student-home.is-waiting-room .student-wait {
   text-align: center;
   font-size: 1.05rem;
   font-weight: 600;
   color: #e2e8f0;
+}
+
+body.student-home.is-waiting-room .student-wait {
+  margin-bottom: 0.85rem;
 }
 
 .sb-idle {
