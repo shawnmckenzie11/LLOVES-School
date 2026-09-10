@@ -456,8 +456,46 @@ body.landing-page .calc-coming-soon {
   text-align: left;
 }
 body.landing-page .calc-coming-soon h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 1.35rem;
   margin: 0 0 0.45rem;
+}
+body.landing-page .calc-sparkle {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+  opacity: 0.85;
+}
+body.landing-page.is-celebrations .calc-sparkle {
+  animation: calc-sparkle-once 1.5s ease-out 1;
+}
+@keyframes calc-sparkle-once {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.3;
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.45);
+  }
+  45% {
+    transform: scale(1.18);
+    opacity: 1;
+    box-shadow: 0 0 0 8px rgba(45, 212, 191, 0);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.landing-page.is-celebrations .calc-sparkle {
+    animation: none;
+  }
 }
 body.landing-page .calc-coming-line {
   margin: 0 0 0.55rem;

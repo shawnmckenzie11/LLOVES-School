@@ -123,12 +123,16 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
         self.assertIn("location.hash === \"#celebrations\"", body)
-        self.assertIn("Coming soon.", body)
+        self.assertIn("Coming soon — the shout-outs are warming up.", body)
         self.assertIn(
-            "We’ll shout out strong work and engagement here when it’s ready.",
+            "Good work deserves a spotlight; we’re still setting the lights.",
             body,
         )
         self.assertIn("class=\"calc-coming-soon\"", body)
+        self.assertIn("class=\"calc-sparkle\"", body)
+        css = anon.get("/static/lloves.css").get_data(as_text=True)
+        self.assertIn("calc-sparkle-once", css)
+        self.assertIn("prefers-reduced-motion", css)
         self.assertNotIn("data-card=", body)
         self.assertNotIn("Most Engaged", body)
         self.assertNotIn("Most Improved", body)
@@ -188,7 +192,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("/#celebrations", home)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon.", page)
+        self.assertIn("Coming soon — the shout-outs are warming up.", page)
         self.assertNotIn("data-card=", page)
         self.assertNotIn("Kept the warm-up moving.", page)
 
@@ -221,7 +225,7 @@ class CelebrationTests(unittest.TestCase):
             self._log_day(class_id, day, everyone, pts)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon.", page)
+        self.assertIn("Coming soon — the shout-outs are warming up.", page)
         self.assertNotIn("data-card=", page)
 
         board = build_celebration_board(self.school)["cards"]
