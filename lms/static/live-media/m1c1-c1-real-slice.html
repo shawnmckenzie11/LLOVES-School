@@ -105,8 +105,11 @@
     }
     .teacher-table {
       display: none;
-      grid-template-columns: minmax(12rem, 1fr) 9.6rem 6.4rem 6.6rem;
-      gap: 0.28rem 0.65rem;
+      width: max-content;
+      max-width: 100%;
+      grid-template-columns: minmax(15.5rem, 22rem) auto auto auto;
+      column-gap: 1.15rem;
+      row-gap: 0.28rem;
       align-items: center;
     }
     .teacher-table.is-on { display: grid; }
@@ -218,7 +221,7 @@
         <div class="all-label row-all">All</div>
         <label class="check col-push row-all" for="push-all"><input id="push-all" type="checkbox"> Push All to View</label>
         <label class="check col-freeze row-all" for="freeze-all"><input id="freeze-all" type="checkbox" checked disabled> Freeze All</label>
-        <label class="check col-gen row-all" for="gen-all"><input id="gen-all" type="checkbox"> Generate</label>
+        <label class="check col-gen row-all" for="gen-all"><input id="gen-all" type="checkbox"> Generate All</label>
       </div>
       <div class="teacher-extras" id="teacher-extras">
         <label class="axis" for="t-zaxis"><input id="t-zaxis" type="checkbox"> Lateral axis</label>
@@ -269,8 +272,11 @@
   const sliderInputs = { a: inputA, b: inputB, c: inputC };
 
   const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
   const embedded = window.parent !== window;
-  const teacherMode = query.get("role") === "teacher" || !embedded;
+  // Staff iframe uses ?role=teacher. Student portal omits role (embedded).
+  // ?role=student forces entry chrome when the file is opened in a tab.
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
 
   const PAPER_YAW = 0.08;
   const PAPER_PITCH = -0.16;
