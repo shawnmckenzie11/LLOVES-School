@@ -1,0 +1,112 @@
+{
+  "updated": "2026-09-10T03:17:15Z",
+  "note": "Fermat-first shortlist for Shawn hard-pause after Coverage Mapper ok/park. Old GO trio still out.",
+  "corpus_gap": "PSG has almost no clean Tier1 stems whose native ask is a,h,k transforms of y=x\u00b2 or explicit domain/range. C2/C3 are best-available with park risks flagged.",
+  "nominees": [
+    {
+      "slot": "C1",
+      "id": "cemc-fermat-2007-Q20",
+      "contest": "fermat",
+      "year": 2007,
+      "question": 20,
+      "tier_guess": "Tier2\u2192promote_if_stripped",
+      "cluster_hint": "graph-to-parameters",
+      "revisit_upgrade": "Read graph features \u2192 roles of a,b,c / function language (A2.1\u2013A2.2). Leave unresolved: formal second-differences proof; M2 factoring.",
+      "why_m1": "Quadratic graph interpretation without requiring factoring or completing-the-square.",
+      "why_not_elsewhere": "Not M2 (no expand/factor). Not M4 (no standard\u2194vertex). Not prior GO combinatorics.",
+      "mcr3u_dual_tag": "MCR3U M1 (function/graph features) \u2014 ride-along only",
+      "packaging_note": "MCQ textbook-adjacent; strip A\u2013E and open \u201cwhat must be true about a,b,c?\u201d for Tier1 feel.",
+      "coverage_ask": "ok-for-M1 C1 (A2.1/A2.2) or park?",
+      "part": "B",
+      "topics": [
+        "Algebra and Equations",
+        "Quadratics/Parabolas"
+      ],
+      "source_label": "Source: 2007 Fermat Grade 11 , #20",
+      "source_url": "https://portal.cemc.uwaterloo.ca/psg/topic",
+      "psg_sid": "c69c6cce-f093-11ef-b0cc-005056bc",
+      "stem_status": "exact",
+      "stem_excerpt": "The graph of the function $y=ax^2+bx+c$ is shown in the diagram. Which of the following must be positive?",
+      "choices": [
+        "$a$",
+        "$bc$",
+        "$ab^2$",
+        "$b-c$",
+        "$c-a$"
+      ],
+      "module_target": "MCF3M-M1",
+      "status": "nominee_pending_coverage",
+      "updated": "2026-09-10T03:17:15Z"
+    },
+    {
+      "slot": "C2",
+      "id": "cemc-fermat-2008-Q22",
+      "contest": "fermat",
+      "year": 2008,
+      "question": 22,
+      "tier_guess": "Tier2_hold_risk",
+      "cluster_hint": "two-parabolas-parameters",
+      "revisit_upgrade": "Compare y=x\u00b2 family with vertical shift/scale parameter k \u2192 roles of a and vertical translate. Leave unresolved: completing-the-square; full intersection algebra as the point.",
+      "why_m1": "Forces attention to how parameters change the graph of a quadratic related to y=x\u00b2.",
+      "why_not_elsewhere": "RISK: if the live ask collapses to solving systems/discriminants, park M3/M4. Curator intends graph/parameter entry first, not formula grind.",
+      "mcr3u_dual_tag": "MCR3U M1 (transforms/parameters) if kept graphical; else none",
+      "packaging_note": "Part C contest packaging; for M1 live, reframe as \u201chow do the graphs move as k changes?\u201d before counting k.",
+      "coverage_ask": "ok-for-M1 C2 (A2.5/A2.6) or park M3/M4?",
+      "part": "C",
+      "topics": [
+        "Algebra and Equations",
+        "Equations Solving"
+      ],
+      "source_label": "Source: 2008 Fermat Grade 11 , #22",
+      "source_url": "https://portal.cemc.uwaterloo.ca/psg/topic",
+      "psg_sid": "c69ce80f-f093-11ef-b0cc-005056bc",
+      "stem_status": "exact",
+      "stem_excerpt": "For how many integers $k$ do the parabolas with equations $y = - \\frac{1}{8} x^2+4$ and $y = x^2 - k$ intersect on or above the $x$-axis?",
+      "choices": [
+        "$9$",
+        "$32$",
+        "$33$",
+        "$36$",
+        "$37$"
+      ],
+      "module_target": "MCF3M-M1",
+      "status": "nominee_pending_coverage",
+      "updated": "2026-09-10T03:17:15Z"
+    },
+    {
+      "slot": "C3",
+      "id": "cemc-fermat-2011-Q12",
+      "contest": "fermat",
+      "year": 2011,
+      "question": 12,
+      "tier_guess": "Tier2_hold_risk",
+      "cluster_hint": "parabola-constraints-from-graph",
+      "revisit_upgrade": "Graph constraints (intercepts \u2192 another point) \u2192 domain/range / \u201cwhat x make sense\u201d language after students invent bounds. Leave unresolved: formula solving; full modelling (M3/M4).",
+      "why_m1": "Graph-first quadratic; students can plot/try values without M2 algebra.",
+      "why_not_elsewhere": "RISK: if treated as \u201cuse factored form / zeros\u201d, park M3 or MCR3U M2. Curator intends multi-rep + restricted values, not zero-finding as the goal.",
+      "mcr3u_dual_tag": "If zeros-primary \u2192 MCR3U M2 (park). If domain/range-primary \u2192 MCR3U M1 tag.",
+      "packaging_note": "Thin if left as find-w MCQ; open to \u201cwhat other points must lie on this parabola / what x are sensible?\u201d for C3.",
+      "coverage_ask": "ok-for-M1 C3 (A2.3/A2.4) or park M3 / MCR3U M2?",
+      "part": "B",
+      "topics": [
+        "Equations Solving",
+        "Number Sense"
+      ],
+      "source_label": "Source: 2011 Fermat Grade 11 , #12",
+      "source_url": "https://portal.cemc.uwaterloo.ca/psg/topic",
+      "psg_sid": "c69e42b5-f093-11ef-b0cc-005056bc",
+      "stem_status": "exact",
+      "stem_excerpt": "In the diagram, the parabola has $x$-intercepts $-1$ and $4$, and $y$-intercept $8$. If the parabola passes through the point $(3,w)$, what is the value of $w$?",
+      "choices": [
+        "$4$",
+        "$5$",
+        "$6$",
+        "$7$",
+        "$8$"
+      ],
+      "module_target": "MCF3M-M1",
+      "status": "nominee_pending_coverage",
+      "updated": "2026-09-10T03:17:15Z"
+    }
+  ]
+}

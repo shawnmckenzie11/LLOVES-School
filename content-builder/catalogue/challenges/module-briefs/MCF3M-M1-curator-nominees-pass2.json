@@ -1,0 +1,78 @@
+{
+  "updated": "2026-09-10T03:20:21Z",
+  "module_target": "MCF3M-M1",
+  "coverage_pass1": {
+    "C1": {
+      "id": "cemc-fermat-2007-Q20",
+      "call": "OK_conditional"
+    },
+    "C2": {
+      "id": "cemc-fermat-2008-Q22",
+      "call": "PARK_M3_M4"
+    },
+    "C3": {
+      "id": "cemc-fermat-2011-Q12",
+      "call": "PARK_M3_MCR3U_M2"
+    }
+  },
+  "corpus_gap": {
+    "C2": "PSG (Gauss/Pascal/Cayley/Fermat) has zero stems whose native ask is a,h,k transforms of y=x\u00b2 (or equivalent). Transformation-tagged items are points/lines/triangles \u2014 not quadratic intro.",
+    "C3": "PSG has zero stems whose native ask is domain/range of a quadratic function. \u201cRange\u201d hits are temperature/unrelated."
+  },
+  "nominees_pass2": [
+    {
+      "slot": "C1",
+      "id": "cemc-fermat-2007-Q20",
+      "stem_status": "exact",
+      "status": "provisional_ok_coverage",
+      "source_label": "Source: 2007 Fermat Grade 11 , #20",
+      "source_url": "https://portal.cemc.uwaterloo.ca/psg/topic",
+      "psg_sid": "c69c6cce-f093-11ef-b0cc-005056bc",
+      "stem_excerpt": "The graph of the function $y=ax^2+bx+c$ is shown in the diagram. Which of the following must be positive?",
+      "tier_guess": "Tier2\u2192promote_if_stripped",
+      "cluster_hint": "graph-to-parameters",
+      "revisit_upgrade": "Graph features \u2192 a,b,c / function language (A2.1\u2013A2.2)",
+      "coverage_note": "Coverage OK if stripped; not A2.10",
+      "mcr3u_dual_tag": "MCR3U M1"
+    },
+    {
+      "slot": "C2",
+      "id": "adapted-MCF3M-M1-C2-yx2-transforms-v1",
+      "stem_status": "adapted",
+      "status": "proposed_adapted_not_cemc",
+      "source_label": "Adapted for M1 C2 \u2014 NOT a CEMC contest question",
+      "source_url": null,
+      "inspiration": "Gap fill after PSG scan; transform language from CEMC line-transform items (e.g. Fermat 2018 Q14) but applied to y=x\u00b2 family \u2014 do not cite as contest stem",
+      "stem_excerpt": "Start with the graph of y=x\u00b2. Your team may apply any combination of: vertical stretch/compress by a\u22600, reflect in the x-axis, translate horizontally by h, translate vertically by k. Produce three different graphs that all pass through the point (2,5). For each, give an equation in the form y=a(x-h)\u00b2+k and explain how you know (2,5) works. Then: which parameters are forced by (2,5), and which stay free?",
+      "tier_guess": "Tier1_candidate_if_verified",
+      "cluster_hint": "yx2-ahk-through-point",
+      "revisit_upgrade": "Hand moves on y=x\u00b2 \u2192 roles of a,h,k (A2.5/A2.6). Leave unresolved: completing-the-square / standard\u2194vertex (M4).",
+      "why_m1": "Native ask is parameter transforms of y=x\u00b2 \u2014 matches C2 slot.",
+      "why_not_elsewhere": "Not M2 factoring; not M4 conversion if we forbid completing-the-square.",
+      "coverage_ask": "ok-for-M1 C2 (A2.5/A2.6) as adapted, or reject and widen sourced pool?",
+      "mcr3u_dual_tag": "MCR3U M1"
+    },
+    {
+      "slot": "C3",
+      "id": "adapted-MCF3M-M1-C3-domain-range-v1",
+      "stem_status": "adapted",
+      "status": "proposed_adapted_not_cemc",
+      "source_label": "Adapted for M1 C3 \u2014 NOT a CEMC contest question",
+      "source_url": null,
+      "inspiration": "Gap fill; context-restriction + graph language for A2.3/A2.4",
+      "stem_excerpt": "A school fountain shoots water along a path that can be modelled by y = -0.2(x-3)\u00b2 + 4.5, where x is horizontal distance in metres from a wall and y is height in metres above the ground. The nozzle is attached at the wall (x=0 is not necessarily the nozzle \u2014 teams must interpret). Using a graph or table: (1) What heights are possible for the water? (2) For which horizontal distances does the model even make sense in this courtyard if the far wall is at x=8 m and water cannot go underground? Defend your domain and range with the graph \u2014 not by formula first.",
+      "tier_guess": "Tier2_textbook_risk_unless_graph_first",
+      "cluster_hint": "context-domain-range-parabola",
+      "revisit_upgrade": "Invent bounds from graph/context \u2192 domain/range language (A2.3/A2.4). Leave unresolved: solving by formula; full modelling cycle (M3/M4).",
+      "why_m1": "Native ask is domain/range + context restrictions on a quadratic graph.",
+      "why_not_elsewhere": "If treated as max-height formula / zeros, park M3/M4 \u2014 keep graph-first rule.",
+      "coverage_ask": "ok-for-M1 C3 (A2.3/A2.4) as adapted, or reject and widen sourced pool?",
+      "mcr3u_dual_tag": "MCR3U M1"
+    }
+  ],
+  "recommended_next_sourced_probes": [
+    "CEMC Euclid / COMC PDF archives (not in PSG generator)",
+    "OlympiadHQ filters: quadratic functions / transformations / domain-range at AMC12/Fermat height",
+    "AMC 12 items tagged quadratic graphs/transforms"
+  ]
+}
