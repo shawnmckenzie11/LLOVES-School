@@ -34,13 +34,16 @@ These apply to **all ELC courses and all semesters**. Derive real school days fr
 
 ## Assessment weights (Ontario)
 
-Final grades use the Ministry split (not the older 65 / 25 / 10 syllabus draft):
+Final grades for **Grades 11 and 12** follow the 2026–27 mandatory assessment
+and evaluation requirements (TLDSB / Ministry update to Growing Success Ch. 5):
 
 | Category | Weight | What it is |
 |----------|--------|------------|
-| Att & Participation | **15%** | Live-class engagement (separate from term work) |
-| Term | **65%** | Tests and assignments, including module portfolios |
-| Exam | **20%** | Final exam |
+| Term | **65%** | Classroom work throughout the course (tests, assignments, module portfolios) |
+| Exam | **25%** | Mandatory final evaluations in the designated exam period |
+| Att & Participation | **10%** | Live-class engagement; **excused absences do not negatively affect** this mark |
+
+Grades 9–10 use a different split (65 / 20 / 15) and are not the default for ELC senior math.
 
 Math courses have **8 modules** (~2 weeks each after the 2 intro days and before review week). A student earns **100% on that module’s portfolio** (and is exempt from the portfolio conference) when, during the module window, they:
 

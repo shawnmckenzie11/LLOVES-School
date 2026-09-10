@@ -1003,7 +1003,7 @@ class LovesDB:
         """Create per-class grade category weight storage (editable later).
 
         Seeds are applied lazily in ``grade_weights_for_class`` so empty classes
-        still get Att & Participation 15% / Term 65% / Exam 20% defaults.
+        still get Att & Participation 10% / Term 65% / Exam 25% defaults.
         """
         self.conn.executescript(
             """
@@ -6046,18 +6046,16 @@ class SchoolDB(LovesDB):
         try:
             from gradebook import (
                 GRADE_CATEGORIES,
-                LEGACY_DEFAULT_GRADE_WEIGHTS,
                 default_grade_weights,
+                is_legacy_grade_weights,
                 normalize_grade_weights,
-                weights_match,
             )
         except ImportError:
             from lms.gradebook import (
                 GRADE_CATEGORIES,
-                LEGACY_DEFAULT_GRADE_WEIGHTS,
                 default_grade_weights,
+                is_legacy_grade_weights,
                 normalize_grade_weights,
-                weights_match,
             )
 
         defaults = default_grade_weights()
@@ -6083,7 +6081,7 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
                 return defaults
             raw = {str(r["category"]): float(r["weight_pct"]) for r in rows}
-            if weights_match(raw, LEGACY_DEFAULT_GRADE_WEIGHTS):
+            if is_legacy_grade_weights(raw):
                 now = _now()
                 for category, weight in defaults.items():
                     self.conn.execute(
@@ -6934,7 +6932,7 @@ class SchoolDB(LovesDB):
 
         Term 65% includes the Module 1 portfolio (100% when live-class
         criteria are met) and a placeholder Module 1 test. Att &
-        Participation 15% and Exam 20% stay placeholders until those
+        Participation 10% and Exam 25% stay placeholders until those
         marks are entered. Live-class point totals remain as diagnostics.
 
         Args:

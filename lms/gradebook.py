@@ -13,19 +13,23 @@ try:
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.paths import SEMESTER_JSON
 
-# Ontario Ministry split: 15% Att & Participation, 65% Term, 20% Exam.
+# Gr 11–12 board weights (2026–27): 10% Att & Participation, 65% Term, 25% Exam.
 DEFAULT_GRADE_WEIGHTS: dict[str, float] = {
-    "participation": 15.0,
+    "participation": 10.0,
     "term": 65.0,
-    "exam": 20.0,
-}
-
-# Pre-Ministry scaffold; rewrite stored rows that still match this exactly.
-LEGACY_DEFAULT_GRADE_WEIGHTS: dict[str, float] = {
-    "participation": 15.0,
-    "term": 60.0,
     "exam": 25.0,
 }
+
+# Exact stored tuples rewritten on read to DEFAULT_GRADE_WEIGHTS.
+LEGACY_GRADE_WEIGHT_SETS: tuple[dict[str, float], ...] = (
+    # Prior ELC defaults before the 2026–27 board update.
+    {"participation": 15.0, "term": 65.0, "exam": 20.0},
+    # Pre-Ministry scaffold.
+    {"participation": 15.0, "term": 60.0, "exam": 25.0},
+)
+
+# Back-compat alias for the oldest scaffold tuple.
+LEGACY_DEFAULT_GRADE_WEIGHTS: dict[str, float] = dict(LEGACY_GRADE_WEIGHT_SETS[1])
 
 GRADE_CATEGORIES = ("participation", "term", "exam")
 GRADE_CATEGORY_LABELS: dict[str, str] = {
@@ -177,8 +181,8 @@ def gradebook_overview_text(
         Plain-language overview for the Grades tab.
     """
     term = weights.get("term", 65)
-    exam = weights.get("exam", 20)
-    ap = weights.get("participation", 15)
+    exam = weights.get("exam", 25)
+    ap = weights.get("participation", 10)
     start = (window or {}).get("start") or ""
     end = (window or {}).get("end") or ""
     if start and end:
@@ -370,6 +374,18 @@ def weights_match(stored: dict[str, float], expected: dict[str, float]) -> bool:
         abs(float(stored.get(key, -1)) - float(expected[key])) < 0.001
         for key in GRADE_CATEGORIES
     )
+
+
+def is_legacy_grade_weights(stored: dict[str, float]) -> bool:
+    """True when ``stored`` exactly matches a known legacy default tuple.
+
+    Args:
+        stored: Persisted category → percent map.
+
+    Returns:
+        Whether the row should auto-migrate to ``DEFAULT_GRADE_WEIGHTS``.
+    """
+    return any(weights_match(stored, legacy) for legacy in LEGACY_GRADE_WEIGHT_SETS)
 
 
 def review_flex_start(calendar: Any) -> date | None:
