@@ -62,6 +62,11 @@ from auth import (  # noqa: E402
     staff_required,
     student_required,
 )
+from celebration import (  # noqa: E402
+    build_celebration_board,
+    celebration_candidates,
+    set_featured_award,
+)
 from curriculum import seed_curriculum  # noqa: E402
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
 from components import (  # noqa: E402
@@ -1167,11 +1172,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/")
     def landing():
-        """Public ALC logo, then Teacher / Student / Admin entry."""
+        """Public ALC logo, then Teacher / Student / Admin entry.
+
+        Recognition cards live on the same page at ``/#celebrations``.
+        """
         return render_template(
             "landing.html",
             **landing_kwargs(one_tap_auto=False),
         )
+
+    @app.route("/calc")
+    def calc_awards_redirect():
+        """Old /calc bookmark — send people to the ALC hash route."""
+        return redirect("/#celebrations")
 
     @app.route("/request-access", methods=["GET", "POST"])
     def request_access():
@@ -2040,10 +2053,48 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             nav_courses=_staff_nav_courses(int(user["id"])),
             time_options=list(TIME_OPTIONS),
             school_name=SCHOOL_NAME,
+            celebration_candidates=celebration_candidates(
+                school, int(user["id"])
+            ),
+            celebration_award=build_celebration_board(school)["cards"][0],
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    @app.route("/api/staff/celebration-award", methods=["GET", "POST"])
+    @staff_required
+    def staff_celebration_award():
+        """Read or set the public Awards featured Codename."""
+        user = current_user()
+        assert user is not None
+        if request.method == "GET":
+            board = build_celebration_board(school)
+            return jsonify(
+                {
+                    "ok": True,
+                    "award": board["cards"][0],
+                    "candidates": celebration_candidates(school, int(user["id"])),
+                }
+            )
+        payload = request.get_json(silent=True) or {}
+        clear = bool(payload.get("clear"))
+        try:
+            class_id = None if clear else int(payload.get("class_id"))
+            student_id = None if clear else int(payload.get("student_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Pick a Codename."}), 400
+        try:
+            award = set_featured_award(
+                school,
+                teacher_user_id=int(user["id"]),
+                class_id=class_id,
+                student_id=student_id,
+                blurb=str(payload.get("blurb") or ""),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "award": award})
 
     @app.route("/api/staff/defaults")
     @staff_required

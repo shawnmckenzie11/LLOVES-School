@@ -183,7 +183,39 @@
     </section>
 
     {% endif %}
+
+    {% if celebration_candidates %}
+    <section id="staff-celebrate" class="card staff-celebrate">
+      <p class="kicker">alc.mckenzian.com#celebrations</p>
+      <h2>Celebrate a student</h2>
+      <p class="hint">Posts the Awards card on the public #celebrations board. Codenames only.</p>
+      {% if celebration_award and celebration_award.name %}
+      <p class="sub">Now featuring <strong>{{ celebration_award.name }}</strong>{% if celebration_award.detail %} — {{ celebration_award.detail }}{% endif %}</p>
+      {% endif %}
+      <form id="celebrate-form">
+        <label class="field" for="celebrate-student">Codename</label>
+        <select id="celebrate-student" required>
+          <option value="">Select a Codename</option>
+          {% for s in celebration_candidates %}
+          <option value="{{ s.class_id }}:{{ s.student_id }}"
+            {% if celebration_award and celebration_award.student_id == s.student_id and celebration_award.class_id == s.class_id %}selected{% endif %}>
+            {{ s.name }}{% if s.course %} · {{ s.course }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <label class="field" for="celebrate-blurb">Why they are being celebrated</label>
+        <input id="celebrate-blurb" type="text" maxlength="240" placeholder="Optional one-liner"
+               value="{{ celebration_award.detail if celebration_award and celebration_award.name and celebration_award.detail != 'Featured by their teacher.' else '' }}">
+        <div class="row-actions">
+          <button type="submit">Post to Awards</button>
+          <button type="button" class="secondary" id="celebrate-clear">Clear Awards card</button>
+          <a class="btn secondary" href="/#celebrations">View public page</a>
+        </div>
+      </form>
+    </section>
+    {% endif %}
   </div>
   <script type="module" src="/static/staff_home.js"></script>
+  <script type="module" src="/static/staff_celebration.js"></script>
 </body>
 </html>
