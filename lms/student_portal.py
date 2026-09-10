@@ -102,41 +102,6 @@ def rejoin_token_from_cookie(req: Any | None = None) -> str:
     req = req or flask_request
     return str(req.cookies.get(REJOIN_COOKIE_NAME) or "").strip()
 
-# Faces shown on /student/mood (one row). Other stored mood keys stay valid in the DB.
-CHECKIN_MOODS = ("good", "ok", "low")
-
-MOOD_LABELS = {
-    "good": "Good",
-    "ok": "Okay",
-    "low": "Not great",
-    "tired": "Tired",
-    "energetic": "Energetic",
-    "focused": "Focused",
-    "anxious": "Anxious",
-    "confused": "Confused",
-    "excited": "Excited",
-}
-
-CHARACTER_LABELS = {
-    "char_a": "Avery",
-    "char_b": "Jordan",
-    "char_c": "Samira",
-    "char_d": "Kenji",
-}
-
-# Flask session keys owned by the student-code join path.
-STUDENT_SESSION_KEYS = (
-    "student_offering_id",
-    "student_live_code",
-    "student_course",
-    "student_class_id",
-    "student_id",
-    "student_codename",
-    "student_live_session_id",
-    "student_visit_token",
-    "student_mood_done",
-)
-
 
 def visit_token_from_request(req: Any | None = None) -> str:
     """Read opaque visit token from query, form, header, or JSON body.
@@ -358,14 +323,16 @@ def next_student_endpoint(
     visit_token: str = "",
     unmatched: bool = False,
 ) -> str:
-    """Return the Flask endpoint after join / mood / legacy redirects.
+    """Return the Flask endpoint after join / mood / character / legacy redirects.
 
-    Mood is optional. After pick/skip (``student_mood_done``) or when a mood
-    is already stored, continue to home. Unmatched guests skip mood (no
-    roster row to store a face on).
+    Order is mood (optional) → character (required) → home. After pick/skip
+    (``student_mood_done``) or when a mood is already stored, continue to
+    character. A stored ``character_key`` means the join flow is done, even
+    when mood was skipped. Unmatched guests skip mood and character (no
+    roster row to store a face or avatar on).
 
     When ``visit_token`` is set (multi-tab testing), cookie ``student_mood_done``
-    from another tab is ignored so each visit token keeps its own mood step.
+    from another tab is ignored unless it matches this visit token.
 
     Args:
         school: SchoolDB.
@@ -375,19 +342,24 @@ def next_student_endpoint(
         unmatched: True when this join is an unmatched guest.
 
     Returns:
-        ``student_mood`` or ``student_home``.
+        ``student_mood``, ``student_character``, or ``student_home``.
     """
     from flask import session
 
     if unmatched or student_id in (None, ""):
         return "student_home"
     student = school.game.get_student(class_id, int(student_id))
+    if (student.get("character_key") or "").strip():
+        return "student_home"
     if student.get("mood"):
         if not visit_token:
             session["student_mood_done"] = True
-        return "student_home"
-    if not visit_token and session.get("student_mood_done"):
-        return "student_home"
+        return "student_character"
+    session_token = str(session.get("student_visit_token") or "")
+    if session.get("student_mood_done") and (
+        not visit_token or visit_token == session_token
+    ):
+        return "student_character"
     return "student_mood"
 
 
