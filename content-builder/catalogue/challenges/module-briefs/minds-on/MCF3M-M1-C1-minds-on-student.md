@@ -1,6 +1,7 @@
 # MCF3M M1C1 — Minds-On student wording (student-copywriter)
 
-Ride: waiting-room Minds-On.  
+Ride: waiting-room Minds-On — **one MC only** (`items.length === 1`).  
+Not a multi-item chain and not a carousel. CONS is the multi-item ride of this artifact.  
 `artifact_id`: `quick-hitter-question-chain` · `ride`: `minds_on`  
 Channel: live-prompt. Ephemeral. Clear on Team Challenge start.  
 No curriculum chips. Soft key is teacher-only.
@@ -25,3 +26,4 @@ D) Not sure
 - Soft key: **A**
 - Prior-module linear-rate check-in (first live of M1).
 - Never the Team Challenge stem.
+- One stem, four choices. Do not add a second Minds-On item.

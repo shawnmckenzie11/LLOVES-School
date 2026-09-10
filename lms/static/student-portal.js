@@ -397,6 +397,7 @@ function paintMediaToast(media) {
 
 /**
  * Render placeholder widgets for mc / numeric / share prompts.
+ * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
  * @param {any} payload
  */
 function paintPrompt(payload) {

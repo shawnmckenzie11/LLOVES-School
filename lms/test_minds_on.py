@@ -101,6 +101,16 @@ class MindsOnHelperTests(unittest.TestCase):
         self.assertEqual(payload["clear_on"], CLEAR_ON_TEAM_CHALLENGE)
         self.assertEqual(payload["chain_index"], 1)
         self.assertEqual(payload["chain_length"], 1)
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["item_id"], MINDS_ON_ITEM_ID)
+        self.assertEqual(payload["items"][0]["kind"], "mc")
+        self.assertEqual(payload["items"][0]["prompt"], MINDS_ON_PROMPT)
+        self.assertEqual(payload["items"][0]["choices"], list(MINDS_ON_CHOICES))
+        self.assertEqual(payload["items"][0]["key"], "A")
+        brief_text = brief.read_text(encoding="utf-8")
+        self.assertIn("one MC only", brief_text)
+        self.assertIn("items.length === 1", brief_text)
+        self.assertNotIn("carousel", payload)
         self.assertFalse(
             is_minds_on_payload(
                 {

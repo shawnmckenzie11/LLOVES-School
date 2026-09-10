@@ -1,8 +1,11 @@
 """Quick-hitter question chain — shared packaging for Minds-On and CONS.
 
 Both rides use live-prompt as the primary channel. ``active_media`` stays
-for visuals (Real-slice etc.) only. Minds-On is usually one item; CONS is
-3–5. Not a gradebook writeback.
+for visuals (Real-slice etc.) only. Not a gradebook writeback.
+
+Minds-On (``ride=minds_on``) is **one MC** — ``items`` length 1. Do not
+build a Minds-On carousel. CONS (``ride=cons``) is the multi-item ride
+(3–5; C1 is 5).
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ def quick_hitter_packaging(
     Args:
         ride: ``minds_on`` or ``cons``.
         chain_index: 1-based item index on this ride.
-        chain_length: Expected items on this ride (1 for Minds-On; 3–5 CONS).
+        chain_length: 1 for Minds-On (never a carousel); 3–5 for CONS.
         ephemeral: True when the prompt is session-scoped.
         durable_store: False — do not write to a durable student store.
         clear_on: Optional clear trigger (``team_challenge_start`` for Minds-On).

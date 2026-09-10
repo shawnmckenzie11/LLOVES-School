@@ -151,6 +151,8 @@ class StudentPortalTests(unittest.TestCase):
             list(MINDS_ON_CHOICES),
         )
         self.assertNotIn("key", payload["prompt"]["payload"])
+        self.assertEqual(len(payload["prompt"]["payload"]["items"]), 1)
+        self.assertNotIn("key", payload["prompt"]["payload"]["items"][0])
 
         toggle = self.staff.post(
             f"/api/classes/{self.class_id}/show-rank",
@@ -650,11 +652,16 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(prompt["payload"]["choices"], list(MINDS_ON_CHOICES))
         self.assertNotIn("key", prompt["payload"])
         self.assertNotIn("cement", prompt["payload"])
+        self.assertEqual(len(prompt["payload"]["items"]), 1)
+        self.assertEqual(prompt["payload"]["items"][0]["prompt"], MINDS_ON_PROMPT)
+        self.assertNotIn("key", prompt["payload"]["items"][0])
 
         staff_active = self.staff.get(
             f"/api/live-sessions/{self.live_session_id}/prompts/active"
         ).get_json()
         self.assertEqual(staff_active["prompt"]["payload"]["key"], "A")
+        self.assertEqual(len(staff_active["prompt"]["payload"]["items"]), 1)
+        self.assertEqual(staff_active["prompt"]["payload"]["items"][0]["key"], "A")
 
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(live_prompt["ok"])
@@ -715,6 +722,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(active["payload"]["prompt"], MINDS_ON_PROMPT)
         self.assertEqual(active["payload"]["choices"], list(MINDS_ON_CHOICES))
         self.assertEqual(active["payload"]["key"], "A")
+        self.assertEqual(len(active["payload"]["items"]), 1)
 
     def test_minds_on_clears_when_challenge_media_mounts(self) -> None:
         """Real-slice / active_media replaces Minds-On; it is not the stem."""
@@ -786,6 +794,9 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("Waiting room — class is about to begin.", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
+        self.assertNotIn("carousel", js.lower())
+        self.assertNotIn("data.items", js)
+        self.assertNotIn("payload.items", js)
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )

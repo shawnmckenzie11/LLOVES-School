@@ -5884,6 +5884,7 @@ class SchoolDB(LovesDB):
                 current.get("prompt") == desired["prompt"]
                 and current.get("choices") == desired["choices"]
                 and current.get("key") == desired.get("key")
+                and current.get("items") == desired.get("items")
             ):
                 return None
             return self.set_live_session_prompt(
