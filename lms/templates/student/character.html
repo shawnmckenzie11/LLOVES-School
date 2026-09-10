@@ -14,6 +14,7 @@
     <p class="sub">Pick one, then join class. You can wait here until scoring starts.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" id="character-form">
+      <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
       <div class="char-grid" role="radiogroup" aria-label="Characters">
         <label class="char-card">
           <input type="radio" name="character" value="char_a" required>
@@ -67,6 +68,7 @@
       </div>
     </form>
   </div>
+  <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
 </body>
 </html>

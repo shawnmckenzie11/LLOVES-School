@@ -141,6 +141,7 @@ from paths import (  # noqa: E402
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
+    character_choices,
     clear_rejoin_cookie,
     clear_student_session_keys,
     mood_choices,
@@ -1274,7 +1275,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 ),
                 unmatched=unmatched,
             )
-            resp = redirect(student_url_with_token("student_home", token))
+            endpoint = next_student_endpoint(
+                school,
+                class_id,
+                int(sid) if sid not in (None, "") else None,
+                visit_token=token,
+                unmatched=unmatched,
+            )
+            resp = redirect(student_url_with_token(endpoint, token))
             set_rejoin_cookie(resp, token)
             return resp
         return render_template(
@@ -3034,7 +3042,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/mood", methods=["GET", "POST"])
     @student_required
     def student_mood():
-        """Optional mood check-in; Join Class / Skip continue without requiring a face."""
+        """Optional mood check-in; Join Class / Skip continue to character pick."""
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied
@@ -3045,10 +3053,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         class_id = int(ctx["class_id"])
         student_id = ctx.get("student_id")
         visit_token = str(ctx.get("visit_token") or "")
-        if ctx.get("unmatched") or student_id in (None, ""):
+        unmatched = bool(ctx.get("unmatched")) or student_id in (None, "")
+        if unmatched:
             return redirect(student_url_with_token("student_home", visit_token))
         student_id = int(student_id)
-        student = school.game.get_student(class_id, student_id)
         if request.method == "POST":
             mood = (request.form.get("mood") or "").strip()
             skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
@@ -3067,11 +3075,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     )
             if not visit_token or visit_token == session.get("student_visit_token"):
                 session["student_mood_done"] = True
-            return redirect(student_url_with_token("student_home", visit_token))
-        if student.get("mood"):
-            return redirect(student_url_with_token("student_home", visit_token))
-        if not visit_token and session.get("student_mood_done"):
-            return redirect(student_url_with_token("student_home", visit_token))
+            return _student_advance()
+        nxt = next_student_endpoint(
+            school,
+            class_id,
+            student_id,
+            visit_token=visit_token,
+            unmatched=False,
+        )
+        if nxt != "student_mood":
+            return _student_advance()
         return render_template(
             "student/mood.html",
             offering=offering,
@@ -3085,13 +3098,57 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/character", methods=["GET", "POST"])
     @student_required
     def student_character():
-        """Character pick retired — advance to mood or home."""
-        return _student_advance()
+        """Required avatar pick after mood (or mood skip)."""
+        denied = _require_active_live_attendee()
+        if denied is not None:
+            return denied
+        ctx = _student_live_context()
+        if ctx is None:
+            return _student_advance()
+        offering = ctx["offering"]
+        class_id = int(ctx["class_id"])
+        student_id = ctx.get("student_id")
+        visit_token = str(ctx.get("visit_token") or "")
+        unmatched = bool(ctx.get("unmatched")) or student_id in (None, "")
+        nxt = next_student_endpoint(
+            school,
+            class_id,
+            student_id,
+            visit_token=visit_token,
+            unmatched=unmatched,
+        )
+        if nxt != "student_character":
+            return _student_advance()
+        student_id = int(student_id)
+        if request.method == "POST":
+            character = (request.form.get("character") or "").strip()
+            try:
+                school.game.set_character(class_id, student_id, character)
+            except ValueError as exc:
+                return render_template(
+                    "student/character.html",
+                    offering=offering,
+                    characters=character_choices(),
+                    error=str(exc),
+                    school_name=SCHOOL_NAME,
+                    visit_token=visit_token,
+                    codename=str(ctx.get("codename") or ""),
+                )
+            return _student_advance()
+        return render_template(
+            "student/character.html",
+            offering=offering,
+            characters=character_choices(),
+            error=None,
+            school_name=SCHOOL_NAME,
+            visit_token=visit_token,
+            codename=str(ctx.get("codename") or ""),
+        )
 
     @app.route("/student/home")
     @student_required
     def student_home():
-        """Student live-class boards after mood check-in."""
+        """Student live-class boards after mood and character."""
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied

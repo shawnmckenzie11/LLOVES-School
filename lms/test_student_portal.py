@@ -84,8 +84,18 @@ class StudentPortalTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def test_join_mood_home_and_show_rank(self) -> None:
-        """Join → mood good + Join Class → home; rank hidden until enabled."""
+    def _maple_row(self) -> dict:
+        """Return Maple's roster row after join."""
+        row = self.school.game.find_student_by_codename(self.class_id, "Maple")
+        assert row is not None
+        return self.school.game.get_student(self.class_id, int(row["id"]))
+
+    def _pick_character(self, key: str = "char_a") -> None:
+        """POST the character pick step."""
+        self.student.post("/student/character", data={"character": key})
+
+    def test_join_mood_character_home_and_show_rank(self) -> None:
+        """Join → mood → character → home; rank hidden until enabled."""
         join = self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
@@ -98,6 +108,10 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertEqual(len(attendees), 1)
         self.assertEqual(attendees[0]["codename"], "Maple")
+
+        before_char = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(before_char.status_code, 302)
+        self.assertIn("/student/mood", before_char.headers.get("Location", ""))
 
         mood_page = self.student.get("/student/mood")
         self.assertEqual(mood_page.status_code, 200)
@@ -119,12 +133,34 @@ class StudentPortalTests(unittest.TestCase):
 
         mood = self.student.post("/student/mood", data={"mood": "good"}, follow_redirects=False)
         self.assertEqual(mood.status_code, 302)
-        self.assertIn("/student/home", mood.headers.get("Location", ""))
-        self.assertNotIn("/student/character", mood.headers.get("Location", ""))
+        self.assertIn("/student/character", mood.headers.get("Location", ""))
+        self.assertNotIn("/student/home", mood.headers.get("Location", ""))
 
-        char = self.student.get("/student/character", follow_redirects=False)
-        self.assertEqual(char.status_code, 302)
-        self.assertIn("/student/home", char.headers.get("Location", ""))
+        home_early = self.student.get("/student/home", follow_redirects=False)
+        self.assertEqual(home_early.status_code, 302)
+        self.assertIn("/student/character", home_early.headers.get("Location", ""))
+
+        char_page = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(char_page.status_code, 200)
+        char_html = char_page.get_data(as_text=True)
+        self.assertIn("Choose your character", char_html)
+        self.assertIn("Avery", char_html)
+        self.assertIn('value="char_a"', char_html)
+
+        character = self.student.post(
+            "/student/character",
+            data={"character": "char_a"},
+            follow_redirects=False,
+        )
+        self.assertEqual(character.status_code, 302)
+        self.assertIn("/student/home", character.headers.get("Location", ""))
+        maple = self._maple_row()
+        self.assertEqual(maple.get("character_key"), "char_a")
+        self.assertEqual(maple.get("mood"), "good")
+
+        again = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(again.status_code, 302)
+        self.assertIn("/student/home", again.headers.get("Location", ""))
 
         home = self.student.get("/student/home")
         self.assertEqual(home.status_code, 200)
@@ -164,6 +200,42 @@ class StudentPortalTests(unittest.TestCase):
         ranked = self.student.get("/api/student/state").get_json()
         self.assertTrue(ranked["show_rank"])
 
+    def test_mood_skip_then_character_then_home(self) -> None:
+        """Skip on mood still requires a character pick before home."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        skipped = self.student.post(
+            "/student/mood",
+            data={"skip": "1"},
+            follow_redirects=False,
+        )
+        self.assertEqual(skipped.status_code, 302)
+        self.assertIn("/student/character", skipped.headers.get("Location", ""))
+
+        char_page = self.student.get("/student/character")
+        self.assertEqual(char_page.status_code, 200)
+        self.assertIn("Choose your character", char_page.get_data(as_text=True))
+
+        character = self.student.post(
+            "/student/character",
+            data={"character": "char_b"},
+            follow_redirects=False,
+        )
+        self.assertEqual(character.status_code, 302)
+        self.assertIn("/student/home", character.headers.get("Location", ""))
+        maple = self._maple_row()
+        self.assertEqual(maple.get("character_key"), "char_b")
+        self.assertIsNone(maple.get("mood"))
+
+        mood_again = self.student.get("/student/mood", follow_redirects=False)
+        self.assertEqual(mood_again.status_code, 302)
+        self.assertIn("/student/home", mood_again.headers.get("Location", ""))
+        home = self.student.get("/student/home")
+        self.assertEqual(home.status_code, 200)
+
     def test_home_rejects_ended_session(self) -> None:
         """Ending the live session clears student access on home/state."""
         self.student.post(
@@ -172,6 +244,7 @@ class StudentPortalTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
+        self._pick_character()
         home_ok = self.student.get("/student/home")
         self.assertEqual(home_ok.status_code, 200)
 
@@ -202,6 +275,12 @@ class StudentPortalTests(unittest.TestCase):
         attendees = self.school.list_live_session_attendees(self.live_session_id)
         token = str(attendees[0]["visit_token"])
 
+        mid = self.app.test_client()
+        mid_visit = mid.get(f"/student/s/{token}", follow_redirects=False)
+        self.assertEqual(mid_visit.status_code, 302)
+        self.assertIn("/student/character", mid_visit.headers.get("Location", ""))
+
+        self._pick_character()
         fresh = self.app.test_client()
         visit = fresh.get(f"/student/s/{token}", follow_redirects=False)
         self.assertEqual(visit.status_code, 302)
@@ -218,6 +297,7 @@ class StudentPortalTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
+        self._pick_character()
 
         set_prompt = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/prompts",
@@ -437,6 +517,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(token1)
 
         self.student.post("/student/mood", data={"mood": "good"})
+        self._pick_character()
         home = self.student.get("/student/home", follow_redirects=False)
         self.assertEqual(home.status_code, 200)
         still = self.school.list_live_session_attendees(
@@ -619,13 +700,14 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("last_display", html.lower())
 
     def _join_maple_home(self) -> None:
-        """Join Maple through mood so /api/student/state is on home."""
+        """Join Maple through mood and character so /api/student/state is on home."""
         self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
         self.student.post("/student/mood", data={"mood": "good"})
+        self._pick_character()
 
     def test_waiting_room_minds_on_and_wait_copy(self) -> None:
         """Join with no challenge media: Wonder wait line + M1C1 Minds-On MC."""
