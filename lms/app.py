@@ -78,6 +78,7 @@ from live_media import (  # noqa: E402
     c1_cons_catalog,
     live_media_url_swap_allowed,
 )
+from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -3253,7 +3254,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
     def api_student_live_prompt_response():
-        """Submit a placeholder response for the active live prompt."""
+        """Submit a live-prompt response; return instant text feedback when keyed."""
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
             return denied
@@ -3295,17 +3296,24 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 prompt_id=prompt_id,
                 label=str(active.get("kind") or "prompt"),
             )
-        return jsonify(
-            {
-                "ok": True,
-                "ack": True,
-                "my_response": {
-                    "response": saved.get("response") or {},
-                    "awarded_points": saved.get("awarded_points"),
-                    "updated_at": saved.get("updated_at"),
-                },
-            }
+        my_response = {
+            "response": saved.get("response") or {},
+            "awarded_points": saved.get("awarded_points"),
+            "updated_at": saved.get("updated_at"),
+        }
+        fragment = public_feedback_fragment(
+            active.get("payload") or {}, my_response["response"]
         )
+        if fragment:
+            my_response["feedback"] = fragment
+        body: dict[str, Any] = {
+            "ok": True,
+            "ack": True,
+            "my_response": my_response,
+        }
+        if fragment:
+            body["feedback"] = fragment
+        return jsonify(body)
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""

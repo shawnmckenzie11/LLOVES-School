@@ -642,6 +642,9 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(live_prompt["waiting_room"])
         self.assertEqual(live_prompt["prompt"]["payload"]["item_id"], "meet-math")
 
+        for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "feedback"):
+            self.assertNotIn(field, prompt["payload"])
+
         submit = self.student.post(
             "/api/student/live-prompt/response",
             json={
@@ -650,12 +653,25 @@ class StudentPortalTests(unittest.TestCase):
             },
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
-        self.assertTrue(submit.get_json().get("ack"))
+        body = submit.get_json()
+        self.assertTrue(body.get("ack"))
+        self.assertEqual(body["feedback"]["source"], "by_choice")
+        self.assertEqual(
+            body["feedback"]["text"],
+            "Same step, same change — that’s a constant rate.",
+        )
+        self.assertEqual(body["my_response"]["feedback"]["text"], body["feedback"]["text"])
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
             again["my_response"]["response"]["choice"],
             "Every step up adds the same amount",
         )
+        self.assertEqual(
+            again["my_response"]["feedback"]["text"],
+            body["feedback"]["text"],
+        )
+        for field in ("key", "cement", "soft_key", "by_choice", "on_submit"):
+            self.assertNotIn(field, again["prompt"]["payload"])
 
     def test_meet_math_clears_when_challenge_media_mounts(self) -> None:
         """Real-slice / active_media replaces meet-math; it is not the stem."""
@@ -731,6 +747,33 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertIn("Waiting room — class is about to begin.", html)
         self.assertNotIn("Waiting for your teacher to start scoring.", html)
+        self.assertIn("feedback.text", js)
+        self.assertIn("is-feedback", js)
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn(".prompt-ack.is-feedback", css)
+
+    def test_generic_mc_submit_has_no_feedback(self) -> None:
+        """A staff MC that is not Minds-On / CONS returns ack only."""
+        self._join_maple_home()
+        set_prompt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/prompts",
+            json={
+                "slide_index": 2,
+                "kind": "mc",
+                "payload": {"prompt": "Pick one", "choices": ["A", "B"]},
+            },
+        )
+        self.assertEqual(set_prompt.status_code, 200, set_prompt.get_json())
+        prompt = set_prompt.get_json()["prompt"]
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": prompt["id"], "response": {"choice": "B"}},
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        body = submit.get_json()
+        self.assertTrue(body.get("ack"))
+        self.assertNotIn("feedback", body)
+        self.assertNotIn("feedback", body.get("my_response") or {})
 
 
 if __name__ == "__main__":
