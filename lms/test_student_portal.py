@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from minds_on import is_minds_on_payload  # noqa: E402
 
 
 class StudentPortalTests(unittest.TestCase):
@@ -136,7 +137,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIsNone(payload.get("active_media"))
         self.assertIsNotNone(payload.get("prompt"))
         self.assertEqual(payload["prompt"]["kind"], "mc")
-        self.assertEqual(payload["prompt"]["payload"]["item_id"], "meet-math")
+        self.assertEqual(payload["prompt"]["payload"]["item_id"], "minds_on")
+        self.assertEqual(payload["prompt"]["payload"]["label"], "Minds-On")
         self.assertIn("constant rate of change", payload["prompt"]["payload"]["prompt"])
         self.assertEqual(
             payload["prompt"]["payload"]["choices"],
@@ -621,26 +623,28 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.student.post("/student/mood", data={"mood": "good"})
 
-    def test_waiting_room_meet_math_and_wait_copy(self) -> None:
-        """Join with no challenge media: Wonder wait line + M1C1 meet-math MC."""
+    def test_waiting_room_minds_on_and_wait_copy(self) -> None:
+        """Join with no challenge media: Wonder wait line + M1C1 Minds-On MC."""
         self._join_maple_home()
         home = self.student.get("/student/home")
         html = home.get_data(as_text=True)
         self.assertIn("Waiting room — class is about to begin.", html)
         self.assertNotIn("start scoring", html)
+        self.assertNotIn("meet-math", html.lower())
 
         state = self.student.get("/api/student/state").get_json()
         self.assertTrue(state["waiting_room"])
         self.assertIsNone(state.get("active_media"))
         prompt = state["prompt"]
-        self.assertEqual(prompt["payload"]["item_id"], "meet-math")
+        self.assertEqual(prompt["payload"]["item_id"], "minds_on")
+        self.assertEqual(prompt["payload"]["label"], "Minds-On")
         self.assertEqual(prompt["kind"], "mc")
         self.assertIn("Every step up adds the same amount", prompt["payload"]["choices"])
 
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(live_prompt["ok"])
         self.assertTrue(live_prompt["waiting_room"])
-        self.assertEqual(live_prompt["prompt"]["payload"]["item_id"], "meet-math")
+        self.assertEqual(live_prompt["prompt"]["payload"]["item_id"], "minds_on")
 
         for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "feedback"):
             self.assertNotIn(field, prompt["payload"])
@@ -673,13 +677,13 @@ class StudentPortalTests(unittest.TestCase):
         for field in ("key", "cement", "soft_key", "by_choice", "on_submit"):
             self.assertNotIn(field, again["prompt"]["payload"])
 
-    def test_meet_math_clears_when_challenge_media_mounts(self) -> None:
-        """Real-slice / active_media replaces meet-math; it is not the stem."""
+    def test_minds_on_clears_when_challenge_media_mounts(self) -> None:
+        """Real-slice / active_media replaces Minds-On; it is not the stem."""
         from live_media import DEFAULT_LIVE_MEDIA_URL
 
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
-        self.assertEqual(idle["prompt"]["payload"]["item_id"], "meet-math")
+        self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
         self.assertNotIn("ax^2", str(idle["prompt"]["payload"]).lower())
 
         posted = self.staff.post(
@@ -692,13 +696,13 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
         prompt = state.get("prompt")
         if prompt is not None:
-            self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "meet-math")
+            self.assertFalse(is_minds_on_payload(prompt.get("payload")))
 
-    def test_meet_math_clears_when_scoring_starts(self) -> None:
-        """Start-rounds (live scoring) drops waiting-room meet-math."""
+    def test_minds_on_clears_when_scoring_starts(self) -> None:
+        """Start-rounds (live scoring) drops waiting-room Minds-On."""
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
-        self.assertEqual(idle["prompt"]["payload"]["item_id"], "meet-math")
+        self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
 
         begin = self.staff.post(
             f"/api/classes/{self.class_id}/begin",
@@ -735,18 +739,20 @@ class StudentPortalTests(unittest.TestCase):
         self.assertFalse(state.get("waiting_room"))
         prompt = state.get("prompt")
         if prompt is not None:
-            self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "meet-math")
+            self.assertFalse(is_minds_on_payload(prompt.get("payload")))
 
     def test_waiting_room_js_has_no_start_scoring_copy(self) -> None:
         """Student portal JS must not use the scoring-phase wait line in waiting-room."""
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn("Waiting room — class is about to begin.", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
+        self.assertNotIn("meet-math", js)
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
         self.assertIn("Waiting room — class is about to begin.", html)
         self.assertNotIn("Waiting for your teacher to start scoring.", html)
+        self.assertNotIn("meet-math", html)
         self.assertIn("feedback.text", js)
         self.assertIn("is-feedback", js)
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")

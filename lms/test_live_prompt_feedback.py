@@ -26,7 +26,7 @@ from live_prompt_feedback import (  # noqa: E402
     resolve_live_prompt_feedback,
     strip_teacher_prompt_fields,
 )
-from meet_math import meet_math_prompt_payload  # noqa: E402
+from minds_on import minds_on_prompt_payload  # noqa: E402
 
 
 KEYS_MD = (
@@ -45,7 +45,7 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
 
     def test_minds_on_by_choice_letter_and_text(self) -> None:
         """Linear-rate MC key A returns the by_choice line."""
-        payload = meet_math_prompt_payload()
+        payload = minds_on_prompt_payload()
         key_line = M1C1_FEEDBACK["minds_on"]["by_choice"]["A"]
         via_letter = resolve_live_prompt_feedback(payload, {"choice": "A"})
         self.assertEqual(via_letter["source"], "by_choice")

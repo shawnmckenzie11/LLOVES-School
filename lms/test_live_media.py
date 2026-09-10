@@ -686,6 +686,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIsNone(state.get("active_media"))
         self.assertFalse(state.get("waiting_room"))
         prompt = state.get("prompt") or {}
+        self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "minds_on")
         self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "meet-math")
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",

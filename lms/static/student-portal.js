@@ -199,7 +199,7 @@ function applyLayout(payload) {
   body.classList.toggle("is-waiting-room", waitingRoom);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
-    // Waiting-room keeps Wonder's line even when meet-math MC is showing.
+    // Waiting-room keeps Wonder's line even when the Minds-On question is showing.
     if (!waitingRoom && (hasPrompt || hasMedia)) {
       waitEl.hidden = true;
       waitEl.textContent = "";
