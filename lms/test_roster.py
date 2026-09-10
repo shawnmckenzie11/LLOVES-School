@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -596,6 +598,54 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(updated.get_json()["weights"]["participation"], 20.0)
         again = self.client.get(f"/api/classes/{class_id}/grade-weights")
         self.assertEqual(again.get_json()["weights"]["term"], 55.0)
+
+    def test_staff_home_js_parses(self) -> None:
+        """Staff home module must parse or Populate Class is a dead click."""
+        src = (LMS_DIR / "static" / "staff_home.js").read_text(encoding="utf-8")
+        stripped = "\n".join(
+            line for line in src.splitlines() if not line.startswith("import ")
+        )
+        proc = subprocess.run(
+            ["node", "-e", f"new Function({json.dumps(stripped)})"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('el.classList.contains("btn-populate")', src)
+        self.assertIn("Roster setup does not need a module pack", src)
+
+    def test_assign_without_pack_keeps_populate_enabled(self) -> None:
+        """No .imscc yet: teacher still sees a working Populate Class control."""
+        self.assertIsNone(self.offering.get("library_id"))
+        home = self.client.get("/staff")
+        self.assertEqual(home.status_code, 200)
+        html = home.get_data(as_text=True)
+        self.assertIn("<span>Populate Class</span>", html)
+        self.assertIn(f'data-offering-id="{self.offering["id"]}"', html)
+        self.assertIn('class="course-action btn-populate secondary"', html)
+        self.assertNotIn("btn-populate secondary is-disabled", html)
+        self.assertNotIn("disabled aria-disabled", html)
+        self.assertIn("Ask Admin to attach a module pack", html)
+        self.assertIn('id="error" class="error" hidden', html)
+        self.assertNotIn('class="error hidden"', html)
+        status = self.client.get(
+            f"/staff/offerings/{int(self.offering['id'])}/module-pack/status"
+        )
+        self.assertEqual(status.status_code, 200)
+        body = status.get_json()
+        self.assertFalse(body.get("busy"))
+        self.assertEqual(body.get("badge"), "No pack")
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json().get("ok"))
 
     def test_staff_home_populate_vs_edit(self) -> None:
         """Empty offerings say Populate Class; existing sections say Edit Roster."""
