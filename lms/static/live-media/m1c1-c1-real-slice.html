@@ -50,6 +50,19 @@
     }
     .eq strong { color: var(--gold); font-weight: 650; }
     .eq .coeffs { color: #d6deef; font-size: 0.82em; }
+    .eq[hidden], .chip[hidden] { display: none !important; }
+    .chip {
+      align-self: flex-start;
+      margin-top: 0.4rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.28rem 0.75rem;
+      color: var(--gold);
+      font-size: 0.78rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
     .dock {
       pointer-events: auto;
       align-self: stretch;
@@ -115,7 +128,10 @@
 <body>
   <canvas id="stage" aria-label="Real-slice parabola in 3D space"></canvas>
   <div class="hud">
-    <p class="eq" id="eq">y = <strong>x²</strong></p>
+    <div>
+      <p class="eq" id="eq" hidden>y = <strong>x²</strong></p>
+      <p class="chip" id="chip">From this view only — what must be true?</p>
+    </div>
     <section class="dock" id="dock">
       <h2 id="dock-title">Teacher controls</h2>
       <div class="sliders">
@@ -135,6 +151,7 @@
       <div class="toggles" id="toggles">
         <label><input id="t-surface" type="checkbox" checked> 3D surface</label>
         <label><input id="t-slice" type="checkbox" checked> Gold real-slice</label>
+        <label><input id="t-axes" type="checkbox"> Reveal axes (students)</label>
       </div>
       <p class="hint" id="hint">Drag to orbit. Students stay on the paper view of y = x² until you unlock sliders.</p>
     </section>
@@ -145,6 +162,7 @@
   const canvas = document.getElementById("stage");
   const ctx = canvas.getContext("2d");
   const eqEl = document.getElementById("eq");
+  const chipEl = document.getElementById("chip");
   const dock = document.getElementById("dock");
   const dockTitle = document.getElementById("dock-title");
   const hint = document.getElementById("hint");
@@ -157,6 +175,7 @@
   const outC = document.getElementById("o-c");
   const tSurface = document.getElementById("t-surface");
   const tSlice = document.getElementById("t-slice");
+  const tAxes = document.getElementById("t-axes");
 
   const query = new URLSearchParams(location.search);
   const embedded = window.parent !== window;
@@ -174,6 +193,7 @@
     dist: 9.2,
     showSurface: true,
     showSlice: true,
+    revealAxes: false,
     unlocked: false,
     dragging: false,
     lastX: 0,
@@ -230,19 +250,25 @@
     outC.textContent = fmt(state.c);
     tSurface.checked = state.showSurface;
     tSlice.checked = state.showSlice;
+    tAxes.checked = state.revealAxes;
     eqEl.innerHTML = equationHtml();
+    const showEq = teacherMode || state.revealAxes;
+    eqEl.hidden = !showEq;
+    if (chipEl) {
+      chipEl.hidden = teacherMode || state.revealAxes || state.unlocked;
+    }
   }
 
   /**
-   * Student face: paper-locked camera; sliders only after teacher unlock.
-   * Teacher face: orbit + sliders. Curve and saddle only.
+   * Student entry: paper-locked camera, axes off, sliders locked.
+   * Teacher: orbit + sliders; peels axes/controls for students when ready.
    */
   function applyRoleChrome() {
     const showDock = teacherMode || state.unlocked;
     dock.classList.toggle("is-on", showDock);
     dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, b, and c";
     hint.textContent = teacherMode
-      ? "Drag to orbit. Students stay on the paper view of y = x² until you unlock sliders."
+      ? "Drag to orbit. Students enter with axes hidden and sliders locked."
       : "Move a, b, and c. The camera stays on the familiar parabola.";
     toggles.hidden = !teacherMode;
     canvas.style.cursor = teacherMode ? "grab" : "default";
@@ -364,6 +390,8 @@
       ctx.stroke();
     }
 
+    const showAxes = teacherMode || state.revealAxes;
+    if (showAxes) {
     const axis = (from, to, color, label) => {
       const a = project(from, w, h);
       const b = project(to, w, h);
@@ -399,6 +427,7 @@
     ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
     ctx.lineWidth = 1;
     ctx.stroke();
+    }
 
     if (state.showSlice) {
       const pts = [];
@@ -432,6 +461,7 @@
           params: { a: state.a, b: state.b, c: state.c },
           show_surface: state.showSurface,
           show_slice: state.showSlice,
+          reveal_axes: state.revealAxes,
         },
         window.location.origin
       );
@@ -447,6 +477,7 @@
     if (teacherMode) {
       state.showSurface = tSurface.checked;
       state.showSlice = tSlice.checked;
+      state.revealAxes = tAxes.checked;
     }
     if (fromTeacher) state.acceptParentParams = true;
     if (!teacherMode) state.acceptParentParams = false;
@@ -461,6 +492,7 @@
     inputC.addEventListener(evt, () => readSliders(teacherMode));
     tSurface.addEventListener(evt, () => readSliders(true));
     tSlice.addEventListener(evt, () => readSliders(true));
+    tAxes.addEventListener(evt, () => readSliders(true));
   });
 
   canvas.addEventListener("pointerdown", (event) => {
@@ -497,6 +529,12 @@
     if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
     if (typeof data.student_controls_unlocked === "boolean") {
       state.unlocked = data.student_controls_unlocked;
+    }
+    if (typeof data.reveal_axes === "boolean") {
+      state.revealAxes = data.reveal_axes;
+    }
+    if (chipEl && typeof data.entry_chip === "string" && data.entry_chip.trim()) {
+      chipEl.textContent = data.entry_chip.trim();
     }
     const ignoreParams = !teacherMode && state.unlocked && !state.acceptParentParams;
     const params = data.params || {};

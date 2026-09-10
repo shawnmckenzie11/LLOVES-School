@@ -19,6 +19,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from live_media import (  # noqa: E402
+    DEFAULT_LIVE_MEDIA_CHIP,
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_URL,
     apply_active_media_update,
@@ -59,13 +60,26 @@ class LiveMediaHelperTests(unittest.TestCase):
         current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
         assert current is not None
         self.assertFalse(current["student_controls_unlocked"])
+        self.assertFalse(current["reveal_axes"])
+        self.assertEqual(current["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
+        self.assertEqual(current["unlock_flags"]["L0"], True)
+        self.assertEqual(current["unlock_flags"]["L1"], False)
         self.assertEqual(current["stem"], DEFAULT_LIVE_MEDIA_STEM)
         patched = apply_active_media_update(
-            current, student_controls_unlocked=True, params={"a": -1, "b": 2}
+            current,
+            student_controls_unlocked=True,
+            reveal_axes=True,
+            unlock_flags={"L1": True},
+            answers=["opens upward"],
+            params={"a": -1, "b": 2},
         )
         assert patched is not None
         self.assertEqual(patched["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertTrue(patched["student_controls_unlocked"])
+        self.assertTrue(patched["reveal_axes"])
+        self.assertTrue(patched["unlock_flags"]["L1"])
+        self.assertTrue(patched["unlock_flags"]["L0"])
+        self.assertEqual(patched["answers"], ["opens upward"])
         self.assertEqual(patched["params"]["a"], -1.0)
         self.assertEqual(patched["params"]["b"], 2.0)
         self.assertEqual(patched["stem"], DEFAULT_LIVE_MEDIA_STEM)
@@ -146,6 +160,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         html = home.get_data(as_text=True)
         self.assertIn("media-pane", html)
         self.assertIn("media-stem", html)
+        self.assertIn("media-chip", html)
 
     def test_seed_page_served_and_quarantined(self) -> None:
         """Seed Real-slice HTML exists, frames same-origin, no jigsaw chrome."""
@@ -154,6 +169,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         body = rv.get_data(as_text=True).lower()
         self.assertIn("real-slice", body)
         self.assertIn("ax²", body.replace("ax^2", "ax²"))
+        self.assertIn("from this view only", body)
+        self.assertIn("revealaxes", body.replace("_", "").replace(" ", ""))
         self.assertIn("parabola", body)
         self.assertNotIn("jigsaw", body)
         self.assertNotIn("mean±d", body)
@@ -181,13 +198,37 @@ class LiveMediaChannelTests(unittest.TestCase):
         media = posted.get_json()["active_media"]
         self.assertEqual(media["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertEqual(media["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(media["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertFalse(media["student_controls_unlocked"])
+        self.assertFalse(media["reveal_axes"])
+        self.assertEqual(media["answers"], [])
         self.assertEqual(media["params"]["a"], 1.0)
 
         state = self.student.get("/api/student/state").get_json()
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertEqual(state["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(state["active_media"]["entry_chip"], DEFAULT_LIVE_MEDIA_CHIP)
         self.assertFalse(state["active_media"]["student_controls_unlocked"])
+        self.assertFalse(state["active_media"]["reveal_axes"])
+
+        peeled = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={
+                "reveal_axes": True,
+                "unlock_flags": {"L1": True},
+                "answers": ["a is positive"],
+            },
+        )
+        self.assertEqual(peeled.status_code, 200, peeled.get_json())
+        peeled_media = peeled.get_json()["active_media"]
+        self.assertEqual(peeled_media["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertTrue(peeled_media["reveal_axes"])
+        self.assertTrue(peeled_media["unlock_flags"]["L1"])
+        self.assertEqual(peeled_media["answers"], ["a is positive"])
+        after_peel = self.student.get("/api/student/state").get_json()
+        self.assertTrue(after_peel["active_media"]["reveal_axes"])
+        self.assertEqual(after_peel["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(after_peel["active_media"]["answers"], ["a is positive"])
 
         swapped = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -277,6 +318,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("ap-active-media", html)
         self.assertIn("Show Real-slice", html)
         self.assertIn("Unlock a, b, c sliders", html)
+        self.assertIn("Reveal axes on student view", html)
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
 
     def test_student_home_csp_allows_same_origin_iframe(self) -> None:

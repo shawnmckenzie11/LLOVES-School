@@ -10,6 +10,8 @@ const promptAck = document.getElementById("prompt-ack");
 const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
 const mediaStem = document.getElementById("media-stem");
+const mediaChip = document.getElementById("media-chip");
+const mediaAnswers = document.getElementById("media-answers");
 const body = document.body;
 
 /** @type {number | null} */
@@ -215,9 +217,13 @@ function postMediaState(media) {
         source: "lloves-student-home",
         type: "live-media-state",
         student_controls_unlocked: Boolean(media.student_controls_unlocked),
+        reveal_axes: Boolean(media.reveal_axes),
+        unlock_flags: media.unlock_flags || {},
         params: media.params || { a: 1, b: 0, c: 0 },
         stem: media.stem || "",
         caption: media.caption || "",
+        entry_chip: media.entry_chip || "",
+        answers: media.answers || [],
       },
       window.location.origin
     );
@@ -233,10 +239,29 @@ function postMediaState(media) {
 function paintMedia(payload) {
   const media = payload.active_media;
   const url = media ? safeMediaUrl(media.url) : "";
+  if (mediaChip) {
+    const chip = String((media && media.entry_chip) || "").trim();
+    mediaChip.textContent = chip;
+    mediaChip.hidden = !chip;
+  }
   if (mediaStem) {
     const stem = String((media && (media.stem || media.caption)) || "").trim();
     mediaStem.textContent = stem;
     mediaStem.hidden = !stem;
+  }
+  if (mediaAnswers) {
+    const answers = Array.isArray(media && media.answers) ? media.answers : [];
+    mediaAnswers.innerHTML = "";
+    if (!answers.length) {
+      mediaAnswers.hidden = true;
+    } else {
+      mediaAnswers.hidden = false;
+      answers.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = String(item);
+        mediaAnswers.appendChild(li);
+      });
+    }
   }
   if (!mediaPane || !mediaFrame) return;
   if (!url) {
@@ -250,6 +275,9 @@ function paintMedia(payload) {
   const sig = JSON.stringify({
     url,
     unlocked: Boolean(media.student_controls_unlocked),
+    reveal_axes: Boolean(media.reveal_axes),
+    unlock_flags: media.unlock_flags || {},
+    answers: media.answers || [],
     params: media.params || {},
   });
   if (url !== lastMediaUrl) {

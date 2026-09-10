@@ -1018,6 +1018,22 @@ body.staff-shell .ap-active-media .field input {
   border-radius: 6px;
   font: inherit;
 }
+body.staff-shell .ap-media-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.9rem;
+  margin: 0.25rem 0 0.45rem;
+  color: #12202e;
+  font-size: 0.9rem;
+}
+body.staff-shell .ap-media-layers[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-media-layers label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
 body.staff-shell .ap-unlock {
   display: flex;
   align-items: center;

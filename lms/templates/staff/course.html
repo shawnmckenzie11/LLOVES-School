@@ -106,10 +106,21 @@
           <button type="button" id="ap-media-seed">Show Real-slice</button>
           <button type="button" class="secondary" id="ap-media-clear">Clear</button>
         </div>
+        <label class="ap-unlock" for="ap-media-axes">
+          <input type="checkbox" id="ap-media-axes">
+          Reveal axes on student view
+        </label>
         <label class="ap-unlock" for="ap-media-unlock">
           <input type="checkbox" id="ap-media-unlock">
           Unlock a, b, c sliders on student devices
         </label>
+        <p class="hint compact">Layers L0–L4 (delight pass). L0 is entry — axes off, controls locked.</p>
+        <div class="ap-media-layers" id="ap-media-layers" hidden>
+          <label><input type="checkbox" data-layer="L1"> L1</label>
+          <label><input type="checkbox" data-layer="L2"> L2</label>
+          <label><input type="checkbox" data-layer="L3"> L3</label>
+          <label><input type="checkbox" data-layer="L4"> L4</label>
+        </div>
         <label class="field" for="ap-media-url">Same-origin /static/… URL
           <input id="ap-media-url" type="text" value="/static/live-media/m1c1-c1-real-slice.html" autocomplete="off">
         </label>

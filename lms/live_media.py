@@ -18,7 +18,9 @@ DEFAULT_LIVE_MEDIA_STEM = (
     "what do you know about a, b, and c?"
 )
 DEFAULT_LIVE_MEDIA_CAPTION = ""
+DEFAULT_LIVE_MEDIA_CHIP = "From this view only — what must be true?"
 DEFAULT_LIVE_MEDIA_PARAMS: dict[str, float] = {"a": 1.0, "b": 0.0, "c": 0.0}
+LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
 
 _UNSET = object()
 
@@ -32,6 +34,7 @@ _TEXT_MAX = {
     "title": 120,
     "caption": 400,
     "stem": 400,
+    "entry_chip": 160,
 }
 
 
@@ -48,9 +51,66 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
         "title": DEFAULT_LIVE_MEDIA_TITLE,
         "caption": DEFAULT_LIVE_MEDIA_CAPTION,
         "stem": DEFAULT_LIVE_MEDIA_STEM,
+        "entry_chip": DEFAULT_LIVE_MEDIA_CHIP,
         "student_controls_unlocked": False,
+        "reveal_axes": False,
+        "unlock_flags": default_unlock_flags(),
+        "answers": [],
         "params": dict(DEFAULT_LIVE_MEDIA_PARAMS),
     }
+
+
+def default_unlock_flags() -> dict[str, bool]:
+    """L0 is entry (always on). L1–L4 are teacher peels; copy lives in delight pass."""
+    return {"L0": True, "L1": False, "L2": False, "L3": False, "L4": False}
+
+
+def _as_bool(raw: Any) -> bool:
+    """Coerce JSON/form booleans."""
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes"}
+    return bool(raw)
+
+
+def normalize_unlock_flags(
+    raw: Any, *, base: dict[str, bool] | None = None
+) -> dict[str, bool]:
+    """Merge L0–L4 unlock flags. L0 (entry) cannot be turned off.
+
+    Args:
+        raw: Partial ``{L0..L4: bool}`` overlay, or ``None``.
+        base: Existing flags to merge onto.
+    """
+    flags = dict(base) if base else default_unlock_flags()
+    for key in LAYER_KEYS:
+        flags.setdefault(key, key == "L0")
+    if isinstance(raw, dict):
+        for key in LAYER_KEYS:
+            if key in raw:
+                flags[key] = _as_bool(raw[key])
+    flags["L0"] = True
+    return {key: bool(flags[key]) for key in LAYER_KEYS}
+
+
+def normalize_answers(raw: Any) -> list[str]:
+    """Optional engagement-engine choices; same stem, answers change per reveal.
+
+    Args:
+        raw: List of short strings, or ``None``/empty for no choices yet.
+
+    Raises:
+        ValueError: If ``raw`` is present but not a list.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("answers must be a list of strings.")
+    out: list[str] = []
+    for item in raw[:8]:
+        text = str(item or "").strip()
+        if text:
+            out.append(text[:80])
+    return out
 
 
 def normalize_active_media_url(raw: Any) -> str | None:
@@ -124,7 +184,7 @@ def _clip_text(raw: Any, field: str) -> str:
 
     Args:
         raw: Posted text.
-        field: ``title``, ``caption``, or ``stem``.
+        field: ``title``, ``caption``, ``stem``, or ``entry_chip``.
     """
     text = str(raw or "").strip()
     limit = _TEXT_MAX[field]
@@ -149,12 +209,20 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         coeffs = normalize_active_media_params(params if isinstance(params, dict) else None)
     except ValueError:
         coeffs = dict(DEFAULT_LIVE_MEDIA_PARAMS)
+    try:
+        answer_list = normalize_answers(stored.get("answers") or [])
+    except ValueError:
+        answer_list = []
     return {
         "url": url,
         "title": str(stored.get("title") or ""),
         "caption": str(stored.get("caption") or ""),
         "stem": str(stored.get("stem") or ""),
+        "entry_chip": str(stored.get("entry_chip") or ""),
         "student_controls_unlocked": bool(stored.get("student_controls_unlocked")),
+        "reveal_axes": bool(stored.get("reveal_axes")),
+        "unlock_flags": normalize_unlock_flags(stored.get("unlock_flags")),
+        "answers": answer_list,
         "params": coeffs,
         "updated_at": stored.get("updated_at"),
     }
@@ -168,14 +236,18 @@ def apply_active_media_update(
     title: Any = _UNSET,
     caption: Any = _UNSET,
     stem: Any = _UNSET,
+    entry_chip: Any = _UNSET,
     student_controls_unlocked: Any = _UNSET,
+    reveal_axes: Any = _UNSET,
+    unlock_flags: Any = _UNSET,
+    answers: Any = _UNSET,
     params: Any = _UNSET,
     updated_at: str | None = None,
 ) -> dict[str, Any] | None:
     """Set, swap, merge control-state, or clear the session media object.
 
     A missing ``url`` with an existing payload is a control-state patch
-    (unlock flags / quadratic params) without swapping the page.
+    (unlock flags / quadratic params / axes peel) without swapping the page.
 
     Args:
         current: Existing public payload, or ``None``.
@@ -183,8 +255,12 @@ def apply_active_media_update(
         url: New ``/static/...`` path, empty/None to clear, or omitted to merge.
         title: Optional title overlay.
         caption: Optional caption slot (Wonder delight pass).
-        stem: Optional student stem overlay.
-        student_controls_unlocked: Optional teacher unlock flag.
+        stem: Optional student stem overlay (engagement stem stays stable).
+        entry_chip: Optional chip overlay (entry vibe).
+        student_controls_unlocked: Teacher unlock for student sliders.
+        reveal_axes: Teacher peel for axes/grid on the student face.
+        unlock_flags: Partial L0–L4 flags (delight pass); L0 stays on.
+        answers: Optional choice list that may change with each reveal.
         params: Optional ``{a,b,c}`` overlay (merged onto current/defaults).
         updated_at: ISO timestamp stamped onto the stored object.
 
@@ -197,6 +273,17 @@ def apply_active_media_update(
     if clear:
         return None
     url_given = url is not _UNSET
+    persist_keys = (
+        "title",
+        "caption",
+        "stem",
+        "entry_chip",
+        "student_controls_unlocked",
+        "reveal_axes",
+        "unlock_flags",
+        "answers",
+        "params",
+    )
     if url_given:
         normalized = normalize_active_media_url(url)
         if normalized is None:
@@ -206,18 +293,13 @@ def apply_active_media_update(
             seed["title"] = ""
             seed["stem"] = ""
             seed["caption"] = ""
+            seed["entry_chip"] = ""
         base = seed
         if current and str(current.get("url") or "") == normalized:
             # Same URL: treat like a merge so unlock/params persist unless posted.
             base = {**default_seed_media(url=normalized), **{
                 key: current[key]
-                for key in (
-                    "title",
-                    "caption",
-                    "stem",
-                    "student_controls_unlocked",
-                    "params",
-                )
+                for key in persist_keys
                 if key in current
             }}
             base["url"] = normalized
@@ -232,13 +314,27 @@ def apply_active_media_update(
         base["caption"] = _clip_text(caption, "caption")
     if stem is not _UNSET:
         base["stem"] = _clip_text(stem, "stem")
+    if entry_chip is not _UNSET:
+        base["entry_chip"] = _clip_text(entry_chip, "entry_chip")
     if student_controls_unlocked is not _UNSET:
-        if isinstance(student_controls_unlocked, str):
-            base["student_controls_unlocked"] = (
-                student_controls_unlocked.strip().lower() in {"1", "true", "yes"}
-            )
-        else:
-            base["student_controls_unlocked"] = bool(student_controls_unlocked)
+        base["student_controls_unlocked"] = _as_bool(student_controls_unlocked)
+    if reveal_axes is not _UNSET:
+        base["reveal_axes"] = _as_bool(reveal_axes)
+    if unlock_flags is not _UNSET:
+        base["unlock_flags"] = normalize_unlock_flags(
+            unlock_flags, base=base.get("unlock_flags")
+        )
+    else:
+        base["unlock_flags"] = normalize_unlock_flags(
+            None, base=base.get("unlock_flags")
+        )
+    if answers is not _UNSET:
+        base["answers"] = normalize_answers(answers)
+    else:
+        try:
+            base["answers"] = normalize_answers(base.get("answers") or [])
+        except ValueError:
+            base["answers"] = []
     if params is not _UNSET:
         incoming = params if isinstance(params, dict) else None
         merged = dict(base.get("params") or DEFAULT_LIVE_MEDIA_PARAMS)

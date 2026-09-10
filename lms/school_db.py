@@ -5380,7 +5380,11 @@ class SchoolDB(LovesDB):
         title: Any = None,
         caption: Any = None,
         stem: Any = None,
+        entry_chip: Any = None,
         student_controls_unlocked: Any = None,
+        reveal_axes: Any = None,
+        unlock_flags: Any = None,
+        answers: Any = None,
         params: Any = None,
         merge: bool = False,
     ) -> dict[str, Any] | None:
@@ -5396,7 +5400,11 @@ class SchoolDB(LovesDB):
             title: Optional title.
             caption: Optional caption slot (Wonder delight pass).
             stem: Optional student stem.
+            entry_chip: Optional entry chip overlay.
             student_controls_unlocked: Teacher unlock for student sliders.
+            reveal_axes: Teacher peel for student axes/grid.
+            unlock_flags: Partial L0–L4 flags (delight pass).
+            answers: Optional engagement choices for the current reveal.
             params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
             merge: When True, treat omitted url as a patch of current media.
 
@@ -5420,8 +5428,16 @@ class SchoolDB(LovesDB):
             kwargs["caption"] = caption
         if stem is not None:
             kwargs["stem"] = stem
+        if entry_chip is not None:
+            kwargs["entry_chip"] = entry_chip
         if student_controls_unlocked is not None:
             kwargs["student_controls_unlocked"] = student_controls_unlocked
+        if reveal_axes is not None:
+            kwargs["reveal_axes"] = reveal_axes
+        if unlock_flags is not None:
+            kwargs["unlock_flags"] = unlock_flags
+        if answers is not None:
+            kwargs["answers"] = answers
         if params is not None:
             kwargs["params"] = params
         payload = apply_active_media_update(current, **kwargs)
