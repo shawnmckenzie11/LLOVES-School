@@ -1,7 +1,7 @@
 {
   "module": "MCF3M-M1",
   "title": "Introduction to the Quadratic Function",
-  "updated": "2026-09-10T09:25:28Z",
+  "updated": "2026-09-10T09:28:57Z",
   "curriculum_source_version": {
     "path": "lms/seeds/mcf3m_expectations.json",
     "source_pdf": "lms/sources/ontario-curriculum/ontario-math-curriculum-gr-11-12.pdf",
@@ -38,7 +38,8 @@
         "A2.6"
       ],
       "badge": "adapted",
-      "coverage_countersign": "ok_2026-09-10"
+      "coverage_countersign": "ok_2026-09-10",
+      "row_map": "MCF3M-M1-C2-coverage-row-map.md"
     },
     "C3": {
       "status": "stem_locked_plan_tbd",
@@ -47,7 +48,8 @@
         "A2.4"
       ],
       "badge": "adapted",
-      "coverage_countersign": "ok_2026-09-10"
+      "coverage_countersign": "ok_2026-09-10",
+      "row_map": "MCF3M-M1-C3-coverage-row-map.md"
     }
   },
   "module_curriculum_approved": false,
@@ -370,7 +372,9 @@
     "MCF3M-M1-live-pathways-coverage.md",
     "MCF3M-M1-visual-coverage-layer.md",
     "MCF3M-M1-monday-completeness.md",
-    "MCF3M-M1-C2-C3-coverage-countersign.md"
+    "MCF3M-M1-C2-C3-coverage-countersign.md",
+    "MCF3M-M1-C2-coverage-row-map.md",
+    "MCF3M-M1-C3-coverage-row-map.md"
   ],
   "uncertainties_for_Shawn": [
     "Confirm C2/C3 in first live set now that stems are locked (Monday completeness says yes for review).",
