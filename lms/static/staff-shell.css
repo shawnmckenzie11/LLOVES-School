@@ -1036,14 +1036,23 @@ body.staff-shell .ap-media-layers label {
   display: flex;
   align-items: center;
   gap: 0.3rem;
+  white-space: nowrap;
 }
 body.staff-shell .ap-unlock {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.4rem;
   margin: 0.35rem 0;
+  width: fit-content;
+  max-width: 100%;
   color: #12202e;
   font-size: 0.92rem;
+}
+body.staff-shell .ap-unlock input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
 }
 body.staff-shell .ap-media-params {
   display: grid;
@@ -1074,7 +1083,8 @@ body.staff-shell .ap-media-cons .ap-active-media-row {
 }
 body.staff-shell .ap-media-preview {
   width: 100%;
-  min-height: 16rem;
+  min-height: 38rem;
+  height: min(70vh, 44rem);
   margin-top: 0.65rem;
   border: 1px solid #c5d0dc;
   border-radius: 8px;
