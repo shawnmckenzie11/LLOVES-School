@@ -13,9 +13,11 @@ from typing import Any
 
 try:
     from codes import generate_live_access_code
+    from live_media import apply_active_media_update, public_active_media_payload
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
+    from lms.live_media import apply_active_media_update, public_active_media_payload
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
@@ -1177,6 +1179,10 @@ class LovesDB:
         if "slides_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN slides_json TEXT"
+            )
+        if "active_media_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN active_media_json TEXT"
             )
         self.conn.execute(
             """
@@ -4867,6 +4873,18 @@ class SchoolDB(LovesDB):
                 item["slides_json"] = json.loads(raw)
             except json.JSONDecodeError:
                 pass
+        media_raw = item.get("active_media_json")
+        if isinstance(media_raw, str) and media_raw.strip():
+            try:
+                parsed_media = json.loads(media_raw)
+            except json.JSONDecodeError:
+                parsed_media = None
+            item["active_media"] = public_active_media_payload(
+                parsed_media if isinstance(parsed_media, dict) else None
+            )
+        else:
+            item["active_media"] = None
+        item.pop("active_media_json", None)
         return item
 
     def get_active_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
@@ -5337,6 +5355,89 @@ class SchoolDB(LovesDB):
             "my_response": my_response,
         }
 
+    def live_session_active_media_payload(
+        self, session_id: int
+    ) -> dict[str, Any] | None:
+        """Return the current active-media object for student/staff polls.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return None
+        stored = session_row.get("active_media")
+        if isinstance(stored, dict):
+            return public_active_media_payload(stored)
+        return None
+
+    def set_live_session_active_media(
+        self,
+        session_id: int,
+        *,
+        clear: bool = False,
+        url: Any = None,
+        title: Any = None,
+        caption: Any = None,
+        stem: Any = None,
+        student_controls_unlocked: Any = None,
+        params: Any = None,
+        merge: bool = False,
+    ) -> dict[str, Any] | None:
+        """Set, swap, patch control-state, or clear session active media.
+
+        ``merge=True`` (no url / control-state update) keeps the current page
+        and overlays unlock flags, quadratic params, or stem/caption.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            clear: Drop media so the student iframe hides.
+            url: Same-origin ``/static/...`` path; omitted when ``merge``.
+            title: Optional title.
+            caption: Optional caption slot (Wonder delight pass).
+            stem: Optional student stem.
+            student_controls_unlocked: Teacher unlock for student sliders.
+            params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
+            merge: When True, treat omitted url as a patch of current media.
+
+        Returns:
+            Public payload, or ``None`` when cleared.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: Invalid URL/params, or merge with no current media.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        current = self.live_session_active_media_payload(session_id)
+        kwargs: dict[str, Any] = {"clear": clear, "updated_at": _now()}
+        if not merge:
+            kwargs["url"] = url
+        if title is not None:
+            kwargs["title"] = title
+        if caption is not None:
+            kwargs["caption"] = caption
+        if stem is not None:
+            kwargs["stem"] = stem
+        if student_controls_unlocked is not None:
+            kwargs["student_controls_unlocked"] = student_controls_unlocked
+        if params is not None:
+            kwargs["params"] = params
+        payload = apply_active_media_update(current, **kwargs)
+        encoded = json.dumps(payload) if payload else None
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET active_media_json = ?
+                WHERE id = ?
+                """,
+                (encoded, int(session_id)),
+            )
+            self.conn.commit()
+        return payload
+
     def mark_live_session_attendee_left(
         self, session_id: int, student_id: int
     ) -> dict[str, Any] | None:
@@ -5635,6 +5736,7 @@ class SchoolDB(LovesDB):
             "count": len(present),
             "attendees": attendees,
             "phase": phase,
+            "active_media": self.live_session_active_media_payload(session_id),
         }
 
     def has_active_live_sessions(self) -> bool:

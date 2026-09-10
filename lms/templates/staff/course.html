@@ -98,6 +98,39 @@
          data-live-step="{{ live_step or '' }}"
          data-run="{{ '1' if run_live else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
+      <section class="ap-active-media" id="ap-active-media">
+        <h2>Active media</h2>
+        <p class="hint compact" id="ap-active-media-status">None — students see the wait / prompt shell until you push a page.</p>
+        <p class="hint compact" id="ap-active-media-stem-preview" hidden></p>
+        <div class="ap-active-media-row">
+          <button type="button" id="ap-media-seed">Show Real-slice</button>
+          <button type="button" class="secondary" id="ap-media-clear">Clear</button>
+        </div>
+        <label class="ap-unlock" for="ap-media-unlock">
+          <input type="checkbox" id="ap-media-unlock">
+          Unlock a, b, c sliders on student devices
+        </label>
+        <label class="field" for="ap-media-url">Same-origin /static/… URL
+          <input id="ap-media-url" type="text" value="/static/live-media/m1c1-c1-real-slice.html" autocomplete="off">
+        </label>
+        <div class="ap-active-media-row">
+          <button type="button" class="secondary" id="ap-media-swap">Swap to pasted URL</button>
+        </div>
+        <div class="ap-media-params" id="ap-media-params" hidden>
+          <p class="hint compact">Teacher quadratic params (students stay on the paper view of y = x² until unlock).</p>
+          <label class="field">a
+            <input id="ap-media-a" type="number" step="0.1" value="1">
+          </label>
+          <label class="field">b
+            <input id="ap-media-b" type="number" step="0.1" value="0">
+          </label>
+          <label class="field">c
+            <input id="ap-media-c" type="number" step="0.1" value="0">
+          </label>
+          <button type="button" class="secondary" id="ap-media-params-push">Push a, b, c</button>
+        </div>
+        <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" hidden sandbox="allow-scripts allow-same-origin"></iframe>
+      </section>
       <div class="track-accordion" id="track-accordion">
 
         <section id="ap-panel-validate" class="track-step ap-panel hidden" data-step="validate">

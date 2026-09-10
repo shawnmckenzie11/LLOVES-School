@@ -69,6 +69,11 @@ from celebration import (  # noqa: E402
 )
 from curriculum import seed_curriculum  # noqa: E402
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
+from live_media import (  # noqa: E402
+    DEFAULT_LIVE_MEDIA_STEM,
+    DEFAULT_LIVE_MEDIA_TITLE,
+    DEFAULT_LIVE_MEDIA_URL,
+)
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -764,7 +769,7 @@ def create_app(
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
             "connect-src 'self' https://accounts.google.com; "
-            "frame-src https://accounts.google.com; "
+            "frame-src 'self' https://accounts.google.com; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self' https://accounts.google.com",
@@ -1167,8 +1172,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Serve LLOVES assets first, then Math Game Show static files."""
         lms_file = LMS_DIR / "static" / filename
         if lms_file.is_file():
-            return send_from_directory(LMS_DIR / "static", filename)
-        return send_from_directory(MGS_STATIC, filename)
+            response = send_from_directory(LMS_DIR / "static", filename)
+        else:
+            response = send_from_directory(MGS_STATIC, filename)
+        if filename.startswith("live-media/"):
+            # Student home iframes these pages; keep them same-origin only.
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'self'; "
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
+        return response
 
     @app.route("/")
     def landing():
@@ -2955,6 +2975,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_session_id, student_id
         )
         payload.update(prompt_frag)
+        payload["active_media"] = school.live_session_active_media_payload(
+            live_session_id
+        )
         return render_template(
             "student/home.html",
             offering=offering,
@@ -3031,6 +3054,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload = school.game.student_live_payload(class_id, student_id)
         payload.update(
             school.student_live_prompt_payload(live_session_id, student_id)
+        )
+        payload["active_media"] = school.live_session_active_media_payload(
+            live_session_id
         )
         return jsonify(payload)
 
@@ -3227,6 +3253,65 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify({"ok": True, "prompt": prompt})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/active-media",
+        methods=["GET", "POST"],
+    )
+    @login_required
+    def api_live_session_active_media(session_id: int):
+        """Staff: read or set/swap/clear/patch live-session active media.
+
+        POST JSON: ``url`` (same-origin ``/static/...``) to set or swap;
+        ``clear: true`` or empty ``url`` to hide the student iframe;
+        omit ``url`` to patch control-state (``student_controls_unlocked``,
+        ``params``, stem/caption) on the current page.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "active_media": school.live_session_active_media_payload(
+                        session_id
+                    ),
+                    "defaults": {
+                        "url": DEFAULT_LIVE_MEDIA_URL,
+                        "title": DEFAULT_LIVE_MEDIA_TITLE,
+                        "stem": DEFAULT_LIVE_MEDIA_STEM,
+                    },
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        clear = body.get("clear", False)
+        if isinstance(clear, str):
+            clear = clear.strip().lower() in {"1", "true", "yes"}
+        url_posted = "url" in body
+        merge = not clear and not url_posted
+        kwargs: dict[str, Any] = {"clear": bool(clear), "merge": merge}
+        if url_posted:
+            kwargs["url"] = body.get("url")
+        if "title" in body:
+            kwargs["title"] = body.get("title")
+        if "caption" in body:
+            kwargs["caption"] = body.get("caption")
+        if "stem" in body:
+            kwargs["stem"] = body.get("stem")
+        if "student_controls_unlocked" in body:
+            kwargs["student_controls_unlocked"] = body.get(
+                "student_controls_unlocked"
+            )
+        if "params" in body:
+            kwargs["params"] = body.get("params")
+        try:
+            media = school.set_live_session_active_media(session_id, **kwargs)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "active_media": media})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C1 Real-slice · y = ax² + bx + c</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --gold-deep: #c49212;
+      --panel: rgba(10, 18, 32, 0.86);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq {
+      align-self: flex-start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.95rem, 2.6vw, 1.25rem);
+      letter-spacing: 0.01em;
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .eq .coeffs { color: #d6deef; font-size: 0.82em; }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.75rem;
+      display: none;
+      gap: 0.45rem;
+    }
+    .dock.is-on { display: grid; }
+    .dock h2 {
+      margin: 0 0 0.15rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .sliders {
+      display: grid;
+      gap: 0.35rem;
+    }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.4rem 1fr 2.6rem;
+      gap: 0.45rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span { font-family: "IBM Plex Serif", Georgia, serif; color: var(--gold); }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold);
+    }
+    .hint {
+      margin: 0.15rem 0 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+    .toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem 0.85rem;
+      margin-top: 0.2rem;
+    }
+    .toggles label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      color: #c5d0dc;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage" aria-label="Real-slice parabola in 3D space"></canvas>
+  <div class="hud">
+    <p class="eq" id="eq">y = <strong>x²</strong></p>
+    <section class="dock" id="dock">
+      <h2 id="dock-title">Teacher controls</h2>
+      <div class="sliders">
+        <label class="slide"> <span>a</span>
+          <input id="p-a" type="range" min="-2.5" max="2.5" step="0.05" value="1">
+          <output id="o-a">1.00</output>
+        </label>
+        <label class="slide"> <span>b</span>
+          <input id="p-b" type="range" min="-4" max="4" step="0.05" value="0">
+          <output id="o-b">0.00</output>
+        </label>
+        <label class="slide"> <span>c</span>
+          <input id="p-c" type="range" min="-3" max="3" step="0.05" value="0">
+          <output id="o-c">0.00</output>
+        </label>
+      </div>
+      <div class="toggles" id="toggles">
+        <label><input id="t-surface" type="checkbox" checked> 3D surface</label>
+        <label><input id="t-slice" type="checkbox" checked> Gold real-slice</label>
+      </div>
+      <p class="hint" id="hint">Drag to orbit. Students stay on the paper view of y = x² until you unlock sliders.</p>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const canvas = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  const eqEl = document.getElementById("eq");
+  const dock = document.getElementById("dock");
+  const dockTitle = document.getElementById("dock-title");
+  const hint = document.getElementById("hint");
+  const toggles = document.getElementById("toggles");
+  const inputA = document.getElementById("p-a");
+  const inputB = document.getElementById("p-b");
+  const inputC = document.getElementById("p-c");
+  const outA = document.getElementById("o-a");
+  const outB = document.getElementById("o-b");
+  const outC = document.getElementById("o-c");
+  const tSurface = document.getElementById("t-surface");
+  const tSlice = document.getElementById("t-slice");
+
+  const query = new URLSearchParams(location.search);
+  const embedded = window.parent !== window;
+  const teacherMode = query.get("role") === "teacher" || !embedded;
+
+  const PAPER_YAW = 0.08;
+  const PAPER_PITCH = -0.16;
+
+  const state = {
+    a: 1,
+    b: 0,
+    c: 0,
+    yaw: PAPER_YAW,
+    pitch: PAPER_PITCH,
+    dist: 9.2,
+    showSurface: true,
+    showSlice: true,
+    unlocked: false,
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+    acceptParentParams: true,
+  };
+
+  /**
+   * Height of the real-part saddle: Re(a z^2 + b z + c) with z = x + i t.
+   * @param {number} x
+   * @param {number} t
+   * @returns {number}
+   */
+  function height(x, t) {
+    return state.a * (x * x - t * t) + state.b * x + state.c;
+  }
+
+  /**
+   * @param {number} n
+   * @param {number} [digits]
+   */
+  function fmt(n, digits) {
+    const v = Math.round(n * 100) / 100;
+    return v.toFixed(digits == null ? 2 : digits);
+  }
+
+  /**
+   * Pretty-print y = ax^2 + bx + c for the HUD.
+   * @returns {string}
+   */
+  function equationHtml() {
+    const parts = [];
+    const a = state.a;
+    const b = state.b;
+    const c = state.c;
+    if (Math.abs(a - 1) < 0.001) parts.push("x²");
+    else if (Math.abs(a + 1) < 0.001) parts.push("−x²");
+    else parts.push(fmt(a) + "x²");
+    if (Math.abs(b) > 0.001) {
+      parts.push((b < 0 ? " − " : " + ") + (Math.abs(Math.abs(b) - 1) < 0.001 ? "" : fmt(Math.abs(b))) + "x");
+    }
+    if (Math.abs(c) > 0.001) {
+      parts.push((c < 0 ? " − " : " + ") + fmt(Math.abs(c)));
+    }
+    return "y = <strong>" + parts.join("") + "</strong> <span class='coeffs'>a=" + fmt(a) + " · b=" + fmt(b) + " · c=" + fmt(c) + "</span>";
+  }
+
+  function syncOutputs() {
+    inputA.value = String(state.a);
+    inputB.value = String(state.b);
+    inputC.value = String(state.c);
+    outA.textContent = fmt(state.a);
+    outB.textContent = fmt(state.b);
+    outC.textContent = fmt(state.c);
+    tSurface.checked = state.showSurface;
+    tSlice.checked = state.showSlice;
+    eqEl.innerHTML = equationHtml();
+  }
+
+  /**
+   * Student face: paper-locked camera; sliders only after teacher unlock.
+   * Teacher face: orbit + sliders. Curve and saddle only.
+   */
+  function applyRoleChrome() {
+    const showDock = teacherMode || state.unlocked;
+    dock.classList.toggle("is-on", showDock);
+    dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, b, and c";
+    hint.textContent = teacherMode
+      ? "Drag to orbit. Students stay on the paper view of y = x² until you unlock sliders."
+      : "Move a, b, and c. The camera stays on the familiar parabola.";
+    toggles.hidden = !teacherMode;
+    canvas.style.cursor = teacherMode ? "grab" : "default";
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /**
+   * @param {{x:number,y:number,z:number}} p
+   * @returns {{x:number,y:number,z:number}}
+   */
+  function worldToView(p) {
+    const cy = Math.cos(state.yaw);
+    const sy = Math.sin(state.yaw);
+    const cp = Math.cos(state.pitch);
+    const sp = Math.sin(state.pitch);
+    let x = p.x * cy - p.z * sy;
+    let z = p.x * sy + p.z * cy;
+    const y1 = p.y * cp - z * sp;
+    z = p.y * sp + z * cp;
+    return { x: x, y: y1, z: z };
+  }
+
+  /**
+   * @param {{x:number,y:number,z:number}} p
+   * @param {number} w
+   * @param {number} h
+   */
+  function project(p, w, h) {
+    const v = worldToView(p);
+    const depth = v.z + state.dist;
+    const scale = Math.min(w, h) * 0.42 / Math.max(0.6, depth * 0.22);
+    return {
+      x: w / 2 + v.x * scale,
+      y: h / 2 - v.y * scale,
+      z: v.z,
+      depth: depth,
+    };
+  }
+
+  /**
+   * @param {{x:number,y:number,z:number}} a
+   * @param {{x:number,y:number,z:number}} b
+   * @param {{x:number,y:number,z:number}} cpt
+   */
+  function normal(a, b, cpt) {
+    const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+    const vx = cpt.x - a.x, vy = cpt.y - a.y, vz = cpt.z - a.z;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const mag = Math.hypot(nx, ny, nz) || 1;
+    return { x: nx / mag, y: ny / mag, z: nz / mag };
+  }
+
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "#122038");
+    g.addColorStop(1, "#070b14");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    const faces = [];
+    const span = 2.4;
+    const steps = 18;
+    const step = (span * 2) / steps;
+
+    if (state.showSurface) {
+      for (let i = 0; i < steps; i += 1) {
+        for (let j = 0; j < steps; j += 1) {
+          const x0 = -span + i * step;
+          const z0 = -span + j * step;
+          const x1 = x0 + step;
+          const z1 = z0 + step;
+          const p00 = { x: x0, y: height(x0, z0), z: z0 };
+          const p10 = { x: x1, y: height(x1, z0), z: z0 };
+          const p11 = { x: x1, y: height(x1, z1), z: z1 };
+          const p01 = { x: x0, y: height(x0, z1), z: z1 };
+          const n = normal(p00, p10, p01);
+          const lit = Math.max(0.18, 0.35 + 0.75 * (n.x * 0.25 + n.y * 0.9 + n.z * 0.35));
+          const mid = project(
+            { x: (x0 + x1) / 2, y: (p00.y + p11.y) / 2, z: (z0 + z1) / 2 },
+            w,
+            h
+          );
+          faces.push({
+            depth: mid.depth,
+            pts: [p00, p10, p11, p01].map((p) => project(p, w, h)),
+            fill: "rgba(" +
+              Math.round(40 + lit * 70) + "," +
+              Math.round(70 + lit * 90) + "," +
+              Math.round(110 + lit * 90) + ",0.55)",
+            stroke: "rgba(160, 200, 230, 0.18)",
+          });
+        }
+      }
+    }
+
+    faces.sort((left, right) => right.depth - left.depth);
+    for (const face of faces) {
+      ctx.beginPath();
+      ctx.moveTo(face.pts[0].x, face.pts[0].y);
+      for (let i = 1; i < face.pts.length; i += 1) ctx.lineTo(face.pts[i].x, face.pts[i].y);
+      ctx.closePath();
+      ctx.fillStyle = face.fill;
+      ctx.fill();
+      ctx.strokeStyle = face.stroke;
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+
+    const axis = (from, to, color, label) => {
+      const a = project(from, w, h);
+      const b = project(to, w, h);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      if (label) {
+        ctx.fillStyle = color;
+        ctx.font = "12px 'IBM Plex Sans', sans-serif";
+        ctx.fillText(label, b.x + 4, b.y - 4);
+      }
+    };
+    axis({ x: -span, y: 0, z: 0 }, { x: span + 0.15, y: 0, z: 0 }, "rgba(210,220,235,0.7)", "x");
+    axis({ x: 0, y: -2.2, z: 0 }, { x: 0, y: 3.1, z: 0 }, "rgba(210,220,235,0.7)", "y");
+    axis({ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span + 0.15 }, "rgba(210,220,235,0.35)", "");
+
+    ctx.beginPath();
+    const gridN = 8;
+    for (let i = 0; i <= gridN; i += 1) {
+      const t = -span + (i / gridN) * span * 2;
+      const a = project({ x: t, y: 0, z: -span }, w, h);
+      const b = project({ x: t, y: 0, z: span }, w, h);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      const c0 = project({ x: -span, y: 0, z: t }, w, h);
+      const c1 = project({ x: span, y: 0, z: t }, w, h);
+      ctx.moveTo(c0.x, c0.y);
+      ctx.lineTo(c1.x, c1.y);
+    }
+    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (state.showSlice) {
+      const pts = [];
+      for (let i = 0; i <= 80; i += 1) {
+        const x = -span + (i / 80) * span * 2;
+        pts.push(project({ x: x, y: height(x, 0), z: 0 }, w, h));
+      }
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = "rgba(245, 197, 24, 0.25)";
+      ctx.lineWidth = 10;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 3.2;
+      ctx.stroke();
+    }
+  }
+
+  function notifyParent() {
+    if (!embedded) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-m1c1-c1",
+          type: "params",
+          params: { a: state.a, b: state.b, c: state.c },
+          show_surface: state.showSurface,
+          show_slice: state.showSlice,
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  function readSliders(fromTeacher) {
+    state.a = Number(inputA.value);
+    state.b = Number(inputB.value);
+    state.c = Number(inputC.value);
+    if (teacherMode) {
+      state.showSurface = tSurface.checked;
+      state.showSlice = tSlice.checked;
+    }
+    if (fromTeacher) state.acceptParentParams = true;
+    if (!teacherMode) state.acceptParentParams = false;
+    syncOutputs();
+    draw();
+    notifyParent();
+  }
+
+  ["input", "change"].forEach((evt) => {
+    inputA.addEventListener(evt, () => readSliders(teacherMode));
+    inputB.addEventListener(evt, () => readSliders(teacherMode));
+    inputC.addEventListener(evt, () => readSliders(teacherMode));
+    tSurface.addEventListener(evt, () => readSliders(true));
+    tSlice.addEventListener(evt, () => readSliders(true));
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!teacherMode) return;
+    state.dragging = true;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    canvas.setPointerCapture(event.pointerId);
+    canvas.style.cursor = "grabbing";
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!teacherMode || !state.dragging) return;
+    const dx = event.clientX - state.lastX;
+    const dy = event.clientY - state.lastY;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    state.yaw += dx * 0.008;
+    state.pitch = Math.max(-1.15, Math.min(0.55, state.pitch + dy * 0.008));
+    draw();
+  });
+  const endDrag = (event) => {
+    if (!teacherMode) return;
+    state.dragging = false;
+    canvas.style.cursor = "grab";
+    try { canvas.releasePointerCapture(event.pointerId); } catch (_err) { /* ignore */ }
+  };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "live-media-state") return;
+    if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
+    if (typeof data.student_controls_unlocked === "boolean") {
+      state.unlocked = data.student_controls_unlocked;
+    }
+    const ignoreParams = !teacherMode && state.unlocked && !state.acceptParentParams;
+    const params = data.params || {};
+    if (!ignoreParams) {
+      if (Number.isFinite(Number(params.a))) state.a = Number(params.a);
+      if (Number.isFinite(Number(params.b))) state.b = Number(params.b);
+      if (Number.isFinite(Number(params.c))) state.c = Number(params.c);
+    }
+    if (!teacherMode) {
+      state.yaw = PAPER_YAW;
+      state.pitch = PAPER_PITCH;
+      if (!state.unlocked) state.acceptParentParams = true;
+    }
+    applyRoleChrome();
+    syncOutputs();
+    draw();
+  });
+
+  window.addEventListener("resize", () => {
+    resize();
+    draw();
+  });
+
+  applyRoleChrome();
+  syncOutputs();
+  resize();
+  draw();
+})();
+  </script>
+</body>
+</html>

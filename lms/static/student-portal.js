@@ -7,10 +7,17 @@ const boardEl = document.getElementById("class-board");
 const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
 const promptAck = document.getElementById("prompt-ack");
+const mediaPane = document.getElementById("media-pane");
+const mediaFrame = document.getElementById("media-frame");
+const mediaStem = document.getElementById("media-stem");
 const body = document.body;
 
 /** @type {number | null} */
 let lastPromptId = null;
+/** @type {string} */
+let lastMediaUrl = "";
+/** @type {string} */
+let lastMediaSig = "";
 
 /** Open Question waiting copy shown on the Phone during that round. */
 const OPEN_QUESTION_WAIT_HTML = `
@@ -159,10 +166,12 @@ function waitCopyFor(payload) {
  */
 function applyLayout(payload) {
   const live = Boolean(payload.scoring);
+  const hasMedia = Boolean(payload.active_media && payload.active_media.url);
   body.classList.toggle("is-live", live);
+  body.classList.toggle("has-media", hasMedia);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
-    if (hasPrompt) {
+    if (hasPrompt || hasMedia) {
       waitEl.hidden = true;
       waitEl.textContent = "";
       waitEl.innerHTML = "";
@@ -179,6 +188,80 @@ function applyLayout(payload) {
         else if (payload.scoring) waitEl.classList.add("is-plain");
       }
     }
+  }
+}
+
+/**
+ * Same-origin /static/ path the iframe is allowed to load.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function safeMediaUrl(raw) {
+  const text = String(raw || "").trim();
+  if (!text.startsWith("/static/")) return "";
+  if (text.includes("..")) return "";
+  return text;
+}
+
+/**
+ * Push teacher control-state into the Real-slice iframe without a reload.
+ * @param {any} media
+ */
+function postMediaState(media) {
+  if (!mediaFrame || !mediaFrame.contentWindow || !media) return;
+  try {
+    mediaFrame.contentWindow.postMessage(
+      {
+        source: "lloves-student-home",
+        type: "live-media-state",
+        student_controls_unlocked: Boolean(media.student_controls_unlocked),
+        params: media.params || { a: 1, b: 0, c: 0 },
+        stem: media.stem || "",
+        caption: media.caption || "",
+      },
+      window.location.origin
+    );
+  } catch (_err) {
+    /* keep last frame */
+  }
+}
+
+/**
+ * Show or hide the student iframe pane from /api/student/state.
+ * @param {any} payload
+ */
+function paintMedia(payload) {
+  const media = payload.active_media;
+  const url = media ? safeMediaUrl(media.url) : "";
+  if (mediaStem) {
+    const stem = String((media && (media.stem || media.caption)) || "").trim();
+    mediaStem.textContent = stem;
+    mediaStem.hidden = !stem;
+  }
+  if (!mediaPane || !mediaFrame) return;
+  if (!url) {
+    mediaPane.hidden = true;
+    mediaFrame.removeAttribute("src");
+    lastMediaUrl = "";
+    lastMediaSig = "";
+    return;
+  }
+  mediaPane.hidden = false;
+  const sig = JSON.stringify({
+    url,
+    unlocked: Boolean(media.student_controls_unlocked),
+    params: media.params || {},
+  });
+  if (url !== lastMediaUrl) {
+    lastMediaUrl = url;
+    lastMediaSig = sig;
+    mediaFrame.onload = () => postMediaState(media);
+    mediaFrame.src = url;
+    return;
+  }
+  if (sig !== lastMediaSig) {
+    lastMediaSig = sig;
+    postMediaState(media);
   }
 }
 
@@ -332,6 +415,7 @@ async function tick() {
     paintMe(data);
     paintBoard(data);
     paintRoundBanner(data);
+    paintMedia(data);
     const promptId = data.prompt && data.prompt.id != null ? Number(data.prompt.id) : null;
     if (promptId !== lastPromptId || (data.my_response && promptShell && !promptShell.hidden)) {
       paintPrompt(data);
