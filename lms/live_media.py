@@ -37,7 +37,7 @@ TOAST_STUDENT_UNLOCK = (
     "New control — same question. What changes? What doesn’t?"
 )
 TOAST_FREEZE = "Park the wonderings. Leave the blank honest."
-TOAST_CONS_1 = (
+TOAST_CONS_UNLOCK = (
     "Argue’s parked. Time to name what this picture forced."
 )
 TOAST_CONS_4 = "Feature → claim. That’s the whole move."
@@ -476,19 +476,23 @@ def _apply_wonder_peel_delight(
     freeze_on = bool(base.get("frozen")) and not bool(prev.get("frozen"))
     prev_cons = str(prev.get("cons_item") or "")
     new_cons = str(base.get("cons_item") or "")
+    pack_unlock_on = bool(new_cons) and not prev_cons and new_cons.startswith(
+        "C1-CONS-"
+    )
     cons1_on = new_cons == "C1-CONS-1" and prev_cons != "C1-CONS-1"
+    cons_unlock_on = cons1_on or pack_unlock_on
     cons4_on = new_cons == "C1-CONS-4" and prev_cons != "C1-CONS-4"
     line = ""
     key = str(base.get("toast_key") or "")
     if freeze_on:
         line = TOAST_FREEZE
         key = "freeze"
-    elif cons1_on:
-        line = TOAST_CONS_1
-        key = "cons_1"
     elif cons4_on:
         line = TOAST_CONS_4
         key = "cons_4"
+    elif cons_unlock_on:
+        line = TOAST_CONS_UNLOCK
+        key = "cons_unlock"
     elif unlock_on:
         line = TOAST_STUDENT_UNLOCK
         key = "unlock"
@@ -629,7 +633,7 @@ def apply_active_media_update(
         cons_item: Post-freeze CONS-1…5 id, or empty to clear.
         toast: Optional explicit Wonder toast overlay.
         toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` /
-            ``freeze`` / ``cons_1`` / ``cons_4``).
+            ``freeze`` / ``cons_unlock`` / ``cons_4``).
         allow_url_swap: When False, only the seed Real-slice URL (or clear) is allowed.
         updated_at: ISO timestamp stamped onto the stored object.
 
