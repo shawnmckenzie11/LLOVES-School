@@ -456,8 +456,34 @@ body.landing-page .calc-coming-soon {
   text-align: left;
 }
 body.landing-page .calc-coming-soon h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 1.35rem;
   margin: 0 0 0.45rem;
+}
+body.landing-page .calc-sparkle-dot {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0.4rem rgba(45, 212, 191, 0.55);
+}
+body.landing-page .calc-sparkle-dot.is-pulse {
+  animation: calc-sparkle-pulse 0.9s ease-out 1;
+}
+@keyframes calc-sparkle-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  40% { transform: scale(1.55); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.landing-page .calc-sparkle-dot,
+  body.landing-page .calc-sparkle-dot.is-pulse {
+    animation: none;
+  }
 }
 body.landing-page .calc-coming-line {
   margin: 0 0 0.55rem;
