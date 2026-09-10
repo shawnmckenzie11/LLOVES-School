@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Staff Grok bots showcase: data order, staff gating, and Module Engineer card."""
+"""Staff Grok bots showcase: data order, staff gating, and bot cards."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from bots import list_bots  # noqa: E402
 
 
 class BotsShowcaseTests(unittest.TestCase):
-    """Staff-only /staff/bots page and the Module Engineer card."""
+    """Staff-only /staff/bots page, featured Module Engineer, and Wonder card."""
 
     def setUp(self) -> None:
         """Isolated sqlite + Flask test client."""
@@ -65,10 +65,47 @@ class BotsShowcaseTests(unittest.TestCase):
         self.assertIn("Student storyline", first["perspectives"])
         self.assertIn("Teacher storyline", first["perspectives"])
 
+    def test_wonder_card_is_present_and_not_featured(self) -> None:
+        """Wonder occupies a real slot; Module Engineer stays the featured first card."""
+        bots = list_bots()
+        self.assertEqual(bots[0]["slug"], "module-engineer")
+        self.assertTrue(bots[0].get("featured"))
+        wonder = next((bot for bot in bots if bot.get("slug") == "wonder"), None)
+        self.assertIsNotNone(wonder)
+        assert wonder is not None
+        self.assertEqual(wonder["name"], "Wonder")
+        self.assertEqual(wonder["aka"], "Hall of Wonder / Celebrations")
+        self.assertEqual(
+            wonder["role"],
+            "Student-facing Celebrations / Hall of Wonder delight voice",
+        )
+        self.assertEqual(
+            wonder["focus"],
+            [
+                "Warm, precise celebration + Hall of Wonder copy",
+                "Live-class media-pane captions / unlock toasts / micro-moments",
+                "Quarantine chrome so challenge media stays wondrous",
+            ],
+        )
+        self.assertEqual(
+            wonder["perspectives"],
+            [
+                "Student delight",
+                "Teacher-facing toast timing (with Live-Class / ELC)",
+            ],
+        )
+        self.assertEqual(wonder["status"], "active")
+        self.assertFalse(wonder.get("featured"))
+        self.assertEqual(
+            wonder["note"],
+            "Quietly makes the picture and the celebration feel human.",
+        )
+        self.assertFalse(wonder.get("placeholder"))
+
     def test_placeholders_leave_room_for_later_bots(self) -> None:
-        """At least one empty slot stays in the list for the next card."""
+        """Exactly one empty slot stays in the list for the next card."""
         placeholders = [bot for bot in list_bots() if bot.get("placeholder")]
-        self.assertGreaterEqual(len(placeholders), 1)
+        self.assertEqual(len(placeholders), 1)
 
     def test_anonymous_is_sent_to_staff_login(self) -> None:
         """Unsigned visitors are not shown the staff bots page."""
@@ -90,6 +127,9 @@ class BotsShowcaseTests(unittest.TestCase):
         self.assertIn("Teacher storyline", html)
         self.assertIn("C1→C3 storylines", html)
         self.assertIn('id="module-engineer"', html)
+        self.assertIn("Wonder", html)
+        self.assertIn("Hall of Wonder / Celebrations", html)
+        self.assertIn('id="wonder"', html)
         self.assertIn("Open slot", html)
         self.assertIn("Staff · development", html)
         self.assertNotIn("href=\"/student", html)

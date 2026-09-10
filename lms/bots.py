@@ -29,11 +29,23 @@ BOTS: list[dict[str, Any]] = [
         "placeholder": False,
     },
     {
-        "slug": None,
-        "name": "Next bot",
-        "hint": "Open slot. Add a card in lms/bots.py.",
-        "placeholder": True,
+        "slug": "wonder",
+        "name": "Wonder",
+        "aka": "Hall of Wonder / Celebrations",
+        "role": "Student-facing Celebrations / Hall of Wonder delight voice",
+        "focus": [
+            "Warm, precise celebration + Hall of Wonder copy",
+            "Live-class media-pane captions / unlock toasts / micro-moments",
+            "Quarantine chrome so challenge media stays wondrous",
+        ],
+        "perspectives": [
+            "Student delight",
+            "Teacher-facing toast timing (with Live-Class / ELC)",
+        ],
+        "status": "active",
         "featured": False,
+        "note": "Quietly makes the picture and the celebration feel human.",
+        "placeholder": False,
     },
     {
         "slug": None,
