@@ -1,0 +1,136 @@
+- main [ref=f7e2]:
+  - heading "Lesson review" [level=1] [ref=f7e3]
+  - paragraph [ref=f7e4]: Local factory only — not the school LMS. Course MCF3M, lesson M4-L1-vertex-form.
+  - paragraph [ref=f7e5]:
+    - generic [ref=f7e6]:
+      - text: Course
+      - textbox "Course" [ref=f7e7]: MCF3M
+    - generic [ref=f7e8]:
+      - text: Lesson
+      - textbox "Lesson" [ref=f7e9]: M4-L1-vertex-form
+    - button "Load" [ref=f7e10]
+  - paragraph [ref=f7e11]: Loaded M4-L1-vertex-form
+  - heading "1. Intended understanding" [level=2] [ref=f7e12]
+  - paragraph [ref=f7e13]: A quadratic written as f(x) = a(x − h)^2 + k makes the vertex (h, k), the axis of symmetry, and the maximum or minimum readable from the equation; changing a, h, or k moves the graph in a way students can predict and then check. Expanding that vertex-form equation produces an equivalent standard form, which graphing technology confirms.
+  - paragraph [ref=f7e14]: A2.7, A2.10
+  - heading "2. Question candidates" [level=2] [ref=f7e15]
+  - generic [ref=f7e16]:
+    - generic [ref=f7e17]:
+      - strong [ref=f7e18]: "diagnostic #1"
+      - text: — Vertex of y = −2(x + 3)^2 + 5 (h-sign)
+      - paragraph [ref=f7e19]: Look at y = −2(x + 3)^2 + 5. Name the vertex of this parabola.
+      - paragraph [ref=f7e20]: Closest existing bank item to the brief’s h-sign case f(x) = (x + 3)^2 + 1. Students who read the written plus as a right shift place the vertex at (3, 5) instead of (−3, 5). Isolating the vertex ask keeps this on A2.10 inspection, not a new transformation lesson. · nelson_functions_11
+    - generic [ref=f7e21]:
+      - strong [ref=f7e22]: "diagnostic #2"
+      - text: — Predict vertex of (x + 3)^2 + 1, then check sliders
+      - paragraph [ref=f7e23]: Before you move anything, name the vertex of f(x) = (x + 3)^2 + 1. Then set the sliders so the graph matches that equation and check.
+      - paragraph [ref=f7e24]: "Hits the brief’s exact h-sign example. Prediction before the sliders move separates “I read +3 as h = 3” from a later graph check. Fallback: locally bundled JSXGraph; do not require GeoGebra. · geogebra"
+    - generic [ref=f7e25]:
+      - strong [ref=f7e26]: "diagnostic #3"
+      - text: "— Ministry A2.6 sample: vertex of −2(x + 1)^2"
+      - paragraph [ref=f7e27]: Starting from y = x^2, sketch h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum?
+      - paragraph [ref=f7e28]: Second Ministry plus-inside case. Exposes h-sign on (x + 1) and max-min-from-a (students may use the sign of k, which is 0 here). This is an A2.6 sample reused only for the misconception; do not treat sketching-by-transformation as a new M4 target. · ontario-seed
+    - generic [ref=f7e29]:
+      - strong [ref=f7e30]: "guided_example #1"
+      - text: "— OpenStax worked reading: y = −3(x + 2)^2 + 4"
+      - paragraph [ref=f7e31]: The equation is y = −3(x + 2)^2 + 4. Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew.
+      - paragraph [ref=f7e32]: Only selected source that already works the plus-inside reading (x + 2 means h = −2) and ties the sign of a to maximum versus minimum. Use as a semi-worked read-the-equation example, not as a transformation introduction. · openstax
+    - generic [ref=f7e33]:
+      - strong [ref=f7e34]: "guided_example #2"
+      - text: "— MCF3M A2.7 sample: expand 3(x − 1)^2 + 4"
+      - paragraph [ref=f7e35]: Given f(x) = 3(x − 1)^2 + 4, write the same function as ax^2 + bx + c. Use graphing technology to compare the two graphs.
+      - paragraph [ref=f7e36]: "Verbatim Ministry sample for A2.7: expand vertex form and check that the graph does not change. Targets the expand-changes-graph misconception. Do not invent the expanded coefficients. · ontario-seed"
+    - generic [ref=f7e37]:
+      - strong [ref=f7e38]: "guided_example #3"
+      - text: "— OpenStax: expand ½(x + 2)^2 − 3 and check a table"
+      - paragraph [ref=f7e39]: "A graph looks like y = x^2 moved left 2 and down 3, then stretched by one-half: g(x) = (1/2)(x + 2)^2 − 3. Expand this to the ax^2 + bx + c form. Check a few points in a table to see that both writings give the same outputs."
+      - paragraph [ref=f7e40]: "Second A2.7-shaped worked path: expand, then confirm with a table. Also rehearses h-sign on (x + 2). STAR+diagram if used as a wordless graph-to-equation example; the basketball/shooter follow-on on the same page is A3.3-ish and is not this pick. · openstax"
+    - generic [ref=f7e41]:
+      - strong [ref=f7e42]: "practice #1"
+      - text: "— OpenStax verbal: advantage of this form"
+      - paragraph [ref=f7e43]: This writing of a quadratic is f(x) = a(x − h)^2 + k. What can you read from it that is harder to see when the same function is written as ax^2 + bx + c?
+      - paragraph [ref=f7e44]: "Verbal A2.10 inspection: what vertex form is for, without asking students to expand. Keep the OpenStax stem in the source field; do not say “standard form” to students without the Ontario naming note. · openstax"
+    - generic [ref=f7e45]:
+      - strong [ref=f7e46]: "practice #2"
+      - text: "— Nelson: label vertex and axis from mixed equations"
+      - paragraph [ref=f7e47]: Graph each parabola. Label the vertex and the axis of symmetry. a) y = x^2 − 6 b) y = (x − 2)^2 − 1 c) y = −3(x + 4)^2 + 2 d) y = 2x^2 + 6x
+      - paragraph [ref=f7e48]: "Practice progression after the diagnostic: (b) is minus-inside, (c) is plus-inside plus a < 0 (axis-equation and max-min-from-a). Not a clone of Q7(d). · nelson_functions_11"
+    - generic [ref=f7e49]:
+      - strong [ref=f7e50]: "practice #3"
+      - text: "— OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6"
+      - paragraph [ref=f7e51]: Determine the domain and range of f(x) = −2(x + 3)^2 − 6.
+      - paragraph [ref=f7e52]: "Third practice step: same (x + 3) family as the diagnostic, now used to read range from k and the sign of a. Prerequisite A2.3 language; still serves vertex-form inspection. Not in the six-record catalogue as its own id — parent would need to add a record if this is chosen. · openstax"
+    - generic [ref=f7e53]:
+      - strong [ref=f7e54]: "transfer #1"
+      - text: — Which form for which information (A2.10)
+      - paragraph [ref=f7e55]: You can choose whether a quadratic is given in standard form, factored form, or vertex form. Which form would you pick if you needed the vertex? The y-intercept? The zeros? The axis of symmetry? The domain and range? Say why.
+      - paragraph [ref=f7e56]: "Fresh case of the intended understanding: students choose vertex form when they need the vertex, axis, or max/min, and say what they cannot read (zeros). Matches A2.10’s three-form share without asking them to complete the square. · nelson_functions_11"
+    - generic [ref=f7e57]:
+      - strong [ref=f7e58]: "transfer #2"
+      - text: "— OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2"
+      - paragraph [ref=f7e59]: On the same axes, graph y = x^2, y = (x − 2)^2, y = (x − 3)^2, and y = (x + 4)^2. What stays the same? What moves, and in which direction?
+      - paragraph [ref=f7e60]: "Parameter-change transfer after they can already name one vertex: (x + 4) versus (x − 2) forces the h-sign again on a family, then they explain the change. A2.5 is prerequisite; this reuses that language to inspect vertex form. Not a separate catalogue id yet. · openstax"
+    - generic [ref=f7e61]:
+      - strong [ref=f7e62]: "transfer #3"
+      - text: — MathNet 0gz2 (olympiad; rewrite required)
+      - paragraph [ref=f7e63]: A parabola goes through two points, one on each side of the y-axis, and never meets the x-axis. What can you say about where its highest or lowest point can sit? [Do not use the contest stem below as classroom copy. This rewrite is a situation-level prompt only; Shawn must accept or restem before it is student-facing.]
+      - paragraph [ref=f7e64]: "Only selected MathNet hit. Ukraine olympiad (2010 fourth round): too packed and too hard as a Grade 11 worksheet. Keep as a transfer candidate after rewrite; the contest numbers and “find all possible x of the vertex” are solving, not classroom English. Licence and key both unverified. · mathnet"
+  - heading "3. Interaction" [level=2] [ref=f7e65]
+  - generic [ref=f7e66]: "{ \"engine\": \"jsxgraph\", \"prediction\": \"Before you move a slider, look at the equation. Where is the vertex? What is the axis of symmetry? Is this a maximum or a minimum? Then predict: if you change only h, what will happen to the graph and to the equation?\", \"action\": \"Predict the vertex, axis, and maximum or minimum from the displayed vertex-form equation before touching a slider. Then move exactly one parameter (a, h, or k). Compare the live equation with the parabola, vertex marker, and axis. Explain what changed. Then take a fresh equation and predict again before moving anything.\", \"interpretation\": \"After you moved one slider, compare the graph and the equation. What changed? What stayed the same? How can you read the new vertex from the equation? Does the expanded form show a different parabola, or the same one?\", \"fallback\": \"Paper or static diagram, no login and no remote tool. Give f(x) = 2(x + 3)^2 + 1. Students name the vertex, axis, and maximum or minimum, then sketch. They change only h to 2, rewrite the equation, and sketch again. They expand the starting equation and check that a few table points still sit on the same sketch. Fresh case on paper: f(x) = −0.5(x − 2)^2 + 4.\" }"
+  - heading "4. Preview (three-tab export)" [level=2] [ref=f7e67]
+  - paragraph [ref=f7e68]:
+    - link "Open compiled HTML" [ref=f7e69] [cursor=pointer]:
+      - /url: /build/MCF3M/M4-L1-vertex-form/index.html
+  - iframe [ref=f7e70]:
+    - article [ref=f8e2]:
+      - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f8e3]'
+      - paragraph [ref=f8e4]: MCF3M · Module 4 · M4-L1-vertex-form
+      - tablist [ref=f8e5]:
+        - tab "Minds On" [selected] [ref=f8e6] [cursor=pointer]
+        - tab "Action" [ref=f8e7] [cursor=pointer]
+        - tab "Consolidation" [ref=f8e8] [cursor=pointer]
+      - tabpanel "Minds On" [ref=f8e9]:
+        - generic [ref=f8e10]:
+          - paragraph [ref=f8e11]: "You already know how stretching, flipping, and sliding change the graph of y = x^2. This lesson is about reading a quadratic written in vertex form:"
+          - paragraph [ref=f8e12]: f(x) = a(x − h)^2 + k
+          - paragraph [ref=f8e13]: That writing is useful because the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum can be read from the equation — if you know how to look.
+          - paragraph [ref=f8e14]: "Before you move anything, look at this equation:"
+          - paragraph [ref=f8e15]: f(x) = (x + 3)^2 + 1
+          - paragraph [ref=f8e16]: Name the vertex of this parabola. Write it as a point.
+          - paragraph [ref=f8e17]: You will check on the graph tool in Action. Do not move the sliders yet.
+      - paragraph [ref=f8e18]: "Graph tool: JSXGraph (MIT). OpenStax excerpts: CC BY-NC-SA 4.0. Ontario sample: Queen’s Printer excerpt via the verified seed. No student login or remote computation."
+  - heading "5. Edit instructional sequence" [level=2] [ref=f7e71]
+  - generic [ref=f7e72]:
+    - text: Minds On student
+    - textbox "Minds On student" [ref=f7e73]: "You already know how stretching, flipping, and sliding change the graph of y = x^2. This lesson is about reading a quadratic written in vertex form: f(x) = a(x − h)^2 + k That writing is useful because the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum can be read from the equation — if you know how to look. Before you move anything, look at this equation: f(x) = (x + 3)^2 + 1 Name the vertex of this parabola. Write it as a point. You will check on the graph tool in Action. Do not move the sliders yet."
+  - generic [ref=f7e74]:
+    - text: Action student
+    - textbox "Action student" [ref=f7e75]: "First you will follow a worked reading of one vertex-form equation. Then you will use the graph tool: check the vertex you named, predict what a single slider will do, move that slider, and explain what changed. After that, two practice questions — one about what this writing is for, and one where you expand vertex form and compare graphs. In this course, f(x) = a(x − h)^2 + k is vertex form. The expanded writing f(x) = ax^2 + bx + c is standard form. Some other books swap those names; we will not."
+  - generic [ref=f7e76]:
+    - text: Guided example
+    - textbox "Guided example" [ref=f7e77]: "The equation is y = −3(x + 2)^2 + 4 Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew. Worked reading (OpenStax College Algebra 2e, §5.1, Figure 5 paragraph, CC BY-NC-SA 4.0). Some books call this writing “standard form.” In this course it is vertex form. Since x − h = x + 2 in this example, h = −2. In this form, a = −3, h = −2, and k = 4. Because a is negative, the parabola opens downward. The vertex is at (−2, 4). That vertex is a maximum. Source: https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions"
+  - generic [ref=f7e78]:
+    - text: Interactive bridge
+    - textbox "Interactive bridge" [ref=f7e79]: "The graph tool is the local board (parabola, vertex marker labelled (h, k), dashed axis of symmetry, live vertex-form equation, the same function expanded as ax^2 + bx + c, and a short table of shared points). It is not a required GeoGebra page. Check your Minds On prediction. Set the sliders so the live equation is f(x) = (x + 3)^2 + 1. Does the vertex marker match the point you named? Return to the starting equation f(x) = 2(x + 3)^2 + 1. Prediction. Before you move a slider, look at the equation. Where is the vertex? What is the axis of symmetry? Is this a maximum or a minimum? Then predict: if you change only h, what will happen to the graph and to the equation? Action. Move exactly one slider — start with h. Watch the live equation, the vertex marker, and the dashed axis. You may later repeat with only a, or only k. Interpretation. After you moved one slider, compare the graph and the equation. What changed? What stayed the same? How can you read the new vertex from the equation? Does the expanded form show a different parabola, or the same one? If the graph tool is not available: On paper, use f(x) = 2(x + 3)^2 + 1. Name the vertex, the axis, and whether this is a maximum or a minimum, then sketch. Change only h to 2, rewrite the equation, and sketch again. Expand the starting equation and check that a few table points still sit on the same sketch."
+  - generic [ref=f7e80]:
+    - text: Practice
+    - textbox "Practice" [ref=f7e81]: "Practice 1. In this course, f(x) = a(x − h)^2 + k is called vertex form. What can you read from it that is harder to see when the same function is written as f(x) = ax^2 + bx + c? (Adapted from OpenStax College Algebra 2e §5.1, CC BY-NC-SA 4.0. Source: https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions. Their wording asks about writing a quadratic in “standard form”; they mean a(x − h)^2 + k. That is not what this course means by standard form.) Practice 2. Ontario sample: Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation. In this course, standard form means f(x) = ax^2 + bx + c. Expand the vertex form yourself first. Then compare the graphs — you may use the graph tool. Do not skip the expansion by only reading a line off the board."
+  - generic [ref=f7e82]:
+    - text: Consolidation student
+    - textbox "Consolidation student" [ref=f7e83]: "A fresh case. Here is a new equation. Do not move the sliders yet. f(x) = −0.5(x − 2)^2 + 4 Name the vertex, the axis of symmetry, and whether this is a maximum or a minimum. Then move one parameter to check. If you are on paper: sketch from the equation, then change one of a, h, or k and sketch again. What to remember Vertex form is f(x) = a(x − h)^2 + k. You can read the vertex (h, k), the axis of symmetry x = h, and whether the graph has a maximum or a minimum from the sign of a: negative a means a maximum; positive a means a minimum. Match the brackets to (x − h). A plus inside the brackets does not mean the vertex is on the positive side of the x-axis. a stretches or flips the graph. k moves the vertex up or down. Those two jobs are not the same. Expanding vertex form into f(x) = ax^2 + bx + c gives the same parabola, not a new one. The graphs should land on top of each other. Vertex form does not make the x-intercepts as obvious as factored form. Do not treat the vertex as an intercept unless it actually sits on an axis. You do not need to complete the square in this lesson."
+  - button "Save instruction.json" [ref=f7e84]
+  - heading "6. Lock approved sections" [level=2] [ref=f7e85]
+  - generic [ref=f7e86]:
+    - generic [ref=f7e87]:
+      - checkbox "instruction.minds_on" [ref=f7e88]
+      - text: instruction.minds_on
+    - generic [ref=f7e89]:
+      - checkbox "instruction.action" [ref=f7e90]
+      - text: instruction.action
+    - generic [ref=f7e91]:
+      - checkbox "instruction.consolidation" [ref=f7e92]
+      - text: instruction.consolidation
+    - generic [ref=f7e93]:
+      - checkbox "questions.transfer" [ref=f7e94]
+      - text: questions.transfer
+  - button "Save locks.json" [ref=f7e95]

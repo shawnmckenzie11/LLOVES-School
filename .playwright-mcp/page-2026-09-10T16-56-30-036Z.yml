@@ -1,0 +1,85 @@
+- generic [ref=f6e2]:
+  - navigation "Staff navigation" [ref=f6e3]:
+    - link "Dashboard" [ref=f6e4] [cursor=pointer]:
+      - /url: /staff
+    - link "Log out" [ref=f6e5] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCF3M" [level=1] [ref=f6e8]
+  - navigation "Course sections" [ref=f6e9]:
+    - generic [ref=f6e10]:
+      - link "Run Live Class" [ref=f6e11] [cursor=pointer]:
+        - /url: /staff/class/2?tab=live
+      - link "Lesson Slides" [ref=f6e12] [cursor=pointer]:
+        - /url: /staff/class/2?tab=lesson-slides
+      - link "Modules" [ref=f6e13] [cursor=pointer]:
+        - /url: /staff/class/2?tab=modules
+      - link "Attendance & Participation" [ref=f6e14] [cursor=pointer]:
+        - /url: /staff/class/2?tab=ap&view=attendance
+      - link "Grades" [ref=f6e15] [cursor=pointer]:
+        - /url: /staff/class/2?tab=gradebook
+      - link "Pages" [ref=f6e16] [cursor=pointer]:
+        - /url: /staff/class/2?tab=pages
+      - link "Assignments" [ref=f6e17] [cursor=pointer]:
+        - /url: /staff/class/2?tab=assignments
+      - link "Quizzes" [ref=f6e18] [cursor=pointer]:
+        - /url: /staff/class/2?tab=quizzes
+      - link "Question banks" [ref=f6e19] [cursor=pointer]:
+        - /url: /staff/class/2?tab=question-banks
+      - link "Syllabus" [ref=f6e20] [cursor=pointer]:
+        - /url: /staff/class/2?tab=syllabus
+      - link "Expectations" [ref=f6e21] [cursor=pointer]:
+        - /url: /staff/class/2?tab=expectations
+      - link "Profiles" [ref=f6e22] [cursor=pointer]:
+        - /url: /staff/class/2?tab=profiles
+      - link "Portfolio" [ref=f6e23] [cursor=pointer]:
+        - /url: /staff/class/2?tab=portfolio
+  - generic [ref=f6e24]:
+    - table [ref=f6e26]:
+      - rowgroup [ref=f6e27]:
+        - row "Student" [ref=f6e28]
+      - rowgroup
+    - generic [ref=f6e30]:
+      - heading "Grading Scheme" [level=2] [ref=f6e31]
+      - paragraph [ref=f6e32]: Course-level weights must add to 100%. Term Mark holds each module’s portfolio rubric — pick a module to edit its rules.
+      - generic [ref=f6e33]:
+        - heading "Course weights" [level=3] [ref=f6e34]
+        - generic [ref=f6e35]:
+          - generic [ref=f6e36]:
+            - text: Term
+            - spinbutton "Term" [ref=f6e37]
+          - generic [ref=f6e38]:
+            - text: Exam
+            - spinbutton "Exam" [ref=f6e39]
+          - generic [ref=f6e40]:
+            - text: Att & Participation
+            - spinbutton "Att & Participation" [ref=f6e41]
+        - paragraph
+        - region [ref=f6e42]:
+          - heading "Term Mark" [level=3] [ref=f6e43]
+          - generic [ref=f6e44]:
+            - text: Module
+            - combobox "Module" [ref=f6e45]:
+              - option "Module 1" [selected]
+              - option "Module 2"
+              - option "Module 3"
+              - option "Module 4"
+              - option "Module 5"
+              - option "Module 6"
+              - option "Module 7"
+              - option "Module 8"
+          - paragraph
+          - heading "Portfolio" [level=4] [ref=f6e46]
+          - generic [ref=f6e47]:
+            - generic [ref=f6e48]:
+              - text: Min live / office sessions
+              - spinbutton "Min live / office sessions" [ref=f6e49]
+            - generic [ref=f6e50]:
+              - text: Min Open Question points
+              - spinbutton "Min Open Question points" [ref=f6e51]
+            - generic [ref=f6e52]:
+              - text: Min Formative points
+              - spinbutton "Min Formative points" [ref=f6e53]
+          - generic [ref=f6e54]:
+            - checkbox "Require all reflection questions after group activities" [ref=f6e55]
+            - generic [ref=f6e56]: Require all reflection questions after group activities
+        - button "Save scheme" [ref=f6e58] [cursor=pointer]

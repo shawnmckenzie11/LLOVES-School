@@ -1,0 +1,160 @@
+- generic [ref=f8e4]:
+  - banner [ref=f8e5]:
+    - generic [ref=f8e6]:
+      - generic [ref=f8e9]:
+        - link "GeoGebra Logo" [ref=f8e10] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f8e30]:
+          - generic [ref=f8e31]:
+            - button "Sign in" [ref=f8e34] [cursor=pointer]
+            - generic [ref=f8e40]:
+              - textbox [ref=f8e41]
+              - generic [ref=f8e42]: Search
+          - button "Submit" [ref=f8e43] [cursor=pointer]
+        - button "Open Menu" [ref=f8e44] [cursor=pointer]
+      - generic [ref=f8e47]:
+        - generic [ref=f8e48] [cursor=pointer]:
+          - img "Google Classroom" [ref=f8e50]
+          - generic [ref=f8e61]: Google Classroom
+        - generic [ref=f8e62] [cursor=pointer]:
+          - img "GeoGebra" [ref=f8e64]
+          - generic [ref=f8e72]: GeoGebra Classroom
+  - generic [ref=f8e73]:
+    - list [ref=f8e76]:
+      - listitem [ref=f8e77]:
+        - link "Home" [ref=f8e78] [cursor=pointer]:
+          - /url: /
+      - listitem [ref=f8e83]:
+        - link "Resources" [ref=f8e84] [cursor=pointer]:
+          - /url: /math
+      - listitem [ref=f8e89]:
+        - link "Profile" [ref=f8e90] [cursor=pointer]:
+          - /url: /u
+      - listitem [ref=f8e95]:
+        - link "Classroom" [ref=f8e96] [cursor=pointer]:
+          - /url: /classroom
+      - listitem [ref=f8e101]:
+        - link "App Downloads" [ref=f8e102] [cursor=pointer]:
+          - /url: /download
+    - main [ref=f8e107]:
+      - generic [ref=f8e108]:
+        - generic [ref=f8e111]:
+          - heading "Quadratic functions, vertex form" [level=1] [ref=f8e113]
+          - generic [ref=f8e114]:
+            - generic [ref=f8e115]:
+              - generic [ref=f8e116]:
+                - text: "Author:"
+                - link "MathPSS" [ref=f8e117] [cursor=pointer]:
+                  - /url: /u/mathpss
+                - text: ","
+                - link "Dennis Weber" [ref=f8e118] [cursor=pointer]:
+                  - /url: /u/denniswebergb
+              - generic [ref=f8e119]:
+                - text: "Topic:"
+                - link "Functions" [ref=f8e120] [cursor=pointer]:
+                  - /url: /t/functions
+                - text: ","
+                - link "Quadratic Functions" [ref=f8e121] [cursor=pointer]:
+                  - /url: /t/quadratic-function
+            - list [ref=f8e123]:
+              - listitem [ref=f8e124]:
+                - generic [ref=f8e126] [cursor=pointer]
+          - generic [ref=f8e130]:
+            - heading "Vertex Form" [level=2] [ref=f8e131]
+            - generic [ref=f8e132]: Change the parameters to investigate their effect on the function graph. Compare g(x) to f(x). Point A is the vertex of f(x) and B is the vertex of g(x).
+          - button "GeoGebra" [ref=f8e140] [cursor=pointer]:
+            - img "GeoGebra" [ref=f8e142]
+        - generic [ref=f8e159]:
+          - generic [ref=f8e160]:
+            - heading "New Resources" [level=2] [ref=f8e161]
+            - list [ref=f8e162]:
+              - listitem [ref=f8e163]:
+                - 'link "z`]]" [ref=f8e164] [cursor=pointer]':
+                  - /url: /m/akq95bkx
+              - listitem [ref=f8e165]:
+                - link "Function Art 3D - Flower" [ref=f8e166] [cursor=pointer]:
+                  - /url: /m/qvccep3y
+              - listitem [ref=f8e167]:
+                - link "Function art 3D - waiting shed" [ref=f8e168] [cursor=pointer]:
+                  - /url: /m/mrdg8tjs
+              - listitem [ref=f8e169]:
+                - 'link "Linear Equation Graphs: Thin Slice" [ref=f8e170] [cursor=pointer]':
+                  - /url: /m/pj37zdsj
+              - listitem [ref=f8e171]:
+                - 'link "Pythagorean Theorem: Extension Exercises" [ref=f8e172] [cursor=pointer]':
+                  - /url: /m/rdkbsbmg
+          - generic [ref=f8e173]:
+            - heading "Discover Resources" [level=2] [ref=f8e174]
+            - list [ref=f8e175]:
+              - listitem [ref=f8e176]:
+                - link "Name Rotation" [ref=f8e177] [cursor=pointer]:
+                  - /url: /m/SFScGqCq
+              - listitem [ref=f8e178]:
+                - link "Copie de Polarization (Improved)" [ref=f8e179] [cursor=pointer]:
+                  - /url: /m/g7xwyxa6
+          - generic [ref=f8e180]:
+            - heading "Discover Topics" [level=2] [ref=f8e181]
+            - list [ref=f8e182]:
+              - listitem [ref=f8e183]:
+                - link "Quadrilaterals" [ref=f8e184] [cursor=pointer]:
+                  - /url: /t/quadrilateral
+              - listitem [ref=f8e185]:
+                - link "Numbers" [ref=f8e186] [cursor=pointer]:
+                  - /url: /t/numbers
+              - listitem [ref=f8e187]:
+                - link "Poisson Distribution" [ref=f8e188] [cursor=pointer]:
+                  - /url: /t/poisson-distribution
+              - listitem [ref=f8e189]:
+                - link "Function Graph" [ref=f8e190] [cursor=pointer]:
+                  - /url: /t/graph
+              - listitem [ref=f8e191]:
+                - link "Linear Programming or Linear Optimization" [ref=f8e192] [cursor=pointer]:
+                  - /url: /t/linear-programming
+        - generic [ref=f8e195]:
+          - link [ref=f8e197] [cursor=pointer]:
+            - /url: https://www.geogebra.org
+          - generic [ref=f8e217]:
+            - generic [ref=f8e218]:
+              - generic [ref=f8e219]:
+                - generic [ref=f8e220]:
+                  - link "About" [ref=f8e221] [cursor=pointer]:
+                    - /url: /about
+                  - link "Partners" [ref=f8e222] [cursor=pointer]:
+                    - /url: /partners
+                  - link "Help Center" [ref=f8e223] [cursor=pointer]:
+                    - /url: https://help.geogebra.org/hc/en-us
+                - generic [ref=f8e224]:
+                  - link "Terms of Service" [ref=f8e225] [cursor=pointer]:
+                    - /url: /tos
+                  - link "Privacy" [ref=f8e226] [cursor=pointer]:
+                    - /url: /privacy
+                  - link "License" [ref=f8e227] [cursor=pointer]:
+                    - /url: /license
+                - generic [ref=f8e228]:
+                  - link "Graphing Calculator" [ref=f8e229] [cursor=pointer]:
+                    - /url: /graphing
+                  - link "Calculator Suite" [ref=f8e230] [cursor=pointer]:
+                    - /url: /calculator
+                  - link "Math Resources" [ref=f8e231] [cursor=pointer]:
+                    - /url: /math
+              - generic [ref=f8e232]:
+                - paragraph [ref=f8e233]: "Download our apps here:"
+                - generic [ref=f8e234]:
+                  - link "Download_on_the_App_Store_Badge_US-UK_RGB_blk_4SVG_092917" [ref=f8e235] [cursor=pointer]:
+                    - /url: https://apps.apple.com/us/developer/geogebra-gmbh/id1580697096
+                    - img "Download_on_the_App_Store_Badge_US-UK_RGB_blk_4SVG_092917" [ref=f8e236]
+                  - link [ref=f8e271] [cursor=pointer]:
+                    - /url: https://play.google.com/store/apps/dev?id=8237791256484396134
+            - generic [ref=f8e289]:
+              - generic [ref=f8e290]:
+                - button "English / English (United States)" [ref=f8e292] [cursor=pointer]
+                - paragraph [ref=f8e300]: © 2026 GeoGebra®
+              - generic [ref=f8e301]:
+                - link "Youtube" [ref=f8e302] [cursor=pointer]:
+                  - /url: https://www.youtube.com/user/GeoGebraChannel
+                - link "Instagram" [ref=f8e307] [cursor=pointer]:
+                  - /url: https://www.instagram.com/geogebra
+                - link "Twitter" [ref=f8e312] [cursor=pointer]:
+                  - /url: https://twitter.com/geogebra
+                - link "Facebook" [ref=f8e318] [cursor=pointer]:
+                  - /url: https://www.facebook.com/geogebra

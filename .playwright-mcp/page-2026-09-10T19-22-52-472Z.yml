@@ -1,0 +1,118 @@
+- generic [ref=f16e2]:
+  - navigation "Staff navigation" [ref=f16e3]:
+    - link "Dashboard" [ref=f16e4] [cursor=pointer]:
+      - /url: /staff
+    - link "Bots" [ref=f16e5] [cursor=pointer]:
+      - /url: /staff/bots
+    - link "Log out" [ref=f16e6] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCF3M" [level=1] [ref=f16e9]
+  - navigation "Course sections" [ref=f16e10]:
+    - generic [ref=f16e11]:
+      - link "Run Live Class" [ref=f16e12] [cursor=pointer]:
+        - /url: /staff/class/2?tab=live
+      - link "Lesson Slides" [ref=f16e13] [cursor=pointer]:
+        - /url: /staff/class/2?tab=lesson-slides
+      - link "Modules" [ref=f16e14] [cursor=pointer]:
+        - /url: /staff/class/2?tab=modules
+      - link "Attendance & Participation" [ref=f16e15] [cursor=pointer]:
+        - /url: /staff/class/2?tab=ap&view=attendance
+      - link "Grades" [ref=f16e16] [cursor=pointer]:
+        - /url: /staff/class/2?tab=gradebook
+      - link "Pages" [ref=f16e17] [cursor=pointer]:
+        - /url: /staff/class/2?tab=pages
+      - link "Assignments" [ref=f16e18] [cursor=pointer]:
+        - /url: /staff/class/2?tab=assignments
+      - link "Quizzes" [ref=f16e19] [cursor=pointer]:
+        - /url: /staff/class/2?tab=quizzes
+      - link "Question banks" [ref=f16e20] [cursor=pointer]:
+        - /url: /staff/class/2?tab=question-banks
+      - link "Syllabus" [ref=f16e21] [cursor=pointer]:
+        - /url: /staff/class/2?tab=syllabus
+      - link "Expectations" [ref=f16e22] [cursor=pointer]:
+        - /url: /staff/class/2?tab=expectations
+      - link "Profiles" [ref=f16e23] [cursor=pointer]:
+        - /url: /staff/class/2?tab=profiles
+      - link "Portfolio" [ref=f16e24] [cursor=pointer]:
+        - /url: /staff/class/2?tab=portfolio
+  - generic [ref=f16e25]:
+    - generic [ref=f16e26]:
+      - paragraph [ref=f16e27]: Class join code
+      - generic [ref=f16e28]:
+        - button "JFGGBPLU" [ref=f16e29] [cursor=pointer]
+        - button "Copy" [ref=f16e30] [cursor=pointer]
+      - paragraph [ref=f16e31]: Share this code with students. It stays here even if the overlay popup is blocked.
+    - generic [ref=f16e32]:
+      - heading "Active media" [level=2] [ref=f16e33]
+      - paragraph [ref=f16e34]: None — students see the wait / prompt shell until you push a page.
+      - generic [ref=f16e35]:
+        - button "Show Real-slice" [ref=f16e36] [cursor=pointer]
+        - button "C2 — no immersive media" [ref=f16e37] [cursor=pointer]
+        - button "C3 — no immersive media" [ref=f16e38] [cursor=pointer]
+        - button "Clear" [ref=f16e39] [cursor=pointer]
+      - paragraph [ref=f16e40]: C1 only uses the Real-slice channel. C2/C3 do not seed active_media_json (empty pane).
+      - generic [ref=f16e41]:
+        - checkbox "Reveal axes on student view" [ref=f16e42]
+        - text: Reveal axes on student view
+      - generic [ref=f16e43]:
+        - checkbox "Unlock a, b, c sliders on student devices" [ref=f16e44]
+        - text: Unlock a, b, c sliders on student devices
+      - paragraph [ref=f16e45]: Layers L0–L4. L0 is entry (axes off, camera fixed). L4 is in-pane lateral reveal — same a/b/c stem. L1–L3 stay unnamed.
+      - generic [ref=f16e46]:
+        - checkbox "Limited student yaw after lateral (not free orbit)" [ref=f16e47]
+        - text: Limited student yaw after lateral (not free orbit)
+      - generic [ref=f16e48]:
+        - checkbox "Freeze — offer optional encore (never autoplay)" [ref=f16e49]
+        - text: Freeze — offer optional encore (never autoplay)
+      - paragraph [ref=f16e50]: Encore is Welch Labs, click-out only after freeze — scrub to the out-of-page / lateral beat. Do not play it mid-argue.
+      - generic [ref=f16e51]:
+        - generic [ref=f16e52]:
+          - text: Same-origin /static/… URL
+          - textbox "Same-origin /static/… URL" [ref=f16e53]: /static/live-media/m1c1-c1-real-slice.html
+        - button "Swap to pasted URL" [ref=f16e55] [cursor=pointer]
+    - generic [ref=f16e56]:
+      - generic [ref=f16e58] [cursor=pointer]:
+        - generic [ref=f16e59]: "Attendance Attendance: 1"
+        - generic [ref=f16e115]: 1 present
+      - generic [ref=f16e70]:
+        - generic [ref=f16e71] [cursor=pointer]:
+          - generic [ref=f16e72]: Tracking mode
+          - generic [ref=f16e73]: Team
+        - generic [ref=f16e74]:
+          - generic [ref=f16e75]:
+            - button "Individual Tracking" [ref=f16e76] [cursor=pointer]
+            - paragraph [ref=f16e79]: Assign points to individuals in the class list.
+            - button "Team Tracking" [active] [pressed] [ref=f16e80] [cursor=pointer]:
+              - generic [aria-hidden] [ref=f16e117]: ✓
+            - paragraph [ref=f16e82]: Assign points to individuals and groups creatively.
+          - generic [ref=f16e118]:
+            - generic [ref=f16e120] [cursor=pointer]:
+              - checkbox "Run as Game Include scoreboard during class" [checked] [ref=f16e121]
+              - generic [ref=f16e122]:
+                - generic [ref=f16e123]: Run as Game
+                - generic [ref=f16e124]: Include scoreboard during class
+            - generic [ref=f16e126] [cursor=pointer]:
+              - checkbox "Allow students to privately see their rank in class" [ref=f16e127]
+              - generic [ref=f16e128]: Allow students to privately see their rank in class
+          - generic [aria-hidden] [ref=f16e131]:
+            - generic [ref=f16e132]:
+              - generic [ref=f16e133]: ROUND 1 · OPEN QUESTION ROUND
+              - generic [ref=f16e134]: 19:16
+            - generic [ref=f16e135]:
+              - generic [ref=f16e136]:
+                - generic [ref=f16e137]: TEAM 1
+                - generic [ref=f16e138]: "0"
+              - generic [ref=f16e139]:
+                - generic [ref=f16e140]: TEAM 2
+                - generic [ref=f16e141]: "0"
+              - generic [ref=f16e142]:
+                - generic [ref=f16e143]: TEAM 3
+                - generic [ref=f16e144]: "0"
+          - generic [ref=f16e83]:
+            - button "← Prev" [ref=f16e84] [cursor=pointer]
+            - button "Quit" [ref=f16e85] [cursor=pointer]
+            - button "Next →" [ref=f16e86] [cursor=pointer]
+      - generic [ref=f16e88] [cursor=pointer]:
+        - generic [ref=f16e89]: Start Round 1
+        - generic [ref=f16e90]: Round 1 · Open Question Round
+      - generic [ref=f16e97]: Scoring

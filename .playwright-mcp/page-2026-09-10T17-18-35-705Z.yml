@@ -1,0 +1,53 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - paragraph [ref=e5]:
+      - link "Admin dashboard" [ref=e6] [cursor=pointer]:
+        - /url: /it
+    - heading "Assign Course — Robyn" [level=1] [ref=e7]
+    - paragraph [ref=e8]: rspercival10@gmail.com
+  - generic [ref=e9]:
+    - heading "Assign a course" [level=2] [ref=e10]
+    - paragraph [ref=e11]:
+      - text: "Active semester:"
+      - strong [ref=e12]: 2026-2027 S1
+    - generic [ref=e13]:
+      - generic [ref=e14]: Ontario course code
+      - combobox "Ontario course code" [ref=e15]
+      - generic [ref=e16]: Base layer
+      - combobox "Base layer" [ref=e17]:
+        - option "None" [selected]
+      - generic [ref=e18]: Module pack (optional)
+      - button "Module pack (optional)" [ref=e19]
+      - paragraph [ref=e20]: Optional when a JSON outline or shared library already exists for this code. Required only if neither exists yet. Uploading here creates a new library; other teachers of the same code share it unless you upload again. After the file is stored you can leave this page — progress continues on Course Offerings and the teacher's staff home card.
+      - generic [ref=e21]: Live-class days
+      - combobox "Live-class days" [ref=e22]:
+        - option "M/W/F" [selected]
+        - option "T/Th/F"
+      - generic [ref=e23]: Start time (75 minutes implied)
+      - combobox "Start time (75 minutes implied)" [ref=e24]:
+        - option "8:00am"
+        - option "9:15am"
+        - option "10:40am"
+        - option "12:35pm"
+        - option "2:00pm" [selected]
+        - option "3:15pm"
+      - paragraph [ref=e25]: Teachers inherit this schedule. Optional CSV below populates the class now; otherwise they add Codenames later.
+      - generic [ref=e26]: Student roster CSV (optional)
+      - button "Student roster CSV (optional)" [ref=e27]
+      - paragraph [ref=e28]: First column only = Codenames (one student per row). Empty rows are skipped. No commas in names. Header row optional (Name / Codename / Student).
+      - generic [ref=e29]: Slide template (Google URL or file ID)
+      - textbox "Slide template (Google URL or file ID)" [ref=e30]:
+        - /placeholder: "Lesson Theme Template #1 (school default)"
+      - paragraph [ref=e31]: "Optional. Empty uses the school default (Lesson Theme Template #1). Paste a Slides URL or file id."
+      - generic [ref=e32]: Style guide (Google URL or file ID)
+      - textbox "Style guide (Google URL or file ID)" [ref=e33]:
+        - /placeholder: Optional Drive Doc / file
+      - paragraph [ref=e34]:
+        - text: Optional provenance pointer. The generator uses the versioned copy in
+        - code [ref=e35]: lms/seeds/live_lesson_style_guide.md
+        - text: .
+      - generic [ref=e36]:
+        - button "Assign" [ref=e37] [cursor=pointer]
+        - link "Cancel" [ref=e38] [cursor=pointer]:
+          - /url: /it
+    - paragraph [ref=e39]: Assigning a code the teacher already holds creates a new section (MCF3M-2, MCF3M-3…). Sections share one content library. To avoid accidental duplicates, double-check the Course Offerings tab before assigning.

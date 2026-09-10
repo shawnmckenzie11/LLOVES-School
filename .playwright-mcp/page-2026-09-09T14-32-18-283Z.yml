@@ -1,0 +1,58 @@
+- main [ref=f14e2]:
+  - heading "Lesson review" [level=1] [ref=f14e3]
+  - paragraph [ref=f14e4]: Local factory only — not the school LMS. Student preview uses the same compiler as export. Approve is not publish.
+  - generic [ref=f14e5]:
+    - heading "Course onboarding" [level=2] [ref=f14e6]
+    - paragraph [ref=f14e7]: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+    - paragraph
+  - paragraph [ref=f14e8]:
+    - generic [ref=f14e9]:
+      - text: Course
+      - textbox "Course" [ref=f14e10]: MCF3M
+    - generic [ref=f14e11]:
+      - text: Lesson
+      - combobox "Lesson" [ref=f14e12]
+    - button "Load" [ref=f14e13] [cursor=pointer]
+    - button "Approve version" [ref=f14e14] [cursor=pointer]
+  - paragraph [ref=f14e15]: /api/lessons?course=MCF3M 404
+  - paragraph
+  - heading "Coverage" [level=2] [ref=f14e16]
+  - heading "Candidate drawer" [level=2] [ref=f14e18]
+  - heading "Student preview (same compiler as export)" [level=2] [ref=f14e19]
+  - paragraph [ref=f14e20]:
+    - link "Open compiled HTML" [ref=f14e21] [cursor=pointer]:
+      - /url: /build/MCF3M/M4-L1-vertex-form/index.html
+  - iframe [ref=f14e22]:
+    - article [ref=f15e2]:
+      - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f15e3]'
+      - tablist [ref=f15e4]:
+        - tab "Minds On" [selected] [ref=f15e5] [cursor=pointer]
+        - tab "Action" [ref=f15e6] [cursor=pointer]
+        - tab "Consolidation" [ref=f15e7] [cursor=pointer]
+      - tabpanel "Minds On" [ref=f15e8]:
+        - generic [ref=f15e9]:
+          - generic [ref=f15e10]:
+            - heading "Look at the streams" [level=3] [ref=f15e11]
+            - figure [ref=f15e16]:
+              - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=f15e17]
+            - paragraph [ref=f15e18]: Look at the water leaving the fountain. Each stream goes up and comes down.
+            - paragraph [ref=f15e20]: Choose one stream. Name the highest point of that stream — the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.
+          - paragraph [ref=f15e21]: That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.
+          - paragraph [ref=f15e22]: A quadratic written as
+          - paragraph [ref=f15e23]: f(x) = a(x - h)² + k
+          - paragraph [ref=f15e24]: "is in vertex form. The vertex is the point (h, k). The axis of symmetry is the vertical line x = h. The sign of a tells you whether that vertex is a maximum or a minimum: negative a opens downward, so the vertex is a highest point; positive a opens upward, so the vertex is a lowest point."
+          - paragraph [ref=f15e25]: Look at f(x) = (x + 3)² + 1. The equation is already in vertex form, but notice the sign inside the brackets.
+          - paragraph [ref=f15e26]: f(x) = (x + 3)² + 1
+          - paragraph [ref=f15e28]: Where is the vertex? Write its coordinates before you check on the graph.
+      - text: Worked example Another example Hint Hint Worked example Hint Hint
+      - generic [ref=f15e29]:
+        - paragraph [ref=f15e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+        - paragraph [ref=f15e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+        - paragraph [ref=f15e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"
+  - heading "Edit student blocks" [level=2] [ref=f14e23]
+  - paragraph [ref=f14e24]: Saves a patch against student-content.json, rebuilds, and refreshes this preview. instruction.json is not an authoring target.
+  - paragraph [ref=f14e25]:
+    - button "Save, rebuild, preview" [ref=f14e26] [cursor=pointer]
+  - heading "Diff versus approved version" [level=2] [ref=f14e27]
+  - heading "Lock blocks" [level=2] [ref=f14e29]
+  - button "Save locks.json" [ref=f14e30] [cursor=pointer]

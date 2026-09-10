@@ -286,7 +286,7 @@ class ConsolidationLookupTests(unittest.TestCase):
         self.assertNotIn("Ignore other", rows[0]["stem"])
 
     def test_specifics_examples_list_becomes_stem(self) -> None:
-        """curriculum-drive-author specifics[].examples is the official stem."""
+        """Extract specifics[].examples is the official stem."""
         index = self.cache / "MCF3M" / "examples-index.json"
         index.parent.mkdir(parents=True)
         index.write_text(

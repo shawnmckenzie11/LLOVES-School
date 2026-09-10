@@ -1,0 +1,19 @@
+- generic [ref=f7e2]:
+  - paragraph [ref=f7e3]: MCF3M
+  - heading "Choose your character" [level=1] [ref=f7e4]
+  - paragraph [ref=f7e5]: Pick one, then join class. You can wait here until scoring starts.
+  - generic [ref=f7e6]:
+    - radiogroup "Characters" [ref=f7e7]:
+      - generic [ref=f7e8] [cursor=pointer]:
+        - radio "Avery" [checked] [active]
+        - generic [ref=f7e15]: Avery
+      - generic [ref=f7e16] [cursor=pointer]:
+        - radio "Jordan"
+        - generic [ref=f7e23]: Jordan
+      - generic [ref=f7e24] [cursor=pointer]:
+        - radio "Samira"
+        - generic [ref=f7e32]: Samira
+      - generic [ref=f7e33] [cursor=pointer]:
+        - radio "Kenji"
+        - generic [ref=f7e41]: Kenji
+    - button "Join Class" [ref=f7e43] [cursor=pointer]

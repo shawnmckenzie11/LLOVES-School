@@ -1,0 +1,25 @@
+- generic [ref=f5e2]:
+  - paragraph [ref=f5e3]: MCF3M
+  - heading "Choose your Avatar" [level=1] [ref=f5e4]
+  - paragraph [ref=f5e5]: Pick one, then join class. You can wait here until scoring starts.
+  - generic [ref=f5e6]:
+    - radiogroup "Avatars" [ref=f5e7]:
+      - generic "Fox" [ref=f5e8] [cursor=pointer]:
+        - radio "Fox"
+        - generic [aria-hidden] [ref=f5e9]: 🦊
+      - generic "Panda" [ref=f5e11] [cursor=pointer]:
+        - radio "Panda"
+        - generic [aria-hidden] [ref=f5e12]: 🐼
+      - generic "Unicorn" [ref=f5e14] [cursor=pointer]:
+        - radio "Unicorn"
+        - generic [aria-hidden] [ref=f5e15]: 🦄
+      - generic "Octopus" [ref=f5e17] [cursor=pointer]:
+        - radio "Octopus"
+        - generic [aria-hidden] [ref=f5e18]: 🐙
+      - generic "Dragon" [ref=f5e20] [cursor=pointer]:
+        - radio "Dragon"
+        - generic [aria-hidden] [ref=f5e21]: 🐲
+      - generic "Owl" [ref=f5e23] [cursor=pointer]:
+        - radio "Owl"
+        - generic [aria-hidden] [ref=f5e24]: 🦉
+    - button "Join Class" [ref=f5e27] [cursor=pointer]

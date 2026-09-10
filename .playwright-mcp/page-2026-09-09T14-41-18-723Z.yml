@@ -1,0 +1,881 @@
+- main [ref=f5e2]:
+  - heading "Lesson review" [level=1] [ref=f5e3]
+  - paragraph [ref=f5e4]: Local factory only — not the school LMS. Student preview uses the same compiler as export. Approve is not publish.
+  - generic [ref=f5e5]:
+    - heading "Course onboarding" [level=2] [ref=f5e6]
+    - paragraph [ref=f5e7]: "Last import: noop · 2026-09-09T10:20:23+00:00 Mapped is not taught. Process expectations stay course-wide."
+    - paragraph [ref=f5e8]:
+      - paragraph [ref=f5e9]:
+        - strong [ref=f5e10]: "39"
+        - text: lessons ·
+        - strong [ref=f5e11]: "2"
+        - text: unresolved conflicts ·
+        - strong [ref=f5e12]: "7"
+        - text: "existing catalogue resources kept · rule set {\"rule.authority-and-scope\":1,\"rule.teaching-purpose\":1,\"rule.three-part-html\":1,\"rule.student-language\":1,\"rule.practice-feedback\":1,\"rule.model-star\":1,\"rule.questions-hooks-resources\":1,\"rule.live-slides\":1,\"rule.review-production\":1}"
+    - generic [ref=f5e13]:
+      - heading "Known coverage concerns" [level=3] [ref=f5e14]
+      - paragraph [ref=f5e15]: B1.6-partial-M1L2 — Partial B1.6 comparison in M1L2 (linear/quadratic only).
+      - paragraph [ref=f5e16]: B3.4-tvm — B3.4 requires TVM Solver work for rate or number of periods.
+      - paragraph [ref=f5e17]: B2-C3-data-application — B2 and C3 need actual data-collection/application tasks, not titles alone.
+      - paragraph [ref=f5e18]: note.MCF3M-M1L2.49fd849144 — B1.6 explicitly compares exponential, linear, and quadratic functions. This early lesson covers only the linear/quadratic part; revisit in M7L3. Do not claim B1.6 is fully covered here.
+      - paragraph [ref=f5e19]: note.MCF3M-M6L1.fd9c2d35e7 — Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.
+      - paragraph [ref=f5e20]: note.MCF3M-M6L2.fd9c2d35e7 — Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.
+      - paragraph [ref=f5e21]: note.MCF3M-M6L3.fd9c2d35e7 — Data collection, contextual restrictions, and application problems need actual tasks. Topic titles alone do not prove C3 coverage. Keep required sine work in degrees and within the stated MCF3M forms.
+      - paragraph [ref=f5e22]: note.MCF3M-M7L3.4d2a5b2665 — This broad lesson carries six proposed expectations. Plan enough investigation, data collection and practice, or record uncovered parts.
+      - paragraph [ref=f5e23]: note.MCF3M-M8L2.02b329e6b3 — B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it.
+      - paragraph [ref=f5e24]: note.MCF3M-M8L3.02b329e6b3 — B3.4 requires solving for rate or number of periods with a TVM Solver; add a purposeful task or report a coverage gap. FV/PV substitution alone does not cover it.
+    - generic [ref=f5e25]:
+      - heading "Unresolved conflicts" [level=3] [ref=f5e26]
+      - generic [ref=f5e27]:
+        - paragraph [ref=f5e28]:
+          - strong [ref=f5e29]: conflict.seed-text.A1.1
+        - paragraph [ref=f5e30]: lms/seeds wording differs from package source for A1.1.
+        - generic [ref=f5e31]: "{ \"existing\": \"pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems\", \"incoming\": \"pose problems involving quadratic relations arising from real-world applications and represented by tables of values and graphs, and solve these and other such problems (e.g., \\\"From the graph of the height of a ball versus time, can you tell me how high the ball was thrown and the time when it hit the ground?\\\")\" }"
+        - paragraph [ref=f5e32]:
+          - button "Keep existing" [ref=f5e33] [cursor=pointer]
+          - button "Accept incoming" [ref=f5e34] [cursor=pointer]
+          - button "Keep both" [ref=f5e35] [cursor=pointer]
+      - generic [ref=f5e36]:
+        - paragraph [ref=f5e37]:
+          - strong [ref=f5e38]: conflict.mapping.codes.MCF3M-M4L1
+        - paragraph [ref=f5e39]: Package proposal differs from existing brief expectation codes. Keep both; do not auto-approve.
+        - generic [ref=f5e40]: "{ \"existing\": [ \"A2.7\", \"A2.10\" ], \"incoming\": [ \"A2.5\", \"A2.6\", \"A2.7\", \"A2.10\" ] }"
+        - paragraph [ref=f5e41]:
+          - button "Keep existing" [ref=f5e42] [cursor=pointer]
+          - button "Accept incoming" [ref=f5e43] [cursor=pointer]
+          - button "Keep both" [ref=f5e44] [cursor=pointer]
+    - generic [ref=f5e45]:
+      - generic [ref=f5e46]:
+        - 'heading "Module 1: Introduction to the Quadratic Function (Module 1 - temp)" [level=3] [ref=f5e47]'
+        - list [ref=f5e48]:
+          - listitem [ref=f5e49]:
+            - 'button "MCF3M-M1L1 — Lesson 1: Characteristics of a Function" [ref=f5e50] [cursor=pointer]'
+            - paragraph [ref=f5e51]: Drive 1cRe1-2Kkeqv4d-sx5kT3Ub7SiJ20rncW · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e52]: Proposed A2.1 · brief —
+          - listitem [ref=f5e53]:
+            - 'button "MCF3M-M1L2 — Lesson 2: Comparing Rates of Change in Linear & Quadratic Functions" [ref=f5e54] [cursor=pointer]'
+            - paragraph [ref=f5e55]: Drive 1MSqOvNB-mRUW-qZIhm3q0yfjGHjTVx9v · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e56]: Proposed A2.1, B1.6 · brief —
+          - listitem [ref=f5e57]:
+            - 'button "MCF3M-M1L3 — Lesson 3: Function Notation" [ref=f5e58] [cursor=pointer]'
+            - paragraph [ref=f5e59]: Drive 1LNG50PKEhO4m4XUMNI2kd9nxrG0ndezF · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e60]: Proposed A2.2 · brief —
+          - listitem [ref=f5e61]:
+            - 'button "MCF3M-M1L4 — Lesson 4: Exploring Transformations of Quadratic Functions" [ref=f5e62] [cursor=pointer]'
+            - paragraph [ref=f5e63]: Drive 1gHTJMUNFSFcgStDzEivvTOkqZZK8F53A · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e64]: Proposed A2.5 · brief —
+          - listitem [ref=f5e65]:
+            - 'button "MCF3M-M1L5 — Lesson 5: Graphing Quadratic Functions using Transformations" [ref=f5e66] [cursor=pointer]'
+            - paragraph [ref=f5e67]: Drive 1Ibbalx1Q3XOXuEkI8-kZmi2NOpX-kBUd · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e68]: Proposed A2.6 · brief —
+          - listitem [ref=f5e69]:
+            - 'button "MCF3M-M1L6 — Lesson 6: Using Multiple Transformations to Graph Quadratic Functions" [ref=f5e70] [cursor=pointer]'
+            - paragraph [ref=f5e71]: Drive 1TXQHmG1vTcvrpSfchQ8i3geJULzPXVBh · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e72]: Proposed A2.5, A2.6 · brief —
+          - listitem [ref=f5e73]:
+            - 'button "MCF3M-M1L7 — Lesson 7: The Domain and Range of a Quadratic Function" [ref=f5e74] [cursor=pointer]'
+            - paragraph [ref=f5e75]: Drive 1PQBLRA58JneXI1ymEWkEn8OoXaFivP6a · parent Module 1 - temp · content not_drafted
+            - paragraph [ref=f5e76]: Proposed A2.3, A2.4 · brief —
+      - generic [ref=f5e77]:
+        - 'heading "Module 2: Algebra of Quadratic Expressions (Module 2)" [level=3] [ref=f5e78]'
+        - list [ref=f5e79]:
+          - listitem [ref=f5e80]:
+            - 'button "MCF3M-M2L1 — Lesson 1: Expanding Adding & Subtracting Polynomials" [ref=f5e81] [cursor=pointer]'
+            - paragraph [ref=f5e82]: Drive 1RX8fXlYyjN7PS-rmZ--uqB20qdGqrfKI · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e83]: Proposed A1.2 · brief —
+            - text: "Drive: Lesson 1: Expanding Adding & Subtracting Polynomials · original: Lesson 1: Expanding Polynomials PART 1"
+          - listitem [ref=f5e84]:
+            - 'button "MCF3M-M2L2 — Lesson 2: Expanding Polynomials" [ref=f5e85] [cursor=pointer]'
+            - paragraph [ref=f5e86]: Drive 1E5FrEZhmSjDWZA0tzTo-Qgr0OXjS7ecx · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e87]: Proposed A1.2 · brief —
+            - text: "Drive: Lesson 2: Expanding Polynomials · original: Lesson 2: Expanding Polynomials PART 2"
+          - listitem [ref=f5e88]:
+            - 'button "MCF3M-M2L3 — Lesson 3: Common Factoring" [ref=f5e89] [cursor=pointer]'
+            - paragraph [ref=f5e90]: Drive 13RAn5Ukavq3drHrOgtBTvlMzCFrYFRp- · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e91]: Proposed A1.3 · brief —
+          - listitem [ref=f5e92]:
+            - 'button "MCF3M-M2L4 — Lesson 4: Factoring Simple Trinomials" [ref=f5e93] [cursor=pointer]'
+            - paragraph [ref=f5e94]: Drive 1SJ6NlSK2oDFAnjbRAKFuiQbpaVU0Zg5G · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e95]: Proposed A1.3 · brief —
+          - listitem [ref=f5e96]:
+            - 'button "MCF3M-M2L5 — Lesson 5: Factoring Harder Trinomials" [ref=f5e97] [cursor=pointer]'
+            - paragraph [ref=f5e98]: Drive 1W_WXmC8TNOVQE8C4gKic9FjiXQw2TAT0 · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e99]: Proposed A1.3 · brief —
+          - listitem [ref=f5e100]:
+            - 'button "MCF3M-M2L6 — Lesson 6: Special Cases" [ref=f5e101] [cursor=pointer]'
+            - paragraph [ref=f5e102]: Drive 1eoTKsHZduxOTw6s20nwts8ocxfkgOjWd · parent Module 2 · content not_drafted
+            - paragraph [ref=f5e103]: Proposed A1.3 · brief —
+      - generic [ref=f5e104]:
+        - 'heading "Module 3: Working with Quadratic Functions (Module 3)" [level=3] [ref=f5e105]'
+        - list [ref=f5e106]:
+          - listitem [ref=f5e107]:
+            - 'button "MCF3M-M3L1 — Lesson 1: Relating Standard & Factored Form" [ref=f5e108] [cursor=pointer]'
+            - paragraph [ref=f5e109]: Drive 1SryAlkGspOgk44Zaphl68FkZ5oxjcP6Y · parent Module 3 · content not_drafted
+            - paragraph [ref=f5e110]: Proposed A2.10, A2.11, A2.9 · brief —
+          - listitem [ref=f5e111]:
+            - 'button "MCF3M-M3L2 — Lesson 2: Solving Quadratic Equations by Graphing" [ref=f5e112] [cursor=pointer]'
+            - paragraph [ref=f5e113]: Drive 152WxNDwZLr6_YdrJj0G3IIJd_NafPowu · parent Module 3 · content not_drafted
+            - paragraph [ref=f5e114]: Proposed A1.1, A1.7, A1.8 · brief —
+          - listitem [ref=f5e115]:
+            - 'button "MCF3M-M3L3 — Lesson 3: Solving Quadratic Functions by Factoring" [ref=f5e116] [cursor=pointer]'
+            - paragraph [ref=f5e117]: Drive 1C09fQeGjtBE9ZaVyIQ25uZec9tVlzXkw · parent Module 3 · content not_drafted
+            - paragraph [ref=f5e118]: Proposed A1.4, A1.5, A1.8 · brief —
+          - listitem [ref=f5e119]:
+            - 'button "MCF3M-M3L4 — Lesson 4: Solving Problems Involving Quadratics" [ref=f5e120] [cursor=pointer]'
+            - paragraph [ref=f5e121]: Drive 1lRaJ3GKKg9jUlTLNcIShVkvo9dwCaic_ · parent Module 3 · content not_drafted
+            - paragraph [ref=f5e122]: Proposed A1.1, A3.3 · brief —
+          - listitem [ref=f5e123]:
+            - 'button "MCF3M-M3L5 — Lesson 5: Creating a Quadratic Model from Data" [ref=f5e124] [cursor=pointer]'
+            - paragraph [ref=f5e125]: Drive 1emm9lSmsAuZy1yImZYeE7pgDCismFT1H · parent Module 3 · content not_drafted
+            - paragraph [ref=f5e126]: Proposed A3.1, A3.2 · brief —
+      - generic [ref=f5e127]:
+        - 'heading "Module 4: Quadratic Models (Module 4)" [level=3] [ref=f5e128]'
+        - list [ref=f5e129]:
+          - listitem [ref=f5e130]:
+            - 'button "MCF3M-M4L1 — Lesson 1: The Vertex Form of a Quadratic Function" [ref=f5e131] [cursor=pointer]'
+            - paragraph [ref=f5e132]: Drive 1HIEARbCbXeZFsSUWoA612KYgR8vRrLk4 · parent Module 4 · content drafted
+            - paragraph [ref=f5e133]: Proposed A2.10, A2.5, A2.6, A2.7 · brief A2.10, A2.7
+          - listitem [ref=f5e134]:
+            - 'button "MCF3M-M4L2 — Lesson 2: Relating the Standard & Vertex Forms: Completing the Square" [ref=f5e135] [cursor=pointer]'
+            - paragraph [ref=f5e136]: Drive 1amLmerdS6xsBftdHA1dBmoGL7nY4CsW_ · parent Module 4 · content not_drafted
+            - paragraph [ref=f5e137]: Proposed A2.11, A2.7, A2.8 · brief —
+            - text: "Drive: Lesson 2: Relating the Standard & Vertex Forms: Completing the Square · original: Lesson2: Relating the Standard & Vertex Forms: Completing the Square"
+          - listitem [ref=f5e138]:
+            - 'button "MCF3M-M4L3 — Lesson 3: Solving Quadratic Equations: Quadratic Formula" [ref=f5e139] [cursor=pointer]'
+            - paragraph [ref=f5e140]: Drive 1Fo8iwosWl2Kr3dI6r4HprLMbrEGKWsYL · parent Module 4 · content not_drafted
+            - paragraph [ref=f5e141]: Proposed A1.6, A1.8 · brief —
+          - listitem [ref=f5e142]:
+            - 'button "MCF3M-M4L4 — Lesson 4: Discriminant" [ref=f5e143] [cursor=pointer]'
+            - paragraph [ref=f5e144]: Drive 1Hsk7L3DiLxs4wzLGcE01RaIcc1QHOHqW · parent Module 4 · content not_drafted
+            - paragraph [ref=f5e145]: Proposed A1.7 · brief —
+          - listitem [ref=f5e146]:
+            - 'button "MCF3M-M4L5 — Lesson 5: Using Quadratic Models to Solve Problems" [ref=f5e147] [cursor=pointer]'
+            - paragraph [ref=f5e148]: Drive 1O9le6toE-MNYNq5KHfD3VSoSkFI54UVo · parent Module 4 · content not_drafted
+            - paragraph [ref=f5e149]: Proposed A2.4, A3.3 · brief —
+      - generic [ref=f5e150]:
+        - 'heading "Module 5: Trigonometry & Acute Triangles (Module 5)" [level=3] [ref=f5e151]'
+        - list [ref=f5e152]:
+          - listitem [ref=f5e153]:
+            - 'button "MCF3M-M5L1 — Lesson 1: Trigonometric Ratios" [ref=f5e154] [cursor=pointer]'
+            - paragraph [ref=f5e155]: Drive 1LuKWP4x80I5s7AUn0LoEjboVhCNavYeN · parent Module 5 · content not_drafted
+            - paragraph [ref=f5e156]: Proposed C1.1 · brief —
+          - listitem [ref=f5e157]:
+            - 'button "MCF3M-M5L2 — Lesson 2: Applying the Primary Trig Ratios" [ref=f5e158] [cursor=pointer]'
+            - paragraph [ref=f5e159]: Drive 1o_brErciMB_xJimfTUWYBoybvYAz8MMK · parent Module 5 · content not_drafted
+            - paragraph [ref=f5e160]: Proposed C1.1 · brief —
+          - listitem [ref=f5e161]:
+            - 'button "MCF3M-M5L3 — Lesson 3: Solving Problems by Using Right-Triangle Models" [ref=f5e162] [cursor=pointer]'
+            - paragraph [ref=f5e163]: Drive 1bisFtSOeRG60QF9qcC3FtOc7T6RNuH1E · parent Module 5 · content not_drafted
+            - paragraph [ref=f5e164]: Proposed C1.1, C1.2 · brief —
+          - listitem [ref=f5e165]:
+            - 'button "MCF3M-M5L4 — Lesson 4: Cosine & Sine Law" [ref=f5e166] [cursor=pointer]'
+            - paragraph [ref=f5e167]: Drive 1VfO96nnER-50XOqWw9KfIbMNcJ0kRBOl · parent Module 5 · content not_drafted
+            - paragraph [ref=f5e168]: Proposed C1.3, C1.4 · brief —
+          - listitem [ref=f5e169]:
+            - 'button "MCF3M-M5L5 — Lesson 5: Solving Problems by Using Acute-Triangle Models" [ref=f5e170] [cursor=pointer]'
+            - paragraph [ref=f5e171]: Drive 1GMgAXItqp8u1LoKWDr86zEUC9QJoSqP- · parent Module 5 · content not_drafted
+            - paragraph [ref=f5e172]: Proposed C1.4, C1.5 · brief —
+      - generic [ref=f5e173]:
+        - 'heading "Module 6: Sinusoidal Functions (Module 6)" [level=3] [ref=f5e174]'
+        - list [ref=f5e175]:
+          - listitem [ref=f5e176]:
+            - 'button "MCF3M-M6L1 — Lesson 1: Periodic Functions" [ref=f5e177] [cursor=pointer]'
+            - paragraph [ref=f5e178]: Drive 1-4FgeqlEhpSFS4C1poCM305ZJknQ_nYB · parent Module 6 · content not_drafted
+            - paragraph [ref=f5e179]: Proposed C2.1, C2.2, C3.2 · brief —
+          - listitem [ref=f5e180]:
+            - 'button "MCF3M-M6L2 — Lesson 2: Sinusoidal Functions" [ref=f5e181] [cursor=pointer]'
+            - paragraph [ref=f5e182]: Drive 1OwE9EsA5FJdgVjxMP9fQlyvm03OBp8YQ · parent Module 6 · content not_drafted
+            - paragraph [ref=f5e183]: Proposed C2.3, C2.4, C3.1, C3.2, C3.3 · brief —
+          - listitem [ref=f5e184]:
+            - 'button "MCF3M-M6L3 — Lesson 3: Transformations of the Sine Function" [ref=f5e185] [cursor=pointer]'
+            - paragraph [ref=f5e186]: Drive 1oYsSLIFVVrBk21x9OinO2Z8ZMNy685Ym · parent Module 6 · content not_drafted
+            - paragraph [ref=f5e187]: Proposed C2.5, C2.6, C2.7, C3.3 · brief —
+      - generic [ref=f5e188]:
+        - 'heading "Module 7: Exponential Functions (Module 7)" [level=3] [ref=f5e189]'
+        - list [ref=f5e190]:
+          - listitem [ref=f5e191]:
+            - button "MCF3M-M7L1 — Laws of Exponents & Integer Exponents" [ref=f5e192] [cursor=pointer]
+            - paragraph [ref=f5e193]: Drive 18hdp3mXS4RbGg7L_0SdNW6VlRaSD9xqn · parent Module 7 · content not_drafted
+            - paragraph [ref=f5e194]: Proposed B1.2, B1.5 · brief —
+          - listitem [ref=f5e195]:
+            - button "MCF3M-M7L2 — Working with Rational Exponents" [ref=f5e196] [cursor=pointer]
+            - paragraph [ref=f5e197]: Drive 132NQIAZz6NFfjXi9uo-l41TXHX2KyUtr · parent Module 7 · content not_drafted
+            - paragraph [ref=f5e198]: Proposed B1.1, B1.2 · brief —
+          - listitem [ref=f5e199]:
+            - button "MCF3M-M7L3 — Exploring Exponential Functions, Growth & Decay" [ref=f5e200] [cursor=pointer]
+            - paragraph [ref=f5e201]: Drive 10UkNkns4mbrJtw7qIK27RNO2phvDuRXB · parent Module 7 · content not_drafted
+            - paragraph [ref=f5e202]: Proposed B1.3, B1.4, B1.6, B2.1, B2.2, B2.3 · brief —
+      - generic [ref=f5e203]:
+        - 'heading "Module 8: Solving Financial Problems Involving Exponential Functions (Module 8)" [level=3] [ref=f5e204]'
+        - list [ref=f5e205]:
+          - listitem [ref=f5e206]:
+            - 'button "MCF3M-M8L1 — Lesson 1: Simple & Compound Interest" [ref=f5e207] [cursor=pointer]'
+            - paragraph [ref=f5e208]: Drive 1HLDuqVeXBURgmrm4MzT4hXYmXaA7U2x5 · parent Module 8 · content not_drafted
+            - paragraph [ref=f5e209]: Proposed B3.1, B3.3 · brief —
+          - listitem [ref=f5e210]:
+            - 'button "MCF3M-M8L2 — Lesson 2: Compound Interest - Future Value" [ref=f5e211] [cursor=pointer]'
+            - paragraph [ref=f5e212]: Drive 1qgfk85lXXelbWn5f325n5NTtRXOG5cdF · parent Module 8 · content not_drafted
+            - paragraph [ref=f5e213]: Proposed B3.2, B3.4 · brief —
+          - listitem [ref=f5e214]:
+            - 'button "MCF3M-M8L3 — Lesson 3: Compound Interest - Present Value" [ref=f5e215] [cursor=pointer]'
+            - paragraph [ref=f5e216]: Drive 10_WVhf17ToYrbL3F88FLkaseavX6gq8r · parent Module 8 · content not_drafted
+            - paragraph [ref=f5e217]: Proposed B3.2, B3.3, B3.4 · brief —
+          - listitem [ref=f5e218]:
+            - 'button "MCF3M-M8L4 — Lesson 4: Annuities - Future Value" [ref=f5e219] [cursor=pointer]'
+            - paragraph [ref=f5e220]: Drive 1QSGxEAiJOpiWn1p_FnIF3Po5Wjcdi0xq · parent Module 8 · content not_drafted
+            - paragraph [ref=f5e221]: Proposed B3.5, B3.6, B3.7 · brief —
+          - listitem [ref=f5e222]:
+            - 'button "MCF3M-M8L5 — Lesson 5: Regular/Simple Annuities - Present Value" [ref=f5e223] [cursor=pointer]'
+            - paragraph [ref=f5e224]: Drive 1JeP-CDN3lPZC_9z8C60CqwDqtXxuBhhr · parent Module 8 · content not_drafted
+            - paragraph [ref=f5e225]: Proposed B3.5, B3.6, B3.7 · brief —
+  - paragraph [ref=f5e226]:
+    - generic [ref=f5e227]:
+      - text: Course
+      - textbox "Course" [ref=f5e228]: MCF3M
+    - generic [ref=f5e229]:
+      - text: Lesson
+      - combobox "Lesson" [ref=f5e230]:
+        - 'option "M4-L1-vertex-form — Lesson 1: The Vertex Form of a Quadratic Function" [selected]'
+        - 'option "M5-L1-trig-ratios — Lesson 1: Trigonometric Ratios"'
+        - option "M7-L3-exponential-functions — Exploring Exponential Functions, Growth & Decay"
+    - button "Load" [ref=f5e231] [cursor=pointer]
+    - button "Approve version" [ref=f5e232] [cursor=pointer]
+  - paragraph [ref=f5e233]: Loaded M4-L1-vertex-form
+  - paragraph [ref=f5e234]: Revision e466dfe6e6e5
+  - heading "Coverage" [level=2] [ref=f5e235]
+  - generic [ref=f5e236]:
+    - paragraph [ref=f5e237]:
+      - strong [ref=f5e238]: "27"
+      - text: accepted · families claim-testing, constraint-construction, equivalent-forms, error-diagnosis, form-affordances, maximum-from-representations, method-choice, model-critique, predict-parameter-change, read-vertex-features, representation-bridge, vertex-and-point-to-function, zeros-from-vertex-form
+    - paragraph [ref=f5e239]: A2.7 and the vertex-form share of A2.10. Completing the square, the quadratic formula, discriminant, regression, and the full applications lesson stay out of scope.
+  - heading "Candidate drawer" [level=2] [ref=f5e240]
+  - generic [ref=f5e241]:
+    - generic [ref=f5e242]:
+      - strong [ref=f5e243]: accepted
+      - text: Name the vertex when the brackets show a plus
+      - paragraph [ref=f5e244]: Consider f(x) = (x + 3)^2 + 1. Name the vertex and the axis of symmetry. Do not sketch yet.
+      - paragraph [ref=f5e245]: read-vertex-features · Bloom apply · interpret · verified true
+    - generic [ref=f5e246]:
+      - strong [ref=f5e247]: accepted
+      - text: Vertex and maximum from a negative a
+      - paragraph [ref=f5e248]: Consider y = −3(x + 2)^2 + 4. Name the vertex. Is the vertex a maximum or a minimum? How did you know?
+      - paragraph [ref=f5e249]: read-vertex-features · Bloom apply · interpret · verified true
+    - generic [ref=f5e250]:
+      - strong [ref=f5e251]: accepted
+      - text: Maximum when k is zero
+      - paragraph [ref=f5e252]: Consider h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum? Could you decide that from k alone?
+      - paragraph [ref=f5e253]: read-vertex-features · Bloom understand · interpret · verified true
+    - generic [ref=f5e254]:
+      - strong [ref=f5e255]: accepted
+      - text: Expand ½(x + 2)^2 − 3
+      - paragraph [ref=f5e256]: Rewrite g(x) = (1/2)(x + 2)^2 − 3 in standard form, meaning g(x) = ax^2 + bx + c. Then check two x-values in both forms.
+      - paragraph [ref=f5e257]: equivalent-forms · Bloom apply · compute · verified true
+    - generic [ref=f5e258]:
+      - strong [ref=f5e259]: accepted
+      - text: "Ministry sample: expand 3(x − 1)^2 + 4"
+      - paragraph [ref=f5e260]: Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.
+      - paragraph [ref=f5e261]: equivalent-forms · Bloom apply · compute · verified true
+    - generic [ref=f5e262]:
+      - strong [ref=f5e263]: accepted
+      - text: What vertex form makes readable
+      - paragraph [ref=f5e264]: Consider f(x) = a(x − h)^2 + k. What can you read from vertex form that is harder to see when the same function is written in standard form f(x) = ax^2 + bx + c? Do not rewrite the function.
+      - paragraph [ref=f5e265]: form-affordances · Bloom understand · interpret · verified true
+    - generic [ref=f5e266]:
+      - strong [ref=f5e267]: accepted
+      - text: Domain and range from vertex form
+      - paragraph [ref=f5e268]: Determine the domain and range of f(x) = −2(x + 3)^2 − 6.
+      - paragraph [ref=f5e269]: read-vertex-features · Bloom apply · interpret · verified true
+    - generic [ref=f5e270]:
+      - strong [ref=f5e271]: accepted
+      - text: Why matching table values do not prove identity
+      - paragraph [ref=f5e272]: Two writings give the same three table values. A student says that proves the writings are the same function for every x. Prove, qualify, or refute that claim.
+      - paragraph [ref=f5e273]: equivalent-forms · Bloom evaluate · justify · verified true
+    - generic [ref=f5e274]:
+      - strong [ref=f5e275]: accepted
+      - text: "First invalid step: reading +3 as h = 3"
+      - paragraph [ref=f5e276]: "A student writes: “f(x) = (x + 3)^2 + 1, so h = 3, vertex (3, 1).” Locate the first invalid step, explain what went wrong, and repair it."
+      - paragraph [ref=f5e277]: error-diagnosis · Bloom analyze · diagnose · verified true
+    - generic [ref=f5e278]:
+      - strong [ref=f5e279]: accepted
+      - text: "First invalid step: maximum from the sign of k"
+      - paragraph [ref=f5e280]: "A student writes: “y = −2(x + 1)^2 has k = 0, so it is not a maximum or a minimum.” Locate the first invalid step, explain it, and repair it."
+      - paragraph [ref=f5e281]: error-diagnosis · Bloom analyze · diagnose · verified true
+    - generic [ref=f5e282]:
+      - strong [ref=f5e283]: accepted
+      - text: First invalid step in an expansion
+      - paragraph [ref=f5e284]: A student expands 2(x + 3)^2 + 1 as 2x^2 + 3^2 + 1 = 2x^2 + 10. Locate the first invalid step, explain it, and repair the expansion.
+      - paragraph [ref=f5e285]: error-diagnosis · Bloom analyze · diagnose · verified true
+    - generic [ref=f5e286]:
+      - strong [ref=f5e287]: accepted
+      - text: Choose how to check that two writings are the same curve
+      - paragraph [ref=f5e288]: You have f(x) = 2(x + 3)^2 + 1 and a candidate standard form. You may expand algebraically or compare graphs. Using the criterion “prove they are the same function for every x,” which method would you choose, and why?
+      - paragraph [ref=f5e289]: method-choice · Bloom evaluate · justify · verified true
+    - generic [ref=f5e290]:
+      - strong [ref=f5e291]: accepted
+      - text: Zeros from vertex form by inverse operations
+      - paragraph [ref=f5e292]: The graph of f(x) = (x − 1)^2 − 9 meets the x-axis where f(x) = 0. Determine those zeros by inverse operations. You may check on a graph afterward.
+      - paragraph [ref=f5e293]: zeros-from-vertex-form · Bloom apply · compute · verified true
+    - generic [ref=f5e294]:
+      - strong [ref=f5e295]: accepted
+      - text: Choose a method for zeros of a vertex-form equation
+      - paragraph [ref=f5e296]: You need the zeros of f(x) = (x − 1)^2 − 9. Inverse operations, a graph, and factoring after expanding are all available. Using the criterion “exact values with the least extra algebra,” which method would you choose, and why?
+      - paragraph [ref=f5e297]: zeros-from-vertex-form · Bloom evaluate · justify · verified true
+    - generic [ref=f5e298]:
+      - strong [ref=f5e299]: accepted
+      - text: Recover a from a vertex and another point
+      - paragraph [ref=f5e300]: A parabola has vertex (1, −2) and passes through (3, 2). Determine the vertex-form equation. Is this equation unique given those two conditions?
+      - paragraph [ref=f5e301]: vertex-and-point-to-function · Bloom create · construct · verified true
+    - generic [ref=f5e302]:
+      - strong [ref=f5e303]: accepted
+      - text: What remains free if you only know the vertex
+      - paragraph [ref=f5e304]: You know a quadratic in vertex form has vertex (2, 5). Is the function uniquely determined? If not, what still needs to be chosen, and what stays the same?
+      - paragraph [ref=f5e305]: vertex-and-point-to-function · Bloom analyze · investigate · verified true
+    - generic [ref=f5e306]:
+      - strong [ref=f5e307]: accepted
+      - text: Two vertex forms with the same turning point
+      - paragraph [ref=f5e308]: Construct two different vertex-form equations that both have vertex (0, 3). What is the same on both graphs, and what changes?
+      - paragraph [ref=f5e309]: constraint-construction · Bloom create · construct · verified true
+    - generic [ref=f5e310]:
+      - strong [ref=f5e311]: accepted
+      - text: Map a labelled graph to vertex form
+      - paragraph [ref=f5e312]: A graph of a parabola is labelled with vertex (−4, 1) and one other point (0, −3), and it opens downward. Write a vertex-form equation that fits those features. Name which graph facts became a, h, and k.
+      - paragraph [ref=f5e313]: representation-bridge · Bloom analyze · interpret · verified true
+    - generic [ref=f5e314]:
+      - strong [ref=f5e315]: accepted
+      - text: Match vertex-form features to a table
+      - paragraph [ref=f5e316]: A table of f shows a highest output of 5 at x = −1, and the y-values fall as x moves away from −1 on both sides. Which vertex-form facts does that force, and which fact is still free?
+      - paragraph [ref=f5e317]: representation-bridge · Bloom analyze · interpret · verified true
+    - generic [ref=f5e318]:
+      - strong [ref=f5e319]: accepted
+      - text: Test the claim that the axis is y = h
+      - paragraph [ref=f5e320]: "A student says: “For f(x) = 2(x − 4)^2 + 1 the axis of symmetry is y = 4.” Prove, qualify, or refute the claim."
+      - paragraph [ref=f5e321]: claim-testing · Bloom evaluate · justify · verified true
+    - generic [ref=f5e322]:
+      - strong [ref=f5e323]: accepted
+      - text: Defend a form for a stated decision
+      - paragraph [ref=f5e324]: You need the highest point of a quadratic path, not the x-intercepts. Which of standard form, vertex form, or factored form would you choose, and why? Mention what that form does not make obvious.
+      - paragraph [ref=f5e325]: form-affordances · Bloom evaluate · justify · verified true
+    - generic [ref=f5e326]:
+      - strong [ref=f5e327]: accepted
+      - text: Meaningful domain of a rising-then-falling model
+      - paragraph [ref=f5e328]: A water stream is modelled by h(x) = −0.5(x − 2)^2 + 4 for horizontal distance x in metres and height h in metres. The nozzle is at x = 0 and the water lands at h = 0. Determine the vertex. Then state a meaningful domain for this model and say where the equation should not be trusted as a description of the stream.
+      - paragraph [ref=f5e329]: model-critique · Bloom evaluate · model · verified true
+    - generic [ref=f5e330]:
+      - strong [ref=f5e331]: accepted
+      - text: Read a maximum without completing the square
+      - paragraph [ref=f5e332]: A ball’s height in metres is modelled by h(t) = −4.9(t − 1.2)^2 + 8 on the flight interval. What is the maximum height, and when does it occur? What in the equation told you?
+      - paragraph [ref=f5e333]: maximum-from-representations · Bloom apply · interpret · verified true
+    - generic [ref=f5e334]:
+      - strong [ref=f5e335]: accepted
+      - text: Same curve, two writings
+      - paragraph [ref=f5e336]: Consider f(x) = 2(x + 3)^2 + 1 and g(x) = 2x^2 + 12x + 19. What should be the same about their graphs, and what is easier to read from f than from g?
+      - paragraph [ref=f5e337]: equivalent-forms · Bloom understand · compare · verified true
+  - heading "Student preview (same compiler as export)" [level=2] [ref=f5e338]
+  - paragraph [ref=f5e339]:
+    - link "Open compiled HTML" [ref=f5e340] [cursor=pointer]:
+      - /url: /build/MCF3M/M4-L1-vertex-form/index.html
+  - iframe [ref=f5e341]:
+    - article [ref=f6e2]:
+      - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f6e3]'
+      - tablist [ref=f6e4]:
+        - tab "Minds On" [selected] [ref=f6e5] [cursor=pointer]
+        - tab "Action" [ref=f6e6] [cursor=pointer]
+        - tab "Consolidation" [ref=f6e7] [cursor=pointer]
+      - tabpanel "Minds On" [ref=f6e8]:
+        - generic [ref=f6e9]:
+          - generic [ref=f6e10]:
+            - heading "Look at the streams" [level=3] [ref=f6e11]
+            - figure [ref=f6e16]:
+              - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=f6e17]
+            - paragraph [ref=f6e18]: Look at the water leaving the fountain. Each stream goes up and comes down.
+            - paragraph [ref=f6e20]: Choose one stream. Name the highest point of that stream — the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.
+          - paragraph [ref=f6e21]: That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.
+          - paragraph [ref=f6e22]: A quadratic written as
+          - paragraph [ref=f6e23]: f(x) = a(x - h)² + k
+          - paragraph [ref=f6e24]: "is in vertex form. The vertex is the point (h, k). The axis of symmetry is the vertical line x = h. The sign of a tells you whether that vertex is a maximum or a minimum: negative a opens downward, so the vertex is a highest point; positive a opens upward, so the vertex is a lowest point."
+          - paragraph [ref=f6e25]: Look at f(x) = (x + 3)² + 1. The equation is already in vertex form, but notice the sign inside the brackets.
+          - paragraph [ref=f6e26]: f(x) = (x + 3)² + 1
+          - paragraph [ref=f6e28]: Where is the vertex? Write its coordinates before you check on the graph.
+      - text: Worked example Another example Hint Hint Worked example Hint Hint
+      - generic [ref=f6e29]:
+        - paragraph [ref=f6e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+        - paragraph [ref=f6e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+        - paragraph [ref=f6e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"
+  - heading "Edit student blocks" [level=2] [ref=f5e342]
+  - paragraph [ref=f5e343]: Saves a patch against student-content.json, rebuilds, and refreshes this preview. instruction.json is not an authoring target.
+  - generic [ref=f5e344]:
+    - generic [ref=f5e345]:
+      - text: minds-on--card--1 · card · Look at the streams
+      - textbox "minds-on--card--1 · card · Look at the streams" [ref=f5e346]: Look at the streams
+    - generic [ref=f5e347]:
+      - text: minds-on--figure--1 · figure
+      - textbox "minds-on--figure--1 · figure" [ref=f5e348]: Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.
+    - generic [ref=f5e349]:
+      - text: minds-on--p--1 · p
+      - textbox "minds-on--p--1 · p" [ref=f5e350]: Look at the water leaving the fountain. Each stream goes up and comes down.
+    - generic [ref=f5e351]:
+      - text: minds-on--task--1 · task
+      - textbox "minds-on--task--1 · task" [ref=f5e352]: Choose one stream. Name the highest point of that stream — the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.
+    - generic [ref=f5e353]:
+      - text: minds-on--p--2 · p
+      - textbox "minds-on--p--2 · p" [ref=f5e354]: That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.
+    - generic [ref=f5e355]:
+      - text: minds-on--p--3 · p
+      - textbox "minds-on--p--3 · p" [ref=f5e356]: A quadratic written as
+    - generic [ref=f5e357]:
+      - text: minds-on--equation--1 · equation
+      - textbox "minds-on--equation--1 · equation" [ref=f5e358]: \(f(x) = a(x - h)^2 + k\)
+    - generic [ref=f5e359]:
+      - text: minds-on--p--4 · p
+      - textbox "minds-on--p--4 · p" [ref=f5e360]: "is in vertex form. The vertex is the point \\((h, k)\\). The axis of symmetry is the vertical line \\(x = h\\). The sign of \\(a\\) tells you whether that vertex is a maximum or a minimum: negative \\(a\\) opens downward, so the vertex is a highest point; positive \\(a\\) opens upward, so the vertex is a lowest point."
+    - generic [ref=f5e361]:
+      - text: minds-on--p--5 · p
+      - textbox "minds-on--p--5 · p" [ref=f5e362]: Look at \(f(x) = (x + 3)^2 + 1\). The equation is already in vertex form, but notice the sign inside the brackets.
+    - generic [ref=f5e363]:
+      - text: minds-on--equation--2 · equation
+      - textbox "minds-on--equation--2 · equation" [ref=f5e364]: \(f(x) = (x + 3)^2 + 1\)
+    - generic [ref=f5e365]:
+      - text: minds-on--task--2 · task
+      - textbox "minds-on--task--2 · task" [ref=f5e366]: Where is the vertex? Write its coordinates before you check on the graph.
+    - generic [ref=f5e367]:
+      - text: action--p--1 · p
+      - textbox "action--p--1 · p" [ref=f5e368]: In this course, \(f(x) = a(x - h)^2 + k\) is vertex form. The expanded equation \(f(x) = ax^2 + bx + c\) is standard form.
+    - generic [ref=f5e369]:
+      - text: action--h2--1 · h2
+      - textbox "action--h2--1 · h2" [ref=f5e370]: Read the turning point from the equation
+    - generic [ref=f5e371]:
+      - text: action--p--2 · p
+      - textbox "action--p--2 · p" [ref=f5e372]: You named a vertex from a plus inside the brackets. Read this next equation the same way — vertex, axis, and whether the turning point is a maximum or a minimum.
+    - generic [ref=f5e373]:
+      - text: action--example--1--p--1 · p
+      - textbox "action--example--1--p--1 · p" [ref=f5e374]: Sketch a parabola that opens downward and turns at a point left of the origin and above the \(x\)-axis. Label that turning point. Draw a dashed vertical line through it.
+    - generic [ref=f5e375]:
+      - text: action--example--1--p--2 · p
+      - textbox "action--example--1--p--2 · p" [ref=f5e376]: The equation of that graph is
+    - generic [ref=f5e377]:
+      - text: action--example--1--equation--1 · equation
+      - textbox "action--example--1--equation--1 · equation" [ref=f5e378]: \(y = -3(x + 2)^2 + 4\)
+    - generic [ref=f5e379]:
+      - text: action--example--1--p--3 · p
+      - textbox "action--example--1--p--3 · p" [ref=f5e380]: We need the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum.
+    - generic [ref=f5e381]:
+      - text: action--example--1--p--4 · p
+      - textbox "action--example--1--p--4 · p" [ref=f5e382]: Compare the equation with \(y = a(x - h)^2 + k\).
+    - generic [ref=f5e383]:
+      - text: action--example--1--p--5 · p
+      - textbox "action--example--1--p--5 · p" [ref=f5e384]: The brackets contain \((x + 2)\). Vertex form uses \((x - h)\), so rewrite \(x + 2\) as \(x - (-2)\). That makes \(h = -2\). The constant outside the brackets is \(+4\), so \(k = 4\).
+    - generic [ref=f5e385]:
+      - text: action--example--1--p--6 · p
+      - textbox "action--example--1--p--6 · p" [ref=f5e386]: The vertex is \((-2, 4)\). The axis of symmetry is the vertical line through the vertex, \(x = -2\).
+    - generic [ref=f5e387]:
+      - text: action--example--1--p--7 · p
+      - textbox "action--example--1--p--7 · p" [ref=f5e388]: The coefficient in front of the brackets is \(-3\). Because \(a\) is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is \(4\), and it occurs when \(x = -2\).
+    - generic [ref=f5e389]:
+      - text: action--example--1--p--8 · p
+      - textbox "action--example--1--p--8 · p" [ref=f5e390]: That highest point is the same kind of fact you named on the water stream, now read from the equation.
+    - generic [ref=f5e391]:
+      - text: action--h2--2 · h2
+      - textbox "action--h2--2 · h2" [ref=f5e392]: A second equation, with nothing added outside
+    - generic [ref=f5e393]:
+      - text: action--example--2--p--1 · p
+      - textbox "action--example--2--p--1 · p" [ref=f5e394]: The last equation had a constant outside the brackets, so \(k\) was easy to see as a height. This Ontario sample includes
+    - generic [ref=f5e395]:
+      - text: action--example--2--equation--1 · equation
+      - textbox "action--example--2--equation--1 · equation" [ref=f5e396]: \(h(x) = -2(x + 1)^2\)
+    - generic [ref=f5e397]:
+      - text: action--example--2--p--2 · p
+      - textbox "action--example--2--p--2 · p" [ref=f5e398]: as one of the graphs to read from \(f(x) = x^2\). Use it here to inspect vertex form. (The sample also names \(g(x) = x^2 - 4\); stay with \(h(x)\).)
+    - generic [ref=f5e399]:
+      - text: action--example--2--p--3 · p
+      - textbox "action--example--2--p--3 · p" [ref=f5e400]: The brackets contain \((x + 1)\). Rewrite \(x + 1\) as \(x - (-1)\), so \(h = -1\). There is no constant added outside, so \(k = 0\). The vertex is \((-1, 0)\), and the axis is \(x = -1\).
+    - generic [ref=f5e401]:
+      - text: action--example--2--p--4 · p
+      - textbox "action--example--2--p--4 · p" [ref=f5e402]: The coefficient is \(-2\), so \(a\) is negative and the parabola opens downward. The vertex is a maximum even though \(k = 0\). Maximum versus minimum comes from the sign of \(a\), not from whether \(k\) looks positive.
+    - generic [ref=f5e403]:
+      - text: action--example--2--task--1 · task
+      - textbox "action--example--2--task--1 · task" [ref=f5e404]: Could you have decided maximum versus minimum from \(k\) on this equation? Say why or why not.
+    - generic [ref=f5e405]:
+      - text: action--h2--3 · h2
+      - textbox "action--h2--3 · h2" [ref=f5e406]: Match the equation you already read
+    - generic [ref=f5e407]:
+      - text: action--p--3 · p
+      - textbox "action--p--3 · p" [ref=f5e408]: "You named a vertex for \\(f(x) = (x + 3)^2 + 1\\). The graph starts at a different equation with the same brackets:"
+    - generic [ref=f5e409]:
+      - text: action--equation--1 · equation
+      - textbox "action--equation--1 · equation" [ref=f5e410]: \(f(x) = 2(x + 3)^2 + 1\)
+    - generic [ref=f5e411]:
+      - text: action--card--1 · card · Match the equation you already read
+      - textbox "action--card--1 · card · Match the equation you already read" [ref=f5e412]: Match the equation you already read
+    - generic [ref=f5e413]:
+      - text: action--p--4 · p
+      - textbox "action--p--4 · p" [ref=f5e414]: Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches \(f(x) = (x + 3)^2 + 1\). Submit when the live equation labelled Vertex form matches that equation.
+    - generic [ref=f5e415]:
+      - text: action--self-check--1 · self-check
+      - textbox "action--self-check--1 · self-check" [ref=f5e416]: Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this equation?
+    - generic [ref=f5e417]:
+      - text: action--h2--4 · h2
+      - textbox "action--h2--4 · h2" [ref=f5e418]: Change only the horizontal position
+    - generic [ref=f5e419]:
+      - text: action--p--5 · p
+      - textbox "action--p--5 · p" [ref=f5e420]: The graph is back at \(f(x) = 2(x + 3)^2 + 1\). Do not move the graph yet.
+    - generic [ref=f5e421]:
+      - text: action--task--1 · task
+      - textbox "action--task--1 · task" [ref=f5e422]: If you change only \(h\) so the vertex sits at \(x = 2\), what will happen to the graph, and what will the new equation look like? Write that first.
+    - generic [ref=f5e423]:
+      - text: action--card--2 · card · Change only h
+      - textbox "action--card--2 · card · Change only h" [ref=f5e424]: Change only h
+    - generic [ref=f5e425]:
+      - text: action--p--6 · p
+      - textbox "action--p--6 · p" [ref=f5e426]: "Then move the graph so the vertex is at \\(x = 2\\), changing only \\(h\\) if you can. Submit. Say which quantity you meant to change: \\(a\\), \\(h\\), or \\(k\\)."
+    - generic [ref=f5e427]:
+      - text: action--self-check--2 · self-check
+      - textbox "action--self-check--2 · self-check" [ref=f5e428]: Look at the live equation labelled Vertex form and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?
+    - generic [ref=f5e429]:
+      - text: action--h2--5 · h2
+      - textbox "action--h2--5 · h2" [ref=f5e430]: The same curve, two forms
+    - generic [ref=f5e431]:
+      - text: action--p--7 · p
+      - textbox "action--p--7 · p" [ref=f5e432]: Vertex form makes the turning point easy to read. Expanding that form into \(ax^2 + bx + c\) should not move the curve.
+    - generic [ref=f5e433]:
+      - text: action--example--3--p--1 · p
+      - textbox "action--example--3--p--1 · p" [ref=f5e434]: Sketch a parabola that opens upward, turning left of the origin and below the \(x\)-axis. Mark the vertex. An equation that fits that sketch is
+    - generic [ref=f5e435]:
+      - text: action--example--3--equation--1 · equation
+      - textbox "action--example--3--equation--1 · equation" [ref=f5e436]: "\\(g(x) = \\frac{1}{2}(x + 2)^2 - 3\\)"
+    - generic [ref=f5e437]:
+      - text: action--example--3--p--2 · p
+      - textbox "action--example--3--p--2 · p" [ref=f5e438]: The task is to write the same function as \(ax^2 + bx + c\), then check that both forms give the same outputs.
+    - generic [ref=f5e439]:
+      - text: action--example--3--p--3 · p
+      - textbox "action--example--3--p--3 · p" [ref=f5e440]: "Square the binomial: \\((x + 2)^2 = x^2 + 4x + 4\\)."
+    - generic [ref=f5e441]:
+      - text: action--example--3--p--4 · p
+      - textbox "action--example--3--p--4 · p" [ref=f5e442]: "Multiply by \\(a = \\frac{1}{2}\\): \\(\\frac{1}{2}x^2 + 2x + 2\\)."
+    - generic [ref=f5e443]:
+      - text: action--example--3--p--5 · p
+      - textbox "action--example--3--p--5 · p" [ref=f5e444]: "Add \\(k = -3\\): \\(\\frac{1}{2}x^2 + 2x - 1\\)."
+    - generic [ref=f5e445]:
+      - text: action--example--3--equation--2 · equation
+      - textbox "action--example--3--equation--2 · equation" [ref=f5e446]: "\\(g(x) = \\frac{1}{2}x^2 + 2x - 1\\)"
+    - generic [ref=f5e447]:
+      - text: action--example--3--p--6 · p
+      - textbox "action--example--3--p--6 · p" [ref=f5e448]: "Check a few inputs. At \\(x = -2\\), both forms give \\(-3\\). At \\(x = 0\\), both give \\(-1\\). At \\(x = -4\\), both give \\(-1\\). The table points sit on the same graph: expanding did not make a new parabola."
+    - generic [ref=f5e449]:
+      - text: action--p--8 · p
+      - textbox "action--p--8 · p" [ref=f5e450]: Now expand the starting equation from the graph, \(f(x) = 2(x + 3)^2 + 1\). If you rewrite it as \(ax^2 + bx + c\), will the graph be a different parabola or the same one? Write that down before you expand.
+    - generic [ref=f5e451]:
+      - text: action--card--3 · card · Expand, then check the same graph
+      - textbox "action--card--3 · card · Expand, then check the same graph" [ref=f5e452]: Expand, then check the same graph
+    - generic [ref=f5e453]:
+      - text: action--p--9 · p
+      - textbox "action--p--9 · p" [ref=f5e454]: Expand on paper. Enter your \(b\) and \(c\) (\(a\) should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried.
+    - generic [ref=f5e455]:
+      - text: action--self-check--3 · self-check
+      - textbox "action--self-check--3 · self-check" [ref=f5e456]: Do a few table points sit on both forms? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?
+    - generic [ref=f5e457]:
+      - text: action--h2--6 · h2
+      - textbox "action--h2--6 · h2" [ref=f5e458]: What vertex form is for
+    - generic [ref=f5e459]:
+      - text: action--p--10 · p
+      - textbox "action--p--10 · p" [ref=f5e460]: You have been reading vertex form. Factored form \(f(x) = a(x - r)(x - s)\) makes the \(x\)-intercepts easy to see. Standard form \(f(x) = ax^2 + bx + c\) makes the \(y\)-intercept easy to see. Vertex form does not make those intercepts as obvious — and the vertex is not an intercept unless it actually sits on an axis.
+    - generic [ref=f5e461]:
+      - text: action--task--2 · task
+      - textbox "action--task--2 · task" [ref=f5e462]: What can you read from vertex form \(f(x) = a(x - h)^2 + k\) that is harder to see when the same function is written as \(f(x) = ax^2 + bx + c\)? Do not rewrite the function in another form.
+    - generic [ref=f5e463]:
+      - text: action--h2--7 · h2
+      - textbox "action--h2--7 · h2" [ref=f5e464]: Expand a new equation yourself
+    - generic [ref=f5e465]:
+      - text: action--task--3 · task
+      - textbox "action--task--3 · task" [ref=f5e466]: Given the vertex form \(f(x) = 3(x - 1)^2 + 4\), express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.
+    - generic [ref=f5e467]:
+      - text: action--p--11 · p
+      - textbox "action--p--11 · p" [ref=f5e468]: Here, standard form means \(f(x) = ax^2 + bx + c\). Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph.
+    - generic [ref=f5e469]:
+      - text: action--h2--8 · h2
+      - textbox "action--h2--8 · h2" [ref=f5e470]: One more to try
+    - generic [ref=f5e471]:
+      - text: action--p--12 · p
+      - textbox "action--p--12 · p" [ref=f5e472]: "If the graph is not available, work on paper with \\(f(x) = 2(x + 3)^2 + 1\\). First look at \\(f(x) = (x + 3)^2 + 1\\): name that vertex, then sketch both equations (same turning point, different stretch). From the starting equation, predict what happens if you change only \\(h\\) to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch."
+    - generic [ref=f5e473]:
+      - text: consolidation--card--1 · card · Return to the stream
+      - textbox "consolidation--card--1 · card · Return to the stream" [ref=f5e474]: Return to the stream
+    - generic [ref=f5e475]:
+      - text: consolidation--figure--1 · figure
+      - textbox "consolidation--figure--1 · figure" [ref=f5e476]: Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.
+    - generic [ref=f5e477]:
+      - text: consolidation--p--1 · p
+      - textbox "consolidation--p--1 · p" [ref=f5e478]: You named the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.
+    - generic [ref=f5e479]:
+      - text: consolidation--equation--1 · equation
+      - textbox "consolidation--equation--1 · equation" [ref=f5e480]: \(f(x) = -0.5(x - 2)^2 + 4\)
+    - generic [ref=f5e481]:
+      - text: consolidation--task--1 · task
+      - textbox "consolidation--task--1 · task" [ref=f5e482]: Do not move the graph yet. Name the vertex, the axis of symmetry, and whether this vertex is a maximum or a minimum.
+    - generic [ref=f5e483]:
+      - text: consolidation--card--2 · card · Read a new equation
+      - textbox "consolidation--card--2 · card · Read a new equation" [ref=f5e484]: Read a new equation
+    - generic [ref=f5e485]:
+      - text: consolidation--p--2 · p
+      - textbox "consolidation--p--2 · p" [ref=f5e486]: Then set the graph to match that equation and submit.
+    - generic [ref=f5e487]:
+      - text: consolidation--self-check--1 · self-check
+      - textbox "consolidation--self-check--1 · self-check" [ref=f5e488]: How did you read the high or low point from this equation? If you expanded it into \(ax^2 + bx + c\), would the fountain-shaped curve move?
+    - generic [ref=f5e489]:
+      - text: consolidation--p--3 · p
+      - textbox "consolidation--p--3 · p" [ref=f5e490]: "If you are on paper: sketch from the equation, then change one of \\(a\\), \\(h\\), or \\(k\\) and sketch again."
+    - generic [ref=f5e491]:
+      - text: consolidation--h2--1 · h2
+      - textbox "consolidation--h2--1 · h2" [ref=f5e492]: What vertex form gives you
+    - generic [ref=f5e493]:
+      - text: consolidation--p--4 · p
+      - textbox "consolidation--p--4 · p" [ref=f5e494]: Vertex form \(f(x) = a(x - h)^2 + k\) makes the vertex \((h, k)\) and the axis \(x = h\) readable. Maximum versus minimum comes from the sign of \(a\), not from the sign of \(k\) and not from which quadrant the vertex sits in.
+    - generic [ref=f5e495]:
+      - text: consolidation--p--5 · p
+      - textbox "consolidation--p--5 · p" [ref=f5e496]: Match the brackets to \((x - h)\). A plus inside the brackets does not mean the vertex is on the positive side of the \(x\)-axis.
+    - generic [ref=f5e497]:
+      - text: consolidation--p--6 · p
+      - textbox "consolidation--p--6 · p" [ref=f5e498]: \(a\) stretches or flips the graph. \(k\) moves the vertex up or down. Those two jobs are not the same.
+    - generic [ref=f5e499]:
+      - text: consolidation--p--7 · p
+      - textbox "consolidation--p--7 · p" [ref=f5e500]: Expanding vertex form into \(f(x) = ax^2 + bx + c\) gives the same parabola, not a new one. The graphs should land on top of each other.
+  - paragraph [ref=f5e501]:
+    - button "Save, rebuild, preview" [ref=f5e502] [cursor=pointer]
+  - heading "Diff versus approved version" [level=2] [ref=f5e503]
+  - generic [ref=f5e504]: "[ { \"block_id\": \"minds-on--card--1\", \"field\": \"label\", \"before\": \"\", \"after\": \"Look at the streams\" }, { \"block_id\": \"minds-on--figure--1\", \"field\": \"alt\", \"before\": \"\", \"after\": \"Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.\" }, { \"block_id\": \"minds-on--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"Look at the water leaving the fountain. Each stream goes up and comes down.\" }, { \"block_id\": \"minds-on--task--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Choose one stream. Name the highest point of that stream — the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.\" }, { \"block_id\": \"minds-on--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.\" }, { \"block_id\": \"minds-on--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"A quadratic written as\" }, { \"block_id\": \"minds-on--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(f(x) = a(x - h)^2 + k\\\\)\" }, { \"block_id\": \"minds-on--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"is in vertex form. The vertex is the point \\\\((h, k)\\\\). The axis of symmetry is the vertical line \\\\(x = h\\\\). The sign of \\\\(a\\\\) tells you whether that vertex is a maximum or a minimum: negative \\\\(a\\\\) opens downward, so the vertex is a highest point; positive \\\\(a\\\\) opens upward, so the vertex is a lowest point.\" }, { \"block_id\": \"minds-on--p--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"Look at \\\\(f(x) = (x + 3)^2 + 1\\\\). The equation is already in vertex form, but notice the sign inside the brackets.\" }, { \"block_id\": \"minds-on--equation--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(f(x) = (x + 3)^2 + 1\\\\)\" }, { \"block_id\": \"minds-on--task--2\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Where is the vertex? Write its coordinates before you check on the graph.\" }, { \"block_id\": \"action--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"In this course, \\\\(f(x) = a(x - h)^2 + k\\\\) is vertex form. The expanded equation \\\\(f(x) = ax^2 + bx + c\\\\) is standard form.\" }, { \"block_id\": \"action--h2--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"Read the turning point from the equation\" }, { \"block_id\": \"action--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"You named a vertex from a plus inside the brackets. Read this next equation the same way — vertex, axis, and whether the turning point is a maximum or a minimum.\" }, { \"block_id\": \"action--example--1--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"Sketch a parabola that opens downward and turns at a point left of the origin and above the \\\\(x\\\\)-axis. Label that turning point. Draw a dashed vertical line through it.\" }, { \"block_id\": \"action--example--1--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"The equation of that graph is\" }, { \"block_id\": \"action--example--1--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(y = -3(x + 2)^2 + 4\\\\)\" }, { \"block_id\": \"action--example--1--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"We need the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum.\" }, { \"block_id\": \"action--example--1--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"Compare the equation with \\\\(y = a(x - h)^2 + k\\\\).\" }, { \"block_id\": \"action--example--1--p--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"The brackets contain \\\\((x + 2)\\\\). Vertex form uses \\\\((x - h)\\\\), so rewrite \\\\(x + 2\\\\) as \\\\(x - (-2)\\\\). That makes \\\\(h = -2\\\\). The constant outside the brackets is \\\\(+4\\\\), so \\\\(k = 4\\\\).\" }, { \"block_id\": \"action--example--1--p--6\", \"field\": \"text\", \"before\": \"\", \"after\": \"The vertex is \\\\((-2, 4)\\\\). The axis of symmetry is the vertical line through the vertex, \\\\(x = -2\\\\).\" }, { \"block_id\": \"action--example--1--p--7\", \"field\": \"text\", \"before\": \"\", \"after\": \"The coefficient in front of the brackets is \\\\(-3\\\\). Because \\\\(a\\\\) is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is \\\\(4\\\\), and it occurs when \\\\(x = -2\\\\).\" }, { \"block_id\": \"action--example--1--p--8\", \"field\": \"text\", \"before\": \"\", \"after\": \"That highest point is the same kind of fact you named on the water stream, now read from the equation.\" }, { \"block_id\": \"action--h2--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"A second equation, with nothing added outside\" }, { \"block_id\": \"action--example--2--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"The last equation had a constant outside the brackets, so \\\\(k\\\\) was easy to see as a height. This Ontario sample includes\" }, { \"block_id\": \"action--example--2--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(h(x) = -2(x + 1)^2\\\\)\" }, { \"block_id\": \"action--example--2--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"as one of the graphs to read from \\\\(f(x) = x^2\\\\). Use it here to inspect vertex form. (The sample also names \\\\(g(x) = x^2 - 4\\\\); stay with \\\\(h(x)\\\\).)\" }, { \"block_id\": \"action--example--2--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"The brackets contain \\\\((x + 1)\\\\). Rewrite \\\\(x + 1\\\\) as \\\\(x - (-1)\\\\), so \\\\(h = -1\\\\). There is no constant added outside, so \\\\(k = 0\\\\). The vertex is \\\\((-1, 0)\\\\), and the axis is \\\\(x = -1\\\\).\" }, { \"block_id\": \"action--example--2--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"The coefficient is \\\\(-2\\\\), so \\\\(a\\\\) is negative and the parabola opens downward. The vertex is a maximum even though \\\\(k = 0\\\\). Maximum versus minimum comes from the sign of \\\\(a\\\\), not from whether \\\\(k\\\\) looks positive.\" }, { \"block_id\": \"action--example--2--task--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Could you have decided maximum versus minimum from \\\\(k\\\\) on this equation? Say why or why not.\" }, { \"block_id\": \"action--h2--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"Match the equation you already read\" }, { \"block_id\": \"action--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"You named a vertex for \\\\(f(x) = (x + 3)^2 + 1\\\\). The graph starts at a different equation with the same brackets:\" }, { \"block_id\": \"action--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(f(x) = 2(x + 3)^2 + 1\\\\)\" }, { \"block_id\": \"action--card--1\", \"field\": \"label\", \"before\": \"\", \"after\": \"Match the equation you already read\" }, { \"block_id\": \"action--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches \\\\(f(x) = (x + 3)^2 + 1\\\\). Submit when the live equation labelled Vertex form matches that equation.\" }, { \"block_id\": \"action--self-check--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this equation?\" }, { \"block_id\": \"action--h2--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"Change only the horizontal position\" }, { \"block_id\": \"action--p--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"The graph is back at \\\\(f(x) = 2(x + 3)^2 + 1\\\\). Do not move the graph yet.\" }, { \"block_id\": \"action--task--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"If you change only \\\\(h\\\\) so the vertex sits at \\\\(x = 2\\\\), what will happen to the graph, and what will the new equation look like? Write that first.\" }, { \"block_id\": \"action--card--2\", \"field\": \"label\", \"before\": \"\", \"after\": \"Change only h\" }, { \"block_id\": \"action--p--6\", \"field\": \"text\", \"before\": \"\", \"after\": \"Then move the graph so the vertex is at \\\\(x = 2\\\\), changing only \\\\(h\\\\) if you can. Submit. Say which quantity you meant to change: \\\\(a\\\\), \\\\(h\\\\), or \\\\(k\\\\).\" }, { \"block_id\": \"action--self-check--2\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Look at the live equation labelled Vertex form and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?\" }, { \"block_id\": \"action--h2--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"The same curve, two forms\" }, { \"block_id\": \"action--p--7\", \"field\": \"text\", \"before\": \"\", \"after\": \"Vertex form makes the turning point easy to read. Expanding that form into \\\\(ax^2 + bx + c\\\\) should not move the curve.\" }, { \"block_id\": \"action--example--3--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"Sketch a parabola that opens upward, turning left of the origin and below the \\\\(x\\\\)-axis. Mark the vertex. An equation that fits that sketch is\" }, { \"block_id\": \"action--example--3--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(g(x) = \\\\frac{1}{2}(x + 2)^2 - 3\\\\)\" }, { \"block_id\": \"action--example--3--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"The task is to write the same function as \\\\(ax^2 + bx + c\\\\), then check that both forms give the same outputs.\" }, { \"block_id\": \"action--example--3--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"Square the binomial: \\\\((x + 2)^2 = x^2 + 4x + 4\\\\).\" }, { \"block_id\": \"action--example--3--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"Multiply by \\\\(a = \\\\frac{1}{2}\\\\): \\\\(\\\\frac{1}{2}x^2 + 2x + 2\\\\).\" }, { \"block_id\": \"action--example--3--p--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"Add \\\\(k = -3\\\\): \\\\(\\\\frac{1}{2}x^2 + 2x - 1\\\\).\" }, { \"block_id\": \"action--example--3--equation--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(g(x) = \\\\frac{1}{2}x^2 + 2x - 1\\\\)\" }, { \"block_id\": \"action--example--3--p--6\", \"field\": \"text\", \"before\": \"\", \"after\": \"Check a few inputs. At \\\\(x = -2\\\\), both forms give \\\\(-3\\\\). At \\\\(x = 0\\\\), both give \\\\(-1\\\\). At \\\\(x = -4\\\\), both give \\\\(-1\\\\). The table points sit on the same graph: expanding did not make a new parabola.\" }, { \"block_id\": \"action--p--8\", \"field\": \"text\", \"before\": \"\", \"after\": \"Now expand the starting equation from the graph, \\\\(f(x) = 2(x + 3)^2 + 1\\\\). If you rewrite it as \\\\(ax^2 + bx + c\\\\), will the graph be a different parabola or the same one? Write that down before you expand.\" }, { \"block_id\": \"action--card--3\", \"field\": \"label\", \"before\": \"\", \"after\": \"Expand, then check the same graph\" }, { \"block_id\": \"action--p--9\", \"field\": \"text\", \"before\": \"\", \"after\": \"Expand on paper. Enter your \\\\(b\\\\) and \\\\(c\\\\) (\\\\(a\\\\) should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried.\" }, { \"block_id\": \"action--self-check--3\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Do a few table points sit on both forms? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?\" }, { \"block_id\": \"action--h2--6\", \"field\": \"text\", \"before\": \"\", \"after\": \"What vertex form is for\" }, { \"block_id\": \"action--p--10\", \"field\": \"text\", \"before\": \"\", \"after\": \"You have been reading vertex form. Factored form \\\\(f(x) = a(x - r)(x - s)\\\\) makes the \\\\(x\\\\)-intercepts easy to see. Standard form \\\\(f(x) = ax^2 + bx + c\\\\) makes the \\\\(y\\\\)-intercept easy to see. Vertex form does not make those intercepts as obvious — and the vertex is not an intercept unless it actually sits on an axis.\" }, { \"block_id\": \"action--task--2\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"What can you read from vertex form \\\\(f(x) = a(x - h)^2 + k\\\\) that is harder to see when the same function is written as \\\\(f(x) = ax^2 + bx + c\\\\)? Do not rewrite the function in another form.\" }, { \"block_id\": \"action--h2--7\", \"field\": \"text\", \"before\": \"\", \"after\": \"Expand a new equation yourself\" }, { \"block_id\": \"action--task--3\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Given the vertex form \\\\(f(x) = 3(x - 1)^2 + 4\\\\), express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.\" }, { \"block_id\": \"action--p--11\", \"field\": \"text\", \"before\": \"\", \"after\": \"Here, standard form means \\\\(f(x) = ax^2 + bx + c\\\\). Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph.\" }, { \"block_id\": \"action--h2--8\", \"field\": \"text\", \"before\": \"\", \"after\": \"One more to try\" }, { \"block_id\": \"action--p--12\", \"field\": \"text\", \"before\": \"\", \"after\": \"If the graph is not available, work on paper with \\\\(f(x) = 2(x + 3)^2 + 1\\\\). First look at \\\\(f(x) = (x + 3)^2 + 1\\\\): name that vertex, then sketch both equations (same turning point, different stretch). From the starting equation, predict what happens if you change only \\\\(h\\\\) to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch.\" }, { \"block_id\": \"consolidation--card--1\", \"field\": \"label\", \"before\": \"\", \"after\": \"Return to the stream\" }, { \"block_id\": \"consolidation--figure--1\", \"field\": \"alt\", \"before\": \"\", \"after\": \"Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.\" }, { \"block_id\": \"consolidation--p--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"You named the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.\" }, { \"block_id\": \"consolidation--equation--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(f(x) = -0.5(x - 2)^2 + 4\\\\)\" }, { \"block_id\": \"consolidation--task--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"Do not move the graph yet. Name the vertex, the axis of symmetry, and whether this vertex is a maximum or a minimum.\" }, { \"block_id\": \"consolidation--card--2\", \"field\": \"label\", \"before\": \"\", \"after\": \"Read a new equation\" }, { \"block_id\": \"consolidation--p--2\", \"field\": \"text\", \"before\": \"\", \"after\": \"Then set the graph to match that equation and submit.\" }, { \"block_id\": \"consolidation--self-check--1\", \"field\": \"prompt\", \"before\": \"\", \"after\": \"How did you read the high or low point from this equation? If you expanded it into \\\\(ax^2 + bx + c\\\\), would the fountain-shaped curve move?\" }, { \"block_id\": \"consolidation--p--3\", \"field\": \"text\", \"before\": \"\", \"after\": \"If you are on paper: sketch from the equation, then change one of \\\\(a\\\\), \\\\(h\\\\), or \\\\(k\\\\) and sketch again.\" }, { \"block_id\": \"consolidation--h2--1\", \"field\": \"text\", \"before\": \"\", \"after\": \"What vertex form gives you\" }, { \"block_id\": \"consolidation--p--4\", \"field\": \"text\", \"before\": \"\", \"after\": \"Vertex form \\\\(f(x) = a(x - h)^2 + k\\\\) makes the vertex \\\\((h, k)\\\\) and the axis \\\\(x = h\\\\) readable. Maximum versus minimum comes from the sign of \\\\(a\\\\), not from the sign of \\\\(k\\\\) and not from which quadrant the vertex sits in.\" }, { \"block_id\": \"consolidation--p--5\", \"field\": \"text\", \"before\": \"\", \"after\": \"Match the brackets to \\\\((x - h)\\\\). A plus inside the brackets does not mean the vertex is on the positive side of the \\\\(x\\\\)-axis.\" }, { \"block_id\": \"consolidation--p--6\", \"field\": \"text\", \"before\": \"\", \"after\": \"\\\\(a\\\\) stretches or flips the graph. \\\\(k\\\\) moves the vertex up or down. Those two jobs are not the same.\" }, { \"block_id\": \"consolidation--p--7\", \"field\": \"text\", \"before\": \"\", \"after\": \"Expanding vertex form into \\\\(f(x) = ax^2 + bx + c\\\\) gives the same parabola, not a new one. The graphs should land on top of each other.\" } ]"
+  - heading "Lock blocks" [level=2] [ref=f5e505]
+  - generic [ref=f5e506]:
+    - generic [ref=f5e507]:
+      - checkbox "minds-on--card--1" [ref=f5e508]
+      - text: minds-on--card--1
+    - generic [ref=f5e509]:
+      - checkbox "minds-on--figure--1" [ref=f5e510]
+      - text: minds-on--figure--1
+    - generic [ref=f5e511]:
+      - checkbox "minds-on--p--1" [ref=f5e512]
+      - text: minds-on--p--1
+    - generic [ref=f5e513]:
+      - checkbox "minds-on--task--1" [ref=f5e514]
+      - text: minds-on--task--1
+    - generic [ref=f5e515]:
+      - checkbox "minds-on--p--2" [ref=f5e516]
+      - text: minds-on--p--2
+    - generic [ref=f5e517]:
+      - checkbox "minds-on--p--3" [ref=f5e518]
+      - text: minds-on--p--3
+    - generic [ref=f5e519]:
+      - checkbox "minds-on--equation--1" [ref=f5e520]
+      - text: minds-on--equation--1
+    - generic [ref=f5e521]:
+      - checkbox "minds-on--p--4" [ref=f5e522]
+      - text: minds-on--p--4
+    - generic [ref=f5e523]:
+      - checkbox "minds-on--p--5" [ref=f5e524]
+      - text: minds-on--p--5
+    - generic [ref=f5e525]:
+      - checkbox "minds-on--equation--2" [ref=f5e526]
+      - text: minds-on--equation--2
+    - generic [ref=f5e527]:
+      - checkbox "minds-on--task--2" [ref=f5e528]
+      - text: minds-on--task--2
+    - generic [ref=f5e529]:
+      - checkbox "action--p--1" [ref=f5e530]
+      - text: action--p--1
+    - generic [ref=f5e531]:
+      - checkbox "action--h2--1" [ref=f5e532]
+      - text: action--h2--1
+    - generic [ref=f5e533]:
+      - checkbox "action--p--2" [ref=f5e534]
+      - text: action--p--2
+    - generic [ref=f5e535]:
+      - checkbox "action--example--1--p--1" [ref=f5e536]
+      - text: action--example--1--p--1
+    - generic [ref=f5e537]:
+      - checkbox "action--example--1--p--2" [ref=f5e538]
+      - text: action--example--1--p--2
+    - generic [ref=f5e539]:
+      - checkbox "action--example--1--equation--1" [ref=f5e540]
+      - text: action--example--1--equation--1
+    - generic [ref=f5e541]:
+      - checkbox "action--example--1--p--3" [ref=f5e542]
+      - text: action--example--1--p--3
+    - generic [ref=f5e543]:
+      - checkbox "action--example--1--p--4" [ref=f5e544]
+      - text: action--example--1--p--4
+    - generic [ref=f5e545]:
+      - checkbox "action--example--1--p--5" [ref=f5e546]
+      - text: action--example--1--p--5
+    - generic [ref=f5e547]:
+      - checkbox "action--example--1--p--6" [ref=f5e548]
+      - text: action--example--1--p--6
+    - generic [ref=f5e549]:
+      - checkbox "action--example--1--p--7" [ref=f5e550]
+      - text: action--example--1--p--7
+    - generic [ref=f5e551]:
+      - checkbox "action--example--1--p--8" [ref=f5e552]
+      - text: action--example--1--p--8
+    - generic [ref=f5e553]:
+      - checkbox "action--h2--2" [ref=f5e554]
+      - text: action--h2--2
+    - generic [ref=f5e555]:
+      - checkbox "action--example--2--p--1" [ref=f5e556]
+      - text: action--example--2--p--1
+    - generic [ref=f5e557]:
+      - checkbox "action--example--2--equation--1" [ref=f5e558]
+      - text: action--example--2--equation--1
+    - generic [ref=f5e559]:
+      - checkbox "action--example--2--p--2" [ref=f5e560]
+      - text: action--example--2--p--2
+    - generic [ref=f5e561]:
+      - checkbox "action--example--2--p--3" [ref=f5e562]
+      - text: action--example--2--p--3
+    - generic [ref=f5e563]:
+      - checkbox "action--example--2--p--4" [ref=f5e564]
+      - text: action--example--2--p--4
+    - generic [ref=f5e565]:
+      - checkbox "action--example--2--task--1" [ref=f5e566]
+      - text: action--example--2--task--1
+    - generic [ref=f5e567]:
+      - checkbox "action--h2--3" [ref=f5e568]
+      - text: action--h2--3
+    - generic [ref=f5e569]:
+      - checkbox "action--p--3" [ref=f5e570]
+      - text: action--p--3
+    - generic [ref=f5e571]:
+      - checkbox "action--equation--1" [ref=f5e572]
+      - text: action--equation--1
+    - generic [ref=f5e573]:
+      - checkbox "action--card--1" [ref=f5e574]
+      - text: action--card--1
+    - generic [ref=f5e575]:
+      - checkbox "action--p--4" [ref=f5e576]
+      - text: action--p--4
+    - generic [ref=f5e577]:
+      - checkbox "action--self-check--1" [ref=f5e578]
+      - text: action--self-check--1
+    - generic [ref=f5e579]:
+      - checkbox "action--h2--4" [ref=f5e580]
+      - text: action--h2--4
+    - generic [ref=f5e581]:
+      - checkbox "action--p--5" [ref=f5e582]
+      - text: action--p--5
+    - generic [ref=f5e583]:
+      - checkbox "action--task--1" [ref=f5e584]
+      - text: action--task--1
+    - generic [ref=f5e585]:
+      - checkbox "action--card--2" [ref=f5e586]
+      - text: action--card--2
+    - generic [ref=f5e587]:
+      - checkbox "action--p--6" [ref=f5e588]
+      - text: action--p--6
+    - generic [ref=f5e589]:
+      - checkbox "action--self-check--2" [ref=f5e590]
+      - text: action--self-check--2
+    - generic [ref=f5e591]:
+      - checkbox "action--h2--5" [ref=f5e592]
+      - text: action--h2--5
+    - generic [ref=f5e593]:
+      - checkbox "action--p--7" [ref=f5e594]
+      - text: action--p--7
+    - generic [ref=f5e595]:
+      - checkbox "action--example--3--p--1" [ref=f5e596]
+      - text: action--example--3--p--1
+    - generic [ref=f5e597]:
+      - checkbox "action--example--3--equation--1" [ref=f5e598]
+      - text: action--example--3--equation--1
+    - generic [ref=f5e599]:
+      - checkbox "action--example--3--p--2" [ref=f5e600]
+      - text: action--example--3--p--2
+    - generic [ref=f5e601]:
+      - checkbox "action--example--3--p--3" [ref=f5e602]
+      - text: action--example--3--p--3
+    - generic [ref=f5e603]:
+      - checkbox "action--example--3--p--4" [ref=f5e604]
+      - text: action--example--3--p--4
+    - generic [ref=f5e605]:
+      - checkbox "action--example--3--p--5" [ref=f5e606]
+      - text: action--example--3--p--5
+    - generic [ref=f5e607]:
+      - checkbox "action--example--3--equation--2" [ref=f5e608]
+      - text: action--example--3--equation--2
+    - generic [ref=f5e609]:
+      - checkbox "action--example--3--p--6" [ref=f5e610]
+      - text: action--example--3--p--6
+    - generic [ref=f5e611]:
+      - checkbox "action--p--8" [ref=f5e612]
+      - text: action--p--8
+    - generic [ref=f5e613]:
+      - checkbox "action--card--3" [ref=f5e614]
+      - text: action--card--3
+    - generic [ref=f5e615]:
+      - checkbox "action--p--9" [ref=f5e616]
+      - text: action--p--9
+    - generic [ref=f5e617]:
+      - checkbox "action--self-check--3" [ref=f5e618]
+      - text: action--self-check--3
+    - generic [ref=f5e619]:
+      - checkbox "action--h2--6" [ref=f5e620]
+      - text: action--h2--6
+    - generic [ref=f5e621]:
+      - checkbox "action--p--10" [ref=f5e622]
+      - text: action--p--10
+    - generic [ref=f5e623]:
+      - checkbox "action--task--2" [ref=f5e624]
+      - text: action--task--2
+    - generic [ref=f5e625]:
+      - checkbox "action--h2--7" [ref=f5e626]
+      - text: action--h2--7
+    - generic [ref=f5e627]:
+      - checkbox "action--task--3" [ref=f5e628]
+      - text: action--task--3
+    - generic [ref=f5e629]:
+      - checkbox "action--p--11" [ref=f5e630]
+      - text: action--p--11
+    - generic [ref=f5e631]:
+      - checkbox "action--h2--8" [ref=f5e632]
+      - text: action--h2--8
+    - generic [ref=f5e633]:
+      - checkbox "action--p--12" [ref=f5e634]
+      - text: action--p--12
+    - generic [ref=f5e635]:
+      - checkbox "consolidation--card--1" [ref=f5e636]
+      - text: consolidation--card--1
+    - generic [ref=f5e637]:
+      - checkbox "consolidation--figure--1" [ref=f5e638]
+      - text: consolidation--figure--1
+    - generic [ref=f5e639]:
+      - checkbox "consolidation--p--1" [ref=f5e640]
+      - text: consolidation--p--1
+    - generic [ref=f5e641]:
+      - checkbox "consolidation--equation--1" [ref=f5e642]
+      - text: consolidation--equation--1
+    - generic [ref=f5e643]:
+      - checkbox "consolidation--task--1" [ref=f5e644]
+      - text: consolidation--task--1
+    - generic [ref=f5e645]:
+      - checkbox "consolidation--card--2" [ref=f5e646]
+      - text: consolidation--card--2
+    - generic [ref=f5e647]:
+      - checkbox "consolidation--p--2" [ref=f5e648]
+      - text: consolidation--p--2
+    - generic [ref=f5e649]:
+      - checkbox "consolidation--self-check--1" [ref=f5e650]
+      - text: consolidation--self-check--1
+    - generic [ref=f5e651]:
+      - checkbox "consolidation--p--3" [ref=f5e652]
+      - text: consolidation--p--3
+    - generic [ref=f5e653]:
+      - checkbox "consolidation--h2--1" [ref=f5e654]
+      - text: consolidation--h2--1
+    - generic [ref=f5e655]:
+      - checkbox "consolidation--p--4" [ref=f5e656]
+      - text: consolidation--p--4
+    - generic [ref=f5e657]:
+      - checkbox "consolidation--p--5" [ref=f5e658]
+      - text: consolidation--p--5
+    - generic [ref=f5e659]:
+      - checkbox "consolidation--p--6" [ref=f5e660]
+      - text: consolidation--p--6
+    - generic [ref=f5e661]:
+      - checkbox "consolidation--p--7" [ref=f5e662]
+      - text: consolidation--p--7
+  - button "Save locks.json" [ref=f5e663] [cursor=pointer]

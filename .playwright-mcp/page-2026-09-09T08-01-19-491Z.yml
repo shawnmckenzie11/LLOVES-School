@@ -1,0 +1,18 @@
+- article [ref=f12e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f12e3]'
+  - tablist [ref=f12e4]:
+    - tab "The water" [selected] [ref=f12e5] [cursor=pointer]
+    - tab "Minds on" [ref=f12e6] [cursor=pointer]
+    - tab "Action" [ref=f12e7] [cursor=pointer]
+    - tab "Consolidation" [ref=f12e8] [cursor=pointer]
+  - tabpanel "The water" [ref=f12e9]:
+    - generic [ref=f12e10]:
+      - figure [ref=f12e11]:
+        - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=f12e12]
+      - paragraph [ref=f12e13]: Look at the water leaving the fountain. Each stream goes up and comes down.
+      - paragraph [ref=f12e15]: Choose one stream. Mark the highest point of that stream — the place the water does not go above. Do not measure, and do not write an equation yet.
+  - text: Worked example Another example Hint Hint Worked example Hint Hint
+  - generic [ref=f12e16]:
+    - paragraph [ref=f12e17]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=f12e18]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=f12e19]: "Ontario curriculum sample: Queen’s Printer for Ontario"

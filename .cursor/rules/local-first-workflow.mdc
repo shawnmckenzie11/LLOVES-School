@@ -36,8 +36,9 @@ Point at existing school rules (`elc-school`, `semester-awareness`, `repo-conven
 
 - `flyctl deploy` / `fly deploy`
 - Push to `main`
-- Commit secrets, `.imscc`, or `lms/data/`
+- Commit secrets, `.imscc`, banks, contest dumps, or `lms/data/`
 - Any git commit (repo rule: only commit when Shawn asks)
+- Cursor Google Drive plugin / live `ALC / Curriculum / {CODE}` writes (other workspace)
 
 ## Branch prefixes
 

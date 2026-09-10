@@ -1,0 +1,2 @@
+[   61692ms] [ERROR] Framing 'http://127.0.0.1:8787/staff/class/2/module-item?item=270' violates the following Content Security Policy directive: "frame-src https://accounts.google.com". The request has been blocked.
+ @ http://127.0.0.1:8787/static/course_modules.js:50

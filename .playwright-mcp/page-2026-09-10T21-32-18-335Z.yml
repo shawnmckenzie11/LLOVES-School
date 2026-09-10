@@ -1,0 +1,14 @@
+- generic [ref=f5e2]:
+  - paragraph [ref=f5e3]: MCF3M
+  - heading "How are you feeling?" [level=1] [ref=f5e4]
+  - generic [ref=f5e5]:
+    - radiogroup "How are you feeling?" [ref=f5e6]:
+      - generic "Good" [ref=f5e7] [cursor=pointer]:
+        - radio "Good"
+      - generic "Okay" [ref=f5e9] [cursor=pointer]:
+        - radio "Okay"
+      - generic "Not great" [ref=f5e11] [cursor=pointer]:
+        - radio "Not great"
+    - generic [ref=f5e13]:
+      - button "Skip" [ref=f5e14] [cursor=pointer]
+      - button "Join Class" [ref=f5e15] [cursor=pointer]

@@ -1,0 +1,110 @@
+- article [ref=f13e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f13e3]'
+  - tablist [ref=f13e4]:
+    - tab "The water" [ref=f13e5] [cursor=pointer]
+    - tab "Minds on" [ref=f13e6] [cursor=pointer]
+    - tab "Action" [ref=f13e7] [cursor=pointer]
+    - tab "Consolidation" [active] [selected] [ref=f13e8] [cursor=pointer]
+  - text: Worked example Another example OK Hint Try again Hint Worked example Try again Hint
+  - tabpanel "Consolidation" [ref=f13e301]:
+    - generic [ref=f13e302]:
+      - figure [ref=f13e303]:
+        - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=f13e304]
+      - paragraph [ref=f13e305]: You marked the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.
+      - paragraph [ref=f13e306]: f(x) = -0.5(x - 2)² + 4
+      - paragraph [ref=f13e308]: Do not move the graph yet. Name the vertex, the axis of symmetry, and whether this vertex is a maximum or a minimum.
+      - paragraph [ref=f13e309]: Then set the graph to match that writing and submit.
+      - generic [ref=f13e310]:
+        - generic [ref=f13e311]:
+          - generic [ref=f13e312]:
+            - text: Vertex x
+            - spinbutton "Vertex x" [ref=f13e313]
+          - generic [ref=f13e314]:
+            - text: Vertex y
+            - spinbutton "Vertex y" [ref=f13e315]
+          - generic [ref=f13e316]:
+            - text: Axis
+            - textbox "Axis" [ref=f13e317]:
+              - /placeholder: x = …
+          - generic [ref=f13e318]:
+            - text: Maximum or minimum
+            - textbox "Maximum or minimum" [ref=f13e319]
+        - paragraph [ref=f13e320]:
+          - strong [ref=f13e321]: "Vertex form:"
+          - text: f(x) = -0.5(x − 2)² + 4
+        - paragraph [ref=f13e322]:
+          - strong [ref=f13e323]: "Same function, expanded:"
+          - text: f(x) = -0.5x² + 2x + 2
+        - paragraph [ref=f13e324]:
+          - strong [ref=f13e325]: "Axis of symmetry:"
+          - text: x = 2
+        - figure [ref=f13e326]:
+          - region [ref=f13e327]:
+            - img [ref=f13e328]:
+              - generic [aria-hidden] [ref=f13e330]: JSXGraph v1.11.1 Copyright (C) see https://jsxgraph.org
+              - generic [ref=f13e336]:
+                - generic [ref=f13e338]: "2"
+                - generic [ref=f13e339]: "4"
+                - generic [ref=f13e340]: "6"
+                - generic [ref=f13e341]: −2
+                - generic [ref=f13e342]: −4
+                - generic [ref=f13e343]: −6
+                - generic [ref=f13e344]: "2"
+                - generic [ref=f13e345]: "4"
+                - generic [ref=f13e346]: "6"
+                - generic [ref=f13e347]: "8"
+                - generic [ref=f13e348]: −2
+                - generic [ref=f13e349]: −4
+            - generic [ref=f13e350] [cursor=pointer]: –o+←↓↑→
+            - generic [ref=f13e351]: (2, 4)
+        - generic [ref=f13e352]:
+          - generic [ref=f13e353]:
+            - text: a
+            - slider "a -0.5" [ref=f13e354]: "-0.5"
+            - generic [ref=f13e355]: "-0.5"
+          - generic [ref=f13e356]:
+            - text: h
+            - slider "h 2" [ref=f13e357]: "2"
+            - generic [ref=f13e358]: "2"
+          - generic [ref=f13e359]:
+            - text: k
+            - slider "k 4" [ref=f13e360]: "4"
+            - generic [ref=f13e361]: "4"
+        - generic [ref=f13e362]:
+          - button "Check" [ref=f13e363] [cursor=pointer]
+          - button "Hint" [ref=f13e364] [cursor=pointer]
+          - button "Reset" [ref=f13e365] [cursor=pointer]
+        - text: Hint
+        - heading "Shared points" [level=3] [ref=f13e366]
+        - table [ref=f13e367]:
+          - rowgroup [ref=f13e368]:
+            - row [ref=f13e369]:
+              - columnheader "x" [ref=f13e370]
+              - columnheader "f(x)" [ref=f13e371]
+          - rowgroup [ref=f13e372]:
+            - row [ref=f13e373]:
+              - cell "0" [ref=f13e374]
+              - cell "2" [ref=f13e375]
+            - row [ref=f13e376]:
+              - cell "1" [ref=f13e377]
+              - cell "3.5" [ref=f13e378]
+            - row [ref=f13e379]:
+              - cell "2" [ref=f13e380]
+              - cell "4" [ref=f13e381]
+            - row [ref=f13e382]:
+              - cell "3" [ref=f13e383]
+              - cell "3.5" [ref=f13e384]
+            - row [ref=f13e385]:
+              - cell "4" [ref=f13e386]
+              - cell "2" [ref=f13e387]
+      - paragraph [ref=f13e389]: How did you read the high or low point from this writing? If you expanded it into ax² + bx + c, would the fountain-shaped curve move?
+      - paragraph [ref=f13e390]: "If you are on paper: sketch from the equation, then change one of a, h, or k and sketch again."
+      - heading "What the writing gives you" [level=2] [ref=f13e391]
+      - paragraph [ref=f13e392]: Vertex form f(x) = a(x - h)² + k makes the vertex (h, k) and the axis x = h readable. Maximum versus minimum comes from the sign of a, not from the sign of k and not from which quadrant the vertex sits in.
+      - paragraph [ref=f13e393]: Match the brackets to (x - h). A plus inside the brackets does not mean the vertex is on the positive side of the x-axis.
+      - paragraph [ref=f13e394]: a stretches or flips the graph. k moves the vertex up or down. Those two jobs are not the same.
+      - paragraph [ref=f13e395]: Expanding vertex form into f(x) = ax² + bx + c gives the same parabola, not a new one. The graphs should land on top of each other.
+  - generic [ref=f13e16]:
+    - paragraph [ref=f13e17]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=f13e18]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=f13e19]: "Ontario curriculum sample: Queen’s Printer for Ontario"

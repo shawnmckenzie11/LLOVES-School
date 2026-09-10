@@ -1,0 +1,27 @@
+- generic [active] [ref=f2e1]:
+  - generic "Account" [ref=f2e2]:
+    - link "Log out" [ref=f2e3] [cursor=pointer]:
+      - /url: /logout
+  - generic [ref=f2e5]:
+    - article [ref=f2e6]:
+      - heading "MCF3M" [level=2] [ref=f2e7]
+      - paragraph [ref=f2e8]: M | W | F | 2:00 PM
+      - generic [ref=f2e9]:
+        - link "Run Live Class" [ref=f2e11] [cursor=pointer]:
+          - /url: /staff/class/2?tab=live&run=1
+        - link "Take Attendance" [ref=f2e16] [cursor=pointer]:
+          - /url: /staff/class/2?tab=ap&view=attendance&take=1
+        - link "Explore Course" [ref=f2e21] [cursor=pointer]:
+          - /url: /staff/class/2
+        - button "Edit Roster" [ref=f2e26] [cursor=pointer]
+    - article [ref=f2e30]:
+      - heading "MCF3M-2" [level=2] [ref=f2e31]
+      - paragraph [ref=f2e32]: M | W | F | 2:00 PM
+      - generic [ref=f2e33]:
+        - link "Run Live Class" [ref=f2e35] [cursor=pointer]:
+          - /url: /staff/class/3?tab=live&run=1
+        - link "Take Attendance" [ref=f2e40] [cursor=pointer]:
+          - /url: /staff/class/3?tab=ap&view=attendance&take=1
+        - link "Explore Course" [ref=f2e45] [cursor=pointer]:
+          - /url: /staff/class/3
+        - button "Edit Roster" [ref=f2e50] [cursor=pointer]

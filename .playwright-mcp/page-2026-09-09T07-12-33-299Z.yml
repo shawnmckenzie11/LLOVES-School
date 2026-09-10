@@ -1,0 +1,21 @@
+- article [ref=f1e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f1e3]'
+  - paragraph [ref=f1e4]: MCF3M · Module 4 · M4-L1-vertex-form
+  - tablist [ref=f1e5]:
+    - tab "Minds On" [ref=f1e6] [cursor=pointer]
+    - tab "Action" [ref=f1e7] [cursor=pointer]
+    - tab "Consolidation" [active] [selected] [ref=f1e8] [cursor=pointer]
+  - tabpanel "Consolidation" [ref=f1e120]:
+    - generic [ref=f1e121]:
+      - paragraph [ref=f1e122]: A fresh case. Here is a new equation. Do not move the sliders yet.
+      - paragraph [ref=f1e123]: f(x) = −0.5(x − 2)^2 + 4
+      - paragraph [ref=f1e124]: Name the vertex, the axis of symmetry, and whether this is a maximum or a minimum. Then move one parameter to check.
+      - paragraph [ref=f1e125]: "If you are on paper: sketch from the equation, then change one of a, h, or k and sketch again."
+      - paragraph [ref=f1e126]: What to remember
+      - paragraph [ref=f1e127]: "Vertex form is f(x) = a(x − h)^2 + k. You can read the vertex (h, k), the axis of symmetry x = h, and whether the graph has a maximum or a minimum from the sign of a: negative a means a maximum; positive a means a minimum."
+      - paragraph [ref=f1e128]: Match the brackets to (x − h). A plus inside the brackets does not mean the vertex is on the positive side of the x-axis.
+      - paragraph [ref=f1e129]: a stretches or flips the graph. k moves the vertex up or down. Those two jobs are not the same.
+      - paragraph [ref=f1e130]: Expanding vertex form into f(x) = ax^2 + bx + c gives the same parabola, not a new one. The graphs should land on top of each other.
+      - paragraph [ref=f1e131]: Vertex form does not make the x-intercepts as obvious as factored form. Do not treat the vertex as an intercept unless it actually sits on an axis.
+      - paragraph [ref=f1e132]: You do not need to complete the square in this lesson.
+  - paragraph [ref=f1e18]: "Graph tool: JSXGraph (MIT). OpenStax excerpts: CC BY-NC-SA 4.0. Access for free at https://openstax.org/books/college-algebra-2e/pages/1-introduction-to-prerequisites. Ontario sample: Queen’s Printer excerpt via the verified seed. No student login or remote computation."

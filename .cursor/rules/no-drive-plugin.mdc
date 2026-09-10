@@ -1,0 +1,24 @@
+---
+description: Forbid Cursor Google Drive plugin in LLOVES-School; curriculum authoring is the other clone
+alwaysApply: true
+---
+
+# No live Google Drive in LLOVES-School
+
+This workspace is the **LMS**. Curriculum Drive authoring lives in the other Cursor project (ALC-Curriculum / the rclone or git clone of `ALC / Curriculum`).
+
+## Forbidden here
+
+- Cursor **Google Drive** plugin / MCP. Do not call `search_files`, `read_file_content`, `create_file`, `copy_file`, `update_file`, `download_file_content`, `list_recent_files`, `share_file`, `trash_file`, or other Drive plugin tools. Keep the plugin **disabled for this workspace** (Settings → Plugins). Do not disable it globally if the other clone still needs it.
+- Invoking `curriculum-drive-author` or `populate-drive-team-challenge-questions` **against live Drive**.
+- Drive search at class time. Lesson Slides runtime is LMS sqlite + `.local-data/curriculum/`, then **GoogleSlidesClient** REST — not the plugin.
+- Committing banks, contest dumps, `.local-data/curriculum/`, or `.imscc`.
+- Committing unless Shawn asks. Laptop `flyctl deploy` / `fly deploy` unless he asks.
+
+If a task needs to **write `ALC / Curriculum / {CODE}`**, stop and say: **open that workspace.**
+
+## Keep (not the plugin)
+
+- LMS Google OAuth + Slides/Drive API: Connect Google Slides, `lms/GOOGLE.md`, live-class MnCi decks via `GoogleSlidesClient`.
+- Local cache already on disk: `.local-data/curriculum/` (gitignored).
+- Folder IDs in `lms/live_class_constants.py` (`CURRICULUM_DRIVE_FOLDER_ID`, `CURRICULUM_COURSE_DRIVE_FOLDERS`) as **documentation only**. Do not use them to Drive-write from this project.

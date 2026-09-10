@@ -1,0 +1,7 @@
+- generic [ref=f4e2]:
+  - banner [ref=f4e3]:
+    - button "JFGGBPLU" [ref=f4e4] [cursor=pointer]
+  - region "Logged-in students" [ref=f4e5]:
+    - heading "Participants (1)" [level=2] [ref=f4e6]
+    - list [ref=f4e8]:
+      - listitem [ref=f4e9]: 🦊 df

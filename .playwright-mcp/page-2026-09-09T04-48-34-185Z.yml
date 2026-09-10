@@ -1,0 +1,105 @@
+- generic [active] [ref=e1]:
+  - generic "GeoGebra Classic" [ref=e2]:
+    - main [ref=e3]:
+      - generic [ref=e4]:
+        - list [ref=e8]:
+          - listitem [ref=e9] [cursor=pointer]
+          - listitem [ref=e12] [cursor=pointer]
+          - listitem [ref=e15] [cursor=pointer]
+          - listitem [ref=e18] [cursor=pointer]
+          - listitem [ref=e21] [cursor=pointer]
+          - listitem [ref=e24] [cursor=pointer]
+          - listitem [ref=e27] [cursor=pointer]
+          - listitem [ref=e30] [cursor=pointer]
+          - listitem [ref=e33] [cursor=pointer]
+          - listitem [ref=e36] [cursor=pointer]
+          - listitem [ref=e39] [cursor=pointer]
+        - generic [ref=e42]:
+          - button "Undo" [disabled] [ref=e43]
+          - button "Redo" [disabled] [ref=e45]
+          - button [ref=e47] [cursor=pointer]
+          - button [ref=e49] [cursor=pointer]
+      - generic [ref=e52]:
+        - generic [ref=e54]:
+          - button "Toggle Style Bar" [ref=e57] [cursor=pointer]
+          - generic "Algebra" [ref=e64]:
+            - tree
+            - treeitem "p = 0 -5 5 1 × Play More" [ref=e66] [cursor=pointer]:
+              - generic [ref=e67]:
+                - generic [ref=e70]: p = 0
+                - generic [ref=e72]:
+                  - generic [ref=e73]: "-5"
+                  - slider [ref=e74]: "0"
+                  - generic [ref=e75]: "5"
+                - generic [ref=e76]:
+                  - generic:
+                    - generic [ref=e77]:
+                      - button [ref=e78]
+                      - generic [ref=e80]: 1 ×
+                      - button [ref=e81]
+                    - button "Play" [ref=e83]
+                  - button "More" [ref=e85]
+            - treeitem "q = 0.4 -5 5 1 × Play More" [ref=e88] [cursor=pointer]:
+              - generic [ref=e89]:
+                - generic [ref=e92]: q = 0.4
+                - generic [ref=e94]:
+                  - generic [ref=e95]: "-5"
+                  - slider [ref=e96]: "0.4"
+                  - generic [ref=e97]: "5"
+                - generic [ref=e98]:
+                  - generic:
+                    - generic [ref=e99]:
+                      - button [ref=e100]
+                      - generic [ref=e102]: 1 ×
+                      - button [ref=e103]
+                    - button "Play" [ref=e105]
+                  - button "More" [ref=e107]
+            - treeitem "a = 1 -5 5 1 × Play More" [ref=e110] [cursor=pointer]:
+              - generic [ref=e111]:
+                - generic [ref=e114]: a = 1
+                - generic [ref=e116]:
+                  - generic [ref=e117]: "-5"
+                  - slider [ref=e118]: "1"
+                  - generic [ref=e119]: "5"
+                - generic [ref=e120]:
+                  - generic:
+                    - generic [ref=e121]:
+                      - button [ref=e122]
+                      - generic [ref=e124]: 1 ×
+                      - button [ref=e125]
+                    - button "Play" [ref=e127]
+                  - button "More" [ref=e129]
+            - treeitem [ref=e132] [cursor=pointer]:
+              - generic [ref=e133]:
+                - button "more" [ref=e137]
+                - status "g(x) = x²" [ref=e140]
+            - treeitem [ref=e142] [cursor=pointer]:
+              - generic [ref=e143]:
+                - button "more" [ref=e147]
+                - generic [ref=e150]:
+                  - status "f(x) = a (x - p)² + q" [ref=e152]
+                  - status "1 times x minus 0 squared plus 0.4" [ref=e155]
+            - treeitem [ref=e158] [cursor=pointer]:
+              - generic [ref=e159]:
+                - button "more" [ref=e163]
+                - generic [ref=e166]:
+                  - status "A = (p, q)" [ref=e168]
+                  - status "(0, 0.4)" [ref=e171]
+            - treeitem [ref=e174] [cursor=pointer]:
+              - generic [ref=e175]:
+                - button "more" [ref=e179]
+                - status "B = (0, 0)" [ref=e182]
+            - treeitem "Input…" [ref=e184] [cursor=pointer]:
+              - generic [ref=e185]:
+                - button [aria-hidden] [ref=e187]
+                - generic [ref=e189]: Input…
+        - generic [ref=e195]:
+          - button "Toggle Style Bar" [ref=e198] [cursor=pointer]
+          - generic [ref=e200]:
+            - button "Zoom to fit" [ref=e201] [cursor=pointer]
+            - button "Zoom In" [ref=e203] [cursor=pointer]
+            - button "Zoom Out" [ref=e205] [cursor=pointer]
+            - button "Full screen button selected (currently not full screen)" [ref=e207] [cursor=pointer]
+          - application [ref=e212]
+    - status [ref=e213]
+  - iframe

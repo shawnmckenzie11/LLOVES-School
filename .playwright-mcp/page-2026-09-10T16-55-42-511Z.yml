@@ -1,0 +1,94 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e4]:
+    - paragraph [ref=f1e5]: Admin dashboard
+    - heading "ALC" [level=1] [ref=f1e6]
+    - paragraph [ref=f1e7]:
+      - text: Signed in as solutions@mckenzian.com ·
+      - link "Staff home" [ref=f1e8] [cursor=pointer]:
+        - /url: /staff
+      - text: ·
+      - link "Log out" [ref=f1e9] [cursor=pointer]:
+        - /url: /logout
+  - tablist [ref=f1e10]:
+    - tab "Staff" [selected] [ref=f1e11] [cursor=pointer]
+    - tab "Course Offerings" [ref=f1e12] [cursor=pointer]
+    - tab "Live Classes" [ref=f1e13] [cursor=pointer]
+    - tab "Semester" [ref=f1e14] [cursor=pointer]
+    - tab "Settings" [ref=f1e15] [cursor=pointer]
+    - tab "Live problems" [ref=f1e16] [cursor=pointer]
+    - tab "Quick phrases" [ref=f1e17] [cursor=pointer]
+    - tab "Audit" [ref=f1e18] [cursor=pointer]
+  - tabpanel [ref=f1e19]:
+    - generic [ref=f1e20]:
+      - heading "Add staff" [level=2] [ref=f1e21]
+      - paragraph [ref=f1e22]: Personal Google accounts only. Production requires an email code on every staff/admin sign-in.
+      - generic [ref=f1e23]:
+        - generic [ref=f1e24]:
+          - generic [ref=f1e25]:
+            - generic [ref=f1e26]: Google email
+            - textbox "Google email" [ref=f1e27]
+          - generic [ref=f1e28]:
+            - generic [ref=f1e29]: Display name (optional)
+            - textbox "Display name (optional)" [ref=f1e30]
+        - button "Add staff" [ref=f1e32] [cursor=pointer]
+    - generic [ref=f1e33]:
+      - generic [ref=f1e34]:
+        - heading "Staff" [level=2] [ref=f1e35]
+        - generic [ref=f1e36]:
+          - checkbox "Show archived" [ref=f1e37]
+          - text: Show archived
+      - table [ref=f1e39]:
+        - rowgroup [ref=f1e40]:
+          - row [ref=f1e41]:
+            - columnheader "Display Name" [ref=f1e42]
+            - columnheader "Email" [ref=f1e43]
+            - columnheader "Role" [ref=f1e44]
+            - columnheader "Status" [ref=f1e45]
+            - columnheader "Last Login" [ref=f1e46]
+            - columnheader "Current Courses" [ref=f1e47]
+            - columnheader "Actions" [ref=f1e48]
+        - rowgroup [ref=f1e49]:
+          - row [ref=f1e50]:
+            - cell "Shawn" [ref=f1e51]
+            - cell "solutions@mckenzian.com" [ref=f1e52]
+            - cell "Admin" [ref=f1e53]
+            - cell "active" [ref=f1e54]
+            - cell "Today · 12:55 PM" [ref=f1e56]
+            - cell "—" [ref=f1e57]
+            - cell "—" [ref=f1e58]
+          - row [ref=f1e59]:
+            - cell "Robyn" [ref=f1e60]
+            - cell "rspercival10@gmail.com" [ref=f1e61]
+            - cell "Staff" [ref=f1e62]
+            - cell "active" [ref=f1e63]
+            - cell "Today · 12:54 PM" [ref=f1e65]
+            - cell "MCF3M, MCF3M-2" [ref=f1e66]
+            - cell [ref=f1e67]:
+              - generic [ref=f1e68]:
+                - group [ref=f1e69]:
+                  - generic "Edit Name" [ref=f1e70] [cursor=pointer]
+                - link "Assign Course" [ref=f1e71] [cursor=pointer]:
+                  - /url: /it/staff/2/assign
+                - group [ref=f1e72]:
+                  - generic "History" [ref=f1e73] [cursor=pointer]
+                - button "Deactivate" [ref=f1e75] [cursor=pointer]
+                - group [ref=f1e76]:
+                  - generic "Permanently delete" [ref=f1e77] [cursor=pointer]
+          - row [ref=f1e78]:
+            - cell "Shawn McKenzie" [ref=f1e79]
+            - cell "shawnmckenzie11.sm@gmail.com" [ref=f1e80]
+            - cell "Staff" [ref=f1e81]
+            - cell "active" [ref=f1e82]
+            - cell "Sep 7 · 12:22 PM" [ref=f1e84]
+            - cell "MCF3M" [ref=f1e85]
+            - cell [ref=f1e86]:
+              - generic [ref=f1e87]:
+                - group [ref=f1e88]:
+                  - generic "Edit Name" [ref=f1e89] [cursor=pointer]
+                - link "Assign Course" [ref=f1e90] [cursor=pointer]:
+                  - /url: /it/staff/3/assign
+                - group [ref=f1e91]:
+                  - generic "History" [ref=f1e92] [cursor=pointer]
+                - button "Deactivate" [ref=f1e94] [cursor=pointer]
+                - group [ref=f1e95]:
+                  - generic "Permanently delete" [ref=f1e96] [cursor=pointer]

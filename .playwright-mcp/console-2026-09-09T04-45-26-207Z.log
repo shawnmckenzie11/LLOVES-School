@@ -1,0 +1,14 @@
+[     212ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://www.geogebra.org/m/q9v6r8vd:0
+[     487ms] [LOG] TypeError: window.__gpp is not a function
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:191064)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:243836)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:252467)
+    at https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:486011
+    at u (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82666)
+    at Generator._invoke (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82419)
+    at Generator.next (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:83025)
+    at g (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102773)
+    at a (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102976) @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[    2124ms] [LOG] uspData set usp out of jurisiction value @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[    2124ms] [WARNING] Google basic consent is not applicable. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[    2129ms] [LOG] Visit event sent successfully. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
