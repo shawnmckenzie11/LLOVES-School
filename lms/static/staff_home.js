@@ -311,6 +311,8 @@ function applyPackBusy(card, status) {
   }
   card.querySelectorAll(".course-action").forEach((el) => {
     if (el.classList.contains("course-action-end")) return;
+    // Roster setup does not need a module pack.
+    if (el.classList.contains("btn-populate")) return;
     el.classList.toggle("is-disabled", busy);
     if (busy) {
       el.setAttribute("aria-disabled", "true");
@@ -356,8 +358,6 @@ function initPackProgress() {
       }
       if (keepPolling) window.setTimeout(tick, 700);
     };
-    tick();
-  });
     tick();
   });
 }

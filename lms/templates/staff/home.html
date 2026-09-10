@@ -13,7 +13,7 @@
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
-    <div id="error" class="error hidden"></div>
+    <div id="error" class="error" hidden></div>
 
     {% if not offerings %}
     <p>No course is assigned to you for the active semester. Ask Admin to assign an Ontario course code.</p>
@@ -40,6 +40,9 @@
         {% endif %}
         {% if not cls %}
         <p class="course-card-join hint">No roster yet — Populate Class to add Codenames.</p>
+        {% endif %}
+        {% if not o.library_id %}
+        <p class="course-card-pack-hint hint">Ask Admin to attach a module pack.{% if not cls %} You can still Populate Class.{% endif %}</p>
         {% endif %}
 
         <div class="course-card-actions">
