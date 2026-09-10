@@ -127,6 +127,11 @@ class RosterTests(unittest.TestCase):
         self.assertIn("ap-att-log", live_html)
         self.assertIn("id=\"track-accordion\"", live_html)
         self.assertIn("id=\"ap-att-log\"", live_html)
+        self.assertIn("id=\"ap-join-billboard\"", live_html)
+        self.assertIn("id=\"ap-join-billboard-code\"", live_html)
+        self.assertIn("id=\"ap-join-billboard-copy\"", live_html)
+        billboard_open = live_html.split('id="ap-join-billboard"', 1)[1].split(">", 1)[0]
+        self.assertIn("hidden", billboard_open)
 
         grades = self.client.get(f"/staff/class/{class_id}?tab=gradebook")
         self.assertEqual(grades.status_code, 200)
@@ -810,6 +815,43 @@ class RosterTests(unittest.TestCase):
         overlay_html = overlay.get_data(as_text=True)
         self.assertIn("live-overlay", overlay_html)
         self.assertIn("live_session_overlay.js", overlay_html)
+
+    def test_run_live_tab_shows_join_code_billboard(self) -> None:
+        """Active join code is in the Run Live Class tab, not only the overlay."""
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = created.get_json()["class"]["id"]
+        idle = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
+        self.assertIn('id="ap-join-billboard"', idle)
+        self.assertIn("Copy", idle)
+        idle_open = idle.split('id="ap-join-billboard"', 1)[1].split(">", 1)[0]
+        self.assertIn("hidden", idle_open)
+
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        session = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(session)
+        assert session is not None
+        code = str(session["session_code"])
+        live = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
+        self.assertIn("Class join code", live)
+        self.assertIn(code, live)
+        self.assertIn(f">{code}<", live)
+        self.assertIn('id="ap-join-billboard-copy"', live)
+        live_open = live.split('id="ap-join-billboard"', 1)[1].split(">", 1)[0]
+        self.assertNotIn("hidden", live_open)
+
+        self.school.end_live_class_session(int(session["id"]))
+        ended = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
+        self.assertNotIn(code, ended)
+        ended_open = ended.split('id="ap-join-billboard"', 1)[1].split(">", 1)[0]
+        self.assertIn("hidden", ended_open)
 
     def test_two_classes_get_distinct_session_codes(self) -> None:
         """Same teacher cannot run two concurrent live sessions; IT can force-end."""

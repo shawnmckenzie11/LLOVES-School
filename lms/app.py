@@ -2440,6 +2440,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
+        live_session_code = (
+            str(active_live.get("session_code") or "") if active_live is not None else ""
+        )
         _audit(
             "student.record.view",
             "class",
@@ -2460,6 +2463,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
             live_session_id=live_session_id,
+            live_session_code=live_session_code,
             live_step=live_step,
             school_name=SCHOOL_NAME,
             show_module_pack_upload=False,

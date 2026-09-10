@@ -95,10 +95,27 @@
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
          data-participate="{{ '1' if log_participation or live_step == 'gamify' else '0' }}"
          data-live-session-id="{{ live_session_id or '' }}"
+         data-live-code="{{ live_session_code or '' }}"
          data-live-step="{{ live_step or '' }}"
          data-run="{{ '1' if run_live else '0' }}"
          data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
+      <div id="ap-join-billboard"
+           class="ap-join-billboard"
+           {% if not live_session_code %}hidden{% endif %}>
+        <p class="ap-join-billboard-label">Class join code</p>
+        <div class="ap-join-billboard-row">
+          <span id="ap-join-billboard-code"
+                class="ap-join-billboard-code"
+                role="button"
+                tabindex="0"
+                title="Click to copy"
+                aria-live="polite">{{ live_session_code or '····' }}</span>
+          <button type="button" id="ap-join-billboard-copy" class="ap-join-billboard-copy">Copy</button>
+        </div>
+        <p class="ap-join-billboard-copied" id="ap-join-billboard-copied" hidden>Copied</p>
+        <p class="ap-join-billboard-hint">Share this code with students. It stays here even if the overlay popup is blocked.</p>
+      </div>
       <section class="ap-active-media" id="ap-active-media">
         <h2>Active media</h2>
         <p class="hint compact" id="ap-active-media-status">None — students see the wait / prompt shell until you push a page.</p>

@@ -1080,6 +1080,79 @@ body.staff-shell .ap-media-preview {
 body.staff-shell #ap-media-swap-wrap[hidden] {
   display: none !important;
 }
+body.staff-shell .ap-join-billboard {
+  margin: 0 0 0.85rem;
+  padding: 0.9rem 1.05rem 1rem;
+  border: 1px solid #0f766e;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+body.staff-shell .ap-join-billboard[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-join-billboard-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #99f6e4;
+}
+body.staff-shell .ap-join-billboard-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+body.staff-shell .ap-join-billboard-code {
+  font-family: ui-monospace, Menlo, "JetBrains Mono", monospace;
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+  color: #f5c518;
+  word-break: break-all;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+body.staff-shell .ap-join-billboard-code:hover,
+body.staff-shell .ap-join-billboard-code:focus-visible {
+  color: #ffe28a;
+  outline: none;
+}
+body.staff-shell .ap-join-billboard-copy {
+  appearance: none;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #134e4a;
+  color: #ecfdf5;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+body.staff-shell .ap-join-billboard-copy:hover,
+body.staff-shell .ap-join-billboard-copy:focus-visible {
+  background: #0f766e;
+  outline: none;
+}
+body.staff-shell .ap-join-billboard-copied {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #86efac;
+}
+body.staff-shell .ap-join-billboard-copied[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-join-billboard-hint {
+  margin: 0.45rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.85rem;
+}
 body.staff-shell .ap-guest-toggle {
   display: flex;
   align-items: center;
