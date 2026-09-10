@@ -9,6 +9,7 @@
 </head>
 <body class="staff-shell staff-home">
   <div class="staff-home-corner" aria-label="Account">
+    <a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>

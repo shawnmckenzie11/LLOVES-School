@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bots · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+</head>
+<body class="staff-shell staff-bots">
+  <div class="wrap">
+    <nav class="staff-top-menu" aria-label="Staff navigation">
+      <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
+      <a class="staff-top-btn on" href="{{ url_for('staff_bots') }}">Bots</a>
+      {% for item in nav_courses %}
+      <a class="staff-top-btn" href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+      <span class="staff-top-spacer"></span>
+      {% if user.role == 'it' %}<a class="staff-top-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
+      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+    </nav>
+
+    <p class="kicker">Staff · development</p>
+    <h1>Grok bots</h1>
+    <p class="sub">Directory of bots Shawn uses to engineer ALC challenge-led modules. Staff-only — not a student surface. Cards describe roles and focus, not curriculum wording or contest stems.</p>
+
+    <section class="bots-grid" aria-label="Bot cards">
+      {% for bot in bots %}
+      {% if bot.placeholder %}
+      <article class="card bot-card is-placeholder" aria-label="Open bot slot">
+        <p class="bot-kicker">Open slot</p>
+        <h2>{{ bot.name }}</h2>
+        <p class="hint">{{ bot.hint }}</p>
+      </article>
+      {% else %}
+      <article class="card bot-card{% if bot.featured %} is-featured{% endif %}"{% if bot.slug %} id="{{ bot.slug }}"{% endif %}>
+        <div class="bot-card-top">
+          <p class="bot-kicker">{% if bot.aka %}{{ bot.aka }}{% else %}Bot{% endif %}</p>
+          {% if bot.status %}<span class="bot-status">{{ bot.status }}</span>{% endif %}
+        </div>
+        <h2>{{ bot.name }}</h2>
+        <p class="bot-role">{{ bot.role }}</p>
+        {% if bot.note %}<p class="bot-note">{{ bot.note }}</p>{% endif %}
+        {% if bot.focus %}
+        <h3 class="bot-section-label">Focus now</h3>
+        <ul class="bot-focus">
+          {% for item in bot.focus %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if bot.perspectives %}
+        <h3 class="bot-section-label">Perspectives</h3>
+        <ul class="bot-perspectives">
+          {% for item in bot.perspectives %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </article>
+      {% endif %}
+      {% endfor %}
+    </section>
+  </div>
+</body>
+</html>

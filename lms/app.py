@@ -62,6 +62,7 @@ from auth import (  # noqa: E402
     staff_required,
     student_required,
 )
+from bots import list_bots  # noqa: E402
 from celebration import (  # noqa: E402
     build_celebration_board,
     celebration_candidates,
@@ -2081,6 +2082,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    @app.route("/staff/bots")
+    @staff_required
+    def staff_bots():
+        """Staff-only Grok bots showcase (Module Engineer and later cards)."""
+        user = current_user()
+        assert user is not None
+        return render_template(
+            "staff/bots.html",
+            user=user,
+            bots=list_bots(),
+            nav_courses=_staff_nav_courses(int(user["id"])),
+            school_name=SCHOOL_NAME,
+        )
 
     @app.route("/api/staff/celebration-award", methods=["GET", "POST"])
     @staff_required

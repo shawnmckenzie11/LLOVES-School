@@ -12,6 +12,7 @@
   <div class="wrap course-shell">
     <nav class="staff-top-menu" aria-label="Staff navigation">
       <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
+      <a class="staff-top-btn" href="{{ url_for('staff_bots') }}">Bots</a>
       {% for item in nav_courses %}
       <a class="staff-top-btn{% if item.class_id and item.class_id == cls.id %} on{% endif %}"
          href="{{ item.href }}">{{ item.label }}</a>

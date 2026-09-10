@@ -36,6 +36,9 @@ body.staff-shell .staff-top-btn.on {
   border-color: #0b5f59;
   color: #fff;
 }
+body.staff-shell .staff-top-spacer {
+  flex: 1 1 auto;
+}
 body.staff-shell .ap-shortcut-note {
   display: flex;
   align-items: flex-start;
@@ -2012,4 +2015,85 @@ body.staff-shell .lesson-slides-grid {
 body.staff-shell .lesson-slides-wizard textarea {
   width: 100%;
   min-height: 4.5rem;
+}
+
+/* Staff Grok bots showcase (/staff/bots). */
+body.staff-shell.staff-bots .bots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+body.staff-shell.staff-bots .bot-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1.1rem 1.15rem 1.2rem;
+}
+body.staff-shell.staff-bots .bot-card.is-featured {
+  border-left-color: #0b5f59;
+}
+body.staff-shell.staff-bots .bot-card.is-placeholder {
+  border-left-color: #94a3b8;
+  border-style: dashed;
+  background: #f8fafc;
+  color: #64748b;
+}
+body.staff-shell.staff-bots .bot-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+body.staff-shell.staff-bots .bot-kicker {
+  margin: 0;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #3d4f63;
+}
+body.staff-shell.staff-bots .bot-status {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: lowercase;
+}
+body.staff-shell.staff-bots .bot-card h2 {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 1.35rem;
+}
+body.staff-shell.staff-bots .bot-role {
+  margin: 0 0 0.65rem;
+  color: #334155;
+  font-size: 0.95rem;
+}
+body.staff-shell.staff-bots .bot-note {
+  margin: 0 0 0.85rem;
+  color: #3d4f63;
+  font-size: 0.88rem;
+}
+body.staff-shell.staff-bots .bot-section-label {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+body.staff-shell.staff-bots .bot-focus,
+body.staff-shell.staff-bots .bot-perspectives {
+  margin: 0 0 0.65rem;
+  padding-left: 1.1rem;
+  color: #12202e;
+  font-size: 0.92rem;
+}
+body.staff-shell.staff-bots .bot-card.is-placeholder h2 {
+  color: #64748b;
+  font-size: 1.1rem;
 }
