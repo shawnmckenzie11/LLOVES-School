@@ -5864,8 +5864,9 @@ class SchoolDB(LovesDB):
         """Seed the Minds-On question if this session is still waiting-room.
 
         Lazy-seeds existing smoke sessions that started before this prompt
-        existed. Does not recreate the row after Team Challenge / scoring
-        cleared it.
+        existed. Refreshes the active waiting-room payload when the
+        authoritative stem/choices/key change. Does not recreate the row
+        after Team Challenge / scoring cleared it.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -5873,15 +5874,32 @@ class SchoolDB(LovesDB):
         Returns:
             The seeded prompt row, or ``None`` when skipped.
         """
-        if self._minds_on_row_exists(session_id):
-            return None
         if self._session_left_waiting_room(session_id):
+            return None
+        desired = minds_on_prompt_payload()
+        active = self.get_active_live_prompt(session_id)
+        if active and is_minds_on_payload(active.get("payload")):
+            current = active.get("payload") or {}
+            if (
+                current.get("prompt") == desired["prompt"]
+                and current.get("choices") == desired["choices"]
+                and current.get("key") == desired.get("key")
+            ):
+                return None
+            return self.set_live_session_prompt(
+                session_id,
+                slide_index=MINDS_ON_SLIDE_INDEX,
+                kind=MINDS_ON_KIND,
+                payload=desired,
+                activate=True,
+            )
+        if self._minds_on_row_exists(session_id):
             return None
         return self.set_live_session_prompt(
             session_id,
             slide_index=MINDS_ON_SLIDE_INDEX,
             kind=MINDS_ON_KIND,
-            payload=minds_on_prompt_payload(),
+            payload=desired,
             activate=True,
         )
 

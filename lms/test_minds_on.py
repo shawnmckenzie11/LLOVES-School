@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -16,8 +17,10 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 
 from minds_on import (  # noqa: E402
+    MINDS_ON_BRIEF_PATH,
     MINDS_ON_CHOICES,
     MINDS_ON_ITEM_ID,
+    MINDS_ON_KEY,
     MINDS_ON_LABEL,
     MINDS_ON_PROMPT,
     WAITING_ROOM_WAIT_LINE,
@@ -44,8 +47,43 @@ class MindsOnHelperTests(unittest.TestCase):
         self.assertEqual(payload["label"], MINDS_ON_LABEL)
         self.assertEqual(payload["label"], "Minds-On")
         self.assertEqual(payload["prompt"], MINDS_ON_PROMPT)
+        self.assertEqual(
+            payload["prompt"],
+            (
+                "A straight-line graph has a **constant rate of change**. "
+                "Which statement best matches that?"
+            ),
+        )
+        self.assertEqual(
+            payload["choices"],
+            [
+                "Every equal step across adds the same amount up (or down)",
+                "The graph curves",
+                "Second differences in a table are constant",
+                "Not sure",
+            ],
+        )
         self.assertEqual(payload["choices"], list(MINDS_ON_CHOICES))
-        self.assertIn("Every step up adds the same amount", payload["choices"])
+        self.assertEqual(payload["key"], MINDS_ON_KEY)
+        self.assertEqual(payload["key"], "A")
+        self.assertEqual(
+            MINDS_ON_BRIEF_PATH,
+            "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C1-minds-on-student.md",
+        )
+        brief = REPO_ROOT / "content-builder" / MINDS_ON_BRIEF_PATH
+        self.assertTrue(brief.is_file(), brief)
+        self.assertIn(
+            "Every equal step across adds the same amount up (or down)",
+            brief.read_text(encoding="utf-8"),
+        )
+        escaped = (
+            MINDS_ON_PROMPT.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        rendered = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+        self.assertIn("<strong>constant rate of change</strong>", rendered)
+        self.assertNotIn("**", rendered)
         self.assertTrue(is_minds_on_payload(payload))
         self.assertTrue(is_minds_on_payload({"item_id": "meet-math"}))
         self.assertFalse(is_minds_on_payload({"item_id": "C1-CONS-1"}))

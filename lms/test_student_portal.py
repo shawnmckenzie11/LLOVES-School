@@ -18,7 +18,13 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from minds_on import is_minds_on_payload  # noqa: E402
+from minds_on import (  # noqa: E402
+    MINDS_ON_CHOICES,
+    MINDS_ON_PROMPT,
+    MINDS_ON_SLIDE_INDEX,
+    is_minds_on_payload,
+    minds_on_prompt_payload,
+)
 
 
 class StudentPortalTests(unittest.TestCase):
@@ -139,16 +145,12 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(payload["prompt"]["kind"], "mc")
         self.assertEqual(payload["prompt"]["payload"]["item_id"], "minds_on")
         self.assertEqual(payload["prompt"]["payload"]["label"], "Minds-On")
-        self.assertIn("constant rate of change", payload["prompt"]["payload"]["prompt"])
+        self.assertEqual(payload["prompt"]["payload"]["prompt"], MINDS_ON_PROMPT)
         self.assertEqual(
             payload["prompt"]["payload"]["choices"],
-            [
-                "Every step up adds the same amount",
-                "The graph curves",
-                "Second differences are constant",
-                "Not sure",
-            ],
+            list(MINDS_ON_CHOICES),
         )
+        self.assertNotIn("key", payload["prompt"]["payload"])
 
         toggle = self.staff.post(
             f"/api/classes/{self.class_id}/show-rank",
@@ -644,12 +646,21 @@ class StudentPortalTests(unittest.TestCase):
         self.assertFalse(prompt["payload"]["durable_store"])
         self.assertEqual(prompt["payload"]["clear_on"], "team_challenge_start")
         self.assertEqual(prompt["kind"], "mc")
-        self.assertIn("Every step up adds the same amount", prompt["payload"]["choices"])
+        self.assertEqual(prompt["payload"]["prompt"], MINDS_ON_PROMPT)
+        self.assertEqual(prompt["payload"]["choices"], list(MINDS_ON_CHOICES))
+        self.assertNotIn("key", prompt["payload"])
+        self.assertNotIn("cement", prompt["payload"])
+
+        staff_active = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/prompts/active"
+        ).get_json()
+        self.assertEqual(staff_active["prompt"]["payload"]["key"], "A")
 
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(live_prompt["ok"])
         self.assertTrue(live_prompt["waiting_room"])
         self.assertEqual(live_prompt["prompt"]["payload"]["item_id"], "minds_on")
+        self.assertNotIn("key", live_prompt["prompt"]["payload"])
 
         for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "feedback"):
             self.assertNotIn(field, prompt["payload"])
@@ -658,7 +669,7 @@ class StudentPortalTests(unittest.TestCase):
             "/api/student/live-prompt/response",
             json={
                 "prompt_id": prompt["id"],
-                "response": {"choice": "Every step up adds the same amount"},
+                "response": {"choice": MINDS_ON_CHOICES[0]},
             },
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
@@ -673,7 +684,7 @@ class StudentPortalTests(unittest.TestCase):
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
             again["my_response"]["response"]["choice"],
-            "Every step up adds the same amount",
+            MINDS_ON_CHOICES[0],
         )
         self.assertEqual(
             again["my_response"]["feedback"]["text"],
@@ -681,6 +692,29 @@ class StudentPortalTests(unittest.TestCase):
         )
         for field in ("key", "cement", "soft_key", "by_choice", "on_submit"):
             self.assertNotIn(field, again["prompt"]["payload"])
+
+    def test_waiting_room_refreshes_authoritative_stem(self) -> None:
+        """Active waiting-room Minds-On updates when the copywriter stem lands."""
+        stale = minds_on_prompt_payload()
+        stale["prompt"] = "A line has constant rate of change. Which best matches that?"
+        stale["choices"] = [
+            "Every step up adds the same amount",
+            "The graph curves",
+            "Second differences are constant",
+            "Not sure",
+        ]
+        self.school.set_live_session_prompt(
+            self.live_session_id,
+            slide_index=MINDS_ON_SLIDE_INDEX,
+            kind="mc",
+            payload=stale,
+            activate=True,
+        )
+        self.school.ensure_waiting_room_minds_on(self.live_session_id)
+        active = self.school.get_active_live_prompt(self.live_session_id)
+        self.assertEqual(active["payload"]["prompt"], MINDS_ON_PROMPT)
+        self.assertEqual(active["payload"]["choices"], list(MINDS_ON_CHOICES))
+        self.assertEqual(active["payload"]["key"], "A")
 
     def test_minds_on_clears_when_challenge_media_mounts(self) -> None:
         """Real-slice / active_media replaces Minds-On; it is not the stem."""

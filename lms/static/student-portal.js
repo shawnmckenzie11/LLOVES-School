@@ -151,6 +151,15 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Escape prompt copy and render copywriter ``**bold**`` markers.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatPromptHtml(value) {
+  return escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 /** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
 const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
 
@@ -417,7 +426,7 @@ function paintPrompt(payload) {
   }
   const kind = String(prompt.kind);
   const data = prompt.payload || {};
-  const title = escapeText(data.prompt || data.question || "Live response");
+  const title = formatPromptHtml(data.prompt || data.question || "Live response");
   let controls = "";
   if (kind === "mc") {
     const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];

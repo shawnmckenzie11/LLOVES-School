@@ -176,6 +176,8 @@ def public_feedback_fragment(
 def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:
     """Copy a prompt payload without keys, cement, or feedback maps.
 
+    Strips the same teacher-only fields from nested ``items`` rows.
+
     Args:
         payload: Prompt JSON object.
     """
@@ -184,4 +186,16 @@ def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:
     out = dict(payload)
     for key in TEACHER_ONLY_FIELDS:
         out.pop(key, None)
+    items = out.get("items")
+    if isinstance(items, list):
+        stripped: list[Any] = []
+        for item in items:
+            if isinstance(item, dict):
+                row = dict(item)
+                for key in TEACHER_ONLY_FIELDS:
+                    row.pop(key, None)
+                stripped.append(row)
+            else:
+                stripped.append(item)
+        out["items"] = stripped
     return out

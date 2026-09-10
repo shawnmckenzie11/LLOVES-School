@@ -40,20 +40,28 @@ _LEGACY_PACK_IDS = frozenset({MINDS_ON_PACK_ID, "waiting-room"})
 
 WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin."
 
-# M1C1 (first live of the module) uses a prior-module linear-rate item.
+# Authoritative student-copywriter final (MCF3M M1C1 waiting-room).
+MINDS_ON_BRIEF_PATH = (
+    "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C1-minds-on-student.md"
+)
 MINDS_ON_PROMPT = (
-    "A line has constant rate of change. Which best matches that?"
+    "A straight-line graph has a **constant rate of change**. "
+    "Which statement best matches that?"
 )
 MINDS_ON_CHOICES: tuple[str, ...] = (
-    "Every step up adds the same amount",
+    "Every equal step across adds the same amount up (or down)",
     "The graph curves",
-    "Second differences are constant",
+    "Second differences in a table are constant",
     "Not sure",
 )
+# Soft key is teacher-only; student_live_prompt_payload must strip it.
+MINDS_ON_KEY = "A"
 
 
 def minds_on_prompt_payload() -> dict[str, Any]:
-    """Student-facing MC payload for the waiting-room Minds-On question.
+    """MC payload for the waiting-room Minds-On question.
+
+    Includes teacher-only ``key``. Student APIs must strip it before send.
 
     Returns:
         Live-prompt payload with ``item_id`` ``minds_on`` on the
@@ -74,6 +82,7 @@ def minds_on_prompt_payload() -> dict[str, Any]:
             "label": MINDS_ON_LABEL,
             "prompt": MINDS_ON_PROMPT,
             "choices": list(MINDS_ON_CHOICES),
+            "key": MINDS_ON_KEY,
         }
     )
     return payload
