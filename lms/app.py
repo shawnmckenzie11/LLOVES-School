@@ -1174,7 +1174,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def landing():
         """Public ALC logo, then Teacher / Student / Admin entry.
 
-        Recognition cards live on the same page at ``/#celebrations``.
+        Celebrations live on the same page at ``/#celebrations`` (coming soon).
         """
         return render_template(
             "landing.html",

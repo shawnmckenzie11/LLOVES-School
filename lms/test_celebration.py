@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public ALC ``/#celebrations`` recognition board."""
+"""Public ALC ``/#celebrations`` Coming soon panel and staff award helpers."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from celebration import build_celebration_board  # noqa: E402
 
 
 class CelebrationTests(unittest.TestCase):
@@ -112,8 +113,8 @@ class CelebrationTests(unittest.TestCase):
                 )
             game.conn.commit()
 
-    def test_landing_hash_route_has_four_cards(self) -> None:
-        """ALC ``/`` embeds #celebrations with all four card titles."""
+    def test_landing_hash_route_coming_soon(self) -> None:
+        """ALC ``/`` keeps #celebrations in nav and shows only Coming soon."""
         anon = self.app.test_client()
         rv = anon.get("/")
         self.assertEqual(rv.status_code, 200)
@@ -122,13 +123,19 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
         self.assertIn("location.hash === \"#celebrations\"", body)
-        self.assertIn("Awards", body)
-        self.assertIn("Celebrating a student", body)
-        self.assertIn("Most Engaged", body)
-        self.assertIn("Most Improved", body)
-        self.assertIn("Quietly Cooking", body)
-        self.assertIn("A teacher will feature someone here.", body)
-        self.assertIn("Waiting on the first attendance.", body)
+        self.assertIn("Coming soon.", body)
+        self.assertIn(
+            "We’ll shout out strong work and engagement here when it’s ready.",
+            body,
+        )
+        self.assertIn("class=\"calc-coming-soon\"", body)
+        self.assertNotIn("data-card=", body)
+        self.assertNotIn("Most Engaged", body)
+        self.assertNotIn("Most Improved", body)
+        self.assertNotIn("Quietly Cooking", body)
+        self.assertNotIn("Celebrating a student", body)
+        self.assertNotIn("A teacher will feature someone here.", body)
+        self.assertNotIn("Waiting on the first attendance.", body)
         self.assertNotIn("calc.mckenzian.com", body)
         self.assertNotIn("LLOVES", body)
 
@@ -181,11 +188,15 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("/#celebrations", home)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        award = page.split('data-card="award"')[1].split("</article>")[0]
-        engaged = page.split('data-card="engaged"')[1].split("</article>")[0]
-        self.assertIn("Birch", award)
-        self.assertIn("Kept the warm-up moving.", award)
-        self.assertIn("Maple", engaged)
+        self.assertIn("Coming soon.", page)
+        self.assertNotIn("data-card=", page)
+        self.assertNotIn("Kept the warm-up moving.", page)
+
+        board = build_celebration_board(self.school)["cards"]
+        by_key = {card["key"]: card for card in board}
+        self.assertEqual(by_key["award"]["name"], "Birch")
+        self.assertEqual(by_key["award"]["detail"], "Kept the warm-up moving.")
+        self.assertEqual(by_key["engaged"]["name"], "Maple")
 
     def test_most_improved_and_quietly_cooking(self) -> None:
         """Four classes unlock Most Improved; steady attendance is Quietly Cooking."""
@@ -210,12 +221,14 @@ class CelebrationTests(unittest.TestCase):
             self._log_day(class_id, day, everyone, pts)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        engaged = page.split('data-card="engaged"')[1].split("</article>")[0]
-        improved = page.split('data-card="improved"')[1].split("</article>")[0]
-        cooking = page.split('data-card="cooking"')[1].split("</article>")[0]
-        self.assertIn("Cedar", engaged)
-        self.assertIn("Maple", improved)
-        self.assertIn("Aspen", cooking)
+        self.assertIn("Coming soon.", page)
+        self.assertNotIn("data-card=", page)
+
+        board = build_celebration_board(self.school)["cards"]
+        by_key = {card["key"]: card for card in board}
+        self.assertEqual(by_key["engaged"]["name"], "Cedar")
+        self.assertEqual(by_key["improved"]["name"], "Maple")
+        self.assertEqual(by_key["cooking"]["name"], "Aspen")
 
     def test_foreign_class_rejected(self) -> None:
         """A teacher cannot feature a Codename from someone else's class."""
