@@ -3264,8 +3264,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         POST JSON: ``url`` (same-origin ``/static/...``) to set or swap;
         ``clear: true`` or empty ``url`` to hide the student iframe;
-        omit ``url`` to patch control-state (``student_controls_unlocked``,
-        ``params``, stem/caption) on the current page.
+        omit ``url`` to patch control-state (``reveal_axes``,
+        ``reveal_lateral``, ``allow_3d_limited``, ``frozen``,
+        ``student_controls_unlocked``, ``unlock_flags``, ``params``,
+        stem/caption/answers) on the current page.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3283,6 +3285,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         "url": DEFAULT_LIVE_MEDIA_URL,
                         "title": DEFAULT_LIVE_MEDIA_TITLE,
                         "stem": DEFAULT_LIVE_MEDIA_STEM,
+                        "reveal_axes": False,
+                        "reveal_lateral": False,
+                        "allow_3d_limited": False,
+                        "frozen": False,
                     },
                 }
             )
@@ -3301,10 +3307,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["caption"] = body.get("caption")
         if "stem" in body:
             kwargs["stem"] = body.get("stem")
+        if "entry_chip" in body:
+            kwargs["entry_chip"] = body.get("entry_chip")
         if "student_controls_unlocked" in body:
             kwargs["student_controls_unlocked"] = body.get(
                 "student_controls_unlocked"
             )
+        if "reveal_axes" in body:
+            kwargs["reveal_axes"] = body.get("reveal_axes")
+        if "reveal_lateral" in body:
+            kwargs["reveal_lateral"] = body.get("reveal_lateral")
+        if "allow_3d_limited" in body:
+            kwargs["allow_3d_limited"] = body.get("allow_3d_limited")
+        if "frozen" in body:
+            kwargs["frozen"] = body.get("frozen")
+        if "unlock_flags" in body:
+            kwargs["unlock_flags"] = body.get("unlock_flags")
+        if "answers" in body:
+            kwargs["answers"] = body.get("answers")
         if "params" in body:
             kwargs["params"] = body.get("params")
         try:

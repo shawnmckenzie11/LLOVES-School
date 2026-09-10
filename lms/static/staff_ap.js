@@ -399,7 +399,11 @@ function paintActiveMediaStatus(media) {
   const status = $("ap-active-media-status");
   const stemPreview = $("ap-active-media-stem-preview");
   const unlock = $("ap-media-unlock");
+  const axes = $("ap-media-axes");
+  const limited = $("ap-media-limited");
+  const freeze = $("ap-media-freeze");
   const paramsWrap = $("ap-media-params");
+  const layers = $("ap-media-layers");
   const preview = $("ap-media-preview");
   const urlInput = $("ap-media-url");
   if (!status) return;
@@ -410,7 +414,11 @@ function paintActiveMediaStatus(media) {
       stemPreview.textContent = "";
     }
     if (unlock) unlock.checked = false;
+    if (axes) axes.checked = false;
+    if (limited) limited.checked = false;
+    if (freeze) freeze.checked = false;
     if (paramsWrap) paramsWrap.hidden = true;
+    if (layers) layers.hidden = true;
     if (preview) {
       preview.hidden = true;
       preview.removeAttribute("src");
@@ -418,15 +426,28 @@ function paintActiveMediaStatus(media) {
     return;
   }
   const unlocked = Boolean(media.student_controls_unlocked);
-  status.textContent = unlocked
-    ? `Showing ${media.url} · student sliders unlocked`
-    : `Showing ${media.url} · student camera fixed on y = x²`;
+  const axesOn = Boolean(media.reveal_axes);
+  const lateralOn = Boolean(media.reveal_lateral);
+  const limitedOn = Boolean(media.allow_3d_limited);
+  const frozenOn = Boolean(media.frozen);
+  const bits = [];
+  if (axesOn) bits.push("axes revealed");
+  if (lateralOn) bits.push("lateral slice");
+  if (limitedOn) bits.push("limited yaw");
+  if (unlocked) bits.push("sliders unlocked");
+  if (frozenOn) bits.push("frozen (encore offered)");
+  status.textContent = bits.length
+    ? `Showing ${media.url} · ${bits.join(" · ")}`
+    : `Showing ${media.url} · entry (axes hidden, camera fixed)`;
   if (stemPreview) {
     const stem = String(media.stem || media.caption || "").trim();
     stemPreview.textContent = stem;
     stemPreview.hidden = !stem;
   }
   if (unlock) unlock.checked = unlocked;
+  if (axes) axes.checked = axesOn;
+  if (limited) limited.checked = limitedOn;
+  if (freeze) freeze.checked = frozenOn;
   if (urlInput && document.activeElement !== urlInput) {
     urlInput.value = media.url;
   }
@@ -438,6 +459,14 @@ function paintActiveMediaStatus(media) {
   if (bEl && document.activeElement !== bEl) bEl.value = String(params.b ?? 0);
   if (cEl && document.activeElement !== cEl) cEl.value = String(params.c ?? 0);
   if (paramsWrap) paramsWrap.hidden = false;
+  if (layers) {
+    layers.hidden = false;
+    const flags = media.unlock_flags || {};
+    layers.querySelectorAll("input[data-layer]").forEach((box) => {
+      const key = box.getAttribute("data-layer") || "";
+      box.checked = Boolean(flags[key]);
+    });
+  }
   if (preview) {
     const teacherSrc = media.url.includes("?")
       ? `${media.url}&role=teacher`
@@ -452,6 +481,11 @@ function paintActiveMediaStatus(media) {
           source: "lloves-staff-live",
           type: "live-media-state",
           student_controls_unlocked: unlocked,
+          reveal_axes: axesOn,
+          reveal_lateral: lateralOn,
+          allow_3d_limited: limitedOn,
+          frozen: frozenOn,
+          unlock_flags: media.unlock_flags || {},
           params,
         },
         window.location.origin
@@ -491,7 +525,11 @@ function bindActiveMediaControls() {
   const clearBtn = $("ap-media-clear");
   const swapBtn = $("ap-media-swap");
   const unlock = $("ap-media-unlock");
+  const axes = $("ap-media-axes");
+  const limited = $("ap-media-limited");
+  const freeze = $("ap-media-freeze");
   const pushParams = $("ap-media-params-push");
+  const layers = $("ap-media-layers");
   if (seedBtn) {
     seedBtn.addEventListener("click", () => {
       postActiveMedia({
@@ -499,7 +537,14 @@ function bindActiveMediaControls() {
         title: SEED_MEDIA_TITLE,
         stem: SEED_MEDIA_STEM,
         caption: "",
+        entry_chip: "From this view only — what must be true?",
         student_controls_unlocked: false,
+        reveal_axes: false,
+        reveal_lateral: false,
+        allow_3d_limited: false,
+        frozen: false,
+        unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
+        answers: [],
         params: { a: 1, b: 0, c: 0 },
       }).catch((err) => showError("#ap-overlay-error", err));
     });
@@ -522,6 +567,38 @@ function bindActiveMediaControls() {
       }).catch((err) => showError("#ap-overlay-error", err));
     });
   }
+  if (axes) {
+    axes.addEventListener("change", () => {
+      postActiveMedia({
+        reveal_axes: axes.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (limited) {
+    limited.addEventListener("change", () => {
+      postActiveMedia({
+        allow_3d_limited: limited.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (freeze) {
+    freeze.addEventListener("change", () => {
+      postActiveMedia({
+        frozen: freeze.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (layers) {
+    layers.querySelectorAll("input[data-layer]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const key = box.getAttribute("data-layer");
+        if (!key) return;
+        const body = { unlock_flags: { [key]: box.checked } };
+        if (key === "L4") body.reveal_lateral = box.checked;
+        postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
+      });
+    });
+  }
   if (pushParams) {
     pushParams.addEventListener("click", () => {
       postActiveMedia({
@@ -537,10 +614,11 @@ function bindActiveMediaControls() {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
-    const params = data.params || {};
+    const body = { params: data.params || {} };
+    if (typeof data.reveal_axes === "boolean") body.reveal_axes = data.reveal_axes;
     window.clearTimeout(mediaPushTimer);
     mediaPushTimer = window.setTimeout(() => {
-      postActiveMedia({ params }).catch((err) => showError("#ap-overlay-error", err));
+      postActiveMedia(body).catch((err) => showError("#ap-overlay-error", err));
     }, 350);
   });
 }

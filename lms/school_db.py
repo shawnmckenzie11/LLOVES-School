@@ -5380,7 +5380,14 @@ class SchoolDB(LovesDB):
         title: Any = None,
         caption: Any = None,
         stem: Any = None,
+        entry_chip: Any = None,
         student_controls_unlocked: Any = None,
+        reveal_axes: Any = None,
+        reveal_lateral: Any = None,
+        allow_3d_limited: Any = None,
+        frozen: Any = None,
+        unlock_flags: Any = None,
+        answers: Any = None,
         params: Any = None,
         merge: bool = False,
     ) -> dict[str, Any] | None:
@@ -5396,7 +5403,14 @@ class SchoolDB(LovesDB):
             title: Optional title.
             caption: Optional caption slot (Wonder delight pass).
             stem: Optional student stem.
+            entry_chip: Optional entry chip overlay.
             student_controls_unlocked: Teacher unlock for student sliders.
+            reveal_axes: Teacher peel for student axes/grid.
+            reveal_lateral: In-pane lateral slice reveal (L4).
+            allow_3d_limited: Small student yaw after lateral, not free orbit.
+            frozen: Argue done; optional click-out encore may appear.
+            unlock_flags: Partial L0–L4 flags (delight pass).
+            answers: Optional engagement choices for the current reveal.
             params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
             merge: When True, treat omitted url as a patch of current media.
 
@@ -5420,8 +5434,22 @@ class SchoolDB(LovesDB):
             kwargs["caption"] = caption
         if stem is not None:
             kwargs["stem"] = stem
+        if entry_chip is not None:
+            kwargs["entry_chip"] = entry_chip
         if student_controls_unlocked is not None:
             kwargs["student_controls_unlocked"] = student_controls_unlocked
+        if reveal_axes is not None:
+            kwargs["reveal_axes"] = reveal_axes
+        if reveal_lateral is not None:
+            kwargs["reveal_lateral"] = reveal_lateral
+        if allow_3d_limited is not None:
+            kwargs["allow_3d_limited"] = allow_3d_limited
+        if frozen is not None:
+            kwargs["frozen"] = frozen
+        if unlock_flags is not None:
+            kwargs["unlock_flags"] = unlock_flags
+        if answers is not None:
+            kwargs["answers"] = answers
         if params is not None:
             kwargs["params"] = params
         payload = apply_active_media_update(current, **kwargs)

@@ -10,6 +10,10 @@ const promptAck = document.getElementById("prompt-ack");
 const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
 const mediaStem = document.getElementById("media-stem");
+const mediaChip = document.getElementById("media-chip");
+const mediaAnswers = document.getElementById("media-answers");
+const mediaEncore = document.getElementById("media-encore");
+const mediaEncoreLink = document.getElementById("media-encore-link");
 const body = document.body;
 
 /** @type {number | null} */
@@ -215,9 +219,16 @@ function postMediaState(media) {
         source: "lloves-student-home",
         type: "live-media-state",
         student_controls_unlocked: Boolean(media.student_controls_unlocked),
+        reveal_axes: Boolean(media.reveal_axes),
+        reveal_lateral: Boolean(media.reveal_lateral),
+        allow_3d_limited: Boolean(media.allow_3d_limited),
+        frozen: Boolean(media.frozen),
+        unlock_flags: media.unlock_flags || {},
         params: media.params || { a: 1, b: 0, c: 0 },
         stem: media.stem || "",
         caption: media.caption || "",
+        entry_chip: media.chip || media.entry_chip || "",
+        answers: media.answers || [],
       },
       window.location.origin
     );
@@ -233,10 +244,48 @@ function postMediaState(media) {
 function paintMedia(payload) {
   const media = payload.active_media;
   const url = media ? safeMediaUrl(media.url) : "";
+  if (mediaChip) {
+    const chip = String(
+      (media && (media.chip || media.entry_chip)) || ""
+    ).trim();
+    mediaChip.textContent = chip;
+    mediaChip.hidden = !chip;
+  }
   if (mediaStem) {
     const stem = String((media && (media.stem || media.caption)) || "").trim();
     mediaStem.textContent = stem;
     mediaStem.hidden = !stem;
+  }
+  if (mediaAnswers) {
+    const answers = Array.isArray(media && media.answers) ? media.answers : [];
+    mediaAnswers.innerHTML = "";
+    if (!answers.length) {
+      mediaAnswers.hidden = true;
+    } else {
+      mediaAnswers.hidden = false;
+      answers.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = String(item);
+        mediaAnswers.appendChild(li);
+      });
+    }
+  }
+  if (mediaEncore && mediaEncoreLink) {
+    const frozen = Boolean(media && media.frozen);
+    const encoreUrl = String((media && media.encore_url) || "").trim();
+    const encoreLabel = String((media && media.encore_label) || "").trim();
+    const youtubeOk =
+      encoreUrl.startsWith("https://www.youtube.com/watch?") ||
+      encoreUrl.startsWith("https://youtu.be/");
+    if (frozen && youtubeOk && encoreLabel) {
+      mediaEncoreLink.href = encoreUrl;
+      mediaEncoreLink.textContent = encoreLabel;
+      mediaEncore.hidden = false;
+    } else {
+      mediaEncore.hidden = true;
+      mediaEncoreLink.removeAttribute("href");
+      mediaEncoreLink.textContent = "";
+    }
   }
   if (!mediaPane || !mediaFrame) return;
   if (!url) {
@@ -250,7 +299,15 @@ function paintMedia(payload) {
   const sig = JSON.stringify({
     url,
     unlocked: Boolean(media.student_controls_unlocked),
+    reveal_axes: Boolean(media.reveal_axes),
+    reveal_lateral: Boolean(media.reveal_lateral),
+    allow_3d_limited: Boolean(media.allow_3d_limited),
+    frozen: Boolean(media.frozen),
+    unlock_flags: media.unlock_flags || {},
+    answers: media.answers || [],
     params: media.params || {},
+    entry_chip: media.entry_chip || "",
+    chip: media.chip || "",
   });
   if (url !== lastMediaUrl) {
     lastMediaUrl = url;
