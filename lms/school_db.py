@@ -5412,15 +5412,13 @@ class SchoolDB(LovesDB):
             present = not existing.get("left_at")
             if present and token_in and existing_token and token_in != existing_token:
                 raise ValueError(
-                    "That name is already signed in. If this is you, reopen "
-                    "the tab that’s already in class, or wait a moment and "
-                    "join from the same device."
+                    "That name’s already in class. If it’s you, reopen the "
+                    "tab that’s still open — or wait a beat and try again."
                 )
             if present and not token_in:
                 raise ValueError(
-                    "That name is already signed in. If this is you, reopen "
-                    "the tab that’s already in class, or wait a moment and "
-                    "join from the same device."
+                    "That name’s already in class. If it’s you, reopen the "
+                    "tab that’s still open — or wait a beat and try again."
                 )
             return self._resume_live_attendee(existing, name=name or str(existing.get("codename") or ""))
 

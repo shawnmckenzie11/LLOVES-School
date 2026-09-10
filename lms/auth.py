@@ -1107,6 +1107,11 @@ def register_auth_routes(app: Flask) -> None:
             return _fail(no_session_msg)
 
         if not name and not resume_token:
+            peek = db.get_active_live_session_by_code(code) if code else None
+            if peek is not None and db.live_session_allows_unmatched_guests(
+                int(peek["id"])
+            ):
+                return _fail("First name only — then you’re in.")
             return _fail("Enter the first name or Codename on your class roster.")
 
         from school_db import first_name_only
@@ -1170,7 +1175,7 @@ def register_auth_routes(app: Flask) -> None:
         elif db.live_session_allows_unmatched_guests(int(live_session["id"])):
             unmatched = True
             if not display_name:
-                return _fail("Enter a first name to join as a guest.")
+                return _fail("First name only — then you’re in.")
         else:
             return _fail(mismatch_msg)
 
@@ -1186,7 +1191,10 @@ def register_auth_routes(app: Flask) -> None:
                 unmatched=unmatched,
             )
         except ValueError as exc:
-            msg = str(exc) or "That name is already signed in."
+            msg = str(exc) or (
+                "That name’s already in class. If it’s you, reopen the "
+                "tab that’s still open — or wait a beat and try again."
+            )
             if request.is_json:
                 return jsonify({"ok": False, "error": msg}), 409
             return render_template(

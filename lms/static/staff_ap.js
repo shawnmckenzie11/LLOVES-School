@@ -812,9 +812,10 @@ function bindActiveMediaControls() {
  */
 function syncAllowGuestsCheckbox(raw) {
   const box = $("ap-allow-guests");
-  if (!box) return;
+  const chip = $("ap-guest-on-chip");
   const on = raw === true || raw === 1 || raw === "1" || String(raw).toLowerCase() === "true";
-  box.checked = on;
+  if (box) box.checked = on;
+  if (chip) chip.hidden = !on;
 }
 
 /**

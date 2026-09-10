@@ -121,6 +121,9 @@ class StudentPortalTests(unittest.TestCase):
 
         home = self.student.get("/student/home")
         self.assertEqual(home.status_code, 200)
+        home_html = home.get_data(as_text=True)
+        self.assertIn("Waiting room — class is about to begin.", home_html)
+        self.assertNotIn("Waiting for your teacher to start scoring.", home_html)
 
         state = self.student.get("/api/student/state")
         self.assertEqual(state.status_code, 200)
@@ -355,7 +358,7 @@ class StudentPortalTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(second.status_code, 409)
-        self.assertIn("already signed in", second.get_data(as_text=True).lower())
+        self.assertIn("already in class", second.get_data(as_text=True).lower())
         still = self.school.list_live_session_attendees(
             self.live_session_id, present_only=True
         )
@@ -491,6 +494,22 @@ class StudentPortalTests(unittest.TestCase):
             self.live_session_id, present_only=True
         )
         self.assertEqual(len(present), 1)
+
+    def test_guest_empty_name_uses_delight_copy(self) -> None:
+        """Allow guests with a blank name shows the Wonder empty-name line."""
+        toggle = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/guests",
+            json={"allow_unmatched_guests": True},
+        )
+        self.assertEqual(toggle.status_code, 200)
+        guest = self.app.test_client()
+        rv = guest.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": ""},
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 401)
+        self.assertIn("First name only", rv.get_data(as_text=True))
 
     def test_guest_flag_off_rejects_unmatched(self) -> None:
         """Allow guests defaults off; unmatched names are rejected."""
