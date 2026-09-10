@@ -75,6 +75,12 @@ let currentStep = "att";
 let draftRound = { kind: "open", minutes: 20, title: "" };
 let nextDraftRound = { kind: "open", minutes: 10, title: "" };
 let setupRoundNumber = 1;
+let mediaPushTimer = 0;
+
+const SEED_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html";
+const SEED_MEDIA_TITLE = "C1 Real-slice";
+const SEED_MEDIA_STEM =
+  "When looking at the parabola represented by y = ax^2 + bx + c, what do you know about a, b, and c?";
 
 const ROUND_KIND_OPTIONS = [
   { kind: "open", label: "Open Question Round", defaultMin: 20 },
@@ -370,6 +376,7 @@ async function pollLiveSessionAttendees() {
       present.map((row) => Number(row.student_id)),
       present
     );
+    paintActiveMediaStatus(payload?.active_media || payload?.session?.active_media);
   } catch (_) {
     /* keep polling */
   }
@@ -382,6 +389,160 @@ function startLiveSessionPolling() {
   stopLiveSessionPolling();
   pollLiveSessionAttendees();
   sessionPollTimer = window.setInterval(pollLiveSessionAttendees, 2000);
+}
+
+/**
+ * Paint the Run Live Class active-media status + teacher preview.
+ * @param {any} media
+ */
+function paintActiveMediaStatus(media) {
+  const status = $("ap-active-media-status");
+  const stemPreview = $("ap-active-media-stem-preview");
+  const unlock = $("ap-media-unlock");
+  const paramsWrap = $("ap-media-params");
+  const preview = $("ap-media-preview");
+  const urlInput = $("ap-media-url");
+  if (!status) return;
+  if (!media || !media.url) {
+    status.textContent = "None — students see the wait / prompt shell until you push a page.";
+    if (stemPreview) {
+      stemPreview.hidden = true;
+      stemPreview.textContent = "";
+    }
+    if (unlock) unlock.checked = false;
+    if (paramsWrap) paramsWrap.hidden = true;
+    if (preview) {
+      preview.hidden = true;
+      preview.removeAttribute("src");
+    }
+    return;
+  }
+  const unlocked = Boolean(media.student_controls_unlocked);
+  status.textContent = unlocked
+    ? `Showing ${media.url} · student sliders unlocked`
+    : `Showing ${media.url} · student camera fixed on y = x²`;
+  if (stemPreview) {
+    const stem = String(media.stem || media.caption || "").trim();
+    stemPreview.textContent = stem;
+    stemPreview.hidden = !stem;
+  }
+  if (unlock) unlock.checked = unlocked;
+  if (urlInput && document.activeElement !== urlInput) {
+    urlInput.value = media.url;
+  }
+  const params = media.params || {};
+  const aEl = $("ap-media-a");
+  const bEl = $("ap-media-b");
+  const cEl = $("ap-media-c");
+  if (aEl && document.activeElement !== aEl) aEl.value = String(params.a ?? 1);
+  if (bEl && document.activeElement !== bEl) bEl.value = String(params.b ?? 0);
+  if (cEl && document.activeElement !== cEl) cEl.value = String(params.c ?? 0);
+  if (paramsWrap) paramsWrap.hidden = false;
+  if (preview) {
+    const teacherSrc = media.url.includes("?")
+      ? `${media.url}&role=teacher`
+      : `${media.url}?role=teacher`;
+    if (preview.getAttribute("src") !== teacherSrc) {
+      preview.src = teacherSrc;
+    }
+    preview.hidden = false;
+    try {
+      preview.contentWindow?.postMessage(
+        {
+          source: "lloves-staff-live",
+          type: "live-media-state",
+          student_controls_unlocked: unlocked,
+          params,
+        },
+        window.location.origin
+      );
+    } catch (_) {
+      /* preview may still be loading */
+    }
+  }
+}
+
+/**
+ * POST set/swap/clear/patch for the current live session's media.
+ * @param {Record<string, unknown>} body
+ */
+async function postActiveMedia(body) {
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) {
+    await ensureLiveSessionMinted();
+  }
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) {
+    throw new Error("Start the live class before pushing media.");
+  }
+  const res = await api(`/api/live-sessions/${sessionId}/active-media`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  paintActiveMediaStatus(res.active_media);
+  return res.active_media;
+}
+
+/**
+ * Bind Show Real-slice / clear / swap / unlock / params controls.
+ */
+function bindActiveMediaControls() {
+  const seedBtn = $("ap-media-seed");
+  const clearBtn = $("ap-media-clear");
+  const swapBtn = $("ap-media-swap");
+  const unlock = $("ap-media-unlock");
+  const pushParams = $("ap-media-params-push");
+  if (seedBtn) {
+    seedBtn.addEventListener("click", () => {
+      postActiveMedia({
+        url: SEED_MEDIA_URL,
+        title: SEED_MEDIA_TITLE,
+        stem: SEED_MEDIA_STEM,
+        caption: "",
+        student_controls_unlocked: false,
+        params: { a: 1, b: 0, c: 0 },
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      postActiveMedia({ clear: true }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (swapBtn) {
+    swapBtn.addEventListener("click", () => {
+      const url = String($("ap-media-url")?.value || "").trim();
+      postActiveMedia({ url }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (unlock) {
+    unlock.addEventListener("change", () => {
+      postActiveMedia({
+        student_controls_unlocked: unlock.checked,
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  if (pushParams) {
+    pushParams.addEventListener("click", () => {
+      postActiveMedia({
+        params: {
+          a: Number($("ap-media-a")?.value || 1),
+          b: Number($("ap-media-b")?.value || 0),
+          c: Number($("ap-media-c")?.value || 0),
+        },
+      }).catch((err) => showError("#ap-overlay-error", err));
+    });
+  }
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
+    const params = data.params || {};
+    window.clearTimeout(mediaPushTimer);
+    mediaPushTimer = window.setTimeout(() => {
+      postActiveMedia({ params }).catch((err) => showError("#ap-overlay-error", err));
+    }, 350);
+  });
 }
 
 /**
@@ -2390,6 +2551,7 @@ if (localStorage.getItem(scoreboardKey) === null) {
 setMeetMinutes(3);
 
 if (root?.dataset.apView === "live") {
+  bindActiveMediaControls();
   (async () => {
     const resumed = await resumeLiveClassIfNeeded();
     if (!resumed) {

@@ -988,6 +988,66 @@ body.staff-shell .ap-join-strip {
 body.staff-shell .ap-join-strip[hidden] {
   display: none !important;
 }
+body.staff-shell .ap-active-media {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.85rem 0.9rem;
+  background: #fff;
+  border: 1px solid #c5d0dc;
+  border-left: 4px solid #0f766e;
+  border-radius: 8px;
+}
+body.staff-shell .ap-active-media h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+body.staff-shell .ap-active-media-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.45rem 0;
+}
+body.staff-shell .ap-active-media .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.35rem 0;
+}
+body.staff-shell .ap-active-media .field input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+body.staff-shell .ap-unlock {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0;
+  color: #12202e;
+  font-size: 0.92rem;
+}
+body.staff-shell .ap-media-params {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.45rem;
+  align-items: end;
+  margin-top: 0.35rem;
+}
+body.staff-shell .ap-media-params[hidden],
+body.staff-shell .ap-media-preview[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-media-params .hint {
+  grid-column: 1 / -1;
+}
+body.staff-shell .ap-media-preview {
+  width: 100%;
+  min-height: 16rem;
+  margin-top: 0.65rem;
+  border: 1px solid #c5d0dc;
+  border-radius: 8px;
+  background: #070b14;
+}
 body.staff-shell button.linkish {
   appearance: none;
   border: 0;
