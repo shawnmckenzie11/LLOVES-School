@@ -186,7 +186,7 @@ STUDENT_MOODS = (
     "confused",
     "excited",
 )
-STUDENT_CHARACTERS = ("char_a", "char_b", "char_c", "char_d")
+STUDENT_CHARACTERS = ("fox", "panda", "unicorn", "octopus", "dragon", "owl")
 STAT_WINDOWS = ("last_class", "last_week", "year")
 DEFAULT_STAT_WINDOW = "last_class"
 STAT_WINDOW_LABELS = {
@@ -1148,7 +1148,7 @@ class GameShowDB:
         return payload
 
     def set_character(self, class_id: int, student_id: int, character_key: str) -> dict[str, Any]:
-        """Persist a join-screen character for one student.
+        """Persist a join-screen avatar for one student.
 
         Args:
             class_id: Classes primary key.
@@ -1157,7 +1157,7 @@ class GameShowDB:
         """
         key = (character_key or "").strip()
         if key not in STUDENT_CHARACTERS:
-            raise ValueError("Choose one of the four characters.")
+            raise ValueError("Choose an avatar.")
         self.get_student(class_id, student_id)
         with self._lock:
             self.conn.execute(
@@ -1170,6 +1170,24 @@ class GameShowDB:
             )
             self.conn.commit()
         return self.get_student(class_id, student_id)
+
+    def student_character_keys(self, class_id: int) -> dict[int, str]:
+        """Map student id → join-screen avatar key for one class.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, character_key FROM students
+                WHERE class_id = ?
+                  AND character_key IS NOT NULL
+                  AND TRIM(character_key) != ''
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return {int(row["id"]): str(row["character_key"]) for row in rows}
 
     def clear_students_live_presence(
         self, class_id: int, student_ids: list[int]

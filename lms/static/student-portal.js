@@ -1,6 +1,8 @@
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
+import { avatarGlyph } from "/static/student_avatars.js";
+
 const waitEl = document.getElementById("student-wait");
 const meEl = document.getElementById("me-board");
 const boardEl = document.getElementById("class-board");
@@ -65,12 +67,13 @@ function pts(value) {
 function paintMe(payload) {
   if (!meEl) return;
   const me = payload.me || {};
+  const face = avatarGlyph(me.character);
   const rankLine =
     payload.show_rank && me.rank
       ? `<p class="me-stat me-rank"><span class="me-stat-label">Rank</span><strong>${me.rank}</strong>${me.rank_of ? ` <span class="me-stat-of">/ ${me.rank_of}</span>` : ""}</p>`
       : "";
   meEl.innerHTML = `
-    <p class="me-name">${escapeText(me.codename || "Student")}</p>
+    <p class="me-name">${face ? `${face} ` : ""}${escapeText(me.codename || "Student")}</p>
     <div class="me-stats">
       <p class="me-stat"><span class="me-stat-label">My points</span><strong>${escapeText(pts(me.points))}</strong></p>
       <p class="me-stat"><span class="me-stat-label">${escapeText(me.team_name || "Team")}</span><strong>${escapeText(pts(me.team_points))}</strong></p>

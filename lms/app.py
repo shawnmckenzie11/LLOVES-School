@@ -63,6 +63,7 @@ from auth import (  # noqa: E402
     student_required,
 )
 from curriculum import seed_curriculum  # noqa: E402
+from outline_from_json import json_outline_available, seed_json_library  # noqa: E402
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
@@ -126,7 +127,10 @@ from paths import (  # noqa: E402
 )
 from student_portal import (  # noqa: E402
     bind_student_session,
+    character_choices,
     clear_student_session_keys,
+    mark_avatar_step_done,
+    mark_mood_step_done,
     mood_choices,
     next_student_endpoint,
     resolve_student_live_context,
@@ -246,6 +250,18 @@ def _discard_unpacked(unpacked: Path) -> None:
             shutil.rmtree(unpacked, ignore_errors=True)
     except OSError:
         logger.warning("Could not remove unpacked tree %s", unpacked)
+
+
+def _curriculum_cache_root() -> Path | None:
+    """Optional test override of ``.local-data/curriculum``."""
+    root = None
+    try:
+        from flask import current_app as _current_app
+
+        root = _current_app.config.get("CURRICULUM_CACHE_ROOT")
+    except RuntimeError:
+        root = None
+    return Path(root) if root else None
 
 
 def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
@@ -679,6 +695,7 @@ def create_app(
     db_path: Path | None = None,
     data_dir: Path | None = None,
     testing: bool = False,
+    curriculum_cache_root: Path | None = None,
 ) -> Flask:
     """Build the LLOVES Flask application.
 
@@ -686,6 +703,7 @@ def create_app(
         db_path: Override sqlite path (tests).
         data_dir: Override game-show uploads/logs directory.
         testing: Disable CSRF-adjacent secure cookies; used by tests.
+        curriculum_cache_root: Override of ``.local-data/curriculum`` (tests).
     """
     app = Flask(
         __name__,
@@ -728,6 +746,9 @@ def create_app(
     )
     app.config["SCHOOL_DB"] = school
     app.config["DATA_DIR"] = store
+    app.config["CURRICULUM_CACHE_ROOT"] = (
+        Path(curriculum_cache_root) if curriculum_cache_root is not None else None
+    )
     seed_curriculum(school)
 
     register_auth_routes(app)
@@ -1643,6 +1664,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_assign_course():
         """Assign a catalog course; optional IMSCC becomes a new shared library.
 
+        With no upload, shares an existing library for the code, else seeds
+        from ``module-lessons.json`` when that outline exists.
+
         Assigning a code a teacher already holds adds another section
         (``MCF3M-2``) rather than silently reusing the first one.
         """
@@ -1666,10 +1690,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 library_id = int(created["library"]["id"])
                 dest_root = created["dest_root"]
                 stored = created["stored"]
-            if uploaded is None and not school.base_layer_available(code):
-                return _assign_error(
-                    f"A module pack (.imscc) is required for {code} — no template exists yet."
-                )
+            elif not school.base_layer_available(code):
+                cache_root = _curriculum_cache_root()
+                if json_outline_available(code, cache_root=cache_root):
+                    seeded = seed_json_library(
+                        school, code, cache_root=cache_root
+                    )
+                    library_id = int(seeded["id"])
+                else:
+                    return _assign_error(
+                        f"A module pack (.imscc) or JSON outline is required for {code}."
+                    )
             offering = school.assign_course(
                 teacher_user_id=teacher_id,
                 ontario_code=code,
@@ -1905,7 +1936,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         On GET the template receives:
             staff_member, active semester, courses list, and an empty instances list.
-        On POST behaves like ``it_assign_course`` but targets this staff member.
+        On POST behaves like ``it_assign_course``: optional IMSCC, else share an
+        existing library, else seed from ``module-lessons.json``.
 
         Returns:
             Rendered ``it/assign.html`` on GET or error; redirect on POST success.
@@ -1950,10 +1982,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 library_id = int(created["library"]["id"])
                 dest_root = created["dest_root"]
                 stored = created["stored"]
-            if uploaded is None and not school.base_layer_available(code):
-                return _assign_error(
-                    f"A module pack (.imscc) is required for {code} — no template exists yet."
-                )
+            elif not school.base_layer_available(code):
+                cache_root = _curriculum_cache_root()
+                if json_outline_available(code, cache_root=cache_root):
+                    seeded = seed_json_library(
+                        school, code, cache_root=cache_root
+                    )
+                    library_id = int(seeded["id"])
+                else:
+                    return _assign_error(
+                        f"A module pack (.imscc) or JSON outline is required for {code}."
+                    )
             offering = school.assign_course(
                 teacher_user_id=staff_id,
                 ontario_code=code,
@@ -2584,8 +2623,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not modules:
             return wrap_page(
                 "Syllabus",
-                "<h1>Syllabus</h1><p>Ask Admin to attach a module pack. "
-                "The click-to-place editor needs an IMSCC cartridge.</p>",
+                "<h1>Syllabus</h1><p>Ask Admin to assign a module outline "
+                "(JSON or pack).</p>",
             )
         save_url = url_for("staff_syllabus_save", class_id=class_id)
         html_out = syllabus_mod.build_editor_page(
@@ -2823,7 +2862,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/mood", methods=["GET", "POST"])
     @student_required
     def student_mood():
-        """Optional mood check-in; Join Class / Skip continue without requiring a face."""
+        """Optional mood check-in; Skip / Continue go to Choose your Avatar."""
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied
@@ -2834,7 +2873,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         class_id = int(ctx["class_id"])
         student_id = int(ctx["student_id"])
         visit_token = str(ctx.get("visit_token") or "")
-        student = school.game.get_student(class_id, student_id)
         if request.method == "POST":
             mood = (request.form.get("mood") or "").strip()
             skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
@@ -2851,13 +2889,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                         visit_token=visit_token,
                         codename=str(ctx.get("codename") or ""),
                     )
-            if not visit_token or visit_token == session.get("student_visit_token"):
-                session["student_mood_done"] = True
-            return redirect(student_url_with_token("student_home", visit_token))
-        if student.get("mood"):
-            return redirect(student_url_with_token("student_home", visit_token))
-        if not visit_token and session.get("student_mood_done"):
-            return redirect(student_url_with_token("student_home", visit_token))
+            mark_mood_step_done(session, visit_token)
+            return redirect(student_url_with_token("student_character", visit_token))
+        if next_student_endpoint(
+            school, class_id, student_id, visit_token=visit_token
+        ) != "student_mood":
+            return _student_advance()
         return render_template(
             "student/mood.html",
             offering=offering,
@@ -2871,13 +2908,58 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/character", methods=["GET", "POST"])
     @student_required
     def student_character():
-        """Character pick retired — advance to mood or home."""
-        return _student_advance()
+        """Optional avatar pick after mood; Skip / Join Class continue to home."""
+        denied = _require_active_live_attendee()
+        if denied is not None:
+            return denied
+        ctx = _student_live_context()
+        if ctx is None:
+            return _student_advance()
+        offering = ctx["offering"]
+        class_id = int(ctx["class_id"])
+        student_id = int(ctx["student_id"])
+        visit_token = str(ctx.get("visit_token") or "")
+        endpoint = next_student_endpoint(
+            school, class_id, student_id, visit_token=visit_token
+        )
+        if request.method != "POST" and endpoint != "student_character":
+            return _student_advance()
+        if request.method == "POST":
+            skip = (request.form.get("skip") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            character = (request.form.get("character") or "").strip()
+            if character and not skip:
+                try:
+                    school.game.set_character(class_id, student_id, character)
+                except ValueError as exc:
+                    return render_template(
+                        "student/character.html",
+                        offering=offering,
+                        characters=character_choices(),
+                        error=str(exc),
+                        school_name=SCHOOL_NAME,
+                        visit_token=visit_token,
+                        codename=str(ctx.get("codename") or ""),
+                    )
+            mark_avatar_step_done(session, visit_token)
+            return redirect(student_url_with_token("student_home", visit_token))
+        return render_template(
+            "student/character.html",
+            offering=offering,
+            characters=character_choices(),
+            error=None,
+            school_name=SCHOOL_NAME,
+            visit_token=visit_token,
+            codename=str(ctx.get("codename") or ""),
+        )
 
     @app.route("/student/home")
     @student_required
     def student_home():
-        """Student live-class boards after mood check-in."""
+        """Student live-class boards after mood and avatar."""
         denied = _require_active_live_attendee()
         if denied is not None:
             return denied
@@ -3883,6 +3965,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 course_code=code,
                 module_number=module_n,
                 data_dir=Path(app.config["DATA_DIR"]),
+                cache_root=_curriculum_cache_root(),
             )
             payload["ok"] = True
             return jsonify(payload)
@@ -3965,7 +4048,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def marking_sheet(*, module_n: int, score: bool) -> dict[str, Any]:
             """Assemble file list, optional suggestions, and look-for tallies."""
-            n_modules = max(len(list_modules(code)), 1)
+            n_modules = max(len(list_modules(code, cache_root=_curriculum_cache_root())), 1)
             students = [
                 dict(row)
                 for row in school.game.conn.execute(
@@ -3983,6 +4066,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     course_code=code,
                     module_number=module_n,
                     data_dir=Path(app.config["DATA_DIR"]),
+                    cache_root=_curriculum_cache_root(),
                 )
                 useful = list(ctx.get("useful_words") or [])
             except Exception:  # noqa: BLE001

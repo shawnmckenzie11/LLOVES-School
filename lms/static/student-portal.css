@@ -88,20 +88,28 @@ body.student-portal .sub {
 
 .char-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem;
+  margin-top: 0.85rem;
 }
 
 .char-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.85rem 0.5rem;
+  justify-content: center;
+  padding: 0.95rem 0.5rem;
+  min-height: 5.4rem;
   background: #122033;
   border: 2px solid #1e3348;
   border-radius: 14px;
   cursor: pointer;
+}
+
+.char-emoji {
+  font-size: 2.55rem;
+  line-height: 1;
 }
 
 .char-card input {
@@ -117,9 +125,20 @@ body.student-portal .sub {
 
 .char-join {
   margin-top: 1.1rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
 }
 
-.char-join button {
+.char-join .char-skip {
+  width: auto;
+  align-self: center;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.char-join button:not(.char-skip) {
   width: 100%;
   padding: 0.85rem 1rem;
   font-size: 1.05rem;

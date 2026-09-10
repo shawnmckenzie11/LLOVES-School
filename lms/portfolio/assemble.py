@@ -69,15 +69,58 @@ def _specifics_for_module(payload: dict[str, Any], module_number: int) -> list[d
 
 
 def list_modules(course_code: str, cache_root: Path | None = None) -> list[dict[str, Any]]:
-    """Module dropdown rows from ``module-strand-map.json``.
+    """Module dropdown rows from ``module-lessons.json``, else strand-map.
+
+    Pack-free names stay in lockstep with the seeded syllabus outline.
+    Strand letters still come from the strand map when that file exists.
+    ``assemble_context`` keeps using the strand map for overalls/specifics.
 
     Args:
         course_code: Ontario code.
         cache_root: Curriculum cache override.
     """
-    payload = _load_module_strand_map(str(course_code).upper(), cache_root=cache_root) or {}
+    code = str(course_code or "").upper()
+    map_payload = _load_module_strand_map(code, cache_root=cache_root) or {}
+    map_by_num: dict[int, dict[str, Any]] = {}
+    for item in map_payload.get("modules") or []:
+        if not isinstance(item, dict):
+            continue
+        num = int(item.get("module_number") or 0)
+        if num < 1:
+            continue
+        map_by_num[num] = item
+
+    try:
+        from outline_from_json import try_load_module_lessons
+    except ImportError:
+        from lms.outline_from_json import try_load_module_lessons
+
+    lessons = try_load_module_lessons(code, cache_root=cache_root)
+    if lessons:
+        rows: list[dict[str, Any]] = []
+        for item in lessons.get("modules") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                num = int(item.get("module") or item.get("module_number") or 0)
+            except (TypeError, ValueError):
+                continue
+            if num < 1:
+                continue
+            mapped = map_by_num.get(num) or {}
+            rows.append(
+                {
+                    "module_number": num,
+                    "title": str(item.get("title") or mapped.get("title") or f"Module {num}"),
+                    "strand": str(mapped.get("strand") or ""),
+                    "strand_name": str(mapped.get("strand_name") or ""),
+                }
+            )
+        if rows:
+            return rows
+
     rows = []
-    for item in payload.get("modules") or []:
+    for item in map_payload.get("modules") or []:
         if not isinstance(item, dict):
             continue
         num = int(item.get("module_number") or 0)

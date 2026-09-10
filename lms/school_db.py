@@ -2601,8 +2601,9 @@ class LovesDB:
 
         Args:
             ontario_code: Catalog course code this pack belongs to.
-            origin: ``template``, ``upload``, or ``legacy``.
+            origin: ``template``, ``upload``, ``legacy``, or ``json``.
             source_path: IMSCC path (git template or ``libraries/<id>/``).
+                JSON outlines set this to None so nothing tries to unzip.
             source_sha256: Optional content hash (filled on upload).
 
         Returns:
@@ -5623,10 +5624,13 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         attendees = self.list_live_session_attendees(session_id)
-        moods = self.game.today_moods(int(session_row["class_id"]))
+        class_id = int(session_row["class_id"])
+        moods = self.game.today_moods(class_id)
+        characters = self.game.student_character_keys(class_id)
         for row in attendees:
             sid = int(row["student_id"])
             row["mood"] = moods.get(sid)
+            row["character"] = characters.get(sid)
         present = [row for row in attendees if not row.get("left_at")]
         phase = "ended" if session_row.get("status") == "ended" else "live"
         return {

@@ -27,7 +27,8 @@ import {
   suggestedLogDay,
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
-import { moodGlyph, nameWithMood } from "/static/mood_faces.js";
+import { moodGlyph, moodLabel } from "/static/mood_faces.js";
+import { avatarGlyph, avatarKey } from "/static/student_avatars.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -319,7 +320,7 @@ function stopLiveSessionPolling() {
  * Tick join-only roster for students currently in the live session.
  * After scoring starts, refresh game state so late joiners appear on teams.
  * @param {Iterable<number>} ids
- * @param {Array<{student_id?:number,mood?:string}>} [attendees]
+ * @param {Array<{student_id?:number,mood?:string,character?:string,character_key?:string}>} [attendees]
  */
 async function applySessionPresentTicks(ids, attendees) {
   const next = new Set([...ids].map(Number).filter((n) => Number.isFinite(n) && n > 0));
@@ -331,9 +332,24 @@ async function applySessionPresentTicks(ids, attendees) {
         .map((row) => [Number(row.student_id), row.mood || null])
         .filter(([sid]) => Number.isFinite(sid) && sid > 0)
     );
-    for (const student of overlayState.students) {
-      const sid = Number(student.id);
-      if (moodById.has(sid)) student.mood = moodById.get(sid);
+    const characterById = new Map(
+      attendees
+        .map((row) => [Number(row.student_id), avatarKey(row) || null])
+        .filter(([sid]) => Number.isFinite(sid) && sid > 0)
+    );
+    const lists = [overlayState.students];
+    for (const team of overlayState.teams || []) {
+      if (Array.isArray(team.members)) lists.push(team.members);
+    }
+    for (const list of lists) {
+      for (const student of list || []) {
+        const sid = Number(student.id);
+        if (moodById.has(sid)) student.mood = moodById.get(sid);
+        if (characterById.has(sid)) {
+          student.character = characterById.get(sid);
+          student.character_key = characterById.get(sid);
+        }
+      }
     }
   }
   renderAttendanceList();
@@ -828,8 +844,8 @@ function renderAttendanceList() {
     row.dataset.studentId = String(student.id);
     row.setAttribute("aria-pressed", present ? "true" : "false");
     const mark = late ? "L" : present ? "✓" : "";
-    const face = student.mood ? moodGlyph(student.mood) : "";
-    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
+    const face = avatarGlyph(avatarKey(student));
+    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-avatar" aria-hidden="true">${face}</span>`;
     list.appendChild(row);
   }
   updateAttCount();
@@ -1948,6 +1964,25 @@ function renderOpenProfileBar() {
 }
 
 /**
+ * Staff scoring identity: avatar left of the name, mood to the right.
+ * @param {any} row
+ * @returns {string}
+ */
+function scoringNameHtml(row) {
+  const avatar = avatarGlyph(avatarKey(row));
+  const mood = moodGlyph(row?.mood);
+  const late = sessionLateIds.has(row.id) || Boolean(row.late);
+  const left = avatar
+    ? `<span class="ap-score-avatar" aria-hidden="true">${avatar}</span>`
+    : "";
+  const right = mood
+    ? `<span class="ap-score-mood" title="${escapeHtml(moodLabel(row.mood))}" aria-hidden="true">${mood}</span>`
+    : "";
+  const lateTag = late ? ' <span class="ap-late-tag">L</span>' : "";
+  return `<span class="ap-score-identity">${left}<span class="ap-score-codename">${escapeHtml(displayName(row))}</span>${right}${lateTag}</span>`;
+}
+
+/**
  * Build a student × action scoring matrix for Open Question.
  * @param {any[]} rows
  * @returns {string}
@@ -1968,7 +2003,6 @@ function openActionMatrixHtml(rows) {
     .join("");
   const body = rows
     .map((row) => {
-      const late = sessionLateIds.has(row.id) || Boolean(row.late);
       const cells = actions
         .map(
           (action) =>
@@ -1977,7 +2011,7 @@ function openActionMatrixHtml(rows) {
         .join("");
       return `<tr>
         <th scope="row" class="ap-oq-who">
-          <span class="ap-oq-name">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
+          <span class="ap-oq-name">${scoringNameHtml(row)}</span>
           <span class="ap-oq-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
         </th>
         ${cells}
@@ -2007,9 +2041,8 @@ function renderScoreList() {
   } else {
     box.innerHTML = rows
       .map((row) => {
-        const late = sessionLateIds.has(row.id) || Boolean(row.late);
         return `<div class="ap-score-row">
-          <span class="ap-score-who">${nameWithMood(displayName(row), row.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
+          <span class="ap-score-who">${scoringNameHtml(row)}</span>
           <span class="ap-score-pts">${escapeHtml(formatPoints(row.session_points || 0))}</span>
           <span class="pm">${studentButtons(row.id)}</span>
         </div>`;
@@ -2108,10 +2141,9 @@ function renderLiveTeams(state) {
         ? openActionMatrixHtml(members)
         : members
             .map((s) => {
-              const late = sessionLateIds.has(s.id) || Boolean(s.late);
               return `<div class="ap-live-player">
             <div class="ap-live-row">
-              <span class="who">${nameWithMood(displayName(s), s.mood)}${late ? ' <span class="ap-late-tag">L</span>' : ""}</span>
+              <span class="who">${scoringNameHtml(s)}</span>
               <span class="now">${escapeHtml(formatPoints(s.session_points || 0))}</span>
             </div>
             <div class="pm">${studentButtons(s.id)}</div>

@@ -257,61 +257,18 @@ function initCourseCodeTypeahead() {
 /* ── Base-layer picker (assign page reuse) ── */
 
 /**
- * Populate the base-layer <select> when the Ontario code input changes.
- * Works on both dashboard (legacy) and the new assign page.
- * Expects elements with id "ontario_code" and "copied_from_offering_id".
+ * Keep Base layer as a single None choice (empty copied_from_offering_id).
+ * Saved offerings are not listed; assign still seeds JSON or shares a library.
  */
 function initBasePicker() {
-  const codeInput = document.getElementById("ontario_code");
   const baseSelect = document.getElementById("copied_from_offering_id");
-  if (!codeInput || !baseSelect) return;
-
-  function makeOption(value, text) {
-    const el = document.createElement("option");
-    el.value = value;
-    el.textContent = text;
-    return el;
-  }
-
-  async function refreshBases() {
-    const code = (codeInput.value || "").trim().toUpperCase();
-    const noteEl = document.getElementById("base-layer-note");
-    baseSelect.innerHTML = "";
-    if (!code) {
-      baseSelect.appendChild(makeOption("", "Course template (default)"));
-      if (noteEl) noteEl.textContent = "no pack";
-      return;
-    }
-    try {
-      const rv = await fetch("/it/instances?code=" + encodeURIComponent(code));
-      const data = await rv.json();
-      const templateNote = data.template_note || "no pack";
-      baseSelect.appendChild(
-        makeOption("", "Course template (default) — " + templateNote)
-      );
-      if (noteEl) noteEl.textContent = templateNote;
-      for (const inst of data.instances || []) {
-        const pack = inst.pack_note || (inst.has_pack ? "pack" : "no pack");
-        const email = inst.teacher_email || "teacher";
-        const shown = inst.section_code || inst.ontario_code || "";
-        const label =
-          shown +
-          " · " +
-          (inst.year || "") +
-          " " +
-          (inst.term || "") +
-          " · " +
-          email +
-          " — " +
-          pack;
-        baseSelect.appendChild(makeOption(String(inst.offering_id), label));
-      }
-    } catch (_) {}
-  }
-
-  codeInput.addEventListener("change", refreshBases);
-  codeInput.addEventListener("input", refreshBases);
-  refreshBases();
+  if (!baseSelect) return;
+  baseSelect.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "None";
+  none.selected = true;
+  baseSelect.appendChild(none);
 }
 
 /* ── Archived offerings toggle ── */

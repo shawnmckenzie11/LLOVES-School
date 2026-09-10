@@ -21,11 +21,13 @@ MOOD_LABELS = {
     "excited": "Excited",
 }
 
-CHARACTER_LABELS = {
-    "char_a": "Avery",
-    "char_b": "Jordan",
-    "char_c": "Samira",
-    "char_d": "Kenji",
+CHARACTER_AVATARS = {
+    "fox": {"label": "Fox", "emoji": "🦊"},
+    "panda": {"label": "Panda", "emoji": "🐼"},
+    "unicorn": {"label": "Unicorn", "emoji": "🦄"},
+    "octopus": {"label": "Octopus", "emoji": "🐙"},
+    "dragon": {"label": "Dragon", "emoji": "🐲"},
+    "owl": {"label": "Owl", "emoji": "🦉"},
 }
 
 # Flask session keys owned by the student-code join path.
@@ -39,6 +41,7 @@ STUDENT_SESSION_KEYS = (
     "student_live_session_id",
     "student_visit_token",
     "student_mood_done",
+    "student_avatar_done",
 )
 
 
@@ -159,6 +162,114 @@ def student_url_with_token(endpoint: str, token: str, **kwargs: Any) -> str:
     return url_for(endpoint, **kwargs)
 
 
+def _step_done_session_key(step: str, visit_token: str) -> str:
+    """Flask session key for an optional join step, scoped to a visit token.
+
+    Args:
+        step: ``mood`` or ``avatar``.
+        visit_token: Opaque attendee token; empty uses the shared cookie flag.
+    """
+    token = (visit_token or "").strip()
+    if token:
+        return f"student_{step}_done:{token}"
+    return f"student_{step}_done"
+
+
+def _mark_step_done(session: Any, step: str, visit_token: str = "") -> None:
+    """Record that this visit finished one optional join step.
+
+    Args:
+        session: Flask session mapping.
+        step: ``mood`` or ``avatar``.
+        visit_token: Opaque attendee token when the tab is token-scoped.
+    """
+    token = (visit_token or "").strip()
+    if token:
+        session[_step_done_session_key(step, token)] = True
+        if token == str(session.get("student_visit_token") or ""):
+            session[f"student_{step}_done"] = True
+        return
+    session[f"student_{step}_done"] = True
+
+
+def _step_is_done(
+    session: Any,
+    visit_token: str,
+    step: str,
+    *,
+    stored: bool = False,
+) -> bool:
+    """True when this visit already finished one optional join step.
+
+    Args:
+        session: Flask session mapping.
+        visit_token: Opaque attendee token when the tab is token-scoped.
+        step: ``mood`` or ``avatar``.
+        stored: True when the pick is already persisted on the roster row.
+    """
+    if stored:
+        return True
+    token = (visit_token or "").strip()
+    if token and session.get(_step_done_session_key(step, token)):
+        return True
+    if not token and session.get(f"student_{step}_done"):
+        return True
+    return False
+
+
+def mark_mood_step_done(session: Any, visit_token: str = "") -> None:
+    """Record that this visit finished the optional mood step.
+
+    Args:
+        session: Flask session mapping.
+        visit_token: Opaque attendee token when the tab is token-scoped.
+    """
+    _mark_step_done(session, "mood", visit_token)
+
+
+def mark_avatar_step_done(session: Any, visit_token: str = "") -> None:
+    """Record that this visit finished the optional avatar step.
+
+    Args:
+        session: Flask session mapping.
+        visit_token: Opaque attendee token when the tab is token-scoped.
+    """
+    _mark_step_done(session, "avatar", visit_token)
+
+
+def mood_step_is_done(
+    session: Any,
+    student: dict[str, Any],
+    visit_token: str = "",
+) -> bool:
+    """True when this visit already picked or skipped mood.
+
+    Args:
+        session: Flask session mapping.
+        student: Roster row (may include today's ``mood``).
+        visit_token: Opaque attendee token when the tab is token-scoped.
+    """
+    return _step_is_done(
+        session, visit_token, "mood", stored=bool(student.get("mood"))
+    )
+
+
+def avatar_step_is_done(
+    session: Any,
+    student: dict[str, Any],
+    visit_token: str = "",
+) -> bool:
+    """True when this visit already picked or skipped an avatar.
+
+    Args:
+        session: Flask session mapping.
+        student: Roster row (may include ``character_key``).
+        visit_token: Opaque attendee token when the tab is token-scoped.
+    """
+    stored = bool((student.get("character_key") or "").strip())
+    return _step_is_done(session, visit_token, "avatar", stored=stored)
+
+
 def clear_student_session_keys(session: Any) -> None:
     """Remove student-code keys without wiping a same-browser staff login.
 
@@ -167,6 +278,11 @@ def clear_student_session_keys(session: Any) -> None:
     """
     for key in STUDENT_SESSION_KEYS:
         session.pop(key, None)
+    for key in list(session.keys()):
+        if str(key).startswith("student_mood_done") or str(key).startswith(
+            "student_avatar_done"
+        ):
+            session.pop(key, None)
     if session.get("role") == "student":
         session.pop("role", None)
 
@@ -200,7 +316,14 @@ def bind_student_session(
             the durable offering code when provided).
         visit_token: Opaque attendee token for ``/student/s/<token>``.
     """
+    preserved_step_done = {
+        key: session[key]
+        for key in list(session.keys())
+        if str(key).startswith("student_mood_done:")
+        or str(key).startswith("student_avatar_done:")
+    }
     clear_student_session_keys(session)
+    session.update(preserved_step_done)
     session["student_offering_id"] = int(offering["id"])
     session["student_live_code"] = (
         (session_code or "").strip().upper()
@@ -231,13 +354,14 @@ def next_student_endpoint(
     *,
     visit_token: str = "",
 ) -> str:
-    """Return the Flask endpoint after join / mood / legacy redirects.
+    """Return the Flask endpoint after join / mood / avatar / legacy redirects.
 
-    Mood is optional. After pick/skip (``student_mood_done``) or when a mood
-    is already stored, continue to home.
+    Mood and avatar are optional. After each pick/skip, continue to the next
+    unfinished step. Home is reachable once the avatar step is picked or skipped.
 
     When ``visit_token`` is set (multi-tab testing), cookie ``student_mood_done``
-    from another tab is ignored so each visit token keeps its own mood step.
+    / ``student_avatar_done`` from another tab is ignored so each visit token
+    keeps its own check-in steps.
 
     Args:
         school: SchoolDB.
@@ -246,23 +370,28 @@ def next_student_endpoint(
         visit_token: Opaque attendee token when routing a token-scoped visit.
 
     Returns:
-        ``student_mood`` or ``student_home``.
+        ``student_mood``, ``student_character``, or ``student_home``.
     """
     from flask import session
 
     student = school.game.get_student(class_id, student_id)
-    if student.get("mood"):
-        if not visit_token:
-            session["student_mood_done"] = True
+    if avatar_step_is_done(session, student, visit_token):
         return "student_home"
-    if not visit_token and session.get("student_mood_done"):
-        return "student_home"
+    if mood_step_is_done(session, student, visit_token):
+        return "student_character"
     return "student_mood"
 
 
 def character_choices() -> list[dict[str, str]]:
-    """Four placeholder characters for the join screen."""
-    return [{"key": key, "label": CHARACTER_LABELS[key]} for key in STUDENT_CHARACTERS]
+    """Six emoji avatars for the join screen."""
+    return [
+        {
+            "key": key,
+            "label": CHARACTER_AVATARS[key]["label"],
+            "emoji": CHARACTER_AVATARS[key]["emoji"],
+        }
+        for key in STUDENT_CHARACTERS
+    ]
 
 
 def mood_choices() -> list[dict[str, str]]:

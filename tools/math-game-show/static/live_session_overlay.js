@@ -2,7 +2,7 @@
  * Narrow Zoom-share overlay: session code, join count, roster, optional teams.
  */
 import { escapeHtml, formatPoints, formatCountdown, remainingUntilMs } from "./common.js";
-import { moodGlyph } from "/static/mood_faces.js";
+import { avatarGlyph, avatarKey } from "/static/student_avatars.js";
 
 const params = new URLSearchParams(location.search);
 if (params.get("overlay") === "1") {
@@ -51,7 +51,7 @@ let anticipationIntensity = 0;
 /**
  * Present attendees (still in the session) from a state payload.
  * @param {any} state
- * @returns {Array<{student_id:number,codename:string,mood:string|null}>}
+ * @returns {Array<{student_id:number,codename:string,character:string|null}>}
  */
 function presentAttendees(state) {
   const rows = Array.isArray(state?.attendees) ? state.attendees : [];
@@ -60,7 +60,7 @@ function presentAttendees(state) {
     .map((row) => ({
       student_id: Number(row.student_id),
       codename: String(row.codename || "").trim() || `Student ${row.student_id}`,
-      mood: row.mood || null,
+      character: avatarKey(row) || null,
     }))
     .sort((a, b) => a.codename.localeCompare(b.codename, undefined, { sensitivity: "base" }));
 }
@@ -109,12 +109,12 @@ function teamByStudentId(board) {
 }
 
 /**
- * One roster list item HTML (mood glyph + escaped codename).
- * @param {{codename:string,mood:string|null}} row
+ * One roster list item HTML (avatar glyph + escaped codename).
+ * @param {{codename:string,character:string|null}} row
  * @returns {string}
  */
 function rosterItemHtml(row) {
-  const face = moodGlyph(row.mood);
+  const face = avatarGlyph(row.character);
   const label = face ? `${face} ${escapeHtml(row.codename)}` : escapeHtml(row.codename);
   return `<li>${label}</li>`;
 }
@@ -128,7 +128,7 @@ function paintRoster() {
   const teamMode = hasTeamScoreboard(lastBoard);
   const key = [
     teamMode ? "team" : "flat",
-    present.map((row) => `${row.student_id}:${row.codename}:${row.mood || ""}`).join("|"),
+    present.map((row) => `${row.student_id}:${row.codename}:${row.character || ""}`).join("|"),
     teamMode
       ? (lastBoard?.teams || [])
           .map((t) => `${t.id}:${(t.players || []).map((p) => p.student_id).join(",")}`)

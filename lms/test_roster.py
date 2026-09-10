@@ -907,10 +907,15 @@ class RosterTests(unittest.TestCase):
         )
         self.assertEqual(len(attendees), 1)
         student.post("/student/mood", data={"mood": "good"})
+        student.post("/student/character", data={"character": "fox"})
         maple = self.school.game.find_student_by_codename(class_id, "Maple")
         assert maple is not None
         self.assertEqual(
             self.school.game.get_mood(class_id, int(maple["id"])), "good"
+        )
+        self.assertEqual(
+            self.school.game.get_student(class_id, int(maple["id"])).get("character_key"),
+            "fox",
         )
         leave = student.post("/api/student/leave")
         self.assertEqual(leave.status_code, 204)
@@ -918,6 +923,9 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(len(left), 1)
         self.assertIsNotNone(left[0].get("left_at"))
         self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
+        self.assertIsNone(
+            self.school.game.get_student(class_id, int(maple["id"])).get("character_key")
+        )
         self.assertTrue(self.school.has_active_live_sessions())
 
     def test_run_live_wipes_prior_moods(self) -> None:

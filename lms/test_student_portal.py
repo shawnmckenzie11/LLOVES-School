@@ -77,8 +77,27 @@ class StudentPortalTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
+    def _complete_checkin(
+        self,
+        *,
+        mood: str | None = "good",
+        character: str = "fox",
+        visit_token: str = "",
+        headers: dict | None = None,
+    ) -> None:
+        """Finish mood then avatar so home is reachable."""
+        hdrs = dict(headers or {})
+        mood_data: dict[str, str] = {"skip": "1"} if not mood else {"mood": mood}
+        char_data = {"character": character}
+        if visit_token:
+            mood_data["visit_token"] = visit_token
+            char_data["visit_token"] = visit_token
+            hdrs.setdefault("X-Student-Visit-Token", visit_token)
+        self.student.post("/student/mood", data=mood_data, headers=hdrs)
+        self.student.post("/student/character", data=char_data, headers=hdrs)
+
     def test_join_mood_home_and_show_rank(self) -> None:
-        """Join → mood good + Join Class → home; rank hidden until enabled."""
+        """Join → mood → avatar → home; rank hidden until enabled."""
         join = self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
@@ -95,8 +114,9 @@ class StudentPortalTests(unittest.TestCase):
         mood_page = self.student.get("/student/mood")
         self.assertEqual(mood_page.status_code, 200)
         mood_html = mood_page.get_data(as_text=True)
-        self.assertIn("Join Class", mood_html)
-        self.assertNotIn("Choose your character", mood_html)
+        self.assertIn("Continue", mood_html)
+        self.assertNotIn("Join Class", mood_html)
+        self.assertNotIn("Choose your Avatar", mood_html)
         self.assertNotIn("Optional — pick a face", mood_html)
         self.assertNotIn("mood-label", mood_html)
         self.assertEqual(mood_html.count('name="mood"'), 3)
@@ -110,23 +130,63 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("/static/mood/low.svg", mood_html)
         self.assertNotIn("😊", mood_html)
 
+        before_mood = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(before_mood.status_code, 302)
+        self.assertIn("/student/mood", before_mood.headers.get("Location", ""))
+
         mood = self.student.post("/student/mood", data={"mood": "good"}, follow_redirects=False)
         self.assertEqual(mood.status_code, 302)
-        self.assertIn("/student/home", mood.headers.get("Location", ""))
-        self.assertNotIn("/student/character", mood.headers.get("Location", ""))
+        self.assertIn("/student/character", mood.headers.get("Location", ""))
+        self.assertNotIn("/student/home", mood.headers.get("Location", ""))
 
-        char = self.student.get("/student/character", follow_redirects=False)
+        char_page = self.student.get("/student/character")
+        self.assertEqual(char_page.status_code, 200)
+        char_html = char_page.get_data(as_text=True)
+        self.assertIn("Choose your Avatar", char_html)
+        self.assertNotIn("Pick one, then join class", char_html)
+        self.assertIn("Join Class", char_html)
+        self.assertIn("Skip", char_html)
+        self.assertLess(char_html.find("Skip"), char_html.find("Join Class"))
+        self.assertEqual(char_html.count('name="character"'), 6)
+        self.assertIn("🦊", char_html)
+        self.assertIn("🐼", char_html)
+        self.assertIn("🦄", char_html)
+        self.assertIn("🐙", char_html)
+        self.assertIn("🐲", char_html)
+        self.assertIn("🦉", char_html)
+        self.assertIn('value="fox"', char_html)
+        self.assertIn('value="owl"', char_html)
+
+        home_blocked = self.student.get("/student/home", follow_redirects=False)
+        self.assertEqual(home_blocked.status_code, 302)
+        self.assertIn("/student/character", home_blocked.headers.get("Location", ""))
+
+        char = self.student.post(
+            "/student/character", data={"character": "fox"}, follow_redirects=False
+        )
         self.assertEqual(char.status_code, 302)
         self.assertIn("/student/home", char.headers.get("Location", ""))
 
         home = self.student.get("/student/home")
         self.assertEqual(home.status_code, 200)
 
+        overlay = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        self.assertEqual(overlay.status_code, 200)
+        present = [
+            row
+            for row in overlay.get_json().get("attendees") or []
+            if not row.get("left_at")
+        ]
+        self.assertEqual(len(present), 1)
+        self.assertEqual(present[0].get("character"), "fox")
+        self.assertEqual(present[0].get("mood"), "good")
+
         state = self.student.get("/api/student/state")
         self.assertEqual(state.status_code, 200)
         payload = state.get_json()
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["show_rank"])
+        self.assertEqual((payload.get("me") or {}).get("character"), "fox")
         self.assertNotIn("rank", payload.get("me") or {})
 
         toggle = self.staff.post(
@@ -139,6 +199,68 @@ class StudentPortalTests(unittest.TestCase):
         ranked = self.student.get("/api/student/state").get_json()
         self.assertTrue(ranked["show_rank"])
 
+    def test_skip_mood_still_requires_avatar(self) -> None:
+        """Skip on mood continues to avatar; home waits for the pick."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        skipped = self.student.post(
+            "/student/mood", data={"skip": "1"}, follow_redirects=False
+        )
+        self.assertEqual(skipped.status_code, 302)
+        self.assertIn("/student/character", skipped.headers.get("Location", ""))
+        maple = self.school.game.find_student_by_codename(self.class_id, "Maple")
+        assert maple is not None
+        self.assertIsNone(self.school.game.get_mood(self.class_id, int(maple["id"])))
+
+        home_blocked = self.student.get("/student/home", follow_redirects=False)
+        self.assertEqual(home_blocked.status_code, 302)
+        self.assertIn("/student/character", home_blocked.headers.get("Location", ""))
+
+        self.student.post("/student/character", data={"character": "owl"})
+        home = self.student.get("/student/home")
+        self.assertEqual(home.status_code, 200)
+        overlay = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        present = [
+            row
+            for row in overlay.get_json().get("attendees") or []
+            if not row.get("left_at")
+        ]
+        self.assertEqual(present[0].get("character"), "owl")
+        self.assertIsNone(present[0].get("mood"))
+
+    def test_skip_avatar_reaches_home(self) -> None:
+        """Skip on avatar joins class without storing an icon."""
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "ok"})
+        skipped = self.student.post(
+            "/student/character", data={"skip": "1"}, follow_redirects=False
+        )
+        self.assertEqual(skipped.status_code, 302)
+        self.assertIn("/student/home", skipped.headers.get("Location", ""))
+        home = self.student.get("/student/home")
+        self.assertEqual(home.status_code, 200)
+        maple = self.school.game.find_student_by_codename(self.class_id, "Maple")
+        assert maple is not None
+        self.assertIsNone(
+            self.school.game.get_student(self.class_id, int(maple["id"])).get(
+                "character_key"
+            )
+        )
+        overlay = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
+        present = [
+            row
+            for row in overlay.get_json().get("attendees") or []
+            if not row.get("left_at")
+        ]
+        self.assertIsNone(present[0].get("character"))
+
     def test_home_rejects_ended_session(self) -> None:
         """Ending the live session clears student access on home/state."""
         self.student.post(
@@ -146,7 +268,7 @@ class StudentPortalTests(unittest.TestCase):
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
-        self.student.post("/student/mood", data={"mood": "good"})
+        self._complete_checkin()
         home_ok = self.student.get("/student/home")
         self.assertEqual(home_ok.status_code, 200)
 
@@ -173,7 +295,7 @@ class StudentPortalTests(unittest.TestCase):
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
-        self.student.post("/student/mood", data={"mood": "good"})
+        self._complete_checkin()
         attendees = self.school.list_live_session_attendees(self.live_session_id)
         token = str(attendees[0]["visit_token"])
 
@@ -192,7 +314,7 @@ class StudentPortalTests(unittest.TestCase):
             data={"code": self.session_code, "name": "Maple"},
             follow_redirects=False,
         )
-        self.student.post("/student/mood", data={"mood": "good"})
+        self._complete_checkin()
 
         set_prompt = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/prompts",
@@ -306,6 +428,13 @@ class StudentPortalTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(mood_maple.status_code, 302)
+        self.assertIn("/student/character", mood_maple.headers.get("Location", ""))
+        self.student.post(
+            "/student/character",
+            data={"character": "panda", "visit_token": maple_token},
+            headers={"X-Student-Visit-Token": maple_token},
+            follow_redirects=False,
+        )
         maple = self.school.game.get_student(
             self.class_id,
             int(

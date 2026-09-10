@@ -1267,6 +1267,21 @@ body.staff-shell .ap-oq-name {
   color: #0f172a;
   line-height: 1.25;
 }
+body.staff-shell .ap-score-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+body.staff-shell .ap-score-avatar,
+body.staff-shell .ap-score-mood {
+  flex: 0 0 auto;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+body.staff-shell .ap-score-codename {
+  min-width: 0;
+}
 body.staff-shell .ap-oq-pts {
   display: block;
   margin-top: 0.1rem;
@@ -1615,7 +1630,8 @@ body.staff-shell .track-live-root .ap-att-name {
   font-weight: 600;
   min-width: 0;
 }
-body.staff-shell .track-live-root .ap-att-mood {
+body.staff-shell .track-live-root .ap-att-mood,
+body.staff-shell .track-live-root .ap-att-avatar {
   font-size: 1.15rem;
   justify-self: end;
 }
