@@ -3036,14 +3036,20 @@ $("live-stage-next")?.addEventListener("click", () => {
 document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tab = btn.getAttribute("data-tab") || "media";
+    const content =
+      tab === "questions" ? "questions" : tab === "canvas_slides" ? "canvas_slides" : "media";
+    const frames = { ...(teacherState.frames || {}) };
+    const visible = Object.values(frames);
     const body = { active_tab: tab };
-    if (tab === "questions" && Object.keys(teacherState.frames || {}).length <= 1) {
-      body.layout_preset = "questions_full";
-    } else if (tab === "media" && teacherState.layout_preset === "questions_full") {
-      body.layout_preset = "media_full";
-    } else if (tab === "canvas_slides" && Object.keys(teacherState.frames || {}).length <= 1) {
-      body.layout_preset = "canvas_media";
-      body.frames = { A: "canvas_slides" };
+    if (!visible.includes(content)) {
+      if (visible.length <= 1) {
+        if (content === "questions") body.layout_preset = "questions_full";
+        else if (content === "media") body.layout_preset = "media_full";
+        else body.frames = { A: "canvas_slides" };
+      } else {
+        frames.A = content;
+        body.frames = frames;
+      }
     }
     patchTeacherState(body);
   });
