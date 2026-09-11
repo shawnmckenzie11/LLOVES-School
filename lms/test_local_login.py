@@ -76,11 +76,7 @@ class LocalLoginTests(unittest.TestCase):
             )
             self.assertEqual(rv.status_code, 302)
             self.assertNotIn("alc.mckenzian.com", rv.headers["Location"])
-            user = self.school.get_user_by_email("solutions@mckenzian.com")
-            assert user is not None
-            code = user.get("verification_code")
-            if code:
-                self.client.post("/verify-email", data={"code": code})
+            self.assertNotIn("verify-email", rv.headers["Location"])
             dash = self.client.get("/it", follow_redirects=False)
             self.assertIn(dash.status_code, (200, 302))
 
