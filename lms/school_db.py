@@ -23,6 +23,10 @@ try:
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from live_teacher_state import (
+        apply_teacher_state_update,
+        public_teacher_state,
+    )
     from live_prompt_feedback import (
         public_feedback_fragment,
         strip_teacher_prompt_fields,
@@ -50,6 +54,10 @@ except ImportError:  # ``python3 lms/app.py`` package import
         is_c1_real_slice,
         public_active_media_payload,
         staff_cons_prompt_payload,
+    )
+    from lms.live_teacher_state import (
+        apply_teacher_state_update,
+        public_teacher_state,
     )
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
@@ -1510,6 +1518,10 @@ class LovesDB:
         if "active_media_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN active_media_json TEXT"
+            )
+        if "teacher_state_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN teacher_state_json TEXT"
             )
         self.conn.execute(
             """
@@ -5212,6 +5224,17 @@ class SchoolDB(LovesDB):
         else:
             item["active_media"] = None
         item.pop("active_media_json", None)
+        state_raw = item.get("teacher_state_json")
+        parsed_state = None
+        if isinstance(state_raw, str) and state_raw.strip():
+            try:
+                parsed_state = json.loads(state_raw)
+            except json.JSONDecodeError:
+                parsed_state = None
+        item["teacher_state"] = public_teacher_state(
+            parsed_state if isinstance(parsed_state, dict) else None
+        )
+        item.pop("teacher_state_json", None)
         return item
 
     def get_active_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
@@ -6519,6 +6542,65 @@ class SchoolDB(LovesDB):
         self._sync_c1_cons_prompt(session_id, payload)
         return payload
 
+    def live_session_teacher_state_payload(
+        self, session_id: int
+    ) -> dict[str, Any]:
+        """Return the thin LiveTeacherState for staff/student polls.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Public teacher state. Defaults when the column is empty.
+
+        Raises:
+            KeyError: If the live session is missing.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        stored = session_row.get("teacher_state")
+        return public_teacher_state(stored if isinstance(stored, dict) else None)
+
+    def set_live_session_teacher_state(
+        self,
+        session_id: int,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Patch the thin teacher shell channel for one live session.
+
+        References ``active_media`` / prompts by id. Does not copy those
+        payloads. ``canvas_ephemeral`` stays true.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            **kwargs: Fields accepted by ``apply_teacher_state_update``.
+
+        Returns:
+            Updated public teacher state.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: Invalid stage, tab, preset, or frames.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        current = self.live_session_teacher_state_payload(session_id)
+        payload = apply_teacher_state_update(current, **kwargs)
+        encoded = json.dumps(payload)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET teacher_state_json = ?
+                WHERE id = ?
+                """,
+                (encoded, int(session_id)),
+            )
+            self.conn.commit()
+        return payload
+
     def _sync_c1_cons_prompt(
         self, session_id: int, media: dict[str, Any] | None
     ) -> None:
@@ -7007,6 +7089,7 @@ class SchoolDB(LovesDB):
             "attendees": public_rows,
             "phase": phase,
             "active_media": self.live_session_active_media_payload(session_id),
+            "teacher_state": self.live_session_teacher_state_payload(session_id),
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
         }
 

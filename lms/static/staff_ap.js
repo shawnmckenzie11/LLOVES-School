@@ -1,5 +1,5 @@
 /**
- * Run Live Class dual-pane shell: persistent class/teams left, flagged right.
+ * Run Live Class IA v1 shell: stage rail + condensed roster + Active Content frames.
  */
 import {
   api,
@@ -126,22 +126,51 @@ function isScoringLive() {
 const STAGE_BY_STEP = {
   validate: "join",
   att: "join",
-  gamify: "join",
+  gamify: "teams",
   teams: "teams",
   names: "meet",
-  rounds: "challenge",
-  score: "freeze",
+  rounds: "round",
+  score: "play",
+};
+
+const TEACHER_STAGES = ["join", "teams", "meet", "round", "play"];
+const LAYOUT_PRESETS = {
+  media_full: { A: "media" },
+  questions_full: { A: "questions" },
+  media_questions: { A: "media", B: "questions" },
+  three_up: { A: "media", B: "questions", C: "canvas_slides" },
+  canvas_media: { A: "canvas_slides", B: "media" },
 };
 
 const FLAG_BY_STAGE = {
   join: "media",
   teams: "media",
   meet: "question",
+  round: "rounds",
+  play: "score",
   challenge: "rounds",
   freeze: "score",
 };
 
 const REACHED_STAGES = new Set(["join"]);
+
+/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null}} */
+let teacherState = {
+  stage: "join",
+  round: null,
+  teams_mode: "individual",
+  layout_preset: "media_full",
+  frames: { A: "media" },
+  active_tab: "media",
+  active_media_ref: null,
+  prompt_ref: null,
+  canvas_ephemeral: true,
+  updated_at: "",
+  cue_id: null,
+};
+
+let teacherStateInFlight = false;
+let lastTeacherMediaSrc = "";
 
 /**
  * Map a setup step onto the StageRail id.
@@ -174,10 +203,26 @@ function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
 }
 
 /**
- * Mark StageRail current/reached without collapsing the left column.
+ * Apply a server/client teacher-state object without remounting media.
+ * @param {any} next
+ */
+function adoptTeacherState(next) {
+  if (!next || typeof next !== "object") return;
+  teacherState = {
+    ...teacherState,
+    ...next,
+    frames: next.frames && typeof next.frames === "object" ? { ...next.frames } : teacherState.frames,
+    canvas_ephemeral: true,
+  };
+  REACHED_STAGES.add(teacherState.stage);
+  paintTeacherShell();
+}
+
+/**
+ * Mark StageRail from thin JSON stage (not the wizard step).
  */
 function paintStageRail() {
-  const stage = stageForStep();
+  const stage = teacherState.stage || stageForStep();
   REACHED_STAGES.add(stage);
   document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
     const id = btn.getAttribute("data-stage") || "";
@@ -187,20 +232,87 @@ function paintStageRail() {
     else btn.removeAttribute("aria-current");
     btn.classList.toggle("is-reached", REACHED_STAGES.has(id));
   });
+  const index = TEACHER_STAGES.indexOf(stage);
+  const prev = $("live-stage-prev");
+  const next = $("live-stage-next");
+  if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
+  if (next instanceof HTMLButtonElement) next.disabled = index < 0 || index >= TEACHER_STAGES.length - 1;
 }
 
 /**
- * Flag one right-hand panel; keep the others mounted.
+ * Show TEAMS* / ROUND* option cards under the header.
+ */
+function paintOptionCard() {
+  const stage = teacherState.stage;
+  const card = $("live-option-card");
+  const teams = $("teams-option-card");
+  const round = $("round-option-card");
+  const teamPane = $("team-assign-pane");
+  const rounds = $("round-slide-settings");
+  const showTeams = stage === "teams";
+  const showRound = stage === "round";
+  if (card) card.hidden = !showTeams && !showRound;
+  if (teams) teams.hidden = !showTeams;
+  if (round) round.hidden = !showRound;
+  if (teamPane) {
+    teamPane.hidden = !showTeams;
+    if (showTeams) teamPane.removeAttribute("hidden");
+  }
+  if (rounds) rounds.hidden = !showRound;
+  document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
+    const on = btn.getAttribute("data-round") === (teacherState.round || "minds_on");
+    btn.classList.toggle("is-active", on);
+  });
+}
+
+/**
+ * Place content ids into CSS frame slots. Never recreates the media iframe.
+ */
+function paintFrames() {
+  const frames = teacherState.frames || LAYOUT_PRESETS[teacherState.layout_preset] || { A: "media" };
+  const used = Object.keys(frames).filter((key) => frames[key]).sort().join("");
+  const host = $("live-frames");
+  if (host) {
+    host.dataset.preset = teacherState.layout_preset || "media_full";
+    host.dataset.slots = used || "A";
+  }
+  document.querySelectorAll(".live-content-slot").forEach((el) => {
+    const id = el.getAttribute("data-content-id") || "";
+    const slot = Object.keys(frames).find((key) => frames[key] === id) || "";
+    el.setAttribute("data-slot", slot);
+    el.classList.toggle("is-parked", !slot);
+  });
+  document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.getAttribute("data-preset") === teacherState.layout_preset);
+  });
+  document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
+    const on = btn.getAttribute("data-tab") === teacherState.active_tab;
+    btn.classList.toggle("is-active", on);
+    if (on) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  });
+}
+
+/**
+ * Flag ResultsStrip when play is scoring; keep media mounted.
  * @param {string} [stage]
  */
-function paintRightFlag(stage = stageForStep()) {
+function paintRightFlag(stage = teacherState.stage || stageForStep()) {
   const flag = FLAG_BY_STAGE[stage] || "media";
-  document.querySelectorAll(".live-flag-panel").forEach((el) => {
-    const on = el.getAttribute("data-flag") === flag;
-    el.classList.toggle("is-flagged", on);
-  });
+  const results = $("results-strip");
+  if (results) results.classList.toggle("is-flagged", flag === "score" || isScoringLive());
   const right = $("live-shell-right");
   if (right) right.dataset.flag = flag;
+}
+
+/**
+ * Paint rail, option cards, and CSS slots from teacherState.
+ */
+function paintTeacherShell() {
+  paintStageRail();
+  paintOptionCard();
+  paintFrames();
+  paintRightFlag();
 }
 
 /**
@@ -274,8 +386,7 @@ function showPanel(name, opts = {}) {
   if (name === "gamify" && !trackMode) {
     selectTrackMode("individual");
   }
-  paintStageRail();
-  paintRightFlag();
+  paintTeacherShell();
   paintHeaderDate();
   paintQuestionArtifact();
   updateStepSummaries();
@@ -296,7 +407,9 @@ function syncTeamFlowVisibility() {
   const pane = $("team-assign-pane");
   if (pane) {
     pane.classList.toggle("is-standby", !team);
-    pane.removeAttribute("hidden");
+    const show = teacherState.stage === "teams" || teacherState.stage === "meet";
+    pane.hidden = !show;
+    if (show) pane.removeAttribute("hidden");
   }
   document.querySelectorAll("[data-team-flow]").forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
@@ -582,6 +695,7 @@ async function pollLiveSessionAttendees() {
     const media = payload?.active_media || payload?.session?.active_media;
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
+    if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
     ensureC1MediaSeeded();
   } catch (_) {
     /* keep polling */
@@ -639,10 +753,18 @@ function paintActiveMediaStatus(media) {
   const teacherSrc = mediaUrl.includes("?")
     ? `${mediaUrl}&role=teacher`
     : `${mediaUrl}?role=teacher`;
-  if (preview.getAttribute("src") !== teacherSrc) {
+  const currentSrc = preview.getAttribute("src") || lastTeacherMediaSrc;
+  if (currentSrc !== teacherSrc && lastTeacherMediaSrc !== teacherSrc) {
     preview.src = teacherSrc;
+    lastTeacherMediaSrc = teacherSrc;
+  } else {
+    lastTeacherMediaSrc = currentSrc || teacherSrc;
   }
   preview.hidden = false;
+  preview.removeAttribute("hidden");
+  if (media && media.url) {
+    teacherState.active_media_ref = media.url;
+  }
   paintQuestionArtifact(media);
   const params = (media && media.params) || { a: 1, b: 0, c: 0 };
   try {
@@ -1482,6 +1604,11 @@ function selectTrackMode(mode) {
   syncTeamFlowVisibility();
   if (currentStep === "rounds") renderRoundsPanel();
   updateStepSummaries();
+  const nextMode = mode === "team" ? "teams" : "individual";
+  if (teacherState.teams_mode !== nextMode) {
+    teacherState.teams_mode = nextMode;
+    patchTeacherState({ teams_mode: nextMode }, { silent: true });
+  }
 }
 
 for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
@@ -2007,6 +2134,7 @@ $("ap-meet-start")?.addEventListener("click", async () => {
       return;
     }
     await startMeetTeamsPhase();
+    await patchTeacherState({ stage: "meet" });
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -2849,17 +2977,177 @@ $("live-start")?.addEventListener("click", () => {
 document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const stage = btn.getAttribute("data-stage") || "";
-    if (!REACHED_STAGES.has(stage)) return;
-    const target = {
-      join: "att",
-      teams: trackMode === "team" ? "teams" : "att",
-      meet: trackMode === "team" ? "names" : "att",
-      challenge: "rounds",
-      freeze: "score",
-    }[stage];
-    if (target) showPanel(target);
+    if (!TEACHER_STAGES.includes(stage)) return;
+    patchTeacherState({ stage });
   });
 });
+
+/**
+ * POST a thin LiveTeacherState patch. Prev/Next only send ``advance``.
+ * @param {Record<string, unknown>} body
+ * @param {{silent?: boolean}} [opts]
+ */
+async function patchTeacherState(body, opts = {}) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) {
+    adoptTeacherState(
+      body.advance
+        ? {
+            ...teacherState,
+            stage: TEACHER_STAGES[
+              Math.max(
+                0,
+                Math.min(
+                  TEACHER_STAGES.length - 1,
+                  TEACHER_STAGES.indexOf(teacherState.stage) +
+                    (body.advance === "next" ? 1 : -1)
+                )
+              )
+            ],
+          }
+        : { ...teacherState, ...body }
+    );
+    return teacherState;
+  }
+  if (teacherStateInFlight && opts.silent) return teacherState;
+  teacherStateInFlight = true;
+  try {
+    const res = await api(`/api/live-sessions/${sessionId}/teacher-state`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+    return teacherState;
+  } catch (err) {
+    if (!opts.silent) showError("#ap-overlay-error", err);
+    return teacherState;
+  } finally {
+    teacherStateInFlight = false;
+  }
+}
+
+$("live-stage-prev")?.addEventListener("click", () => {
+  patchTeacherState({ advance: "prev" });
+});
+$("live-stage-next")?.addEventListener("click", () => {
+  patchTeacherState({ advance: "next" });
+});
+
+document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const tab = btn.getAttribute("data-tab") || "media";
+    const body = { active_tab: tab };
+    if (tab === "questions" && Object.keys(teacherState.frames || {}).length <= 1) {
+      body.layout_preset = "questions_full";
+    } else if (tab === "media" && teacherState.layout_preset === "questions_full") {
+      body.layout_preset = "media_full";
+    } else if (tab === "canvas_slides" && Object.keys(teacherState.frames || {}).length <= 1) {
+      body.layout_preset = "canvas_media";
+      body.frames = { A: "canvas_slides" };
+    }
+    patchTeacherState(body);
+  });
+});
+
+$("live-edit-layout")?.addEventListener("click", () => {
+  const panel = $("live-layout-presets");
+  const host = $("live-frames");
+  const open = Boolean(panel && panel.hidden);
+  if (panel) panel.hidden = !open;
+  const btn = $("live-edit-layout");
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (host) host.classList.toggle("is-editing", open);
+});
+
+document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const preset = btn.getAttribute("data-preset") || "media_full";
+    patchTeacherState({ layout_preset: preset });
+  });
+});
+
+document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const round = btn.getAttribute("data-round") || "minds_on";
+    patchTeacherState({ round, stage: "round" });
+  });
+});
+
+document.querySelectorAll("input[name='live-team-keep']").forEach((input) => {
+  input.addEventListener("change", () => {
+    if (!(input instanceof HTMLInputElement) || !input.checked) return;
+    const teamPane = $("team-assign-pane");
+    if (!teamPane) return;
+    if (input.value === "reassign") {
+      teamPane.hidden = false;
+      teamPane.removeAttribute("hidden");
+    } else if (teacherState.stage !== "teams") {
+      teamPane.hidden = true;
+    }
+  });
+});
+
+document.querySelectorAll("#live-content-palette [data-content-id]").forEach((chip) => {
+  chip.addEventListener("dragstart", (event) => {
+    const id = chip.getAttribute("data-content-id") || "";
+    event.dataTransfer?.setData("text/plain", id);
+    event.dataTransfer?.setData("application/x-lloves-content-id", id);
+  });
+});
+
+document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
+  slot.addEventListener("dragover", (event) => {
+    event.preventDefault();
+  });
+  slot.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const frame = slot.getAttribute("data-drop-frame") || "";
+    const contentId =
+      event.dataTransfer?.getData("application/x-lloves-content-id") ||
+      event.dataTransfer?.getData("text/plain") ||
+      "";
+    if (!frame || !contentId) return;
+    const frames = { ...(teacherState.frames || {}) };
+    frames[frame] = contentId;
+    patchTeacherState({ frames });
+  });
+});
+
+/**
+ * Ephemeral whiteboard: draw in memory only. No persist / CRDT / save.
+ */
+function bindEphemeralCanvas() {
+  const canvas = $("live-canvas-stub");
+  if (!(canvas instanceof HTMLCanvasElement)) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  let drawing = false;
+  const point = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+  canvas.addEventListener("pointerdown", (event) => {
+    drawing = true;
+    const p = point(event);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!drawing) return;
+    const p = point(event);
+    ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = "#12202e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+  canvas.addEventListener("pointerup", () => {
+    drawing = false;
+  });
+}
 
 selectTrackMode("individual");
 if (localStorage.getItem(scoreboardKey) === null) {
@@ -2869,11 +3157,21 @@ setMeetMinutes(3);
 
 if (root?.dataset.apView === "live") {
   bindActiveMediaControls();
+  bindEphemeralCanvas();
+  paintTeacherShell();
   paintJoinBillboard(root.dataset.liveCode || "");
   (async () => {
     const resumed = await resumeLiveClassIfNeeded();
     if (!resumed) {
       await openRunLiveClass();
+    }
+    const sessionId = liveSessionId || readLiveSessionId();
+    if (!sessionId) return;
+    try {
+      const res = await api(`/api/live-sessions/${sessionId}/teacher-state`);
+      if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+    } catch (_) {
+      /* first paint uses the local default */
     }
   })().catch((err) => showError("#ap-overlay-error", err));
 }

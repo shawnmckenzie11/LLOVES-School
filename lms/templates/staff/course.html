@@ -90,7 +90,8 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root live-shell-root"
+         class="track-live-root live-shell-root live-shell-ia-v1"
+         data-ia="v1"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
@@ -110,29 +111,22 @@
           <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
         </div>
         <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
+          <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
           <button type="button" class="live-stage-btn is-active" data-stage="join" aria-current="step">Join</button>
-          <button type="button" class="live-stage-btn" data-stage="teams">Teams</button>
+          <button type="button" class="live-stage-btn" data-stage="teams">Teams*</button>
           <button type="button" class="live-stage-btn" data-stage="meet">Meet</button>
-          <button type="button" class="live-stage-btn" data-stage="challenge">Challenge</button>
-          <button type="button" class="live-stage-btn" data-stage="freeze">Freeze/CONS</button>
+          <button type="button" class="live-stage-btn" data-stage="round">Round*</button>
+          <button type="button" class="live-stage-btn" data-stage="play">Play</button>
+          <button type="button" class="live-stage-stepper" id="live-stage-next">Next</button>
         </nav>
         <div class="live-header-actions">
-          <div id="ap-panel-gamify" class="live-track-chip ap-panel" data-step="gamify">
-            <span class="live-track-chip-label">Tracking</span>
-            <span id="ap-gamify-summary" class="live-track-chip-meta"></span>
-            <button type="button" class="live-track-opt is-selected" id="ap-gamify-no" aria-pressed="true">
-              <span class="ap-att-check" aria-hidden="true">✓</span>
-              <span class="ap-att-name">Individual</span>
-            </button>
-            <button type="button" class="live-track-opt" id="ap-gamify-yes" aria-pressed="false">
-              <span class="ap-att-check" aria-hidden="true"></span>
-              <span class="ap-att-name">Team</span>
-            </button>
-            <button type="button" class="track-nav-next live-chip-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
-          </div>
-          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Meet</button>
-          <button type="button" id="live-start" class="live-header-start">Start</button>
-          <button type="button" id="live-advance" class="live-header-advance">Advance</button>
+          <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
+                data-confirm="End Live Class? All session data will be lost."
+                onsubmit="return confirm(this.dataset.confirm);">
+            <button type="submit" class="live-header-end danger" id="live-end-class">End Class</button>
+          </form>
+          <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
+          <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>
         </div>
         <div class="live-header-join">
           <div id="ap-join-billboard"
@@ -158,6 +152,37 @@
         </div>
       </header>
 
+      <section class="live-option-card" id="live-option-card" hidden>
+        <div id="teams-option-card" class="live-option-card-body" hidden>
+          <div id="ap-panel-gamify" class="live-track-chip ap-panel" data-step="gamify">
+            <span class="live-track-chip-label">Individual (1) vs teams</span>
+            <span id="ap-gamify-summary" class="live-track-chip-meta"></span>
+            <button type="button" class="live-track-opt is-selected" id="ap-gamify-no" aria-pressed="true">
+              <span class="ap-att-check" aria-hidden="true">✓</span>
+              <span class="ap-att-name">Individual</span>
+            </button>
+            <button type="button" class="live-track-opt" id="ap-gamify-yes" aria-pressed="false">
+              <span class="ap-att-check" aria-hidden="true"></span>
+              <span class="ap-att-name">Teams</span>
+            </button>
+            <button type="button" class="track-nav-next live-chip-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
+          </div>
+          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start Meet</button>
+        </div>
+        <div id="round-option-card" class="live-option-card-body" hidden>
+          <p class="live-option-card-label">Always 3 rounds</p>
+          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Pedagogical rounds">
+            <button type="button" class="live-round-pick is-active" data-round="minds_on">Minds on</button>
+            <button type="button" class="live-round-pick" data-round="action">Action</button>
+            <button type="button" class="live-round-pick" data-round="consolidation">Consolidation</button>
+          </div>
+          <div class="live-team-keep" role="group" aria-label="Teams for this round">
+            <label><input type="radio" name="live-team-keep" value="keep" checked> Keep teams</label>
+            <label><input type="radio" name="live-team-keep" value="reassign"> Reassign teams</label>
+          </div>
+        </div>
+      </section>
+
       <section id="ap-panel-validate" class="live-date-panel ap-panel hidden" data-step="validate" hidden>
         <h2 class="live-pane-title">Class Date</h2>
         <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
@@ -175,24 +200,23 @@
           <section id="class-list-pane" class="live-pane">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
-              <p class="hint">Join-only: students appear present when they enter the live session code.</p>
               <label class="ap-guest-toggle" id="ap-guest-toggle">
                 <input type="checkbox" id="ap-allow-guests">
-                <span>Allow guests (names not on roster)</span>
+                <span>Guests</span>
               </label>
-              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on — names not on the roster can join this session.</p>
-              <p class="hint compact">Off by default. When checked, unmatched first names can join and show as guests on the overlay.</p>
+              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
               <input type="hidden" id="ap-meeting-date" value="">
               <div id="ap-att-list" class="check-list ap-att-readonly"></div>
-              <div class="live-pane-footer">
+              <div class="live-pane-footer live-legacy-control">
                 <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
                 <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
                 <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
               </div>
             </section>
           </section>
+        </aside>
 
-          <section id="team-assign-pane" class="live-pane is-standby">
+        <section id="team-assign-pane" class="live-pane is-standby" hidden>
             <p class="live-standby-hint" id="team-assign-standby">Team assign unlocks when Tracking is Team.</p>
             <section id="ap-panel-teams" class="ap-panel" data-step="teams" data-team-flow>
               <h2 class="live-pane-title">Teams <span id="ap-teams-summary" class="live-pane-meta"></span></h2>
@@ -289,10 +313,60 @@
               </div>
             </section>
           </section>
-        </aside>
 
         <main class="live-shell-right" id="live-shell-right">
-          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds">
+          <section class="live-active-content" id="live-active-content">
+            <div class="live-active-toolbar">
+              <nav class="live-content-tabs" id="live-content-tabs" aria-label="Active Content">
+                <button type="button" class="live-content-tab is-active" data-tab="media">Active Media</button>
+                <button type="button" class="live-content-tab" data-tab="questions">Question(s)</button>
+                <button type="button" class="live-content-tab" data-tab="canvas_slides">Canvas/Slides</button>
+              </nav>
+              <div class="live-layout-bar">
+                <button type="button" class="secondary" id="live-edit-layout" aria-expanded="false">Edit Layout</button>
+                <div class="live-layout-presets" id="live-layout-presets" hidden>
+                  <p class="live-option-card-label">Presets</p>
+                  <div class="live-preset-row" id="live-preset-row">
+                    <button type="button" class="live-preset-btn is-active" data-preset="media_full">Media</button>
+                    <button type="button" class="live-preset-btn" data-preset="questions_full">Questions</button>
+                    <button type="button" class="live-preset-btn" data-preset="media_questions">Media + Q</button>
+                    <button type="button" class="live-preset-btn" data-preset="three_up">A / B / C</button>
+                    <button type="button" class="live-preset-btn" data-preset="canvas_media">Canvas + Media</button>
+                  </div>
+                  <p class="live-option-card-label">Drag into frames</p>
+                  <div class="live-content-palette" id="live-content-palette">
+                    <span class="live-content-chip" draggable="true" data-content-id="media">media</span>
+                    <span class="live-content-chip" draggable="true" data-content-id="questions">questions</span>
+                    <span class="live-content-chip" draggable="true" data-content-id="canvas_slides">canvas_slides</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="live-frames" id="live-frames" data-preset="media_full" data-slots="A">
+              <div class="live-frame-slot" data-frame="A" data-drop-frame="A"><span class="live-frame-label">A</span></div>
+              <div class="live-frame-slot" data-frame="B" data-drop-frame="B"><span class="live-frame-label">B</span></div>
+              <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
+              <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="media" data-flag="media" data-slot="A">
+                <section class="ap-active-media" id="ap-active-media">
+                  <h2>Active Media</h2>
+                  <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
+                </section>
+              </section>
+              <section id="question-artifact-zone" class="live-content-slot live-flag-panel" data-content-id="questions" data-flag="question" data-slot="">
+                <h2 class="live-pane-title">Question</h2>
+                <p class="hint compact" id="question-artifact-status">No live prompt. Meet universal Q and CONS/QH use the existing session channels.</p>
+                <p class="live-question-flag" id="question-artifact-flag" hidden></p>
+              </section>
+              <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
+                <h2 class="live-pane-title">Canvas / Slides</h2>
+                <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
+                <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
+                <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
+              </section>
+            </div>
+          </section>
+
+          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds" hidden>
             <section id="ap-panel-rounds" class="ap-panel" data-step="rounds">
               <h2 class="live-pane-title" id="ap-rounds-title">Start Round 1 <span id="ap-rounds-summary" class="live-pane-meta"></span></h2>
               <p class="hint compact" id="ap-rounds-hint">Set up one round at a time. Open Question uses action chips when scoring.</p>
@@ -303,19 +377,6 @@
                 <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start Round 1</button>
               </div>
             </section>
-          </section>
-
-          <section id="media-artifact-zone" class="live-flag-panel is-flagged" data-flag="media">
-            <section class="ap-active-media" id="ap-active-media">
-              <h2>Active Media</h2>
-              <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
-            </section>
-          </section>
-
-          <section id="question-artifact-zone" class="live-flag-panel" data-flag="question">
-            <h2 class="live-pane-title">Question</h2>
-            <p class="hint compact" id="question-artifact-status">No live prompt. Meet universal Q and CONS/QH use the existing session channels.</p>
-            <p class="live-question-flag" id="question-artifact-flag" hidden></p>
           </section>
 
           <section id="results-strip" class="live-flag-panel" data-flag="score">
