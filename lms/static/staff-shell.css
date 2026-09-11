@@ -1292,8 +1292,8 @@ body.staff-shell .track-live-root.live-shell-root {
   --live-border: #d5dde6;
   --live-header-h: 52px;
   --live-rail-active: #1f6feb;
-  --live-left-min: 16.5rem;
-  --live-left-max: 26%;
+  --live-left-min: 18rem;
+  --live-left-max: 25%;
   max-width: none;
   display: flex;
   flex-direction: column;
@@ -1551,7 +1551,7 @@ body.staff-shell .live-date-panel.hidden {
 }
 body.staff-shell .live-shell-body {
   display: grid;
-  grid-template-columns: minmax(var(--live-left-min), 24%) minmax(0, 1fr);
+  grid-template-columns: minmax(var(--live-left-min), var(--live-left-max)) minmax(0, 1fr);
   gap: var(--live-shell-gap);
   align-items: start;
 }
@@ -1560,7 +1560,7 @@ body.staff-shell .live-shell-left {
   flex-direction: column;
   gap: var(--live-shell-gap);
   min-width: var(--live-left-min);
-  max-width: var(--live-left-max);
+  width: 100%;
   min-height: 12rem;
 }
 body.staff-shell .live-shell-right {

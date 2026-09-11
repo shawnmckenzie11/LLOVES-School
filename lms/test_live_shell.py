@@ -165,11 +165,14 @@ class LiveShellTests(unittest.TestCase):
     def test_class_list_pane_has_readable_min_width(self) -> None:
         """ClassListPane stays condensed but wide enough for names + mood chips."""
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("--live-left-min: 16.5rem", css)
-        self.assertIn("--live-left-max: 26%", css)
-        self.assertIn("minmax(var(--live-left-min), 24%)", css)
+        self.assertIn("--live-left-min: 18rem", css)
+        self.assertIn("--live-left-max: 25%", css)
+        self.assertIn(
+            "minmax(var(--live-left-min), var(--live-left-max))", css
+        )
         self.assertNotIn("--live-left-min: 140px", css)
         self.assertNotIn("minmax(var(--live-left-min), 15%)", css)
+        self.assertNotIn("max-width: var(--live-left-max)", css)
         self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
 
 
