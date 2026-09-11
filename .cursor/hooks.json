@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "preCompact": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py",
+        "matcher": "Task"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": ".cursor/hooks/session_token_budget.py"
+      }
+    ]
+  }
+}

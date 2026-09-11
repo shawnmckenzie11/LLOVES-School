@@ -47,3 +47,7 @@ Copy **only** `content-builder/` paths back. Leave uncommitted `lms/` files in t
 ## Durable corrections
 
 Every accepted Shawn correction updates the relevant rule, writer-reference exemplar, component, or test. Preserve locks; show conflicts when a shared change would overwrite locked content.
+
+## Token budget
+
+Pack specialist Task prompts with `content-builder/scripts/invocation_context.py` (200k token cap). Cursor already injects the specialist definition and always-on rules — do not paste those files or raw parent history. Unchanged files are path + sha256 only; older turns are digested. The session hook at `.cursor/hooks/session_token_budget.py` sliding-windows Task payloads and blocks repeat file reads when Agent Response prompt tokens cross 200k.

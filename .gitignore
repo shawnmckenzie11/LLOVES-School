@@ -36,6 +36,8 @@ lms/.venv/
 # contest dumps, or extracts from here — Drive authoring is the other clone.
 .local-data/
 .cursor/debug-*.log
+.cursor/hooks/state/
+.cursor/hooks/__pycache__/
 
 # Never commit IMSCC packs (Admin uploads to Fly volume only)
 *.imscc
