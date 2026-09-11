@@ -1,0 +1,1790 @@
+{
+  "schema_version": "interaction-spec.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "brief_path": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/lesson-brief.json",
+  "practice_sequence_path": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/practice-sequence.json",
+  "engine": "jsxgraph",
+  "existing_embed": null,
+  "cycle": "predict-manipulate-submit-check-feedback-retry-advance",
+  "packet_progression": "progressive-reveal",
+  "packet_progression_note": "One packet at a time. The next packet stays hidden until the current packet’s last required task has a passing deterministic check and Advance is unlocked. packet-diagram-algebraic also progressive-reveals inside the packet (diagram-ex960 before algebraic-ex960). packet-strategy is additional, not default: it stays hidden until Try another on sketch-try9120. packet-consolidation / fresh-hook-cts stays hidden until Consolidation.",
+  "chrome": "lean",
+  "chrome_note": "Lean cycle chrome only: prediction commit, the active packet’s tool, Submit, hint, retry, and Advance when unlocked. Try another appears only on sketch-try9120 (unlocks strategy). No packet list, no sandbox explore-all, no Fresh-case on Action. Wonder-style advance chrome is an open call — this spec names advance_unlocks; it does not pick a Wonder control.",
+  "formative_handoff": {
+    "owner": "formative-feedback-designer",
+    "contract": "feedback-spec.v1",
+    "shared_task_ids": [
+      "expand-cts-revisit",
+      "diagram-ex960",
+      "algebraic-ex960",
+      "algebraic-try9119",
+      "factor-a-ex959",
+      "rational-half",
+      "verify-try9118",
+      "sketch-try9120",
+      "strategy-cts-vs-factor",
+      "fresh-hook-cts"
+    ],
+    "note": "Interaction-designer owns tools, representations, prompts, targets, and advance_unlocks. Formative-feedback-designer owns feedback_conditions, hint_sequence, message ids, FAME Mistakes (none in the approved bank — do not invent a signposted incorrect worked example here), and explanation-prompt message ids. Checking in this spec is deterministic-math handoff only: compare submitted evidence to the listed target; do not infer a brief misconception from a control value alone. Unrestricted predictions and interpretations are self-check or teacher-review — do not auto-grade free text. Packet Advance is unlocked only after the packet’s required task reports a pass; progression rules live here so feedback-spec can attach after_condition to the same task ids.",
+    "progression_rules": {
+      "default": "progressive-reveal one packet at a time after a passing check",
+      "within_packet_diagram_algebraic": "diagram-ex960 pass unlocks algebraic-ex960; packet Advance unlocks only after algebraic-ex960 pass",
+      "strategy": "not default; Try another on sketch-try9120 unlocks packet-strategy; default Advance from sketch-try9120 is packet-consolidation",
+      "consolidation": "fresh-hook-cts hidden_until consolidation; Action must not load its parameters"
+    },
+    "do_not_write_in_this_file": [
+      "feedback_conditions",
+      "hint_sequence student wording",
+      "message ids beyond checking_handoff",
+      "scenario_tests"
+    ]
+  },
+  "student_action": "Commit a prediction about the rewrite or the graph. Complete the square on the active packet’s tool (diagram, algebra, overlay, or sketch). Submit evidence. Read the check. Retry the same case or Advance to the next packet. The fountain photo is the hook figure only; it is not the graph tool.",
+  "changing_quantities": [
+    "standard coefficients a, b, c",
+    "vertex-form parameters a, h, k",
+    "diagram side length and leftover constant"
+  ],
+  "invariant": "Completing the square rewrites f(x) = ax^2 + bx + c as f(x) = a(x − h)^2 + k. The rewrite does not move the graph. Expanding and completing the square are inverse same-curve rewrites.",
+  "intended_observation": "The completed-square writing makes the vertex (h, k), the axis x = h, and maximum versus minimum readable. A diagram shows the completed square and leftover before algebra. When a ≠ 1, factor a from the x^2 and x terms first. Simple rational b/a uses the same steps with fractions. Graphing technology shows one curve for both writings.",
+  "prediction_prompt": "Before you move the board or write the next rewrite step, look at the standard-form equation in this packet. Will completing the square make a different curve, or the same one? What do you expect to be able to read once it is in vertex form?",
+  "interpretation_prompt": "After you submitted, compare the two writings. What changed in the algebra? What stayed the same on the graph? How do you read the vertex from the completed-square writing?",
+  "fresh_case_prompt": "Return to the fountain-arc situation with a new standard-form equation. Do not move the board yet. Complete the square, then name the vertex, the axis, and whether this is a maximum or a minimum. Set the graph to match that writing and submit. This case is Consolidation only.",
+  "sequence": [
+    "Hook (Minds On figure only): fountain-arc photo. Need the high point; no vertex-form equation is given.",
+    "Packet revisit: on the shared model 3(x − 1)^2 + 4 ↔ 3x^2 − 6x + 7, reverse Lesson 1 expand with completing the square and confirm both directions leave the graph unchanged (expand-cts-revisit; A2.7 REVIEW only).",
+    "Packet diagram-then-algebra: tiles/area for x^2 + 6x + 5 (diagram-ex960: side 3, leftover −4), then matching algebra to (x + 3)^2 − 4 (algebraic-ex960). Progressive within the packet.",
+    "Packet guided algebraic: you-do x^2 + 2x − 3 → (x + 1)^2 − 4 (algebraic-try9119).",
+    "Packet factor a: −3x^2 − 6x − 1 → −3(x + 1)^2 + 2; named fracture forget-factor-a (factor-a-ex959).",
+    "Packet rational: x^2 + (1/2)x + 1 → (x + 1/4)^2 + 15/16 (rational-half).",
+    "Packet verify: 2x^2 − 8x + 3 → 2(x − 2)^2 − 5; same-graph overlay (verify-try9118).",
+    "Packet sketch (A2.11 light): x^2 − 8x + 12 → (x − 4)^2 − 4; vertex (4, −4); axis x = 4; minimum (sketch-try9120). Try another unlocks strategy.",
+    "Packet strategy (additional, not default): A factor x^2 − 5x + 6; B complete the square x^2 + 4x + 7 (strategy-cts-vs-factor).",
+    "Consolidation only: fresh-hook-cts on y = −x^2 + 6x − 5 → −(x − 3)^2 + 4; vertex (3, 4); axis x = 3; maximum. No Fresh-case on Action."
+  ],
+  "packet_beat_map": [
+    {
+      "order": 1,
+      "packet_id": "packet-revisit",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "expand-cts-revisit"
+      ],
+      "process_id": "expand-cts-shared-model-revisit",
+      "beat": "Shared-model L1 revisit: expand 3(x − 1)^2 + 4 to 3x^2 − 6x + 7, then complete the square back; both leave the graph unchanged (A2.7 REVIEW only)."
+    },
+    {
+      "order": 2,
+      "packet_id": "packet-diagram-algebraic",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "diagram-ex960",
+        "algebraic-ex960"
+      ],
+      "process_ids": [
+        "complete-square-diagram",
+        "complete-square-algebraic"
+      ],
+      "beat": "Worked diagram then matching algebra on x^2 + 6x + 5. Progressive within packet: diagram side 3 leftover −4, then (x + 3)^2 − 4."
+    },
+    {
+      "order": 3,
+      "packet_id": "packet-guided-algebraic",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "algebraic-try9119"
+      ],
+      "process_id": "complete-square-algebraic",
+      "beat": "Guided you-do: x^2 + 2x − 3 → (x + 1)^2 − 4."
+    },
+    {
+      "order": 4,
+      "packet_id": "packet-factor-a",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "factor-a-ex959"
+      ],
+      "process_id": "complete-square-factor-a",
+      "beat": "Factor a = −3 from the x terms first: −3x^2 − 6x − 1 → −3(x + 1)^2 + 2. Fracture forget-factor-a."
+    },
+    {
+      "order": 5,
+      "packet_id": "packet-rational",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "rational-half"
+      ],
+      "process_id": "complete-square-rational-b-over-a",
+      "beat": "Same CTS steps when b/a = 1/2: x^2 + (1/2)x + 1 → (x + 1/4)^2 + 15/16."
+    },
+    {
+      "order": 6,
+      "packet_id": "packet-verify",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "verify-try9118"
+      ],
+      "process_id": "verify-equivalence-tech",
+      "beat": "Complete the square for 2x^2 − 8x + 3 and confirm the overlay is the same graph as 2(x − 2)^2 − 5."
+    },
+    {
+      "order": 7,
+      "packet_id": "packet-sketch",
+      "visible_by_default": true,
+      "placement": "action",
+      "task_ids": [
+        "sketch-try9120"
+      ],
+      "process_id": "sketch-from-standard-via-cts",
+      "beat": "A2.11 light: CTS x^2 − 8x + 12 → (x − 4)^2 − 4; name vertex, axis, minimum; sketch those features only. Try another unlocks strategy."
+    },
+    {
+      "order": 8,
+      "packet_id": "packet-strategy",
+      "visible_by_default": false,
+      "placement": "additional_practice",
+      "task_ids": [
+        "strategy-cts-vs-factor"
+      ],
+      "process_id": "strategy-choose-cts-vs-factor",
+      "beat": "Additional, not default. A: factor x^2 − 5x + 6. B: complete the square x^2 + 4x + 7. Criteria only; no formula."
+    },
+    {
+      "order": 9,
+      "packet_id": "packet-consolidation",
+      "visible_by_default": false,
+      "placement": "consolidation",
+      "hidden_until": "consolidation",
+      "task_ids": [
+        "fresh-hook-cts"
+      ],
+      "process_id": "sketch-from-standard-via-cts",
+      "beat": "Return to the fountain hook with y = −x^2 + 6x − 5 → −(x − 3)^2 + 4; vertex (3, 4); axis x = 3; maximum."
+    }
+  ],
+  "hook": {
+    "id": "fountain-arc-photo",
+    "kind": "figure",
+    "spec_id": null,
+    "src": "media/fountain-arc-500.jpg",
+    "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+    "engine": null,
+    "required_interactive": false,
+    "note": "Figure only. Continuity with Lesson 1’s parent-selected hook. Students need the high point but are handed only standard form later (consolidation). Copywriter embeds as a figure block, not an interactive spec_id. Not GeoGebra. Not the graph tool."
+  },
+  "board": {
+    "size": "small",
+    "default_tool": "jsxgraph-cts-equivalence-board",
+    "bundled_assets": [
+      "content-builder/components/jsxgraph/jsxgraphcore.js",
+      "content-builder/components/jsxgraph/jsxgraph.css"
+    ],
+    "shared_model_vertex": "f(x) = 3(x − 1)^2 + 4",
+    "shared_model_standard": "f(x) = 3x^2 − 6x + 7",
+    "shared_model_parameters": {
+      "a": 3,
+      "h": 1,
+      "k": 4
+    },
+    "shared_model_abc": {
+      "a": 3,
+      "b": -6,
+      "c": 7
+    },
+    "fresh_case_equation": "y = −x^2 + 6x − 5",
+    "fresh_case_vertex": "y = −(x − 3)^2 + 4",
+    "fresh_case_parameters": {
+      "a": -1,
+      "h": 3,
+      "k": 4
+    },
+    "fresh_case_abc": {
+      "a": -1,
+      "b": 6,
+      "c": -5
+    },
+    "layout": [
+      "prediction commit (required before first manipulate on that task)",
+      "active packet only (progressive-reveal)",
+      "board-wrap: tool for the active task (equivalence overlay, area diagram or static fallback, rewrite inputs, or sketch features)",
+      "board-evidence: live writings allowed only per task reveal rules",
+      "lean cycle-actions: Submit (required), hint, retry, Advance when unlocked — not a sandbox",
+      "Try another only on sketch-try9120",
+      "interpretation after check"
+    ],
+    "show": [
+      "one parabola, or a standard/vertex overlay when the task is same-graph verify",
+      "vertex marker and dashed axis only after vertex form is produced or on sketch/consolidation tasks",
+      "Ontario names a, h, k and a, b, c",
+      "short table of shared (x, f(x)) points on equivalence and verify tasks",
+      "area diagram or static completed-square picture on diagram-ex960"
+    ],
+    "action": {
+      "show_fresh_case": false,
+      "toolbar": [
+        "reset-start"
+      ],
+      "exclude": [
+        "fresh-case",
+        "btn-fresh",
+        "Wonder-explore-all",
+        "packet-picker"
+      ],
+      "note": "Do not put a Fresh-case button on Action. Do not apply fresh_case_parameters on this tab. Do not reveal packet-consolidation or packet-strategy by default."
+    },
+    "consolidation": {
+      "show_fresh_case": true,
+      "toolbar": [
+        "reset-start"
+      ],
+      "load_fresh_parameters": "only after the student is on consolidation and has committed the fresh-hook prediction — never on Action"
+    },
+    "do_not_include": [
+      "Gizmos",
+      "Desmos calculator API",
+      "required GeoGebra or Desmos embed",
+      "Nelson Functions 11 stems or keys",
+      "quadratic formula",
+      "discriminant",
+      "Fresh-case button on Action",
+      "fresh-hook-cts graph or parameters on Action",
+      "remote computation",
+      "login or API key",
+      "full A2.11 interval laundry list (sign or monotonicity intervals)",
+      "transformation reteach (roles of a, h, k / sketch from y = x^2)",
+      "A2.7 new teach (expand is REVIEW only on the shared model)",
+      "zeros three ways",
+      "sandbox that reveals every packet at once"
+    ]
+  },
+  "tools": {
+    "jsxgraph-cts-equivalence-board": {
+      "engine": "jsxgraph",
+      "bundled_assets": [
+        "content-builder/components/jsxgraph/jsxgraphcore.js",
+        "content-builder/components/jsxgraph/jsxgraph.css"
+      ],
+      "used_by": [
+        "expand-cts-revisit",
+        "verify-try9118"
+      ],
+      "purpose": "Overlay standard-form and vertex-form writings of one quadratic. Student enters or confirms coefficients; the board shows whether the two graphs coincide.",
+      "student_controls": [
+        "standard a, b, c inputs or locked given writing",
+        "vertex-form a, h, k inputs",
+        "optional overlay toggle after submit",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "show": [
+        "parabola for each submitted writing (second curve after submit on verify)",
+        "vertex marker after vertex form is submitted",
+        "dashed axis x = h after vertex form is submitted",
+        "live vertex-form and standard-form lines per task reveal rules",
+        "short shared table"
+      ],
+      "fallback": "Paper: expand and complete the square; plot a few shared table points on one sketch."
+    },
+    "jsxgraph-cts-area-diagram": {
+      "engine": "jsxgraph",
+      "bundled_assets": [
+        "content-builder/components/jsxgraph/jsxgraphcore.js",
+        "content-builder/components/jsxgraph/jsxgraph.css"
+      ],
+      "used_by": [
+        "diagram-ex960"
+      ],
+      "purpose": "Area / algebra-tile diagram for a = 1, integer b so the completed square and leftover constant are visible before algebra.",
+      "implementation_status": "open-call",
+      "open_call": "Implement an interactive area-diagram (split x-tiles, complete the square, leftover visible) versus a static completed-square figure plus numeric inputs for side and leftover. Either path must support predict–submit–check. Static fallback is specified on the task if the interactive is not built.",
+      "student_controls_if_implemented": [
+        "split the six x-rectangles into two equal groups",
+        "place the completing square",
+        "inputs for side length and leftover constant",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "static_fallback": {
+        "kind": "figure-plus-inputs",
+        "note": "Print or show a static area picture for x^2 + 6x + 5 with the six x-rectangles visible. Student names side length and leftover without dragging tiles. Same deterministic target {side: 3, leftover: -4}."
+      },
+      "fallback": "Paper tiles or a sketched square: half of 6 is the side; leftover is 5 minus that side squared."
+    },
+    "jsxgraph-cts-rewrite-board": {
+      "engine": "jsxgraph",
+      "bundled_assets": [
+        "content-builder/components/jsxgraph/jsxgraphcore.js",
+        "content-builder/components/jsxgraph/jsxgraph.css"
+      ],
+      "used_by": [
+        "algebraic-ex960",
+        "algebraic-try9119",
+        "factor-a-ex959",
+        "rational-half"
+      ],
+      "purpose": "Algebraic completing-the-square rewrite. Student submits vertex-form a, h, k (or an equivalent writing). Graph is a check aid after submit, not the key to copy.",
+      "student_controls": [
+        "inputs for a, h, k (fractions allowed on rational-half)",
+        "optional step fields (half of b/a; (b/2a)^2) when the task lists them",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "show": [
+        "given standard-form equation (always)",
+        "live vertex form after submit as check aid",
+        "optional same-graph overlay after submit"
+      ],
+      "fallback": "Paper rewrite; check by expanding the submitted vertex form."
+    },
+    "jsxgraph-cts-sketch-board": {
+      "engine": "jsxgraph",
+      "bundled_assets": [
+        "content-builder/components/jsxgraph/jsxgraphcore.js",
+        "content-builder/components/jsxgraph/jsxgraph.css"
+      ],
+      "used_by": [
+        "sketch-try9120",
+        "fresh-hook-cts"
+      ],
+      "purpose": "From standard form, complete the square, then place vertex, axis, and maximum or minimum (A2.11 light). Not a full interval dump.",
+      "student_controls": [
+        "inputs for a, h, k",
+        "vertex point",
+        "axis equation",
+        "max-or-min choice",
+        "submit",
+        "retry",
+        "reset-start",
+        "try another (sketch-try9120 only)"
+      ],
+      "show": [
+        "given standard-form equation",
+        "parabola after submit or when parameters match",
+        "vertex marker",
+        "dashed axis"
+      ],
+      "fallback": "Paper: complete the square, plot the vertex, draw the axis, label max or min."
+    },
+    "jsxgraph-cts-strategy-chooser": {
+      "engine": "jsxgraph",
+      "bundled_assets": [
+        "content-builder/components/jsxgraph/jsxgraphcore.js",
+        "content-builder/components/jsxgraph/jsxgraph.css"
+      ],
+      "used_by": [
+        "strategy-cts-vs-factor"
+      ],
+      "purpose": "Lean choice chrome for two standard-form equations. Student picks factor or complete-the-square for each and gives one reason. No formula control. Graph optional after submit as a self-check, not a solving tool.",
+      "student_controls": [
+        "strategy choice for A (factor | complete-the-square)",
+        "strategy choice for B (factor | complete-the-square)",
+        "optional reason fields (not auto-graded)",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "show": [
+        "equations A and B in standard form",
+        "no quadratic-formula button",
+        "no discriminant display"
+      ],
+      "fallback": "Paper: choose a strategy for each equation and write one reason."
+    }
+  },
+  "packets": [
+    {
+      "id": "packet-revisit",
+      "title": "Shared model: expand and complete the square",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "expand-cts-revisit"
+      ],
+      "unlocks_after": null,
+      "advance_to": "packet-diagram-algebraic"
+    },
+    {
+      "id": "packet-diagram-algebraic",
+      "title": "Diagram then algebra on one function",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": true,
+      "task_ids": [
+        "diagram-ex960",
+        "algebraic-ex960"
+      ],
+      "unlocks_after": "expand-cts-revisit",
+      "advance_to": "packet-guided-algebraic",
+      "within_packet": "Reveal algebraic-ex960 only after diagram-ex960 pass."
+    },
+    {
+      "id": "packet-guided-algebraic",
+      "title": "Guided algebraic completing the square",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "algebraic-try9119"
+      ],
+      "unlocks_after": "algebraic-ex960",
+      "advance_to": "packet-factor-a"
+    },
+    {
+      "id": "packet-factor-a",
+      "title": "Factor a before completing the square",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "factor-a-ex959"
+      ],
+      "unlocks_after": "algebraic-try9119",
+      "advance_to": "packet-rational"
+    },
+    {
+      "id": "packet-rational",
+      "title": "Simple rational b/a",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "rational-half"
+      ],
+      "unlocks_after": "factor-a-ex959",
+      "advance_to": "packet-verify"
+    },
+    {
+      "id": "packet-verify",
+      "title": "Verify equivalent graphs",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "verify-try9118"
+      ],
+      "unlocks_after": "rational-half",
+      "advance_to": "packet-sketch"
+    },
+    {
+      "id": "packet-sketch",
+      "title": "Sketch key features via completing the square",
+      "section": "action",
+      "visible_by_default": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "sketch-try9120"
+      ],
+      "unlocks_after": "verify-try9118",
+      "advance_to": "packet-consolidation",
+      "try_another_unlocks": "packet-strategy"
+    },
+    {
+      "id": "packet-strategy",
+      "title": "Choose completing the square or factoring",
+      "section": "action",
+      "visible_by_default": false,
+      "additional": true,
+      "progressive_within_packet": false,
+      "task_ids": [
+        "strategy-cts-vs-factor"
+      ],
+      "unlocks_after": "sketch-try9120 try_another",
+      "advance_to": "packet-consolidation"
+    },
+    {
+      "id": "packet-consolidation",
+      "title": "Fresh fountain-arc case",
+      "section": "consolidation",
+      "visible_by_default": false,
+      "hidden_until": "consolidation",
+      "progressive_within_packet": false,
+      "task_ids": [
+        "fresh-hook-cts"
+      ],
+      "unlocks_after": "sketch-try9120 default Advance, or strategy-cts-vs-factor if taken",
+      "advance_to": null
+    }
+  ],
+  "instructional_roles": [
+    "connects graph to equation",
+    "exposes a misconception",
+    "supports practice",
+    "tests transfer"
+  ],
+  "misconceptions_in_play": [
+    "cts-changes-graph",
+    "forget-factor-a",
+    "b-half-sign",
+    "rational-b-over-a",
+    "h-sign-after-cts",
+    "strategy-without-criteria"
+  ],
+  "tasks": [
+    {
+      "id": "expand-cts-revisit",
+      "spec_id": "expand-cts-revisit",
+      "process_id": "expand-cts-shared-model-revisit",
+      "packet_id": "packet-revisit",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "tool": "jsxgraph-cts-equivalence-board",
+      "instructional_roles": [
+        "connects graph to equation",
+        "exposes a misconception"
+      ],
+      "misconceptions_in_play": [
+        "cts-changes-graph"
+      ],
+      "student_action": "On the shared model, expand f(x) = 3(x − 1)^2 + 4 to standard form, then complete the square on that standard writing to recover vertex form. Submit both writings and confirm the overlay is one curve.",
+      "changing_quantities": [
+        "standard b, c from the expand",
+        "recovered h, k from CTS"
+      ],
+      "invariant": "3(x − 1)^2 + 4 and 3x^2 − 6x + 7 are the same parabola. Completing the square undoes the expand; the graph does not move.",
+      "intended_observation": "The Ministry A2.7 sample function can be written both ways. Completing the square is the inverse rewrite of Lesson 1’s expand, not a new curve. A2.7 is REVIEW only — do not new-teach expansion here.",
+      "prediction_prompt": "The board can show f(x) = 3(x − 1)^2 + 4. If you expand it and then complete the square on the expanded writing, will you get a different parabola or the same one? Write that down before you change the board.",
+      "action_prompt": "Expand f(x) = 3(x − 1)^2 + 4 into ax^2 + bx + c. Enter a, b, and c. Then start from that standard writing and complete the square. Enter a, h, and k. Submit both. Use the overlay to see whether the graphs coincide.",
+      "interpretation_prompt": "Do the two writings sit on top of each other? If someone claimed completing the square moved the fountain-shaped curve, what on this board would you show them?",
+      "initial_state": {
+        "vertex_equation": "f(x) = 3(x − 1)^2 + 4",
+        "parameters": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "standard_equation": null,
+        "abc_inputs": "empty",
+        "ahk_inputs": "empty or start at vertex parameters",
+        "overlay": "hidden-until-after-submit",
+        "live_standard_form": "hidden-until-after-submit",
+        "fresh_case_available": false,
+        "sliders_enabled": []
+      },
+      "student_controls": [
+        "inputs for expanded a, b, c",
+        "inputs for completed-square a, h, k",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-vertex",
+        "equation-standard",
+        "graph-overlay",
+        "table"
+      ],
+      "target": {
+        "abc": {
+          "a": 3,
+          "b": -6,
+          "c": 7
+        },
+        "ahk": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "vertex_equation": "f(x) = 3(x − 1)^2 + 4",
+        "standard_equation": "f(x) = 3x^2 − 6x + 7",
+        "same_graph": true,
+        "note": "Author-computed because the A2.7 seed has no key. Quote the seed sample function only; do not invent Ministry wording for the coefficients."
+      },
+      "valid_alternatives": [
+        {
+          "ahk_writing": "3(x − 1)^2 + 4",
+          "equivalent": "3(x + (−1))^2 + 4 is not required; (x − 1) is the given writing"
+        }
+      ],
+      "submission_evidence": {
+        "abc": [
+          "a",
+          "b",
+          "c"
+        ],
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "same_graph": "optional overlay compare after submit",
+        "prediction_same_or_different": "self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted abc to {3, -6, 7} and submitted ahk to {3, 1, 4}; optional overlay same-graph",
+        "tolerances": {
+          "a": 0,
+          "b": 0,
+          "c": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "new-teach expansion steps as if A2.7 were new",
+          "treat the live expansion line as the student answer",
+          "infer cts-changes-graph from a control value alone; describe whether the overlay coincided",
+          "invent a Ministry key for the A2.7 sample",
+          "auto-grade unrestricted interpretation",
+          "load or reveal fresh-hook-cts parameters"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear abc and ahk inputs; hide overlay; keep the shared vertex writing",
+        "try_another": "none; required next is diagram-ex960 via packet Advance",
+        "advance_unlocks": {
+          "when": "abc and ahk match targets",
+          "packet": "packet-diagram-algebraic",
+          "next_task_id": "diagram-ex960"
+        }
+      },
+      "reset": {
+        "parameters": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "clear_coefficient_inputs": true,
+        "hide_overlay": true
+      },
+      "bank_ref": "mcf3m-m4-ontario-a27-cts-revisit",
+      "next_task_id": "diagram-ex960"
+    },
+    {
+      "id": "diagram-ex960",
+      "spec_id": "diagram-ex960",
+      "process_id": "complete-square-diagram",
+      "packet_id": "packet-diagram-algebraic",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-diagram-algebraic unlocked",
+      "tool": "jsxgraph-cts-area-diagram",
+      "instructional_roles": [
+        "exposes a misconception"
+      ],
+      "misconceptions_in_play": [
+        "b-half-sign"
+      ],
+      "student_action": "Use algebra tiles or an area diagram for f(x) = x^2 + 6x + 5. Split the six x-tiles so a square can be completed. Name the side length of that square and the leftover constant before writing vertex-form algebra.",
+      "changing_quantities": [
+        "diagram side length",
+        "leftover constant"
+      ],
+      "invariant": "The completed square uses half of the x-coefficient as its side. The leftover is the original constant minus that side squared. No vertex-form equation is required on this task.",
+      "intended_observation": "Half of 6 is 3, so the square is 3 by 3. Leftover is 5 − 9 = −4. The picture is waiting for (x + 3)^2 − 4; that writing is the next task in this packet.",
+      "prediction_prompt": "Look at x^2 + 6x + 5. Do not complete the square yet. How would you split the six x-tiles so you can make a square? What leftover do you expect once that square is filled?",
+      "action_prompt": "On the diagram (or the static picture if the interactive is not built), complete the square for x^2 + 6x + 5. Enter the side length of the completed square and the leftover constant. Submit those two numbers before any vertex-form algebra.",
+      "interpretation_prompt": "What in the picture is the 3? What is the −4? Why is the leftover not the original +5?",
+      "initial_state": {
+        "equation": "f(x) = x^2 + 6x + 5",
+        "abc": {
+          "a": 1,
+          "b": 6,
+          "c": 5
+        },
+        "diagram": "six x-rectangles visible; square not completed",
+        "algebraic_ex960_visible": false,
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "diagram split / place (if implemented)",
+        "input side length",
+        "input leftover constant",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "diagram-area-or-tiles",
+        "equation-standard"
+      ],
+      "target": {
+        "side": 3,
+        "leftover": -4,
+        "note": "Half of 6 is 3; leftover 5 − 9 = −4. Bank mcf3m-m4-openstax-ia2e-ex960-diagram."
+      },
+      "valid_alternatives": [
+        {
+          "side": 3,
+          "leftover": -4,
+          "note": "3 by 3 square; leftover may be entered as 5 − 9"
+        }
+      ],
+      "submission_evidence": {
+        "side": "number",
+        "leftover": "number",
+        "prediction_text": "unrestricted; self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {side, leftover} to {3, -4}",
+        "tolerances": {
+          "side": 0,
+          "leftover": 0
+        },
+        "do_not": [
+          "require vertex-form a, h, k on this task",
+          "reveal algebraic-ex960 before a pass",
+          "infer b-half-sign from the leftover alone without naming the submitted side versus 3 and leftover versus −4",
+          "auto-grade the prediction sentence",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "reset the diagram to unsplit six x-tiles; clear side and leftover inputs",
+        "try_another": "none; required next is algebraic-ex960 inside this packet",
+        "advance_unlocks": {
+          "when": "side is 3 and leftover is -4",
+          "packet": "packet-diagram-algebraic",
+          "within_packet_next_task_id": "algebraic-ex960",
+          "packet_advance": false,
+          "note": "Unlocks the algebraic beat in this packet only. Packet Advance waits for algebraic-ex960."
+        },
+        "progressive_within_packet": "reveal algebraic-ex960 after pass"
+      },
+      "reset": {
+        "diagram": "unsplit",
+        "clear_side_leftover": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+      "next_task_id": "algebraic-ex960",
+      "open_call": "area-diagram implement versus static fallback — see tools.jsxgraph-cts-area-diagram and open_calls"
+    },
+    {
+      "id": "algebraic-ex960",
+      "spec_id": "algebraic-ex960",
+      "process_id": "complete-square-algebraic",
+      "packet_id": "packet-diagram-algebraic",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "diagram-ex960 pass",
+      "tool": "jsxgraph-cts-rewrite-board",
+      "instructional_roles": [
+        "connects graph to equation",
+        "supports practice"
+      ],
+      "misconceptions_in_play": [
+        "b-half-sign",
+        "h-sign-after-cts",
+        "cts-changes-graph"
+      ],
+      "student_action": "Rewrite f(x) = x^2 + 6x + 5 as (x − h)^2 + k by completing the square. Match each algebraic step to the completed-square picture from diagram-ex960.",
+      "changing_quantities": [
+        "h",
+        "k"
+      ],
+      "invariant": "a stays 1. Adding and subtracting 9 rewrites the same expression. The diagram side 3 is h with opposite sign in (x + 3); leftover −4 is k.",
+      "intended_observation": "Half of 6 is 3; 3^2 = 9; add and subtract 9; f(x) = (x + 3)^2 − 4, so a = 1, h = −3, k = −4. Plus inside the brackets is not a vertex at positive x.",
+      "prediction_prompt": "The diagram named side 3 and leftover −4. Before you write algebra, what vertex-form writing do you expect? Where will the vertex be?",
+      "action_prompt": "Complete the square for f(x) = x^2 + 6x + 5. Enter a, h, and k so the live writing matches (x + 3)^2 − 4. Submit. Do not copy a live vertex line until after you have tried.",
+      "interpretation_prompt": "How does (x + 3) match the side of the square? How does −4 match the leftover? If you plotted this writing on the original standard-form graph, would the curve move?",
+      "initial_state": {
+        "equation": "f(x) = x^2 + 6x + 5",
+        "abc": {
+          "a": 1,
+          "b": 6,
+          "c": 5
+        },
+        "diagram_summary_visible": true,
+        "diagram_summary": "side 3, leftover −4",
+        "ahk_inputs": "empty",
+        "live_vertex_form": "hidden-until-after-submit",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "diagram-area-or-tiles",
+        "equation-vertex"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 3)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": -3,
+          "k": -4
+        },
+        "vertex": {
+          "x": -3,
+          "y": -4
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "1(x − (−3))^2 + (−4)",
+          "ahk": {
+            "a": 1,
+            "h": -3,
+            "k": -4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction_text": "unrestricted; self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {1, -3, -4}",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "accept h = 3 as a match (that is (x − 3), not (x + 3))",
+          "treat a Match click as a pass",
+          "infer h-sign-after-cts from h = 3 without describing submitted (h, k) versus (−3, −4)",
+          "reveal live vertex form before submit",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear a, h, k; hide live vertex form; keep the diagram summary",
+        "try_another": "none; required next is algebraic-try9119 via packet Advance",
+        "advance_unlocks": {
+          "when": "ahk match {1, -3, -4}",
+          "packet": "packet-guided-algebraic",
+          "next_task_id": "algebraic-try9119"
+        }
+      },
+      "reset": {
+        "clear_ahk": true,
+        "hide_live_vertex_form": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+      "next_task_id": "algebraic-try9119"
+    },
+    {
+      "id": "algebraic-try9119",
+      "spec_id": "algebraic-try9119",
+      "process_id": "complete-square-algebraic",
+      "packet_id": "packet-guided-algebraic",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-guided-algebraic unlocked",
+      "tool": "jsxgraph-cts-rewrite-board",
+      "instructional_roles": [
+        "supports practice"
+      ],
+      "misconceptions_in_play": [
+        "b-half-sign",
+        "h-sign-after-cts"
+      ],
+      "student_action": "Rewrite f(x) = x^2 + 2x − 3 as (x − h)^2 + k by completing the square. This is a you-do after the 9.60 worked pair; do not copy those numbers.",
+      "changing_quantities": [
+        "h",
+        "k"
+      ],
+      "invariant": "a stays 1. Half of 2 is 1, not 3. The leftover uses −3 minus 1^2.",
+      "intended_observation": "Sign-of-b variation: half of 2 is 1; f(x) = (x + 1)^2 − 4, so a = 1, h = −1, k = −4. The 9.60 side 3 is not a template.",
+      "prediction_prompt": "Look at f(x) = x^2 + 2x − 3. Do not write the square yet. What is half of 2? What leftover do you expect? Will the vertex have a positive or negative x-coordinate?",
+      "action_prompt": "Complete the square for f(x) = x^2 + 2x − 3. Enter a, h, and k. Submit when your writing is vertex form. Do not reteach stretches or slides.",
+      "interpretation_prompt": "How is this rewrite like x^2 + 6x + 5, and what changed because b is 2 instead of 6? How do you read h from (x + 1)?",
+      "initial_state": {
+        "equation": "f(x) = x^2 + 2x − 3",
+        "abc": {
+          "a": 1,
+          "b": 2,
+          "c": -3
+        },
+        "ahk_inputs": "empty",
+        "live_vertex_form": "hidden-until-after-submit",
+        "ex960_numbers_must_not_autofill": true,
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 1)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": -1,
+          "k": -4
+        },
+        "vertex": {
+          "x": -1,
+          "y": -4
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "(x − (−1))^2 − 4",
+          "ahk": {
+            "a": 1,
+            "h": -1,
+            "k": -4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction_text": "unrestricted; self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {1, -1, -4}",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "accept the 9.60 target {1, -3, -4} as a pass on this task",
+          "accept h = 1 as a match",
+          "infer b-half-sign without describing submitted h versus −1 and k versus −4",
+          "auto-grade unrestricted algebra writing if numbers are not entered",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear a, h, k; hide live vertex form; keep x^2 + 2x − 3",
+        "try_another": "none; required next is factor-a-ex959 via packet Advance",
+        "advance_unlocks": {
+          "when": "ahk match {1, -1, -4}",
+          "packet": "packet-factor-a",
+          "next_task_id": "factor-a-ex959"
+        }
+      },
+      "reset": {
+        "clear_ahk": true,
+        "hide_live_vertex_form": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-try9119",
+      "next_task_id": "factor-a-ex959"
+    },
+    {
+      "id": "factor-a-ex959",
+      "spec_id": "factor-a-ex959",
+      "process_id": "complete-square-factor-a",
+      "packet_id": "packet-factor-a",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-factor-a unlocked",
+      "tool": "jsxgraph-cts-rewrite-board",
+      "instructional_roles": [
+        "exposes a misconception",
+        "supports practice"
+      ],
+      "misconceptions_in_play": [
+        "forget-factor-a",
+        "h-sign-after-cts"
+      ],
+      "student_action": "Rewrite f(x) = −3x^2 − 6x − 1 as a(x − h)^2 + k. Factor −3 from the x^2 and x terms first. Keep the constant −1 outside that factor. Do not complete the square as if a were 1.",
+      "changing_quantities": [
+        "factored a",
+        "h",
+        "k"
+      ],
+      "invariant": "a = −3 stays in front of the completed square. The constant −1 is not factored. Balancing (b/2)^2 is multiplied by a when it is added outside.",
+      "intended_observation": "Factor −3 from the x terms: −3(x^2 + 2x) − 1. Half of 2 is 1; the +1 inside is multiplied by −3 so add 3 outside; f(x) = −3(x + 1)^2 + 2. Forgetting to factor a breaks the inside of the square.",
+      "prediction_prompt": "Look at f(x) = −3x^2 − 6x − 1. Do not complete the square yet. What must you factor out before you take half of anything? Will a stay −3?",
+      "action_prompt": "Factor −3 from the x^2 and x terms, then complete the square. Enter a, h, and k. Submit when the writing is −3(x + 1)^2 + 2 or the matching parameters.",
+      "interpretation_prompt": "If someone completed the square on −3x^2 − 6x as if a were 1, what inside the brackets would go wrong? Why is k = 2, not −1?",
+      "initial_state": {
+        "equation": "f(x) = −3x^2 − 6x − 1",
+        "abc": {
+          "a": -3,
+          "b": -6,
+          "c": -1
+        },
+        "ahk_inputs": "empty",
+        "factor_prompt_visible": true,
+        "live_vertex_form": "hidden-until-after-submit",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "optional factored-inside field (x^2 + 2x)",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex"
+      ],
+      "target": {
+        "equation": "f(x) = −3(x + 1)^2 + 2",
+        "ahk": {
+          "a": -3,
+          "h": -1,
+          "k": 2
+        },
+        "vertex": {
+          "x": -1,
+          "y": 2
+        },
+        "factor_from_x_terms_only": -3
+      },
+      "valid_alternatives": [
+        {
+          "equation": "−3(x − (−1))^2 + 2",
+          "ahk": {
+            "a": -3,
+            "h": -1,
+            "k": 2
+          }
+        }
+      ],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction_text": "unrestricted; self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {-3, -1, 2}",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "accept a = 1 or a = 3 as a match",
+          "label forget-factor-a as a mental cause from a alone; describe submitted a versus −3 and the inside (x + 1) versus a one-sided factor",
+          "factor −3 from the constant −1 as a required student step",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear a, h, k; hide live vertex form; keep −3x^2 − 6x − 1",
+        "try_another": "none; required next is rational-half via packet Advance",
+        "advance_unlocks": {
+          "when": "ahk match {-3, -1, 2}",
+          "packet": "packet-rational",
+          "next_task_id": "rational-half"
+        }
+      },
+      "reset": {
+        "clear_ahk": true,
+        "hide_live_vertex_form": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-ex959",
+      "next_task_id": "rational-half"
+    },
+    {
+      "id": "rational-half",
+      "spec_id": "rational-half",
+      "process_id": "complete-square-rational-b-over-a",
+      "packet_id": "packet-rational",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-rational unlocked",
+      "tool": "jsxgraph-cts-rewrite-board",
+      "instructional_roles": [
+        "supports practice"
+      ],
+      "misconceptions_in_play": [
+        "rational-b-over-a",
+        "b-half-sign"
+      ],
+      "student_action": "Rewrite f(x) = x^2 + (1/2)x + 1 as (x − h)^2 + k by completing the square. Use the same steps as the integer-b cases; b/a is the simple rational 1/2. This is not Ministry wording.",
+      "changing_quantities": [
+        "h",
+        "k"
+      ],
+      "invariant": "Same CTS steps: half of b/a, square it, add and subtract. Fractions are not a different method.",
+      "intended_observation": "Half of 1/2 is 1/4; (1/4)^2 = 1/16; add and subtract 1/16; f(x) = (x + 1/4)^2 + 15/16. a = 1, h = −1/4, k = 15/16.",
+      "prediction_prompt": "Look at f(x) = x^2 + (1/2)x + 1. Do not invent an integer shortcut. What is half of 1/2? What will you add and subtract?",
+      "action_prompt": "Complete the square. Enter a, h, and k. Fractions are expected (h = −1/4, k = 15/16). Submit.",
+      "interpretation_prompt": "Which step was the same as x^2 + 2x − 3? Which numbers became fractions? If you expand (x + 1/4)^2 + 15/16, do you recover x^2 + (1/2)x + 1?",
+      "initial_state": {
+        "equation": "f(x) = x^2 + (1/2)x + 1",
+        "abc": {
+          "a": 1,
+          "b": 0.5,
+          "c": 1
+        },
+        "abc_exact": {
+          "a": 1,
+          "b": "1/2",
+          "c": 1
+        },
+        "ahk_inputs": "empty",
+        "live_vertex_form": "hidden-until-after-submit",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k (fraction strings allowed)",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 1/4)^2 + 15/16",
+        "ahk": {
+          "a": 1,
+          "h": -0.25,
+          "k": 0.9375
+        },
+        "ahk_exact": {
+          "a": 1,
+          "h": "-1/4",
+          "k": "15/16"
+        },
+        "vertex": {
+          "x": -0.25,
+          "y": 0.9375
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "(x − (−1/4))^2 + 15/16",
+          "ahk_exact": {
+            "a": 1,
+            "h": "-1/4",
+            "k": "15/16"
+          }
+        },
+        {
+          "note": "Equivalent decimals  h = −0.25, k = 0.9375  within tolerance"
+        }
+      ],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction_text": "unrestricted; self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {1, -1/4, 15/16} (exact fractions or decimals)",
+        "tolerances": {
+          "a": 0,
+          "h": 0.0001,
+          "k": 0.0001
+        },
+        "do_not": [
+          "treat this as a new method different from integer CTS",
+          "invent a Ministry A2.8 stem (seed examples array is empty; ½ is quoted from the A2.8 statement only)",
+          "infer rational-b-over-a from a blank without describing missing h or k",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear a, h, k; hide live vertex form; keep x^2 + (1/2)x + 1",
+        "try_another": "none; required next is verify-try9118 via packet Advance",
+        "advance_unlocks": {
+          "when": "ahk match {1, -1/4, 15/16}",
+          "packet": "packet-verify",
+          "next_task_id": "verify-try9118"
+        }
+      },
+      "reset": {
+        "clear_ahk": true,
+        "hide_live_vertex_form": true
+      },
+      "bank_ref": "mcf3m-m4-owned-cts-rational-half",
+      "next_task_id": "verify-try9118"
+    },
+    {
+      "id": "verify-try9118",
+      "spec_id": "verify-try9118",
+      "process_id": "verify-equivalence-tech",
+      "packet_id": "packet-verify",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-verify unlocked",
+      "tool": "jsxgraph-cts-equivalence-board",
+      "instructional_roles": [
+        "connects graph to equation"
+      ],
+      "misconceptions_in_play": [
+        "cts-changes-graph",
+        "forget-factor-a"
+      ],
+      "student_action": "Rewrite f(x) = 2x^2 − 8x + 3 as a(x − h)^2 + k by completing the square. Then use the board overlay to compare that vertex form with the original standard form. Completing the square is required; do not switch to a vertex formula.",
+      "changing_quantities": [
+        "h",
+        "k",
+        "overlay same-graph flag"
+      ],
+      "invariant": "a stays 2. Standard and vertex writings are equivalent representations of one curve when the rewrite is of that same function.",
+      "intended_observation": "2(x^2 − 4x) + 3 = 2(x^2 − 4x + 4) + 3 − 8 = 2(x − 2)^2 − 5. The overlay is one curve. Technology-compare language follows the A2.8 statement, not a new Ministry example.",
+      "prediction_prompt": "Look at f(x) = 2x^2 − 8x + 3. After you complete the square, will the graph of the vertex writing be a second parabola or the same one?",
+      "action_prompt": "Factor 2 from the x terms, complete the square, and enter a, h, and k. Submit. Then look at the overlay: do the two writings coincide?",
+      "interpretation_prompt": "Name one table point that sits on both writings. If the overlay showed two curves, what would that mean about the rewrite?",
+      "initial_state": {
+        "standard_equation": "f(x) = 2x^2 − 8x + 3",
+        "abc": {
+          "a": 2,
+          "b": -8,
+          "c": 3
+        },
+        "ahk_inputs": "empty",
+        "overlay": "hidden-until-after-submit",
+        "live_vertex_form": "hidden-until-after-submit",
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "optional overlay confirm (same-graph)",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex",
+        "graph-overlay",
+        "table"
+      ],
+      "target": {
+        "equation": "f(x) = 2(x − 2)^2 − 5",
+        "ahk": {
+          "a": 2,
+          "h": 2,
+          "k": -5
+        },
+        "abc": {
+          "a": 2,
+          "b": -8,
+          "c": 3
+        },
+        "same_graph": true,
+        "vertex": {
+          "x": 2,
+          "y": -5
+        }
+      },
+      "valid_alternatives": [],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "same_graph": "overlay coincide after submit",
+        "prediction_same_or_different": "self-check",
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {2, 2, -5}; overlay same-graph",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "switch the student to a vertex formula (A1.6 parked)",
+          "treat this item as the forget-factor-a fracture slot (that slot is factor-a-ex959)",
+          "treat the live board expansion as the student answer",
+          "infer cts-changes-graph without saying whether the overlay coincided",
+          "load fresh-hook-cts"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear a, h, k; hide overlay and live vertex form; keep 2x^2 − 8x + 3",
+        "try_another": "none; required next is sketch-try9120 via packet Advance",
+        "advance_unlocks": {
+          "when": "ahk match {2, 2, -5}",
+          "packet": "packet-sketch",
+          "next_task_id": "sketch-try9120"
+        }
+      },
+      "reset": {
+        "clear_ahk": true,
+        "hide_overlay": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-try9118-verify",
+      "next_task_id": "sketch-try9120"
+    },
+    {
+      "id": "sketch-try9120",
+      "spec_id": "sketch-try9120",
+      "process_id": "sketch-from-standard-via-cts",
+      "packet_id": "packet-sketch",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "hidden_until": "packet-sketch unlocked",
+      "tool": "jsxgraph-cts-sketch-board",
+      "instructional_roles": [
+        "supports practice",
+        "connects graph to equation"
+      ],
+      "misconceptions_in_play": [
+        "h-sign-after-cts",
+        "cts-changes-graph"
+      ],
+      "student_action": "The equation is given in standard form: f(x) = x^2 − 8x + 12. Complete the square. From the vertex form, name the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum. Sketch those key features only. Do not list intervals where the function is positive, negative, increasing, or decreasing.",
+      "changing_quantities": [
+        "h",
+        "k",
+        "vertex marker",
+        "axis",
+        "max-or-min"
+      ],
+      "invariant": "A2.11 light: vertex, axis, max/min, sketch from CTS. Full interval inventory is parked. a > 0 means a minimum.",
+      "intended_observation": "Half of −8 is −4; (−4)^2 = 16; f(x) = (x − 4)^2 − 4. Vertex (4, −4). Axis x = 4. Minimum. Sketch those features only.",
+      "prediction_prompt": "Look at f(x) = x^2 − 8x + 12. Before you complete the square, do you expect a maximum or a minimum? Why, from the standard-form a?",
+      "action_prompt": "Complete the square. Enter a, h, and k. Name the vertex as a point, the axis as x = …, and maximum or minimum. Place those features on the sketch board and submit.",
+      "interpretation_prompt": "How did you read the low point from (x − 4)^2 − 4? What would change in the sketch if someone used h = −4?",
+      "initial_state": {
+        "equation": "f(x) = x^2 − 8x + 12",
+        "abc": {
+          "a": 1,
+          "b": -8,
+          "c": 12
+        },
+        "ahk_inputs": "empty",
+        "vertex_axis_maxmin_inputs": "empty",
+        "features_visible": false,
+        "fresh_case_available": false,
+        "strategy_packet_available": false
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "vertex point",
+        "axis equation",
+        "max-or-min choice",
+        "submit",
+        "retry",
+        "reset-start",
+        "try another"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex",
+        "graph",
+        "vertex-marker",
+        "axis"
+      ],
+      "target": {
+        "equation": "f(x) = (x − 4)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": 4,
+          "k": -4
+        },
+        "vertex": {
+          "x": 4,
+          "y": -4
+        },
+        "axis": "x = 4",
+        "max_or_min": "minimum"
+      },
+      "valid_alternatives": [],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction": [
+          "vertex",
+          "axis",
+          "max_or_min"
+        ],
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {1, 4, -4}; vertex (4, -4); axis x = 4; minimum",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "vertex_x": 0,
+          "vertex_y": 0
+        },
+        "do_not": [
+          "require sign or monotonicity intervals (A2.11 full list is parked)",
+          "reteach transformations of y = x^2 (A2.5 / A2.6 parked)",
+          "print the vertex, axis, or max/min in student-facing copy before submit",
+          "infer h-sign-after-cts from h = −4 without describing submitted vertex versus (4, −4)",
+          "unlock packet-strategy without Try another",
+          "load fresh-hook-cts on Action"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear ahk and feature fields; keep x^2 − 8x + 12",
+        "try_another": "unlocks packet-strategy / strategy-cts-vs-factor (additional, not default)",
+        "advance_unlocks": {
+          "when": "ahk, vertex, axis, and minimum match",
+          "packet_default": "packet-consolidation",
+          "next_task_id_default": "fresh-hook-cts",
+          "try_another_packet": "packet-strategy",
+          "try_another_task_id": "strategy-cts-vs-factor",
+          "note": "Default Advance goes to Consolidation. Try another is the only unlock for the strategy packet."
+        },
+        "try_another_unlocks_strategy": true
+      },
+      "reset": {
+        "clear_ahk": true,
+        "clear_features": true
+      },
+      "bank_ref": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+      "next_task_id": "fresh-hook-cts",
+      "next_task_id_if_try_another": "strategy-cts-vs-factor"
+    },
+    {
+      "id": "strategy-cts-vs-factor",
+      "spec_id": "strategy-cts-vs-factor",
+      "process_id": "strategy-choose-cts-vs-factor",
+      "packet_id": "packet-strategy",
+      "section": "action",
+      "visible_on": [
+        "action"
+      ],
+      "visible_by_default": false,
+      "additional": true,
+      "hidden_until": "sketch-try9120 try_another",
+      "tool": "jsxgraph-cts-strategy-chooser",
+      "instructional_roles": [
+        "tests transfer",
+        "exposes a misconception"
+      ],
+      "misconceptions_in_play": [
+        "strategy-without-criteria"
+      ],
+      "student_action": "Two standard-form equations. Choose a suitable sketch strategy for each — completing the square to find the vertex, or factoring to locate the x-intercepts — and give one reason. Do not finish a full sketch. Do not use a formula.",
+      "changing_quantities": [
+        "strategy choice A",
+        "strategy choice B"
+      ],
+      "invariant": "Criteria, not a random pick. Factoring is suitable when intercepts are friendly. Completing the square is suitable when the vertex is the needed feature or the quadratic does not factor over the reals. The quadratic formula is parked (A1.6).",
+      "intended_observation": "A) x^2 − 5x + 6 factors as (x − 2)(x − 3); intercepts 2 and 3 are friendly. B) x^2 + 4x + 7 = (x + 2)^2 + 3 does not factor over the reals; complete the square for the vertex (−2, 3). Discriminant talk is teacher-only, not a student lesson.",
+      "prediction_prompt": "Read A) f(x) = x^2 − 5x + 6 and B) g(x) = x^2 + 4x + 7. Before you choose, what feature would you want from each if you were only sketching key points?",
+      "action_prompt": "For A and for B, choose factor or complete-the-square and give one reason. Do not apply the quadratic formula. Submit the two choices.",
+      "interpretation_prompt": "What criterion did you use? When would you wait for a formula instead of forcing factoring or completing the square? (Waiting is allowed; teaching the formula is not.)",
+      "initial_state": {
+        "A": "f(x) = x^2 − 5x + 6",
+        "B": "g(x) = x^2 + 4x + 7",
+        "choices": "empty",
+        "formula_control": false,
+        "discriminant_display": false,
+        "fresh_case_available": false
+      },
+      "student_controls": [
+        "strategy choice A (factor | complete-the-square)",
+        "strategy choice B (factor | complete-the-square)",
+        "optional reason fields",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "verbal-criteria"
+      ],
+      "target": {
+        "A": "factor",
+        "A_reason_teacher": "x^2 − 5x + 6 = (x − 2)(x − 3); intercepts 2 and 3 are friendly",
+        "B": "complete-the-square",
+        "B_reason_teacher": "g(x) = (x + 2)^2 + 3; no real intercepts; vertex (−2, 3) after CTS"
+      },
+      "valid_alternatives": [
+        {
+          "A": "factor",
+          "B": "complete-the-square",
+          "note": "Wording of the choice labels may be 'factoring' / 'completing the square'"
+        }
+      ],
+      "submission_evidence": {
+        "A": "factor | complete-the-square",
+        "B": "factor | complete-the-square",
+        "reasons": "unrestricted; self-check"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted A is factor and submitted B is complete-the-square",
+        "tolerances": {},
+        "do_not": [
+          "auto-grade the reason sentences",
+          "teach or apply the quadratic formula",
+          "show a discriminant",
+          "require a full sketch on this task",
+          "infer strategy-without-criteria from one wrong pick without naming the two submitted choices versus factor / complete-the-square",
+          "load fresh-hook-cts on Action"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear both choices and reasons; keep A and B",
+        "try_another": "none required",
+        "advance_unlocks": {
+          "when": "A is factor and B is complete-the-square",
+          "packet": "packet-consolidation",
+          "next_task_id": "fresh-hook-cts"
+        }
+      },
+      "reset": {
+        "clear_choices": true
+      },
+      "bank_ref": "mcf3m-m4-owned-strategy-cts-vs-factor",
+      "next_task_id": "fresh-hook-cts"
+    },
+    {
+      "id": "fresh-hook-cts",
+      "spec_id": "fresh-hook-cts",
+      "process_id": "sketch-from-standard-via-cts",
+      "packet_id": "packet-consolidation",
+      "section": "consolidation",
+      "visible_on": [
+        "consolidation"
+      ],
+      "hidden_until": "consolidation",
+      "tool": "jsxgraph-cts-sketch-board",
+      "instructional_roles": [
+        "tests transfer",
+        "connects graph to equation"
+      ],
+      "misconceptions_in_play": [
+        "cts-changes-graph",
+        "h-sign-after-cts",
+        "forget-factor-a"
+      ],
+      "student_action": "Return to the fountain-arc situation with a new standard-form equation. Predict, complete the square, name vertex, axis, and maximum or minimum, then set the board to that writing and submit. Do not see this graph during Action.",
+      "changing_quantities": [
+        "a",
+        "h",
+        "k"
+      ],
+      "invariant": "Completing the square does not move the fountain-shaped curve. Vertex (h, k), axis x = h, maximum when a is negative. a = −1 must be factored from the x terms.",
+      "intended_observation": "y = −x^2 + 6x − 5 = −(x − 3)^2 + 4. Vertex (3, 4). Axis x = 3. Maximum. Same class of high point as the fountain stream, now read after a rewrite from standard form.",
+      "prediction_prompt": "Here is a new equation, y = −x^2 + 6x − 5, for a path like the fountain stream. Do not move the board yet. Will completing the square change the path? Do you expect a maximum or a minimum?",
+      "action_prompt": "Complete the square. Enter a, h, and k. Name the vertex, the axis, and maximum or minimum. Set the graph to match that writing and submit.",
+      "interpretation_prompt": "How did you read the high point from the completed-square writing? If you expanded it again, would the fountain-shaped curve move?",
+      "initial_state": {
+        "parameters": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "target_shown_as_text": "y = −x^2 + 6x − 5",
+        "ahk_inputs": "empty",
+        "fresh_case_available": true,
+        "action_tab_must_not_load_this": true,
+        "hook_figure": "media/fountain-arc-500.jpg"
+      },
+      "student_controls": [
+        "inputs for a, h, k",
+        "optional prediction fields for vertex, axis, max-or-min",
+        "submit",
+        "retry",
+        "reset-start"
+      ],
+      "representations": [
+        "equation-standard",
+        "equation-vertex",
+        "graph",
+        "vertex-marker",
+        "axis",
+        "hook-figure"
+      ],
+      "target": {
+        "standard_equation": "y = −x^2 + 6x − 5",
+        "equation": "y = −(x − 3)^2 + 4",
+        "ahk": {
+          "a": -1,
+          "h": 3,
+          "k": 4
+        },
+        "abc": {
+          "a": -1,
+          "b": 6,
+          "c": -5
+        },
+        "vertex": {
+          "x": 3,
+          "y": 4
+        },
+        "axis": "x = 3",
+        "max_or_min": "maximum"
+      },
+      "valid_alternatives": [
+        {
+          "equation": "−1(x − 3)^2 + 4",
+          "ahk": {
+            "a": -1,
+            "h": 3,
+            "k": 4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "ahk": [
+          "a",
+          "h",
+          "k"
+        ],
+        "prediction": [
+          "vertex",
+          "axis",
+          "max_or_min"
+        ],
+        "unrestricted_explanation": "not auto-graded"
+      },
+      "checking_handoff": {
+        "method": "deterministic-math",
+        "compare": "submitted {a,h,k} to {-1, 3, 4}; optional prediction fields against vertex (3, 4), axis x = 3, maximum",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0
+        },
+        "do_not": [
+          "print the vertex, axis, or max/min in student-facing copy before submit",
+          "expose this target graph or a Fresh-case button on Action",
+          "auto-grade unrestricted interpretation",
+          "require the full A2.11 interval list",
+          "attach A3.3 fountain-design or landing-distance work"
+        ]
+      },
+      "cycle_ui": {
+        "require_prediction_before_manipulate": true,
+        "require_submit": true,
+        "retry": "clear ahk and feature fields; keep y = −x^2 + 6x − 5; do not return to Action parameters as the target",
+        "try_another": "none required; retrieval complete",
+        "advance_unlocks": {
+          "when": "ahk match {-1, 3, 4} and max-or-min is maximum",
+          "packet": null,
+          "next_task_id": null,
+          "note": "End of packetized cycle. No further Advance."
+        }
+      },
+      "reset": {
+        "parameters": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "clear_ahk": true,
+        "keep_standard_text": "y = −x^2 + 6x − 5"
+      },
+      "bank_ref": null,
+      "bank_ref_note": "Consolidation fresh case is specified here; it is not an approved bank item. Hook figure is media/fountain-arc-500.jpg. Algebra is author-computed: −(x^2 − 6x) − 5 = −(x^2 − 6x + 9) − 5 + 9 = −(x − 3)^2 + 4.",
+      "next_task_id": null
+    }
+  ],
+  "open_calls": [
+    {
+      "id": "wonder-advance-chrome",
+      "title": "Wonder advance chrome",
+      "status": "open",
+      "owner": "visual-experience-designer / lesson-engineer after this spec",
+      "decision_needed": "Whether packet Advance after a passing check uses a dedicated Wonder-style advance control, or the existing lean cycle Advance / Try another chrome already named in cycle_ui.advance_unlocks.",
+      "constraint": "Lean chrome. Do not add a packet picker, explore-all, or Fresh-case on Action. This spec unlocks Advance; it does not implement Wonder chrome."
+    },
+    {
+      "id": "area-diagram-implement-vs-static",
+      "title": "Area-diagram implement versus static fallback",
+      "status": "open",
+      "owner": "lesson-engineer after instruction is authored",
+      "decision_needed": "Build jsxgraph-cts-area-diagram as an interactive tile/area board (split six x-tiles, complete the square, leftover visible) versus ship a static completed-square figure plus numeric inputs for side and leftover on diagram-ex960.",
+      "constraint": "Either path must run predict–submit–check with target {side: 3, leftover: -4}. Paper tiles remain the no-JS fallback. Do not block the packet on an unimplemented interactive."
+    }
+  ],
+  "fallback": "Paper or static diagrams, no login and no remote tool. Shared model: expand 3(x − 1)^2 + 4 and complete the square back; check a few table points on one sketch. Diagram: for x^2 + 6x + 5, name side 3 and leftover −4, then write (x + 3)^2 − 4. You-do: x^2 + 2x − 3 → (x + 1)^2 − 4. Factor a: −3x^2 − 6x − 1 → −3(x + 1)^2 + 2. Rational: x^2 + (1/2)x + 1 → (x + 1/4)^2 + 15/16. Verify: 2x^2 − 8x + 3 and 2(x − 2)^2 − 5 share table points. Sketch: x^2 − 8x + 12 → vertex (4, −4), axis x = 4, minimum. Optional: A factor x^2 − 5x + 6; B complete the square x^2 + 4x + 7. Fresh case later: y = −x^2 + 6x − 5 — complete the square, name vertex (3, 4), axis x = 3, maximum, then sketch.",
+  "fallback_student": "On paper, start with f(x) = 3(x − 1)^2 + 4. Expand it, then complete the square on the expanded writing. Check that a few table points still sit on the same sketch. For x^2 + 6x + 5, split the six x-tiles, name the side of the completed square and the leftover, then write vertex form. On your own, complete the square for x^2 + 2x − 3. Then factor −3 from the x terms of −3x^2 − 6x − 1 before you complete the square. Use the same steps for x^2 + (1/2)x + 1. For 2x^2 − 8x + 3, complete the square and check that both writings give the same outputs. For x^2 − 8x + 12, complete the square, name the vertex, the axis, and whether this is a maximum or a minimum, then sketch those features. If you try another: for x^2 − 5x + 6 and x^2 + 4x + 7, choose factoring or completing the square and say why. Later, a new equation: y = −x^2 + 6x − 5. Complete the square, name the high point, the axis, and whether this is a maximum or a minimum, then sketch.",
+  "licence_notes": "Required boards use locally bundled JSXGraph (MIT) under content-builder/components/jsxgraph/ (see LICENSE.MIT). Do not require GeoGebra or the Desmos calculator API. Do not use Gizmos. Hook image is the bundled file media/fountain-arc-500.jpg (Wikimedia Commons File:ParabolicWaterTrajectory.jpg, CC BY-SA 3.0; see M4-L1 hook-proposals.json). Bank items: mcf3m-m4-ontario-a27-cts-revisit (Queen's Printer seed sample function; CTS flip LLOVES-owned; seed has no key — coefficients author-computed). OpenStax Intermediate Algebra 2e §9.7 Example 9.59, Example 9.60, Try It 9.118, Try It 9.119, Try It 9.120 — CC BY-NC-SA 4.0 (Lynn Marecek, Andrea Honeycutt Mathis). Owned items mcf3m-m4-owned-cts-rational-half and mcf3m-m4-owned-strategy-cts-vs-factor — LLOVES School. Do not print Nelson Functions 11 stems. Consolidation fresh-hook-cts algebra is author-computed, not a bank key.",
+  "reason": "The brief needs a packetized completing-the-square cycle: shared-model expand↔CTS revisit (A2.7 REVIEW), diagram then algebra on one a = 1 function, a varied you-do, factor-a fracture, rational b/a, technology verify, A2.11-light sketch, optional CTS-vs-factor strategy, and a consolidation fresh case that returns to the fountain hook from standard form. Bundled JSXGraph can run that cycle locally with Ontario names a, h, k and a, b, c. Progressive-reveal keeps one packet visible so the worked diagram is not skipped. Fresh-case parameters stay off Action so consolidation remains transfer. Checking is deterministic-math handoff to formative-feedback-designer on the shared task ids.",
+  "untested": [
+    "Submit / check / retry / Advance cycle is specified, not implemented in a current CTS board script.",
+    "jsxgraph-cts-equivalence-board, jsxgraph-cts-rewrite-board, jsxgraph-cts-sketch-board, and jsxgraph-cts-strategy-chooser are specified, not built.",
+    "jsxgraph-cts-area-diagram implement versus static fallback is an open call — not chosen and not built.",
+    "Wonder advance chrome is an open call — advance_unlocks is named; Wonder control is not specified as required.",
+    "Action must not expose fresh-hook-cts; no compiled L2 HTML exists to re-test.",
+    "Fountain JPEG is already bundled at media/fountain-arc-500.jpg for L1; Wikimedia hotlink is not required and was not re-fetched.",
+    "Shared-model coefficients {a: 3, b: −6, c: 7} and {a: 3, h: 1, k: 4} are author-computed because the A2.7 seed has no key.",
+    "fresh-hook-cts rewrite −(x − 3)^2 + 4 is author-computed; not an approved bank item.",
+    "OpenStax Try It keys were not copied from the book Answer Key; bank answer_verification is author-computed.",
+    "This spec does not re-test GeoGebra signed-out access; unused because GeoGebra is not required.",
+    "FAME Mistakes: no signposted incorrect worked example in the approved bank — formative-feedback-designer must not invent one here.",
+    "Packet Advance progressive-reveal and within-packet reveal of algebraic-ex960 are specified, not implemented."
+  ],
+  "source_integrity": {
+    "do_not_invent": [
+      "Ministry expectation wording beyond lms/seeds/mcf3m_expectations.json",
+      "A2.8 or A2.11 example stems (seed examples arrays are empty)",
+      "Nelson student-facing stems",
+      "OpenStax Try It Answer Key values (not copied)"
+    ],
+    "author_computed": [
+      "expand/CTS pair on 3(x − 1)^2 + 4",
+      "Try It 9.118, 9.119, 9.120 rewrites in the approved bank",
+      "owned rational-half and strategy items",
+      "fresh-hook-cts y = −x^2 + 6x − 5 → −(x − 3)^2 + 4"
+    ]
+  }
+}
