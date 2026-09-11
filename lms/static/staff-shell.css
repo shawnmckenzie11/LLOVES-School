@@ -1524,6 +1524,61 @@ body.staff-shell .live-option-card-body {
   align-items: center;
   gap: 0.55rem 0.85rem;
 }
+body.staff-shell .live-teams-strip {
+  position: relative;
+  flex-wrap: nowrap;
+  gap: 0.4rem 0.65rem;
+  min-height: 0;
+}
+body.staff-shell .live-teams-strip .live-teams-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  max-width: none;
+  flex: 0 0 auto;
+}
+body.staff-shell .live-teams-strip .live-teams-count button,
+body.staff-shell .live-teams-strip .live-teams-count input {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  border: 1px solid var(--live-border);
+  border-radius: 6px;
+  background: #fff;
+}
+body.staff-shell .live-teams-strip .live-teams-count input {
+  width: 2.1rem;
+  min-width: 2.1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+body.staff-shell .live-teams-assign,
+body.staff-shell .live-teams-track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+body.staff-shell .live-teams-assign[aria-disabled="true"],
+body.staff-shell #ap-teams-rename[hidden] {
+  pointer-events: none;
+}
+body.staff-shell .live-teams-assign[aria-disabled="true"] {
+  opacity: 0.45;
+}
+body.staff-shell .live-teams-strip .live-round-pick {
+  white-space: nowrap;
+}
+body.staff-shell .live-teams-track .live-unlock-toggle {
+  white-space: nowrap;
+}
 body.staff-shell .live-option-card-body[hidden] {
   display: none !important;
 }
@@ -1673,15 +1728,43 @@ body.staff-shell #class-list-pane {
   min-height: 100%;
   height: 100%;
 }
-body.staff-shell .live-options-strip #team-assign-pane,
 body.staff-shell .live-options-strip #round-slide-settings {
   width: auto;
   max-width: 100%;
   min-width: 0;
   flex: 1 1 auto;
 }
+body.staff-shell .live-options-strip #team-assign-pane {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0.45rem;
+  left: auto;
+  z-index: 6;
+  width: min(22rem, calc(100% - 0.9rem));
+  max-width: 22rem;
+  max-height: 16rem;
+  overflow: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  background: #fff;
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
 body.staff-shell #team-assign-pane[hidden] {
   display: none !important;
+}
+body.staff-shell .live-teams-pop[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-teams-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name {
+  color: var(--team, inherit);
 }
 body.staff-shell #meet-option-card[hidden],
 body.staff-shell #play-option-card[hidden] {
