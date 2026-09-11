@@ -2,7 +2,7 @@
   "schema_version": "module-bank.v1",
   "course_code": "MCF3M",
   "module": 4,
-  "title": "MCF3M Module 4 \u2014 quadratic vertex form (seed bank from M4-L1)",
+  "title": "MCF3M Module 4 \u2014 quadratic vertex form (L1) and completing the square (L2)",
   "process_slots": [
     {
       "id": "compare-two-equivalent-models",
@@ -28,6 +28,46 @@
       "id": "three-form-contrast",
       "name": "Describe what can be read from vertex form compared with standard form and factored form, without producing those other writings",
       "min_approved_items": 2
+    },
+    {
+      "id": "complete-square-diagram",
+      "name": "Complete the square with algebra tiles or an area diagram (a = 1, integer b) so the completed square and leftover constant are visible before algebra",
+      "min_approved_items": 1
+    },
+    {
+      "id": "complete-square-algebraic",
+      "name": "Algebraically complete the square for f(x) = x^2 + bx + c (a = 1) to produce (x \u2212 h)^2 + k",
+      "min_approved_items": 2
+    },
+    {
+      "id": "complete-square-factor-a",
+      "name": "When a \u2260 1, factor a from the x^2 and x terms before completing the square, then finish to a(x \u2212 h)^2 + k",
+      "min_approved_items": 1
+    },
+    {
+      "id": "complete-square-rational-b-over-a",
+      "name": "Complete the square when b/a is a simple rational (Ministry e.g. \u00bd, 0.75), as variation after integer cases",
+      "min_approved_items": 1
+    },
+    {
+      "id": "verify-equivalence-tech",
+      "name": "After producing vertex form, verify with graphing technology that standard and vertex writings are equivalent representations",
+      "min_approved_items": 1
+    },
+    {
+      "id": "sketch-from-standard-via-cts",
+      "name": "From standard form, complete the square to obtain vertex, axis, and max/min, then sketch those key features only (A2.11 light)",
+      "min_approved_items": 1
+    },
+    {
+      "id": "strategy-choose-cts-vs-factor",
+      "name": "Choose a suitable sketch strategy \u2014 completing the square for the vertex, or factoring when intercepts are friendly \u2014 with criteria (light; no formula)",
+      "min_approved_items": 1
+    },
+    {
+      "id": "expand-cts-shared-model-revisit",
+      "name": "On one shared quadratic, reverse Lesson 1 expand (vertex\u2192standard) with completing the square (standard\u2192vertex) and confirm both directions leave the graph unchanged (A2.7 review only)",
+      "min_approved_items": 1
     }
   ],
   "items": [
@@ -43,10 +83,20 @@
     "mcf3m-m4-nelson-st-p204-q3",
     "mcf3m-m4-openstax-m51274-ex53",
     "mcf3m-m4-mathnet-0gz2",
-    "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
+    "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+    "mcf3m-m4-openstax-ia2e-ex960-diagram",
+    "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+    "mcf3m-m4-openstax-ia2e-try9119",
+    "mcf3m-m4-openstax-ia2e-ex959",
+    "mcf3m-m4-owned-cts-rational-half",
+    "mcf3m-m4-openstax-ia2e-try9118-verify",
+    "mcf3m-m4-openstax-ia2e-try9120-sketch",
+    "mcf3m-m4-owned-strategy-cts-vs-factor",
+    "mcf3m-m4-ontario-a27-cts-revisit",
+    "mcf3m-m4-nelson-c3-32-pr-q4"
   ],
   "nelson_density_oracle": {
-    "reference": "Nelson Functions 11 \u00a74.1 / local Getting Started + Chapter Self-Test bank labels",
-    "notes": "Oracle only for M4 vertex-form density: plus-inside h-sign diagnostic, mixed vertex/axis labelling (skip standard-form complete-the-square parts for L1), and three-form \u201cwhich writing for which information\u201d transfer. Three local bank ids are recorded as excluded items with stem_student null. Do not paste commercial stems into student HTML. Licensed OpenStax/Ontario/GeoGebra analogues carry the student-facing load."
+    "reference": "Nelson Functions 11 \u00a74.1 / local Getting Started + Chapter Self-Test (L1 vertex) and \u00a73.2 / local NEL-C3-32-* labels (L2 completing the square)",
+    "notes": "L1 oracle (unchanged): plus-inside h-sign diagnostic, mixed vertex/axis labelling, and three-form \u201cwhich writing for which information\u201d transfer. Three L1 local bank ids remain excluded with stem_student null. L2 CTS oracle: local bank maps Nelson Functions 11 \u00a73.2 (Check Your Understanding then Practising) as the completing-the-square / max-min chapter for A2.8\u2013A2.11. Recorded density \u2014 without pasting stems \u2014 is a mix of algebraic rewrite (a = 1 and a \u2260 1), graphing-calculator max/min, and later application / revenue items that this lesson parks (A3.3 / formula). OCR on those local rows is unverified and equations are often unreadable; use section shape only. One \u00a73.2 Practising id is recorded as an excluded item. Do not paste commercial stems into student HTML. Licensed OpenStax Intermediate Algebra 2e \u00a79.7 / College Algebra 2e, Ontario seed, and LLOVES-owned parametric items carry the L2 student-facing load."
   }
 }

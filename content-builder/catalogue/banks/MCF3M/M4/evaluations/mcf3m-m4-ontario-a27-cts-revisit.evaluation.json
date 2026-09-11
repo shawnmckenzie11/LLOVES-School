@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-ontario-a27-cts-revisit",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "analyze",
+  "bloom_secondary": "apply",
+  "process_tags": [
+    "expand-cts-shared-model-revisit"
+  ],
+  "placement_hint": "guided_practice",
+  "fame_checks": {
+    "suitable_as_worked": true,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "If expanding and completing the square are inverse rewrites of one curve, what would a different graph after CTS tell you?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "A2.7 REVIEW only on the Ministry sample function; A2.8 is the new CTS direction. Place in the L1 revisit beat, not as new-teach expand. Restricted Queen's Printer excerpt + owned flip; same permitted pattern as mcf3m-m4-ontario-a27-sample. Expand coefficients author-computed (seed has no key)."
+}

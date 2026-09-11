@@ -1,0 +1,30 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-ontario-a27-cts-revisit",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "expand-cts-shared-model-revisit"
+  ],
+  "expectation_codes": [
+    "A2.7",
+    "A2.8"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "A2.7 sample flipped: expand then complete the square on 3(x − 1)^2 + 4",
+  "stem_student": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation. Then start from the standard-form writing you produced and complete the square to recover vertex form. Confirm both rewrites leave the graph unchanged.",
+  "stem_teacher": "First two sentences are the verbatim A2.7 seed sample (lms/seeds/mcf3m_expectations.json). The CTS flip is LLOVES-owned review on that same Ministry function — A2.7 REVIEW only; do not new-teach expansion. Companion L1 item mcf3m-m4-ontario-a27-sample is expand-only.",
+  "answer": "Standard form 3x^2 − 6x + 7. Completing the square recovers 3(x − 1)^2 + 4. The graphs coincide.",
+  "answer_verification": "Seed has no key for the A2.7 sample. Author-computed expand: 3(x − 1)^2 + 4 = 3(x^2 − 2x + 1) + 4 = 3x^2 − 6x + 7. Author-computed CTS: 3(x^2 − 2x) + 7 = 3(x^2 − 2x + 1) + 7 − 3 = 3(x − 1)^2 + 4.",
+  "checker_ref": null,
+  "source": "ontario-seed",
+  "source_id": "ontario-seed-mcf3m-A2.7-sample-cts-revisit",
+  "source_url": null,
+  "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed); CTS flip LLOVES-owned",
+  "attribution": "lms/seeds/mcf3m_expectations.json A2.7 example; CTS direction LLOVES School M4-L2",
+  "permitted_use_status": "restricted",
+  "student_html_allowed": true,
+  "review_status": "approved",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Shared-model revisit beat. Ministry wording copied only for the A2.7 sample; coefficients of the expand/CTS pair are author-computed because the seed has no key. Shawn selected→approved gate 2026-09-11 (PR #60)."
+}

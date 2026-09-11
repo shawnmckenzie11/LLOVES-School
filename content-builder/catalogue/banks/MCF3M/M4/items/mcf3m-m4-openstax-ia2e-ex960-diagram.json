@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "complete-square-diagram"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "worked_example",
+  "title": "OpenStax IA 2e Ex. 9.60: tiles/area for x^2 + 6x + 5",
+  "stem_student": "Use algebra tiles or an area diagram for f(x) = x^2 + 6x + 5. Split the six x-tiles so you can complete a square. Name the side length of that square and the leftover constant before you write any algebra.",
+  "stem_teacher": "Diagram-only beat on the licensed OpenStax Intermediate Algebra 2e §9.7 Example 9.60 function. Companion algebraic rewrite is mcf3m-m4-openstax-ia2e-ex960-algebraic. Do not reteach transformations (A2.5/A2.6).",
+  "answer": "Half of 6 is 3, so the completed square is 3 by 3. Leftover constant is 5 − 9 = −4. The picture is (x + 3)^2 − 4.",
+  "answer_verification": "Copied from OpenStax Intermediate Algebra 2e §9.7 Example 9.60 worked steps (half of 6, square to 9, add and subtract 9; leftover 5 − 9). Student page shows those steps on the algebraic rewrite of the same function.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "openstax-ia2e-9-7-example-9-60-diagram",
+  "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.60 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "approved",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Function and CTS arithmetic from IA 2e Example 9.60; stem is a classroom diagram prompt on that licensed function (A2.8 tiles/diagram share). Preface of IA 2e states CC BY-NC-SA 4.0. Ontario A2.8 has no seed example — do not claim this is Ministry wording. Shawn selected→approved gate 2026-09-11 (PR #60)."
+}

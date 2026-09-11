@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "strategy-choose-cts-vs-factor"
+  ],
+  "expectation_codes": [
+    "A2.11"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "Owned: choose CTS vs factoring to sketch (light)",
+  "stem_student": "You are given two equations in standard form and asked only to choose a suitable sketch strategy — not to finish a full sketch.\n\nA) f(x) = x^2 − 5x + 6\nB) g(x) = x^2 + 4x + 7\n\nFor each, say whether completing the square to find the vertex, or factoring to locate the x-intercepts, is the more suitable strategy, and give one reason. Do not use a formula.",
+  "stem_teacher": "LLOVES-owned Analyze beat. A2.11 statement names completing the square and finding the vertex, or factoring if possible to locate the x-intercepts, as example strategies. This is not a Ministry sample (A2.11 examples array is empty). Do not teach or apply the quadratic formula (A1.6 parked).",
+  "answer": "A) Factoring is suitable: x^2 − 5x + 6 = (x − 2)(x − 3), so the x-intercepts 2 and 3 are friendly. B) Completing the square is suitable: g(x) = (x + 2)^2 + 3 does not factor over the reals, so intercepts are not a sketch path; the vertex (−2, 3) is readable after CTS.",
+  "answer_verification": "Author-computed. A factors as (x − 2)(x − 3). B: x^2 + 4x + 7 = (x + 2)^2 + 3; discriminant 16 − 28 < 0 so no real intercepts — mentioned only as a teacher check, not as a student discriminant lesson.",
+  "checker_ref": null,
+  "source": "parametric",
+  "source_id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+  "source_url": null,
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M4-L2 owned bank (completing the square)",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "approved",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Light strategy choice only; zeros-three-ways and formula remain parked. Criteria, not a random pick (brief misconception strategy-without-criteria). Shawn selected→approved gate 2026-09-11 (PR #60)."
+}
