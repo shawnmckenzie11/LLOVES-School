@@ -57,10 +57,11 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 
 ## Math content builder (isolated)
 
-Factory lives in [`content-builder/`](content-builder/README.md). **Parent agent integrates.** Do not mix with `lms/` or the LMS sqlite. Contracts: `content-builder/catalogue/contracts/`. Copywriter owns wording; director owns coherence; engineer implements specs.
+Factory lives in [`content-builder/`](content-builder/README.md). **Course Production Director** is the parent/coordinator. Do not mix with `lms/` or the LMS sqlite. Contracts: `content-builder/catalogue/contracts/`. Copywriter owns wording; director owns coherence; engineer implements specs.
 
 | Specialist | Path | Output |
 |-------|------|----------|
+| Course Production Director | [`.cursor/agents/course-director.md`](.cursor/agents/course-director.md) | Parent/coordinator: workflow, coherence gate, production record |
 | Lesson director | [`.cursor/agents/lesson-director.md`](.cursor/agents/lesson-director.md) | `lesson-brief.json` |
 | Bank curator | [`.cursor/agents/bank-curator.md`](.cursor/agents/bank-curator.md) | `catalogue/banks/` + evaluations |
 | Practice designer | [`.cursor/agents/practice-designer.md`](.cursor/agents/practice-designer.md) | `practice-sequence.json` |
