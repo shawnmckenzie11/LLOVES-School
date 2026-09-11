@@ -23,7 +23,7 @@
   "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.60 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
   "permitted_use_status": "non-commercial",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
-  "provenance_notes": "M4-L2 bank fill 2026-09-11. Explicit completing-the-square rewrite (not the College Algebra 2e vertex-formula How To). Alternating pair with the diagram item on the same function."
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Explicit completing-the-square rewrite (not the College Algebra 2e vertex-formula How To). Alternating pair with the diagram item on the same function. Shawn selected→approved gate 2026-09-11 (PR #60)."
 }

@@ -23,7 +23,7 @@
   "attribution": "LLOVES School MCF3M M4-L2 owned bank (completing the square)",
   "permitted_use_status": "permitted",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
-  "provenance_notes": "M4-L2 bank fill 2026-09-11. Seed A2.8 examples array is empty; ½ is quoted from the A2.8 statement as a typical b/a, not as a Ministry stem. OpenStax IA 2e §9.7 / CA 2e §5.1 algebraic sets checked on 2026-09-11 did not yield a clean b/a = 1/2 rewrite item, so this owned family fills that gap."
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Seed A2.8 examples array is empty; ½ is quoted from the A2.8 statement as a typical b/a, not as a Ministry stem. OpenStax IA 2e §9.7 / CA 2e §5.1 algebraic sets checked on 2026-09-11 did not yield a clean b/a = 1/2 rewrite item, so this owned family fills that gap. Shawn selected→approved gate 2026-09-11 (PR #60)."
 }

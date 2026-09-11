@@ -23,7 +23,7 @@
   "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.119 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
   "permitted_use_status": "non-commercial",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
-  "provenance_notes": "M4-L2 bank fill 2026-09-11. a = 1 variation after the 9.60 worked pair. Same function also appears as College Algebra 2e §5.1 Algebraic #7; this record cites the IA 2e Try It that names completing the square."
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. a = 1 variation after the 9.60 worked pair. Same function also appears as College Algebra 2e §5.1 Algebraic #7; this record cites the IA 2e Try It that names completing the square. Shawn selected→approved gate 2026-09-11 (PR #60)."
 }

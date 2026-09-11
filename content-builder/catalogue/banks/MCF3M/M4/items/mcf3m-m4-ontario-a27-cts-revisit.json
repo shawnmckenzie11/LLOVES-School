@@ -24,7 +24,7 @@
   "attribution": "lms/seeds/mcf3m_expectations.json A2.7 example; CTS direction LLOVES School M4-L2",
   "permitted_use_status": "restricted",
   "student_html_allowed": true,
-  "review_status": "selected",
+  "review_status": "approved",
   "density_notes": null,
-  "provenance_notes": "M4-L2 bank fill 2026-09-11. Shared-model revisit beat. Ministry wording copied only for the A2.7 sample; coefficients of the expand/CTS pair are author-computed because the seed has no key."
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Shared-model revisit beat. Ministry wording copied only for the A2.7 sample; coefficients of the expand/CTS pair are author-computed because the seed has no key. Shawn selected→approved gate 2026-09-11 (PR #60)."
 }
