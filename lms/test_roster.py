@@ -853,7 +853,7 @@ class RosterTests(unittest.TestCase):
         assert session is not None
         code = str(session["session_code"])
         live = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
-        self.assertIn("Class join code", live)
+        self.assertIn("JOIN CODE", live)
         self.assertIn('id="ap-guest-on-chip"', live)
         self.assertIn("Guests on", live)
         self.assertIn(code, live)

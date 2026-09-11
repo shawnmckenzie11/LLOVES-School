@@ -9,6 +9,9 @@ const promptShell = document.getElementById("prompt-shell");
 const promptAck = document.getElementById("prompt-ack");
 const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
+const mediaLock = document.getElementById("media-lock");
+const canvasPane = document.getElementById("canvas-pane");
+const canvasLock = document.getElementById("canvas-lock");
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
 const mediaCaption = document.getElementById("media-caption");
@@ -30,6 +33,8 @@ let lastToastKey = "";
 let lastCueId = "";
 /** @type {string} */
 let lastMeetSig = "";
+/** @type {number} */
+let lastStateSeq = -1;
 /** @type {number} */
 let toastHideTimer = 0;
 const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
@@ -182,11 +187,69 @@ const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
  * @param {any} payload
  * @returns {boolean}
  */
+/**
+ * Student frame projection from LiveTeacherState.
+ * @param {any} payload
+ * @returns {{stage: string, seq: number, questions: boolean, media: boolean, canvas: boolean, unlockMedia: boolean, unlockCanvas: boolean}}
+ */
+function studentProjection(payload) {
+  const ts = (payload && payload.teacher_state) || {};
+  const frames = ts.student_frames || {};
+  const unlocks = ts.unlocks || {};
+  const stage = String(ts.stage || "join");
+  const seq = Number(ts.state_seq);
+  return {
+    stage,
+    seq: Number.isFinite(seq) ? seq : 0,
+    questions: frames.questions !== false,
+    media: Boolean(frames.media),
+    canvas: Boolean(frames.canvas),
+    unlockMedia: Boolean(unlocks.media),
+    unlockCanvas: Boolean(unlocks.canvas),
+  };
+}
+
+/**
+ * Unmount the student media iframe (no opacity flicker).
+ */
+function unmountStudentMedia() {
+  if (!mediaFrame) return;
+  mediaFrame.removeAttribute("src");
+  lastMediaUrl = "";
+  lastMediaSig = "";
+}
+
+/**
+ * Apply student_frames / unlocks when state_seq changes or on first paint.
+ * @param {any} payload
+ * @returns {{media: boolean, canvas: boolean, unlockMedia: boolean}}
+ */
+function applyTeacherProjection(payload) {
+  const proj = studentProjection(payload);
+  if (proj.seq !== lastStateSeq) {
+    lastStateSeq = proj.seq;
+  }
+  if (canvasPane) {
+    canvasPane.hidden = !proj.canvas;
+    if (canvasLock) canvasLock.hidden = Boolean(proj.unlockCanvas);
+  }
+  if (mediaPane) {
+    mediaPane.classList.toggle("is-locked", !proj.unlockMedia);
+    if (mediaLock) mediaLock.hidden = Boolean(proj.unlockMedia);
+  }
+  if (!proj.media) {
+    if (mediaPane) mediaPane.hidden = true;
+    unmountStudentMedia();
+  }
+  return proj;
+}
+
 function isWaitingRoom(payload) {
   if (typeof payload.waiting_room === "boolean") {
     return payload.waiting_room;
   }
-  const hasMedia = Boolean(payload.active_media && payload.active_media.url);
+  const proj = studentProjection(payload);
+  const hasMedia = proj.media && Boolean(payload.active_media && payload.active_media.url);
   return !payload.scoring && !hasMedia;
 }
 
@@ -215,7 +278,8 @@ function waitCopyFor(payload) {
  */
 function applyLayout(payload) {
   const live = Boolean(payload.scoring);
-  const hasMedia = Boolean(payload.active_media && payload.active_media.url);
+  const proj = studentProjection(payload);
+  const hasMedia = proj.media && Boolean(payload.active_media && payload.active_media.url);
   const waitingRoom = isWaitingRoom(payload);
   body.classList.toggle("is-live", live);
   body.classList.toggle("has-media", hasMedia);
@@ -299,6 +363,15 @@ function postMediaState(media) {
  * @param {any} payload
  */
 function paintMedia(payload) {
+  const proj = applyTeacherProjection(payload);
+  if (!proj.media) {
+    if (mediaChip) mediaChip.hidden = true;
+    if (mediaStem) mediaStem.hidden = true;
+    if (mediaCaption) mediaCaption.hidden = true;
+    if (mediaAnswers) mediaAnswers.hidden = true;
+    if (mediaEncore) mediaEncore.hidden = true;
+    return;
+  }
   const media = payload.active_media;
   const url = media ? safeMediaUrl(media.url) : "";
   // C1 Real-slice already chips the ask inside the frame; do not double it.
@@ -664,6 +737,7 @@ async function tick() {
       location.href = data.redirect;
       return;
     }
+    applyTeacherProjection(data);
     applyLayout(data);
     paintMe(data);
     paintBoard(data);

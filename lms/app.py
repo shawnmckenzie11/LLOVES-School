@@ -3730,8 +3730,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         POST JSON may include ``advance`` (``next`` / ``prev``) to move
         ``stage`` only, plus any subset of stage / round / teams_mode /
-        layout_preset / frames / active_tab / refs / cue_id / meet_chain,
-        or ``meet_action`` (``next`` / ``skip_c`` / ``clear``). Does not
+        layout_preset / frames / active_tab / refs / cue_id / meet_chain /
+        student_frames / unlocks, or ``meet_action`` (``next`` / ``skip_c``
+        / ``clear``). Every write increments ``state_seq``. Does not
         duplicate ``active_media`` or prompt payloads. ``canvas_ephemeral``
         is always true.
         """
@@ -3766,6 +3767,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "cue_id",
             "meet_chain",
             "meet_action",
+            "student_frames",
+            "unlocks",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
@@ -4807,21 +4810,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/assign", methods=["POST"])
     @login_required
     def api_assign(class_id: int):
-        """Assign teams and leave waiting-room Minds-On (JOIN). Meet mounts later."""
+        """Assign teams. JOIN/TEAMS keep waiting-room Minds-On until MEET."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
             raw_assignments = body.get("assignments")
             if raw_assignments is not None and not isinstance(raw_assignments, list):
                 raise ValueError("assignments must be a list")
-            state = school.game.assign_teams(
+            return school.game.assign_teams(
                 class_id,
                 int(body.get("n_teams") or 0),
                 str(body.get("mode") or ""),
                 assignments=raw_assignments,
             )
-            school.clear_waiting_room_minds_on_for_class(class_id)
-            return state
 
         return _staff_post(class_id, run)
 

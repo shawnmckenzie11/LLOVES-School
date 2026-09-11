@@ -90,8 +90,8 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root live-shell-root live-shell-ia-v1"
-         data-ia="v1"
+         class="track-live-root live-shell-root live-shell-ia-v2"
+         data-ia="v2"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
@@ -104,35 +104,11 @@
       <div id="ap-overlay-error" class="error" hidden></div>
 
       <header class="live-header" id="live-header">
-        <div class="live-header-identity">
-          <span class="live-header-class">{{ cls.section_code or cls.ontario_code or cls.course_code }}</span>
-          <span class="live-header-date" id="live-header-date">Date —</span>
-          <span class="live-header-present" id="live-header-present">Present 0</span>
-          <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
-        </div>
-        <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
-          <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
-          <button type="button" class="live-stage-btn is-active" data-stage="join" aria-current="step">Join</button>
-          <button type="button" class="live-stage-btn" data-stage="teams">Teams*</button>
-          <button type="button" class="live-stage-btn" data-stage="meet">Meet</button>
-          <button type="button" class="live-stage-btn" data-stage="round">Round*</button>
-          <button type="button" class="live-stage-btn" data-stage="play">Play</button>
-          <button type="button" class="live-stage-stepper" id="live-stage-next">Next</button>
-        </nav>
-        <div class="live-header-actions">
-          <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
-                data-confirm="End Live Class? All session data will be lost."
-                onsubmit="return confirm(this.dataset.confirm);">
-            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Live Class">End Class</button>
-          </form>
-          <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
-          <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>
-        </div>
         <div class="live-header-join">
           <div id="ap-join-billboard"
                class="ap-join-billboard"
                {% if not live_session_code %}hidden{% endif %}>
-            <p class="ap-join-billboard-label">Class join code</p>
+            <p class="ap-join-billboard-label">JOIN CODE</p>
             <div class="ap-join-billboard-row">
               <span id="ap-join-billboard-code"
                     class="ap-join-billboard-code"
@@ -147,12 +123,36 @@
           </div>
           <p class="hint compact ap-join-strip" id="ap-join-strip" hidden>
             <button type="button" class="linkish" id="ap-open-overlay">Open join strip</button>
-            <span> — popup was blocked; open the Zoom-share overlay once.</span>
           </p>
+        </div>
+        <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
+        <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
+          <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
+          <span class="live-stage-pill is-active" data-stage="join" aria-current="step">JOIN</span>
+          <span class="live-stage-pill" data-stage="teams">TEAMS</span>
+          <span class="live-stage-pill" data-stage="meet">MEET</span>
+          <span class="live-stage-pill" data-stage="round">ROUND</span>
+          <span class="live-stage-pill" data-stage="play">PLAY</span>
+          <button type="button" class="live-stage-stepper" id="live-stage-next">Next</button>
+        </nav>
+        <div class="live-header-actions">
+          <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
+                data-confirm="End Live Class? All session data will be lost."
+                onsubmit="return confirm(this.dataset.confirm);">
+            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Live Class">End Class</button>
+          </form>
+          <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
+          <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>
+        </div>
+        <div class="live-header-identity live-legacy-control">
+          <span class="live-header-class">{{ cls.section_code or cls.ontario_code or cls.course_code }}</span>
+          <span class="live-header-date" id="live-header-date">Date —</span>
+          <span class="live-header-present" id="live-header-present">Present 0</span>
         </div>
       </header>
 
-      <section class="live-option-card" id="live-option-card" hidden>
+      <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options">
+        <p class="live-options-hint" id="join-options-hint">Waiting for students to join.</p>
         <div id="teams-option-card" class="live-option-card-body" hidden>
           <div id="ap-panel-gamify" class="live-track-chip ap-panel" data-step="gamify">
             <span class="live-track-chip-label">Individual (1) vs teams</span>
@@ -167,56 +167,7 @@
             </button>
             <button type="button" class="track-nav-next live-chip-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
           </div>
-          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start Meet</button>
-        </div>
-        <div id="round-option-card" class="live-option-card-body" hidden>
-          <p class="live-option-card-label">Always 3 rounds</p>
-          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Pedagogical rounds">
-            <button type="button" class="live-round-pick is-active" data-round="minds_on">Minds on</button>
-            <button type="button" class="live-round-pick" data-round="action">Action</button>
-            <button type="button" class="live-round-pick" data-round="consolidation">Consolidation</button>
-          </div>
-          <div class="live-team-keep" role="group" aria-label="Teams for this round">
-            <label><input type="radio" name="live-team-keep" value="keep" checked> Keep teams</label>
-            <label><input type="radio" name="live-team-keep" value="reassign"> Reassign teams</label>
-          </div>
-        </div>
-      </section>
-
-      <section id="ap-panel-validate" class="live-date-panel ap-panel hidden" data-step="validate" hidden>
-        <h2 class="live-pane-title">Class Date</h2>
-        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
-        <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
-        <input type="hidden" id="ap-valid-date" class="ap-date-input">
-        <div class="live-pane-footer">
-          <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-          <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
-          <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
-        </div>
-      </section>
-
-      <div class="live-shell-body">
-        <aside class="live-shell-left" id="live-shell-left">
-          <section id="class-list-pane" class="live-pane">
-            <section id="ap-panel-att" class="ap-panel" data-step="att">
-              <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
-              <label class="ap-guest-toggle" id="ap-guest-toggle">
-                <input type="checkbox" id="ap-allow-guests">
-                <span>Guests</span>
-              </label>
-              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
-              <input type="hidden" id="ap-meeting-date" value="">
-              <div id="ap-att-list" class="check-list ap-att-readonly"></div>
-              <div class="live-pane-footer live-legacy-control">
-                <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-                <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
-              </div>
-            </section>
-          </section>
-        </aside>
-
-        <section id="team-assign-pane" class="live-pane is-standby" hidden>
+          <section id="team-assign-pane" class="live-pane is-standby" hidden>
             <p class="live-standby-hint" id="team-assign-standby">Team assign unlocks when Tracking is Team.</p>
             <section id="ap-panel-teams" class="ap-panel" data-step="teams" data-team-flow>
               <h2 class="live-pane-title">Teams <span id="ap-teams-summary" class="live-pane-meta"></span></h2>
@@ -287,7 +238,7 @@
                   </div>
                 </div>
               </div>
-              <div class="live-pane-footer">
+              <div class="live-pane-footer live-legacy-control">
                 <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
                 <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
                 <button type="button" class="track-nav-next" id="ap-teams-next" data-track-nav="next">Next →</button>
@@ -295,87 +246,42 @@
             </section>
             <section id="ap-panel-names" class="ap-panel" data-step="names" data-team-flow>
               <h2 class="live-pane-title">Meet your team <span id="ap-names-summary" class="live-pane-meta"></span></h2>
-              <label class="field" for="ap-meet-minutes">Meet Your Team timer (min)</label>
-              <div class="ap-meet-timer-row" id="ap-meet-timer-row">
-                <div class="stepper ap-teams-stepper" id="ap-meet-stepper">
-                  <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
-                  <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
-                  <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
-                </div>
-                <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
-              </div>
               <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
               <div id="ap-name-list" class="ap-name-list-compact"></div>
-              <div class="live-pane-footer">
+              <div class="live-pane-footer live-legacy-control">
                 <button type="button" class="secondary track-nav-prev" id="ap-names-back" data-track-nav="prev">← Prev</button>
                 <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
                 <button type="button" class="track-nav-next" id="ap-start-game" data-track-nav="next">Next →</button>
               </div>
             </section>
           </section>
-
-        <main class="live-shell-right" id="live-shell-right">
-          <section class="live-active-content" id="live-active-content">
-            <div class="live-active-toolbar">
-              <nav class="live-content-tabs" id="live-content-tabs" aria-label="Active Content">
-                <button type="button" class="live-content-tab is-active" data-tab="media">Active Media</button>
-                <button type="button" class="live-content-tab" data-tab="questions">Question(s)</button>
-                <button type="button" class="live-content-tab" data-tab="canvas_slides">Canvas/Slides</button>
-              </nav>
-              <div class="live-layout-bar">
-                <button type="button" class="secondary" id="live-edit-layout" aria-expanded="false">Edit Layout</button>
-                <div class="live-layout-presets" id="live-layout-presets" hidden>
-                  <p class="live-option-card-label">Presets</p>
-                  <div class="live-preset-row" id="live-preset-row">
-                    <button type="button" class="live-preset-btn is-active" data-preset="media_full">Media</button>
-                    <button type="button" class="live-preset-btn" data-preset="questions_full">Questions</button>
-                    <button type="button" class="live-preset-btn" data-preset="media_questions">Media + Q</button>
-                    <button type="button" class="live-preset-btn" data-preset="three_up">A / B / C</button>
-                    <button type="button" class="live-preset-btn" data-preset="canvas_media">Canvas + Media</button>
-                  </div>
-                  <p class="live-option-card-label">Drag into frames</p>
-                  <div class="live-content-palette" id="live-content-palette">
-                    <span class="live-content-chip" draggable="true" data-content-id="media">media</span>
-                    <span class="live-content-chip" draggable="true" data-content-id="questions">questions</span>
-                    <span class="live-content-chip" draggable="true" data-content-id="canvas_slides">canvas_slides</span>
-                  </div>
-                </div>
-              </div>
+          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start Meet</button>
+        </div>
+        <div id="meet-option-card" class="live-option-card-body" hidden>
+          <label class="field" for="ap-meet-minutes">Meet timer (min)</label>
+          <div class="ap-meet-timer-row" id="ap-meet-timer-row">
+            <div class="stepper ap-teams-stepper" id="ap-meet-stepper">
+              <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
+              <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
+              <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
             </div>
-            <div class="live-frames" id="live-frames" data-preset="media_full" data-slots="A">
-              <div class="live-frame-slot" data-frame="A" data-drop-frame="A"><span class="live-frame-label">A</span></div>
-              <div class="live-frame-slot" data-frame="B" data-drop-frame="B"><span class="live-frame-label">B</span></div>
-              <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
-              <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="media" data-flag="media" data-slot="A">
-                <section class="ap-active-media" id="ap-active-media">
-                  <h2>Active Media</h2>
-                  <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
-                </section>
-              </section>
-              <section id="question-artifact-zone" class="live-content-slot live-flag-panel" data-content-id="questions" data-flag="question" data-slot="">
-                <h2 class="live-pane-title">Question</h2>
-                <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
-                <p class="live-question-flag" id="question-artifact-flag" hidden></p>
-                <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
-                  <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
-                  <p class="hint compact" id="meet-soft-counts"></p>
-                  <div class="meet-chain-actions">
-                    <button type="button" id="meet-chain-next">Next</button>
-                    <button type="button" id="meet-chain-skip-c" class="secondary">Skip C</button>
-                    <button type="button" id="meet-chain-end" class="secondary">End Meet</button>
-                  </div>
-                </div>
-              </section>
-              <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
-                <h2 class="live-pane-title">Canvas / Slides</h2>
-                <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
-                <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
-                <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
-              </section>
-            </div>
-          </section>
-
-          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds" hidden>
+            <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
+          </div>
+          <button type="button" id="meet-chain-skip-c" class="secondary">Skip C</button>
+          <button type="button" id="meet-chain-end" class="secondary">End Meet</button>
+        </div>
+        <div id="round-option-card" class="live-option-card-body" hidden>
+          <p class="live-option-card-label">Always 3 rounds</p>
+          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Pedagogical rounds">
+            <button type="button" class="live-round-pick is-active" data-round="minds_on">Minds on</button>
+            <button type="button" class="live-round-pick" data-round="action">Action</button>
+            <button type="button" class="live-round-pick" data-round="consolidation">Consolidation</button>
+          </div>
+          <div class="live-team-keep" role="group" aria-label="Teams for this round">
+            <label><input type="radio" name="live-team-keep" value="keep" checked> Keep teams</label>
+            <label><input type="radio" name="live-team-keep" value="reassign"> Reassign teams</label>
+          </div>
+          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds">
             <section id="ap-panel-rounds" class="ap-panel" data-step="rounds">
               <h2 class="live-pane-title" id="ap-rounds-title">Start Round 1 <span id="ap-rounds-summary" class="live-pane-meta"></span></h2>
               <p class="hint compact" id="ap-rounds-hint">Set up one round at a time. Open Question uses action chips when scoring.</p>
@@ -387,49 +293,150 @@
               </div>
             </section>
           </section>
+        </div>
+        <div id="play-option-card" class="live-option-card-body" hidden>
+          <button type="button" class="secondary" id="live-edit-layout" aria-expanded="false">Edit Layout</button>
+          <div class="live-layout-presets" id="live-layout-presets" hidden>
+            <p class="live-option-card-label">Presets</p>
+            <div class="live-preset-row" id="live-preset-row">
+              <button type="button" class="live-preset-btn" data-preset="media_full">Media</button>
+              <button type="button" class="live-preset-btn is-active" data-preset="questions_full">Questions</button>
+              <button type="button" class="live-preset-btn" data-preset="media_questions">Media + Q</button>
+              <button type="button" class="live-preset-btn" data-preset="three_up">A / B / C</button>
+              <button type="button" class="live-preset-btn" data-preset="canvas_media">Canvas + Media</button>
+            </div>
+            <p class="live-option-card-label">Drag into frames</p>
+            <div class="live-content-palette" id="live-content-palette">
+              <span class="live-content-chip" draggable="true" data-content-id="media">media</span>
+              <span class="live-content-chip" draggable="true" data-content-id="questions">questions</span>
+              <span class="live-content-chip" draggable="true" data-content-id="canvas_slides">canvas_slides</span>
+            </div>
+          </div>
+          <label class="live-unlock-toggle" for="live-unlock-media">
+            <input type="checkbox" id="live-unlock-media">
+            <span>Unlock media</span>
+          </label>
+          <label class="live-unlock-toggle" for="live-unlock-canvas">
+            <input type="checkbox" id="live-unlock-canvas">
+            <span>Unlock canvas</span>
+          </label>
+        </div>
+      </section>
 
-          <section id="results-strip" class="live-flag-panel" data-flag="score">
-            <section id="ap-panel-score" class="ap-panel" data-step="score">
-              <h2 class="live-pane-title">Results <span id="ap-score-summary" class="live-pane-meta"></span></h2>
-              <div id="ap-score-past-rounds" class="ap-past-rounds" hidden></div>
-              <div id="ap-break-banner" class="ap-break-banner" hidden></div>
-              <div class="ap-score-shell">
-                <header class="ap-score-header">
-                  <div class="ap-score-header-top">
-                    <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
-                    <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
-                      <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
-                        <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
-                      </label>
-                      <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
-                    </div>
-                  </div>
-                  <div class="ap-round-bar">
-                    <span id="ap-round-label"></span>
-                    <span id="ap-round-clock"></span>
-                  </div>
-                  <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
-                </header>
-                <div class="ap-score-body">
-                  <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
-                  <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
-                </div>
-              </div>
-              <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
-                <h3 id="ap-next-round-title">Start Round 2</h3>
-                <div id="ap-next-round-fields" class="ap-rounds-list ap-rounds-compact"></div>
-                <div class="row-actions compact">
-                  <button type="button" class="secondary" id="ap-next-round-cancel">Cancel</button>
-                  <button type="button" id="ap-next-round-start">Start Round 2</button>
-                </div>
-              </section>
-              <div class="live-pane-footer">
+      <section id="ap-panel-validate" class="live-date-panel ap-panel hidden" data-step="validate" hidden>
+        <h2 class="live-pane-title">Class Date</h2>
+        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
+        <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
+        <input type="hidden" id="ap-valid-date" class="ap-date-input">
+        <div class="live-pane-footer">
+          <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+          <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
+          <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
+        </div>
+      </section>
+
+      <div class="live-shell-body">
+        <aside class="live-shell-left" id="live-shell-left">
+          <section id="class-list-pane" class="live-pane">
+            <section id="ap-panel-att" class="ap-panel" data-step="att">
+              <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
+              <label class="ap-guest-toggle" id="ap-guest-toggle">
+                <input type="checkbox" id="ap-allow-guests">
+                <span>Guests</span>
+              </label>
+              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
+              <input type="hidden" id="ap-meeting-date" value="">
+              <div id="ap-att-list" class="check-list ap-att-readonly"></div>
+              <div class="live-pane-footer live-legacy-control">
                 <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-                <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
-                <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
-                <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
+                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+                <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
               </div>
             </section>
+          </section>
+        </aside>
+
+        <main class="live-shell-right" id="live-shell-right">
+          <section class="live-active-content" id="live-active-content">
+            <div class="live-active-toolbar">
+              <nav class="live-content-tabs" id="live-content-tabs" aria-label="Active Content">
+                <button type="button" class="live-content-tab" data-tab="media">Active Media</button>
+                <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Question(s)</button>
+                <button type="button" class="live-content-tab" data-tab="canvas_slides">Canvas/Slides</button>
+              </nav>
+            </div>
+            <div class="live-frames" id="live-frames" data-preset="questions_full" data-slots="A">
+              <div class="live-frame-slot" data-frame="A" data-drop-frame="A"><span class="live-frame-label">A</span></div>
+              <div class="live-frame-slot" data-frame="B" data-drop-frame="B"><span class="live-frame-label">B</span></div>
+              <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
+              <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-parked" data-content-id="media" data-flag="media" data-slot="">
+                <section class="ap-active-media" id="ap-active-media">
+                  <h2>Active Media</h2>
+                  <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
+                </section>
+              </section>
+              <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
+                <h2 class="live-pane-title">Question</h2>
+                <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
+                <p class="live-question-flag" id="question-artifact-flag" hidden></p>
+                <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
+                  <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
+                  <p class="hint compact" id="meet-soft-counts"></p>
+                  <div class="meet-chain-actions">
+                    <button type="button" id="meet-chain-next">Next</button>
+                  </div>
+                </div>
+                <section id="results-strip" class="live-flag-panel" data-flag="score" hidden>
+                  <section id="ap-panel-score" class="ap-panel" data-step="score">
+                    <h2 class="live-pane-title">Results <span id="ap-score-summary" class="live-pane-meta"></span></h2>
+                    <div id="ap-score-past-rounds" class="ap-past-rounds" hidden></div>
+                    <div id="ap-break-banner" class="ap-break-banner" hidden></div>
+                    <div class="ap-score-shell">
+                      <header class="ap-score-header">
+                        <div class="ap-score-header-top">
+                          <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                          <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
+                            <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
+                              <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
+                            </label>
+                            <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
+                          </div>
+                        </div>
+                        <div class="ap-round-bar">
+                          <span id="ap-round-label"></span>
+                          <span id="ap-round-clock"></span>
+                        </div>
+                        <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
+                      </header>
+                      <div class="ap-score-body">
+                        <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
+                        <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
+                      </div>
+                    </div>
+                    <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
+                      <h3 id="ap-next-round-title">Start Round 2</h3>
+                      <div id="ap-next-round-fields" class="ap-rounds-list ap-rounds-compact"></div>
+                      <div class="row-actions compact">
+                        <button type="button" class="secondary" id="ap-next-round-cancel">Cancel</button>
+                        <button type="button" id="ap-next-round-start">Start Round 2</button>
+                      </div>
+                    </section>
+                    <div class="live-pane-footer">
+                      <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+                      <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
+                      <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
+                      <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
+                    </div>
+                  </section>
+                </section>
+              </section>
+              <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
+                <h2 class="live-pane-title">Canvas / Slides</h2>
+                <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
+                <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
+                <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
+              </section>
+            </div>
           </section>
         </main>
       </div>

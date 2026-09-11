@@ -831,8 +831,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(active["payload"]["key"], "A")
         self.assertEqual(len(active["payload"]["items"]), 1)
 
-    def test_minds_on_clears_when_challenge_media_mounts(self) -> None:
-        """Real-slice / active_media replaces Minds-On; it is not the stem."""
+    def test_join_teacher_preview_media_keeps_minds_on(self) -> None:
+        """Teacher Real-slice seed on JOIN does not project media or drop Minds-On."""
         from live_media import DEFAULT_LIVE_MEDIA_URL
 
         self._join_maple_home()
@@ -846,12 +846,12 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertEqual(posted.status_code, 200, posted.get_json())
         state = self.student.get("/api/student/state").get_json()
-        self.assertFalse(state.get("waiting_room"))
+        self.assertTrue(state.get("waiting_room"), state)
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
+        self.assertFalse(state["teacher_state"]["student_frames"]["media"])
         prompt = state.get("prompt")
-        if prompt is not None:
-            self.assertFalse(is_minds_on_payload(prompt.get("payload")))
-            self.assertFalse(is_meet_team_payload(prompt.get("payload")))
+        self.assertIsNotNone(prompt)
+        self.assertTrue(is_minds_on_payload((prompt or {}).get("payload")))
 
     def test_assign_and_meet_teams_swap_minds_on_for_teammate_warmup(self) -> None:
         """SID=18: Generate teams + Meet Teams leave waiting-room Minds-On."""
@@ -922,6 +922,9 @@ class StudentPortalTests(unittest.TestCase):
         """Student portal JS must not use the scoring-phase wait line in waiting-room."""
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn("Waiting room — class is about to begin.", js)
+        self.assertIn("studentProjection", js)
+        self.assertIn("unmountStudentMedia", js)
+        self.assertIn("lastStateSeq", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
         self.assertIn('["cue.meet_open", "cue.meet_clear"]', js)

@@ -689,7 +689,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 400, blocked.get_json())
         self.assertIn("freeze", blocked.get_json()["error"].lower())
         idle = self.student.get("/api/student/state").get_json()
-        self.assertIsNone(idle.get("prompt"))
+        idle_prompt = idle.get("prompt") or {}
+        self.assertEqual((idle_prompt.get("payload") or {}).get("item_id"), "minds_on")
         self.assertFalse(idle["active_media"]["frozen"])
         self.assertEqual(idle["active_media"]["cons_item"], "")
 
@@ -702,7 +703,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertTrue(still_idle["active_media"]["frozen"])
         self.assertEqual(still_idle["active_media"]["toast"], TOAST_FREEZE)
         self.assertTrue(still_idle["active_media"]["toast"].strip())
-        self.assertIsNone(still_idle.get("prompt"))
+        still_prompt = still_idle.get("prompt") or {}
+        self.assertEqual((still_prompt.get("payload") or {}).get("item_id"), "minds_on")
 
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",

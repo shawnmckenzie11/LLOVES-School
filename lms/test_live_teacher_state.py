@@ -21,46 +21,81 @@ from app import create_app  # noqa: E402
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import (  # noqa: E402
     LAYOUT_PRESETS,
+    MINDS_ON_PROMPT_REF,
     adjacent_stage,
     apply_teacher_state_update,
     default_teacher_state,
     public_teacher_state,
+    student_should_mount_canvas,
+    student_should_mount_media,
 )
 
 
 class LiveTeacherStateHelperTests(unittest.TestCase):
     """Pure channel helpers (no Flask)."""
 
-    def test_default_is_join_media_and_ephemeral(self) -> None:
-        """Fresh state starts on join with media_full and canvas_ephemeral."""
+    def test_default_is_join_questions_and_ephemeral(self) -> None:
+        """Fresh state starts on JOIN Questions + Minds-On; students hide media."""
         state = default_teacher_state()
         self.assertEqual(state["stage"], "join")
         self.assertEqual(state["teams_mode"], "individual")
-        self.assertEqual(state["layout_preset"], "media_full")
-        self.assertEqual(state["frames"], {"A": "media"})
-        self.assertEqual(state["active_tab"], "media")
+        self.assertEqual(state["layout_preset"], "questions_full")
+        self.assertEqual(state["frames"], {"A": "questions"})
+        self.assertEqual(state["active_tab"], "questions")
+        self.assertEqual(state["prompt_ref"], MINDS_ON_PROMPT_REF)
+        self.assertEqual(state["state_seq"], 0)
+        self.assertEqual(
+            state["student_frames"],
+            {"questions": True, "media": False, "canvas": False},
+        )
+        self.assertEqual(state["unlocks"], {"media": False, "canvas": False})
         self.assertTrue(state["canvas_ephemeral"])
         self.assertIsNone(state["round"])
         self.assertIsNone(state["active_media_ref"])
-        self.assertIsNone(state["prompt_ref"])
         self.assertIsNone(state["meet_chain"])
         self.assertIsNone(state["cue_id"])
+        self.assertFalse(student_should_mount_media(state))
+        self.assertFalse(student_should_mount_canvas(state))
         self.assertNotIn("url", state)
         self.assertNotIn("stem", state)
 
-    def test_advance_moves_stage_only(self) -> None:
-        """Prev/Next walk join → teams → meet → round → play without wrapping."""
+    def test_advance_moves_stage_and_bumps_seq(self) -> None:
+        """Prev/Next walk stages, increment state_seq, and project student frames."""
         state = default_teacher_state()
         nxt = apply_teacher_state_update(state, advance="next")
         self.assertEqual(nxt["stage"], "teams")
-        self.assertEqual(nxt["layout_preset"], "media_full")
+        self.assertEqual(nxt["layout_preset"], "questions_full")
+        self.assertEqual(nxt["state_seq"], 1)
+        self.assertEqual(nxt["prompt_ref"], MINDS_ON_PROMPT_REF)
+        self.assertFalse(student_should_mount_media(nxt))
         self.assertTrue(nxt["canvas_ephemeral"])
         play = apply_teacher_state_update(nxt, stage="play")
+        self.assertEqual(play["state_seq"], 2)
+        self.assertEqual(
+            play["student_frames"],
+            {"questions": True, "media": True, "canvas": True},
+        )
+        self.assertEqual(play["unlocks"], {"media": False, "canvas": False})
+        self.assertTrue(student_should_mount_media(play))
+        self.assertTrue(student_should_mount_canvas(play))
         still = apply_teacher_state_update(play, advance="next")
         self.assertEqual(still["stage"], "play")
+        self.assertEqual(still["state_seq"], 3)
         back = apply_teacher_state_update(still, advance="prev")
         self.assertEqual(back["stage"], "round")
+        self.assertEqual(back["state_seq"], 4)
+        self.assertFalse(student_should_mount_media(back))
         self.assertEqual(adjacent_stage("join", -1), "join")
+
+    def test_unlocks_bump_seq_without_flicker_only(self) -> None:
+        """PLAY unlock toggles are a teacher commit."""
+        play = apply_teacher_state_update(None, stage="play")
+        seq = play["state_seq"]
+        unlocked = apply_teacher_state_update(play, unlocks={"media": True})
+        self.assertEqual(unlocked["state_seq"], seq + 1)
+        self.assertTrue(unlocked["unlocks"]["media"])
+        self.assertFalse(unlocked["unlocks"]["canvas"])
+        self.assertTrue(student_should_mount_media(unlocked))
 
     def test_preset_and_frames_are_content_ids(self) -> None:
         """Presets fill A/B/C; invalid frames raise."""
@@ -153,13 +188,20 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(got.status_code, 200, got.get_json())
         state = got.get_json()["teacher_state"]
         self.assertEqual(state["stage"], "join")
+        self.assertEqual(state["active_tab"], "questions")
+        self.assertEqual(state["prompt_ref"], MINDS_ON_PROMPT_REF)
+        self.assertEqual(state["state_seq"], 0)
+        self.assertFalse(state["student_frames"]["media"])
         self.assertTrue(state["canvas_ephemeral"])
         nxt = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={"advance": "next"},
         )
         self.assertEqual(nxt.status_code, 200, nxt.get_json())
-        self.assertEqual(nxt.get_json()["teacher_state"]["stage"], "teams")
+        nxt_state = nxt.get_json()["teacher_state"]
+        self.assertEqual(nxt_state["stage"], "teams")
+        self.assertEqual(nxt_state["state_seq"], 1)
+        self.assertFalse(nxt_state["student_frames"]["media"])
         laid = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={
@@ -200,7 +242,35 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(state.get("teacher_state", {}).get("stage"), "play", state)
         self.assertEqual(state["teacher_state"]["layout_preset"], "three_up")
         self.assertTrue(state["teacher_state"]["canvas_ephemeral"])
+        self.assertTrue(state["teacher_state"]["student_frames"]["media"])
+        self.assertTrue(state["teacher_state"]["student_frames"]["canvas"])
+        self.assertFalse(state["teacher_state"]["unlocks"]["media"])
+        self.assertGreaterEqual(state["teacher_state"]["state_seq"], 1)
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
+
+    def test_join_does_not_project_teacher_preview_media(self) -> None:
+        """JOIN keeps Question-only frames after a teacher Real-slice seed."""
+        self.school.set_live_session_active_media(
+            self.session_id, url=DEFAULT_LIVE_MEDIA_URL
+        )
+        live = self.school.get_live_session(self.session_id)
+        student = self.app.test_client()
+        student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Aspen"},
+            follow_redirects=False,
+        )
+        student.post("/student/mood", data={"mood": "good"})
+        student.post("/student/character", data={"character": "fox"})
+        state = student.get("/api/student/state").get_json()
+        self.assertEqual(state["teacher_state"]["stage"], "join")
+        self.assertFalse(state["teacher_state"]["student_frames"]["media"])
+        self.assertFalse(state["teacher_state"]["student_frames"]["canvas"])
+        self.assertTrue(state["teacher_state"]["student_frames"]["questions"])
+        self.assertEqual(state["teacher_state"]["prompt_ref"], MINDS_ON_PROMPT_REF)
+        self.assertTrue(state.get("waiting_room"), state)
+        prompt = state.get("prompt") or {}
+        self.assertEqual((prompt.get("payload") or {}).get("item_id"), "minds_on")
 
     def test_rejects_unknown_stage(self) -> None:
         """Legacy Challenge/Freeze tokens are not stages."""

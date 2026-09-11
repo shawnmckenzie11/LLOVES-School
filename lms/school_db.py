@@ -5909,12 +5909,12 @@ class SchoolDB(LovesDB):
         return bool(media and media.get("url"))
 
     def _session_left_waiting_room(self, session_id: int) -> bool:
-        """True when scoring, media, Meet Teams, or Minds-On has ended.
+        """True when scoring, MEET/ROUND/PLAY, or Minds-On has ended.
 
-        Generate teams / Meet Teams leave the waiting-room Minds-On stage
-        and swap in the Meet Your Team warm-up. Team Challenge media /
-        scoring still write a Minds-On sentinel so lazy-seed cannot
-        bring it back.
+        JOIN / TEAMS keep waiting-room Minds-On even when the teacher
+        preview has a local Real-slice blob. Meet Teams and later stages
+        leave the waiting room. Team Challenge / scoring still write a
+        Minds-On sentinel so lazy-seed cannot bring it back.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -5927,8 +5927,12 @@ class SchoolDB(LovesDB):
             return True
         if self._class_overlay_is_meet_teams(class_id):
             return True
-        media = self.live_session_active_media_payload(session_id)
-        if media and media.get("url"):
+        stored = session_row.get("teacher_state")
+        teacher = public_teacher_state(stored if isinstance(stored, dict) else None)
+        if str(teacher.get("stage") or "") in {"meet", "round", "play"}:
+            return True
+        frames = teacher.get("student_frames") or {}
+        if frames.get("media") or frames.get("canvas"):
             return True
         if self._meet_team_row_exists(session_id):
             return True
@@ -6621,7 +6625,15 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         if payload is not None or challenge_clears_active_media(challenge):
-            self.clear_session_warmups(session_id)
+            teacher = self.live_session_teacher_state_payload(session_id)
+            stage = str(teacher.get("stage") or "")
+            frames = teacher.get("student_frames") or {}
+            if (
+                challenge_clears_active_media(challenge)
+                or stage in {"round", "play"}
+                or bool(frames.get("media"))
+            ):
+                self.clear_session_warmups(session_id)
         self._sync_c1_cons_prompt(session_id, payload)
         return payload
 

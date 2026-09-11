@@ -273,22 +273,23 @@ class MeetTeamLivePromptTests(unittest.TestCase):
             self.assertIn(choice, MEET_TEAM_WARMUP_POOL)
         return payload
 
-    def test_assign_clears_minds_on_without_mounting_meet(self) -> None:
-        """Generate teams leaves JOIN Minds-On; Meet waits for MEET enter."""
+    def test_assign_keeps_minds_on_without_mounting_meet(self) -> None:
+        """Generate teams keeps JOIN Minds-On; Meet waits for MEET enter."""
         idle = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(idle["waiting_room"])
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
 
         self._staff_assign_two_teams()
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
-        self.assertFalse(live_prompt.get("waiting_room"), live_prompt)
+        self.assertTrue(live_prompt.get("waiting_room"), live_prompt)
         prompt = live_prompt.get("prompt")
-        if prompt is not None:
-            payload = prompt.get("payload") or {}
-            self.assertFalse(is_minds_on_payload(payload))
-            self.assertFalse(is_meet_team_payload(payload))
+        self.assertIsNotNone(prompt)
+        payload = (prompt or {}).get("payload") or {}
+        self.assertTrue(is_minds_on_payload(payload))
+        self.assertFalse(is_meet_team_payload(payload))
         state = self.student.get("/api/student/state").get_json()
         self.assertNotEqual(state.get("teacher_state", {}).get("cue_id"), CUE_MEET_OPEN)
+        self.assertFalse(state.get("teacher_state", {}).get("student_frames", {}).get("media"))
 
     def test_meet_teams_clears_minds_on_and_seeds_warmup(self) -> None:
         """Start Meet after assign mounts A and fires cue.meet_open once."""

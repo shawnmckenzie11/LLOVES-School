@@ -31,6 +31,9 @@ TEAMS_MODES: tuple[str, ...] = ("teams", "individual")
 TABS: tuple[str, ...] = ("media", "questions", "canvas_slides")
 CONTENT_IDS: tuple[str, ...] = ("media", "questions", "canvas_slides")
 FRAME_KEYS: tuple[str, ...] = ("A", "B", "C")
+STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas")
+UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
+MINDS_ON_PROMPT_REF = "minds_on"
 
 LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "media_full": {"A": "media"},
@@ -40,7 +43,8 @@ LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "canvas_media": {"A": "canvas_slides", "B": "media"},
 }
 
-DEFAULT_LAYOUT_PRESET = "media_full"
+DEFAULT_LAYOUT_PRESET = "questions_full"
+QUESTION_ONLY_STAGES: frozenset[str] = frozenset({"join", "teams", "meet", "round"})
 
 
 def _now_iso() -> str:
@@ -48,11 +52,35 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def default_student_frames(stage: str | None = None) -> dict[str, bool]:
+    """Student frame visibility for one pedagogical stage.
+
+    JOIN / TEAMS / MEET / ROUND project Question only. PLAY shows all
+    three frames; media and canvas stay locked until ``unlocks``.
+
+    Args:
+        stage: Stage id, or None for JOIN defaults.
+
+    Returns:
+        ``{questions, media, canvas}`` booleans.
+    """
+    name = stage if stage in STAGES else "join"
+    if name == "play":
+        return {"questions": True, "media": True, "canvas": True}
+    return {"questions": True, "media": False, "canvas": False}
+
+
+def default_unlocks() -> dict[str, bool]:
+    """Return locked media/canvas unlock flags."""
+    return {"media": False, "canvas": False}
+
+
 def default_teacher_state() -> dict[str, Any]:
     """Return a fresh join-stage teacher state.
 
     Returns:
         Public ``LiveTeacherState`` dict with ``canvas_ephemeral: True``.
+        JOIN focuses Questions and Minds-On; students do not get media.
     """
     return {
         "stage": "join",
@@ -60,13 +88,16 @@ def default_teacher_state() -> dict[str, Any]:
         "teams_mode": "individual",
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
-        "active_tab": "media",
+        "active_tab": "questions",
         "active_media_ref": None,
-        "prompt_ref": None,
+        "prompt_ref": MINDS_ON_PROMPT_REF,
         "canvas_ephemeral": True,
         "updated_at": _now_iso(),
         "cue_id": None,
         "meet_chain": None,
+        "state_seq": 0,
+        "student_frames": default_student_frames("join"),
+        "unlocks": default_unlocks(),
     }
 
 
@@ -90,6 +121,112 @@ def _clean_frames(raw: Any) -> dict[str, str]:
     return frames
 
 
+def _as_bool(raw: Any) -> bool | None:
+    """Parse a JSON-ish bool, or None when the value is missing."""
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)) and raw in (0, 1):
+        return bool(raw)
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in {"1", "true", "yes", "on"}:
+            return True
+        if token in {"0", "false", "no", "off"}:
+            return False
+    return None
+
+
+def _clean_student_frames(raw: Any, *, stage: str | None = None) -> dict[str, bool]:
+    """Keep known student-frame keys as booleans."""
+    base = default_student_frames(stage)
+    if not isinstance(raw, dict):
+        return base
+    for key in STUDENT_FRAME_KEYS:
+        parsed = _as_bool(raw.get(key))
+        if parsed is not None:
+            base[key] = parsed
+    return base
+
+
+def _clean_unlocks(raw: Any) -> dict[str, bool]:
+    """Keep media/canvas unlock flags as booleans."""
+    base = default_unlocks()
+    if not isinstance(raw, dict):
+        return base
+    for key in UNLOCK_KEYS:
+        parsed = _as_bool(raw.get(key))
+        if parsed is not None:
+            base[key] = parsed
+    return base
+
+
+def _clean_state_seq(raw: Any) -> int:
+    """Return a non-negative integer sequence, defaulting to 0."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value)
+
+
+def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
+    """Fill student frames / JOIN focus for a newly entered stage.
+
+    Teacher Active Content stays mounted; this only swaps thin refs and
+    the student projection map. PLAY reveals all three frames locked.
+
+    Args:
+        state: In-progress public teacher state (mutated).
+        stage: Stage just entered.
+
+    Returns:
+        The same ``state`` dict.
+    """
+    name = stage if stage in STAGES else "join"
+    state["student_frames"] = default_student_frames(name)
+    if name in QUESTION_ONLY_STAGES:
+        state["active_tab"] = "questions"
+        if name == "join":
+            state["layout_preset"] = "questions_full"
+            state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
+            state["prompt_ref"] = MINDS_ON_PROMPT_REF
+        elif name == "teams":
+            state["prompt_ref"] = MINDS_ON_PROMPT_REF
+    return state
+
+
+def student_should_mount_media(state: dict[str, Any] | None) -> bool:
+    """True when the student Real-slice iframe may be mounted.
+
+    JOIN / TEAMS / MEET keep media unmounted even if the teacher preview
+    blob exists. PLAY mounts the frame; ``unlocks.media`` only unlocks
+    controls.
+
+    Args:
+        state: Public teacher state.
+
+    Returns:
+        Whether the student media iframe should have a ``src``.
+    """
+    public = public_teacher_state(state if isinstance(state, dict) else None)
+    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
+    return bool(frames.get("media"))
+
+
+def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
+    """True when the student canvas frame may be shown.
+
+    Args:
+        state: Public teacher state.
+
+    Returns:
+        Whether the student canvas pane is visible.
+    """
+    public = public_teacher_state(state if isinstance(state, dict) else None)
+    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
+    return bool(frames.get("canvas"))
+
+
 def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize a stored blob into the public thin channel.
 
@@ -98,6 +235,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
 
     Returns:
         Complete ``LiveTeacherState``. ``canvas_ephemeral`` is always true.
+        Does not increment ``state_seq``.
     """
     base = default_teacher_state()
     if not isinstance(stored, dict):
@@ -125,7 +263,11 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     if tab in TABS:
         base["active_tab"] = tab
     base["active_media_ref"] = _clean_ref(stored.get("active_media_ref"))
-    base["prompt_ref"] = _clean_ref(stored.get("prompt_ref"))
+    prompt = stored.get("prompt_ref")
+    if "prompt_ref" in stored:
+        base["prompt_ref"] = _clean_ref(prompt)
+    elif base["stage"] == "join":
+        base["prompt_ref"] = MINDS_ON_PROMPT_REF
     base["canvas_ephemeral"] = True
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():
@@ -136,6 +278,16 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     else:
         base["cue_id"] = str(cue).strip() or None
     base["meet_chain"] = public_meet_chain(stored.get("meet_chain"))
+    if "state_seq" in stored:
+        base["state_seq"] = _clean_state_seq(stored.get("state_seq"))
+    if "student_frames" in stored:
+        base["student_frames"] = _clean_student_frames(
+            stored.get("student_frames"), stage=base["stage"]
+        )
+    else:
+        base["student_frames"] = default_student_frames(base["stage"])
+    if "unlocks" in stored:
+        base["unlocks"] = _clean_unlocks(stored.get("unlocks"))
     return base
 
 
@@ -170,8 +322,14 @@ def apply_teacher_state_update(
     cue_id: Any = None,
     meet_chain: Any = None,
     canvas_ephemeral: Any = None,
+    student_frames: Any = None,
+    unlocks: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
+
+    Every successful patch increments ``state_seq`` and stamps
+    ``updated_at``. Stage pills are not a write path — only ``advance``
+    or an explicit ``stage`` field moves the stage.
 
     Args:
         current: Existing public or stored state.
@@ -187,6 +345,8 @@ def apply_teacher_state_update(
         cue_id: Optional one-beat Wonder cue id, or empty to clear.
         meet_chain: Optional ephemeral MeetChainState, or empty to clear.
         canvas_ephemeral: Ignored; the field stays ``True``.
+        student_frames: Optional ``{questions, media, canvas}`` projection.
+        unlocks: Optional ``{media, canvas}`` PLAY unlock flags.
 
     Returns:
         Updated public state.
@@ -196,6 +356,7 @@ def apply_teacher_state_update(
     """
     del canvas_ephemeral  # always true; callers cannot persist the stub
     base = public_teacher_state(current)
+    prev_stage = str(base.get("stage") or "join")
     if advance is not None:
         token = str(advance).strip().lower()
         if token not in {"next", "prev", "previous", "back"}:
@@ -207,6 +368,10 @@ def apply_teacher_state_update(
         if name not in STAGES:
             raise ValueError(f"unknown stage: {name}")
         base["stage"] = name
+    new_stage = str(base.get("stage") or "join")
+    stage_changed = new_stage != prev_stage
+    if stage_changed:
+        apply_stage_projection(base, new_stage)
     if round is not None:
         if round in (None, ""):
             base["round"] = None
@@ -250,6 +415,19 @@ def apply_teacher_state_update(
             base["meet_chain"] = None
         else:
             base["meet_chain"] = public_meet_chain(meet_chain)
+    if student_frames is not None:
+        if not isinstance(student_frames, dict):
+            raise ValueError("student_frames must be an object")
+        base["student_frames"] = _clean_student_frames(
+            student_frames, stage=new_stage
+        )
+    if unlocks is not None:
+        if not isinstance(unlocks, dict):
+            raise ValueError("unlocks must be an object")
+        merged = dict(base.get("unlocks") or default_unlocks())
+        merged.update(unlocks)
+        base["unlocks"] = _clean_unlocks(merged)
     base["canvas_ephemeral"] = True
     base["updated_at"] = _now_iso()
+    base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1
     return base
