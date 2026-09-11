@@ -36,6 +36,7 @@ from school_db import (
     STAFF_2FA_EVERY_SIGN_IN,
     SchoolDB,
 )
+from local_dev_seed import local_dev_login_enabled
 from paths import DEFAULT_IT_EMAIL, SCHOOL_NAME, SCHOOL_SHORT, public_brand
 from student_portal import (
     bind_student_session,
@@ -97,6 +98,8 @@ def staff_2fa_challenge_required(user: dict[str, Any]) -> bool:
     Args:
         user: Allowlisted staff/IT row.
     """
+    if local_dev_login_enabled():
+        return False
     if not user.get("verified_at"):
         return True
     if privileged_mfa_required():
@@ -154,22 +157,20 @@ def mock_login_enabled() -> bool:
     """
     if current_app.config.get("TESTING"):
         return True
-    return (os.getenv("LOCAL_DEV_LOGIN") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    return local_dev_login_enabled()
 
 
 def _local_dev_accounts(portal: str) -> list[dict[str, Any]]:
-    """List existing users for one-click local sign-in.
+    """List IT and staff for one-click local sign-in on either portal.
 
     Args:
-        portal: ``it`` or ``staff`` — filters to accounts that can enter it.
+        portal: ``it`` or ``staff``. Staff rows on the Admin picker still
+            land in the staff shell (they cannot enter ``/it``).
 
     Returns:
         User dicts, or an empty list if the database is unavailable.
     """
+    del portal  # both pickers show the same allowlisted people
     try:
         users = school_db().list_staff()
     except Exception:  # noqa: BLE001 - picker must never break the login page
@@ -179,7 +180,7 @@ def _local_dev_accounts(portal: str) -> list[dict[str, Any]]:
     for user in users:
         email = str(user.get("email") or "").lower()
         is_it = user.get("role") == "it" or email in allowed
-        if portal == "it" and not is_it:
+        if user.get("role") not in {"staff", "it"} and not is_it:
             continue
         out.append(user)
     return out
@@ -558,10 +559,13 @@ def _finish_google_identity(
     is_it = user["role"] == "it" or email_l in it_emails()
 
     if portal_key == "it" and not is_it:
-        return render_template(
-            "forbidden.html",
-            message="Ask Admin to grant access.",
-        ), 403
+        if local_dev_login_enabled():
+            portal_key = "staff"
+        else:
+            return render_template(
+                "forbidden.html",
+                message="Ask Admin to grant access.",
+            ), 403
     if portal_key == "staff" and user["role"] not in {"staff", "it"} and not is_it:
         return render_template(
             "forbidden.html",

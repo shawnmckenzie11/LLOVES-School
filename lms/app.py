@@ -70,6 +70,11 @@ from celebration import (  # noqa: E402
     set_featured_award,
 )
 from curriculum import seed_curriculum  # noqa: E402
+from local_dev_seed import (  # noqa: E402
+    local_dev_bind_host,
+    local_dev_login_enabled,
+    seed_local_dev_school,
+)
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
 from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_STEM,
@@ -727,11 +732,7 @@ def create_app(
     if secure:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
         app.config["PREFERRED_URL_SCHEME"] = "https"
-        if (os.getenv("LOCAL_DEV_LOGIN") or "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-        }:
+        if local_dev_login_enabled():
             raise RuntimeError(
                 "LOCAL_DEV_LOGIN is set with FLASK_ENV=production; refusing to "
                 "start with the offline login picker exposed publicly."
@@ -748,6 +749,11 @@ def create_app(
     app.config["SCHOOL_DB"] = school
     app.config["DATA_DIR"] = store
     seed_curriculum(school)
+    if local_dev_login_enabled() and not secure:
+        try:
+            seed_local_dev_school(school)
+        except Exception:  # noqa: BLE001 - empty school is worse than a log
+            app.logger.exception("LOCAL_DEV_LOGIN seed failed")
 
     register_auth_routes(app)
     _register_pages(app, school)
@@ -5097,7 +5103,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT") or "8787")
-    host = os.getenv("HOST") or "127.0.0.1"
+    host = local_dev_bind_host()
     application = create_app()
     catalog_n = len(application.config["SCHOOL_DB"].list_ontario_courses())
     print(f"LLOVES LMS: http://{host}:{port}/")
