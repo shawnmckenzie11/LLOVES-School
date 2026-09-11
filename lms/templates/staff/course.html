@@ -123,7 +123,7 @@
           <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
                 data-confirm="End Live Class? All session data will be lost."
                 onsubmit="return confirm(this.dataset.confirm);">
-            <button type="submit" class="live-header-end danger" id="live-end-class">End Class</button>
+            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Live Class">End Class</button>
           </form>
           <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
           <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>
