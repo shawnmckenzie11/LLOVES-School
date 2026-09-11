@@ -1765,6 +1765,36 @@ body.staff-shell .live-teams-pop {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  color: #12202e;
+}
+body.staff-shell .live-teams-pop .hint {
+  margin: 0;
+  color: #334155;
+}
+body.staff-shell .live-teams-pop .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+}
+body.staff-shell .live-teams-pop input[type="text"] {
+  min-height: 2rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  color: #12202e;
+  font-size: 0.85rem;
+}
+body.staff-shell .live-teams-pop button {
+  align-self: flex-end;
+  min-height: 2rem;
+  min-width: 4.5rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.82rem;
 }
 body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name {
   color: var(--team, inherit);
