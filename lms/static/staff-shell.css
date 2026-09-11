@@ -1122,6 +1122,12 @@ body.staff-shell .ap-join-billboard-row {
   gap: 0.65rem 1rem;
 }
 body.staff-shell .ap-join-billboard-code {
+  appearance: none;
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-family: ui-monospace, Menlo, "JetBrains Mono", monospace;
   font-size: clamp(2rem, 6vw, 3.25rem);
   font-weight: 800;
@@ -1291,6 +1297,8 @@ body.staff-shell .track-live-root.live-shell-root {
   --live-pane-bg: #f7f9fb;
   --live-border: #d5dde6;
   --live-header-h: 52px;
+  --live-header-pad-y: 0.35rem;
+  --live-header-chip-max-h: calc(var(--live-header-h) - (var(--live-header-pad-y) * 2));
   --live-rail-active: #1f6feb;
   --live-left-min: 220px;
   --live-left-ideal: 24%;
@@ -1327,7 +1335,7 @@ body.staff-shell .live-header {
   gap: 0.45rem 0.75rem;
   min-height: var(--live-header-h);
   max-height: var(--live-header-h);
-  padding: 0.35rem 0.65rem;
+  padding: var(--live-header-pad-y) 0.65rem;
   background: var(--live-pane-bg);
   border: 1px solid var(--live-border);
   border-radius: 8px;
@@ -1572,28 +1580,58 @@ body.staff-shell .live-content-chip {
   cursor: grab;
 }
 body.staff-shell .live-header-join {
+  display: flex;
+  align-items: center;
+  align-self: center;
   flex: 0 1 auto;
   min-width: 0;
+  max-height: var(--live-header-chip-max-h);
 }
 body.staff-shell .live-header .ap-join-billboard {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  box-sizing: border-box;
   margin: 0;
-  padding: 0.35rem 0.55rem;
+  padding: 0.12rem 0.45rem;
   border-radius: 6px;
+  max-height: var(--live-header-chip-max-h);
+  overflow: visible;
 }
 body.staff-shell .live-header .ap-join-billboard-label {
-  margin: 0 0.45rem 0 0;
+  margin: 0 0.4rem 0 0;
   display: inline;
+  white-space: nowrap;
+  line-height: 1;
+  font-size: 0.68rem;
 }
 body.staff-shell .live-header .ap-join-billboard-row {
   display: inline-flex;
-  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  max-height: 100%;
 }
 body.staff-shell .live-header .ap-join-billboard-code {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+  word-break: normal;
+  overflow: visible;
+  max-height: 100%;
 }
-body.staff-shell .live-header .ap-join-billboard-hint {
-  display: none;
+body.staff-shell .live-header .ap-join-billboard-copy {
+  padding: 0.12rem 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.1;
+  min-height: 0;
+  border-radius: 6px;
+}
+body.staff-shell .live-header .ap-join-billboard-copied,
+body.staff-shell .live-header .ap-join-billboard-hint,
+body.staff-shell .live-header .ap-join-strip {
+  display: none !important;
 }
 body.staff-shell .live-date-panel {
   padding: 0.75rem 0.85rem;

@@ -110,20 +110,18 @@
                {% if not live_session_code %}hidden{% endif %}>
             <p class="ap-join-billboard-label">JOIN CODE</p>
             <div class="ap-join-billboard-row">
-              <span id="ap-join-billboard-code"
-                    class="ap-join-billboard-code"
-                    role="button"
-                    tabindex="0"
-                    title="Click to copy"
-                    aria-live="polite">{{ live_session_code or '····' }}</span>
+              <button type="button"
+                      id="ap-join-billboard-code"
+                      class="ap-join-billboard-code"
+                      title="Open join strip"
+                      aria-label="Open join strip"
+                      aria-live="polite">{{ live_session_code or '····' }}</button>
               <button type="button" id="ap-join-billboard-copy" class="ap-join-billboard-copy">Copy</button>
             </div>
             <p class="ap-join-billboard-copied" id="ap-join-billboard-copied" hidden>Copied</p>
             <p class="ap-join-billboard-hint">Share this code. It stays here if the overlay is blocked.</p>
           </div>
-          <p class="hint compact ap-join-strip" id="ap-join-strip" hidden>
-            <button type="button" class="linkish" id="ap-open-overlay">Open join strip</button>
-          </p>
+          <p class="hint compact ap-join-strip" id="ap-join-strip" hidden></p>
         </div>
         <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
         <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
