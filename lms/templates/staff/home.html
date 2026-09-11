@@ -49,7 +49,7 @@
         <div class="course-card-actions">
           {% if cls %}
           {% set live_active = active_live_session %}
-          {% set live_here = live_active and live_active.class_id == cls.id %}
+          {% set live_here = live_active and live_active.class_id|int == cls.id|int %}
           {% if live_active %}
           <div class="course-action-row{% if live_here %} course-action-live-row{% endif %}">
             <button type="button" class="course-action course-action-live is-disabled" disabled aria-disabled="true" aria-label="Live Class in Progress">

@@ -150,6 +150,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("All session data will be lost", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
         self.assertIn('id="live-end-class"', html)
+        self.assertIn('aria-label="End Live Class"', html)
+        self.assertIn("live-end-class-form", html)
+        self.assertNotIn('class="live-header-end danger live-legacy-control"', html)
         self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
@@ -157,6 +160,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("End Live Class", home_html)
         self.assertIn("All session data will be lost", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
+        self.assertIn("course-action-live-row", home_html)
+
+    def test_class_list_pane_has_readable_min_width(self) -> None:
+        """ClassListPane stays condensed but wide enough for names + mood chips."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("--live-left-min: 16.5rem", css)
+        self.assertIn("--live-left-max: 26%", css)
+        self.assertIn("minmax(var(--live-left-min), 24%)", css)
+        self.assertNotIn("--live-left-min: 140px", css)
+        self.assertNotIn("minmax(var(--live-left-min), 15%)", css)
+        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
 
 
 if __name__ == "__main__":
