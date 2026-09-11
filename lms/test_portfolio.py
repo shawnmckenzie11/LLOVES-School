@@ -16,7 +16,6 @@ sys.path.insert(0, str(REPO_ROOT))
 
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
-os.environ["LOCAL_DEV_LOGIN"] = "1"
 
 from ap_round_profiles import (  # noqa: E402
     BUILTIN_CHALLENGE_ACTIONS,
@@ -29,6 +28,21 @@ from portfolio.lookfors import LOOKFOR_IDS, process_keys_for_lookfor, rubric_key
 from portfolio.store import load_core_questions, load_exemplar, load_rubric
 from portfolio.suggest import classify_communicate, classify_connect, classify_justify, classify_transfer
 from portfolio.useful_words import useful_word_union
+
+
+def _scope_local_dev_login() -> str | None:
+    """Enable LOCAL_DEV_LOGIN for one test; return the prior env value."""
+    previous = os.environ.get("LOCAL_DEV_LOGIN")
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    return previous
+
+
+def _restore_local_dev_login(previous: str | None) -> None:
+    """Restore LOCAL_DEV_LOGIN after a scoped portfolio test."""
+    if previous is None:
+        os.environ.pop("LOCAL_DEV_LOGIN", None)
+    else:
+        os.environ["LOCAL_DEV_LOGIN"] = previous
 
 
 class PortfolioStoreTests(unittest.TestCase):
@@ -147,6 +161,7 @@ class IndividualChallengeRoundTests(unittest.TestCase):
 
     def setUp(self) -> None:
         """Isolated Flask app with a staff-owned class."""
+        self._prev_local_dev_login = _scope_local_dev_login()
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         from app import create_app
@@ -171,9 +186,10 @@ class IndividualChallengeRoundTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        """Close temp DB."""
+        """Close temp DB and restore LOCAL_DEV_LOGIN."""
         self.school.close()
         self.tmp.cleanup()
+        _restore_local_dev_login(self._prev_local_dev_login)
 
     def test_individual_allows_challenge_rejects_formative(self) -> None:
         """Challenge starts; Formative still 400."""
@@ -271,6 +287,14 @@ class IndividualChallengeRoundTests(unittest.TestCase):
 
 class PortfolioTabGateTests(unittest.TestCase):
     """Portfolio tab is hidden in production."""
+
+    def setUp(self) -> None:
+        """Scope LOCAL_DEV_LOGIN so unittest discover does not leak it."""
+        self._prev_local_dev_login = _scope_local_dev_login()
+
+    def tearDown(self) -> None:
+        """Restore LOCAL_DEV_LOGIN after each tab-gate test."""
+        _restore_local_dev_login(self._prev_local_dev_login)
 
     def test_production_disables_tab(self) -> None:
         """FLASK_ENV=production turns the gate off."""
