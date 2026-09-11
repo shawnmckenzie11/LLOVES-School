@@ -169,6 +169,38 @@ def _clean_state_seq(raw: Any) -> int:
     return max(0, value)
 
 
+def public_mc_ui(raw: Any, *, prompt_ref: str | None = None) -> dict[str, Any] | None:
+    """Normalize additive MC reveal chrome, or None when cleared / absent.
+
+    Student mirror stays off unless ``reveal_to_students`` is explicitly
+    true. Wonder cues are not part of this object.
+
+    Args:
+        raw: Stored or PATCH ``mc_ui`` object, or empty to clear.
+        prompt_ref: Fallback id when the blob omits ``prompt_ref``.
+
+    Returns:
+        ``{prompt_ref, reveal, reveal_to_students}`` or ``None``.
+
+    Raises:
+        ValueError: When ``raw`` is present but not an object / has no ref.
+    """
+    if raw in (None, "", False, {}):
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("mc_ui must be an object")
+    ref = _clean_ref(raw.get("prompt_ref")) or _clean_ref(prompt_ref)
+    if not ref:
+        raise ValueError("mc_ui.prompt_ref is required")
+    reveal = _as_bool(raw.get("reveal"))
+    to_students = _as_bool(raw.get("reveal_to_students"))
+    return {
+        "prompt_ref": ref,
+        "reveal": bool(reveal) if reveal is not None else False,
+        "reveal_to_students": bool(to_students) if to_students is not None else False,
+    }
+
+
 def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """Fill student frames / JOIN focus for a newly entered stage.
 
@@ -288,6 +320,15 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["student_frames"] = default_student_frames(base["stage"])
     if "unlocks" in stored:
         base["unlocks"] = _clean_unlocks(stored.get("unlocks"))
+    if "mc_ui" in stored:
+        try:
+            cleaned = public_mc_ui(stored.get("mc_ui"), prompt_ref=base.get("prompt_ref"))
+        except ValueError:
+            cleaned = None
+        if cleaned is None:
+            base.pop("mc_ui", None)
+        else:
+            base["mc_ui"] = cleaned
     return base
 
 
@@ -324,6 +365,7 @@ def apply_teacher_state_update(
     canvas_ephemeral: Any = None,
     student_frames: Any = None,
     unlocks: Any = None,
+    mc_ui: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -347,6 +389,9 @@ def apply_teacher_state_update(
         canvas_ephemeral: Ignored; the field stays ``True``.
         student_frames: Optional ``{questions, media, canvas}`` projection.
         unlocks: Optional ``{media, canvas}`` PLAY unlock flags.
+        mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students}``.
+            Reveal toggles bump ``state_seq``. ``reveal_to_students``
+            defaults false. Empty clears the blob.
 
     Returns:
         Updated public state.
@@ -427,6 +472,18 @@ def apply_teacher_state_update(
         merged = dict(base.get("unlocks") or default_unlocks())
         merged.update(unlocks)
         base["unlocks"] = _clean_unlocks(merged)
+    if mc_ui is not None:
+        cleaned = public_mc_ui(mc_ui, prompt_ref=base.get("prompt_ref"))
+        if cleaned is None:
+            base.pop("mc_ui", None)
+        else:
+            base["mc_ui"] = cleaned
+    elif prompt_ref is not None or stage_changed:
+        existing = base.get("mc_ui")
+        if isinstance(existing, dict):
+            current_ref = _clean_ref(base.get("prompt_ref"))
+            if current_ref and existing.get("prompt_ref") != current_ref:
+                base.pop("mc_ui", None)
     base["canvas_ephemeral"] = True
     base["updated_at"] = _now_iso()
     base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1

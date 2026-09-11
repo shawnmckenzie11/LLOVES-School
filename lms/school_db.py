@@ -23,6 +23,7 @@ try:
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from live_mc import build_mc_tally
     from live_teacher_state import (
         apply_teacher_state_update,
         public_teacher_state,
@@ -66,6 +67,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from lms.live_mc import build_mc_tally
     from lms.live_teacher_state import (
         apply_teacher_state_update,
         public_teacher_state,
@@ -6336,6 +6338,68 @@ class SchoolDB(LovesDB):
         )
         return result or {}
 
+    def list_live_prompt_responses(self, prompt_id: int) -> list[dict[str, Any]]:
+        """Return every response row for one live prompt.
+
+        Args:
+            prompt_id: ``live_session_prompts.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_session_responses
+                WHERE prompt_id = ?
+                ORDER BY id ASC
+                """,
+                (int(prompt_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            payload = dict(row)
+            raw = payload.get("response_json") or "{}"
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except json.JSONDecodeError:
+                parsed = {}
+            payload["response"] = parsed if isinstance(parsed, dict) else {}
+            out.append(payload)
+        return out
+
+    def live_session_mc_tally(self, session_id: int) -> dict[str, Any] | None:
+        """Staff-only MC distribution for the current active prompt.
+
+        Source-agnostic: JOIN Minds-On, MEET soft MC, CONS, and any other
+        ``kind=mc`` ride share this shape. Meet tallies ephemeral chain
+        picks (no gradebook). Seeds waiting-room Minds-On so JOIN staff
+        polls see the same prompt students get.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        self.ensure_waiting_room_minds_on(session_id)
+        prompt = self.get_active_live_prompt(session_id)
+        if prompt is None:
+            return None
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            teacher = None
+        attendees = self.list_live_session_attendees(session_id)
+        present = sum(1 for row in attendees if not row.get("left_at"))
+        prompt_id = prompt.get("id")
+        responses = (
+            self.list_live_prompt_responses(int(prompt_id))
+            if prompt_id not in (None, "")
+            else []
+        )
+        return build_mc_tally(
+            prompt,
+            responses=responses,
+            meet_chain=(teacher or {}).get("meet_chain"),
+            present=present,
+            teacher_state=teacher,
+        )
+
     def apply_prompt_score_to_participation(
         self,
         class_id: int,
@@ -7345,6 +7409,7 @@ class SchoolDB(LovesDB):
             "active_media": self.live_session_active_media_payload(session_id),
             "teacher_state": self.live_session_teacher_state_payload(session_id),
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
+            "mc_tally": self.live_session_mc_tally(session_id),
         }
 
     def has_active_live_sessions(self) -> bool:

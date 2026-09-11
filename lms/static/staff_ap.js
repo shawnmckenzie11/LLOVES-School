@@ -67,6 +67,10 @@ let pendingScoreboard = false;
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
+let sessionPollMs = 0;
+/** @type {any} */
+let lastMcTally = null;
+let lastMcBindKey = "";
 /** C2/C3 are text-only: never stored in active_media_json. */
 let textOnlyChallenge = "";
 let sessionPresentIds = new Set();
@@ -154,7 +158,7 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>}} */
+/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean}}} */
 let teacherState = {
   stage: "join",
   round: null,
@@ -212,14 +216,24 @@ function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
  */
 function adoptTeacherState(next) {
   if (!next || typeof next !== "object") return;
+  const prevSeq = Number(teacherState.state_seq);
   teacherState = {
     ...teacherState,
     ...next,
     frames: next.frames && typeof next.frames === "object" ? { ...next.frames } : teacherState.frames,
     canvas_ephemeral: true,
   };
+  if (next.mc_ui && typeof next.mc_ui === "object") {
+    teacherState.mc_ui = { ...next.mc_ui };
+  } else {
+    delete teacherState.mc_ui;
+  }
   REACHED_STAGES.add(teacherState.stage);
-  paintTeacherShell();
+  if (Number(teacherState.state_seq) !== prevSeq) {
+    paintTeacherShell();
+    return;
+  }
+  paintMcResultsSlot();
 }
 
 /**
@@ -342,7 +356,9 @@ function paintRightFlag(stage = teacherState.stage || stageForStep()) {
 }
 
 /**
- * Show ResultsStrip only when TabQuestions has live responses.
+ * Show ResultsStrip when TabQuestions has scoring rows or a live MC tally.
+ * MC LIVE/REVEAL is the primary slot; scoring stays a sibling, never a
+ * second floating card.
  */
 function paintResultsStrip() {
   const results = $("results-strip");
@@ -350,12 +366,127 @@ function paintResultsStrip() {
   const stage = teacherState.stage;
   const list = $("ap-score-list");
   const hasRows = Boolean(list && list.children.length);
-  const show =
+  const showScore =
     stage !== "join" &&
     stage !== "teams" &&
     (hasRows || (stage === "play" && isScoringLive()));
+  const scorePanel = $("ap-panel-score");
+  if (scorePanel) scorePanel.hidden = !showScore;
+  paintMcResultsSlot();
+  const mcSlot = $("mc-results-slot");
+  const showMc = Boolean(mcSlot && !mcSlot.hidden);
+  const show = showMc || showScore;
   results.hidden = !show;
   results.classList.toggle("is-flagged", show);
+}
+
+/**
+ * Bind key so tally paints update in place without remounting Questions.
+ * @param {any} tally
+ * @param {boolean} reveal
+ * @returns {string}
+ */
+function mcBindKey(tally, reveal) {
+  if (!tally || typeof tally !== "object") return "";
+  return [
+    tally.prompt_ref || "",
+    tally.prompt_id || "",
+    tally.response_seq ?? "",
+    tally.response_count ?? "",
+    reveal ? "1" : "0",
+  ].join("|");
+}
+
+/**
+ * True when staff Reveal is on for this tally's prompt_ref.
+ * @param {any} [tally]
+ * @returns {boolean}
+ */
+function mcRevealOn(tally = lastMcTally) {
+  const ui = teacherState.mc_ui;
+  if (!ui || !tally) return false;
+  return Boolean(ui.reveal) && String(ui.prompt_ref || "") === String(tally.prompt_ref || "");
+}
+
+/**
+ * Paint LIVE / REVEAL inside the Questions ResultsStrip slot only.
+ */
+function paintMcResultsSlot() {
+  const slot = $("mc-results-slot");
+  const progress = $("mc-live-progress");
+  const soft = $("mc-live-soft");
+  const bars = $("mc-reveal-bars");
+  const revealBtn = $("mc-reveal-btn");
+  const hideBtn = $("mc-hide-reveal-btn");
+  if (!slot) return;
+  const tally = lastMcTally;
+  const hasMc = Boolean(tally && Array.isArray(tally.choices) && tally.choices.length);
+  slot.hidden = !hasMc;
+  if (!hasMc) {
+    lastMcBindKey = "";
+    return;
+  }
+  const reveal = mcRevealOn(tally);
+  const bind = mcBindKey(tally, reveal);
+  if (bind && bind === lastMcBindKey && slot.dataset.mode === (reveal ? "reveal" : "live")) {
+    return;
+  }
+  lastMcBindKey = bind;
+  slot.dataset.mode = reveal ? "reveal" : "live";
+  const responded = Number(tally.responded || 0);
+  const present = Math.max(Number(tally.present || 0), responded);
+  if (progress) progress.textContent = `${responded}/${present} responded`;
+  const softParts = (tally.choices || []).map((row) => `${row.id} · ${row.count}`);
+  if (soft) {
+    soft.hidden = reveal || !softParts.length;
+    soft.textContent = softParts.length ? `Soft counts · ${softParts.join(" · ")}` : "";
+  }
+  if (bars) {
+    bars.hidden = !reveal;
+    if (reveal) {
+      bars.innerHTML = (tally.choices || [])
+        .map((row) => {
+          const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
+          const label = String(row.label || "").replace(/</g, "&lt;");
+          return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${row.count} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
+        })
+        .join("");
+    }
+  }
+  if (revealBtn) revealBtn.hidden = reveal;
+  if (hideBtn) hideBtn.hidden = !reveal;
+}
+
+/**
+ * Adopt a staff /state mc_tally without remounting Active Content tabs.
+ * @param {any} tally
+ */
+function applyMcTally(tally) {
+  lastMcTally = tally && typeof tally === "object" && tally.prompt_ref ? tally : null;
+  paintResultsStrip();
+  syncLiveSessionPolling();
+}
+
+/**
+ * Current MC prompt_ref for a reveal PATCH (source-agnostic).
+ * @returns {string}
+ */
+function currentMcPromptRef() {
+  return String(lastMcTally?.prompt_ref || teacherState.prompt_ref || "minds_on");
+}
+
+/**
+ * PATCH mc_ui only. Never sends a Wonder cue_id.
+ * @param {boolean} reveal
+ */
+function patchMcReveal(reveal) {
+  patchTeacherState({
+    mc_ui: {
+      prompt_ref: currentMcPromptRef(),
+      reveal: Boolean(reveal),
+      reveal_to_students: false,
+    },
+  });
 }
 
 /**
@@ -748,6 +879,30 @@ function stopLiveSessionPolling() {
     clearInterval(sessionPollTimer);
     sessionPollTimer = null;
   }
+  sessionPollMs = 0;
+}
+
+/**
+ * Poll interval: ≤1s while an MC prompt is live, else 2s.
+ * @returns {number}
+ */
+function desiredSessionPollMs() {
+  return lastMcTally ? 1000 : 2000;
+}
+
+/**
+ * Restart the session poll only when the interval should change.
+ */
+function syncLiveSessionPolling() {
+  if (!liveSessionId && !readLiveSessionId()) return;
+  const ms = desiredSessionPollMs();
+  if (sessionPollTimer && sessionPollMs === ms) return;
+  if (sessionPollTimer) {
+    clearInterval(sessionPollTimer);
+    sessionPollTimer = null;
+  }
+  sessionPollMs = ms;
+  sessionPollTimer = window.setInterval(pollLiveSessionAttendees, ms);
 }
 
 /**
@@ -820,6 +975,7 @@ async function pollLiveSessionAttendees() {
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
+    applyMcTally(payload?.mc_tally);
     ensureC1MediaSeeded();
   } catch (_) {
     /* keep polling */
@@ -832,7 +988,7 @@ async function pollLiveSessionAttendees() {
 function startLiveSessionPolling() {
   stopLiveSessionPolling();
   pollLiveSessionAttendees();
-  sessionPollTimer = window.setInterval(pollLiveSessionAttendees, 2000);
+  syncLiveSessionPolling();
 }
 
 /**
@@ -3127,6 +3283,13 @@ async function patchTeacherState(body, opts = {}) {
     teacherStateInFlight = false;
   }
 }
+
+$("mc-reveal-btn")?.addEventListener("click", () => {
+  patchMcReveal(true);
+});
+$("mc-hide-reveal-btn")?.addEventListener("click", () => {
+  patchMcReveal(false);
+});
 
 $("live-stage-prev")?.addEventListener("click", () => {
   patchTeacherState({ advance: "prev" });

@@ -25,6 +25,7 @@ from live_teacher_state import (  # noqa: E402
     adjacent_stage,
     apply_teacher_state_update,
     default_teacher_state,
+    public_mc_ui,
     public_teacher_state,
     student_should_mount_canvas,
     student_should_mount_media,
@@ -131,6 +132,42 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(state["prompt_ref"], "meet-math")
         self.assertNotIn("params", state)
         self.assertNotIn("payload", state)
+
+    def test_mc_ui_reveal_is_additive_and_bumps_seq(self) -> None:
+        """Reveal chrome is optional, defaults student-off, and bumps state_seq."""
+        state = default_teacher_state()
+        self.assertNotIn("mc_ui", state)
+        self.assertIsNone(public_mc_ui(None))
+        shown = apply_teacher_state_update(
+            state,
+            mc_ui={"prompt_ref": MINDS_ON_PROMPT_REF, "reveal": True},
+        )
+        self.assertEqual(shown["state_seq"], 1)
+        self.assertEqual(shown["mc_ui"]["prompt_ref"], MINDS_ON_PROMPT_REF)
+        self.assertTrue(shown["mc_ui"]["reveal"])
+        self.assertFalse(shown["mc_ui"]["reveal_to_students"])
+        hidden = apply_teacher_state_update(
+            shown,
+            mc_ui={
+                "prompt_ref": MINDS_ON_PROMPT_REF,
+                "reveal": False,
+                "reveal_to_students": False,
+            },
+        )
+        self.assertEqual(hidden["state_seq"], 2)
+        self.assertFalse(hidden["mc_ui"]["reveal"])
+        moved = apply_teacher_state_update(hidden, prompt_ref="C1-CONS-1")
+        self.assertNotIn("mc_ui", moved)
+        kept = public_teacher_state(
+            {
+                "prompt_ref": MINDS_ON_PROMPT_REF,
+                "mc_ui": {"prompt_ref": "C1-CONS-1", "reveal": True},
+            }
+        )
+        self.assertEqual(kept["mc_ui"]["prompt_ref"], "C1-CONS-1")
+        self.assertTrue(kept["mc_ui"]["reveal"])
+        with self.assertRaises(ValueError):
+            apply_teacher_state_update(None, mc_ui="yes")
 
 
 class LiveTeacherStateApiTests(unittest.TestCase):
@@ -279,6 +316,25 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             json={"stage": "challenge"},
         )
         self.assertEqual(bad.status_code, 400)
+
+    def test_mc_ui_patch_does_not_set_wonder_cue(self) -> None:
+        """Reveal/Hide is mc_ui only — Wonder stays silent."""
+        shown = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "mc_ui": {
+                    "prompt_ref": MINDS_ON_PROMPT_REF,
+                    "reveal": True,
+                    "reveal_to_students": False,
+                }
+            },
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        body = shown.get_json()["teacher_state"]
+        self.assertTrue(body["mc_ui"]["reveal"])
+        self.assertFalse(body["mc_ui"]["reveal_to_students"])
+        self.assertIsNone(body.get("cue_id"))
+        self.assertGreaterEqual(body["state_seq"], 1)
 
 
 if __name__ == "__main__":

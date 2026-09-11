@@ -336,6 +336,48 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("openJoinStrip", code_click)
         self.assertNotIn("copyJoinBillboardCode", code_click)
 
+    def test_mc_reveal_lives_in_results_strip_only(self) -> None:
+        """v2.1: LIVE/REVEAL is the ResultsStrip primary slot, not a second card."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="mc-results-slot"', html)
+        self.assertIn("Reveal results", html)
+        self.assertIn("Hide reveal · keep collecting", html)
+        q_i = html.index('id="question-artifact-zone"')
+        r_i = html.index('id="results-strip"')
+        mc_i = html.index('id="mc-results-slot"')
+        score_i = html.index('id="ap-panel-score"')
+        self.assertLess(q_i, r_i)
+        self.assertLess(r_i, mc_i)
+        self.assertLess(mc_i, score_i)
+        self.assertEqual(html.count('id="results-strip"'), 1)
+        self.assertEqual(html.count('id="mc-results-slot"'), 1)
+        self.assertNotIn('id="mystery-results"', html)
+        self.assertNotIn('id="mc-results-card"', html)
+        header = html[html.index('id="live-header"') : html.index('class="live-shell-body"')]
+        self.assertNotIn('id="mc-results-slot"', header)
+        left = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertNotIn('id="mc-results-slot"', left)
+        self.assertNotIn('id="results-strip"', left)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell #mc-results-slot {", css)
+        slot_css = css.split("body.staff-shell #mc-results-slot {")[1].split("}")[0]
+        self.assertIn("max-height: 14rem", slot_css)
+        self.assertIn("overflow-y: auto", slot_css)
+        self.assertIn("body.staff-shell #mc-results-slot [hidden] {", css)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function paintMcResultsSlot()", js)
+        self.assertIn("function applyMcTally(", js)
+        self.assertIn("function patchMcReveal(", js)
+        self.assertIn("desiredSessionPollMs()", js)
+        self.assertIn("return lastMcTally ? 1000 : 2000", js)
+        reveal = js.split("function patchMcReveal(")[1].split("function ")[0]
+        self.assertIn("reveal_to_students: false", reveal)
+        self.assertNotIn("cue_id", reveal)
+        self.assertIn('patchTeacherState({', reveal)
+        self.assertIn("mc_ui:", reveal)
+        self.assertNotIn("innerHTML", js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0])
+
 
 if __name__ == "__main__":
     unittest.main()
