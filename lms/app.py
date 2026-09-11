@@ -3733,10 +3733,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         POST JSON may include ``advance`` (``next`` / ``prev``) to move
         ``stage`` only, plus any subset of stage / round / teams_mode /
         layout_preset / frames / active_tab / refs / cue_id / meet_chain /
-        student_frames / unlocks, or ``meet_action`` (``next`` / ``skip_c``
-        / ``clear``). Every write increments ``state_seq``. Does not
-        duplicate ``active_media`` or prompt payloads. ``canvas_ephemeral``
-        is always true.
+        student_frames / unlocks / ``mc_ui``, or ``meet_action``
+        (``next`` / ``skip_c`` / ``clear``). Every write increments
+        ``state_seq``. Reveal toggles are ``mc_ui`` only — no Wonder cue.
+        Does not duplicate ``active_media`` or prompt payloads.
+        ``canvas_ephemeral`` is always true.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3771,6 +3772,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "meet_action",
             "student_frames",
             "unlocks",
+            "mc_ui",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
