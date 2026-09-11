@@ -2359,10 +2359,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """End this teacher's active live session for the given class.
+        """Wipe every live session for this class after the teacher confirms.
 
-        Staff may only terminate their own active session, and only from the
-        course card that owns it (one-session-per-teacher rule).
+        Staff may only terminate a class they own (IT in-tenant included via
+        ``teacher_owns_class``), and only from the course card that holds
+        their active session (one-session-per-teacher). The confirm dialog
+        warns that all session data will be lost.
         """
         user = current_user()
         assert user is not None
@@ -2371,7 +2373,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        school.end_live_class_session(int(active["id"]))
+        school.wipe_live_sessions_for_class(int(class_id))
         try:
             school.game.end_game(class_id)
         except Exception:  # noqa: BLE001 — no live game is fine

@@ -196,7 +196,7 @@ body.staff-shell.staff-home .course-action-live-row {
 body.staff-shell.staff-home .course-action-end-form {
   display: flex;
   margin: 0;
-  min-width: 4.75rem;
+  min-width: 8.75rem;
 }
 body.staff-shell.staff-home .course-action-end {
   width: 100%;
@@ -216,6 +216,9 @@ body.staff-shell.staff-home .course-card-pack-bar {
 }
 @container course-card (max-width: 21.99rem) {
   body.staff-shell.staff-home .course-action-split {
+    grid-template-columns: 1fr;
+  }
+  body.staff-shell.staff-home .course-action-live-row {
     grid-template-columns: 1fr;
   }
 }

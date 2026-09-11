@@ -6709,6 +6709,122 @@ class SchoolDB(LovesDB):
                 ended.append(result)
         return ended
 
+    def list_live_sessions_for_class(self, class_id: int) -> list[dict[str, Any]]:
+        """Return every live session row for a class (active and ended).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE class_id = ?
+                ORDER BY id ASC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def wipe_live_sessions_for_class(self, class_id: int) -> dict[str, Any]:
+        """Delete all live sessions and their data for a class.
+
+        Teacher End Live Class recovery: hung sessions plus leftover
+        attendees, prompts, responses, observations, slides, and active
+        media are removed so Run Live Class can start clean. Roster,
+        gradebook, and lesson-slide decks stay intact.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``{ok, class_id, wiped_session_ids, wiped_count}``.
+        """
+        sessions = self.list_live_sessions_for_class(class_id)
+        session_ids = [int(row["id"]) for row in sessions]
+        for sid in session_ids:
+            self.clear_attendee_moods_and_characters(sid)
+        try:
+            self.game.clear_class_moods_and_characters(int(class_id))
+        except Exception:  # noqa: BLE001 — roster moods are best-effort
+            pass
+        with self._lock:
+            if session_ids:
+                placeholders = ",".join("?" * len(session_ids))
+                prompt_rows = self.conn.execute(
+                    f"""
+                    SELECT id FROM live_session_prompts
+                    WHERE live_session_id IN ({placeholders})
+                    """,
+                    session_ids,
+                ).fetchall()
+                prompt_ids = [int(row["id"]) for row in prompt_rows]
+                if prompt_ids:
+                    prompt_ph = ",".join("?" * len(prompt_ids))
+                    self.conn.execute(
+                        f"""
+                        DELETE FROM live_session_responses
+                        WHERE prompt_id IN ({prompt_ph})
+                        """,
+                        prompt_ids,
+                    )
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_session_prompts
+                    WHERE live_session_id IN ({placeholders})
+                    """,
+                    session_ids,
+                )
+                obs_rows = self.conn.execute(
+                    f"""
+                    SELECT id FROM observations
+                    WHERE live_session_id IN ({placeholders})
+                    """,
+                    session_ids,
+                ).fetchall()
+                obs_ids = [int(row["id"]) for row in obs_rows]
+                if obs_ids:
+                    obs_ph = ",".join("?" * len(obs_ids))
+                    self.conn.execute(
+                        f"""
+                        DELETE FROM observation_subjects
+                        WHERE observation_id IN ({obs_ph})
+                        """,
+                        obs_ids,
+                    )
+                    self.conn.execute(
+                        f"""
+                        DELETE FROM observation_processes
+                        WHERE observation_id IN ({obs_ph})
+                        """,
+                        obs_ids,
+                    )
+                self.conn.execute(
+                    f"""
+                    DELETE FROM observations
+                    WHERE live_session_id IN ({placeholders})
+                    """,
+                    session_ids,
+                )
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_session_attendees
+                    WHERE live_session_id IN ({placeholders})
+                    """,
+                    session_ids,
+                )
+            self.conn.execute(
+                "DELETE FROM live_class_sessions WHERE class_id = ?",
+                (int(class_id),),
+            )
+            self.conn.commit()
+        return {
+            "ok": True,
+            "class_id": int(class_id),
+            "wiped_session_ids": session_ids,
+            "wiped_count": len(session_ids),
+        }
+
     def get_active_live_session_for_teacher(
         self, teacher_user_id: int
     ) -> dict[str, Any] | None:
@@ -6784,7 +6900,7 @@ class SchoolDB(LovesDB):
                 return existing
             raise ValueError(
                 "You already have a live class running. "
-                "Use End Class, End Game, or Quit to finish it before starting another."
+                "Use End Live Class to finish it before starting another."
             )
         # Drop prior-run mood/character so Mark Attendance starts clean.
         self.game.clear_class_moods_and_characters(int(class_id))
