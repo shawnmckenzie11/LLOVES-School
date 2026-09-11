@@ -151,7 +151,7 @@ class MeetTeamHelperTests(unittest.TestCase):
         self.assertEqual(spark["item_id"], "meet-c")
         self.assertEqual(spark["chain_index"], 2)
         self.assertTrue(any(spark["spark_id"] == row["id"] for row in MEET_SPARK_POOL))
-        self.assertIn("Ops spark stub", spark["prompt"])
+        self.assertIn("Ops stub", spark["prompt"])
         need = meet_step_payload("B", rng=random.Random(0))
         self.assertEqual(need["step"], "B")
         self.assertEqual(need["item_id"], "meet-b")
