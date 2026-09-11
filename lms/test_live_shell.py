@@ -445,7 +445,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function paintTeamsStripEnabled()", js)
         self.assertIn("function openTeamsPop(", js)
         self.assertIn("function studentTeamColor(", js)
-        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
+        self.assertIn("return { min: 1, max: Math.max(2, present) }", js)
         self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
         self.assertIn("has-team-color", js)
         self.assertNotIn('id="ap-gamify-no"', js)

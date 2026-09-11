@@ -2038,7 +2038,7 @@ function currentTeamCount() {
  */
 function nTeamsBounds() {
   const present = (overlayState?.present_ids || selectedPresent()).length;
-  return { min: 1, max: Math.max(1, present) };
+  return { min: 1, max: Math.max(2, present) };
 }
 
 /**
