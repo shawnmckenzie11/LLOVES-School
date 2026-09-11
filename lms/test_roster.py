@@ -457,7 +457,10 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Live Class in Progress", live_home)
         self.assertNotIn("Run Live Class", live_home)
         self.assertIn(f"/staff/class/{class_id}/end-live", live_home)
-        self.assertIn(">End<", live_home)
+        self.assertIn(">End Live Class<", live_home)
+        self.assertNotIn(">End<", live_home)
+        self.assertIn("All session data will be lost.", live_home)
+        self.assertIn("return confirm(this.dataset.confirm)", live_home)
         ended = self.client.post(
             f"/staff/class/{class_id}/end-live",
             follow_redirects=False,
@@ -465,9 +468,11 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(ended.status_code, 302)
         self.assertIn("/staff", ended.headers.get("Location", ""))
         self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
+        self.assertEqual(self.school.list_live_sessions_for_class(class_id), [])
         idle_home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Run Live Class", idle_home)
         self.assertNotIn("Live Class in Progress", idle_home)
+        self.assertNotIn("End Live Class", idle_home)
 
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
@@ -1038,6 +1043,184 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(self.school.game.get_mood(class_id, int(maple["id"])), "good")
         self.client.post(f"/staff/class/{class_id}/run-live")
         self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
+
+    def _seed_live_session_payload(self, class_id: int, session_id: int, codename: str) -> None:
+        """Attach attendee, prompt, response, observation, and media to a session."""
+        student = self.school.game.find_student_by_codename(class_id, codename)
+        assert student is not None
+        attendee = self.school.record_live_session_attendee(
+            int(session_id),
+            int(student["id"]),
+            codename=codename,
+        )
+        self.school.set_live_session_slides(
+            int(session_id),
+            meeting_date="2026-09-09",
+            presentation_id="deck-hung",
+            presentation_url="https://example.test/deck",
+            slides_json={"problems": [1]},
+        )
+        self.school.set_live_session_active_media(
+            int(session_id),
+            url="/static/mood/good.svg",
+            title="Hung media",
+        )
+        prompt = self.school.set_live_session_prompt(
+            int(session_id),
+            slide_index=0,
+            kind="mc",
+            payload={"prompt": "2+2?"},
+        )
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]),
+            student_id=int(student["id"]),
+            response={"choice": "4"},
+            participant_uuid=str(attendee["participant_uuid"]),
+        )
+        self.school.create_observation(
+            live_session_id=int(session_id),
+            class_id=int(class_id),
+            observer_user_id=int(self.teacher["id"]),
+            scope="class",
+            note="Session evidence that must be wiped",
+        )
+
+    def _count_session_children(self, session_ids: list[int]) -> dict[str, int]:
+        """Count live-session child rows still stored for the given ids."""
+        if not session_ids:
+            return {"attendees": 0, "prompts": 0, "responses": 0, "observations": 0}
+        placeholders = ",".join("?" * len(session_ids))
+        attendees = self.school.conn.execute(
+            f"SELECT COUNT(*) FROM live_session_attendees WHERE live_session_id IN ({placeholders})",
+            session_ids,
+        ).fetchone()[0]
+        prompts = self.school.conn.execute(
+            f"SELECT COUNT(*) FROM live_session_prompts WHERE live_session_id IN ({placeholders})",
+            session_ids,
+        ).fetchone()[0]
+        observations = self.school.conn.execute(
+            f"SELECT COUNT(*) FROM observations WHERE live_session_id IN ({placeholders})",
+            session_ids,
+        ).fetchone()[0]
+        responses = self.school.conn.execute(
+            f"""
+            SELECT COUNT(*) FROM live_session_responses
+            WHERE prompt_id IN (
+                SELECT id FROM live_session_prompts
+                WHERE live_session_id IN ({placeholders})
+            )
+            """,
+            session_ids,
+        ).fetchone()[0]
+        return {
+            "attendees": int(attendees),
+            "prompts": int(prompts),
+            "responses": int(responses),
+            "observations": int(observations),
+        }
+
+    def test_end_live_class_wipes_all_sessions_and_data(self) -> None:
+        """End Live Class deletes every session for the class, not just status."""
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_id = created.get_json()["class"]["id"]
+        other = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        other_created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": other["id"],
+                "days": "T/Th/F",
+                "time": "2:00pm",
+                "codenames": ["Birch"],
+            },
+        )
+        other_class_id = other_created.get_json()["class"]["id"]
+
+        self.client.post(f"/staff/class/{other_class_id}/run-live")
+        other_live = self.school.get_active_live_session_for_class(other_class_id)
+        assert other_live is not None
+        other_id = int(other_live["id"])
+        self._seed_live_session_payload(other_class_id, other_id, "Birch")
+        self.school.end_live_class_session(other_id)
+        self.assertIsNotNone(self.school.get_live_session(other_id))
+
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        first = self.school.get_active_live_session_for_class(class_id)
+        assert first is not None
+        first_id = int(first["id"])
+        self._seed_live_session_payload(class_id, first_id, "Maple")
+        self.school.end_live_class_session(first_id)
+        self.assertIsNotNone(self.school.get_live_session(first_id))
+
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        second = self.school.get_active_live_session_for_class(class_id)
+        assert second is not None
+        second_id = int(second["id"])
+        self.assertNotEqual(second_id, first_id)
+        self._seed_live_session_payload(class_id, second_id, "Maple")
+        before = self._count_session_children([first_id, second_id])
+        self.assertGreater(before["attendees"], 0)
+        self.assertGreater(before["prompts"], 0)
+        self.assertGreater(before["responses"], 0)
+        self.assertGreater(before["observations"], 0)
+        self.assertEqual(len(self.school.list_live_sessions_for_class(class_id)), 2)
+
+        outsider = self.school.register_staff("outsider@gmail.com")
+        other_client = self.app.test_client()
+        other_client.get("/auth/google?portal=staff")
+        other_client.get("/auth/google/callback?email=outsider@gmail.com&name=O")
+        other_client.post(
+            "/verify-email",
+            data={"code": outsider["verification_code"]},
+        )
+        denied = other_client.post(
+            f"/staff/class/{class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(len(self.school.list_live_sessions_for_class(class_id)), 2)
+
+        wiped = self.client.post(
+            f"/staff/class/{class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(wiped.status_code, 302)
+        self.assertIsNone(self.school.get_live_session(first_id))
+        self.assertIsNone(self.school.get_live_session(second_id))
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
+        self.assertEqual(self.school.list_live_sessions_for_class(class_id), [])
+        self.assertEqual(
+            self._count_session_children([first_id, second_id]),
+            {"attendees": 0, "prompts": 0, "responses": 0, "observations": 0},
+        )
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
+        self.assertIsNotNone(self.school.get_live_session(other_id))
+        self.assertGreater(
+            self._count_session_children([other_id])["attendees"], 0
+        )
+
+        restart = self.client.post(
+            f"/staff/class/{class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(restart.status_code, 302)
+        fresh = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(fresh)
+        assert fresh is not None
+        self.assertNotIn(int(fresh["id"]), {first_id, second_id})
 
     def test_begin_class_tracking_stays_authed_after_student_join(self) -> None:
         """Same-browser student join must not wipe staff Begin Class Tracking auth."""
