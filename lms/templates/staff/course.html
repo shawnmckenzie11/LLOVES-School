@@ -162,7 +162,7 @@
             <button type="button" class="live-round-pick" id="ap-assign-random" aria-pressed="false">Random</button>
             <button type="button" class="live-round-pick" id="ap-assign-manual" aria-pressed="false">Manual</button>
           </div>
-          <div class="live-teams-track" id="ap-track-game-opts" hidden>
+          <div class="live-teams-track" id="ap-track-game-opts" aria-disabled="true">
             <label class="live-unlock-toggle" for="ap-scoreboard-toggle">
               <input type="checkbox" id="ap-scoreboard-toggle" checked>
               <span>Scoreboard</span>
@@ -172,7 +172,7 @@
               <span>Rank</span>
             </label>
           </div>
-          <button type="button" class="live-round-pick" id="ap-teams-rename" hidden>Rename</button>
+          <button type="button" class="live-round-pick" id="ap-teams-rename" disabled aria-disabled="true">Rename</button>
           <span id="ap-gamify-summary" class="live-legacy-control"></span>
           <span id="ap-teams-summary" class="live-legacy-control"></span>
           <button type="button" class="live-legacy-control" id="ap-gamify-next" data-track-nav="next">Next →</button>

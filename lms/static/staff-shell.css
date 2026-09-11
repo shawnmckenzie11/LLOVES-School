@@ -1567,11 +1567,14 @@ body.staff-shell .live-teams-track {
   flex: 0 0 auto;
 }
 body.staff-shell .live-teams-assign[aria-disabled="true"],
-body.staff-shell #ap-teams-rename[hidden] {
+body.staff-shell .live-teams-track[aria-disabled="true"],
+body.staff-shell #ap-teams-rename[aria-disabled="true"] {
   pointer-events: none;
-}
-body.staff-shell .live-teams-assign[aria-disabled="true"] {
   opacity: 0.45;
+}
+body.staff-shell .live-teams-track[hidden],
+body.staff-shell #ap-teams-rename[hidden] {
+  display: none !important;
 }
 body.staff-shell .live-teams-strip .live-round-pick {
   white-space: nowrap;

@@ -2052,9 +2052,19 @@ function paintTeamsStripEnabled() {
     assign.setAttribute("aria-disabled", team ? "false" : "true");
   }
   const opts = $("ap-track-game-opts");
-  if (opts) opts.hidden = !team;
+  if (opts) {
+    opts.hidden = false;
+    opts.setAttribute("aria-disabled", team ? "false" : "true");
+    opts.querySelectorAll("input").forEach((box) => {
+      if (box instanceof HTMLInputElement) box.disabled = !team;
+    });
+  }
   const rename = $("ap-teams-rename");
-  if (rename) rename.hidden = !team;
+  if (rename instanceof HTMLButtonElement) {
+    rename.hidden = false;
+    rename.disabled = !team;
+    rename.setAttribute("aria-disabled", team ? "false" : "true");
+  }
   if (!team) closeTeamsPops();
 }
 
