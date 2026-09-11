@@ -23,6 +23,10 @@ python3 lms/app.py
 
 Open **http://127.0.0.1:8787** (not only `localhost` unless Google origins include it).
 
+### Cursor Cloud
+
+Cloud Agents seed a throwaway sqlite (not the laptop DB, not Fly). Ports **plug → 8787**. Bind is `0.0.0.0` via `HOST` / `LOCAL_DEV_LOGIN`. Padlock = `solutions@mckenzian.com`; Teacher picker also has Shawn and Percival. One click, no 2SV. Do not use “add a Google email” on the picker.
+
 ## Unit tests
 
 ```bash

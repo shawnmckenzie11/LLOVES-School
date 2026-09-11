@@ -1,11 +1,12 @@
 {
   "name": "LLOVES School LMS",
   "install": "python3 -m pip install -r lms/requirements.txt",
+  "start": "LOCAL_DEV_LOGIN=1 python3 lms/local_dev_seed.py",
   "terminals": [
     {
       "name": "LMS dev server",
-      "command": "LOCAL_DEV_LOGIN=1 ALLOW_DEV_VERIFICATION_CODE=1 FLASK_SECRET_KEY=dev-secret python3 lms/app.py",
-      "description": "Flask LMS dev server on http://127.0.0.1:8787 with the offline Google account picker (LOCAL_DEV_LOGIN) and on-page first-login verification code (ALLOW_DEV_VERIFICATION_CODE) so staff/IT/student portals can be exercised without real Google OAuth or email delivery."
+      "command": "LOCAL_DEV_LOGIN=1 ALLOW_DEV_VERIFICATION_CODE=1 HOST=0.0.0.0 FLASK_SECRET_KEY=dev-secret python3 lms/app.py",
+      "description": "Flask LMS on 0.0.0.0:8787 (Cursor Ports plug). Offline Google picker plus idempotent seed: IT solutions@, Shawn and Percival staff, 2026–2027 S1, one MCF3M demo class (Maple). ALLOW_DEV_VERIFICATION_CODE is unused while LOCAL_DEV_LOGIN skips 2SV; keep it so a missing skip still shows the code."
     }
   ],
   "ports": [

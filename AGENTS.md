@@ -45,6 +45,15 @@ Live **Curriculum** authoring is the other Cursor workspace (ALC-Curriculum / th
 - Always-on rule: [`.cursor/rules/local-first-workflow.mdc`](.cursor/rules/local-first-workflow.mdc). Skills: [`.cursor/skills/local-verify`](.cursor/skills/local-verify/SKILL.md), [`.cursor/skills/release-gate`](.cursor/skills/release-gate/SKILL.md).
 - Do **not** laptop-`flyctl deploy` for routine release; do not commit unless Shawn asks.
 
+## Cursor Cloud specific instructions
+
+Slash-cloud / Cloud Agents boot a **fresh sqlite**, not the laptop DB and not Fly `/data`.
+
+- **Ports:** Cursor Desktop Agents Window → **plug** (top right) → **8787** / LMS dev server → globe. That `http://127.0.0.1:8787/` is the tunnel. Flask binds **`0.0.0.0:8787`** when `LOCAL_DEV_LOGIN=1` (or `HOST=0.0.0.0`) so the plug can connect. Laptop Chrome that is not using the plug will refuse.
+- **Logins:** `LOCAL_DEV_LOGIN=1` offline picker. Padlock = Admin, Teacher card = staff. Seeded one-click accounts: `solutions@mckenzian.com` (IT), `shawnmckenzie11.sm@gmail.com` (staff), `rspercival10@gmail.com` (staff). Clicking skips 2SV. Do not type a random Google email — that is a login, not register, and 403s.
+- **Demo class:** seed creates 2026–2027 S1 + one Shawn-owned MCF3M class (roster **Maple**) so Run Live Class exists without an `.imscc`.
+- **Boot:** `.cursor/environment.json` `start` runs `lms/local_dev_seed.py`; the LMS terminal repeats the seed inside `create_app`. Idempotent. `install` is snapshot-baked and is not enough by itself.
+
 ## Production
 
 - App: `lloves-lms` (Fly.io, region `yyz`)
