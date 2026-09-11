@@ -2074,12 +2074,22 @@ function paintTeamsStripEnabled() {
  */
 function openTeamsPop(id) {
   const pane = $("team-assign-pane");
-  const strip = $("live-option-card");
+  const anchor =
+    $(id === "ap-panel-names" ? "ap-teams-rename" : "ap-assign-manual") ||
+    $("live-option-card");
   if (pane) {
-    if (strip) {
-      const box = strip.getBoundingClientRect();
-      pane.style.top = `${Math.round(box.bottom + 6)}px`;
-      pane.style.right = `${Math.max(12, Math.round(window.innerWidth - box.right))}px`;
+    if (anchor) {
+      const box = anchor.getBoundingClientRect();
+      const width = Math.min(320, window.innerWidth - 24);
+      let left = Math.round(box.right - width);
+      if (left < 12) left = 12;
+      if (left + width > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - width - 12);
+      }
+      pane.style.top = `${Math.round(box.bottom + 8)}px`;
+      pane.style.left = `${left}px`;
+      pane.style.right = "auto";
+      pane.style.width = `${width}px`;
     }
     pane.hidden = false;
     pane.removeAttribute("hidden");
