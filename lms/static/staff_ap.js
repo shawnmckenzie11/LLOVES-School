@@ -644,6 +644,17 @@ function ensureLiveSessionOverlay(reservedWin = null) {
 }
 
 /**
+ * Open the join strip from the banner code chip (the only open affordance).
+ * @param {MouseEvent|Event} [event]
+ * @returns {Window|null}
+ */
+function openJoinStrip(event) {
+  if (event) event.preventDefault();
+  const reservedWin = reserveLiveSessionOverlay();
+  return ensureLiveSessionOverlay(reservedWin);
+}
+
+/**
  * Show or hide the Attendance soft-reopen link when the overlay popup was blocked.
  * @param {boolean} show
  */
@@ -1811,28 +1822,12 @@ $("ap-validate-apply")?.addEventListener("click", () => {
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
 });
 
-$("ap-open-overlay")?.addEventListener("click", (event) => {
-  event.preventDefault();
-  const reservedWin = reserveLiveSessionOverlay();
-  ensureLiveSessionOverlay(reservedWin);
-});
-
 $("ap-join-billboard-copy")?.addEventListener("click", (event) => {
   event.preventDefault();
   copyJoinBillboardCode();
 });
 
-$("ap-join-billboard-code")?.addEventListener("click", (event) => {
-  event.preventDefault();
-  copyJoinBillboardCode();
-});
-
-$("ap-join-billboard-code")?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    copyJoinBillboardCode();
-  }
-});
+$("ap-join-billboard-code")?.addEventListener("click", openJoinStrip);
 
 $("ap-gamify-yes")?.addEventListener("click", () => {
   if (isScoringLive()) return;

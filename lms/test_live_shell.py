@@ -277,6 +277,65 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("replaceChildren", option)
         self.assertIn("lockClassListPane();", option)
 
+    def test_beat2_join_chip_is_banner_open_affordance(self) -> None:
+        """Beat 2: banner chip is centered and height-capped; code opens the strip."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="ap-join-billboard"', html)
+        self.assertIn('id="ap-join-billboard-code"', html)
+        self.assertIn('id="ap-join-billboard-copy"', html)
+        self.assertIn('id="ap-join-strip"', html)
+        self.assertIn(">Copy<", html)
+        self.assertIn('title="Open join strip"', html)
+        self.assertIn('aria-label="Open join strip"', html)
+        self.assertIn('id="ap-join-billboard-code"', html)
+        self.assertRegex(
+            html,
+            r'<button\s+type="button"[^>]*id="ap-join-billboard-code"',
+        )
+        self.assertNotIn("Open join strip</button>", html)
+        self.assertNotIn('id="ap-open-overlay"', html)
+        header_i = html.index('id="live-header"')
+        chip_i = html.index('id="ap-join-billboard"')
+        body_i = html.index('class="live-shell-body"')
+        self.assertLess(header_i, chip_i)
+        self.assertLess(chip_i, body_i)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn(
+            "--live-header-chip-max-h: calc(var(--live-header-h) - (var(--live-header-pad-y) * 2))",
+            css,
+        )
+        join_css = css.split("body.staff-shell .live-header-join {")[1].split(
+            "body.staff-shell .live-header .ap-join-billboard {"
+        )[0]
+        self.assertIn("align-items: center", join_css)
+        self.assertIn("align-self: center", join_css)
+        self.assertIn("max-height: var(--live-header-chip-max-h)", join_css)
+        chip_css = css.split("body.staff-shell .live-header .ap-join-billboard {")[1].split(
+            "body.staff-shell .live-header .ap-join-billboard-label {"
+        )[0]
+        self.assertIn("align-items: center", chip_css)
+        self.assertIn("max-height: var(--live-header-chip-max-h)", chip_css)
+        code_css = css.split("body.staff-shell .live-header .ap-join-billboard-code {")[1].split(
+            "body.staff-shell .live-header .ap-join-billboard-copy {"
+        )[0]
+        self.assertIn("white-space: nowrap", code_css)
+        self.assertIn("overflow: visible", code_css)
+        self.assertNotIn("text-overflow: ellipsis", code_css)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function openJoinStrip(", js)
+        self.assertIn(
+            '$("ap-join-billboard-code")?.addEventListener("click", openJoinStrip)',
+            js,
+        )
+        self.assertIn('$("ap-join-billboard-copy")?.addEventListener("click"', js)
+        self.assertIn("copyJoinBillboardCode()", js)
+        self.assertNotIn("$(\"ap-open-overlay\")", js)
+        self.assertNotIn("Open join strip", js)
+        code_click = js.split('$("ap-join-billboard-code")?.addEventListener("click"')[1].split(";")[0]
+        self.assertIn("openJoinStrip", code_click)
+        self.assertNotIn("copyJoinBillboardCode", code_click)
+
 
 if __name__ == "__main__":
     unittest.main()
