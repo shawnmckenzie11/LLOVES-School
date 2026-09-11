@@ -1,0 +1,14 @@
+- generic [active] [ref=f4e1]:
+  - banner "Your stats" [ref=f4e2]:
+    - generic [ref=f4e3]:
+      - paragraph [ref=f4e4]: 🦊 df
+      - generic [ref=f4e5]:
+        - paragraph [ref=f4e6]:
+          - generic [ref=f4e7]: My points
+          - strong [ref=f4e8]: "0"
+        - paragraph [ref=f4e9]:
+          - generic [ref=f4e10]: Team
+          - strong [ref=f4e11]: "0"
+  - main [ref=f4e12]:
+    - paragraph [ref=f4e13]: Waiting for your teacher to start scoring.
+  - contentinfo "Class scoreboard" [ref=f4e14]

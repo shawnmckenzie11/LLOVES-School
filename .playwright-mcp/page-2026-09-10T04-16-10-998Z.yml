@@ -1,0 +1,14 @@
+- generic [active] [ref=f2e1]:
+  - link "Admin login" [ref=f2e2] [cursor=pointer]:
+    - /url: /auth/google?portal=it
+  - heading "Attendance & Live Lessons" [level=1] [ref=f2e5]
+  - generic [ref=f2e6]:
+    - paragraph [ref=f2e7]: "Select your role:"
+    - generic [ref=f2e8]:
+      - link [ref=f2e9] [cursor=pointer]:
+        - /url: /auth/google?portal=staff
+        - strong [ref=f2e10]: Teacher
+        - text: Take attendance and log participation
+      - button [ref=f2e11] [cursor=pointer]:
+        - strong [ref=f2e12]: Student
+        - text: Enter your course code and name to join the live lesson.

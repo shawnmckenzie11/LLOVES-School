@@ -30,7 +30,7 @@ Pedagogy contracts and role map: `content-builder/docs/pedagogy-specialist-enhan
 9. **Module-level flow verify** (same verifier contract, `scope: module`) before course-wide regen
 10. Parent resolves findings; present before/after to Shawn
 
-Do **not** invoke these specialists for LMS, Drive banks, MnCi decks, or Attendance & Participation.
+Do **not** invoke these specialists for LMS, live Drive / Curriculum clone, MnCi decks, or Attendance & Participation.
 
 Superseded / redirect names (do not start new lessons with these): `curriculum-mapper` → director; `question-curator` → **`bank-curator`** (bank fill/review) or **`practice-designer`** (sequence only); `instruction-author` → copywriter.
 

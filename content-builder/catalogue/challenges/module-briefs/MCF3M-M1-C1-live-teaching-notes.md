@@ -20,7 +20,7 @@ Status: **B locked** — immersive \(y=x^2\) is the **stem media**, not a side e
 
 ## Default round sequence (~25–35 min)
 1. **Reveal media** (flag): fixed view of \(y=x^2\) in 3D
-2. **Entry:** “From this view only — what *must* be true of a quadratic? What can’t you know yet?”
+2. **Entry:** “Consider the parabola represented by \(y = ax^2 + bx + c\). What do you know about \(a\), \(b\), and \(c\)?”
 3. **Roles:** modeller (claims from the view) · checker (what would break the claim if we moved the surface?) · explainer (one sentence to class)
 4. **Optional probe (still B):** teacher unlocks limited 3D move — same question family, not a new contest stem
 5. **Freeze:** one forced claim + one unknown before any algebra dump

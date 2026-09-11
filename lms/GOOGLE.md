@@ -2,6 +2,8 @@
 
 Staff and IT sign in with a **personal Google account**, the same way the Cannabis Paper Scraper does: Google Cloud **OAuth 2.0 Web client** + Flask code exchange at `/auth/google/callback`. ALC does **not** auto-create accounts. IT allowlists staff emails first. The internal code name remains LLOVES (`SCHOOL_SHORT`) for a later A/B.
 
+This file is **LMS** OAuth plus the Slides/Drive **API** for Connect Google Slides and live-class MnCi decks. It is not the Cursor Google Drive plugin. Do not revoke these Cloud Console APIs when the plugin is disabled in this workspace.
+
 This is **Google Cloud Console** work (APIs & Services), not Google Workspace Admin “SSO / SAML”. Workspace can own the Cloud project; teachers still use `@gmail.com` (or any Google login) unless you switch the consent screen to Internal.
 
 ## 1. Open the same Cloud project as the scraper

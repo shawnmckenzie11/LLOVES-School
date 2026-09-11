@@ -30,7 +30,7 @@ This picture shows \(y = x^2\), written as \(y = ax^2 + bx + c\).
 This picture shows the parabola \(y = x^2\). We can also write it as \(y = ax^2 + bx + c\).
 
 **Full ask**  
-When looking at the parabola represented by \(y = ax^2 + bx + c\), what do you know about \(a\), \(b\), and \(c\)?
+Consider the parabola represented by \(y = ax^2 + bx + c\). What do you know about \(a\), \(b\), and \(c\)?
 
 ---
 

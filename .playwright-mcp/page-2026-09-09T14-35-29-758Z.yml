@@ -1,0 +1,287 @@
+- article [ref=f4e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f4e3]'
+  - tablist [ref=f4e4]:
+    - tab "Minds On" [ref=f4e5] [cursor=pointer]
+    - tab "Action" [active] [selected] [ref=f4e6] [cursor=pointer]
+    - tab "Consolidation" [ref=f4e7] [cursor=pointer]
+  - tabpanel "Action" [ref=f4e33]:
+    - generic [ref=f4e34]:
+      - paragraph [ref=f4e35]: In this course, f(x) = a(x - h)² + k is vertex form. The expanded equation f(x) = ax² + bx + c is standard form.
+      - heading "Read the turning point from the equation" [level=2] [ref=f4e36]
+      - paragraph [ref=f4e37]: You named a vertex from a plus inside the brackets. Read this next equation the same way — vertex, axis, and whether the turning point is a maximum or a minimum.
+      - generic [ref=f4e38]:
+        - text: Worked example
+        - paragraph [ref=f4e39]: Sketch a parabola that opens downward and turns at a point left of the origin and above the x-axis. Label that turning point. Draw a dashed vertical line through it.
+        - paragraph [ref=f4e40]: The equation of that graph is
+        - paragraph [ref=f4e41]: y = -3(x + 2)² + 4
+        - paragraph [ref=f4e42]: We need the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum.
+        - paragraph [ref=f4e43]: Compare the equation with y = a(x - h)² + k.
+        - paragraph [ref=f4e44]: The brackets contain (x + 2). Vertex form uses (x - h), so rewrite x + 2 as x - (-2). That makes h = -2. The constant outside the brackets is +4, so k = 4.
+        - paragraph [ref=f4e45]: The vertex is (-2, 4). The axis of symmetry is the vertical line through the vertex, x = -2.
+        - paragraph [ref=f4e46]: The coefficient in front of the brackets is -3. Because a is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is 4, and it occurs when x = -2.
+        - paragraph [ref=f4e47]: That highest point is the same kind of fact you marked on the water stream, now read from the equation.
+      - heading "A second equation, with nothing added outside" [level=2] [ref=f4e48]
+      - generic [ref=f4e49]:
+        - text: Another example
+        - paragraph [ref=f4e50]: The last equation had a constant outside the brackets, so k was easy to see as a height. This Ontario sample includes
+        - paragraph [ref=f4e51]: h(x) = -2(x + 1)²
+        - paragraph [ref=f4e52]: as one of the graphs to read from f(x) = x². Use it here to inspect vertex form. (The sample also names g(x) = x² - 4; stay with h(x).)
+        - paragraph [ref=f4e53]: The brackets contain (x + 1). Rewrite x + 1 as x - (-1), so h = -1. There is no constant added outside, so k = 0. The vertex is (-1, 0), and the axis is x = -1.
+        - paragraph [ref=f4e54]: The coefficient is -2, so a is negative and the parabola opens downward. The vertex is a maximum even though k = 0. Maximum versus minimum comes from the sign of a, not from whether k looks positive.
+        - paragraph [ref=f4e56]: Could you have decided maximum versus minimum from k on this equation? Say why or why not.
+      - heading "Match the equation you already read" [level=2] [ref=f4e57]
+      - paragraph [ref=f4e58]: "You named a vertex for f(x) = (x + 3)² + 1. The graph starts at a different equation with the same brackets:"
+      - paragraph [ref=f4e59]: f(x) = 2(x + 3)² + 1
+      - generic [ref=f4e60]:
+        - heading "Match the equation you already read" [level=3] [ref=f4e61]
+        - paragraph [ref=f4e66]: Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches f(x) = (x + 3)² + 1. Submit when the live equation labelled Vertex form matches that equation.
+        - generic [ref=f4e67]:
+          - paragraph [ref=f4e68]:
+            - strong [ref=f4e69]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=f4e70]:
+            - strong [ref=f4e71]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=f4e72]:
+            - region [ref=f4e73]:
+              - img [ref=f4e74]:
+                - generic [ref=f4e80]:
+                  - generic [ref=f4e82]: "2"
+                  - generic [ref=f4e83]: "4"
+                  - generic [ref=f4e84]: "6"
+                  - generic [ref=f4e85]: −2
+                  - generic [ref=f4e86]: −4
+                  - generic [ref=f4e87]: −6
+                  - generic [ref=f4e88]: "2"
+                  - generic [ref=f4e89]: "4"
+                  - generic [ref=f4e90]: "6"
+                  - generic [ref=f4e91]: "8"
+                  - generic [ref=f4e92]: −2
+                  - generic [ref=f4e93]: −4
+              - generic [ref=f4e94] [cursor=pointer]: –o+←↓↑→
+              - generic [ref=f4e95]: (-3, 1)
+          - generic [ref=f4e96]:
+            - generic [ref=f4e97]:
+              - text: a
+              - slider "a 2" [ref=f4e98]: "2"
+              - generic [ref=f4e99]: "2"
+            - generic [ref=f4e100]:
+              - text: h
+              - slider "h -3" [ref=f4e101]: "-3"
+              - generic [ref=f4e102]: "-3"
+            - generic [ref=f4e103]:
+              - text: k
+              - slider "k 1" [ref=f4e104]: "1"
+              - generic [ref=f4e105]: "1"
+          - generic [ref=f4e106]:
+            - button "Check" [ref=f4e107] [cursor=pointer]
+            - button "Hint" [ref=f4e108] [cursor=pointer]
+            - button "Reset" [ref=f4e109] [cursor=pointer]
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=f4e110]
+          - table [ref=f4e111]:
+            - rowgroup [ref=f4e112]:
+              - row [ref=f4e113]:
+                - columnheader "x" [ref=f4e114]
+                - columnheader "f(x)" [ref=f4e115]
+            - rowgroup [ref=f4e116]:
+              - row [ref=f4e117]:
+                - cell "-5" [ref=f4e118]
+                - cell "9" [ref=f4e119]
+              - row [ref=f4e120]:
+                - cell "-4" [ref=f4e121]
+                - cell "3" [ref=f4e122]
+              - row [ref=f4e123]:
+                - cell "-3" [ref=f4e124]
+                - cell "1" [ref=f4e125]
+              - row [ref=f4e126]:
+                - cell "-2" [ref=f4e127]
+                - cell "3" [ref=f4e128]
+              - row [ref=f4e129]:
+                - cell "-1" [ref=f4e130]
+                - cell "9" [ref=f4e131]
+      - paragraph [ref=f4e133]: Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this equation?
+      - heading "Change only the horizontal position" [level=2] [ref=f4e134]
+      - paragraph [ref=f4e135]: The graph is back at f(x) = 2(x + 3)² + 1. Do not move the graph yet.
+      - paragraph [ref=f4e137]: If you change only h so the vertex sits at x = 2, what will happen to the graph, and what will the new equation look like? Write that first.
+      - generic [ref=f4e138]:
+        - heading "Change only h" [level=3] [ref=f4e139]
+        - paragraph [ref=f4e143]: "Then move the graph so the vertex is at x = 2, changing only h if you can. Submit. Say which quantity you meant to change: a, h, or k."
+        - generic [ref=f4e144]:
+          - generic [ref=f4e145]:
+            - text: Predicted vertex x
+            - spinbutton "Predicted vertex x" [ref=f4e146]
+          - paragraph [ref=f4e147]:
+            - strong [ref=f4e148]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=f4e149]:
+            - strong [ref=f4e150]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=f4e151]:
+            - region [ref=f4e152]:
+              - img [ref=f4e153]:
+                - generic [ref=f4e159]:
+                  - generic [ref=f4e161]: "2"
+                  - generic [ref=f4e162]: "4"
+                  - generic [ref=f4e163]: "6"
+                  - generic [ref=f4e164]: −2
+                  - generic [ref=f4e165]: −4
+                  - generic [ref=f4e166]: −6
+                  - generic [ref=f4e167]: "2"
+                  - generic [ref=f4e168]: "4"
+                  - generic [ref=f4e169]: "6"
+                  - generic [ref=f4e170]: "8"
+                  - generic [ref=f4e171]: −2
+                  - generic [ref=f4e172]: −4
+              - generic [ref=f4e173] [cursor=pointer]: –o+←↓↑→
+              - generic [ref=f4e174]: (-3, 1)
+          - generic [ref=f4e175]:
+            - generic [ref=f4e176]:
+              - text: a
+              - slider "a 2" [ref=f4e177]: "2"
+              - generic [ref=f4e178]: "2"
+            - generic [ref=f4e179]:
+              - text: h
+              - slider "h -3" [ref=f4e180]: "-3"
+              - generic [ref=f4e181]: "-3"
+            - generic [ref=f4e182]:
+              - text: k
+              - slider "k 1" [ref=f4e183]: "1"
+              - generic [ref=f4e184]: "1"
+          - generic [ref=f4e185]:
+            - button "Check" [ref=f4e186] [cursor=pointer]
+            - button "Hint" [ref=f4e187] [cursor=pointer]
+            - button "Reset" [ref=f4e188] [cursor=pointer]
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=f4e189]
+          - table [ref=f4e190]:
+            - rowgroup [ref=f4e191]:
+              - row [ref=f4e192]:
+                - columnheader "x" [ref=f4e193]
+                - columnheader "f(x)" [ref=f4e194]
+            - rowgroup [ref=f4e195]:
+              - row [ref=f4e196]:
+                - cell "-5" [ref=f4e197]
+                - cell "9" [ref=f4e198]
+              - row [ref=f4e199]:
+                - cell "-4" [ref=f4e200]
+                - cell "3" [ref=f4e201]
+              - row [ref=f4e202]:
+                - cell "-3" [ref=f4e203]
+                - cell "1" [ref=f4e204]
+              - row [ref=f4e205]:
+                - cell "-2" [ref=f4e206]
+                - cell "3" [ref=f4e207]
+              - row [ref=f4e208]:
+                - cell "-1" [ref=f4e209]
+                - cell "9" [ref=f4e210]
+      - paragraph [ref=f4e212]: Look at the live equation labelled Vertex form and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?
+      - heading "The same curve, two forms" [level=2] [ref=f4e213]
+      - paragraph [ref=f4e214]: Vertex form makes the turning point easy to read. Expanding that form into ax² + bx + c should not move the curve.
+      - generic [ref=f4e215]:
+        - text: Worked example
+        - paragraph [ref=f4e216]: Sketch a parabola that opens upward, turning left of the origin and below the x-axis. Mark the vertex. An equation that fits that sketch is
+        - paragraph [ref=f4e217]: g(x) = (1)/(2)(x + 2)² - 3
+        - paragraph [ref=f4e218]: The task is to write the same function as ax² + bx + c, then check that both forms give the same outputs.
+        - paragraph [ref=f4e219]: "Square the binomial: (x + 2)² = x² + 4x + 4."
+        - paragraph [ref=f4e220]: "Multiply by a = (1)/(2): (1)/(2)x² + 2x + 2."
+        - paragraph [ref=f4e221]: "Add k = -3: (1)/(2)x² + 2x - 1."
+        - paragraph [ref=f4e222]: g(x) = (1)/(2)x² + 2x - 1
+        - paragraph [ref=f4e223]: "Check a few inputs. At x = -2, both forms give -3. At x = 0, both give -1. At x = -4, both give -1. The table points sit on the same graph: expanding did not make a new parabola."
+      - paragraph [ref=f4e224]: Now expand the starting equation from the graph, f(x) = 2(x + 3)² + 1. If you rewrite it as ax² + bx + c, will the graph be a different parabola or the same one? Write that down before you expand.
+      - generic [ref=f4e225]:
+        - heading "Expand, then check the same graph" [level=3] [ref=f4e226]
+        - paragraph [ref=f4e230]: Expand on paper. Enter your b and c (a should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried.
+        - generic [ref=f4e231]:
+          - generic [ref=f4e232]:
+            - generic [ref=f4e233]:
+              - text: a
+              - spinbutton "a" [ref=f4e234]: "2"
+            - generic [ref=f4e235]:
+              - text: b
+              - spinbutton "b" [ref=f4e236]
+            - generic [ref=f4e237]:
+              - text: c
+              - spinbutton "c" [ref=f4e238]
+          - paragraph [ref=f4e239]:
+            - strong [ref=f4e240]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=f4e241]:
+            - strong [ref=f4e242]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=f4e243]:
+            - region [ref=f4e244]:
+              - img [ref=f4e245]:
+                - generic [ref=f4e251]:
+                  - generic [ref=f4e253]: "2"
+                  - generic [ref=f4e254]: "4"
+                  - generic [ref=f4e255]: "6"
+                  - generic [ref=f4e256]: −2
+                  - generic [ref=f4e257]: −4
+                  - generic [ref=f4e258]: −6
+                  - generic [ref=f4e259]: "2"
+                  - generic [ref=f4e260]: "4"
+                  - generic [ref=f4e261]: "6"
+                  - generic [ref=f4e262]: "8"
+                  - generic [ref=f4e263]: −2
+                  - generic [ref=f4e264]: −4
+              - generic [ref=f4e265] [cursor=pointer]: –o+←↓↑→
+              - generic [ref=f4e266]: (-3, 1)
+          - generic [ref=f4e267]:
+            - generic [ref=f4e268]:
+              - text: a
+              - slider "a 2" [ref=f4e269]: "2"
+              - generic [ref=f4e270]: "2"
+            - generic [ref=f4e271]:
+              - text: h
+              - slider "h -3" [ref=f4e272]: "-3"
+              - generic [ref=f4e273]: "-3"
+            - generic [ref=f4e274]:
+              - text: k
+              - slider "k 1" [ref=f4e275]: "1"
+              - generic [ref=f4e276]: "1"
+          - generic [ref=f4e277]:
+            - button "Check" [ref=f4e278] [cursor=pointer]
+            - button "Hint" [ref=f4e279] [cursor=pointer]
+            - button "Reset" [ref=f4e280] [cursor=pointer]
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=f4e281]
+          - table [ref=f4e282]:
+            - rowgroup [ref=f4e283]:
+              - row [ref=f4e284]:
+                - columnheader "x" [ref=f4e285]
+                - columnheader "f(x)" [ref=f4e286]
+            - rowgroup [ref=f4e287]:
+              - row [ref=f4e288]:
+                - cell "-5" [ref=f4e289]
+                - cell "9" [ref=f4e290]
+              - row [ref=f4e291]:
+                - cell "-4" [ref=f4e292]
+                - cell "3" [ref=f4e293]
+              - row [ref=f4e294]:
+                - cell "-3" [ref=f4e295]
+                - cell "1" [ref=f4e296]
+              - row [ref=f4e297]:
+                - cell "-2" [ref=f4e298]
+                - cell "3" [ref=f4e299]
+              - row [ref=f4e300]:
+                - cell "-1" [ref=f4e301]
+                - cell "9" [ref=f4e302]
+      - paragraph [ref=f4e304]: Do a few table points sit on both forms? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?
+      - heading "What vertex form is for" [level=2] [ref=f4e305]
+      - paragraph [ref=f4e306]: You have been reading vertex form. Factored form f(x) = a(x - r)(x - s) makes the x-intercepts easy to see. Standard form f(x) = ax² + bx + c makes the y-intercept easy to see. Vertex form does not make those intercepts as obvious — and the vertex is not an intercept unless it actually sits on an axis.
+      - paragraph [ref=f4e308]: What can you read from vertex form f(x) = a(x - h)² + k that is harder to see when the same function is written as f(x) = ax² + bx + c? Do not rewrite the function in another form.
+      - heading "Expand a new equation yourself" [level=2] [ref=f4e309]
+      - paragraph [ref=f4e311]: Given the vertex form f(x) = 3(x - 1)² + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.
+      - paragraph [ref=f4e312]: Here, standard form means f(x) = ax² + bx + c. Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph.
+      - heading "One more to try" [level=2] [ref=f4e313]
+      - generic [ref=f4e314]:
+        - paragraph [ref=f4e316]: Determine the domain and range of f(x) = −2(x + 3)² − 6.
+        - group [ref=f4e317]:
+          - generic "One more to try" [ref=f4e318]
+      - paragraph [ref=f4e319]: "If the graph is not available, work on paper with f(x) = 2(x + 3)² + 1. First look at f(x) = (x + 3)² + 1: name that vertex, then sketch both equations (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch."
+  - text: Hint
+  - generic [ref=f4e29]:
+    - paragraph [ref=f4e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=f4e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=f4e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"

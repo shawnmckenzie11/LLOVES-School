@@ -21,7 +21,7 @@ Math-curriculum-wide order: **MCF3M first**, then MCR3U.
 | `lesson-brief.json` | **This agent** |
 | Question candidates | `question-curator` (parent runs after this brief) |
 | Interaction spec | `interaction-designer` (parallel with curator) |
-| Drive extracts / bank folders | `curriculum-drive-author` / `seed-specific-expectations` |
+| Local extracts / bank cache | `seed-specific-expectations` (live Drive = other workspace) |
 | LMS outline rebuild | `alc-module-and-lesson-rebuilder-from-json` |
 | Integration / catalogue merge | **Parent** |
 

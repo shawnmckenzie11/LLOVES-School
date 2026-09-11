@@ -253,13 +253,15 @@ function postMediaState(media) {
         source: "lloves-student-home",
         type: "live-media-state",
         student_controls_unlocked: Boolean(media.student_controls_unlocked),
+        param_push: media.param_push || { a: false, b: false, c: false },
+        param_frozen: media.param_frozen || { a: true, b: true, c: true },
         reveal_axes: Boolean(media.reveal_axes),
         reveal_lateral: Boolean(media.reveal_lateral),
         allow_3d_limited: Boolean(media.allow_3d_limited),
         show_z_axis: Boolean(media.show_z_axis),
         student_zoom: Number(media.student_zoom ?? 0),
         freeze_zoom: Boolean(media.freeze_zoom),
-        surface_transparency: Number(media.surface_transparency ?? 1.5),
+        surface_transparency: Number(media.surface_transparency ?? 0.75),
         freeze_surface: Boolean(media.freeze_surface),
         student_yaw_range: Number(media.student_yaw_range ?? 0),
         freeze_yaw: Boolean(media.freeze_yaw),
@@ -285,17 +287,19 @@ function postMediaState(media) {
 function paintMedia(payload) {
   const media = payload.active_media;
   const url = media ? safeMediaUrl(media.url) : "";
+  // C1 Real-slice already chips the ask inside the frame; do not double it.
+  const iframeOwnsAsk = url.includes("m1c1-c1-real-slice.html");
   if (mediaChip) {
     const chip = String(
       (media && (media.chip || media.entry_chip)) || ""
     ).trim();
     mediaChip.textContent = chip;
-    mediaChip.hidden = !chip;
+    mediaChip.hidden = !chip || iframeOwnsAsk;
   }
   if (mediaStem) {
     const stem = String((media && media.stem) || "").trim();
     mediaStem.textContent = stem;
-    mediaStem.hidden = !stem;
+    mediaStem.hidden = !stem || iframeOwnsAsk;
   }
   if (mediaCaption) {
     const caption = String((media && media.caption) || "").trim();
@@ -350,6 +354,8 @@ function paintMedia(payload) {
   mediaPane.hidden = false;
   const sig = JSON.stringify({
     url,
+    param_push: media.param_push || { a: false, b: false, c: false },
+    param_frozen: media.param_frozen || { a: true, b: true, c: true },
     unlocked: Boolean(media.student_controls_unlocked),
     reveal_axes: Boolean(media.reveal_axes),
     reveal_lateral: Boolean(media.reveal_lateral),
@@ -357,7 +363,7 @@ function paintMedia(payload) {
     show_z_axis: Boolean(media.show_z_axis),
     student_zoom: Number(media.student_zoom ?? 0),
     freeze_zoom: Boolean(media.freeze_zoom),
-    surface_transparency: Number(media.surface_transparency ?? 1.5),
+    surface_transparency: Number(media.surface_transparency ?? 0.75),
     freeze_surface: Boolean(media.freeze_surface),
     student_yaw_range: Number(media.student_yaw_range ?? 0),
     freeze_yaw: Boolean(media.freeze_yaw),

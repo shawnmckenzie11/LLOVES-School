@@ -1,4 +1,10 @@
-"""Shared keys for live-class slides and Ontario process evidence."""
+"""Shared keys for live-class slides and Ontario process evidence.
+
+``CURRICULUM_DRIVE_FOLDER_ID`` and ``CURRICULUM_COURSE_DRIVE_FOLDERS`` document
+the ALC / Curriculum tree. Live Drive authoring is not done in this workspace.
+Lesson Slides runtime uses LMS sqlite, ``.local-data/curriculum/``, and
+``GoogleSlidesClient`` REST (``ALC_DRIVE_FOLDER_ID``, ``DEFAULT_SLIDES_TEMPLATE_ID``).
+"""
 
 from __future__ import annotations
 

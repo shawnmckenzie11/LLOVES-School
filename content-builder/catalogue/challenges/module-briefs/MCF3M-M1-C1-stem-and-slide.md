@@ -25,7 +25,7 @@ Claims about \(a,b,c\) must be forced by **this** picture (\(y=x^2\)), not “ev
 This picture shows the parabola \(y = x^2\). We can also write it as \(y = ax^2 + bx + c\).
 
 **Full ask:**  
-When looking at the parabola represented by \(y = ax^2 + bx + c\), what do you know about \(a\), \(b\), and \(c\)?
+Consider the parabola represented by \(y = ax^2 + bx + c\). What do you know about \(a\), \(b\), and \(c\)?
 
 *(No A–E. No Exact/CEMC badge on the student slide.)*
 

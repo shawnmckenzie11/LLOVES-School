@@ -1,0 +1,25 @@
+- generic [active] [ref=f2e1]:
+  - banner "Your stats" [ref=f2e2]:
+    - generic [ref=f2e3]:
+      - paragraph [ref=f2e4]: fd
+      - generic [ref=f2e5]:
+        - paragraph [ref=f2e6]:
+          - generic [ref=f2e7]: My points
+          - strong [ref=f2e8]: "0"
+        - paragraph [ref=f2e9]:
+          - generic [ref=f2e10]: Team
+          - strong [ref=f2e11]: "0"
+  - main [ref=f2e12]:
+    - paragraph [ref=f2e13]: Waiting room — class is about to begin.
+    - generic [ref=f2e14]:
+      - paragraph [ref=f2e15]: Minds-On
+      - heading [level=2] [ref=f2e16]:
+        - text: A straight-line graph has a
+        - strong [ref=f2e17]: constant rate of change
+        - text: . Which statement best matches that?
+      - generic [ref=f2e18]:
+        - button "Every equal step across adds the same amount up (or down)" [ref=f2e19] [cursor=pointer]
+        - button "The graph curves" [ref=f2e20] [cursor=pointer]
+        - button "Second differences in a table are constant" [ref=f2e21] [cursor=pointer]
+        - button "Not sure" [ref=f2e22] [cursor=pointer]
+  - contentinfo "Class scoreboard" [ref=f2e23]

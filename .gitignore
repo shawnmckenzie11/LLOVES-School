@@ -32,8 +32,9 @@ tools/math-game-show/data/
 lms/data/
 lms/.venv/
 
-# Local volume clone (sqlite + libraries). Keep curriculum extracts commitable.
-.local-data/main/
+# Local dumps (volume clone, curriculum cache, MathNet). Never commit banks,
+# contest dumps, or extracts from here — Drive authoring is the other clone.
+.local-data/
 .cursor/debug-*.log
 
 # Never commit IMSCC packs (Admin uploads to Fly volume only)

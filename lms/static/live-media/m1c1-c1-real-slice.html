@@ -56,12 +56,14 @@
       margin-top: 0.4rem;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 0.28rem 0.75rem;
+      border-radius: 10px;
+      padding: 0.35rem 0.75rem;
       color: var(--gold);
       font-size: 0.78rem;
       font-weight: 650;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
+      line-height: 1.35;
+      max-width: min(38rem, 94%);
     }
     .dock {
       pointer-events: auto;
@@ -82,17 +84,14 @@
       color: var(--muted);
       font-weight: 650;
     }
-    .sliders {
-      display: grid;
-      gap: 0.35rem;
-    }
     label.slide {
       display: grid;
-      grid-template-columns: 1.4rem 1fr 2.6rem;
-      gap: 0.45rem;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.4rem;
+      gap: 0.4rem;
       align-items: center;
       font-size: 0.82rem;
       color: #c5d0dc;
+      min-width: 0;
     }
     label.slide span { font-family: "IBM Plex Serif", Georgia, serif; color: var(--gold); }
     label.slide output {
@@ -104,58 +103,79 @@
       width: 100%;
       accent-color: var(--gold);
     }
-    .teacher-grid {
+    .teacher-table {
       display: none;
-      grid-template-columns: minmax(9.2rem, 1.15fr) minmax(8.2rem, 1.35fr) minmax(7.2rem, 1fr) minmax(6.4rem, 0.85fr);
-      gap: 0.4rem 0.5rem;
+      width: max-content;
+      max-width: 100%;
+      grid-template-columns: minmax(15.5rem, 22rem) auto auto auto;
+      column-gap: 1.15rem;
+      row-gap: 0.28rem;
       align-items: center;
-      margin-top: 0.35rem;
-      padding: 0.35rem;
-      border: 1px solid transparent;
     }
-    .teacher-grid.is-on { display: grid; }
-    .teacher-grid .cell {
+    .teacher-table.is-on { display: grid; }
+    .teacher-table .th {
+      font-size: 0.62rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .teacher-table .check {
       display: flex;
       align-items: center;
-      gap: 0.35rem;
-      min-width: 0;
-      min-height: 1.7rem;
-      padding: 0.12rem 0.2rem;
-      border: 1px solid transparent;
-    }
-    .teacher-grid .cell.check label {
-      display: flex;
-      align-items: center;
+      justify-content: flex-start;
       gap: 0.32rem;
       font-size: 0.72rem;
-      line-height: 1.2;
       color: #c5d0dc;
-      cursor: pointer;
+      min-height: 1.7rem;
+      white-space: nowrap;
     }
-    .teacher-grid .cell.check input[type="checkbox"] {
-      flex: 0 0 auto;
+    .teacher-table .check input {
       margin: 0;
+      flex: 0 0 auto;
     }
-    .teacher-grid .cell.check label:has(input:disabled) {
+    .teacher-table .check:has(input:disabled) {
       cursor: not-allowed;
       opacity: 0.55;
     }
-    .teacher-grid .cell.tool {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) 2.1rem;
-      gap: 0.28rem;
-      align-items: center;
-      font-size: 0.7rem;
-      color: #c5d0dc;
-    }
-    .teacher-grid .cell.tool span {
-      white-space: nowrap;
+    .teacher-table .all-label {
+      font-size: 0.78rem;
+      font-weight: 650;
       color: var(--gold);
     }
-    .teacher-grid .cell.tool output {
-      font-family: ui-monospace, "IBM Plex Mono", monospace;
-      text-align: right;
-      font-variant-numeric: tabular-nums;
+    .teacher-table .row-all {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 0.35rem;
+      margin-top: 0.1rem;
+    }
+    .teacher-extras {
+      display: none;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.45rem 0.85rem;
+      align-items: center;
+      margin-top: 0.35rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .teacher-extras.is-on { display: grid; }
+    .teacher-extras label.axis {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+      color: #c5d0dc;
+    }
+    .teacher-extras label.axis input { margin: 0; }
+    .dock.is-student .teacher-table .th,
+    .dock.is-student .teacher-table .col-push,
+    .dock.is-student .teacher-table .col-freeze,
+    .dock.is-student .teacher-table .col-gen,
+    .dock.is-student .row-all,
+    .dock.is-student .teacher-extras {
+      display: none !important;
+    }
+    .dock.is-student .teacher-table {
+      grid-template-columns: minmax(0, 1fr);
     }
   </style>
 </head>
@@ -164,67 +184,52 @@
   <div class="hud">
     <div>
       <p class="eq" id="eq" hidden>y = <strong>x²</strong></p>
-      <p class="chip" id="chip">From this view only — what must be true?</p>
+      <p class="chip" id="chip">Consider the parabola represented by y = ax² + bx + c. What do you know about a, b, and c?</p>
     </div>
     <section class="dock" id="dock">
       <h2 id="dock-title">Teacher controls</h2>
-      <div class="sliders">
-        <label class="slide"> <span>a</span>
+      <div class="teacher-table" id="teacher-table">
+        <div class="th"></div>
+        <div class="th">Push to Student View</div>
+        <div class="th">Frozen</div>
+        <div class="th">Generate</div>
+
+        <label class="slide" data-row="a"> <span>a</span>
           <input id="p-a" type="range" min="-2.5" max="2.5" step="0.05" value="1">
           <output id="o-a">1.00</output>
         </label>
-        <label class="slide"> <span>b</span>
+        <label class="check col-push" for="push-a"><input id="push-a" type="checkbox"> Push a</label>
+        <label class="check col-freeze" for="freeze-a"><input id="freeze-a" type="checkbox" checked disabled> Frozen</label>
+        <label class="check col-gen" for="gen-a"><input id="gen-a" type="checkbox"> Generate</label>
+
+        <label class="slide" data-row="b"> <span>b</span>
           <input id="p-b" type="range" min="-4" max="4" step="0.05" value="0">
           <output id="o-b">0.00</output>
         </label>
-        <label class="slide"> <span>c</span>
+        <label class="check col-push" for="push-b"><input id="push-b" type="checkbox"> Push b</label>
+        <label class="check col-freeze" for="freeze-b"><input id="freeze-b" type="checkbox" checked disabled> Frozen</label>
+        <label class="check col-gen" for="gen-b"><input id="gen-b" type="checkbox"> Generate</label>
+
+        <label class="slide" data-row="c"> <span>c</span>
           <input id="p-c" type="range" min="-3" max="3" step="0.05" value="0">
           <output id="o-c">0.00</output>
         </label>
+        <label class="check col-push" for="push-c"><input id="push-c" type="checkbox"> Push c</label>
+        <label class="check col-freeze" for="freeze-c"><input id="freeze-c" type="checkbox" checked disabled> Frozen</label>
+        <label class="check col-gen" for="gen-c"><input id="gen-c" type="checkbox"> Generate</label>
+
+        <div class="all-label row-all">All</div>
+        <label class="check col-push row-all" for="push-all"><input id="push-all" type="checkbox"> Push All to View</label>
+        <label class="check col-freeze row-all" for="freeze-all"><input id="freeze-all" type="checkbox" checked disabled> Freeze All</label>
+        <label class="check col-gen row-all" for="gen-all"><input id="gen-all" type="checkbox"> Generate All</label>
       </div>
-      <div class="teacher-grid" id="teacher-grid">
-        <div class="cell check">
-          <label for="t-unlock"><input id="t-unlock" type="checkbox"> Show student view a, b, c</label>
-        </div>
-        <label class="cell tool" for="t-zoom">
-          <span>Student zoom</span>
-          <input id="t-zoom" type="range" min="0" max="10" step="0.1" value="0">
-          <output id="o-zoom">0.0</output>
+      <div class="teacher-extras" id="teacher-extras">
+        <label class="axis" for="t-zaxis"><input id="t-zaxis" type="checkbox"> Lateral axis</label>
+        <label class="slide" for="t-surface">
+          <span>α</span>
+          <input id="t-surface" type="range" min="0" max="10" step="0.1" value="0.75">
+          <output id="o-surface">0.75</output>
         </label>
-        <div class="cell check">
-          <label for="t-freeze-zoom"><input id="t-freeze-zoom" type="checkbox"> Freeze zoom</label>
-        </div>
-        <div class="cell check">
-          <label for="t-cons-1"><input id="t-cons-1" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
-        </div>
-        <div class="cell check">
-          <label for="t-zaxis"><input id="t-zaxis" type="checkbox"> Show z axis</label>
-        </div>
-        <label class="cell tool" for="t-surface">
-          <span>3D surface transparency</span>
-          <input id="t-surface" type="range" min="0" max="10" step="0.1" value="1.5">
-          <output id="o-surface">1.5</output>
-        </label>
-        <div class="cell check">
-          <label for="t-freeze-surface"><input id="t-freeze-surface" type="checkbox"> Freeze 3D surface</label>
-        </div>
-        <div class="cell check">
-          <label for="t-cons-2"><input id="t-cons-2" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
-        </div>
-        <div class="cell check">
-          <label for="t-lateral"><input id="t-lateral" type="checkbox"> In-pane lateral reveal</label>
-        </div>
-        <label class="cell tool" for="t-yaw">
-          <span>Student yaw range</span>
-          <input id="t-yaw" type="range" min="0" max="360" step="1" value="0">
-          <output id="o-yaw">0</output>
-        </label>
-        <div class="cell check">
-          <label for="t-freeze-yaw"><input id="t-freeze-yaw" type="checkbox"> Freeze student yaw</label>
-        </div>
-        <div class="cell check">
-          <label for="t-cons-3"><input id="t-cons-3" type="checkbox" disabled title="Next: CONS-1 when conditions are met"> Show CONS</label>
-        </div>
       </div>
     </section>
   </div>
@@ -237,29 +242,41 @@
   const chipEl = document.getElementById("chip");
   const dock = document.getElementById("dock");
   const dockTitle = document.getElementById("dock-title");
-  const teacherGrid = document.getElementById("teacher-grid");
+  const teacherTable = document.getElementById("teacher-table");
+  const teacherExtras = document.getElementById("teacher-extras");
   const inputA = document.getElementById("p-a");
   const inputB = document.getElementById("p-b");
   const inputC = document.getElementById("p-c");
   const outA = document.getElementById("o-a");
   const outB = document.getElementById("o-b");
   const outC = document.getElementById("o-c");
-  const tUnlock = document.getElementById("t-unlock");
-  const tZoom = document.getElementById("t-zoom");
-  const oZoom = document.getElementById("o-zoom");
-  const tFreezeZoom = document.getElementById("t-freeze-zoom");
+  const pushA = document.getElementById("push-a");
+  const pushB = document.getElementById("push-b");
+  const pushC = document.getElementById("push-c");
+  const freezeA = document.getElementById("freeze-a");
+  const freezeB = document.getElementById("freeze-b");
+  const freezeC = document.getElementById("freeze-c");
+  const genA = document.getElementById("gen-a");
+  const genB = document.getElementById("gen-b");
+  const genC = document.getElementById("gen-c");
+  const pushAll = document.getElementById("push-all");
+  const freezeAll = document.getElementById("freeze-all");
+  const genAll = document.getElementById("gen-all");
   const tZaxis = document.getElementById("t-zaxis");
   const tSurface = document.getElementById("t-surface");
   const oSurface = document.getElementById("o-surface");
-  const tFreezeSurface = document.getElementById("t-freeze-surface");
-  const tLateral = document.getElementById("t-lateral");
-  const tYaw = document.getElementById("t-yaw");
-  const oYaw = document.getElementById("o-yaw");
-  const tFreezeYaw = document.getElementById("t-freeze-yaw");
+  const PARAM_KEYS = ["a", "b", "c"];
+  const pushBoxes = { a: pushA, b: pushB, c: pushC };
+  const freezeBoxes = { a: freezeA, b: freezeB, c: freezeC };
+  const genBoxes = { a: genA, b: genB, c: genC };
+  const sliderInputs = { a: inputA, b: inputB, c: inputC };
 
   const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
   const embedded = window.parent !== window;
-  const teacherMode = query.get("role") === "teacher" || !embedded;
+  // Staff iframe uses ?role=teacher. Student portal omits role (embedded).
+  // ?role=student forces entry chrome when the file is opened in a tab.
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
 
   const PAPER_YAW = 0.08;
   const PAPER_PITCH = -0.16;
@@ -274,7 +291,11 @@
   const PAPER_DIST = 9.2;
   const CLOSE_DIST = 3.6;
   const LATERAL_CHIP = "This picture was always a slice";
-  const ENTRY_SURFACE = 1.5;
+  const ENTRY_STEM =
+    "Consider the parabola represented by y = ax² + bx + c. What do you know about a, b, and c?";
+  const ENTRY_SURFACE = 0.75;
+  /** Half of the previous floor (0.045) so the faint end is fainter. */
+  const SURFACE_ALPHA_MIN = 0.0225;
 
   const state = {
     a: 1,
@@ -295,11 +316,12 @@
     revealAxes: false,
     revealLateral: false,
     studentNudged: false,
-    unlocked: false,
+    paramPush: { a: false, b: false, c: false },
+    paramFrozen: { a: true, b: true, c: true },
     dragging: false,
     lastX: 0,
     lastY: 0,
-    acceptParentParams: true,
+    acceptParentParams: { a: true, b: true, c: true },
   };
   let cameraRaf = 0;
 
@@ -323,6 +345,14 @@
   }
 
   /**
+   * True when at least one a/b/c slider is on the student view.
+   * @returns {boolean}
+   */
+  function anyPushed() {
+    return PARAM_KEYS.some((key) => state.paramPush[key]);
+  }
+
+  /**
    * Camera distance: zoom 0 is paper-locked, 10 is full zoom-in.
    * @returns {number}
    */
@@ -337,7 +367,7 @@
    */
   function surfaceAlpha() {
     const t = Math.max(0, Math.min(10, state.surfaceTransparency)) / 10;
-    return 0.045 + t * 0.58;
+    return SURFACE_ALPHA_MIN + t * 0.58;
   }
 
   /**
@@ -369,6 +399,9 @@
     return "y = <strong>" + parts.join("") + "</strong> <span class='coeffs'>a=" + fmt(a) + " · b=" + fmt(b) + " · c=" + fmt(c) + "</span>";
   }
 
+  /**
+   * Sync slider/checkbox chrome from state. Frozen is locked until that key is pushed.
+   */
   function syncOutputs() {
     inputA.value = String(state.a);
     inputB.value = String(state.b);
@@ -376,21 +409,23 @@
     outA.textContent = fmt(state.a);
     outB.textContent = fmt(state.b);
     outC.textContent = fmt(state.c);
-    tUnlock.checked = state.unlocked;
-    tZoom.value = String(state.studentZoom);
-    oZoom.textContent = fmt(state.studentZoom, 1);
-    tFreezeZoom.checked = state.freezeZoom;
-    tZoom.disabled = state.freezeZoom;
+    PARAM_KEYS.forEach((key) => {
+      const pushed = Boolean(state.paramPush[key]);
+      if (!pushed) state.paramFrozen[key] = true;
+      pushBoxes[key].checked = pushed;
+      freezeBoxes[key].checked = Boolean(state.paramFrozen[key]);
+      freezeBoxes[key].disabled = !pushed;
+      sliderInputs[key].disabled = !teacherMode && pushed && state.paramFrozen[key];
+      const row = document.querySelector('[data-row="' + key + '"]');
+      if (row) row.hidden = !teacherMode && !pushed;
+    });
+    pushAll.checked = PARAM_KEYS.every((key) => state.paramPush[key]);
+    freezeAll.checked = PARAM_KEYS.every((key) => state.paramFrozen[key]);
+    freezeAll.disabled = !anyPushed();
+    genAll.checked = PARAM_KEYS.every((key) => genBoxes[key].checked);
     tZaxis.checked = state.showZAxis;
     tSurface.value = String(state.surfaceTransparency);
     oSurface.textContent = fmt(state.surfaceTransparency, 1);
-    tFreezeSurface.checked = state.freezeSurface;
-    tSurface.disabled = state.freezeSurface;
-    tLateral.checked = state.revealLateral;
-    tYaw.value = String(state.studentYawRange);
-    oYaw.textContent = String(Math.round(state.studentYawRange));
-    tFreezeYaw.checked = state.freezeYaw;
-    tYaw.disabled = state.freezeYaw;
     state.dist = distFromZoom();
     eqEl.innerHTML = equationHtml();
     const showEq = teacherMode || state.revealAxes;
@@ -398,22 +433,25 @@
     if (chipEl) {
       if (!teacherMode && state.revealLateral) {
         chipEl.hidden = false;
-        if (!chipEl.textContent.trim()) chipEl.textContent = LATERAL_CHIP;
+        chipEl.textContent = LATERAL_CHIP;
       } else {
-        chipEl.hidden = teacherMode || state.revealAxes || state.unlocked;
+        chipEl.hidden = teacherMode || state.revealAxes || anyPushed();
+        if (!chipEl.hidden && !chipEl.textContent.trim()) chipEl.textContent = ENTRY_STEM;
       }
     }
   }
 
   /**
-   * Student entry: paper-locked, chip on, equation off, faint saddle, x/y on.
-   * Teacher dock holds a/b/c plus the view-tool grid. Explore a,b,c is sliders only.
+   * Student entry: paper-locked, chip on, equation off.
+   * Teacher dock is the a/b/c Push · Frozen · Generate table.
    */
   function applyRoleChrome() {
-    const showDock = teacherMode || state.unlocked;
+    const showDock = teacherMode || anyPushed();
     dock.classList.toggle("is-on", showDock);
+    dock.classList.toggle("is-student", !teacherMode);
     dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, b, and c";
-    teacherGrid.classList.toggle("is-on", teacherMode);
+    teacherTable.classList.toggle("is-on", showDock);
+    teacherExtras.classList.toggle("is-on", teacherMode);
     if (teacherMode) {
       canvas.style.cursor = "grab";
     } else if (studentLimitedYaw()) {
@@ -611,7 +649,7 @@
     axis({ x: -span, y: 0, z: 0 }, { x: span + 0.15, y: 0, z: 0 }, "rgba(210,220,235,0.92)", "x", 1.85);
     axis({ x: 0, y: -2.2, z: 0 }, { x: 0, y: 3.1, z: 0 }, "rgba(210,220,235,0.92)", "y", 1.85);
     if (state.showZAxis) {
-      axis({ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span + 0.15 }, "rgba(210,220,235,0.55)", "z", 1.5);
+      axis({ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span + 0.15 }, "rgba(210,220,235,0.55)", "Lateral", 1.5);
     }
 
     if (teacherMode || state.revealAxes) {
@@ -654,7 +692,7 @@
   }
 
   /**
-   * Push teacher tools + a/b/c to the parent so both iframes stay in lockstep.
+   * Push a/b/c push·freeze plus view tools to the parent so both iframes stay in lockstep.
    */
   function notifyParent() {
     if (!embedded) return;
@@ -664,17 +702,18 @@
           source: "lloves-m1c1-c1",
           type: "params",
           params: { a: state.a, b: state.b, c: state.c },
-          student_controls_unlocked: state.unlocked,
+          param_push: { a: state.paramPush.a, b: state.paramPush.b, c: state.paramPush.c },
+          param_frozen: {
+            a: state.paramFrozen.a,
+            b: state.paramFrozen.b,
+            c: state.paramFrozen.c,
+          },
+          student_controls_unlocked: anyPushed(),
           reveal_axes: state.revealAxes,
           reveal_lateral: state.revealLateral,
           allow_3d_limited: state.studentYawRange > 0,
           show_z_axis: state.showZAxis,
-          student_zoom: state.studentZoom,
-          freeze_zoom: state.freezeZoom,
           surface_transparency: state.surfaceTransparency,
-          freeze_surface: state.freezeSurface,
-          student_yaw_range: state.studentYawRange,
-          freeze_yaw: state.freezeYaw,
         },
         window.location.origin
       );
@@ -684,45 +723,84 @@
   }
 
   /**
-   * Read a/b/c and teacher view tools from the dock.
+   * Read a/b/c and teacher Push / Frozen / Generate chrome from the dock.
    * @param {boolean} fromTeacher
+   * @param {string} [movedKey]
    */
-  function readSliders(fromTeacher) {
-    state.a = Number(inputA.value);
-    state.b = Number(inputB.value);
-    state.c = Number(inputC.value);
-    if (teacherMode) {
-      const nextLateral = tLateral.checked;
-      const lateralEdge = nextLateral !== state.revealLateral;
-      state.unlocked = tUnlock.checked;
-      state.showZAxis = tZaxis.checked;
-      if (!state.freezeZoom) state.studentZoom = Number(tZoom.value);
-      state.freezeZoom = tFreezeZoom.checked;
-      if (!state.freezeSurface) state.surfaceTransparency = Number(tSurface.value);
-      state.freezeSurface = tFreezeSurface.checked;
-      if (!state.freezeYaw) state.studentYawRange = Number(tYaw.value);
-      state.freezeYaw = tFreezeYaw.checked;
-      state.revealLateral = nextLateral;
-      if (lateralEdge) {
-        state.studentNudged = false;
-        syncCameraTargets(true);
-      }
+  function readSliders(fromTeacher, movedKey) {
+    if (teacherMode || (movedKey && state.paramPush[movedKey] && !state.paramFrozen[movedKey])) {
+      state.a = Number(inputA.value);
+      state.b = Number(inputB.value);
+      state.c = Number(inputC.value);
     }
-    if (fromTeacher) state.acceptParentParams = true;
-    if (!teacherMode) state.acceptParentParams = false;
+    if (teacherMode) {
+      PARAM_KEYS.forEach((key) => {
+        const pushed = pushBoxes[key].checked;
+        state.paramPush[key] = pushed;
+        if (!pushed) {
+          state.paramFrozen[key] = true;
+          freezeBoxes[key].checked = true;
+        } else {
+          state.paramFrozen[key] = freezeBoxes[key].checked;
+        }
+      });
+      state.showZAxis = tZaxis.checked;
+      state.surfaceTransparency = Number(tSurface.value);
+    }
+    if (fromTeacher) {
+      PARAM_KEYS.forEach((key) => {
+        state.acceptParentParams[key] = true;
+      });
+    }
+    if (!teacherMode && movedKey) {
+      state.acceptParentParams[movedKey] = false;
+    }
     syncOutputs();
     draw();
     notifyParent();
   }
 
+  /**
+   * Push or freeze every a/b/c row from the All controls.
+   * @param {"push"|"freeze"|"generate"} kind
+   */
+  function applyAllRow(kind) {
+    if (kind === "push") {
+      const on = pushAll.checked;
+      PARAM_KEYS.forEach((key) => {
+        pushBoxes[key].checked = on;
+        if (!on) {
+          freezeBoxes[key].checked = true;
+        }
+      });
+    } else if (kind === "freeze") {
+      const on = freezeAll.checked;
+      PARAM_KEYS.forEach((key) => {
+        if (pushBoxes[key].checked) freezeBoxes[key].checked = on;
+      });
+    } else if (kind === "generate") {
+      const on = genAll.checked;
+      PARAM_KEYS.forEach((key) => {
+        genBoxes[key].checked = on;
+      });
+    }
+    readSliders(true);
+  }
+
   ["input", "change"].forEach((evt) => {
-    inputA.addEventListener(evt, () => readSliders(teacherMode));
-    inputB.addEventListener(evt, () => readSliders(teacherMode));
-    inputC.addEventListener(evt, () => readSliders(teacherMode));
-    [tUnlock, tZoom, tFreezeZoom, tZaxis, tSurface, tFreezeSurface, tLateral, tYaw, tFreezeYaw].forEach((el) => {
-      el.addEventListener(evt, () => readSliders(true));
+    inputA.addEventListener(evt, () => readSliders(teacherMode, "a"));
+    inputB.addEventListener(evt, () => readSliders(teacherMode, "b"));
+    inputC.addEventListener(evt, () => readSliders(teacherMode, "c"));
+    PARAM_KEYS.forEach((key) => {
+      pushBoxes[key].addEventListener(evt, () => readSliders(true));
+      freezeBoxes[key].addEventListener(evt, () => readSliders(true));
     });
+    tZaxis.addEventListener(evt, () => readSliders(true));
+    tSurface.addEventListener(evt, () => readSliders(true));
   });
+  pushAll.addEventListener("change", () => applyAllRow("push"));
+  freezeAll.addEventListener("change", () => applyAllRow("freeze"));
+  genAll.addEventListener("change", () => applyAllRow("generate"));
 
   canvas.addEventListener("pointerdown", (event) => {
     if (!(teacherMode || studentLimitedYaw())) return;
@@ -768,9 +846,30 @@
     const data = event.data;
     if (!data || data.type !== "live-media-state") return;
     if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
-    if (typeof data.student_controls_unlocked === "boolean") {
-      state.unlocked = data.student_controls_unlocked;
+    if (typeof data.student_controls_unlocked === "boolean" && !data.param_push) {
+      const unlocked = data.student_controls_unlocked;
+      PARAM_KEYS.forEach((key) => {
+        state.paramPush[key] = unlocked;
+        if (!unlocked) state.paramFrozen[key] = true;
+      });
     }
+    if (data.param_push && typeof data.param_push === "object") {
+      PARAM_KEYS.forEach((key) => {
+        if (typeof data.param_push[key] === "boolean") {
+          state.paramPush[key] = data.param_push[key];
+        }
+      });
+    }
+    if (data.param_frozen && typeof data.param_frozen === "object") {
+      PARAM_KEYS.forEach((key) => {
+        if (typeof data.param_frozen[key] === "boolean") {
+          state.paramFrozen[key] = data.param_frozen[key];
+        }
+      });
+    }
+    PARAM_KEYS.forEach((key) => {
+      if (!state.paramPush[key]) state.paramFrozen[key] = true;
+    });
     if (typeof data.reveal_axes === "boolean") {
       state.revealAxes = data.reveal_axes;
     }
@@ -804,19 +903,32 @@
       if (!data.allow_3d_limited) state.studentYawRange = 0;
     }
     if (typeof data.freeze_yaw === "boolean") state.freezeYaw = data.freeze_yaw;
-    if (chipEl && typeof data.entry_chip === "string" && data.entry_chip.trim()) {
-      chipEl.textContent = data.entry_chip.trim();
-    } else if (chipEl && state.revealLateral && !teacherMode) {
+    if (chipEl && state.revealLateral && !teacherMode) {
       chipEl.textContent = LATERAL_CHIP;
+    } else if (chipEl && typeof data.stem === "string" && data.stem.trim()) {
+      chipEl.textContent = data.stem.trim();
+    } else if (chipEl && typeof data.entry_chip === "string" && data.entry_chip.trim()) {
+      chipEl.textContent = data.entry_chip.trim();
     }
-    const ignoreParams = !teacherMode && state.unlocked && !state.acceptParentParams;
     const params = data.params || {};
-    if (!ignoreParams) {
-      if (Number.isFinite(Number(params.a))) state.a = Number(params.a);
-      if (Number.isFinite(Number(params.b))) state.b = Number(params.b);
-      if (Number.isFinite(Number(params.c))) state.c = Number(params.c);
+    PARAM_KEYS.forEach((key) => {
+      const ignore =
+        !teacherMode &&
+        state.paramPush[key] &&
+        !state.paramFrozen[key] &&
+        !state.acceptParentParams[key];
+      if (!ignore && Number.isFinite(Number(params[key]))) {
+        state[key] = Number(params[key]);
+      }
+      if (state.paramFrozen[key] || !state.paramPush[key]) {
+        state.acceptParentParams[key] = true;
+      }
+    });
+    if (!teacherMode && !anyPushed()) {
+      PARAM_KEYS.forEach((key) => {
+        state.acceptParentParams[key] = true;
+      });
     }
-    if (!teacherMode && !state.unlocked) state.acceptParentParams = true;
     syncCameraTargets(poseEdge);
     applyRoleChrome();
     syncOutputs();

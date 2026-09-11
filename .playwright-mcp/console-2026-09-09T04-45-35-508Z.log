@@ -1,0 +1,59 @@
+[     263ms] [LOG] TypeError: window.__gpp is not a function
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:191064)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:243836)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:252467)
+    at https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:486011
+    at u (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82666)
+    at Generator._invoke (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82419)
+    at Generator.next (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:83025)
+    at g (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102773)
+    at a (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102976) @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[     277ms] [LOG] uspData set usp out of jurisiction value @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[     278ms] [WARNING] Google basic consent is not applicable. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[     278ms] [LOG] Less than 30 minute have passed since the stored timestamp. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[     640ms] [WARNING] init has already been called and should only be run one time. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[     648ms] Uncaught TypeError: n is not a function
+    at value (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:154853)
+    at e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:494277)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:504197)
+    at n (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:109)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:504300)
+    at n (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:109)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:904)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:915)
+[     882ms] [WARNING] [GPT] PubAdsService.clearTargeting is deprecated, use googletag.setConfig({targeting: ...}) instead.
+https://goo.gle/gpt-message#170 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202609040101/pubads_impl.js?cb=122880934:18
+[   61125ms] [WARNING] [GPT] Using deprecated googletag.encryptedSignalProviders. Please use googletag.secureSignalProviders instead.
+https://goo.gle/gpt-message#155 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202609040101/pubads_impl.js?cb=122880934:18
+[  135085ms] [WARNING] [GPT] PubAdsService.clearTargeting is deprecated, use googletag.setConfig({targeting: ...}) instead.
+https://goo.gle/gpt-message#170 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202609040101/pubads_impl.js?cb=122880934:18
+[  135091ms] [WARNING] [GPT] Slot.getTargeting is deprecated, use Slot.getConfig('targeting') instead.
+https://goo.gle/gpt-message#201 @ https://securepubads.g.doubleclick.net/pagead/managed/js/gpt/m202609040101/pubads_impl.js?cb=122880934:18
+[  135136ms] [WARNING] init has already been called and should only be run one time. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[  135149ms] [LOG] TypeError: window.__gpp is not a function
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:191064)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:243836)
+    at new e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:252467)
+    at https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:486011
+    at u (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82666)
+    at Generator._invoke (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:82419)
+    at Generator.next (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:83025)
+    at g (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102773)
+    at a (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:2:102976) @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[  135155ms] Uncaught TypeError: n is not a function
+    at value (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:154853)
+    at e (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:494277)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:504197)
+    at n (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:109)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:504300)
+    at n (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:109)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:904)
+    at <anonymous> (https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1:915)
+[  135163ms] [LOG] uspData set usp out of jurisiction value @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[  135164ms] [WARNING] Google basic consent is not applicable. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[  135174ms] [LOG] Less than 30 minute have passed since the stored timestamp. @ https://cmp.inmobi.com/tcfv2/56/cmp2.js?referer=www.geogebra.org:1
+[  135175ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://www.geogebra.org/resource/wka82dn2/T6Qw54l8uPONZqmJ/material-wka82dn2.png:0
+[  136796ms] [ERROR] Failed to load resource: net::ERR_CERT_DATE_INVALID @ https://uipglob.semasio.net/id5/1/get?gdpr=1&gdpr_consent=CQqRk8AQqRk8AAKA4AENCvFsAP_gAEPgAACYMztR_G__bWlr-bb3abtkeYxP9_hr7sQxBgbIkm4FzLvW7JwGx2EbJAyatiIKmRIAu3DBIQNlHBDURUCgKIAFryDMaE2U4TNKJ6BkiFMZIytQCExvm4tjeQCZ4ur_9kc0mB-t6dr-2dzyy6hHn3K5fmS1UJSdIYesDfv-ZhOS-9IE9-x8v4v4_EbpEm0eSVn9pEtp4zc6Yns6dBmxt-Tyff6Pn_f71fS7X_ve_n3zv8oXn7rr6-__f3-7v__-bf-___b-__7Z_zM_37_v_ftYMzgAmGh0QBlkQKBAoCEECABQVhABQIAgAASAogIATBgQ5AwAXWESAEAKAAIIAQAAgwABAAAJAAhEAEABAIAQIBAoAAwAIAgIAGBgADABQiAQAAgOgYpAQQCBYAJEYUBggQgAIBAS2VCCUDAgjhCkWOAQQIiYKAABEAAqAgEA8LAQklRKxIIAuILoAEAAABKMEUBFISYAoqDIFoKwJOAyNMAQfMEiSHQRAEwQkZBkQkqCQeKYogQQ5AbFLMAdPEFADLtZIQ_1As2ALkS7DqSoAAAA.IMztR_G__bXlv-bb36btkeYxf9_hr7sQxBgbIsm4FzLvW7JwG32EbJEyatiIKmRIAu3DBIQNtHBjURUChKIAVrzDsaE2U4TtKJ-BkiHMZYytQCExvm4tjeQCZ4ur_90d0mR-t6dr-2dzy27hnn3K9fuS1UJydKYetHfv-ZhOS-_IU9_x-_4v4_MbpEm0eSVv9tUtt4zc64vv6dpuxt-Tyff6f__f73fS7X__e__33_8qX3_r76-___3__v___ff_________9__-________4AAA.fwAAAAAAAAAA&_url=https%3A%2F%2Fid5-sync.com%2Fc%2F1189%2F112%2F6%2F3.gif%3Fpuid%3D%24%7BUIPID%7D%26gdpr%3D1%26gdpr_consent%3DCQqRk8AQqRk8AAKA4AENCvFsAP_gAEPgAACYMztR_G__bWlr-bb3abtkeYxP9_hr7sQxBgbIkm4FzLvW7JwGx2EbJAyatiIKmRIAu3DBIQNlHBDURUCgKIAFryDMaE2U4TNKJ6BkiFMZIytQCExvm4tjeQCZ4ur_9kc0mB-t6dr-2dzyy6hHn3K5fmS1UJSdIYesDfv-ZhOS-9IE9-x8v4v4_EbpEm0eSVn9pEtp4zc6Yns6dBmxt-Tyff6Pn_f71fS7X_ve_n3zv8oXn7rr6-__f3-7v__-bf-___b-__7Z_zM_37_v_ftYMzgAmGh0QBlkQKBAoCEECABQVhABQIAgAASAogIATBgQ5AwAXWESAEAKAAIIAQAAgwABAAAJAAhEAEABAIAQIBAoAAwAIAgIAGBgADABQiAQAAgOgYpAQQCBYAJEYUBggQgAIBAS2VCCUDAgjhCkWOAQQIiYKAABEAAqAgEA8LAQklRKxIIAuILoAEAAABKMEUBFISYAoqDIFoKwJOAyNMAQfMEiSHQRAEwQkZBkQkqCQeKYogQQ5AbFLMAdPEFADLtZIQ_1As2ALkS7DqSoAAAA.IMztR_G__bXlv-bb36btkeYxf9_hr7sQxBgbIsm4FzLvW7JwG32EbJEyatiIKmRIAu3DBIQNtHBjURUChKIAVrzDsaE2U4TtKJ-BkiHMZYytQCExvm4tjeQCZ4ur_90d0mR-t6dr-2dzy27hnn3K9fuS1UJydKYetHfv-ZhOS-_IU9_x-_4v4_MbpEm0eSVv9tUtt4zc64vv6dpuxt-Tyff6f__f73fS7X__e__33_8qX3_r76-___3__v___ff_________9__-________4AAA.fwAAAAAAAAAA%26gpp%3DDBABMA%7ECQqRk8AQqRk8AAKA4AENCvFsAP_gAEPgAACYMztR_G__bWlr-bb3abtkeYxP9_hr7sQxBgbIkm4FzLvW7JwGx2EbJAyatiIKmRIAu3DBIQNlHBDURUCgKIAFryDMaE2U4TNKJ6BkiFMZIytQCExvm4tjeQCZ4ur_9kc0mB-t6dr-2dzyy6hHn3K5fmS1UJSdIYesDfv-ZhOS-9IE9-x8v4v4_EbpEm0eSVn9pEtp4zc6Yns6dBmxt-Tyff6Pn_f71fS7X_ve_n3zv8oXn7rr6-__f3-7v__-bf-___b-__7Z_zM_37_v_ftYMzgAmGh0QBlkQKBAoCEECABQVhABQIAgAASAogIATBgQ5AwAXWESAEAKAAIIAQAAgwABAAAJAAhEAEABAIAQIBAoAAwAIAgIAGBgADABQiAQAAgOgYpAQQCBYAJEYUBggQgAIBAS2VCCUDAgjhCkWOAQQIiYKAABEAAqAgEA8LAQklRKxIIAuILoAEAAABKMEUBFISYAoqDIFoKwJOAyNMAQfMEiSHQRAEwQkZBkQkqCQeKYogQQ5AbFLMAdPEFADLtZIQ_1As2ALkS7DqSoAAAA.fwAAAAAAAAAA%26gpp_sid%3D2:0
+[  138077ms] [TIMEEND] a: 0.0009765625 ms @ https://static.adsafeprotected.com/sca.17.6.4.js:31
+[  138415ms] [DIR] SyntaxError @ https://js.ad-score.com/score.min.js?pid=1000925&tt=g:1
+[  142216ms] [ERROR] Refused to display 'https://tracookiepixel.xyz/' in a frame because it set 'X-Frame-Options' to 'deny'. @ chrome-error://chromewebdata/:0

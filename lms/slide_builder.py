@@ -234,8 +234,8 @@ def match_expectations(
 def _expectations_for_matching(school: Any, ontario: str) -> list[dict[str, Any]]:
     """Prefer verified DB rows; fall back to the local Curriculum dump.
 
-    Drive holds the authoring copy. Class-time matching must not call Drive.
-    Local ``.local-data/curriculum/{CODE}/`` is the cache of that dump.
+    Curriculum Drive is authored in the other workspace. Class-time matching
+    must not call Drive. Local ``.local-data/curriculum/{CODE}/`` is the cache.
 
     Args:
         school: ``SchoolDB``.
@@ -444,7 +444,7 @@ def _stem_from_payload(row: dict[str, Any]) -> str:
     """Official or teacher stem already stored on a row — never invented.
 
     Accepts ``stem`` / ``text``, or a non-empty ``examples`` list of strings
-    (curriculum-drive-author ``specifics`` rows). Empty strings are skipped.
+    (extract ``specifics`` rows). Empty strings are skipped.
 
     Args:
         row: Bank item, sqlite question, or example index entry.

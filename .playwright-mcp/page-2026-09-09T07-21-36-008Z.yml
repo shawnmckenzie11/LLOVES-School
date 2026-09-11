@@ -1,0 +1,17 @@
+- article [ref=f9e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f9e3]'
+  - paragraph [ref=f9e4]: MCF3M · Module 4 · M4-L1-vertex-form
+  - tablist [ref=f9e5]:
+    - tab "Minds On" [selected] [ref=f9e6] [cursor=pointer]
+    - tab "Action" [ref=f9e7] [cursor=pointer]
+    - tab "Consolidation" [ref=f9e8] [cursor=pointer]
+  - tabpanel "Minds On" [ref=f9e9]:
+    - generic [ref=f9e10]:
+      - paragraph [ref=f9e11]: "You already know how stretching, flipping, and sliding change the graph of y = x^2. This lesson is about reading a quadratic written in vertex form:"
+      - paragraph [ref=f9e12]: f(x) = a(x − h)^2 + k
+      - paragraph [ref=f9e13]: That writing is useful because the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum can be read from the equation — if you know how to look.
+      - paragraph [ref=f9e14]: "Before you move anything, look at this equation:"
+      - paragraph [ref=f9e15]: f(x) = (x + 3)^2 + 1
+      - paragraph [ref=f9e16]: Name the vertex of this parabola. Write it as a point.
+      - paragraph [ref=f9e17]: You will check on the graph tool in Action. Do not move the sliders yet.
+  - paragraph [ref=f9e18]: "Graph tool: JSXGraph (MIT). OpenStax excerpts: CC BY-NC-SA 4.0. Access for free at https://openstax.org/books/college-algebra-2e/pages/1-introduction-to-prerequisites. Ontario sample: Queen’s Printer excerpt via the verified seed. No student login or remote computation."

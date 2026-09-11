@@ -1,0 +1,303 @@
+- article [ref=e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=e3]'
+  - tablist [ref=e4]:
+    - tab "Minds On" [ref=e5] [cursor=pointer]
+    - tab "Action" [selected] [ref=e6] [cursor=pointer]
+    - tab "Consolidation" [ref=e7] [cursor=pointer]
+  - tabpanel "Action" [ref=e33]:
+    - generic [ref=e34]:
+      - paragraph [ref=e35]: In this course, f(x) = a(x - h)² + k is vertex form. The expanded equation f(x) = ax² + bx + c is standard form.
+      - heading "Read the turning point from the equation" [level=2] [ref=e36]
+      - paragraph [ref=e37]: "You named a vertex from a plus inside the brackets. Read this next equation the same way: vertex, axis, and whether the turning point is a maximum or a minimum."
+      - generic [ref=e38]:
+        - text: Worked example
+        - paragraph [ref=e39]: Consider
+        - paragraph [ref=e40]: y = -3(x + 2)² + 4
+        - paragraph [ref=e41]: Name the vertex. Is the vertex a maximum or a minimum? How did you know?
+        - paragraph [ref=e42]: Compare the equation with y = a(x - h)² + k.
+        - paragraph [ref=e43]: The brackets contain (x + 2). Vertex form uses (x - h), so rewrite x + 2 as x - (-2). That makes h = -2. The constant outside the brackets is +4, so k = 4.
+        - paragraph [ref=e44]: The vertex is (-2, 4). The axis of symmetry is the vertical line through the vertex, x = -2.
+        - paragraph [ref=e45]: The coefficient in front of the brackets is -3. Because a is negative, the parabola opens downward, so the vertex is a maximum. The maximum value of the function is 4, and it occurs when x = -2.
+        - paragraph [ref=e46]: That highest point is the same kind of fact you named on the water stream, now read from the equation.
+      - heading "A second equation, with nothing added outside" [level=2] [ref=e47]
+      - generic [ref=e48]:
+        - text: Another example
+        - paragraph [ref=e49]: The last equation had a constant outside the brackets, so k was easy to see as a height. Consider
+        - paragraph [ref=e50]: h(x) = -2(x + 1)²
+        - paragraph [ref=e51]: The brackets contain (x + 1). Rewrite x + 1 as x - (-1), so h = -1. There is no constant added outside, so k = 0. The vertex is (-1, 0), and the axis is x = -1.
+        - paragraph [ref=e52]: The coefficient is -2, so a is negative and the parabola opens downward. The vertex is a maximum even though k = 0. Maximum versus minimum comes from the sign of a, not from whether k looks positive.
+        - paragraph [ref=e54]: Where is the vertex? Does this graph have a maximum or a minimum? Could you decide that from k alone?
+      - heading "Match the equation you already read" [level=2] [ref=e55]
+      - paragraph [ref=e56]: "You named a vertex and an axis for f(x) = (x + 3)² + 1. The graph starts at a different equation with the same brackets:"
+      - paragraph [ref=e57]: f(x) = 2(x + 3)² + 1
+      - generic [ref=e58]:
+        - heading "Match the equation you already read" [level=3] [ref=e59]
+        - paragraph [ref=e64]: Do not move the graph yet. Keep the point you wrote. Then move the graph until it matches f(x) = (x + 3)² + 1. Submit when the live equation labelled Vertex form, above the graph, matches that equation.
+        - generic [ref=e65]:
+          - paragraph [ref=e66]:
+            - strong [ref=e67]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=e68]:
+            - strong [ref=e69]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=e70]:
+            - region [ref=e71]:
+              - img [ref=e72]:
+                - generic [ref=e78]:
+                  - generic [ref=e80]: "2"
+                  - generic [ref=e81]: "4"
+                  - generic [ref=e82]: "6"
+                  - generic [ref=e83]: −2
+                  - generic [ref=e84]: −4
+                  - generic [ref=e85]: −6
+                  - generic [ref=e86]: "2"
+                  - generic [ref=e87]: "4"
+                  - generic [ref=e88]: "6"
+                  - generic [ref=e89]: "8"
+                  - generic [ref=e90]: −2
+                  - generic [ref=e91]: −4
+              - generic [ref=e92]: (-3, 1)
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - text: a
+              - slider "a 2" [ref=e95]: "2"
+              - generic [ref=e96]: "2"
+            - generic [ref=e97]:
+              - text: h
+              - slider "h -3" [ref=e98]: "-3"
+              - generic [ref=e99]: "-3"
+            - generic [ref=e100]:
+              - text: k
+              - slider "k 1" [ref=e101]: "1"
+              - generic [ref=e102]: "1"
+          - generic [ref=e103]:
+            - button "Check" [ref=e104] [cursor=pointer]
+            - button "Hint" [ref=e105] [cursor=pointer]
+            - button "Reset" [ref=e106] [cursor=pointer]
+          - paragraph [ref=e345]: Try again The vertex is at (−3, 1) and the graph opens upward, like the target. The stretch does not yet match — your a is 2, and you want a = 1. Keep the vertex and change the stretch.
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=e107]
+          - table [ref=e108]:
+            - rowgroup [ref=e109]:
+              - row [ref=e110]:
+                - columnheader "x" [ref=e111]
+                - columnheader "f(x)" [ref=e112]
+            - rowgroup [ref=e113]:
+              - row [ref=e114]:
+                - cell "-5" [ref=e115]
+                - cell "9" [ref=e116]
+              - row [ref=e117]:
+                - cell "-4" [ref=e118]
+                - cell "3" [ref=e119]
+              - row [ref=e120]:
+                - cell "-3" [ref=e121]
+                - cell "1" [ref=e122]
+              - row [ref=e123]:
+                - cell "-2" [ref=e124]
+                - cell "3" [ref=e125]
+              - row [ref=e126]:
+                - cell "-1" [ref=e127]
+                - cell "9" [ref=e128]
+      - paragraph [ref=e130]: Compare the vertex marker with the point you named. What in the equation told you the vertex? What did you have to change to match this equation?
+      - heading "Someone else’s first step" [level=2] [ref=e131]
+      - paragraph [ref=e132]: You just matched (x + 3) to vertex form. These next items ask you to locate an invalid first step, and to test a claim about the axis.
+      - generic [ref=e133]:
+        - paragraph [ref=e135]: "A student writes: “f(x) = (x + 3)² + 1, so h = 3, vertex (3, 1).” Locate the first invalid step, explain what went wrong, and repair it."
+        - paragraph [ref=e137]: "A student says: “For f(x) = 2(x - 4)² + 1 the axis of symmetry is y = 4.” Prove, qualify, or refute the claim."
+      - heading "Change only the horizontal position" [level=2] [ref=e138]
+      - paragraph [ref=e139]: The graph is back at f(x) = 2(x + 3)² + 1. Do not move the graph yet.
+      - paragraph [ref=e141]: Start from f(x) = 2(x + 3)² + 1. If only h changes so the vertex sits at x = 2, what happens to the graph, and what is the new equation? Write that before you move a graph.
+      - generic [ref=e142]:
+        - heading "Change only h" [level=3] [ref=e143]
+        - paragraph [ref=e147]: "Then move the graph so the vertex is at x = 2, changing only h if you can. Submit. Say which quantity you meant to change: a, h, or k."
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - text: Predicted vertex x
+            - spinbutton "Predicted vertex x" [ref=e150]
+          - paragraph [ref=e151]:
+            - strong [ref=e152]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=e153]:
+            - strong [ref=e154]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=e155]:
+            - region [ref=e156]:
+              - img [ref=e157]:
+                - generic [ref=e163]:
+                  - generic [ref=e165]: "2"
+                  - generic [ref=e166]: "4"
+                  - generic [ref=e167]: "6"
+                  - generic [ref=e168]: −2
+                  - generic [ref=e169]: −4
+                  - generic [ref=e170]: −6
+                  - generic [ref=e171]: "2"
+                  - generic [ref=e172]: "4"
+                  - generic [ref=e173]: "6"
+                  - generic [ref=e174]: "8"
+                  - generic [ref=e175]: −2
+                  - generic [ref=e176]: −4
+              - generic [ref=e177]: (-3, 1)
+          - generic [ref=e178]:
+            - generic [ref=e179]:
+              - text: a
+              - slider "a 2" [ref=e180]: "2"
+              - generic [ref=e181]: "2"
+            - generic [ref=e182]:
+              - text: h
+              - slider "h -3" [ref=e183]: "-3"
+              - generic [ref=e184]: "-3"
+            - generic [ref=e185]:
+              - text: k
+              - slider "k 1" [ref=e186]: "1"
+              - generic [ref=e187]: "1"
+          - generic [ref=e188]:
+            - button "Check" [active] [ref=e189] [cursor=pointer]
+            - button "Hint" [ref=e190] [cursor=pointer]
+            - button "Reset" [ref=e191] [cursor=pointer]
+          - paragraph [ref=e457]: Try again Write the vertex x you expect, then move h and check.
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=e192]
+          - table [ref=e193]:
+            - rowgroup [ref=e194]:
+              - row [ref=e195]:
+                - columnheader "x" [ref=e196]
+                - columnheader "f(x)" [ref=e197]
+            - rowgroup [ref=e198]:
+              - row [ref=e199]:
+                - cell "-5" [ref=e200]
+                - cell "9" [ref=e201]
+              - row [ref=e202]:
+                - cell "-4" [ref=e203]
+                - cell "3" [ref=e204]
+              - row [ref=e205]:
+                - cell "-3" [ref=e206]
+                - cell "1" [ref=e207]
+              - row [ref=e208]:
+                - cell "-2" [ref=e209]
+                - cell "3" [ref=e210]
+              - row [ref=e211]:
+                - cell "-1" [ref=e212]
+                - cell "9" [ref=e213]
+      - paragraph [ref=e215]: Look at the live equation labelled Vertex form, above the graph, and the dashed vertical line. What changed? What stayed the same? How do you read the new vertex from the equation?
+      - heading "The same curve, two forms" [level=2] [ref=e216]
+      - paragraph [ref=e217]: Vertex form makes the turning point easy to read. Expanding that form into ax² + bx + c should not move the curve.
+      - generic [ref=e218]:
+        - text: Worked example
+        - paragraph [ref=e219]: Rewrite
+        - paragraph [ref=e220]: g(x) = (1)/(2)(x + 2)² - 3
+        - paragraph [ref=e221]: in standard form, meaning g(x) = ax² + bx + c. Then check two x-values in both forms.
+        - paragraph [ref=e222]: "Square the binomial: (x + 2)² = x² + 4x + 4."
+        - paragraph [ref=e223]: "Multiply by a = (1)/(2): (1)/(2)x² + 2x + 2."
+        - paragraph [ref=e224]: "Add k = -3: (1)/(2)x² + 2x - 1."
+        - paragraph [ref=e225]: g(x) = (1)/(2)x² + 2x - 1
+        - paragraph [ref=e226]: "At x = -2, both forms give -3. At x = 0, both give -1. Those table points sit on the same graph: expanding did not make a new parabola."
+      - paragraph [ref=e227]: Now expand the starting equation from the graph, f(x) = 2(x + 3)² + 1. If you rewrite it as ax² + bx + c, will the graph be a different parabola or the same one? Write that down before you expand.
+      - generic [ref=e228]:
+        - heading "Expand, then check the same graph" [level=3] [ref=e229]
+        - paragraph [ref=e233]: Expand on paper. Enter your b and c (a should stay 2), then submit. Do not copy an expanded line off the graph until after you have tried.
+        - generic [ref=e234]:
+          - generic [ref=e235]:
+            - generic [ref=e236]:
+              - text: a
+              - spinbutton "a" [ref=e237]: "2"
+            - generic [ref=e238]:
+              - text: b
+              - spinbutton "b" [ref=e239]
+            - generic [ref=e240]:
+              - text: c
+              - spinbutton "c" [ref=e241]
+          - paragraph [ref=e242]:
+            - strong [ref=e243]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=e244]:
+            - strong [ref=e245]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=e246]:
+            - region [ref=e247]:
+              - img [ref=e248]:
+                - generic [ref=e254]:
+                  - generic [ref=e256]: "2"
+                  - generic [ref=e257]: "4"
+                  - generic [ref=e258]: "6"
+                  - generic [ref=e259]: −2
+                  - generic [ref=e260]: −4
+                  - generic [ref=e261]: −6
+                  - generic [ref=e262]: "2"
+                  - generic [ref=e263]: "4"
+                  - generic [ref=e264]: "6"
+                  - generic [ref=e265]: "8"
+                  - generic [ref=e266]: −2
+                  - generic [ref=e267]: −4
+              - generic [ref=e268]: (-3, 1)
+          - generic [ref=e269]:
+            - generic [ref=e270]:
+              - text: a
+              - slider "a 2" [ref=e271]: "2"
+              - generic [ref=e272]: "2"
+            - generic [ref=e273]:
+              - text: h
+              - slider "h -3" [ref=e274]: "-3"
+              - generic [ref=e275]: "-3"
+            - generic [ref=e276]:
+              - text: k
+              - slider "k 1" [ref=e277]: "1"
+              - generic [ref=e278]: "1"
+          - generic [ref=e279]:
+            - button "Check" [ref=e280] [cursor=pointer]
+            - button "Hint" [ref=e281] [cursor=pointer]
+            - button "Reset" [ref=e282] [cursor=pointer]
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=e283]
+          - table [ref=e284]:
+            - rowgroup [ref=e285]:
+              - row [ref=e286]:
+                - columnheader "x" [ref=e287]
+                - columnheader "f(x)" [ref=e288]
+            - rowgroup [ref=e289]:
+              - row [ref=e290]:
+                - cell "-5" [ref=e291]
+                - cell "9" [ref=e292]
+              - row [ref=e293]:
+                - cell "-4" [ref=e294]
+                - cell "3" [ref=e295]
+              - row [ref=e296]:
+                - cell "-3" [ref=e297]
+                - cell "1" [ref=e298]
+              - row [ref=e299]:
+                - cell "-2" [ref=e300]
+                - cell "3" [ref=e301]
+              - row [ref=e302]:
+                - cell "-1" [ref=e303]
+                - cell "9" [ref=e304]
+      - paragraph [ref=e306]: Do a few table points sit on both forms? If you plotted a second curve from your expanded coefficients, do the two graphs land on top of each other?
+      - heading "Expand a new equation yourself" [level=2] [ref=e307]
+      - paragraph [ref=e308]: Here, standard form means f(x) = ax² + bx + c. Expand the vertex form yourself first, then compare the graphs. Do not skip the expansion by only reading a line off the graph.
+      - paragraph [ref=e311]: Given the vertex form f(x) = 3(x - 1)² + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.
+      - heading "How you know two forms are the same" [level=2] [ref=e312]
+      - paragraph [ref=e313]: You expanded and checked a few table points. These next items ask which method proves the forms match for every x, and they ask you to repair a first invalid expansion step.
+      - generic [ref=e314]:
+        - paragraph [ref=e316]: You have f(x) = 2(x + 3)² + 1 and a candidate standard form. You may expand algebraically or compare graphs. Using the criterion “prove they are the same function for every x,” which method would you choose, and why?
+        - paragraph [ref=e318]: A student expands 2(x + 3)² + 1 as 2x² + 3² + 1 = 2x² + 10. Locate the first invalid step, explain it, and repair the expansion.
+      - paragraph [ref=e321]: Two forms give the same three table values. A student says that proves the forms are the same function for every x. Prove, qualify, or refute that claim.
+      - heading "What vertex form is for" [level=2] [ref=e322]
+      - generic [ref=e323]:
+        - text: Worked example
+        - paragraph [ref=e324]: Consider f(x) = a(x - h)² + k. What can you read from vertex form that is harder to see when the same function is written in standard form f(x) = ax² + bx + c? Do not rewrite the function.
+        - paragraph [ref=e325]: From vertex form you can read the vertex (h, k), the axis x = h, and whether the vertex is a maximum or a minimum from the sign of a. Standard form makes the y-intercept c easy to see. Zeros are not obvious in either of those two forms unless they happen to sit on an axis.
+        - paragraph [ref=e326]: Factored form f(x) = a(x - r)(x - s) makes the x-intercepts easy to see. Vertex form does not make those intercepts as obvious, and the vertex is not an intercept unless it actually sits on an axis.
+      - paragraph [ref=e329]: You need the highest point of a quadratic path, not the x-intercepts. Which of standard form, vertex form, or factored form would you choose, and why? Mention what that form does not make obvious.
+      - heading "Zeros from vertex form" [level=2] [ref=e330]
+      - paragraph [ref=e331]: Intercepts are not readable from vertex form the way they are from factored form. You can still find zeros by undoing the operations in the equation.
+      - paragraph [ref=e334]: The graph of f(x) = (x - 1)² - 9 meets the x-axis where f(x) = 0. Determine those zeros by inverse operations. You may check on a graph afterward.
+      - heading "Write an equation from stated facts" [level=2] [ref=e335]
+      - paragraph [ref=e336]: You have been reading a, h, and k from a given equation. These next items ask you to write a vertex-form equation from a vertex and another point, from a labelled graph, or from a turning point that does not fix a.
+      - generic [ref=e337]:
+        - paragraph [ref=e339]: A parabola has vertex (1, -2) and passes through (3, 2). Determine the vertex-form equation. Is this equation unique given those two conditions?
+        - paragraph [ref=e341]: A graph of a parabola is labelled with vertex (-4, 1) and one other point (0, -3), and it opens downward. Write a vertex-form equation that fits those features. Name which graph facts became a, h, and k.
+        - paragraph [ref=e343]: Construct two different vertex-form equations that both have vertex (0, 3). What is the same on both graphs, and what changes?
+      - paragraph [ref=e344]: "If the graph is not available, work on paper with f(x) = 2(x + 3)² + 1. First look at f(x) = (x + 3)² + 1: name that vertex, then sketch both equations (same turning point, different stretch). From the starting equation, predict what happens if you change only h to 2; rewrite the equation and sketch again. Expand the starting equation yourself and check that a few table points still sit on the same sketch."
+  - text: Try again Hint
+  - generic [ref=e29]:
+    - paragraph [ref=e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"

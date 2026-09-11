@@ -1,0 +1,107 @@
+- article [ref=f9e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f9e3]'
+  - paragraph [ref=f9e4]: MCF3M · Module 4 · M4-L1-vertex-form
+  - tablist [ref=f9e5]:
+    - tab "Minds On" [ref=f9e6] [cursor=pointer]
+    - tab "Action" [active] [selected] [ref=f9e7] [cursor=pointer]
+    - tab "Consolidation" [ref=f9e8] [cursor=pointer]
+  - tabpanel "Action" [ref=f9e19]:
+    - generic [ref=f9e20]:
+      - paragraph [ref=f9e21]: "First you will follow a worked reading of one vertex-form equation. Then you will use the graph tool: check the vertex you named, predict what a single slider will do, move that slider, and explain what changed. After that, two practice questions — one about what this writing is for, and one where you expand vertex form and compare graphs."
+      - paragraph [ref=f9e22]: In this course, f(x) = a(x − h)^2 + k is vertex form. The expanded writing f(x) = ax^2 + bx + c is standard form. Some other books swap those names; we will not.
+    - heading "Guided example" [level=2] [ref=f9e23]
+    - generic [ref=f9e24]:
+      - paragraph [ref=f9e25]: The equation is
+      - paragraph [ref=f9e26]: y = −3(x + 2)^2 + 4
+      - paragraph [ref=f9e27]: Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew.
+      - paragraph [ref=f9e28]: Worked reading (OpenStax College Algebra 2e, §5.1, Figure 5 paragraph, CC BY-NC-SA 4.0). Some books call this writing “standard form.” In this course it is vertex form.
+      - paragraph [ref=f9e29]: Since x − h = x + 2 in this example, h = −2. In this form, a = −3, h = −2, and k = 4. Because a is negative, the parabola opens downward. The vertex is at (−2, 4).
+      - paragraph [ref=f9e30]: That vertex is a maximum.
+      - paragraph [ref=f9e31]: "Source: https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions"
+    - heading "Graph tool" [level=2] [ref=f9e32]
+    - generic [ref=f9e33]:
+      - paragraph [ref=f9e34]: The graph tool is the local board (parabola, vertex marker labelled (h, k), dashed axis of symmetry, live vertex-form equation, the same function expanded as ax^2 + bx + c, and a short table of shared points). It is not a required GeoGebra page.
+      - paragraph [ref=f9e35]: Check your Minds On prediction. Set the sliders so the live equation is f(x) = (x + 3)^2 + 1. Does the vertex marker match the point you named?
+      - paragraph [ref=f9e36]: Return to the starting equation f(x) = 2(x + 3)^2 + 1.
+      - paragraph [ref=f9e37]: "Prediction. Before you move a slider, look at the equation. Where is the vertex? What is the axis of symmetry? Is this a maximum or a minimum? Then predict: if you change only h, what will happen to the graph and to the equation?"
+      - paragraph [ref=f9e38]: Action. Move exactly one slider — start with h. Watch the live equation, the vertex marker, and the dashed axis. You may later repeat with only a, or only k.
+      - paragraph [ref=f9e39]: Interpretation. After you moved one slider, compare the graph and the equation. What changed? What stayed the same? How can you read the new vertex from the equation? Does the expanded form show a different parabola, or the same one?
+      - paragraph [ref=f9e40]: "If the graph tool is not available: On paper, use f(x) = 2(x + 3)^2 + 1. Name the vertex, the axis, and whether this is a maximum or a minimum, then sketch. Change only h to 2, rewrite the equation, and sketch again. Expand the starting equation and check that a few table points still sit on the same sketch."
+    - generic [ref=f9e41]:
+      - paragraph [ref=f9e42]:
+        - strong [ref=f9e43]: "Vertex form:"
+        - text: f(x) = 2(x + 3)² + 1
+      - paragraph [ref=f9e44]:
+        - strong [ref=f9e45]: "Same function, expanded:"
+        - text: f(x) = 2x² + 12x + 19
+      - paragraph [ref=f9e46]:
+        - strong [ref=f9e47]: "Axis of symmetry:"
+        - text: x = -3
+      - figure "Parabola in vertex form. Vertex marker, dashed axis of symmetry, and sliders for a, h, and k. Live equations and a table of points sit beside the graph." [ref=f9e48]:
+        - region [ref=f9e49]:
+          - img [ref=f9e50]:
+            - generic [aria-hidden] [ref=f9e52]: JSXGraph v1.11.1 Copyright (C) see https://jsxgraph.org
+            - generic [ref=f9e58]:
+              - generic [ref=f9e60]: "2"
+              - generic [ref=f9e61]: "4"
+              - generic [ref=f9e62]: "6"
+              - generic [ref=f9e63]: −2
+              - generic [ref=f9e64]: −4
+              - generic [ref=f9e65]: −6
+              - generic [ref=f9e66]: "2"
+              - generic [ref=f9e67]: "4"
+              - generic [ref=f9e68]: "6"
+              - generic [ref=f9e69]: "8"
+              - generic [ref=f9e70]: −2
+              - generic [ref=f9e71]: −4
+          - generic [ref=f9e72] [cursor=pointer]: –o+←↓↑→
+          - generic [ref=f9e73]: (-3, 1)
+      - generic [ref=f9e75]:
+        - generic [ref=f9e76]:
+          - text: a
+          - slider "a 2" [ref=f9e77]: "2"
+          - generic [ref=f9e78]: "2"
+        - generic [ref=f9e79]:
+          - text: h
+          - slider "h -3" [ref=f9e80]: "-3"
+          - generic [ref=f9e81]: "-3"
+        - generic [ref=f9e82]:
+          - text: k
+          - slider "k 1" [ref=f9e83]: "1"
+          - generic [ref=f9e84]: "1"
+      - generic [ref=f9e85]:
+        - button "Starting equation" [ref=f9e86] [cursor=pointer]
+        - button "Match f(x) = (x + 3)² + 1" [ref=f9e87] [cursor=pointer]
+        - button "Fresh case" [ref=f9e88] [cursor=pointer]
+      - heading "Shared points" [level=3] [ref=f9e89]
+      - table [ref=f9e90]:
+        - rowgroup [ref=f9e91]:
+          - row [ref=f9e92]:
+            - columnheader "x" [ref=f9e93]
+            - columnheader "f(x)" [ref=f9e94]
+        - rowgroup [ref=f9e95]:
+          - row [ref=f9e96]:
+            - cell "-5" [ref=f9e97]
+            - cell "9" [ref=f9e98]
+          - row [ref=f9e99]:
+            - cell "-4" [ref=f9e100]
+            - cell "3" [ref=f9e101]
+          - row [ref=f9e102]:
+            - cell "-3" [ref=f9e103]
+            - cell "1" [ref=f9e104]
+          - row [ref=f9e105]:
+            - cell "-2" [ref=f9e106]
+            - cell "3" [ref=f9e107]
+          - row [ref=f9e108]:
+            - cell "-1" [ref=f9e109]
+            - cell "9" [ref=f9e110]
+    - heading "Practice" [level=2] [ref=f9e111]
+    - generic [ref=f9e112]:
+      - paragraph [ref=f9e113]: Practice 1. In this course, f(x) = a(x − h)^2 + k is called vertex form. What can you read from it that is harder to see when the same function is written as f(x) = ax^2 + bx + c?
+      - paragraph [ref=f9e114]: "(Adapted from OpenStax College Algebra 2e §5.1, CC BY-NC-SA 4.0. Source: https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions. Their wording asks about writing a quadratic in “standard form”; they mean a(x − h)^2 + k. That is not what this course means by standard form.)"
+      - paragraph [ref=f9e115]: "Practice 2. Ontario sample:"
+      - paragraph [ref=f9e116]: Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation.
+      - paragraph [ref=f9e117]: In this course, standard form means f(x) = ax^2 + bx + c. Expand the vertex form yourself first. Then compare the graphs — you may use the graph tool. Do not skip the expansion by only reading a line off the board.
+    - group [ref=f9e118]:
+      - generic "If the graph tool does not run" [ref=f9e119] [cursor=pointer]
+  - paragraph [ref=f9e18]: "Graph tool: JSXGraph (MIT). OpenStax excerpts: CC BY-NC-SA 4.0. Access for free at https://openstax.org/books/college-algebra-2e/pages/1-introduction-to-prerequisites. Ontario sample: Queen’s Printer excerpt via the verified seed. No student login or remote computation."

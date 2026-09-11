@@ -1,0 +1,26 @@
+- article [ref=e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=e3]'
+  - tablist [ref=e4]:
+    - tab "Minds On" [selected] [ref=e5] [cursor=pointer]
+    - tab "Action" [ref=e6] [cursor=pointer]
+    - tab "Consolidation" [ref=e7] [cursor=pointer]
+  - tabpanel "Minds On" [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - heading "Look at the streams" [level=3] [ref=e11]
+        - figure [ref=e16]:
+          - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=e17]
+        - paragraph [ref=e18]: Look at the water leaving the fountain. Each stream goes up and comes down.
+        - paragraph [ref=e20]: Choose one stream. Name the highest point of that stream, the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.
+      - paragraph [ref=e21]: That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.
+      - paragraph [ref=e22]: A quadratic written as
+      - paragraph [ref=e23]: f(x) = a(x - h)² + k
+      - paragraph [ref=e24]: "is in vertex form. The vertex is the point (h, k). The axis of symmetry is the vertical line x = h. The sign of a tells you whether that vertex is a maximum or a minimum: negative a opens downward, so the vertex is a highest point; positive a opens upward, so the vertex is a lowest point."
+      - paragraph [ref=e25]: Consider f(x) = (x + 3)² + 1. The equation is already in vertex form, but notice the sign inside the brackets.
+      - paragraph [ref=e26]: f(x) = (x + 3)² + 1
+      - paragraph [ref=e28]: Name the vertex and the axis of symmetry. Do not sketch yet.
+  - text: Worked example Another example Hint Hint Worked example Hint Worked example Hint
+  - generic [ref=e29]:
+    - paragraph [ref=e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"

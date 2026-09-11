@@ -1,0 +1,30 @@
+- generic [active] [ref=f8e1]:
+  - banner "Your stats" [ref=f8e2]:
+    - generic [ref=f8e3]:
+      - paragraph [ref=f8e91]: df
+      - generic [ref=f8e92]:
+        - paragraph [ref=f8e93]:
+          - generic [ref=f8e94]: My points
+          - strong [ref=f8e95]: "0"
+        - paragraph [ref=f8e96]:
+          - generic [ref=f8e97]: Team 1
+          - strong [ref=f8e98]: "0"
+  - main [ref=f8e12]:
+    - paragraph [ref=f8e13]: This picture was always a slice
+    - paragraph [ref=f8e14]: When looking at the parabola represented by y = ax^2 + bx + c, what do you know about a, b, and c?
+    - iframe [ref=f8e16]:
+      - generic [ref=f9e1]:
+        - generic "Real-slice parabola in 3D space" [ref=f9e2]
+        - generic:
+          - generic:
+            - paragraph: This picture was always a slice
+  - contentinfo "Class scoreboard" [ref=f8e17]:
+    - generic [ref=f8e18]:
+      - paragraph [ref=f8e99]: Scores
+      - generic [ref=f8e100]:
+        - generic [ref=f8e103]:
+          - generic [ref=f8e104]: Team 1
+          - generic [ref=f8e105]: "0"
+        - generic [ref=f8e108]:
+          - generic [ref=f8e109]: Team 2
+          - generic [ref=f8e110]: "0"

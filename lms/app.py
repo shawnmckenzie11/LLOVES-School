@@ -3624,6 +3624,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["student_controls_unlocked"] = body.get(
                 "student_controls_unlocked"
             )
+        if "param_push" in body:
+            kwargs["param_push"] = body.get("param_push")
+        if "param_frozen" in body:
+            kwargs["param_frozen"] = body.get("param_frozen")
         if "reveal_axes" in body:
             kwargs["reveal_axes"] = body.get("reveal_axes")
         if "reveal_lateral" in body:

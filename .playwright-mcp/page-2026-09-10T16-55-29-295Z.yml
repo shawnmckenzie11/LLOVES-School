@@ -1,0 +1,12 @@
+- generic [ref=e2]:
+  - paragraph [ref=e3]: Local login · it portal
+  - heading "Admin login" [level=1] [ref=e4]
+  - paragraph [ref=e5]:
+    - text: Offline account picker (
+    - code [ref=e6]: LOCAL_DEV_LOGIN=1
+    - text: ). Click an account below — no live Google OAuth.
+  - paragraph [ref=e7]: "IT accounts:"
+  - link "Shawn (IT)" [ref=e9] [cursor=pointer]:
+    - /url: /auth/google/callback?portal=it&email=solutions@mckenzian.com&name=Shawn
+  - group [ref=e10]:
+    - generic "Add another Google email" [ref=e11]

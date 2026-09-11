@@ -30,22 +30,25 @@ except ImportError:  # ``python3 lms/app.py`` package import
 
 # Seed C1 Real-slice page (Grade-11 parabola / real slice of the 3D saddle).
 DEFAULT_LIVE_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html"
-DEFAULT_LIVE_MEDIA_TITLE = "C1 Real-slice"
 DEFAULT_LIVE_MEDIA_STEM = (
-    "When looking at the parabola represented by y = ax^2 + bx + c, "
-    "what do you know about a, b, and c?"
+    "Consider the parabola represented by y = ax^2 + bx + c. "
+    "What do you know about a, b, and c?"
 )
+DEFAULT_LIVE_MEDIA_TITLE = DEFAULT_LIVE_MEDIA_STEM
 DEFAULT_LIVE_MEDIA_CAPTION = ""
-DEFAULT_LIVE_MEDIA_CHIP = "From this view only — what must be true?"
+# Entry chip is on in the iframe (stem text). Do not restore "From this view only".
+DEFAULT_LIVE_MEDIA_CHIP = ""
 DEFAULT_LIVE_MEDIA_LATERAL_CHIP = "This picture was always a slice"
 DEFAULT_LIVE_MEDIA_PARAMS: dict[str, float] = {"a": 1.0, "b": 0.0, "c": 0.0}
+PARAM_KEYS: tuple[str, ...] = ("a", "b", "c")
 LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
 # Teacher-iframe view tools (0 = fixed/faint/locked; upper bound is "full").
 STUDENT_ZOOM_MAX = 10.0
 SURFACE_TRANSPARENCY_MAX = 10.0
 STUDENT_YAW_RANGE_MAX = 360.0
 DEFAULT_STUDENT_ZOOM = 0.0
-DEFAULT_SURFACE_TRANSPARENCY = 1.5
+# Half of the previous default 1.5 so the entry saddle is fainter.
+DEFAULT_SURFACE_TRANSPARENCY = 0.75
 DEFAULT_STUDENT_YAW_RANGE = 0.0
 # Old limited-yaw span was ±0.38 rad ≈ 44° total when the staff checkbox is on.
 DEFAULT_LIMITED_YAW_DEG = 44.0
@@ -105,6 +108,8 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
         "stem": DEFAULT_LIVE_MEDIA_STEM,
         "entry_chip": DEFAULT_LIVE_MEDIA_CHIP,
         "student_controls_unlocked": False,
+        "param_push": default_param_push(),
+        "param_frozen": default_param_frozen(),
         "reveal_axes": False,
         "reveal_lateral": False,
         "allow_3d_limited": False,
@@ -129,6 +134,96 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
 def default_unlock_flags() -> dict[str, bool]:
     """L0 is entry (always on). L1–L3 are unnamed peels; L4 is in-pane lateral."""
     return {"L0": True, "L1": False, "L2": False, "L3": False, "L4": False}
+
+
+def default_param_push() -> dict[str, bool]:
+    """a/b/c start unpushed: students do not get those sliders yet."""
+    return {key: False for key in PARAM_KEYS}
+
+
+def default_param_frozen() -> dict[str, bool]:
+    """Frozen is on until a slider is pushed, then the teacher may uncheck it."""
+    return {key: True for key in PARAM_KEYS}
+
+
+def normalize_param_bool_map(
+    raw: Any,
+    *,
+    default: dict[str, bool],
+    base: dict[str, Any] | None = None,
+) -> dict[str, bool]:
+    """Merge a partial ``{a,b,c: bool}`` map onto defaults.
+
+    Args:
+        raw: Posted map, or ``None``.
+        default: Fallback for missing keys.
+        base: Existing stored map to overlay first.
+
+    Returns:
+        Complete a/b/c bool map.
+    """
+    out = dict(default)
+    if isinstance(base, dict):
+        for key in PARAM_KEYS:
+            if key in base:
+                out[key] = _as_bool(base[key])
+    if isinstance(raw, dict):
+        for key in PARAM_KEYS:
+            if key in raw:
+                out[key] = _as_bool(raw[key])
+    return out
+
+
+def coerce_param_push(
+    stored: dict[str, Any],
+    *,
+    posted: Any = _UNSET,
+) -> dict[str, bool]:
+    """Return a/b/c push flags, inferring from legacy unlock when missing.
+
+    Args:
+        stored: Current media object.
+        posted: Optional posted ``param_push`` overlay.
+
+    Returns:
+        Complete push map.
+    """
+    base_map = stored.get("param_push")
+    if not isinstance(base_map, dict) and bool(stored.get("student_controls_unlocked")):
+        base_map = {key: True for key in PARAM_KEYS}
+    raw = None if posted is _UNSET else posted
+    return normalize_param_bool_map(
+        raw, default=default_param_push(), base=base_map if isinstance(base_map, dict) else None
+    )
+
+
+def coerce_param_frozen(
+    stored: dict[str, Any],
+    *,
+    posted: Any = _UNSET,
+    push: dict[str, bool] | None = None,
+) -> dict[str, bool]:
+    """Return a/b/c freeze flags. Unpushed sliders stay frozen.
+
+    Args:
+        stored: Current media object.
+        posted: Optional posted ``param_frozen`` overlay.
+        push: Push map used to force-freeze unpushed keys.
+
+    Returns:
+        Complete freeze map with unpushed keys locked on.
+    """
+    raw = None if posted is _UNSET else posted
+    frozen = normalize_param_bool_map(
+        raw,
+        default=default_param_frozen(),
+        base=stored.get("param_frozen") if isinstance(stored.get("param_frozen"), dict) else None,
+    )
+    flags = push if isinstance(push, dict) else default_param_push()
+    for key in PARAM_KEYS:
+        if not flags.get(key):
+            frozen[key] = True
+    return frozen
 
 
 def live_media_url_swap_allowed(*, testing: bool = False) -> bool:
@@ -642,6 +737,10 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         "entry_chip": stored_chip,
         "chip": display_chip,
         "student_controls_unlocked": bool(stored.get("student_controls_unlocked")),
+        "param_push": coerce_param_push(stored),
+        "param_frozen": coerce_param_frozen(
+            stored, push=coerce_param_push(stored)
+        ),
         "reveal_axes": bool(stored.get("reveal_axes")),
         "reveal_lateral": reveal_lateral,
         "allow_3d_limited": allow_limited,
@@ -697,6 +796,8 @@ def apply_active_media_update(
     unlock_flags: Any = _UNSET,
     answers: Any = _UNSET,
     params: Any = _UNSET,
+    param_push: Any = _UNSET,
+    param_frozen: Any = _UNSET,
     challenge: Any = _UNSET,
     cons_item: Any = _UNSET,
     toast: Any = _UNSET,
@@ -733,6 +834,8 @@ def apply_active_media_update(
             locksteps with ``reveal_lateral``.
         answers: Optional choice list that may change with each reveal.
         params: Optional ``{a,b,c}`` overlay (merged onto current/defaults).
+        param_push: Optional ``{a,b,c}`` student-view push flags.
+        param_frozen: Optional ``{a,b,c}`` freeze flags (locked until pushed).
         challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 **clear** the blob (do not seed).
         cons_item: Post-freeze CONS-1…5 id, or empty to clear.
         toast: Optional explicit Wonder toast overlay.
@@ -759,6 +862,8 @@ def apply_active_media_update(
         "stem",
         "entry_chip",
         "student_controls_unlocked",
+        "param_push",
+        "param_frozen",
         "reveal_axes",
         "reveal_lateral",
         "allow_3d_limited",
@@ -816,8 +921,20 @@ def apply_active_media_update(
         base["stem"] = _clip_text(stem, "stem")
     if entry_chip is not _UNSET:
         base["entry_chip"] = _clip_text(entry_chip, "entry_chip")
-    if student_controls_unlocked is not _UNSET:
-        base["student_controls_unlocked"] = _as_bool(student_controls_unlocked)
+    if student_controls_unlocked is not _UNSET and param_push is _UNSET:
+        unlocked = _as_bool(student_controls_unlocked)
+        base["param_push"] = {key: unlocked for key in PARAM_KEYS}
+    elif param_push is not _UNSET:
+        base["param_push"] = coerce_param_push(base, posted=param_push)
+    else:
+        base["param_push"] = coerce_param_push(base)
+    if param_frozen is not _UNSET:
+        base["param_frozen"] = coerce_param_frozen(
+            base, posted=param_frozen, push=base["param_push"]
+        )
+    else:
+        base["param_frozen"] = coerce_param_frozen(base, push=base["param_push"])
+    base["student_controls_unlocked"] = any(base["param_push"].values())
     if reveal_axes is not _UNSET:
         base["reveal_axes"] = _as_bool(reveal_axes)
     if unlock_flags is not _UNSET:

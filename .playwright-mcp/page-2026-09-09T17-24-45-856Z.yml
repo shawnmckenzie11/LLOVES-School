@@ -1,0 +1,113 @@
+- article [ref=e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=e3]'
+  - tablist [ref=e4]:
+    - tab "Minds On" [ref=e5] [cursor=pointer]
+    - tab "Action" [ref=e6] [cursor=pointer]
+    - tab "Consolidation" [selected] [ref=e7] [cursor=pointer]
+  - text: Worked example Another example Try again Hint Hint Worked example Hint Worked example
+  - tabpanel "Consolidation" [ref=e346]:
+    - generic [ref=e347]:
+      - generic [ref=e348]:
+        - heading "Return to the stream" [level=3] [ref=e349]
+        - figure [ref=e354]:
+          - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=e355]
+        - paragraph [ref=e356]: You named the highest point of a water stream. Here is a new equation for a path that rises and then falls, like that stream.
+        - paragraph [ref=e357]: f(x) = -0.5(x - 2)² + 4
+        - paragraph [ref=e359]: Do not move the graph yet. Name the vertex, the axis of symmetry, and whether the vertex is a maximum or a minimum. If you expanded it to standard form, would the curve move?
+      - generic [ref=e360]:
+        - heading "Read a new equation" [level=3] [ref=e361]
+        - paragraph [ref=e366]: Then set the graph to match that equation and submit. Watch the live equation labelled Vertex form, above the graph.
+        - generic [ref=e367]:
+          - generic [ref=e368]:
+            - generic [ref=e369]:
+              - text: Vertex x
+              - spinbutton "Vertex x" [ref=e370]
+            - generic [ref=e371]:
+              - text: Vertex y
+              - spinbutton "Vertex y" [ref=e372]
+            - generic [ref=e373]:
+              - text: Axis
+              - textbox "Axis" [ref=e374]:
+                - /placeholder: x = …
+            - generic [ref=e375]:
+              - text: Maximum or minimum
+              - textbox "Maximum or minimum" [ref=e376]
+          - paragraph [ref=e377]:
+            - strong [ref=e378]: "Vertex form:"
+            - text: f(x) = 2(x + 3)² + 1
+          - paragraph [ref=e379]:
+            - strong [ref=e380]: "Axis of symmetry:"
+            - text: x = -3
+          - figure [ref=e381]:
+            - region [ref=e382]:
+              - img [ref=e383]:
+                - generic [ref=e389]:
+                  - generic [ref=e391]: "2"
+                  - generic [ref=e392]: "4"
+                  - generic [ref=e393]: "6"
+                  - generic [ref=e394]: −2
+                  - generic [ref=e395]: −4
+                  - generic [ref=e396]: −6
+                  - generic [ref=e397]: "2"
+                  - generic [ref=e398]: "4"
+                  - generic [ref=e399]: "6"
+                  - generic [ref=e400]: "8"
+                  - generic [ref=e401]: −2
+                  - generic [ref=e402]: −4
+              - generic [ref=e403]: (-3, 1)
+          - generic [ref=e404]:
+            - generic [ref=e405]:
+              - text: a
+              - slider "a 2" [ref=e406]: "2"
+              - generic [ref=e407]: "2"
+            - generic [ref=e408]:
+              - text: h
+              - slider "h -3" [ref=e409]: "-3"
+              - generic [ref=e410]: "-3"
+            - generic [ref=e411]:
+              - text: k
+              - slider "k 1" [ref=e412]: "1"
+              - generic [ref=e413]: "1"
+          - generic [ref=e414]:
+            - button "Check" [active] [ref=e415] [cursor=pointer]
+            - button "Hint" [ref=e416] [cursor=pointer]
+            - button "Reset" [ref=e417] [cursor=pointer]
+          - paragraph [ref=e456]: Try again Name the vertex, the axis, and whether this is a maximum or a minimum, then check.
+          - text: Hint
+          - heading "Shared points" [level=3] [ref=e418]
+          - table [ref=e419]:
+            - rowgroup [ref=e420]:
+              - row [ref=e421]:
+                - columnheader "x" [ref=e422]
+                - columnheader "f(x)" [ref=e423]
+            - rowgroup [ref=e424]:
+              - row [ref=e425]:
+                - cell "-5" [ref=e426]
+                - cell "9" [ref=e427]
+              - row [ref=e428]:
+                - cell "-4" [ref=e429]
+                - cell "3" [ref=e430]
+              - row [ref=e431]:
+                - cell "-3" [ref=e432]
+                - cell "1" [ref=e433]
+              - row [ref=e434]:
+                - cell "-2" [ref=e435]
+                - cell "3" [ref=e436]
+              - row [ref=e437]:
+                - cell "-1" [ref=e438]
+                - cell "9" [ref=e439]
+      - paragraph [ref=e441]: How did you read the high or low point from this equation? If you expanded it into ax² + bx + c, would the fountain-shaped curve move?
+      - paragraph [ref=e442]: "If you are on paper: sketch from the equation, then change one of a, h, or k and sketch again."
+      - heading "A high point from a given model" [level=2] [ref=e443]
+      - paragraph [ref=e444]: You just read a high point from an equation of a path like the stream. These next models are already in vertex form.
+      - paragraph [ref=e447]: A ball’s height in metres is modelled by h(t) = -4.9(t - 1.2)² + 8 on the flight interval. What is the maximum height, and when does it occur? What in the equation told you?
+      - paragraph [ref=e450]: A water stream is modelled by h(x) = -0.5(x - 2)² + 4 for horizontal distance x in metres and height h in metres. The nozzle is at x = 0 and the water lands at h = 0. Determine the vertex. Then state a meaningful domain for this model and say where the equation should not be trusted as a description of the stream.
+      - heading "What vertex form gives you" [level=2] [ref=e451]
+      - paragraph [ref=e452]: Vertex form f(x) = a(x - h)² + k makes the vertex (h, k) and the axis x = h readable. Maximum versus minimum comes from the sign of a, not from the sign of k and not from which quadrant the vertex sits in.
+      - paragraph [ref=e453]: Match the brackets to (x - h). A plus inside the brackets does not mean the vertex is on the positive side of the x-axis.
+      - paragraph [ref=e454]: a stretches or flips the graph. k moves the vertex up or down. Those two jobs are not the same.
+      - paragraph [ref=e455]: Expanding vertex form into f(x) = ax² + bx + c gives the same parabola, not a new one. The graphs should land on top of each other.
+  - generic [ref=e29]:
+    - paragraph [ref=e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"

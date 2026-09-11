@@ -19,6 +19,7 @@ Shawn teaches **online** at **ELC** (Ontario) via the **LLOVES** LMS. Shared fac
 - **Last instructional week before exams** = review (no new module)
 - Due dates **only on school days** (never weekends, holidays, or PD days from `frameworks/semester.json`)
 - **No `.imscc` in git** — packs live on the Fly `/data` volume
+- Do not commit banks or contest dumps; Cursor Google Drive plugin is forbidden here (`.cursor/rules/no-drive-plugin.mdc`)
 
 ## Before planning lessons or pacing
 

@@ -1,0 +1,26 @@
+- article [ref=f4e2]:
+  - 'heading "Lesson 1: The Vertex Form of a Quadratic Function" [level=1] [ref=f4e3]'
+  - tablist [ref=f4e4]:
+    - tab "Minds On" [selected] [ref=f4e5] [cursor=pointer]
+    - tab "Action" [ref=f4e6] [cursor=pointer]
+    - tab "Consolidation" [ref=f4e7] [cursor=pointer]
+  - tabpanel "Minds On" [ref=f4e8]:
+    - generic [ref=f4e9]:
+      - generic [ref=f4e10]:
+        - heading "Look at the streams" [level=3] [ref=f4e11]
+        - figure [ref=f4e16]:
+          - img "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees." [ref=f4e17]
+        - paragraph [ref=f4e18]: Look at the water leaving the fountain. Each stream goes up and comes down.
+        - paragraph [ref=f4e20]: Choose one stream. Name the highest point of that stream — the place the water does not go above. Say where it is on the photograph. The photograph cannot be marked. Do not measure, and do not write an equation yet.
+      - paragraph [ref=f4e21]: That turning point is the fact we will want from an equation of the curve. Vertex form makes the high or low point readable.
+      - paragraph [ref=f4e22]: A quadratic written as
+      - paragraph [ref=f4e23]: f(x) = a(x - h)² + k
+      - paragraph [ref=f4e24]: "is in vertex form. The vertex is the point (h, k). The axis of symmetry is the vertical line x = h. The sign of a tells you whether that vertex is a maximum or a minimum: negative a opens downward, so the vertex is a highest point; positive a opens upward, so the vertex is a lowest point."
+      - paragraph [ref=f4e25]: Look at f(x) = (x + 3)² + 1. The equation is already in vertex form, but notice the sign inside the brackets.
+      - paragraph [ref=f4e26]: f(x) = (x + 3)² + 1
+      - paragraph [ref=f4e28]: Where is the vertex? Write its coordinates before you check on the graph.
+  - text: Worked example Another example Hint Hint Worked example Hint Hint
+  - generic [ref=f4e29]:
+    - paragraph [ref=f4e30]: "Water arc photo: GuidoB, CC BY-SA 3.0"
+    - paragraph [ref=f4e31]: OpenStax College Algebra 2e, CC BY-NC-SA 4.0
+    - paragraph [ref=f4e32]: "Ontario curriculum sample: Queen’s Printer for Ontario"

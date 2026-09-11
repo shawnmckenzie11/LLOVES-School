@@ -1,0 +1,26 @@
+- generic [ref=f7e2]:
+  - paragraph [ref=f7e3]: MCF3M
+  - heading "Choose your Avatar" [level=1] [ref=f7e4]
+  - generic [ref=f7e5]:
+    - radiogroup "Avatars" [ref=f7e6]:
+      - generic "Fox" [ref=f7e7] [cursor=pointer]:
+        - radio "Fox" [checked] [active]
+        - generic [aria-hidden] [ref=f7e8]: 🦊
+      - generic "Panda" [ref=f7e10] [cursor=pointer]:
+        - radio "Panda"
+        - generic [aria-hidden] [ref=f7e11]: 🐼
+      - generic "Unicorn" [ref=f7e13] [cursor=pointer]:
+        - radio "Unicorn"
+        - generic [aria-hidden] [ref=f7e14]: 🦄
+      - generic "Octopus" [ref=f7e16] [cursor=pointer]:
+        - radio "Octopus"
+        - generic [aria-hidden] [ref=f7e17]: 🐙
+      - generic "Dragon" [ref=f7e19] [cursor=pointer]:
+        - radio "Dragon"
+        - generic [aria-hidden] [ref=f7e20]: 🐲
+      - generic "Owl" [ref=f7e22] [cursor=pointer]:
+        - radio "Owl"
+        - generic [aria-hidden] [ref=f7e23]: 🦉
+    - generic [ref=f7e25]:
+      - button "Skip" [ref=f7e26] [cursor=pointer]
+      - button "Join Class" [ref=f7e27] [cursor=pointer]

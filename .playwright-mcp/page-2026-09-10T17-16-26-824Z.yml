@@ -1,0 +1,53 @@
+- generic [ref=f8e2]:
+  - navigation "Staff navigation" [ref=f8e3]:
+    - link "Dashboard" [ref=f8e4] [cursor=pointer]:
+      - /url: /staff
+    - link "Log out" [ref=f8e5] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCF3M" [level=1] [ref=f8e8]
+  - navigation "Course sections" [ref=f8e9]:
+    - generic [ref=f8e10]:
+      - link "Run Live Class" [ref=f8e11] [cursor=pointer]:
+        - /url: /staff/class/2?tab=live
+      - link "Lesson Slides" [ref=f8e12] [cursor=pointer]:
+        - /url: /staff/class/2?tab=lesson-slides
+      - link "Modules" [ref=f8e13] [cursor=pointer]:
+        - /url: /staff/class/2?tab=modules
+      - link "Attendance & Participation" [ref=f8e14] [cursor=pointer]:
+        - /url: /staff/class/2?tab=ap&view=attendance
+      - link "Grades" [ref=f8e15] [cursor=pointer]:
+        - /url: /staff/class/2?tab=gradebook
+      - link "Pages" [ref=f8e16] [cursor=pointer]:
+        - /url: /staff/class/2?tab=pages
+      - link "Assignments" [ref=f8e17] [cursor=pointer]:
+        - /url: /staff/class/2?tab=assignments
+      - link "Quizzes" [ref=f8e18] [cursor=pointer]:
+        - /url: /staff/class/2?tab=quizzes
+      - link "Question banks" [ref=f8e19] [cursor=pointer]:
+        - /url: /staff/class/2?tab=question-banks
+      - link "Syllabus" [ref=f8e20] [cursor=pointer]:
+        - /url: /staff/class/2?tab=syllabus
+      - link "Expectations" [ref=f8e21] [cursor=pointer]:
+        - /url: /staff/class/2?tab=expectations
+      - link "Profiles" [ref=f8e22] [cursor=pointer]:
+        - /url: /staff/class/2?tab=profiles
+      - link "Portfolio" [ref=f8e23] [cursor=pointer]:
+        - /url: /staff/class/2?tab=portfolio
+  - generic [ref=f8e24]:
+    - navigation "Attendance and Participation" [ref=f8e25]:
+      - link "Attendance" [ref=f8e26] [cursor=pointer]:
+        - /url: /staff/class/2?tab=ap&view=attendance
+      - link "Participation" [ref=f8e27] [cursor=pointer]:
+        - /url: /staff/class/2?tab=ap&view=participation
+    - generic [ref=f8e28]:
+      - generic [ref=f8e30]:
+        - link "Take Attendance" [ref=f8e31] [cursor=pointer]:
+          - /url: /staff/class/2?tab=ap&view=attendance&take=1
+        - button "Clear" [ref=f8e32] [cursor=pointer]
+        - 'button "Sort: A–Z" [ref=f8e33] [cursor=pointer]'
+      - table [ref=f8e35]:
+        - rowgroup [ref=f8e36]:
+          - row [ref=f8e37]:
+            - columnheader "Student" [ref=f8e38]
+            - columnheader "Total" [ref=f8e39]
+        - rowgroup

@@ -12,7 +12,7 @@ python3 lms/app.py
 # http://127.0.0.1:8787
 ```
 
-Staff/IT use **real Google OAuth**. Mock email login is tests-only. Follow [GOOGLE.md](GOOGLE.md) (same Web client + External consent screen as the Cannabis Paper Scraper).
+Staff/IT use **real Google OAuth**. Mock email login is tests-only. Follow [GOOGLE.md](GOOGLE.md) (same Web client + External consent screen as the Cannabis Paper Scraper). Connect Google Slides is that LMS API. The Cursor Google Drive plugin is not used in this repo.
 
 ## Environment
 

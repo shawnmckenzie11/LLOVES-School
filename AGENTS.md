@@ -29,8 +29,14 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 - Ontario curriculum adherence; use `lms/seeds/` and Ministry PDFs under `lms/sources/ontario-curriculum/` — never invent expectation wording
 - Semester-aware pacing from `frameworks/semester.json` (20-week shape, 2 intro days, review week, school-day due dates)
 - **No `.imscc` in git** — Admin uploads create `content_libraries` on the Fly volume `/data`
+- Do not commit banks, contest dumps, or `.local-data/curriculum/`
 - Include docstrings on any new functions/methods
 - Do not commit unless Shawn asks
+- Do not `flyctl deploy` unless Shawn explicitly asks
+
+## Google Drive vs this repo
+
+Live **Curriculum** authoring is the other Cursor workspace (ALC-Curriculum / the rclone or git clone). In **LLOVES-School**, the Cursor Google Drive plugin is forbidden. Lesson Slides at class time reads LMS sqlite + `.local-data/curriculum/`, then copies/fills decks with LMS **GoogleSlidesClient** REST (`lms/GOOGLE.md`, Connect Google Slides). Folder IDs in `lms/live_class_constants.py` are documentation only for `ALC / Curriculum / {CODE}`. If a task needs to write that tree, stop and say: open that workspace. Rule: [`.cursor/rules/no-drive-plugin.mdc`](.cursor/rules/no-drive-plugin.mdc).
 
 ## Local first / merge to main deploys
 

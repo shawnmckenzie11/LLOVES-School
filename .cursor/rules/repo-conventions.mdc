@@ -17,7 +17,8 @@ scripts/                    # syllabus + IMSCC helper scripts
 .cursor/rules/ + skills/    # school-facing only
 ```
 
-- Do **not** add `courses/` or commit `.imscc` files.
+- Do **not** add `courses/` or commit `.imscc`, banks, or contest dumps. `.local-data/curriculum/` is gitignored.
+- Cursor Google Drive plugin is **forbidden** in this workspace. Curriculum authoring is the other Cursor project. See `.cursor/rules/no-drive-plugin.mdc`.
 - Math content factory writes under `content-builder/` only. Do not use LMS sqlite (`lms/data/`, Fly `/data`) as its catalogue index. Parent agent integrates shared builder files; overlapping component work uses isolated Git worktrees.
 - Module packs: Admin upload → `content_libraries` on `/data`.
 - Put shared school rules under `frameworks/` or `.cursor/rules/`.

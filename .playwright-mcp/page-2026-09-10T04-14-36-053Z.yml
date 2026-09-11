@@ -1,0 +1,49 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [aria-hidden] [ref=e6]:
+        - generic [ref=e7]: Loading
+        - progressbar [aria-hidden] [ref=e8]
+      - main [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Sign in with Google
+          - generic [ref=e23]:
+            - heading "Sign in" [level=1] [ref=e24]
+            - generic [ref=e26]:
+              - text: to continue to
+              - button "mckenzian.com" [ref=e27] [cursor=pointer]
+        - generic [ref=e30]:
+          - generic [ref=e35]:
+            - generic [ref=e40]:
+              - textbox "Email or phone" [active] [ref=e41]
+              - generic [aria-hidden]: Email or phone
+            - button "Forgot email?" [ref=e45] [cursor=pointer]
+          - generic [ref=e48]:
+            - text: Before using this app, you can review mckenzian.com’s
+            - link "Privacy Policy" [ref=e49] [cursor=pointer]:
+              - /url: https://www.alc.mckenzian.com
+            - text: and
+            - link "Terms of Service" [ref=e50] [cursor=pointer]:
+              - /url: https://www.alc.mckenzian.com
+            - text: .
+        - generic [ref=e52]:
+          - button "Next" [ref=e56]
+          - button "Create account" [ref=e64]
+    - contentinfo [ref=e71]:
+      - combobox "Change language English (United States)" [ref=e75] [cursor=pointer]:
+        - generic [aria-hidden]:
+          - generic: English (United States)
+      - list [ref=e77]:
+        - listitem [ref=e78]:
+          - link "Open Google Account Help Center (external, opens in a new window)" [ref=e79] [cursor=pointer]:
+            - /url: https://support.google.com/accounts?hl=en-US&p=account_iph
+            - text: Help
+        - listitem [ref=e80]:
+          - link "Privacy Policy (external, opens in a new window)" [ref=e81] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=CA&hl=en-US&privacy=true
+            - text: Privacy
+        - listitem [ref=e82]:
+          - link "Google Terms of Service (external, opens in a new window)" [ref=e83] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=CA&hl=en-US
+            - text: Terms
+  - iframe [ref=e84]

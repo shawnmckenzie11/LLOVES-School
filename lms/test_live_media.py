@@ -109,6 +109,33 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(patched["params"]["a"], -1.0)
         self.assertEqual(patched["params"]["b"], 2.0)
         self.assertEqual(patched["stem"], DEFAULT_LIVE_MEDIA_STEM)
+        self.assertEqual(patched["param_push"], {"a": True, "b": True, "c": True})
+
+    def test_param_push_unlocks_frozen_toggle(self) -> None:
+        """Unpushed a/b/c stay frozen; push lets the teacher unfreeze that slider."""
+        current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
+        assert current is not None
+        self.assertEqual(current["param_push"], {"a": False, "b": False, "c": False})
+        self.assertEqual(current["param_frozen"], {"a": True, "b": True, "c": True})
+        self.assertFalse(current["student_controls_unlocked"])
+        pushed = apply_active_media_update(
+            current, param_push={"a": True}, param_frozen={"a": False}
+        )
+        assert pushed is not None
+        self.assertTrue(pushed["param_push"]["a"])
+        self.assertFalse(pushed["param_frozen"]["a"])
+        self.assertTrue(pushed["param_frozen"]["b"])
+        self.assertTrue(pushed["student_controls_unlocked"])
+        snapped = apply_active_media_update(pushed, param_frozen={"a": True})
+        assert snapped is not None
+        self.assertTrue(snapped["param_frozen"]["a"])
+        locked = apply_active_media_update(
+            snapped, param_push={"a": False}, param_frozen={"a": False}
+        )
+        assert locked is not None
+        self.assertFalse(locked["param_push"]["a"])
+        self.assertTrue(locked["param_frozen"]["a"])
+        self.assertFalse(locked["student_controls_unlocked"])
 
     def test_lateral_peel_holds_stem_and_gates_encore(self) -> None:
         """L4 / reveal_lateral yaws in-pane; encore URL exists but frozen is off."""
@@ -394,19 +421,22 @@ class LiveMediaChannelTests(unittest.TestCase):
         body = rv.get_data(as_text=True).lower()
         self.assertIn("real-slice", body)
         self.assertIn("ax²", body.replace("ax^2", "ax²"))
-        self.assertIn("from this view only", body)
+        self.assertIn("consider the parabola", body)
+        self.assertNotIn("from this view only", body)
         self.assertIn("this picture was always a slice", body)
-        self.assertIn("reveallateral", body.replace("_", "").replace(" ", ""))
-        self.assertIn("lateral_yaw", body)
+        self.assertIn("teacher-table", body)
+        self.assertIn("push to student view", body)
+        self.assertIn("push all to view", body)
+        self.assertIn("freeze all", body)
+        self.assertIn("generate all", body)
+        self.assertIn('role !== "student"', body)
+        self.assertIn("lateral axis", body)
+        self.assertIn("lateral", body)
+        self.assertIn("surface_alpha_min", body)
+        self.assertIn("0.0225", body)
         self.assertIn("parabola", body)
-        self.assertIn("teacher-grid", body)
-        self.assertIn("show student view a, b, c", body)
-        self.assertIn("student zoom", body)
-        self.assertIn("show z axis", body)
-        self.assertIn("3d surface transparency", body)
-        self.assertIn("in-pane lateral reveal", body)
-        self.assertIn("student yaw range", body)
-        self.assertIn("show cons", body)
+        self.assertNotIn("show z axis", body)
+        self.assertNotIn("student zoom", body)
         self.assertNotIn("gold real-slice", body)
         self.assertNotIn("reveal axes (students)", body)
         self.assertNotIn("drag to orbit", body)
@@ -623,26 +653,21 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_staff_live_tab_has_media_controls(self) -> None:
-        """Run Live Class chrome includes set / clear / unlock controls."""
+        """Run Live Class Active Media card is title + teacher iframe only."""
         page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
         self.assertIn("ap-active-media", html)
-        self.assertIn("Show Real-slice", html)
-        self.assertIn("Unlock a, b, c sliders", html)
-        self.assertIn("Reveal axes on student view", html)
-        self.assertIn("L4 — in-pane lateral reveal", html)
-        self.assertIn("paper-locked, faint surface, x/y axes", html)
-        self.assertIn("Freeze — offer optional encore", html)
-        self.assertIn("Limited student yaw after lateral", html)
-        self.assertIn("CONS-1 · a", html)
-        self.assertIn("C2 — no immersive media", html)
-        self.assertIn("C3 — no immersive media", html)
-        self.assertIn("do not seed active_media_json", html)
-        self.assertIn("not a FlagStrip", html)
-        self.assertNotIn("FlagStrip", html.replace("not a FlagStrip", ""))
-        self.assertIn("out-of-page / lateral beat", html)
+        self.assertIn("Active Media", html)
+        self.assertIn("ap-media-preview", html)
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
+        self.assertIn("role=teacher", html)
+        self.assertNotIn("Show Real-slice", html)
+        self.assertNotIn("Unlock a, b, c sliders", html)
+        self.assertNotIn("Reveal axes on student view", html)
+        self.assertNotIn("Swap to pasted URL", html)
+        self.assertNotIn("ap-media-clear", html)
+        self.assertNotIn("From this view only", html)
 
     def test_student_home_csp_allows_same_origin_iframe(self) -> None:
         """Student home may frame same-origin live-media pages."""

@@ -2,7 +2,7 @@
 
 **Scale:** live consolidation only (after argue / progressive reveals) — **not** mid-entry formative  
 **Stem lock:** B′ · `MCF3M-M1-C1-stem-and-slide.md`  
-**Ask:** When looking at the parabola represented by \(y=ax^2+bx+c\), what do you know about \(a\), \(b\), and \(c\)?  
+**Ask:** Consider the parabola represented by \(y=ax^2+bx+c\). What do you know about \(a\), \(b\), and \(c\)?  
 **Media:** fixed immersive \(y=x^2\) (paper-like); teacher peel: axes-off → axes-on → unlocks → optional lateral  
 **Dual-serve:** MCF3M M1 + MCR3U M1 · chips for this live: A2.1 / A2.2 (Coverage)
 

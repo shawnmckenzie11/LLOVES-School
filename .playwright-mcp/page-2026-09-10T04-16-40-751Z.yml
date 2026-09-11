@@ -1,0 +1,45 @@
+- generic [ref=f2e14]:
+  - paragraph [ref=f2e15]: Live assets · not a joined session
+  - generic [ref=f2e17]:
+    - paragraph [ref=f2e18]: After Join
+    - heading "How are you feeling?" [level=1] [ref=f2e19]
+    - generic [ref=f2e20]:
+      - radiogroup [ref=f2e21]:
+        - generic [ref=f2e22] [cursor=pointer]:
+          - radio "Good"
+          - img "Good" [ref=f2e23]
+        - generic [ref=f2e24] [cursor=pointer]:
+          - radio "OK"
+          - img "OK" [ref=f2e25]
+        - generic [ref=f2e26] [cursor=pointer]:
+          - radio "Low"
+          - img "Low" [ref=f2e27]
+      - generic [ref=f2e28]:
+        - button "Skip" [ref=f2e29] [cursor=pointer]
+        - button "Continue" [ref=f2e30] [cursor=pointer]
+  - generic [ref=f2e32]:
+    - paragraph [ref=f2e33]: Then
+    - heading "Choose your Avatar" [level=1] [ref=f2e34]
+    - generic [ref=f2e35]:
+      - radiogroup [ref=f2e36]:
+        - generic [ref=f2e37] [cursor=pointer]:
+          - radio "🦊"
+          - generic [ref=f2e38]: 🦊
+        - generic [ref=f2e39] [cursor=pointer]:
+          - radio "🐼"
+          - generic [ref=f2e40]: 🐼
+        - generic [ref=f2e41] [cursor=pointer]:
+          - radio "🦄"
+          - generic [ref=f2e42]: 🦄
+        - generic [ref=f2e43] [cursor=pointer]:
+          - radio "🐙"
+          - generic [ref=f2e44]: 🐙
+        - generic [ref=f2e45] [cursor=pointer]:
+          - radio "🐲"
+          - generic [ref=f2e46]: 🐲
+        - generic [ref=f2e47] [cursor=pointer]:
+          - radio "🦉"
+          - generic [ref=f2e48]: 🦉
+      - generic [ref=f2e49]:
+        - button "Skip" [ref=f2e50] [cursor=pointer]
+        - button "Join Class" [ref=f2e51] [cursor=pointer]
