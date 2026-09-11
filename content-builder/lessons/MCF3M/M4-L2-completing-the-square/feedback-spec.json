@@ -1,1 +1,1792 @@
-PLACEHOLDER
+{
+  "schema_version": "feedback-spec.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "cycle": "start-manipulate-submit-check-feedback-retry",
+  "tasks": [
+    {
+      "id": "expand-cts-revisit",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "worked_example / A2.7 shared-model revisit expand↔CTS",
+        "packet_id": "packet-revisit",
+        "process_id": "expand-cts-shared-model-revisit",
+        "bank_item_id": "mcf3m-m4-ontario-a27-cts-revisit",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted abc to {3, -6, 7} and submitted ahk to {3, 1, 4}; optional overlay same-graph",
+          "tolerances": {
+            "a": 0,
+            "b": 0,
+            "c": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "new-teach expansion steps as if A2.7 were new",
+            "treat the live expansion line as the student answer",
+            "infer cts-changes-graph from a control value alone; describe whether the overlay coincided",
+            "invent a Ministry key for the A2.7 sample",
+            "auto-grade unrestricted interpretation",
+            "load or reveal fresh-hook-cts parameters"
+          ]
+        },
+        "equation_vertex": "f(x) = 3(x − 1)^2 + 4",
+        "equation_standard_target": "3x^2 − 6x + 7",
+        "misconceptions": [
+          "cts-changes-graph"
+        ],
+        "note": "Score abc and/or ahk. Overlay same-graph is optional self-check after rewrite match."
+      },
+      "student_controls": [
+        "standard_a",
+        "standard_b",
+        "standard_c",
+        "a",
+        "h",
+        "k",
+        "graphs_coincide_self_check"
+      ],
+      "target": {
+        "abc": {
+          "a": 3,
+          "b": -6,
+          "c": 7
+        },
+        "ahk": {
+          "a": 3,
+          "h": 1,
+          "k": 4
+        },
+        "vertex_equation": "f(x) = 3(x − 1)^2 + 4",
+        "standard_equation": "f(x) = 3x^2 − 6x + 7",
+        "same_graph": true
+      },
+      "valid_alternatives": [
+        {
+          "standard_form": "3x^2 − 6x + 7",
+          "abc": {
+            "a": 3,
+            "b": -6,
+            "c": 7
+          }
+        },
+        {
+          "equation": "3(x − 1)^2 + 4",
+          "ahk": {
+            "a": 3,
+            "h": 1,
+            "k": 4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "standard form coeffs a,b,c OR recovered vertex a,h,k after CTS"
+        ],
+        "not_scored": [
+          "graphs_coincide_self_check (self-check)",
+          "unrestricted expand↔CTS explanation"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "b": 0,
+          "c": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "new-teach expansion steps as if A2.7 were new",
+          "treat the live expansion line as the student answer",
+          "infer cts-changes-graph from a control value alone; describe whether the overlay coincided",
+          "invent a Ministry key for the A2.7 sample",
+          "auto-grade unrestricted interpretation",
+          "load or reveal fresh-hook-cts parameters",
+          "auto-grade graph overlay pixels",
+          "claim CTS changed the graph when rewrite matches"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "(|standard_a − 3| ≤ 0 AND |standard_b − (−6)| ≤ 0 AND |standard_c − 7| ≤ 0) OR (|a − 3| ≤ 0 AND |h − 1| ≤ 0 AND |k − 4| ≤ 0)",
+          "message_id": "msg-revisit-match",
+          "evidence": "abc {3,-6,7} and/or ahk {3,1,4}. Then tech same-curve self-check."
+        },
+        {
+          "id": "standard-or-recovered-off",
+          "when": "neither abc nor ahk match within tolerance 0",
+          "message_id": "msg-revisit-off",
+          "evidence": "Report observed abc and/or ahk versus targets."
+        },
+        {
+          "id": "tech-self-check-ready",
+          "when": "rewrite match AND graphs_coincide_self_check pending",
+          "message_id": "msg-revisit-same-curve",
+          "evidence": "Self-check: do expand and CTS leave the same graph? (cts-changes-graph)"
+        }
+      ],
+      "hint_sequence": [
+        "hint-revisit-1-expand",
+        "hint-revisit-2-cts-back",
+        "hint-revisit-3-same-curve"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "tech_self_check": {
+          "message_id": "msg-revisit-same-curve",
+          "checking": "self-check",
+          "not_auto_graded": true,
+          "misconception_guard": "cts-changes-graph"
+        },
+        "advance_toast_message_id": "toast-advance-to-diagram",
+        "then_task_id": "diagram-ex960"
+      },
+      "reset": {
+        "clears": [
+          "standard_a",
+          "standard_b",
+          "standard_c",
+          "a",
+          "h",
+          "k",
+          "graphs_coincide_self_check"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-revisit-follow-up"
+    },
+    {
+      "id": "diagram-ex960",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "worked_example / FAME diagram I-do before algebraic on same function",
+        "packet_id": "packet-diagram-algebraic",
+        "process_id": "complete-square-diagram",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {side, leftover} to {3, -4}",
+          "tolerances": {
+            "side": 0,
+            "leftover": 0
+          },
+          "do_not": [
+            "require vertex-form a, h, k on this task",
+            "reveal algebraic-ex960 before a pass",
+            "infer b-half-sign from the leftover alone without naming the submitted side versus 3 and leftover versus −4",
+            "auto-grade the prediction sentence",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = x^2 + 6x + 5",
+        "misconceptions": [
+          "b-half-sign"
+        ],
+        "note": "Score side_length and leftover_constant only. Do NOT require a,h,k on this task."
+      },
+      "student_controls": [
+        "side_length",
+        "leftover_constant"
+      ],
+      "target": {
+        "side": 3,
+        "leftover": -4,
+        "note": "Half of 6 is 3; leftover 5 − 9 = −4."
+      },
+      "valid_alternatives": [
+        {
+          "side": 3,
+          "leftover": -4,
+          "note": "3 by 3 square; leftover may be entered as 5 − 9"
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "side_length (maps to side)",
+          "leftover_constant (maps to leftover)"
+        ],
+        "not_scored": [
+          "tile arrangement aesthetics",
+          "unrestricted why-split explanation",
+          "a, h, k"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "side": 0,
+          "leftover": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "require vertex-form a, h, k on this task",
+          "reveal algebraic-ex960 before a pass",
+          "infer b-half-sign from the leftover alone without naming the submitted side versus 3 and leftover versus −4",
+          "auto-grade the prediction sentence",
+          "load fresh-hook-cts",
+          "auto-grade free-text tile narrative",
+          "require algebraic rewrite here"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|side_length − 3| ≤ 0 AND |leftover_constant − (−4)| ≤ 0",
+          "message_id": "msg-diagram-match",
+          "evidence": "side 3 and leftover −4. Advance to algebraic same packet."
+        },
+        {
+          "id": "side-off",
+          "when": "|side_length − 3| > 0",
+          "message_id": "msg-diagram-side-off",
+          "evidence": "Submitted side versus 3. Half of b=6 is 3. (b-half-sign observable)"
+        },
+        {
+          "id": "leftover-off",
+          "when": "|side_length − 3| ≤ 0 AND |leftover_constant − (−4)| > 0",
+          "message_id": "msg-diagram-leftover-off",
+          "evidence": "Side ok; leftover versus −4 (5 − 9)."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-diagram-other",
+          "evidence": "Report observed side_length and leftover_constant versus 3 and −4."
+        }
+      ],
+      "hint_sequence": [
+        "hint-diagram-1-half-b",
+        "hint-diagram-2-square-area",
+        "hint-diagram-3-leftover"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "explanation_prompt": {
+          "message_id": "msg-worked-diagram-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "advance_toast_message_id": "toast-advance-to-algebraic",
+        "then_task_id": "algebraic-ex960"
+      },
+      "reset": {
+        "clears": [
+          "side_length",
+          "leftover_constant"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-diagram-follow-up"
+    },
+    {
+      "id": "algebraic-ex960",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "worked_example / FAME algebraic I-do matched to diagram on same function",
+        "packet_id": "packet-diagram-algebraic",
+        "process_id": "complete-square-algebraic",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {1, -3, -4}",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "accept h = 3 as a match (that is (x − 3), not (x + 3))",
+            "treat a Match click as a pass",
+            "infer h-sign-after-cts from h = 3 without describing submitted (h, k) versus (−3, −4)",
+            "reveal live vertex form before submit",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = x^2 + 6x + 5",
+        "misconceptions": [
+          "b-half-sign",
+          "h-sign-after-cts",
+          "cts-changes-graph"
+        ],
+        "note": "Target ahk {1,-3,-4}. Do NOT accept h=3 as match. wrong-h-sign when h≈3."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 3)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": -3,
+          "k": -4
+        },
+        "vertex": {
+          "x": -3,
+          "y": -4
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "(x + 3)^2 − 4",
+          "ahk": {
+            "a": 1,
+            "h": -3,
+            "k": -4
+          }
+        },
+        {
+          "equation": "1(x − (−3))^2 + (−4)",
+          "ahk": {
+            "a": 1,
+            "h": -3,
+            "k": -4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "entered a, h, k"
+        ],
+        "not_scored": [
+          "unrestricted match-to-diagram explanation"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "accept h = 3 as a match (that is (x − 3), not (x + 3))",
+          "treat a Match click as a pass",
+          "infer h-sign-after-cts from h = 3 without describing submitted (h, k) versus (−3, −4)",
+          "reveal live vertex form before submit",
+          "load fresh-hook-cts",
+          "auto-grade free-text explanations"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|a − 1| ≤ 0 AND |h − (−3)| ≤ 0 AND |k − (−4)| ≤ 0",
+          "message_id": "msg-alg960-match",
+          "evidence": "Matches ahk {1,-3,-4} / (x+3)^2−4. Advance to guided you-do."
+        },
+        {
+          "id": "wrong-h-sign",
+          "when": "|h − 3| ≤ 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-alg960-h-sign",
+          "evidence": "Submitted h≈3 versus target h=−3. That is (x−3), not (x+3). Describe (h,k) versus (−3,−4); do not name h-sign-after-cts as cause alone."
+        },
+        {
+          "id": "correct-h-wrong-k",
+          "when": "|h − (−3)| ≤ 0 AND |k − (−4)| > 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-alg960-h-ok-k-off",
+          "evidence": "h matches −3; k does not match −4."
+        },
+        {
+          "id": "wrong-h-sign-or-half",
+          "when": "|h − (−3)| > 0 AND |h − 3| > 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-alg960-h-off",
+          "evidence": "h is not −3. Half of b=6 is 3; read (x − h)."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-alg960-other",
+          "evidence": "Report observed (a,h,k) versus (1, −3, −4)."
+        }
+      ],
+      "hint_sequence": [
+        "hint-alg960-1-half-b",
+        "hint-alg960-2-add-subtract",
+        "hint-alg960-3-read-h"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "explanation_prompt": {
+          "message_id": "msg-worked-algebraic-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "advance_toast_message_id": "toast-advance-to-guided",
+        "then_task_id": "algebraic-try9119"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-alg960-follow-up"
+    },
+    {
+      "id": "algebraic-try9119",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "guided_practice / FAME alternating you-do after Ex. 9.60 algebraic",
+        "packet_id": "packet-guided-algebraic",
+        "process_id": "complete-square-algebraic",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-try9119",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {1, -1, -4}",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "accept the 9.60 target {1, -3, -4} as a pass on this task",
+            "accept h = 1 as a match",
+            "infer b-half-sign without describing submitted h versus −1 and k versus −4",
+            "auto-grade unrestricted algebra writing if numbers are not entered",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = x^2 + 2x − 3",
+        "misconceptions": [
+          "b-half-sign",
+          "h-sign-after-cts"
+        ],
+        "note": "Target ahk {1,-1,-4}. Do NOT accept 9.60 target {1,-3,-4} or h=1 as match."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 1)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": -1,
+          "k": -4
+        },
+        "vertex": {
+          "x": -1,
+          "y": -4
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "(x + 1)^2 − 4",
+          "ahk": {
+            "a": 1,
+            "h": -1,
+            "k": -4
+          }
+        },
+        {
+          "equation": "1(x − (−1))^2 + (−4)",
+          "ahk": {
+            "a": 1,
+            "h": -1,
+            "k": -4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "entered a, h, k",
+          "sign of h from (x − h)"
+        ],
+        "not_scored": [
+          "unrestricted why-add-(b/2)^2 explanation"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "accept the 9.60 target {1, -3, -4} as a pass on this task",
+          "accept h = 1 as a match",
+          "infer b-half-sign without describing submitted h versus −1 and k versus −4",
+          "auto-grade unrestricted algebra writing if numbers are not entered",
+          "load fresh-hook-cts",
+          "auto-grade free-text explanations"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|a − 1| ≤ 0 AND |h − (−1)| ≤ 0 AND |k − (−4)| ≤ 0",
+          "message_id": "msg-try9119-match",
+          "evidence": "ahk {1,-1,-4}. Same curve as x^2+2x−3. Advance."
+        },
+        {
+          "id": "copied-960-target",
+          "when": "|a − 1| ≤ 0 AND |h − (−3)| ≤ 0 AND |k − (−4)| ≤ 0",
+          "message_id": "msg-try9119-copied-960",
+          "evidence": "Submitted the Ex. 9.60 target {1,-3,-4}; this task is {1,-1,-4}."
+        },
+        {
+          "id": "wrong-h-positive",
+          "when": "|h − 1| ≤ 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-try9119-h-positive",
+          "evidence": "Submitted h≈1 versus target h=−1. Do not accept h=1 as match. Describe h versus −1 and k versus −4."
+        },
+        {
+          "id": "correct-h-wrong-k",
+          "when": "|h − (−1)| ≤ 0 AND |k − (−4)| > 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-try9119-h-ok-k-off",
+          "evidence": "h matches −1; k does not match −4."
+        },
+        {
+          "id": "wrong-h-sign-or-half",
+          "when": "|h − (−1)| > 0 AND |h − 1| > 0 AND |a − 1| ≤ 0",
+          "message_id": "msg-try9119-h-off",
+          "evidence": "Reported h is not −1. Compare half of b=2 and the (x − h) reading."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-try9119-other",
+          "evidence": "Report observed (a, h, k) versus target (1, −1, −4)."
+        }
+      ],
+      "hint_sequence": [
+        "hint-try9119-1-half-b",
+        "hint-try9119-2-add-subtract-square",
+        "hint-try9119-3-read-h-from-brackets"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match",
+        "keep_entry": true
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "explanation_prompt": {
+          "message_id": "msg-try9119-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "advance_toast_message_id": "toast-advance-to-factor-a",
+        "then_task_id": "factor-a-ex959"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-try9119-follow-up"
+    },
+    {
+      "id": "factor-a-ex959",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "worked_example with optional rewrite check / FAME explanation",
+        "packet_id": "packet-factor-a",
+        "process_id": "complete-square-factor-a",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-ex959",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {-3, -1, 2}",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "accept a = 1 or a = 3 as a match",
+            "label forget-factor-a as a mental cause from a alone; describe submitted a versus −3 and the inside (x + 1) versus a one-sided factor",
+            "factor −3 from the constant −1 as a required student step",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = −3x^2 − 6x − 1",
+        "misconceptions": [
+          "forget-factor-a",
+          "h-sign-after-cts"
+        ],
+        "note": "Fracture forget-factor-a when a≈1 or a≈3. Target ahk {-3,-1,2}."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k"
+      ],
+      "target": {
+        "equation": "f(x) = −3(x + 1)^2 + 2",
+        "ahk": {
+          "a": -3,
+          "h": -1,
+          "k": 2
+        },
+        "vertex": {
+          "x": -1,
+          "y": 2
+        },
+        "factor_from_x_terms_only": -3
+      },
+      "valid_alternatives": [
+        {
+          "equation": "−3(x + 1)^2 + 2",
+          "ahk": {
+            "a": -3,
+            "h": -1,
+            "k": 2
+          }
+        },
+        {
+          "equation": "-3(x − (−1))^2 + 2",
+          "ahk": {
+            "a": -3,
+            "h": -1,
+            "k": 2
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "a, h, k of final vertex form when submitted"
+        ],
+        "not_scored": [
+          "think-aloud why factor a first (self-check)"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "accept a = 1 or a = 3 as a match",
+          "label forget-factor-a as a mental cause from a alone; describe submitted a versus −3 and the inside (x + 1) versus a one-sided factor",
+          "factor −3 from the constant −1 as a required student step",
+          "load fresh-hook-cts",
+          "auto-grade the explanation prompt"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|a − (−3)| ≤ 0 AND |h − (−1)| ≤ 0 AND |k − 2| ≤ 0",
+          "message_id": "msg-factor-a-match",
+          "evidence": "Matches ahk {-3,-1,2}. Advance."
+        },
+        {
+          "id": "forget-factor-a",
+          "when": "|a − 1| ≤ 0 OR |a − 3| ≤ 0",
+          "message_id": "msg-factor-a-forgot",
+          "evidence": "Observable: submitted a≈1 or a≈3 versus −3. Describe a versus −3 and inside (x+1); do not label mental cause from a alone."
+        },
+        {
+          "id": "correct-a-wrong-hk",
+          "when": "|a − (−3)| ≤ 0 AND (|h − (−1)| > 0 OR |k − 2| > 0)",
+          "message_id": "msg-factor-a-hk-off",
+          "evidence": "a matches −3; h or k does not. Report observed vertex vs (−1, 2)."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-factor-a-other",
+          "evidence": "Report observed (a, h, k) versus (−3, −1, 2)."
+        }
+      ],
+      "hint_sequence": [
+        "hint-factor-a-1-pull-a",
+        "hint-factor-a-2-half-inside",
+        "hint-factor-a-3-balance-outside"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "explanation_prompt": {
+          "message_id": "msg-factor-a-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "advance_toast_message_id": "toast-advance-to-rational",
+        "then_task_id": "rational-half"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-factor-a-follow-up"
+    },
+    {
+      "id": "rational-half",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "core_practice / same CTS steps with b/a = 1/2",
+        "packet_id": "packet-rational",
+        "process_id": "complete-square-rational-b-over-a",
+        "bank_item_id": "mcf3m-m4-owned-cts-rational-half",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {1, -1/4, 15/16} (exact fractions or decimals)",
+          "tolerances": {
+            "a": 0,
+            "h": 0.0001,
+            "k": 0.0001
+          },
+          "do_not": [
+            "treat this as a new method different from integer CTS",
+            "invent a Ministry A2.8 stem (seed examples array is empty; ½ is quoted from the A2.8 statement only)",
+            "infer rational-b-over-a from a blank without describing missing h or k",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = x^2 + (1/2)x + 1",
+        "misconceptions": [
+          "rational-b-over-a",
+          "b-half-sign"
+        ],
+        "note": "Target ahk {1,-1/4,15/16}; tol h/k 0.0001."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k"
+      ],
+      "target": {
+        "equation": "f(x) = (x + 1/4)^2 + 15/16",
+        "ahk": {
+          "a": 1,
+          "h": -0.25,
+          "k": 0.9375
+        },
+        "ahk_exact": {
+          "a": 1,
+          "h": "-1/4",
+          "k": "15/16"
+        },
+        "vertex": {
+          "x": -0.25,
+          "y": 0.9375
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "(x + 1/4)^2 + 15/16",
+          "ahk_exact": {
+            "a": 1,
+            "h": "-1/4",
+            "k": "15/16"
+          }
+        },
+        {
+          "note": "Equivalent decimals h = −0.25, k = 0.9375 within tolerance"
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "a, h, k (fractions or decimals)"
+        ],
+        "not_scored": [
+          "whether they invented a new method narrative"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0.0001,
+          "k": 0.0001,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "treat this as a new method different from integer CTS",
+          "invent a Ministry A2.8 stem (seed examples array is empty; ½ is quoted from the A2.8 statement only)",
+          "infer rational-b-over-a from a blank without describing missing h or k",
+          "load fresh-hook-cts",
+          "auto-grade unrestricted explanation"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|a − 1| ≤ 0 AND |h − (−1/4)| ≤ 0.0001 AND |k − (15/16)| ≤ 0.0001",
+          "message_id": "msg-rational-match",
+          "evidence": "Matches (x + 1/4)^2 + 15/16. Advance."
+        },
+        {
+          "id": "wrong-half-of-b",
+          "when": "|h − (−1/4)| > 0.0001 AND |a − 1| ≤ 0",
+          "message_id": "msg-rational-h-off",
+          "evidence": "h is not −1/4. Half of b=1/2 is 1/4; read (x − h)."
+        },
+        {
+          "id": "correct-h-wrong-k",
+          "when": "|h − (−1/4)| ≤ 0.0001 AND |k − (15/16)| > 0.0001 AND |a − 1| ≤ 0",
+          "message_id": "msg-rational-k-off",
+          "evidence": "h matches; k does not match 15/16."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-rational-other",
+          "evidence": "Report observed (a, h, k) versus (1, −1/4, 15/16)."
+        }
+      ],
+      "hint_sequence": [
+        "hint-rational-1-same-steps",
+        "hint-rational-2-half-of-half",
+        "hint-rational-3-balance-sixteenth"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "advance_toast_message_id": "toast-advance-to-verify",
+        "then_task_id": "verify-try9118"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-rational-follow-up"
+    },
+    {
+      "id": "verify-try9118",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "guided_practice / CTS then tech compare",
+        "packet_id": "packet-verify",
+        "process_id": "verify-equivalence-tech",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-try9118-verify",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {2, 2, -5}; overlay same-graph",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "switch the student to a vertex formula (A1.6 parked)",
+            "treat this item as the forget-factor-a fracture slot (that slot is factor-a-ex959)",
+            "treat the live board expansion as the student answer",
+            "infer cts-changes-graph without saying whether the overlay coincided",
+            "load fresh-hook-cts"
+          ]
+        },
+        "equation": "f(x) = 2x^2 − 8x + 3",
+        "misconceptions": [
+          "cts-changes-graph",
+          "forget-factor-a"
+        ],
+        "note": "Target ahk {2,2,-5}. forget-factor-a fracture slot is factor-a-ex959 — if a≈1 cue factor-2 observable without calling forget-factor-a fracture."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k",
+        "graphs_coincide_self_check"
+      ],
+      "target": {
+        "equation": "f(x) = 2(x − 2)^2 − 5",
+        "ahk": {
+          "a": 2,
+          "h": 2,
+          "k": -5
+        },
+        "abc": {
+          "a": 2,
+          "b": -8,
+          "c": 3
+        },
+        "same_graph": true,
+        "vertex": {
+          "x": 2,
+          "y": -5
+        }
+      },
+      "valid_alternatives": [
+        {
+          "equation": "2(x − 2)^2 − 5",
+          "ahk": {
+            "a": 2,
+            "h": 2,
+            "k": -5
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "a, h, k of vertex form"
+        ],
+        "not_scored": [
+          "technology screenshot",
+          "graphs_coincide_self_check (self-check)"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "switch the student to a vertex formula (A1.6 parked)",
+          "treat this item as the forget-factor-a fracture slot (that slot is factor-a-ex959)",
+          "treat the live board expansion as the student answer",
+          "infer cts-changes-graph without saying whether the overlay coincided",
+          "load fresh-hook-cts",
+          "auto-grade graph overlay from pixels",
+          "claim CTS produced a different parabola when rewrite matches"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "all-match",
+          "when": "|a − 2| ≤ 0 AND |h − 2| ≤ 0 AND |k − (−5)| ≤ 0",
+          "message_id": "msg-verify-match",
+          "evidence": "Rewrite matches ahk {2,2,-5}. Then show tech self-check cue."
+        },
+        {
+          "id": "factor-2-needed",
+          "when": "|a − 1| ≤ 0",
+          "message_id": "msg-verify-factor-two",
+          "evidence": "Observable: a≈1 versus target a=2. Cue factor 2 from x^2 and x — NOT the forget-factor-a fracture slot (owned by factor-a-ex959)."
+        },
+        {
+          "id": "correct-a-wrong-hk",
+          "when": "|a − 2| ≤ 0 AND (|h − 2| > 0 OR |k − (−5)| > 0)",
+          "message_id": "msg-verify-hk-off",
+          "evidence": "a matches 2; h or k off."
+        },
+        {
+          "id": "other-mismatch",
+          "when": "none of the previous conditions",
+          "message_id": "msg-verify-other",
+          "evidence": "Report observed (a, h, k) versus (2, 2, −5)."
+        }
+      ],
+      "hint_sequence": [
+        "hint-verify-1-factor-two",
+        "hint-verify-2-half-inside",
+        "hint-verify-3-tech-same-curve"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "all-match"
+      },
+      "next_task": {
+        "after_condition": "all-match",
+        "tech_self_check": {
+          "message_id": "msg-verify-tech-same-curve",
+          "checking": "self-check",
+          "not_auto_graded": true,
+          "misconception_guard": "cts-changes-graph"
+        },
+        "advance_toast_message_id": "toast-advance-to-sketch",
+        "then_task_id": "sketch-try9120"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k",
+          "graphs_coincide_self_check"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-verify-follow-up"
+    },
+    {
+      "id": "sketch-try9120",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "core_practice / A2.11 light",
+        "packet_id": "packet-sketch",
+        "process_id": "sketch-from-standard-via-cts",
+        "bank_item_id": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {1, 4, -4}; vertex (4, -4); axis x = 4; minimum",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0,
+            "vertex_x": 0,
+            "vertex_y": 0
+          },
+          "do_not": [
+            "require sign or monotonicity intervals (A2.11 full list is parked)",
+            "reteach transformations of y = x^2 (A2.5 / A2.6 parked)",
+            "print the vertex, axis, or max/min in student-facing copy before submit",
+            "infer h-sign-after-cts from h = −4 without describing submitted vertex versus (4, −4)",
+            "unlock packet-strategy without Try another",
+            "load fresh-hook-cts on Action"
+          ]
+        },
+        "equation": "f(x) = x^2 − 8x + 12",
+        "misconceptions": [
+          "h-sign-after-cts",
+          "cts-changes-graph"
+        ],
+        "note": "Target ahk {1,4,-4}; vertex (4,-4); axis x=4; minimum."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k",
+        "named_vertex_x",
+        "named_vertex_y",
+        "named_axis",
+        "named_extreme"
+      ],
+      "target": {
+        "equation": "f(x) = (x − 4)^2 − 4",
+        "ahk": {
+          "a": 1,
+          "h": 4,
+          "k": -4
+        },
+        "vertex": {
+          "x": 4,
+          "y": -4
+        },
+        "axis": "x = 4",
+        "max_or_min": "minimum"
+      },
+      "valid_alternatives": [
+        {
+          "vertex": {
+            "x": 4,
+            "y": -4
+          },
+          "axis": "x = 4",
+          "max_or_min": "minimum"
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "a, h, k",
+          "named vertex",
+          "named axis",
+          "named max or min"
+        ],
+        "not_scored": [
+          "full interval / sign-chart dump",
+          "sketch pixels"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "vertex_x": 0,
+          "vertex_y": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "require sign or monotonicity intervals (A2.11 full list is parked)",
+          "reteach transformations of y = x^2 (A2.5 / A2.6 parked)",
+          "print the vertex, axis, or max/min in student-facing copy before submit",
+          "infer h-sign-after-cts from h = −4 without describing submitted vertex versus (4, −4)",
+          "unlock packet-strategy without Try another",
+          "load fresh-hook-cts on Action",
+          "auto-grade free sketch quality"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "reading-match",
+          "when": "(|a − 1| ≤ 0 AND |h − 4| ≤ 0 AND |k − (−4)| ≤ 0) AND |named_vertex_x − 4| ≤ 0 AND |named_vertex_y − (−4)| ≤ 0 AND named_axis is x = 4 AND named_extreme is minimum",
+          "message_id": "msg-sketch-match",
+          "evidence": "ahk {1,4,-4}; vertex (4,−4); axis x=4; minimum. Advance."
+        },
+        {
+          "id": "named-vertex-differs",
+          "when": "|named_vertex_x − 4| > 0 OR |named_vertex_y − (−4)| > 0",
+          "message_id": "msg-sketch-vertex-off",
+          "evidence": "Report named point vs (4, −4). Coordinates only — do not name h-sign misconception from h=−4 alone."
+        },
+        {
+          "id": "named-axis-differs",
+          "when": "vertex matches AND named_axis is not x = 4",
+          "message_id": "msg-sketch-axis-off",
+          "evidence": "Vertex OK; axis should be the vertical line through the vertex."
+        },
+        {
+          "id": "named-extreme-differs",
+          "when": "vertex and axis match AND named_extreme is not minimum",
+          "message_id": "msg-sketch-extreme-off",
+          "evidence": "a>0 → minimum."
+        }
+      ],
+      "hint_sequence": [
+        "hint-sketch-1-cts-first",
+        "hint-sketch-2-read-vertex",
+        "hint-sketch-3-axis-and-extreme"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "reading-match"
+      },
+      "next_task": {
+        "after_condition": "reading-match",
+        "explanation_prompt": {
+          "message_id": "msg-sketch-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "try_another": {
+          "task_id": "strategy-cts-vs-factor",
+          "visible_by_default": false,
+          "note": "Additional packet; not on default Advance path."
+        },
+        "advance_toast_message_id": "toast-advance-to-consolidation",
+        "then_task_id": "fresh-hook-cts"
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k",
+          "named_vertex_x",
+          "named_vertex_y",
+          "named_axis",
+          "named_extreme"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-sketch-follow-up"
+    },
+    {
+      "id": "strategy-cts-vs-factor",
+      "tool": "practice-strategy-choice",
+      "initial_state": {
+        "placement": "additional_practice / Try another; after competence on CTS sketch",
+        "packet_id": "packet-strategy",
+        "process_id": "strategy-choose-cts-vs-factor",
+        "bank_item_id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted A is factor and submitted B is complete-the-square",
+          "tolerances": {},
+          "do_not": [
+            "auto-grade the reason sentences",
+            "teach or apply the quadratic formula",
+            "show a discriminant",
+            "require a full sketch on this task",
+            "infer strategy-without-criteria from one wrong pick without naming the two submitted choices versus factor / complete-the-square",
+            "load fresh-hook-cts on Action"
+          ]
+        },
+        "equations": {
+          "A": "f(x) = x^2 − 5x + 6",
+          "B": "g(x) = x^2 + 4x + 7"
+        },
+        "misconceptions": [
+          "strategy-without-criteria"
+        ],
+        "note": "method deterministic-math on A=factor, B=complete-the-square; reasons not auto-graded. FAME Mistakes ids after competence."
+      },
+      "student_controls": [
+        "choice_A",
+        "choice_B",
+        "reason_A",
+        "reason_B"
+      ],
+      "target": {
+        "A": "factor",
+        "A_reason_teacher": "x^2 − 5x + 6 = (x − 2)(x − 3); intercepts 2 and 3 are friendly",
+        "B": "complete-the-square",
+        "B_reason_teacher": "g(x) = (x + 2)^2 + 3; no real intercepts; vertex (−2, 3) after CTS"
+      },
+      "valid_alternatives": [
+        {
+          "A": "factoring",
+          "B": "completing the square"
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "choice_A",
+          "choice_B"
+        ],
+        "not_scored": [
+          "reason_A",
+          "reason_B — self-check or teacher-review"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "auto-grade the reason sentences",
+          "teach or apply the quadratic formula",
+          "show a discriminant",
+          "require a full sketch on this task",
+          "infer strategy-without-criteria from one wrong pick without naming the two submitted choices versus factor / complete-the-square",
+          "load fresh-hook-cts on Action",
+          "show mistakes example before competence on CTS sketch"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "choices-match",
+          "when": "choice_A is factor (or factoring) AND choice_B is complete-the-square (or CTS)",
+          "message_id": "msg-strategy-match",
+          "evidence": "Structured choices match target A=factor, B=complete-the-square."
+        },
+        {
+          "id": "choices-differ",
+          "when": "enum choices present AND not choices-match",
+          "message_id": "msg-strategy-differ",
+          "evidence": "Report submitted choices versus factor / complete-the-square."
+        }
+      ],
+      "hint_sequence": [
+        "hint-strategy-1-what-feature",
+        "hint-strategy-2-friendly-intercepts",
+        "hint-strategy-3-vertex-when-no-intercepts"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "choices-match"
+      },
+      "next_task": {
+        "after_condition": "choices-match",
+        "explanation_prompt": {
+          "message_id": "msg-strategy-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "mistakes_example": {
+          "when": "after competence on sketch-try9120 (reading-match) AND this strategy slot",
+          "signpost_message_id": "msg-strategy-mistakes-signpost",
+          "why_wrong_message_id": "msg-strategy-why-wrong",
+          "checking": "self-check",
+          "not_auto_graded": true,
+          "note": "FAME Mistakes: clearly signposted incorrect strategy example; student explains why wrong."
+        },
+        "then_task_id": "fresh-hook-cts"
+      },
+      "reset": {
+        "clears": [
+          "choice_A",
+          "choice_B",
+          "reason_A",
+          "reason_B"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-strategy-follow-up"
+    },
+    {
+      "id": "fresh-hook-cts",
+      "tool": "practice-cts-entry",
+      "initial_state": {
+        "placement": "consolidation / hook return with fresh standard-form model",
+        "packet_id": "packet-consolidation",
+        "process_id": "sketch-from-standard-via-cts",
+        "bank_item_id": null,
+        "checking_handoff": {
+          "method": "deterministic-math",
+          "compare": "submitted {a,h,k} to {-1, 3, 4}; optional prediction fields against vertex (3, 4), axis x = 3, maximum",
+          "tolerances": {
+            "a": 0,
+            "h": 0,
+            "k": 0
+          },
+          "do_not": [
+            "print the vertex, axis, or max/min in student-facing copy before submit",
+            "expose this target graph or a Fresh-case button on Action",
+            "auto-grade unrestricted interpretation",
+            "require the full A2.11 interval list",
+            "attach A3.3 fountain-design or landing-distance work"
+          ]
+        },
+        "equation": "y = −x^2 + 6x − 5",
+        "misconceptions": [
+          "cts-changes-graph",
+          "h-sign-after-cts",
+          "forget-factor-a"
+        ],
+        "note": "bank_item_id null. Target ahk {-1,3,4}; vertex (3,4); axis x=3; maximum."
+      },
+      "student_controls": [
+        "a",
+        "h",
+        "k",
+        "named_vertex_x",
+        "named_vertex_y",
+        "named_axis",
+        "named_extreme"
+      ],
+      "target": {
+        "standard_equation": "y = −x^2 + 6x − 5",
+        "equation": "y = −(x − 3)^2 + 4",
+        "ahk": {
+          "a": -1,
+          "h": 3,
+          "k": 4
+        },
+        "abc": {
+          "a": -1,
+          "b": 6,
+          "c": -5
+        },
+        "vertex": {
+          "x": 3,
+          "y": 4
+        },
+        "axis": "x = 3",
+        "max_or_min": "maximum"
+      },
+      "valid_alternatives": [
+        {
+          "equation": "−(x − 3)^2 + 4",
+          "ahk": {
+            "a": -1,
+            "h": 3,
+            "k": 4
+          }
+        },
+        {
+          "equation": "-1(x − 3)^2 + 4",
+          "ahk": {
+            "a": -1,
+            "h": 3,
+            "k": 4
+          }
+        }
+      ],
+      "submission_evidence": {
+        "scored": [
+          "a, h, k",
+          "named vertex",
+          "named axis",
+          "named max or min"
+        ],
+        "not_scored": [
+          "hook narrative prose",
+          "sketch pixels"
+        ]
+      },
+      "checking": {
+        "method": "deterministic-math",
+        "tolerances": {
+          "a": 0,
+          "h": 0,
+          "k": 0,
+          "compare": "absolute",
+          "evaluate_feedback_conditions": "first match in listed order"
+        },
+        "do_not": [
+          "print the vertex, axis, or max/min in student-facing copy before submit",
+          "expose this target graph or a Fresh-case button on Action",
+          "auto-grade unrestricted interpretation",
+          "require the full A2.11 interval list",
+          "attach A3.3 fountain-design or landing-distance work",
+          "auto-grade free sketch quality",
+          "invent a bank_item_id — bank_ref is null"
+        ]
+      },
+      "feedback_conditions": [
+        {
+          "id": "reading-match",
+          "when": "(|a − (−1)| ≤ 0 AND |h − 3| ≤ 0 AND |k − 4| ≤ 0) AND |named_vertex_x − 3| ≤ 0 AND |named_vertex_y − 4| ≤ 0 AND named_axis is x = 3 AND named_extreme is maximum",
+          "message_id": "msg-fresh-hook-match",
+          "evidence": "ahk {-1,3,4}; vertex (3,4); axis x=3; maximum. Consolidation complete."
+        },
+        {
+          "id": "factor-neg-needed",
+          "when": "rewrite submitted AND |a − 1| ≤ 0",
+          "message_id": "msg-fresh-hook-forgot-a",
+          "evidence": "Observable: outer a≈1 versus −1. Factor −1 from x^2 and x first."
+        },
+        {
+          "id": "named-vertex-differs",
+          "when": "|named_vertex_x − 3| > 0 OR |named_vertex_y − 4| > 0",
+          "message_id": "msg-fresh-hook-vertex-off",
+          "evidence": "Report named point vs (3, 4). Coordinates only."
+        },
+        {
+          "id": "named-axis-differs",
+          "when": "vertex matches AND named_axis is not x = 3",
+          "message_id": "msg-fresh-hook-axis-off",
+          "evidence": "Vertex OK; axis should be x = 3."
+        },
+        {
+          "id": "named-extreme-differs",
+          "when": "vertex and axis match AND named_extreme is not maximum",
+          "message_id": "msg-fresh-hook-extreme-off",
+          "evidence": "a<0 → maximum."
+        }
+      ],
+      "hint_sequence": [
+        "hint-fresh-1-factor-neg",
+        "hint-fresh-2-cts",
+        "hint-fresh-3-read-features"
+      ],
+      "retry": {
+        "allowed": true,
+        "until": "reading-match"
+      },
+      "next_task": {
+        "after_condition": "reading-match",
+        "explanation_prompt": {
+          "message_id": "msg-fresh-hook-explain",
+          "checking": "self-check",
+          "not_auto_graded": true
+        },
+        "then_task_id": null,
+        "end": true
+      },
+      "reset": {
+        "clears": [
+          "a",
+          "h",
+          "k",
+          "named_vertex_x",
+          "named_vertex_y",
+          "named_axis",
+          "named_extreme"
+        ]
+      },
+      "follow_up_when_uncertain": "msg-fresh-hook-follow-up"
+    }
+  ],
+  "messages": {
+    "hint-alg960-1-half-b": "TEACHER hint: half of 6 is 3.",
+    "hint-alg960-2-add-subtract": "TEACHER hint: add and subtract 9.",
+    "hint-alg960-3-read-h": "TEACHER hint: read h from (x − h).",
+    "hint-diagram-1-half-b": "TEACHER hint: half of b=6.",
+    "hint-diagram-2-square-area": "TEACHER hint: completed square is 3 by 3.",
+    "hint-diagram-3-leftover": "TEACHER hint: leftover = 5 − 9.",
+    "hint-factor-a-1-pull-a": "TEACHER hint: factor a from x^2 and x first.",
+    "hint-factor-a-2-half-inside": "TEACHER hint: half the new inside linear coeff.",
+    "hint-factor-a-3-balance-outside": "TEACHER hint: balance outside by a·(half)^2.",
+    "hint-fresh-1-factor-neg": "TEACHER hint: factor −1 from x^2 and x first.",
+    "hint-fresh-2-cts": "TEACHER hint: complete the square inside.",
+    "hint-fresh-3-read-features": "TEACHER hint: read vertex, axis, max from vertex form.",
+    "hint-rational-1-same-steps": "TEACHER hint: same CTS steps.",
+    "hint-rational-2-half-of-half": "TEACHER hint: half of 1/2 is 1/4.",
+    "hint-rational-3-balance-sixteenth": "TEACHER hint: add/subtract 1/16.",
+    "hint-revisit-1-expand": "TEACHER hint: expand 3(x−1)^2+4 to standard.",
+    "hint-revisit-2-cts-back": "TEACHER hint: complete the square back to vertex form.",
+    "hint-revisit-3-same-curve": "TEACHER hint: tech should show one curve.",
+    "hint-sketch-1-cts-first": "TEACHER hint: complete the square first.",
+    "hint-sketch-2-read-vertex": "TEACHER hint: read (h,k) from vertex form.",
+    "hint-sketch-3-axis-and-extreme": "TEACHER hint: axis through vertex; extreme from sign of a.",
+    "hint-strategy-1-what-feature": "TEACHER hint: name the feature you need.",
+    "hint-strategy-2-friendly-intercepts": "TEACHER hint: friendly intercepts → factor.",
+    "hint-strategy-3-vertex-when-no-intercepts": "TEACHER hint: need vertex → CTS.",
+    "hint-try9119-1-half-b": "TEACHER hint: half of b.",
+    "hint-try9119-2-add-subtract-square": "TEACHER hint: add and subtract that square.",
+    "hint-try9119-3-read-h-from-brackets": "TEACHER hint: read h from (x − h).",
+    "hint-verify-1-factor-two": "TEACHER hint: factor 2 first.",
+    "hint-verify-2-half-inside": "TEACHER hint: half of −4 is −2.",
+    "hint-verify-3-tech-same-curve": "TEACHER hint: tech should show one curve.",
+    "msg-alg960-follow-up": "TEACHER: name the a,h,k you wrote.",
+    "msg-alg960-h-off": "TEACHER: h off — half of 6 / (x−h).",
+    "msg-alg960-h-ok-k-off": "TEACHER: h ok, k off.",
+    "msg-alg960-h-sign": "TEACHER: h≈3 versus −3 — that is (x−3), not (x+3); describe (h,k) vs (−3,−4).",
+    "msg-alg960-match": "TEACHER: success Ex. 9.60 algebraic; advance to guided.",
+    "msg-alg960-other": "TEACHER: report a,h,k vs (1,−3,−4).",
+    "msg-diagram-follow-up": "TEACHER: what side length and leftover did you name?",
+    "msg-diagram-leftover-off": "TEACHER: leftover ≠ −4 (5−9).",
+    "msg-diagram-match": "TEACHER: side 3 and leftover −4; advance to algebraic same packet.",
+    "msg-diagram-other": "TEACHER: report side_length and leftover_constant.",
+    "msg-diagram-side-off": "TEACHER: side ≠ 3 — half of 6.",
+    "msg-factor-a-explain": "TEACHER/FAME Explanation: why factor a before completing the square.",
+    "msg-factor-a-follow-up": "TEACHER: what a did you factor out first?",
+    "msg-factor-a-forgot": "TEACHER: observable a≠−3 / forget-factor-a.",
+    "msg-factor-a-hk-off": "TEACHER: a ok; h/k off.",
+    "msg-factor-a-match": "TEACHER: success factor-a rewrite.",
+    "msg-factor-a-other": "TEACHER: report a,h,k vs target.",
+    "msg-fresh-hook-axis-off": "TEACHER: axis not x=3.",
+    "msg-fresh-hook-explain": "TEACHER/self-check: how CTS returned the hook high point.",
+    "msg-fresh-hook-extreme-off": "TEACHER: not maximum.",
+    "msg-fresh-hook-follow-up": "TEACHER: name vertex, axis, and max/min you want.",
+    "msg-fresh-hook-forgot-a": "TEACHER: forget-factor-a — outer a should be −1.",
+    "msg-fresh-hook-match": "TEACHER: consolidation features ok; end.",
+    "msg-fresh-hook-vertex-off": "TEACHER: named vertex ≠ (3,4); coords only.",
+    "msg-rational-follow-up": "TEACHER: same steps — what is half of 1/2?",
+    "msg-rational-h-off": "TEACHER: h off for b=1/2.",
+    "msg-rational-k-off": "TEACHER: k off — (1/4)^2 balance.",
+    "msg-rational-match": "TEACHER: success rational b/a.",
+    "msg-rational-other": "TEACHER: report a,h,k.",
+    "msg-revisit-follow-up": "TEACHER: name the standard coeffs or recovered a,h,k you have now.",
+    "msg-revisit-match": "TEACHER: success — standard and/or recovered a,h,k match; advance.",
+    "msg-revisit-off": "TEACHER: report observed standard / recovered vs 3x^2−6x+7 and 3(x−1)^2+4.",
+    "msg-revisit-same-curve": "TEACHER/self-check: same graph both ways (A2.7; cts-changes-graph).",
+    "msg-sketch-axis-off": "TEACHER: axis not x=4.",
+    "msg-sketch-explain": "TEACHER/FAME Explanation: how CTS made vertex readable.",
+    "msg-sketch-extreme-off": "TEACHER: not minimum.",
+    "msg-sketch-follow-up": "TEACHER: name vertex and axis you want.",
+    "msg-sketch-match": "TEACHER: A2.11 light features ok; advance.",
+    "msg-sketch-vertex-off": "TEACHER: named vertex ≠ (4,−4); coords only (h-sign-after-cts guard).",
+    "msg-strategy-differ": "TEACHER: choices differ — ask one criterion.",
+    "msg-strategy-explain": "TEACHER/FAME Explanation: one criterion per equation.",
+    "msg-strategy-follow-up": "TEACHER: which feature first — intercepts or vertex?",
+    "msg-strategy-match": "TEACHER: structured choices ok.",
+    "msg-strategy-mistakes-signpost": "TEACHER/FAME Mistakes signpost: this worked choice is incorrect.",
+    "msg-strategy-self-check": "TEACHER: free text — self-check/teacher-review.",
+    "msg-strategy-why-wrong": "TEACHER/FAME Mistakes: why is that strategy unsuitable?",
+    "msg-try9119-copied-960": "TEACHER: submitted Ex. 9.60 {1,-3,-4}; this task is {1,-1,-4}.",
+    "msg-try9119-explain": "TEACHER/FAME Explanation: why add-and-subtract (b/2)^2 (rewrite, not solve).",
+    "msg-try9119-follow-up": "TEACHER: name the h and k you wrote and the target pair.",
+    "msg-try9119-h-off": "TEACHER: h off — half of b / (x−h) reading.",
+    "msg-try9119-h-ok-k-off": "TEACHER: h ok, k off — leftover after (b/2)^2.",
+    "msg-try9119-h-positive": "TEACHER: h≈1 versus −1 — do not accept as match; describe h vs −1.",
+    "msg-try9119-match": "TEACHER: success — rewrite matches; same curve; advance.",
+    "msg-try9119-other": "TEACHER: report observed a,h,k vs target.",
+    "msg-verify-factor-two": "TEACHER: a≈1 vs 2 — cue factor 2; NOT forget-factor-a fracture (factor-a-ex959 owns that).",
+    "msg-verify-follow-up": "TEACHER: compare a,h,k to 2, 2, −5.",
+    "msg-verify-forgot-a": "TEACHER (legacy id): prefer msg-verify-factor-two — cue factor 2, not fracture slot.",
+    "msg-verify-hk-off": "TEACHER: a ok; h/k off.",
+    "msg-verify-match": "TEACHER: rewrite ok; then tech self-check.",
+    "msg-verify-other": "TEACHER: report a,h,k.",
+    "msg-verify-tech-same-curve": "TEACHER/self-check: do the two graphs coincide? (cts-changes-graph)",
+    "msg-worked-algebraic-explain": "TEACHER/FAME Explanation: match algebra to diagram.",
+    "msg-worked-diagram-explain": "TEACHER/FAME Explanation: why splitting x-tiles names leftover.",
+    "toast-advance-to-algebraic": "TEACHER toast: Advance → algebraic same packet.",
+    "toast-advance-to-consolidation": "TEACHER toast: Advance → consolidation / fresh hook.",
+    "toast-advance-to-diagram": "TEACHER toast: Advance → diagram packet.",
+    "toast-advance-to-factor-a": "TEACHER toast: Advance → factor-a packet.",
+    "toast-advance-to-guided": "TEACHER toast: Advance → guided algebraic you-do.",
+    "toast-advance-to-rational": "TEACHER toast: Advance → rational packet.",
+    "toast-advance-to-sketch": "TEACHER toast: Advance → sketch packet.",
+    "toast-advance-to-verify": "TEACHER toast: Advance → verify packet."
+  },
+  "scenario_tests": [
+    {
+      "task_id": "expand-cts-revisit",
+      "input": {
+        "standard_a": 3,
+        "standard_b": -6,
+        "standard_c": 7
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "diagram-ex960",
+      "input": {
+        "side_length": 3,
+        "leftover_constant": -4
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "diagram-ex960",
+      "input": {
+        "side_length": 6,
+        "leftover_constant": -4
+      },
+      "expect_condition": "side-off"
+    },
+    {
+      "task_id": "algebraic-ex960",
+      "input": {
+        "a": 1,
+        "h": -3,
+        "k": -4
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "algebraic-ex960",
+      "input": {
+        "a": 1,
+        "h": 3,
+        "k": -4
+      },
+      "expect_condition": "wrong-h-sign"
+    },
+    {
+      "task_id": "algebraic-try9119",
+      "input": {
+        "a": 1,
+        "h": -1,
+        "k": -4
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "algebraic-try9119",
+      "input": {
+        "a": 1,
+        "h": -1,
+        "k": -3
+      },
+      "expect_condition": "correct-h-wrong-k"
+    },
+    {
+      "task_id": "algebraic-try9119",
+      "input": {
+        "a": 1,
+        "h": 1,
+        "k": -4
+      },
+      "expect_condition": "wrong-h-positive"
+    },
+    {
+      "task_id": "algebraic-try9119",
+      "input": {
+        "a": 1,
+        "h": -3,
+        "k": -4
+      },
+      "expect_condition": "copied-960-target"
+    },
+    {
+      "task_id": "factor-a-ex959",
+      "input": {
+        "a": -3,
+        "h": -1,
+        "k": 2
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "factor-a-ex959",
+      "input": {
+        "a": 1,
+        "h": 3,
+        "k": -10
+      },
+      "expect_condition": "forget-factor-a"
+    },
+    {
+      "task_id": "factor-a-ex959",
+      "input": {
+        "a": 3,
+        "h": -1,
+        "k": 2
+      },
+      "expect_condition": "forget-factor-a"
+    },
+    {
+      "task_id": "rational-half",
+      "input": {
+        "a": 1,
+        "h": -0.25,
+        "k": 0.9375
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "rational-half",
+      "input": {
+        "a": 1,
+        "h": -0.5,
+        "k": 0.75
+      },
+      "expect_condition": "wrong-half-of-b"
+    },
+    {
+      "task_id": "verify-try9118",
+      "input": {
+        "a": 2,
+        "h": 2,
+        "k": -5
+      },
+      "expect_condition": "all-match"
+    },
+    {
+      "task_id": "verify-try9118",
+      "input": {
+        "a": 1,
+        "h": 2,
+        "k": -5
+      },
+      "expect_condition": "factor-2-needed"
+    },
+    {
+      "task_id": "sketch-try9120",
+      "input": {
+        "a": 1,
+        "h": 4,
+        "k": -4,
+        "named_vertex_x": 4,
+        "named_vertex_y": -4,
+        "named_axis": "x = 4",
+        "named_extreme": "minimum"
+      },
+      "expect_condition": "reading-match"
+    },
+    {
+      "task_id": "sketch-try9120",
+      "input": {
+        "named_vertex_x": -4,
+        "named_vertex_y": -4,
+        "named_axis": "x = -4",
+        "named_extreme": "minimum"
+      },
+      "expect_condition": "named-vertex-differs"
+    },
+    {
+      "task_id": "strategy-cts-vs-factor",
+      "input": {
+        "choice_A": "factor",
+        "choice_B": "complete-the-square"
+      },
+      "expect_condition": "choices-match"
+    },
+    {
+      "task_id": "fresh-hook-cts",
+      "input": {
+        "a": -1,
+        "h": 3,
+        "k": 4,
+        "named_vertex_x": 3,
+        "named_vertex_y": 4,
+        "named_axis": "x = 3",
+        "named_extreme": "maximum"
+      },
+      "expect_condition": "reading-match"
+    }
+  ]
+}
