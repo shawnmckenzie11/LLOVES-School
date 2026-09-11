@@ -162,7 +162,7 @@ def build_mc_tally(
         if letter in counts:
             counts[letter] += 1
     responded = len(raw_values)
-    present_n = max(0, int(present))
+    present_n = max(0, int(present), responded)
     count_list = [counts[letter] for letter in letters]
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []

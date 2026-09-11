@@ -364,6 +364,7 @@ class LiveShellTests(unittest.TestCase):
         slot_css = css.split("body.staff-shell #mc-results-slot {")[1].split("}")[0]
         self.assertIn("max-height: 14rem", slot_css)
         self.assertIn("overflow-y: auto", slot_css)
+        self.assertIn("body.staff-shell #mc-results-slot [hidden] {", css)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function paintMcResultsSlot()", js)
         self.assertIn("function applyMcTally(", js)

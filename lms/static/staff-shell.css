@@ -1699,6 +1699,9 @@ body.staff-shell #mc-results-slot {
 body.staff-shell #mc-results-slot[hidden] {
   display: none !important;
 }
+body.staff-shell #mc-results-slot [hidden] {
+  display: none !important;
+}
 body.staff-shell .mc-live-progress {
   margin: 0 0 0.35rem;
   font-weight: 650;
@@ -1709,15 +1712,34 @@ body.staff-shell .mc-live-soft {
 }
 body.staff-shell .mc-reveal-row {
   display: grid;
-  grid-template-columns: 1.35rem minmax(0, 1fr) 3.1rem;
-  gap: 0.4rem;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.2rem 0.45rem;
   align-items: center;
-  margin: 0.4rem 0;
+  margin: 0.55rem 0;
 }
 body.staff-shell .mc-reveal-letter {
+  grid-column: 1;
+  grid-row: 1;
   font-weight: 700;
 }
+body.staff-shell .mc-reveal-label {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  font-size: 0.82rem;
+  color: #12202e;
+}
+body.staff-shell .mc-reveal-meta {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 0.78rem;
+  color: #334155;
+  text-align: right;
+  white-space: nowrap;
+}
 body.staff-shell .mc-reveal-track {
+  grid-column: 2 / 4;
+  grid-row: 2;
   min-width: 0;
   height: 0.65rem;
   background: #e2e8f0;
@@ -1725,20 +1747,10 @@ body.staff-shell .mc-reveal-track {
   overflow: hidden;
 }
 body.staff-shell .mc-reveal-fill {
+  display: block;
   height: 100%;
   background: #0b5f59;
   border-radius: inherit;
-}
-body.staff-shell .mc-reveal-meta {
-  font-size: 0.78rem;
-  color: #334155;
-  text-align: right;
-}
-body.staff-shell .mc-reveal-label {
-  grid-column: 1 / -1;
-  margin: 0;
-  font-size: 0.82rem;
-  color: #12202e;
 }
 body.staff-shell .mc-reveal-actions {
   display: flex;

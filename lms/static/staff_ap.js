@@ -434,7 +434,7 @@ function paintMcResultsSlot() {
   lastMcBindKey = bind;
   slot.dataset.mode = reveal ? "reveal" : "live";
   const responded = Number(tally.responded || 0);
-  const present = Number(tally.present || 0);
+  const present = Math.max(Number(tally.present || 0), responded);
   if (progress) progress.textContent = `${responded}/${present} responded`;
   const softParts = (tally.choices || []).map((row) => `${row.id} · ${row.count}`);
   if (soft) {
@@ -448,7 +448,7 @@ function paintMcResultsSlot() {
         .map((row) => {
           const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
           const label = String(row.label || "").replace(/</g, "&lt;");
-          return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span><span class="mc-reveal-meta">${row.count} · ${pct}%</span><p class="mc-reveal-label">${label}</p></div>`;
+          return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${row.count} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
         })
         .join("");
     }
