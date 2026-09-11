@@ -83,6 +83,7 @@ from live_media import (  # noqa: E402
     c1_cons_catalog,
     live_media_url_swap_allowed,
 )
+from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
@@ -3197,6 +3198,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["active_media"] = school.live_session_active_media_payload(
             live_session_id
         )
+        payload["teacher_state"] = school.live_session_teacher_state_payload(
+            live_session_id
+        )
         return render_template(
             "student/home.html",
             offering=offering,
@@ -3287,6 +3291,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         )
         payload["active_media"] = school.live_session_active_media_payload(
+            live_session_id
+        )
+        payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
         return jsonify(payload)
@@ -3677,6 +3684,58 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify({"ok": True, "active_media": media})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/teacher-state",
+        methods=["GET", "POST"],
+    )
+    @login_required
+    def api_live_session_teacher_state(session_id: int):
+        """Staff: read or patch the thin LiveTeacherState channel.
+
+        POST JSON may include ``advance`` (``next`` / ``prev``) to move
+        ``stage`` only, plus any subset of stage / round / teams_mode /
+        layout_preset / frames / active_tab / refs / cue_id. Does not
+        duplicate ``active_media`` or prompt payloads. ``canvas_ephemeral``
+        is always true.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "teacher_state": school.live_session_teacher_state_payload(
+                        session_id
+                    ),
+                    "defaults": default_teacher_state(),
+                    "layout_presets": LAYOUT_PRESETS,
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        kwargs: dict[str, Any] = {}
+        for key in (
+            "advance",
+            "stage",
+            "round",
+            "teams_mode",
+            "layout_preset",
+            "frames",
+            "active_tab",
+            "active_media_ref",
+            "prompt_ref",
+            "cue_id",
+        ):
+            if key in body:
+                kwargs[key] = body.get(key)
+        try:
+            state = school.set_live_session_teacher_state(session_id, **kwargs)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "teacher_state": state})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

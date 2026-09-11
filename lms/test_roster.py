@@ -855,10 +855,7 @@ class RosterTests(unittest.TestCase):
         live = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
         self.assertIn("Class join code", live)
         self.assertIn('id="ap-guest-on-chip"', live)
-        self.assertIn(
-            "Guests on — names not on the roster can join this session.",
-            live,
-        )
+        self.assertIn("Guests on", live)
         self.assertIn(code, live)
         self.assertIn(f">{code}<", live)
         self.assertIn('id="ap-join-billboard-copy"', live)

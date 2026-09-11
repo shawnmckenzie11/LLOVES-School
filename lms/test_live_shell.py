@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Teacher Run Live Class dual-pane shell markup and existing control IDs."""
+"""Teacher Run Live Class IA v1 shell markup and existing control IDs."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app import create_app  # noqa: E402
 
 
 class LiveShellTests(unittest.TestCase):
-    """Staff live tab is a persistent header + dual pane, not an accordion."""
+    """Staff live tab is IA v1 stage rail + condensed roster + Active Content."""
 
     def setUp(self) -> None:
         """Isolated app with one assigned teacher and rostered class."""
@@ -66,28 +66,52 @@ class LiveShellTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_live_tab_shell_has_header_and_dual_panes(self) -> None:
-        """IA v0 shell IDs are present; track accordion is gone."""
+        """IA v1 shell IDs are present; track accordion is gone."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn('class="track-live-root live-shell-root"', html)
+        self.assertIn("live-shell-ia-v1", html)
         self.assertIn('id="live-header"', html)
         self.assertIn('id="live-stage-rail"', html)
-        self.assertIn("Join", html)
-        self.assertIn("Teams", html)
-        self.assertIn("Meet", html)
-        self.assertIn("Challenge", html)
-        self.assertIn("Freeze/CONS", html)
-        self.assertIn('id="live-advance"', html)
-        self.assertIn('id="live-start"', html)
+        self.assertIn('id="live-stage-prev"', html)
+        self.assertIn('id="live-stage-next"', html)
+        self.assertIn('data-stage="join"', html)
+        self.assertIn('data-stage="teams"', html)
+        self.assertIn('data-stage="meet"', html)
+        self.assertIn('data-stage="round"', html)
+        self.assertIn('data-stage="play"', html)
+        self.assertNotIn('data-stage="challenge"', html)
+        self.assertNotIn('data-stage="freeze"', html)
+        self.assertIn('id="live-end-class"', html)
+        self.assertIn('id="live-option-card"', html)
+        self.assertIn('id="teams-option-card"', html)
+        self.assertIn('id="round-option-card"', html)
+        self.assertIn("Minds on", html)
+        self.assertIn("Consolidation", html)
+        self.assertIn("Keep teams", html)
         self.assertIn('id="class-list-pane"', html)
         self.assertIn('id="team-assign-pane"', html)
+        self.assertIn('id="live-active-content"', html)
+        self.assertIn('id="live-content-tabs"', html)
+        self.assertIn("Active Media", html)
+        self.assertIn("Question(s)", html)
+        self.assertIn("Canvas/Slides", html)
+        self.assertIn('id="live-edit-layout"', html)
+        self.assertIn('id="live-layout-presets"', html)
+        self.assertIn('id="live-frames"', html)
+        self.assertIn('data-frame="A"', html)
+        self.assertIn('data-frame="B"', html)
+        self.assertIn('data-frame="C"', html)
+        self.assertIn('id="live-canvas-stub"', html)
+        self.assertIn("canvas_ephemeral: true", html)
         self.assertIn('id="round-slide-settings"', html)
         self.assertIn('id="media-artifact-zone"', html)
         self.assertIn('id="question-artifact-zone"', html)
         self.assertIn('id="results-strip"', html)
         self.assertNotIn('id="track-accordion"', html)
         self.assertNotIn("data-accordion-toggle", html)
+        self.assertEqual(html.count('id="ap-media-preview"'), 1)
+        self.assertIn("/static/live-media/m1c1-c1-real-slice.html?role=teacher", html)
 
     def test_live_tab_preserves_existing_control_ids(self) -> None:
         """Attendance, teams, meet, rounds, media, and scoring IDs stay wired."""
@@ -119,15 +143,20 @@ class LiveShellTests(unittest.TestCase):
         ):
             self.assertIn(f'id="{control_id}"', html)
 
-    def test_live_tab_does_not_host_end_live_class_wipe(self) -> None:
-        """Hard-clear End Live Class stays on the dashboard, not this shell."""
+    def test_live_tab_end_class_is_placement_only(self) -> None:
+        """Header End Class posts to the dashboard wipe route; semantics stay #49."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
-        self.assertNotIn("All session data will be lost", html)
-        self.assertNotIn("staff_end_live_class", html)
+        self.assertIn("All session data will be lost", html)
+        self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
+        self.assertIn('id="live-end-class"', html)
+        self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
-        self.assertIn("Run Live Class", home.get_data(as_text=True))
+        home_html = home.get_data(as_text=True)
+        self.assertIn("End Live Class", home_html)
+        self.assertIn("All session data will be lost", home_html)
+        self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
 
 
 if __name__ == "__main__":
