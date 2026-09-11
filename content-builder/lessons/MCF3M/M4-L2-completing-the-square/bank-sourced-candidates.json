@@ -1,0 +1,717 @@
+{
+  "schema_version": "bank-sourced-candidates.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "course_code": "MCF3M",
+  "module": 4,
+  "source_bank": "catalogue/banks/MCF3M/M4/module.json",
+  "eligibility": {
+    "student_html_allowed": true,
+    "review_status": [
+      "approved",
+      "locked"
+    ],
+    "include_selected": false,
+    "always_exclude": [
+      "source nelson_functions_11",
+      "permitted_use_status excluded",
+      "student_html_allowed false"
+    ]
+  },
+  "notes_for_practice_designer": "Prefer this file over hand-authored question-candidates.json when present. Do not flip review_status; Shawn’s human gate owns selected→approved. Nelson / excluded items are omitted from student-facing fields.",
+  "candidates": [
+    {
+      "bank_id": "mcf3m-m4-ontario-a26-example-0",
+      "role": "guided_example",
+      "rank": 1,
+      "title": "Ministry A2.6 sample: vertex of −2(x + 1)^2",
+      "student_facing": "Starting from y = x^2, sketch h(x) = −2(x + 1)^2. Where is the vertex? Does this graph have a maximum or a minimum?",
+      "source_stem": "Reuse A2.6 seed sample for plus-inside + max/min misconception only; do not treat sketching-by-transformation as a new M4 target. Quote the seed sample; do not invent Ministry wording beyond the seed.",
+      "answer": null,
+      "answer_verification": "Seed has no key for this sample.",
+      "checker_ref": null,
+      "placement": "worked_example",
+      "process_tags": [
+        "inspect-vertex-form"
+      ],
+      "process_id": "inspect-vertex-form",
+      "expectation_codes": [
+        "A2.6",
+        "A2.10"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "ontario-seed",
+        "source_id": "A2.6-example-0",
+        "source_url": null,
+        "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+        "attribution": "lms/seeds/mcf3m_expectations.json",
+        "permitted_use_status": "restricted",
+        "bank_id": "mcf3m-m4-ontario-a26-example-0"
+      },
+      "instructional_roles": [
+        "inspect-vertex-form"
+      ],
+      "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates diagnostic rank 3; practice-sequence worked_example for inspect-vertex-form (variation). Verbatim seed sample id A2.6-example-0.",
+      "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates diagnostic rank 3; practice-sequence worked_example for inspect-vertex-form (variation). Verbatim seed sample id A2.6-example-0.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-ex959",
+      "role": "guided_example",
+      "rank": 2,
+      "title": "OpenStax IA 2e Ex. 9.59: factor a = −3 before completing the square",
+      "student_facing": "Rewrite f(x) = −3x^2 − 6x − 1 in the form f(x) = a(x − h)^2 + k by completing the square. Factor −3 from the x^2 and x terms first — do not complete the square as if a were 1.",
+      "source_stem": "Named fracture: forgetting to factor a (brief misconception forget-factor-a). OpenStax §9.7 Example 9.59 is the worked a ≠ 1 rewrite. Keep the constant −1 outside the factor.",
+      "answer": "f(x) = −3(x + 1)^2 + 2",
+      "answer_verification": "Copied from OpenStax Intermediate Algebra 2e §9.7 Example 9.59 steps: factor −3 from the x terms; half of 2 is 1; the +1 inside is multiplied by −3 so add 3 outside; rewrite as −3(x + 1)^2 + 2. Author-checked: −3(x^2 + 2x + 1) − 1 + 3 = −3(x + 1)^2 + 2.",
+      "checker_ref": null,
+      "placement": "worked_example",
+      "process_tags": [
+        "complete-square-factor-a"
+      ],
+      "process_id": "complete-square-factor-a",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-example-9-59",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.59 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-ex959"
+      },
+      "instructional_roles": [
+        "complete-square-factor-a"
+      ],
+      "reason": "process_tags=complete-square-factor-a; M4-L2 bank fill 2026-09-11. Dedicated a ≠ 1 fracture item. OpenStax warns to factor a from the x terms only, not the constant. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=complete-square-factor-a; M4-L2 bank fill 2026-09-11. Dedicated a ≠ 1 fracture item. OpenStax warns to factor a from the x terms only, not the constant. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+      "role": "guided_example",
+      "rank": 3,
+      "title": "OpenStax IA 2e Ex. 9.60: complete the square for x^2 + 6x + 5",
+      "student_facing": "Rewrite f(x) = x^2 + 6x + 5 in the form f(x) = (x − h)^2 + k by completing the square. Match each algebraic step to the completed-square picture for the same function.",
+      "source_stem": "Same licensed function as the diagram companion (mcf3m-m4-openstax-ia2e-ex960-diagram). OpenStax continues to graph by transformations; this lesson stops at the rewrite. Ontario names a(x − h)^2 + k vertex form.",
+      "answer": "f(x) = (x + 3)^2 − 4",
+      "answer_verification": "Copied from OpenStax Intermediate Algebra 2e §9.7 Example 9.60: half of 6 is 3; 3^2 = 9; add and subtract 9; rewrite as (x + 3)^2 − 4. Page then graphs by a left-3 / down-4 shift — that graphing step is not this item.",
+      "checker_ref": null,
+      "placement": "worked_example",
+      "process_tags": [
+        "complete-square-algebraic"
+      ],
+      "process_id": "complete-square-algebraic",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-example-9-60",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.60 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-ex960-algebraic"
+      },
+      "instructional_roles": [
+        "complete-square-algebraic"
+      ],
+      "reason": "process_tags=complete-square-algebraic; M4-L2 bank fill 2026-09-11. Explicit completing-the-square rewrite (not the College Algebra 2e vertex-formula How To). Alternating pair with the diagram item on the same function. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=complete-square-algebraic; M4-L2 bank fill 2026-09-11. Explicit completing-the-square rewrite (not the College Algebra 2e vertex-formula How To). Alternating pair with the diagram item on the same function. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+      "role": "guided_example",
+      "rank": 4,
+      "title": "OpenStax IA 2e Ex. 9.60: tiles/area for x^2 + 6x + 5",
+      "student_facing": "Use algebra tiles or an area diagram for f(x) = x^2 + 6x + 5. Split the six x-tiles so you can complete a square. Name the side length of that square and the leftover constant before you write any algebra.",
+      "source_stem": "Diagram-only beat on the licensed OpenStax Intermediate Algebra 2e §9.7 Example 9.60 function. Companion algebraic rewrite is mcf3m-m4-openstax-ia2e-ex960-algebraic. Do not reteach transformations (A2.5/A2.6).",
+      "answer": "Half of 6 is 3, so the completed square is 3 by 3. Leftover constant is 5 − 9 = −4. The picture is (x + 3)^2 − 4.",
+      "answer_verification": "Copied from OpenStax Intermediate Algebra 2e §9.7 Example 9.60 worked steps (half of 6, square to 9, add and subtract 9; leftover 5 − 9). Student page shows those steps on the algebraic rewrite of the same function.",
+      "checker_ref": null,
+      "placement": "worked_example",
+      "process_tags": [
+        "complete-square-diagram"
+      ],
+      "process_id": "complete-square-diagram",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-example-9-60-diagram",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.60 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-ex960-diagram"
+      },
+      "instructional_roles": [
+        "complete-square-diagram"
+      ],
+      "reason": "process_tags=complete-square-diagram; M4-L2 bank fill 2026-09-11. Function and CTS arithmetic from IA 2e Example 9.60; stem is a classroom diagram prompt on that licensed function (A2.8 tiles/diagram share). Preface of IA 2e states CC BY-NC-SA 4.0. Ontario A2.8 has no seed example — do not claim this is Ministry wording. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=complete-square-diagram; M4-L2 bank fill 2026-09-11. Function and CTS arithmetic from IA 2e Example 9.60; stem is a classroom diagram prompt on that licensed function (A2.8 tiles/diagram share). Preface of IA 2e states CC BY-NC-SA 4.0. Ontario A2.8 has no seed example — do not claim this is Ministry wording. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-figure7-expand",
+      "role": "guided_example",
+      "rank": 5,
+      "title": "OpenStax: expand ½(x + 2)^2 − 3 and check a table",
+      "student_facing": "A graph looks like y = x^2 moved left 2 and down 3, then stretched by one-half: g(x) = (1/2)(x + 2)^2 − 3. Expand this to the ax^2 + bx + c form. Check a few points in a table to see that both writings give the same outputs.",
+      "source_stem": "Figure 7 expand path only from the same catalogue record as the inspection reading. Page typesetting may show the half as 12 in places.",
+      "answer": "g(x) = (1/2)x^2 + 2x − 1",
+      "answer_verification": "Copied from the OpenStax worked solution on m51274 (Writing the Equation of a Quadratic Function from the Graph). Expanded steps give (1/2)x^2 + 2x − 1.",
+      "checker_ref": "content-builder/scripts/vertex_form_checker.py",
+      "placement": "worked_example",
+      "process_tags": [
+        "expand-and-verify",
+        "compare-two-equivalent-models"
+      ],
+      "process_id": "expand-and-verify",
+      "expectation_codes": [
+        "A2.7"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition#figure-7-expand",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-figure7-expand"
+      },
+      "instructional_roles": [
+        "expand-and-verify",
+        "compare-two-equivalent-models"
+      ],
+      "reason": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 3; practice-sequence worked_example for expand-and-verify.",
+      "purpose": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 3; practice-sequence worked_example for expand-and-verify.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-vertex-read",
+      "role": "guided_example",
+      "rank": 6,
+      "title": "OpenStax worked reading: y = −3(x + 2)^2 + 4",
+      "student_facing": "The equation is y = −3(x + 2)^2 + 4. Name the vertex, say whether the graph has a maximum or a minimum, and say how you knew.",
+      "source_stem": "OpenStax calls a(x − h)^2 + k standard form and also vertex form; Ontario calls that expression vertex form. Keep OpenStax wording in source fields; do not rename in student prose without the Ontario note.",
+      "answer": "The vertex is at (−2, 4). Because a < 0, the parabola opens downward (vertex is a maximum). h = −2 because x − h = x + 2.",
+      "answer_verification": "Copied from OpenStax College Algebra 2e §5.1 worked text on m51274 (Figure 5 paragraph).",
+      "checker_ref": null,
+      "placement": "worked_example",
+      "process_tags": [
+        "inspect-vertex-form"
+      ],
+      "process_id": "inspect-vertex-form",
+      "expectation_codes": [
+        "A2.10"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-vertex-form-definition",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-vertex-read"
+      },
+      "instructional_roles": [
+        "inspect-vertex-form"
+      ],
+      "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates guided_example rank 1; practice-sequence worked_example for inspect-vertex-form. Catalogue record openstax-ca2e-m51274-vertex-form-definition.",
+      "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates guided_example rank 1; practice-sequence worked_example for inspect-vertex-form. Catalogue record openstax-ca2e-m51274-vertex-form-definition.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-geogebra-cxk4xt4u",
+      "role": "diagnostic",
+      "rank": 1,
+      "title": "Predict vertex of (x + 3)^2 + 1, then check sliders",
+      "student_facing": "Before you move anything, name the vertex of f(x) = (x + 3)^2 + 1. Then set the sliders so the graph matches that equation and check.",
+      "source_stem": "Original classroom prompt on the GeoGebra/JSXGraph analogue. Source applet description is not student copy. Fallback: locally bundled JSXGraph; do not require GeoGebra.",
+      "answer": null,
+      "answer_verification": "GeoGebra applet has no key. The brief’s exact (x + 3)^2 + 1 stem is not a catalogue exercise; this is a focused prompt on the selected applet (sliders p, q, a with f(x) = a(x − p)^2 + q).",
+      "checker_ref": null,
+      "placement": "guided_practice",
+      "process_tags": [
+        "inspect-vertex-form",
+        "predict-parameter-change"
+      ],
+      "process_id": "inspect-vertex-form",
+      "expectation_codes": [
+        "A2.10"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "geogebra",
+        "source_id": "geogebra-cxk4xt4u",
+        "source_url": "https://www.geogebra.org/classic/cxk4xt4u",
+        "licence": "GeoGebra non-commercial terms (https://www.geogebra.org/license)",
+        "attribution": "Quadratic functions, vertex form. Authors MathPSS and Dennis Weber. GeoGebra material cxk4xt4u.",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-geogebra-cxk4xt4u"
+      },
+      "instructional_roles": [
+        "inspect-vertex-form",
+        "predict-parameter-change"
+      ],
+      "reason": "process_tags=inspect-vertex-form,predict-parameter-change; From M4-L1 question-candidates diagnostic rank 2; practice-sequence guided_practice for inspect-vertex-form. Catalogue record geogebra-cxk4xt4u.",
+      "purpose": "process_tags=inspect-vertex-form,predict-parameter-change; From M4-L1 question-candidates diagnostic rank 2; practice-sequence guided_practice for inspect-vertex-form. Catalogue record geogebra-cxk4xt4u.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-ontario-a27-cts-revisit",
+      "role": "diagnostic",
+      "rank": 2,
+      "title": "A2.7 sample flipped: expand then complete the square on 3(x − 1)^2 + 4",
+      "student_facing": "Given the vertex form f(x) = 3(x − 1)^2 + 4, express the equation in standard form. Use technology to compare the graphs of these two forms of the equation. Then start from the standard-form writing you produced and complete the square to recover vertex form. Confirm both rewrites leave the graph unchanged.",
+      "source_stem": "First two sentences are the verbatim A2.7 seed sample (lms/seeds/mcf3m_expectations.json). The CTS flip is LLOVES-owned review on that same Ministry function — A2.7 REVIEW only; do not new-teach expansion. Companion L1 item mcf3m-m4-ontario-a27-sample is expand-only.",
+      "answer": "Standard form 3x^2 − 6x + 7. Completing the square recovers 3(x − 1)^2 + 4. The graphs coincide.",
+      "answer_verification": "Seed has no key for the A2.7 sample. Author-computed expand: 3(x − 1)^2 + 4 = 3(x^2 − 2x + 1) + 4 = 3x^2 − 6x + 7. Author-computed CTS: 3(x^2 − 2x) + 7 = 3(x^2 − 2x + 1) + 7 − 3 = 3(x − 1)^2 + 4.",
+      "checker_ref": null,
+      "placement": "guided_practice",
+      "process_tags": [
+        "expand-cts-shared-model-revisit"
+      ],
+      "process_id": "expand-cts-shared-model-revisit",
+      "expectation_codes": [
+        "A2.7",
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "ontario-seed",
+        "source_id": "ontario-seed-mcf3m-A2.7-sample-cts-revisit",
+        "source_url": null,
+        "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed); CTS flip LLOVES-owned",
+        "attribution": "lms/seeds/mcf3m_expectations.json A2.7 example; CTS direction LLOVES School M4-L2",
+        "permitted_use_status": "restricted",
+        "bank_id": "mcf3m-m4-ontario-a27-cts-revisit"
+      },
+      "instructional_roles": [
+        "expand-cts-shared-model-revisit"
+      ],
+      "reason": "process_tags=expand-cts-shared-model-revisit; M4-L2 bank fill 2026-09-11. Shared-model revisit beat. Ministry wording copied only for the A2.7 sample; coefficients of the expand/CTS pair are author-computed because the seed has no key. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=expand-cts-shared-model-revisit; M4-L2 bank fill 2026-09-11. Shared-model revisit beat. Ministry wording copied only for the A2.7 sample; coefficients of the expand/CTS pair are author-computed because the seed has no key. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-try9118-verify",
+      "role": "diagnostic",
+      "rank": 3,
+      "title": "OpenStax IA 2e Try It 9.118: complete the square and check graphs",
+      "student_facing": "Rewrite f(x) = 2x^2 − 8x + 3 in the form f(x) = a(x − h)^2 + k by completing the square. Then use graphing technology to compare the graph of your vertex form with the graph of the original standard form.",
+      "source_stem": "A2.8 verify-with-technology beat on a licensed a ≠ 1 Try It. Completing the square is required; do not switch to the vertex formula. Graphing-technology compare language follows the A2.7/A2.8 seed statements, not a new Ministry example.",
+      "answer": "f(x) = 2(x − 2)^2 − 5. The two graphs coincide.",
+      "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: 2(x^2 − 4x) + 3 = 2(x^2 − 4x + 4) + 3 − 8 = 2(x − 2)^2 − 5. Equivalence is the identity of the rewrite; technology should show one curve. OpenStax student page lists Try It 9.118 without an inline solution; Answer Key was not copied.",
+      "checker_ref": null,
+      "placement": "guided_practice",
+      "process_tags": [
+        "verify-equivalence-tech"
+      ],
+      "process_id": "verify-equivalence-tech",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-try-it-9-118",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.118 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-try9118-verify"
+      },
+      "instructional_roles": [
+        "verify-equivalence-tech"
+      ],
+      "reason": "process_tags=verify-equivalence-tech; M4-L2 bank fill 2026-09-11. Technology-verify clause is from A2.8 statement (lms/seeds/mcf3m_expectations.json), attached to this licensed rewrite. Not tagged complete-square-factor-a so that slot stays a dedicated fracture item. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=verify-equivalence-tech; M4-L2 bank fill 2026-09-11. Technology-verify clause is from A2.8 statement (lms/seeds/mcf3m_expectations.json), attached to this licensed rewrite. Not tagged complete-square-factor-a so that slot stays a dedicated fracture item. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-try9119",
+      "role": "diagnostic",
+      "rank": 4,
+      "title": "OpenStax IA 2e Try It 9.119: complete the square for x^2 + 2x − 3",
+      "student_facing": "Rewrite f(x) = x^2 + 2x − 3 in the form f(x) = (x − h)^2 + k by completing the square.",
+      "source_stem": "Sign-of-b variation after Example 9.60 (x^2 + 6x + 5). OpenStax Try It 9.119 also asks to graph by transformations; this item is the rewrite only so A2.5/A2.6 are not retaught.",
+      "answer": "f(x) = (x + 1)^2 − 4",
+      "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: half of 2 is 1; 1^2 = 1; add and subtract 1; (x + 1)^2 − 3 − 1 = (x + 1)^2 − 4. OpenStax student page lists the Try It without an inline solution; Try It answers live in the book Answer Key and were not copied into this record.",
+      "checker_ref": null,
+      "placement": "guided_practice",
+      "process_tags": [
+        "complete-square-algebraic"
+      ],
+      "process_id": "complete-square-algebraic",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-try-it-9-119",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.119 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-try9119"
+      },
+      "instructional_roles": [
+        "complete-square-algebraic"
+      ],
+      "reason": "process_tags=complete-square-algebraic; M4-L2 bank fill 2026-09-11. a = 1 variation after the 9.60 worked pair. Same function also appears as College Algebra 2e §5.1 Algebraic #7; this record cites the IA 2e Try It that names completing the square. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=complete-square-algebraic; M4-L2 bank fill 2026-09-11. a = 1 variation after the 9.60 worked pair. Same function also appears as College Algebra 2e §5.1 Algebraic #7; this record cites the IA 2e Try It that names completing the square. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name",
+      "role": "diagnostic",
+      "rank": 5,
+      "title": "OpenStax verbal: another name for their standard form",
+      "student_facing": "OpenStax writes a quadratic as f(x) = a(x − h)^2 + k and calls that writing standard form. What other name does OpenStax give that same writing?",
+      "source_stem": "OpenStax uses “standard form” for a(x − h)^2 + k and also calls it vertex form. Ontario uses vertex form for that expression and standard form for ax^2 + bx + c. Keep the OpenStax naming in the stem; add the Ontario note in teacher copy only. Source: College Algebra 2e §5.1 Verbal #4.",
+      "answer": "Vertex form (of a quadratic function).",
+      "answer_verification": "OpenStax §5.1 states that because the vertex appears in f(x) = a(x − h)^2 + k, that writing is also known as the vertex form of a quadratic function. Verbal exercise 4 asks for another name for their standard form.",
+      "checker_ref": null,
+      "placement": "guided_practice",
+      "process_tags": [
+        "three-form-contrast"
+      ],
+      "process_id": "three-form-contrast",
+      "expectation_codes": [
+        "A2.10"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-verbal-4",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274) §5.1 Verbal #4. CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-verbal-q4-vertex-name"
+      },
+      "instructional_roles": [
+        "three-form-contrast"
+      ],
+      "reason": "process_tags=three-form-contrast; Bank fill 2026-09-09: second licensed three-form-contrast item so module min_approved_items density can clear once Shawn approves. Paraphrase of OpenStax verbal #4 + section prose that names vertex form; no Nelson stems.",
+      "purpose": "process_tags=three-form-contrast; Bank fill 2026-09-09: second licensed three-form-contrast item so module min_approved_items density can clear once Shawn approves. Paraphrase of OpenStax verbal #4 + section prose that names vertex form; no Nelson stems.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-ontario-a27-sample",
+      "role": "practice",
+      "rank": 1,
+      "title": "MCF3M A2.7 sample: expand 3(x − 1)^2 + 4",
+      "student_facing": "Given f(x) = 3(x − 1)^2 + 4, write the same function as ax^2 + bx + c. Use graphing technology to compare the two graphs.",
+      "source_stem": "Verbatim Ministry sample for A2.7 from verified seed. Do not invent the expanded coefficients.",
+      "answer": null,
+      "answer_verification": "Seed has no key for this sample.",
+      "checker_ref": "content-builder/scripts/vertex_form_checker.py",
+      "placement": "core_practice",
+      "process_tags": [
+        "expand-and-verify",
+        "compare-two-equivalent-models"
+      ],
+      "process_id": "expand-and-verify",
+      "expectation_codes": [
+        "A2.7"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "ontario-seed",
+        "source_id": "ontario-seed-mcf3m-A2.7-sample",
+        "source_url": null,
+        "licence": "Queen's Printer for Ontario (curriculum excerpt in verified seed)",
+        "attribution": "lms/seeds/mcf3m_expectations.json",
+        "permitted_use_status": "restricted",
+        "bank_id": "mcf3m-m4-ontario-a27-sample"
+      },
+      "instructional_roles": [
+        "expand-and-verify",
+        "compare-two-equivalent-models"
+      ],
+      "reason": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 2; practice-sequence core_practice for expand-and-verify. Catalogue record ontario-seed-mcf3m-A2.7-sample.",
+      "purpose": "process_tags=expand-and-verify,compare-two-equivalent-models; From M4-L1 question-candidates guided_example rank 2; practice-sequence core_practice for expand-and-verify. Catalogue record ontario-seed-mcf3m-A2.7-sample.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+      "role": "practice",
+      "rank": 2,
+      "title": "OpenStax IA 2e Try It 9.120: sketch key features via CTS",
+      "student_facing": "The equation is given in standard form: f(x) = x^2 − 8x + 12. Complete the square. From the vertex form, name the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum. Sketch those key features. Do not list intervals where the function is positive, negative, increasing, or decreasing.",
+      "source_stem": "A2.11 light only: vertex, axis, max/min, sketch from CTS. OpenStax Try It 9.120 asks to graph by transformations; this item scopes to the brief’s light boundary. Full interval laundry list is parked.",
+      "answer": "f(x) = (x − 4)^2 − 4. Vertex (4, −4). Axis x = 4. Minimum (a > 0). Sketch: parabola opening up with that vertex and axis.",
+      "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: half of −8 is −4; (−4)^2 = 16; add and subtract 16; (x − 4)^2 + 12 − 16 = (x − 4)^2 − 4. Vertex/axis/max-min follow Lesson 1 inspection of that writing. OpenStax student page lists the Try It without an inline solution; Answer Key was not copied.",
+      "checker_ref": null,
+      "placement": "core_practice",
+      "process_tags": [
+        "sketch-from-standard-via-cts"
+      ],
+      "process_id": "sketch-from-standard-via-cts",
+      "expectation_codes": [
+        "A2.8",
+        "A2.11"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ia2e-9-7-try-it-9-120",
+        "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.120 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-ia2e-try9120-sketch"
+      },
+      "instructional_roles": [
+        "sketch-from-standard-via-cts"
+      ],
+      "reason": "process_tags=sketch-from-standard-via-cts; M4-L2 bank fill 2026-09-11. A2.11 seed has no example stem; this is a licensed OpenStax function with a scoped classroom prompt. Do not invent Ministry interval wording as a required student dump. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=sketch-from-standard-via-cts; M4-L2 bank fill 2026-09-11. A2.11 seed has no example stem; this is a licensed OpenStax function with a scoped classroom prompt. Do not invent Ministry interval wording as a required student dump. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-advantage-verbal",
+      "role": "practice",
+      "rank": 3,
+      "title": "OpenStax verbal: advantage of this form",
+      "student_facing": "This writing of a quadratic is f(x) = a(x − h)^2 + k. What can you read from it that is harder to see when the same function is written as ax^2 + bx + c?",
+      "source_stem": "Do not call a(x − h)^2 + k “standard form” in student prose without the Ontario naming note. OpenStax source stem uses “standard form” for vertex form.",
+      "answer": "When written in that form, the vertex can be easily identified.",
+      "answer_verification": "Copied from OpenStax solution element fs-id1165135361339 (catalogue record openstax-ca2e-m51274-advantage-verbal).",
+      "checker_ref": null,
+      "placement": "core_practice",
+      "process_tags": [
+        "three-form-contrast"
+      ],
+      "process_id": "three-form-contrast",
+      "expectation_codes": [
+        "A2.10"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "openstax-ca2e-m51274-advantage-verbal",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274). CC BY-NC-SA 4.0. https://openstax.org/details/books/college-algebra-2e",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-advantage-verbal"
+      },
+      "instructional_roles": [
+        "three-form-contrast"
+      ],
+      "reason": "process_tags=three-form-contrast; From M4-L1 question-candidates practice rank 1; practice-sequence core_practice for three-form-contrast. Catalogue record openstax-ca2e-m51274-advantage-verbal.",
+      "purpose": "process_tags=three-form-contrast; From M4-L1 question-candidates practice rank 1; practice-sequence core_practice for three-form-contrast. Catalogue record openstax-ca2e-m51274-advantage-verbal.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-owned-cts-rational-half",
+      "role": "practice",
+      "rank": 4,
+      "title": "Owned: complete the square when b/a = 1/2",
+      "student_facing": "Rewrite f(x) = x^2 + (1/2)x + 1 in the form f(x) = (x − h)^2 + k by completing the square. Use the same steps as the integer-b cases; b/a is the simple rational 1/2.",
+      "source_stem": "LLOVES-owned parametric. A2.8 names ½ and 0.75 as examples of simple rational b/a values; the seed has no full example stem. This is not Ministry wording. Same method as a = 1 integer cases, with fractions.",
+      "answer": "f(x) = (x + 1/4)^2 + 15/16",
+      "answer_verification": "Author-computed: half of 1/2 is 1/4; (1/4)^2 = 1/16; add and subtract 1/16; (x + 1/4)^2 + 1 − 1/16 = (x + 1/4)^2 + 15/16. Expand check: (x + 1/4)^2 + 15/16 = x^2 + (1/2)x + 1/16 + 15/16 = x^2 + (1/2)x + 1.",
+      "checker_ref": null,
+      "placement": "core_practice",
+      "process_tags": [
+        "complete-square-rational-b-over-a"
+      ],
+      "process_id": "complete-square-rational-b-over-a",
+      "expectation_codes": [
+        "A2.8"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "parametric",
+        "source_id": "mcf3m-m4-owned-cts-rational-half",
+        "source_url": null,
+        "licence": "LLOVES School (original)",
+        "attribution": "LLOVES School MCF3M M4-L2 owned bank (completing the square)",
+        "permitted_use_status": "permitted",
+        "bank_id": "mcf3m-m4-owned-cts-rational-half"
+      },
+      "instructional_roles": [
+        "complete-square-rational-b-over-a"
+      ],
+      "reason": "process_tags=complete-square-rational-b-over-a; M4-L2 bank fill 2026-09-11. Seed A2.8 examples array is empty; ½ is quoted from the A2.8 statement as a typical b/a, not as a Ministry stem. OpenStax IA 2e §9.7 / CA 2e §5.1 algebraic sets checked on 2026-09-11 did not yield a clean b/a = 1/2 rewrite item, so this owned family fills that gap. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=complete-square-rational-b-over-a; M4-L2 bank fill 2026-09-11. Seed A2.8 examples array is empty; ½ is quoted from the A2.8 statement as a typical b/a, not as a Ministry stem. OpenStax IA 2e §9.7 / CA 2e §5.1 algebraic sets checked on 2026-09-11 did not yield a clean b/a = 1/2 rewrite item, so this owned family fills that gap. Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-ex22",
+      "role": "practice",
+      "rank": 5,
+      "title": "OpenStax §5.1 ex. 22: domain and range of −2(x + 3)^2 − 6",
+      "student_facing": "Determine the domain and range of f(x) = −2(x + 3)^2 − 6.",
+      "source_stem": "Same (x + 3) family as the Nelson h-sign diagnostic, now for range from k and the sign of a. Not yet its own catalogue resource record.",
+      "answer": null,
+      "answer_verification": "Student-facing OpenStax page lists the exercise only; no solution element was copied into the catalogue. Do not invent the range.",
+      "checker_ref": null,
+      "placement": "additional_practice",
+      "process_tags": [
+        "inspect-vertex-form"
+      ],
+      "process_id": "inspect-vertex-form",
+      "expectation_codes": [
+        "A2.10",
+        "A2.3"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "m51274#section-exercises-22",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274) §5.1 exercise 22. CC BY-NC-SA 4.0.",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-ex22"
+      },
+      "instructional_roles": [
+        "inspect-vertex-form"
+      ],
+      "reason": "process_tags=inspect-vertex-form; From M4-L1 question-candidates practice rank 3; practice-sequence additional_practice for inspect-vertex-form (retrieval). Parent may add a dedicated catalogue resource later.",
+      "purpose": "process_tags=inspect-vertex-form; From M4-L1 question-candidates practice rank 3; practice-sequence additional_practice for inspect-vertex-form (retrieval). Parent may add a dedicated catalogue resource later.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-openstax-m51274-ex53",
+      "role": "practice",
+      "rank": 6,
+      "title": "OpenStax §5.1 ex. 53: family (x − 2)^2, (x − 3)^2, (x + 4)^2",
+      "student_facing": "On the same axes, graph y = x^2, y = (x − 2)^2, y = (x − 3)^2, and y = (x + 4)^2. What stays the same? What moves, and in which direction?",
+      "source_stem": "Parameter-change transfer after students can already name one vertex. A2.5 is prerequisite language reused for vertex-form inspection. Not yet its own catalogue resource record.",
+      "answer": null,
+      "answer_verification": "Student-facing OpenStax page lists the exercise only; no solution element was copied. Do not invent a key.",
+      "checker_ref": null,
+      "placement": "additional_practice",
+      "process_tags": [
+        "predict-parameter-change"
+      ],
+      "process_id": "predict-parameter-change",
+      "expectation_codes": [
+        "A2.10",
+        "A2.5"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "openstax",
+        "source_id": "m51274#section-exercises-53",
+        "source_url": "https://openstax.org/books/college-algebra-2e/pages/5-1-quadratic-functions",
+        "licence": "CC BY-NC-SA 4.0",
+        "attribution": "OpenStax College Algebra 2e, Quadratic Functions (m51274) §5.1 exercise 53. CC BY-NC-SA 4.0.",
+        "permitted_use_status": "non-commercial",
+        "bank_id": "mcf3m-m4-openstax-m51274-ex53"
+      },
+      "instructional_roles": [
+        "predict-parameter-change"
+      ],
+      "reason": "process_tags=predict-parameter-change; From M4-L1 question-candidates transfer rank 2; practice-sequence additional_practice for predict-parameter-change.",
+      "purpose": "process_tags=predict-parameter-change; From M4-L1 question-candidates transfer rank 2; practice-sequence additional_practice for predict-parameter-change.",
+      "visible_by_default": true
+    },
+    {
+      "bank_id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+      "role": "practice",
+      "rank": 7,
+      "title": "Owned: choose CTS vs factoring to sketch (light)",
+      "student_facing": "You are given two equations in standard form and asked only to choose a suitable sketch strategy — not to finish a full sketch.\n\nA) f(x) = x^2 − 5x + 6\nB) g(x) = x^2 + 4x + 7\n\nFor each, say whether completing the square to find the vertex, or factoring to locate the x-intercepts, is the more suitable strategy, and give one reason. Do not use a formula.",
+      "source_stem": "LLOVES-owned Analyze beat. A2.11 statement names completing the square and finding the vertex, or factoring if possible to locate the x-intercepts, as example strategies. This is not a Ministry sample (A2.11 examples array is empty). Do not teach or apply the quadratic formula (A1.6 parked).",
+      "answer": "A) Factoring is suitable: x^2 − 5x + 6 = (x − 2)(x − 3), so the x-intercepts 2 and 3 are friendly. B) Completing the square is suitable: g(x) = (x + 2)^2 + 3 does not factor over the reals, so intercepts are not a sketch path; the vertex (−2, 3) is readable after CTS.",
+      "answer_verification": "Author-computed. A factors as (x − 2)(x − 3). B: x^2 + 4x + 7 = (x + 2)^2 + 3; discriminant 16 − 28 < 0 so no real intercepts — mentioned only as a teacher check, not as a student discriminant lesson.",
+      "checker_ref": null,
+      "placement": "additional_practice",
+      "process_tags": [
+        "strategy-choose-cts-vs-factor"
+      ],
+      "process_id": "strategy-choose-cts-vs-factor",
+      "expectation_codes": [
+        "A2.11"
+      ],
+      "review_status": "approved",
+      "student_html_allowed": true,
+      "provenance": {
+        "source": "parametric",
+        "source_id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "source_url": null,
+        "licence": "LLOVES School (original)",
+        "attribution": "LLOVES School MCF3M M4-L2 owned bank (completing the square)",
+        "permitted_use_status": "permitted",
+        "bank_id": "mcf3m-m4-owned-strategy-cts-vs-factor"
+      },
+      "instructional_roles": [
+        "strategy-choose-cts-vs-factor"
+      ],
+      "reason": "process_tags=strategy-choose-cts-vs-factor; M4-L2 bank fill 2026-09-11. Light strategy choice only; zeros-three-ways and formula remain parked. Criteria, not a random pick (brief misconception strategy-without-criteria). Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "purpose": "process_tags=strategy-choose-cts-vs-factor; M4-L2 bank fill 2026-09-11. Light strategy choice only; zeros-three-ways and formula remain parked. Criteria, not a random pick (brief misconception strategy-without-criteria). Shawn selected→approved gate 2026-09-11 (PR #60).",
+      "visible_by_default": true
+    }
+  ],
+  "summary": {
+    "module_items_declared": 23,
+    "module_items_loaded": 23,
+    "missing_item_files": [],
+    "always_excluded": {
+      "nelson_or_excluded_source": 4,
+      "student_html_not_allowed": 1
+    },
+    "skipped_by_review_status": {},
+    "emitted": 18,
+    "by_review_status": {
+      "approved": 18
+    },
+    "by_placement": {
+      "worked_example": 6,
+      "guided_practice": 5,
+      "core_practice": 4,
+      "additional_practice": 3
+    },
+    "by_process_tag": {
+      "inspect-vertex-form": 4,
+      "complete-square-factor-a": 1,
+      "complete-square-algebraic": 2,
+      "complete-square-diagram": 1,
+      "expand-and-verify": 2,
+      "compare-two-equivalent-models": 2,
+      "predict-parameter-change": 2,
+      "expand-cts-shared-model-revisit": 1,
+      "verify-equivalence-tech": 1,
+      "three-form-contrast": 2,
+      "sketch-from-standard-via-cts": 1,
+      "complete-square-rational-b-over-a": 1,
+      "strategy-choose-cts-vs-factor": 1
+    }
+  }
+}
