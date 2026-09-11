@@ -244,7 +244,24 @@ function paintStageRail() {
 }
 
 /**
+ * Keep ClassListPane mounted and visible on every stage, including Prev.
+ * Stage changes only swap OptionsStrip bodies and Active Content bindings.
+ */
+function lockClassListPane() {
+  const stage = teacherState.stage || stageForStep();
+  if (root) root.dataset.stage = stage;
+  for (const id of ["live-shell-left", "class-list-pane", "live-shell-body", "live-shell-right"]) {
+    const el = $(id);
+    if (!(el instanceof HTMLElement)) continue;
+    el.hidden = false;
+    el.removeAttribute("hidden");
+    el.classList.remove("hidden");
+  }
+}
+
+/**
  * Swap condensed OptionsStrip bodies. Never rebuild Left|Right chrome.
+ * Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev.
  */
 function paintOptionCard() {
   const stage = teacherState.stage;
@@ -256,6 +273,7 @@ function paintOptionCard() {
   const play = $("play-option-card");
   const teamPane = $("team-assign-pane");
   const rounds = $("round-slide-settings");
+  lockClassListPane();
   if (card) {
     card.hidden = false;
     card.removeAttribute("hidden");
@@ -342,8 +360,10 @@ function paintResultsStrip() {
 
 /**
  * Paint rail, OptionsStrip, and CSS slots from teacherState.
+ * Prev/Next and every stage keep Left ClassListPane mounted.
  */
 function paintTeacherShell() {
+  lockClassListPane();
   paintStageRail();
   paintOptionCard();
   paintFrames();
@@ -457,6 +477,7 @@ function showPanel(name, opts = {}) {
   const locked = isScoringLive();
   scoringLocked = locked;
   hideError("#ap-overlay-error");
+  lockClassListPane();
   syncTeamFlowVisibility();
 
   document.querySelectorAll(".ap-panel[data-step]").forEach((el) => {

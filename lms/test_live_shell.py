@@ -194,6 +194,89 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("body.staff-shell #team-assign-pane {\n  grid-column: 1 / -1;", css)
         self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
 
+    def test_beat1_geometry_locks_three_rows_and_stretch(self) -> None:
+        """Beat 1: header / height-capped OptionsStrip / Left|Right stretch."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("--live-options-max-h: calc(var(--live-options-row-h) * 2 + 1.1rem)", css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("grid-template-rows: auto auto auto minmax(12rem, 1fr)", css)
+        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
+        self.assertIn(
+            "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 2;",
+            css,
+        )
+        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-shell-body {\n  grid-row: 4;", css)
+        self.assertIn("body.staff-shell .live-shell-body {\n  display: grid;", css)
+        self.assertIn("align-items: stretch", css)
+        self.assertIn("body.staff-shell .live-active-content {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
+        self.assertIn("body.staff-shell #class-list-pane {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
+        self.assertNotIn("align-items: start;", css.split("body.staff-shell .live-shell-body")[1][:240])
+        self.assertNotIn("position: absolute;\n  inset: 0;", css)
+        self.assertNotIn("body.staff-shell .live-options-strip {\n  position: absolute;", css)
+
+    def test_beat1_markup_keeps_class_list_outside_option_swap(self) -> None:
+        """ClassList stays in Left; TEAMS/ROUND/Results never full-bleed outside Right."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        header_i = html.index('id="live-header"')
+        strip_i = html.index('id="live-option-card"')
+        body_i = html.index('class="live-shell-body"')
+        left_i = html.index('id="live-shell-left"')
+        list_i = html.index('id="class-list-pane"')
+        right_i = html.index('id="live-shell-right"')
+        active_i = html.index('id="live-active-content"')
+        teams_i = html.index('id="teams-option-card"')
+        meet_i = html.index('id="meet-option-card"')
+        round_i = html.index('id="round-option-card"')
+        play_i = html.index('id="play-option-card"')
+        team_pane_i = html.index('id="team-assign-pane"')
+        results_i = html.index('id="results-strip"')
+        self.assertLess(header_i, strip_i)
+        self.assertLess(strip_i, body_i)
+        self.assertLess(body_i, left_i)
+        self.assertLess(left_i, list_i)
+        self.assertLess(list_i, right_i)
+        self.assertLess(right_i, active_i)
+        self.assertLess(strip_i, teams_i)
+        self.assertLess(teams_i, meet_i)
+        self.assertLess(meet_i, round_i)
+        self.assertLess(round_i, play_i)
+        self.assertLess(play_i, body_i)
+        self.assertLess(teams_i, team_pane_i)
+        self.assertLess(team_pane_i, body_i)
+        self.assertLess(active_i, results_i)
+        self.assertGreater(html.find("</section>", results_i), results_i)
+        self.assertEqual(html.count('id="class-list-pane"'), 1)
+        self.assertEqual(html.count('id="live-shell-left"'), 1)
+
+    def test_beat1_stage_swaps_keep_class_list_mounted(self) -> None:
+        """Prev/Next and every stage only swap OptionsStrip; Left chrome stays."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn('for (const id of ["live-shell-left", "class-list-pane"', js)
+        self.assertIn("lockClassListPane();", js)
+        self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
+        self.assertIn('if (hint) hint.hidden = stage !== "join";', js)
+        self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
+        self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
+        self.assertIn('if (round) round.hidden = stage !== "round";', js)
+        self.assertIn('if (play) play.hidden = stage !== "play";', js)
+        self.assertIn('patchTeacherState({ advance: "prev" })', js)
+        self.assertIn('patchTeacherState({ advance: "next" })', js)
+        self.assertNotIn('id="class-list-pane").innerHTML', js)
+        self.assertNotIn('id="live-shell-left").innerHTML', js)
+        self.assertNotIn("$(\"class-list-pane\").innerHTML", js)
+        self.assertNotIn("$(\"live-shell-left\").innerHTML", js)
+        self.assertNotIn("class-list-pane\").remove(", js)
+        self.assertNotIn("live-shell-left\").remove(", js)
+        paint = js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0]
+        self.assertIn("lockClassListPane();", paint)
+        self.assertNotIn("innerHTML", paint)
+        option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
+        self.assertNotIn("innerHTML", option)
+        self.assertNotIn("replaceChildren", option)
+        self.assertIn("lockClassListPane();", option)
+
 
 if __name__ == "__main__":
     unittest.main()
