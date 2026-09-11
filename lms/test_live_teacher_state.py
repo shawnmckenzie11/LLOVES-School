@@ -43,6 +43,8 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertIsNone(state["round"])
         self.assertIsNone(state["active_media_ref"])
         self.assertIsNone(state["prompt_ref"])
+        self.assertIsNone(state["meet_chain"])
+        self.assertIsNone(state["cue_id"])
         self.assertNotIn("url", state)
         self.assertNotIn("stem", state)
 

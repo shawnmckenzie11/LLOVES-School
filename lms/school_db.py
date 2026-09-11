@@ -32,10 +32,21 @@ try:
         strip_teacher_prompt_fields,
     )
     from meet_team import (
+        CUE_MEET_CLEAR,
+        CUE_MEET_OPEN,
+        MEET_STEP_SLIDE,
         MEET_TEAM_KIND,
         MEET_TEAM_SLIDE_INDEX,
+        advance_meet_chain,
         is_meet_team_payload,
+        meet_chip_for,
+        meet_participant_key,
+        meet_payload_for_state,
         meet_team_prompt_payload,
+        new_meet_chain_state,
+        public_meet_chain,
+        record_meet_pick,
+        skip_meet_c,
     )
     from minds_on import (
         MINDS_ON_KIND,
@@ -64,10 +75,21 @@ except ImportError:  # ``python3 lms/app.py`` package import
         strip_teacher_prompt_fields,
     )
     from lms.meet_team import (
+        CUE_MEET_CLEAR,
+        CUE_MEET_OPEN,
+        MEET_STEP_SLIDE,
         MEET_TEAM_KIND,
         MEET_TEAM_SLIDE_INDEX,
+        advance_meet_chain,
         is_meet_team_payload,
+        meet_chip_for,
+        meet_participant_key,
+        meet_payload_for_state,
         meet_team_prompt_payload,
+        new_meet_chain_state,
+        public_meet_chain,
+        record_meet_pick,
+        skip_meet_c,
     )
     from lms.minds_on import (
         MINDS_ON_KIND,
@@ -6036,75 +6058,90 @@ class SchoolDB(LovesDB):
         return self._prompt_row_to_dict(row) if row else None
 
     def _meet_team_row_exists(self, session_id: int) -> bool:
-        """True when this session already has a Meet Your Team prompt row.
+        """True when this session already has a Meet chain prompt row.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        return self._prompt_at_slide(session_id, MEET_TEAM_SLIDE_INDEX) is not None
+        return any(
+            self._prompt_at_slide(session_id, slide) is not None
+            for slide in MEET_STEP_SLIDE.values()
+        )
 
-    def seed_meet_team_warmup(self, session_id: int) -> dict[str, Any] | None:
-        """Activate the session-ephemeral Meet Your Team MC.
-
-        Reuses the existing row (same rotated choices) when already seeded.
+    def _deactivate_meet_chain_prompts(self, session_id: int) -> None:
+        """Deactivate every Meet A/C/B slide for one session.
 
         Args:
             session_id: ``live_class_sessions.id``.
+        """
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                f"""
+                UPDATE live_session_prompts
+                SET active = 0, updated_at = ?
+                WHERE live_session_id = ?
+                  AND slide_index IN ({",".join("?" * len(MEET_STEP_SLIDE))})
+                """,
+                (now, int(session_id), *MEET_STEP_SLIDE.values()),
+            )
+            self.conn.commit()
+
+    def seed_meet_team_warmup(
+        self,
+        session_id: int,
+        *,
+        chain_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Activate the visible Meet chain step on the live-prompt channel.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            chain_state: Optional MeetChainState; when omitted, mounts A
+                of a fresh A → C → B chain.
 
         Returns:
             The upserted prompt row, or ``None`` when the session is missing.
         """
         if self.get_live_session(session_id) is None:
             return None
-        existing = self._prompt_at_slide(session_id, MEET_TEAM_SLIDE_INDEX)
-        if existing is not None:
-            stored = existing.get("payload")
-            payload = (
-                stored
-                if isinstance(stored, dict) and is_meet_team_payload(stored)
-                else meet_team_prompt_payload()
-            )
-            return self.set_live_session_prompt(
-                session_id,
-                slide_index=MEET_TEAM_SLIDE_INDEX,
-                kind=MEET_TEAM_KIND,
-                payload=payload,
-                activate=True,
-            )
+        state = public_meet_chain(chain_state) or new_meet_chain_state()
+        payload = meet_payload_for_state(state) or meet_team_prompt_payload()
+        step = str(payload.get("step") or "A")
+        slide = int(MEET_STEP_SLIDE.get(step) or MEET_TEAM_SLIDE_INDEX)
+        self._deactivate_meet_chain_prompts(session_id)
         return self.set_live_session_prompt(
             session_id,
-            slide_index=MEET_TEAM_SLIDE_INDEX,
+            slide_index=slide,
             kind=MEET_TEAM_KIND,
-            payload=meet_team_prompt_payload(),
+            payload=payload,
             activate=True,
         )
 
     def activate_meet_team_warmup_for_class(
         self, class_id: int
     ) -> dict[str, Any] | None:
-        """Clear waiting-room Minds-On and seed the Meet Your Team warm-up.
+        """Enter MEET: clear Minds-On, mount A, fire ``cue.meet_open``.
 
-        Staff Generate teams / Meet Teams path. No-op when the class has
+        Staff Start Meet / Meet Teams path. No-op when the class has
         no active live session.
 
         Args:
             class_id: Game-show ``classes.id``.
 
         Returns:
-            The seeded prompt row, or ``None`` when skipped.
+            The updated teacher state, or ``None`` when skipped.
         """
         live = self.get_active_live_session_for_class(int(class_id))
         if live is None:
             return None
-        session_id = int(live["id"])
-        self.clear_waiting_room_minds_on(session_id)
-        return self.seed_meet_team_warmup(session_id)
+        return self.set_live_session_teacher_state(int(live["id"]), stage="meet")
 
     def clear_meet_team_warmup(self, session_id: int) -> None:
-        """Deactivate the Meet Your Team warm-up when Team Challenge starts.
+        """Wipe the Meet chain when MEET ends or Team Challenge starts.
 
-        Writes an inactive sentinel when the warm-up was never seeded so a
-        later poll cannot treat the session as still in Meet Teams.
+        Writes an inactive A sentinel when the chain was never seeded so a
+        later poll cannot treat the session as still in Meet.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6112,7 +6149,7 @@ class SchoolDB(LovesDB):
         active = self.get_active_live_prompt(session_id)
         if active and is_meet_team_payload(active.get("payload")):
             self.clear_active_live_prompt(session_id)
-            return
+        self._deactivate_meet_chain_prompts(session_id)
         if self._meet_team_row_exists(session_id):
             return
         if self.get_live_session(session_id) is None:
@@ -6137,12 +6174,23 @@ class SchoolDB(LovesDB):
         self.clear_meet_team_warmup(int(live["id"]))
 
     def clear_session_warmups(self, session_id: int) -> None:
-        """Drop Minds-On and Meet Your Team when Team Challenge starts.
+        """Drop Minds-On and the Meet chain when Team Challenge starts.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
         self.clear_waiting_room_minds_on(session_id)
+        try:
+            current = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            self.clear_meet_team_warmup(session_id)
+            return
+        if current.get("meet_chain") or current.get("stage") == "meet":
+            if current.get("stage") == "meet":
+                current["stage"] = "round"
+            self._wipe_meet_chain(session_id, current, fire_clear=True)
+            self._write_teacher_state(session_id, current)
+            return
         self.clear_meet_team_warmup(session_id)
 
     def clear_session_warmups_for_class(self, class_id: int) -> None:
@@ -6339,14 +6387,41 @@ class SchoolDB(LovesDB):
             session_id
         ):
             return empty
+        teacher = None
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            teacher = None
+        meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
+        if is_meet_team_payload(raw_payload) and meet_state is None:
+            if str((teacher or {}).get("stage") or "") != "meet":
+                return empty
         if is_c1_cons_payload(raw_payload):
             media = self.live_session_active_media_payload(session_id)
             if not media or not media.get("frozen") or not is_c1_real_slice(media):
                 return empty
-        prior = self.get_live_prompt_response(
-            int(prompt["id"]), student_id, participant_uuid=participant_uuid
-        )
+        prior = None
         my_response = None
+        if is_meet_team_payload(raw_payload) and meet_state is not None:
+            token = meet_participant_key(
+                participant_uuid=participant_uuid, student_id=student_id
+            )
+            step = str(raw_payload.get("step") or "A")
+            bag_key = {"A": "a_picks", "C": "c_reacts", "B": "b_picks"}.get(
+                step, "a_picks"
+            )
+            choice = str((meet_state.get(bag_key) or {}).get(token) or "").strip()
+            if choice:
+                my_response = {
+                    "response": {"choice": choice},
+                    "awarded_points": None,
+                    "updated_at": None,
+                    "ephemeral": True,
+                }
+        else:
+            prior = self.get_live_prompt_response(
+                int(prompt["id"]), student_id, participant_uuid=participant_uuid
+            )
         if prior is not None:
             my_response = {
                 "response": prior.get("response") or {},
@@ -6367,6 +6442,14 @@ class SchoolDB(LovesDB):
             },
             "my_response": my_response,
             "waiting_room": waiting_room,
+            "meet_chip": meet_chip_for(
+                meet_state,
+                meet_participant_key(
+                    participant_uuid=participant_uuid, student_id=student_id
+                ),
+            )
+            if meet_state is not None
+            else None,
         }
 
     def live_session_active_media_payload(
@@ -6562,32 +6645,15 @@ class SchoolDB(LovesDB):
         stored = session_row.get("teacher_state")
         return public_teacher_state(stored if isinstance(stored, dict) else None)
 
-    def set_live_session_teacher_state(
-        self,
-        session_id: int,
-        **kwargs: Any,
+    def _write_teacher_state(
+        self, session_id: int, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """Patch the thin teacher shell channel for one live session.
-
-        References ``active_media`` / prompts by id. Does not copy those
-        payloads. ``canvas_ephemeral`` stays true.
+        """Persist a public LiveTeacherState blob.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            **kwargs: Fields accepted by ``apply_teacher_state_update``.
-
-        Returns:
-            Updated public teacher state.
-
-        Raises:
-            KeyError: If the live session is missing.
-            ValueError: Invalid stage, tab, preset, or frames.
+            payload: Public teacher-state dict.
         """
-        session_row = self.get_live_session(session_id)
-        if session_row is None:
-            raise KeyError(f"live session {session_id}")
-        current = self.live_session_teacher_state_payload(session_id)
-        payload = apply_teacher_state_update(current, **kwargs)
         encoded = json.dumps(payload)
         with self._lock:
             self.conn.execute(
@@ -6599,7 +6665,183 @@ class SchoolDB(LovesDB):
                 (encoded, int(session_id)),
             )
             self.conn.commit()
+        return public_teacher_state(payload)
+
+    def _mount_meet_chain(
+        self,
+        session_id: int,
+        payload: dict[str, Any],
+        *,
+        chain_state: dict[str, Any] | None = None,
+        fire_open: bool = False,
+    ) -> dict[str, Any]:
+        """Mount the visible Meet step on Questions and optionally open-cue.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            payload: In-progress teacher state (mutated).
+            chain_state: MeetChainState to persist and activate.
+            fire_open: True to set ``cue.meet_open`` (MEET enter only).
+        """
+        state = public_meet_chain(chain_state) or new_meet_chain_state()
+        self.clear_waiting_room_minds_on(session_id)
+        self.seed_meet_team_warmup(session_id, chain_state=state)
+        payload["meet_chain"] = state
+        payload["layout_preset"] = "questions_full"
+        payload["frames"] = {"A": "questions"}
+        payload["active_tab"] = "questions"
+        payload["prompt_ref"] = "meet-team"
+        if fire_open:
+            payload["cue_id"] = CUE_MEET_OPEN
         return payload
+
+    def _wipe_meet_chain(
+        self,
+        session_id: int,
+        payload: dict[str, Any],
+        *,
+        fire_clear: bool = False,
+    ) -> dict[str, Any]:
+        """Drop ephemeral Meet picks / prompt and optionally clear-cue.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            payload: In-progress teacher state (mutated).
+            fire_clear: True to set ``cue.meet_clear`` (MEET exit only).
+        """
+        self.clear_meet_team_warmup(session_id)
+        payload["meet_chain"] = None
+        payload["prompt_ref"] = None
+        if fire_clear:
+            payload["cue_id"] = CUE_MEET_CLEAR
+        return payload
+
+    def set_live_session_teacher_state(
+        self,
+        session_id: int,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Patch the thin teacher shell channel for one live session.
+
+        References ``active_media`` / prompts by id. Does not copy those
+        payloads. ``canvas_ephemeral`` stays true. Rising edge into
+        ``meet`` mounts the A→C→B chain and fires ``cue.meet_open``;
+        leaving MEET wipes ephemeral picks and fires ``cue.meet_clear``.
+        ``meet_action`` is ``next`` / ``skip_c`` / ``clear``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            **kwargs: Fields accepted by ``apply_teacher_state_update``
+                plus optional ``meet_action``.
+
+        Returns:
+            Updated public teacher state.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: Invalid stage, tab, preset, frames, or meet_action.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        meet_action = kwargs.pop("meet_action", None)
+        if meet_action is not None:
+            token = str(meet_action).strip().lower()
+            if token not in {"next", "skip_c", "clear"}:
+                raise ValueError("meet_action must be next, skip_c, or clear")
+            meet_action = token
+        current = self.live_session_teacher_state_payload(session_id)
+        prev_stage = str(current.get("stage") or "")
+        payload = apply_teacher_state_update(current, **kwargs)
+        new_stage = str(payload.get("stage") or "")
+        entering = new_stage == "meet" and prev_stage != "meet"
+        leaving = prev_stage == "meet" and new_stage != "meet"
+        if meet_action == "clear":
+            payload["stage"] = "round"
+            new_stage = "round"
+            leaving = True
+            entering = False
+        if entering:
+            self._mount_meet_chain(
+                session_id,
+                payload,
+                chain_state=new_meet_chain_state(),
+                fire_open="cue_id" not in kwargs,
+            )
+        elif leaving:
+            self._wipe_meet_chain(
+                session_id,
+                payload,
+                fire_clear="cue_id" not in kwargs,
+            )
+        elif new_stage == "meet" and meet_action in {"next", "skip_c"}:
+            state = public_meet_chain(payload.get("meet_chain"))
+            if state is None:
+                state = new_meet_chain_state()
+            if meet_action == "skip_c":
+                state = skip_meet_c(state)
+            else:
+                state = advance_meet_chain(state)
+            self._mount_meet_chain(
+                session_id, payload, chain_state=state, fire_open=False
+            )
+        return self._write_teacher_state(session_id, payload)
+
+    def record_meet_chain_pick(
+        self,
+        session_id: int,
+        *,
+        participant_uuid: str = "",
+        student_id: int | None = None,
+        choice: str,
+    ) -> dict[str, Any] | None:
+        """Store one ephemeral Meet pick. No gradebook / response row.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            participant_uuid: Live-session person key.
+            student_id: Optional roster id fallback.
+            choice: Student-facing option text.
+
+        Returns:
+            Updated MeetChainState, or ``None`` when Meet is not mounted.
+        """
+        current = self.live_session_teacher_state_payload(session_id)
+        if str(current.get("stage") or "") != "meet":
+            return None
+        key = meet_participant_key(
+            participant_uuid=participant_uuid, student_id=student_id
+        )
+        updated = record_meet_pick(
+            current.get("meet_chain"), participant_key=key, choice=choice
+        )
+        if updated is None:
+            return None
+        current["meet_chain"] = updated
+        self._write_teacher_state(session_id, current)
+        return updated
+
+    def student_meet_chip(
+        self,
+        session_id: int,
+        *,
+        participant_uuid: str = "",
+        student_id: int | None = None,
+    ) -> str | None:
+        """Own-avatar A chip for this Meet window, or None.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            participant_uuid: Live-session person key.
+            student_id: Optional roster id fallback.
+        """
+        current = self.live_session_teacher_state_payload(session_id)
+        return meet_chip_for(
+            current.get("meet_chain"),
+            meet_participant_key(
+                participant_uuid=participant_uuid, student_id=student_id
+            ),
+        )
 
     def _sync_c1_cons_prompt(
         self, session_id: int, media: dict[str, Any] | None

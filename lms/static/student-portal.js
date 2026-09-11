@@ -26,8 +26,17 @@ let lastMediaUrl = "";
 let lastMediaSig = "";
 /** @type {string} */
 let lastToastKey = "";
+/** @type {string} */
+let lastCueId = "";
+/** @type {string} */
+let lastMeetSig = "";
 /** @type {number} */
 let toastHideTimer = 0;
+const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
+const MEET_CUE_COPY = {
+  "cue.meet_open": "Meet your team",
+  "cue.meet_clear": "Meet cleared",
+};
 
 /** Open Question waiting copy shown on the Phone during that round. */
 const OPEN_QUESTION_WAIT_HTML = `
@@ -86,8 +95,13 @@ function paintMe(payload) {
     payload.show_rank && me.rank
       ? `<p class="me-stat me-rank"><span class="me-stat-label">Rank</span><strong>${me.rank}</strong>${me.rank_of ? ` <span class="me-stat-of">/ ${me.rank_of}</span>` : ""}</p>`
       : "";
+  const chip = String(payload.meet_chip || "").trim();
+  const chipLine = chip
+    ? `<p class="me-meet-chip" title="Meet window only">${escapeText(chip)}</p>`
+    : "";
   meEl.innerHTML = `
     <p class="me-name">${escapeText(me.codename || "Student")}</p>
+    ${chipLine}
     <div class="me-stats">
       <p class="me-stat"><span class="me-stat-label">My points</span><strong>${escapeText(pts(me.points))}</strong></p>
       <p class="me-stat"><span class="me-stat-label">${escapeText(me.team_name || "Team")}</span><strong>${escapeText(pts(me.team_points))}</strong></p>
@@ -416,6 +430,29 @@ function paintMediaToast(media) {
 }
 
 /**
+ * One-beat Wonder cue on MEET enter/exit only. No meet_a / meet_c / meet_b.
+ * @param {any} payload
+ */
+function paintMeetCue(payload) {
+  if (!mediaToast) return;
+  const cue = String((payload.teacher_state && payload.teacher_state.cue_id) || "").trim();
+  if (!MEET_CUES.has(cue) || cue === lastCueId) return;
+  lastCueId = cue;
+  const line = MEET_CUE_COPY[cue] || "";
+  window.clearTimeout(toastHideTimer);
+  if (!line) {
+    mediaToast.hidden = true;
+    mediaToast.textContent = "";
+    return;
+  }
+  mediaToast.textContent = line;
+  mediaToast.hidden = false;
+  toastHideTimer = window.setTimeout(() => {
+    mediaToast.hidden = true;
+  }, 2200);
+}
+
+/**
  * Render placeholder widgets for mc / numeric / share prompts.
  * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
  * @param {any} payload
@@ -423,18 +460,21 @@ function paintMediaToast(media) {
 function paintPrompt(payload) {
   if (!promptShell) return;
   const prompt = payload.prompt;
+  const data = (prompt && prompt.payload) || {};
+  const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
   const answered = Boolean(payload.my_response);
   if (!prompt || !prompt.kind || prompt.kind === "idle") {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
     lastPromptId = null;
+    lastMeetSig = "";
     if (promptAck) {
       promptAck.hidden = true;
       promptAck.classList.remove("is-feedback");
     }
     return;
   }
-  if (answered) {
+  if (answered && !isMeet) {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
     showPromptAck(feedbackLine(payload.my_response));
@@ -446,18 +486,22 @@ function paintPrompt(payload) {
     promptAck.classList.remove("is-feedback");
   }
   const kind = String(prompt.kind);
-  const data = prompt.payload || {};
   const title = formatPromptHtml(data.prompt || data.question || "Live response");
+  const picked = String(
+    (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
+      ""
+  ).trim();
   let controls = "";
   if (kind === "mc") {
     const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];
     controls = choices
-      .map(
-        (choice, index) =>
-          `<button type="button" class="prompt-choice" data-choice="${escapeText(choice)}">${escapeText(
-            typeof choice === "string" ? choice : `Option ${index + 1}`
-          )}</button>`
-      )
+      .map((choice, index) => {
+        const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
+        const on = picked && label === picked ? " is-selected" : "";
+        return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
+          picked ? " disabled" : ""
+        }>${escapeText(label)}</button>`;
+      })
       .join("");
   } else if (kind === "numeric") {
     controls = `
@@ -488,14 +532,28 @@ function paintPrompt(payload) {
     : itemId
     ? itemId
     : `${kind.toUpperCase()} · slide ${escapeText(prompt.slide_index)}`;
+  const chain = Array.isArray(data.chain) ? data.chain : [];
+  const step = String(data.step || "");
+  const dots = chain.length
+    ? `<p class="meet-progress-dots" aria-label="Meet progress">${chain
+        .map((letter) => {
+          const cls = letter === step ? "is-current" : "";
+          return `<span class="meet-dot ${cls}">${escapeText(letter)}</span>`;
+        })
+        .join("")}</p>`
+    : "";
   promptShell.hidden = false;
   promptShell.innerHTML = `
+    ${dots}
     <p class="prompt-kind">${escapeText(kindLine)}</p>
     <h2 class="prompt-title">${title}</h2>
     <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
   `;
   lastPromptId = Number(prompt.id);
-  wirePromptControls(prompt);
+  lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
+  if (!picked) {
+    wirePromptControls(prompt);
+  }
 }
 
 /**
@@ -574,11 +632,21 @@ async function submitResponse(promptId, response) {
       return;
     }
     if (data.ok && data.ack) {
-      if (promptShell) {
+      const meetRide = promptShell && promptShell.querySelector(".meet-progress-dots");
+      if (promptShell && !meetRide) {
         promptShell.hidden = true;
         promptShell.innerHTML = "";
+        showPromptAck(feedbackLine(data));
+      } else if (promptShell) {
+        const choice = String((response && response.choice) || "").trim();
+        promptShell.querySelectorAll(".prompt-choice").forEach((btn) => {
+          const on = btn.getAttribute("data-choice") === choice;
+          btn.classList.toggle("is-selected", on);
+          btn.disabled = true;
+        });
+      } else {
+        showPromptAck(feedbackLine(data));
       }
-      showPromptAck(feedbackLine(data));
     }
   } catch (_err) {
     /* keep UI; next poll retries */
@@ -601,8 +669,18 @@ async function tick() {
     paintBoard(data);
     paintRoundBanner(data);
     paintMedia(data);
+    paintMeetCue(data);
     const promptId = data.prompt && data.prompt.id != null ? Number(data.prompt.id) : null;
-    if (promptId !== lastPromptId || (data.my_response && promptShell && !promptShell.hidden)) {
+    const meetSig = data.prompt
+      ? `${promptId}:${(data.prompt.payload && data.prompt.payload.step) || ""}:${
+          (data.prompt.payload && data.prompt.payload.chain_index) || ""
+        }`
+      : "";
+    if (
+      promptId !== lastPromptId ||
+      meetSig !== lastMeetSig ||
+      (data.my_response && promptShell && !promptShell.hidden)
+    ) {
       paintPrompt(data);
     } else if (!data.prompt) {
       paintPrompt(data);

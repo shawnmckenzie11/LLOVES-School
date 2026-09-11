@@ -1726,6 +1726,45 @@ body.staff-shell .live-question-flag {
 body.staff-shell .live-question-flag[hidden] {
   display: none !important;
 }
+body.staff-shell .meet-chain-chrome {
+  margin: 0.65rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+body.staff-shell .meet-chain-chrome[hidden] {
+  display: none !important;
+}
+body.staff-shell .meet-progress-dots {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0;
+}
+body.staff-shell .meet-dot {
+  min-width: 1.6rem;
+  text-align: center;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid #c5d0dc;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+body.staff-shell .meet-dot.is-current {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0f766e;
+}
+body.staff-shell .meet-dot.is-done {
+  border-color: #93c5fd;
+  background: #e8f1fd;
+  color: #1d4ed8;
+}
+body.staff-shell .meet-chain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
 @media (max-width: 899px) {
   body.staff-shell .live-shell-body {
     grid-template-columns: 1fr;
