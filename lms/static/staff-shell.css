@@ -1288,6 +1288,226 @@ body.staff-shell .ap-score-pts {
 body.staff-shell .track-live-root {
   max-width: 72rem;
 }
+body.staff-shell .track-live-root.live-shell-root {
+  --live-shell-gap: 12px;
+  --live-pane-bg: #f7f9fb;
+  --live-border: #d5dde6;
+  --live-header-h: 52px;
+  --live-rail-active: #1f6feb;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--live-shell-gap);
+}
+body.staff-shell .live-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  min-height: var(--live-header-h);
+  padding: 0.4rem 0.65rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+}
+body.staff-shell .live-header-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  min-width: 12rem;
+}
+body.staff-shell .live-header-class {
+  font-weight: 700;
+}
+body.staff-shell .live-header-date,
+body.staff-shell .live-header-present,
+body.staff-shell .live-header-att-count {
+  color: #334155;
+  font-size: 0.88rem;
+}
+body.staff-shell .live-stage-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+body.staff-shell .live-stage-btn {
+  appearance: none;
+  border: 1px solid var(--live-border);
+  border-radius: 999px;
+  background: #fff;
+  color: #12202e;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.28rem 0.65rem;
+  cursor: pointer;
+}
+body.staff-shell .live-stage-btn.is-active {
+  border-color: var(--live-rail-active);
+  background: var(--live-rail-active);
+  color: #fff;
+}
+body.staff-shell .live-stage-btn.is-reached:not(.is-active) {
+  border-color: #93c5fd;
+}
+body.staff-shell .live-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+body.staff-shell .live-track-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+body.staff-shell .live-track-chip-label,
+body.staff-shell .live-track-chip-meta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+}
+body.staff-shell .live-track-opt {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--live-border);
+  border-radius: 999px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.22rem 0.55rem;
+  cursor: pointer;
+}
+body.staff-shell .live-track-opt.is-selected,
+body.staff-shell .live-track-opt[aria-pressed="true"] {
+  border-color: var(--live-rail-active);
+  background: #e8f1fd;
+}
+body.staff-shell .live-chip-next {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+body.staff-shell .live-header-start,
+body.staff-shell .live-header-advance,
+body.staff-shell .live-header .ap-meet-start {
+  min-height: 2rem;
+  padding: 0.28rem 0.7rem;
+  font-weight: 700;
+}
+body.staff-shell .live-header-join {
+  flex: 1 1 100%;
+}
+body.staff-shell .live-header .ap-join-billboard {
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+}
+body.staff-shell .live-header .ap-join-billboard-label {
+  margin: 0 0.45rem 0 0;
+  display: inline;
+}
+body.staff-shell .live-header .ap-join-billboard-row {
+  display: inline-flex;
+  gap: 0.45rem;
+}
+body.staff-shell .live-header .ap-join-billboard-code {
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+}
+body.staff-shell .live-header .ap-join-billboard-hint {
+  display: none;
+}
+body.staff-shell .live-date-panel {
+  padding: 0.75rem 0.85rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+}
+body.staff-shell .live-date-panel[hidden],
+body.staff-shell .live-date-panel.hidden {
+  display: none !important;
+}
+body.staff-shell .live-shell-body {
+  display: grid;
+  grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+  gap: var(--live-shell-gap);
+  align-items: start;
+}
+body.staff-shell .live-shell-left,
+body.staff-shell .live-shell-right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--live-shell-gap);
+  min-width: 0;
+}
+body.staff-shell .live-pane,
+body.staff-shell .live-flag-panel {
+  padding: 0.75rem 0.85rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+}
+body.staff-shell .live-flag-panel.is-flagged {
+  border-color: var(--live-rail-active);
+  box-shadow: 0 0 0 1px rgba(31, 111, 235, 0.22);
+  background: #fff;
+}
+body.staff-shell .live-flag-panel .ap-active-media {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+body.staff-shell .live-pane-title {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+body.staff-shell .live-pane-meta {
+  font-weight: 500;
+  color: #475569;
+  font-size: 0.85rem;
+}
+body.staff-shell .live-pane-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--live-border);
+}
+body.staff-shell .live-standby-hint {
+  margin: 0 0 0.45rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+body.staff-shell #team-assign-pane.is-standby .ap-panel {
+  opacity: 0.55;
+}
+body.staff-shell .live-question-flag {
+  margin: 0.35rem 0 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  background: #e8f1fd;
+  border: 1px solid #93c5fd;
+  font-weight: 600;
+}
+body.staff-shell .live-question-flag[hidden] {
+  display: none !important;
+}
+@media (max-width: 1099px) {
+  body.staff-shell .live-shell-body {
+    grid-template-columns: 1fr;
+  }
+}
 body.staff-shell .track-accordion {
   display: flex;
   flex-direction: column;
