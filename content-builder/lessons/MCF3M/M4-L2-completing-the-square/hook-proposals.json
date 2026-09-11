@@ -1,0 +1,50 @@
+{
+  "schema_version": "hook-proposals.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "recommended_id": "fountain-arc-standard-given",
+  "proposals": [
+    {
+      "id": "fountain-arc-standard-given",
+      "kind": "clip-image-interactive",
+      "title": "Same fountain arc — only the expanded writing",
+      "rank": 1,
+      "student_facing_sketch": "Look at the water leaving the fountain. You still need the highest point of one stream — but this time you only have the expanded writing, not the vertex form. Do not sketch a careful graph yet. What about that writing makes the peak hard to name?",
+      "why_interesting": "The photo is the same ordinary spray of water as Lesson 1: you do not need to like mathematics to look for the top of the arc. The flip is the puzzle — the peak is still what the eye wants, but the writing you are handed hides it.",
+      "student_does": "Mark the highest place on one stream (same need as Lesson 1). Then notice that the given equation is expanded standard form, and say what makes the peak hard to name from that writing alone. No careful graph, no completing the square yet.",
+      "leads_to": "Lesson brief need: high or low point matters, but students are given only standard form so they cannot rely on an already-visible vertex equation. Continuity with Lesson 1’s fountain-arc family, flipped to standard-given. Intended understanding: rewrite ax^2 + bx + c by completing the square so (h, k), axis, and max/min become readable; the rewrite does not move the curve. Locked student-content already uses this opener and returns via fresh-hook-cts. No Nelson CTS stems. No login, Gizmos, or Desmos API.",
+      "returns_in": "Consolidation. Same fountain-jet figure and expanded writing; students complete the square independently (fresh-hook-cts), read the high point, and retrieve that completing the square does not move the curve.",
+      "media": {
+        "src": "media/fountain-arc-500.jpg",
+        "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees.",
+        "licence": "CC BY-SA 3.0",
+        "source_url": "https://commons.wikimedia.org/wiki/File:ParabolicWaterTrajectory.jpg",
+        "signed_out_result": "Re-verified 2026-09-11, signed-out (no Wikimedia account). Commons file page HTTP 200. Commons API LicenseShortName CC BY-SA 3.0, LicenseUrl https://creativecommons.org/licenses/by-sa/3.0, AttributionRequired true; author GuidoB (own work). Bundled lesson asset media/fountain-arc-500.jpg: JPEG SOI FF D8, 500×667, 125184 bytes; byte-identical to Lesson 1 media/fountain-arc-500.jpg and to https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/ParabolicWaterTrajectory.jpg/500px-ParabolicWaterTrajectory.jpg (HTTP 200, Content-Type image/jpeg). Student-content credits: Water arc photo: GuidoB, CC BY-SA 3.0. Same alt as locked student-content hook and consolidation figures."
+      },
+      "access": "No student login. Image is bundled locally as media/fountain-arc-500.jpg (also reusable from Wikimedia Commons signed-out). Fallback if the figure is blocked: same fountain-arc situation in words, or a paper sketch of a water arc; students still need the peak while handed only standard form. No Gizmos. No Desmos API. No required remote interactive. No Nelson CTS stems."
+    },
+    {
+      "id": "throw-standard-given",
+      "kind": "everyday-or-puzzle",
+      "title": "Freeze the throw — expanded equation only",
+      "rank": 2,
+      "student_facing_sketch": "Someone throws a ball across a yard. You still want the highest point — but you are handed only an expanded equation for the path, not a vertex-form writing. What makes that peak hard to name from the expanded writing alone?",
+      "why_interesting": "Almost everyone has watched a throw. The high point is a human decision (reach, duck, still photo). The new snag is that the writing you get does not hand you that point.",
+      "student_does": "Name the freeze-frame at the top as the fact they care about. Then say why the expanded writing alone makes that point hard to read. No distances, no completing the square yet.",
+      "leads_to": "Same-class path context if the fountain photo cannot load: need the high point from standard form only. Still continuity with Lesson 1’s throw alternate, flipped to standard-given. Leads into completing the square so the vertex becomes readable without guessing from a graph.",
+      "returns_in": "Consolidation. Same thrown-ball situation with a fresh standard-form model: complete the square, read max/min, retrieve that the rewrite does not move the curve.",
+      "access": "No media; situation only. Archive alternate if fountain media fails. No login. No Gizmos. No Desmos API. No Nelson CTS stems."
+    },
+    {
+      "id": "hidden-peak-claim",
+      "kind": "claim-play-joke",
+      "title": "Same curve — one writing hides the peak",
+      "rank": 3,
+      "student_facing_sketch": "A path that goes up and then down has one turning point. Some writings of the same curve hand you that point; the expanded writing hides it. If you only got the expanded writing, what would you do to make the peak obvious?",
+      "why_interesting": "The playful claim is a choice, not a calculation: people already care about the peak more than a random spot on the way. The surprise is that rewriting can reveal the point without moving the path.",
+      "student_does": "Agree that the expanded writing can hide the turning point. Later they will see completing the square as the rewrite that answers that request without changing the curve.",
+      "leads_to": "Intended understanding without a photo: standard form → vertex form by completing the square so (h, k) and max/min become readable; equivalence verified, graph unchanged. Fits the brief’s standard-given constraint when media is unavailable.",
+      "returns_in": "Consolidation. Return to the same claim with a fresh standard-form equation: complete the square, read the high or low point, retrieve that the rewrite did not move the curve.",
+      "access": "No media; situation only. Archive alternate. No login. No Gizmos. No Desmos API. No Nelson CTS stems."
+    }
+  ]
+}
