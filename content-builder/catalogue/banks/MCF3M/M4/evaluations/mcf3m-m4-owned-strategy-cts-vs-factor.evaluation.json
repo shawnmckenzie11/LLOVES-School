@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-owned-strategy-cts-vs-factor",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "analyze",
+  "bloom_secondary": null,
+  "process_tags": [
+    "strategy-choose-cts-vs-factor"
+  ],
+  "placement_hint": "additional_practice",
+  "fame_checks": {
+    "suitable_as_worked": false,
+    "suitable_for_fading": false,
+    "suitable_for_alternating_pair": false,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "What feature do you need to sketch, and which writing makes that feature readable without a formula?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Brief target Analyze. Place after CTS fluency, not as the first Action beat. Formula / discriminant / zeros-three-ways stay parked. Owned; A2.11 examples array empty so this is not claimed as Ministry sample."
+}

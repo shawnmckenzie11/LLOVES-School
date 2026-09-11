@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-owned-cts-rational-half",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "complete-square-rational-b-over-a"
+  ],
+  "placement_hint": "core_practice",
+  "fame_checks": {
+    "suitable_as_worked": true,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": false,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "Which step is the same as the integer-b cases, and which step only looks different because b/a is 1/2?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Owned fill: A2.8 seed has no example; ½ is a statement e.g. of b/a, not a Ministry stem. No licensed OpenStax companion with b/a = 1/2 was found in the §9.7 / §5.1 sets checked, so no alternating pair yet. Lean gap: no 0.75 companion in this slice."
+}

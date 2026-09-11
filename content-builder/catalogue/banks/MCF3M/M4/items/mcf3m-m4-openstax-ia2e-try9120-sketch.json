@@ -1,0 +1,30 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "sketch-from-standard-via-cts"
+  ],
+  "expectation_codes": [
+    "A2.8",
+    "A2.11"
+  ],
+  "placement_hint": "core_practice",
+  "title": "OpenStax IA 2e Try It 9.120: sketch key features via CTS",
+  "stem_student": "The equation is given in standard form: f(x) = x^2 − 8x + 12. Complete the square. From the vertex form, name the vertex, the axis of symmetry, and whether the graph has a maximum or a minimum. Sketch those key features. Do not list intervals where the function is positive, negative, increasing, or decreasing.",
+  "stem_teacher": "A2.11 light only: vertex, axis, max/min, sketch from CTS. OpenStax Try It 9.120 asks to graph by transformations; this item scopes to the brief’s light boundary. Full interval laundry list is parked.",
+  "answer": "f(x) = (x − 4)^2 − 4. Vertex (4, −4). Axis x = 4. Minimum (a > 0). Sketch: parabola opening up with that vertex and axis.",
+  "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: half of −8 is −4; (−4)^2 = 16; add and subtract 16; (x − 4)^2 + 12 − 16 = (x − 4)^2 − 4. Vertex/axis/max-min follow Lesson 1 inspection of that writing. OpenStax student page lists the Try It without an inline solution; Answer Key was not copied.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "openstax-ia2e-9-7-try-it-9-120",
+  "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.120 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. A2.11 seed has no example stem; this is a licensed OpenStax function with a scoped classroom prompt. Do not invent Ministry interval wording as a required student dump."
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-nelson-c3-32-pr-q4",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "complete-square-algebraic",
+    "complete-square-factor-a"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "additional_practice",
+  "title": "Nelson §3.2 Practising: algebraic CTS mix (oracle only)",
+  "stem_student": null,
+  "stem_teacher": null,
+  "answer": null,
+  "answer_verification": "Local Nelson bank item has no key. Local OCR of the equation list is unverified and often unreadable.",
+  "checker_ref": null,
+  "source": "nelson_functions_11",
+  "source_id": "NEL-C3-32-PR-p153-Q4",
+  "source_url": null,
+  "licence": "unknown (commercial textbook excerpt in local bank; licence not recorded in the bank file)",
+  "attribution": null,
+  "permitted_use_status": "excluded",
+  "student_html_allowed": false,
+  "review_status": "rejected",
+  "density_notes": "§3.2 Practising opening item: local bank tags A2.8/A2.11 and places this after Check Your Understanding, as a multi-part algebraic rewrite mix (a = 1 and a ≠ 1 appear in the section shape). Later §3.2 Practising rows shift to graphing-calculator max/min and applications (parked here). Use as CTS density oracle only — do not print stem.",
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Read-only local bank .local-data/curriculum/MCF3M/banks/M4/A/items.json. No commercial stem copied into student fields."
+}

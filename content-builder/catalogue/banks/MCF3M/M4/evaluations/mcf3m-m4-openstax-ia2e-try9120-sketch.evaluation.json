@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "sketch-from-standard-via-cts"
+  ],
+  "placement_hint": "core_practice",
+  "fame_checks": {
+    "suitable_as_worked": false,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "After you have (x − 4)^2 − 4, which Lesson 1 reading gives the vertex, the axis, and max vs min — and what did this lesson add?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "A2.11 light: stem forbids the interval laundry list. Plus-inside/h-sign is not the trap here (minus-inside). Watch h-sign-after-cts on other items. A2.11 seed has no example; scoped prompt on a licensed function."
+}

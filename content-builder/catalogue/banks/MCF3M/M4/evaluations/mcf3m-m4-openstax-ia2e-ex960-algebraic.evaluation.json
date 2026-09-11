@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": "understand",
+  "process_tags": [
+    "complete-square-algebraic"
+  ],
+  "placement_hint": "worked_example",
+  "fame_checks": {
+    "suitable_as_worked": true,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "Why must you both add and subtract 9 on the same side of the function, instead of adding 9 to both sides as when solving an equation?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Brief target Apply. Pair with the diagram item (I-do picture / you-do matching algebra, or both worked then fade to Try It 9.119). Answer copied from OpenStax Example 9.60 worked steps."
+}

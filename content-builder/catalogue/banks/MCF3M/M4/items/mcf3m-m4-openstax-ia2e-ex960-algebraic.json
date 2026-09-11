@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "complete-square-algebraic"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "worked_example",
+  "title": "OpenStax IA 2e Ex. 9.60: complete the square for x^2 + 6x + 5",
+  "stem_student": "Rewrite f(x) = x^2 + 6x + 5 in the form f(x) = (x − h)^2 + k by completing the square. Match each algebraic step to the completed-square picture for the same function.",
+  "stem_teacher": "Same licensed function as the diagram companion (mcf3m-m4-openstax-ia2e-ex960-diagram). OpenStax continues to graph by transformations; this lesson stops at the rewrite. Ontario names a(x − h)^2 + k vertex form.",
+  "answer": "f(x) = (x + 3)^2 − 4",
+  "answer_verification": "Copied from OpenStax Intermediate Algebra 2e §9.7 Example 9.60: half of 6 is 3; 3^2 = 9; add and subtract 9; rewrite as (x + 3)^2 − 4. Page then graphs by a left-3 / down-4 shift — that graphing step is not this item.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "openstax-ia2e-9-7-example-9-60",
+  "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Example 9.60 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Explicit completing-the-square rewrite (not the College Algebra 2e vertex-formula How To). Alternating pair with the diagram item on the same function."
+}

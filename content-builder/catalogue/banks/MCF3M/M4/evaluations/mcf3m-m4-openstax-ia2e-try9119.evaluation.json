@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-try9119",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "complete-square-algebraic"
+  ],
+  "placement_hint": "guided_practice",
+  "fame_checks": {
+    "suitable_as_worked": false,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "How is the sign of b handled when you take half of 2 rather than half of 6?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "a = 1 variation after 9.60. Answer is author-computed; OpenStax Answer Key was not copied. practice-designer can fade the last rewrite step first (FAME Fading)."
+}

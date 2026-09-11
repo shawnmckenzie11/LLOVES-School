@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-ia2e-try9118-verify",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "verify-equivalence-tech"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "OpenStax IA 2e Try It 9.118: complete the square and check graphs",
+  "stem_student": "Rewrite f(x) = 2x^2 − 8x + 3 in the form f(x) = a(x − h)^2 + k by completing the square. Then use graphing technology to compare the graph of your vertex form with the graph of the original standard form.",
+  "stem_teacher": "A2.8 verify-with-technology beat on a licensed a ≠ 1 Try It. Completing the square is required; do not switch to the vertex formula. Graphing-technology compare language follows the A2.7/A2.8 seed statements, not a new Ministry example.",
+  "answer": "f(x) = 2(x − 2)^2 − 5. The two graphs coincide.",
+  "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: 2(x^2 − 4x) + 3 = 2(x^2 − 4x + 4) + 3 − 8 = 2(x − 2)^2 − 5. Equivalence is the identity of the rewrite; technology should show one curve. OpenStax student page lists Try It 9.118 without an inline solution; Answer Key was not copied.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "openstax-ia2e-9-7-try-it-9-118",
+  "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.118 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Technology-verify clause is from A2.8 statement (lms/seeds/mcf3m_expectations.json), attached to this licensed rewrite. Not tagged complete-square-factor-a so that slot stays a dedicated fracture item."
+}

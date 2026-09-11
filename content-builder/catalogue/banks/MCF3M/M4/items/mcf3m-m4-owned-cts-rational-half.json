@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-owned-cts-rational-half",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "complete-square-rational-b-over-a"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "core_practice",
+  "title": "Owned: complete the square when b/a = 1/2",
+  "stem_student": "Rewrite f(x) = x^2 + (1/2)x + 1 in the form f(x) = (x − h)^2 + k by completing the square. Use the same steps as the integer-b cases; b/a is the simple rational 1/2.",
+  "stem_teacher": "LLOVES-owned parametric. A2.8 names ½ and 0.75 as examples of simple rational b/a values; the seed has no full example stem. This is not Ministry wording. Same method as a = 1 integer cases, with fractions.",
+  "answer": "f(x) = (x + 1/4)^2 + 15/16",
+  "answer_verification": "Author-computed: half of 1/2 is 1/4; (1/4)^2 = 1/16; add and subtract 1/16; (x + 1/4)^2 + 1 − 1/16 = (x + 1/4)^2 + 15/16. Expand check: (x + 1/4)^2 + 15/16 = x^2 + (1/2)x + 1/16 + 15/16 = x^2 + (1/2)x + 1.",
+  "checker_ref": null,
+  "source": "parametric",
+  "source_id": "mcf3m-m4-owned-cts-rational-half",
+  "source_url": null,
+  "licence": "LLOVES School (original)",
+  "attribution": "LLOVES School MCF3M M4-L2 owned bank (completing the square)",
+  "permitted_use_status": "permitted",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. Seed A2.8 examples array is empty; ½ is quoted from the A2.8 statement as a typical b/a, not as a Ministry stem. OpenStax IA 2e §9.7 / CA 2e §5.1 algebraic sets checked on 2026-09-11 did not yield a clean b/a = 1/2 rewrite item, so this owned family fills that gap."
+}

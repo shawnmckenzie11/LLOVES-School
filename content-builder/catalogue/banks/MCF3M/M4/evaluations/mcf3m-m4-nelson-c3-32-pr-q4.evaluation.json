@@ -1,0 +1,27 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-nelson-c3-32-pr-q4",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "complete-square-algebraic",
+    "complete-square-factor-a"
+  ],
+  "placement_hint": "additional_practice",
+  "fame_checks": {
+    "suitable_as_worked": false,
+    "suitable_for_fading": false,
+    "suitable_for_alternating_pair": false,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": null
+  },
+  "licence_ok": false,
+  "student_html_allowed": false,
+  "remember_only_flag": false,
+  "disposition": "density_oracle_only",
+  "exclusion_reason": "Commercial Nelson Functions 11 excerpt; licence unknown; stem_student must stay null.",
+  "evaluated_by": "bank-curator",
+  "notes": "Density only for §3.2 Practising mix (a = 1 and a ≠ 1 rewrite). OCR unverified. Do not sequence into student HTML. Licensed OpenStax / owned items carry the student load."
+}

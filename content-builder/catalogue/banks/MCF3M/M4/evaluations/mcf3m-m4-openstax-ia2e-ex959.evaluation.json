@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-ex959",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "complete-square-factor-a"
+  ],
+  "placement_hint": "worked_example",
+  "fame_checks": {
+    "suitable_as_worked": true,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "Why is the +1 that completes the square inside the parentheses actually adding −3 to the function, and why do we then add 3 outside?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Dedicated forget-factor-a fracture. Not a mistakes-example unless later signposted as incorrect after competence. Alternate with Try It 9.118 verify item (same a ≠ 1 family, different function)."
+}

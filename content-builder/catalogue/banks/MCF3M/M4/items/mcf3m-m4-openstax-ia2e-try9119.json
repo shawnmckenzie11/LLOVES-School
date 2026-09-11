@@ -1,0 +1,29 @@
+{
+  "schema_version": "bank-item.v1",
+  "id": "mcf3m-m4-openstax-ia2e-try9119",
+  "course_code": "MCF3M",
+  "module": 4,
+  "process_tags": [
+    "complete-square-algebraic"
+  ],
+  "expectation_codes": [
+    "A2.8"
+  ],
+  "placement_hint": "guided_practice",
+  "title": "OpenStax IA 2e Try It 9.119: complete the square for x^2 + 2x − 3",
+  "stem_student": "Rewrite f(x) = x^2 + 2x − 3 in the form f(x) = (x − h)^2 + k by completing the square.",
+  "stem_teacher": "Sign-of-b variation after Example 9.60 (x^2 + 6x + 5). OpenStax Try It 9.119 also asks to graph by transformations; this item is the rewrite only so A2.5/A2.6 are not retaught.",
+  "answer": "f(x) = (x + 1)^2 − 4",
+  "answer_verification": "Author-computed completing-the-square rewrite of the licensed stem: half of 2 is 1; 1^2 = 1; add and subtract 1; (x + 1)^2 − 3 − 1 = (x + 1)^2 − 4. OpenStax student page lists the Try It without an inline solution; Try It answers live in the book Answer Key and were not copied into this record.",
+  "checker_ref": null,
+  "source": "openstax",
+  "source_id": "openstax-ia2e-9-7-try-it-9-119",
+  "source_url": "https://openstax.org/books/intermediate-algebra-2e/pages/9-7-graph-quadratic-functions-using-transformations",
+  "licence": "CC BY-NC-SA 4.0",
+  "attribution": "OpenStax Intermediate Algebra 2e, §9.7 Try It 9.119 (Lynn Marecek, Andrea Honeycutt Mathis). CC BY-NC-SA 4.0. https://openstax.org/books/intermediate-algebra-2e/pages/1-introduction",
+  "permitted_use_status": "non-commercial",
+  "student_html_allowed": true,
+  "review_status": "selected",
+  "density_notes": null,
+  "provenance_notes": "M4-L2 bank fill 2026-09-11. a = 1 variation after the 9.60 worked pair. Same function also appears as College Algebra 2e §5.1 Algebraic #7; this record cites the IA 2e Try It that names completing the square."
+}
