@@ -59,7 +59,7 @@ let openProfilesLoadPromise = null;
 let overlayState = null;
 let pendingAction = null;
 let logContext = null;
-let lastAssignMode = null;
+let lastAssignMode = "balanced";
 let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
@@ -280,7 +280,6 @@ function lockClassListPane() {
 function paintOptionCard() {
   const stage = teacherState.stage;
   const card = $("live-option-card");
-  const hint = $("join-options-hint");
   const teams = $("teams-option-card");
   const meet = $("meet-option-card");
   const round = $("round-option-card");
@@ -289,18 +288,18 @@ function paintOptionCard() {
   const rounds = $("round-slide-settings");
   lockClassListPane();
   if (card) {
-    card.hidden = false;
-    card.removeAttribute("hidden");
+    const showStrip = stage !== "join";
+    card.hidden = !showStrip;
+    if (showStrip) card.removeAttribute("hidden");
   }
-  if (hint) hint.hidden = stage !== "join";
   if (teams) teams.hidden = stage !== "teams";
   if (meet) meet.hidden = stage !== "meet";
   if (round) round.hidden = stage !== "round";
   if (play) play.hidden = stage !== "play";
-  if (teamPane) {
-    teamPane.hidden = stage !== "teams";
-    if (stage === "teams") teamPane.removeAttribute("hidden");
+  if (teamPane && stage !== "teams") {
+    closeTeamsPops();
   }
+  paintTeamsStripEnabled();
   if (rounds) {
     rounds.hidden = stage !== "round";
     if (stage === "round") rounds.removeAttribute("hidden");
@@ -644,39 +643,19 @@ function showPanel(name, opts = {}) {
 }
 
 /**
- * Keep TeamAssignPane mounted; standby when Individual tracking is on.
+ * Enable Assign / Track / Rename from team count (min 1 = no teams).
  */
 function syncTeamFlowVisibility() {
-  const team = trackMode === "team";
-  const pane = $("team-assign-pane");
-  if (pane) {
-    pane.classList.toggle("is-standby", !team);
-    const show = teacherState.stage === "teams";
-    pane.hidden = !show;
-    if (show) pane.removeAttribute("hidden");
-  }
-  document.querySelectorAll("[data-team-flow]").forEach((el) => {
-    if (!(el instanceof HTMLElement)) return;
-    if (el.closest("#team-assign-pane")) {
-      el.hidden = false;
-      el.removeAttribute("hidden");
-      return;
-    }
-    el.hidden = !team;
-  });
+  const team = currentTeamCount() > 1;
+  trackMode = team ? "team" : "individual";
   const rounds = $("ap-panel-rounds");
   if (rounds) {
     rounds.hidden = false;
     rounds.removeAttribute("hidden");
   }
-  const opts = $("ap-track-game-opts");
-  if (opts) opts.hidden = !team;
-  const standby = $("team-assign-standby");
-  if (standby) standby.hidden = team;
+  paintTeamsStripEnabled();
   syncScoreboardPreview();
-  if (team) {
-    renderTeamsPanel();
-  }
+  renderTeamsPanel();
 }
 
 /**
@@ -1594,6 +1573,52 @@ function selectedPresent() {
 }
 
 /**
+ * Team color for a roster id when count > 1.
+ * Uses assigned teams when present; otherwise a balanced preview.
+ * @param {number} studentId
+ * @returns {string|""}
+ */
+function studentTeamColor(studentId) {
+  const nTeams = currentTeamCount();
+  if (nTeams < 2) return "";
+  const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
+  if (assigned.length >= 2) {
+    for (const team of assigned) {
+      for (const member of team.members || []) {
+        if (Number(member.id) === Number(studentId)) {
+          return team.color || teamColorByIndex(Number(team.sort_order) || 0);
+        }
+      }
+    }
+  }
+  const presentIds = overlayState?.present_ids || [];
+  const present = new Set(presentIds.length ? presentIds : selectedPresent());
+  const pool = (overlayState?.students || []).filter((row) =>
+    present.size ? present.has(row.id) : true
+  );
+  if (present.size && !present.has(Number(studentId)) && !present.has(studentId)) return "";
+  const students = sortStudents(pool, nameSort);
+  const ranked = [...students].sort(
+    (a, b) => (Number(b.career_total) || 0) - (Number(a.career_total) || 0)
+  );
+  const scores = Array.from({ length: nTeams }, () => 0);
+  const sizes = Array.from({ length: nTeams }, () => 0);
+  const colors = new Map();
+  for (const row of ranked) {
+    let best = 0;
+    for (let i = 1; i < nTeams; i += 1) {
+      if (scores[i] < scores[best] || (scores[i] === scores[best] && sizes[i] < sizes[best])) {
+        best = i;
+      }
+    }
+    scores[best] += Number(row.career_total) || 0;
+    sizes[best] += 1;
+    colors.set(Number(row.id), teamColorByIndex(best));
+  }
+  return colors.get(Number(studentId)) || "";
+}
+
+/**
  * Draw join-only attendance rows (display-only; no click toggles).
  */
 function renderAttendanceList() {
@@ -1616,6 +1641,11 @@ function renderAttendanceList() {
     row.setAttribute("aria-pressed", present ? "true" : "false");
     const mark = late ? "L" : present ? "✓" : "";
     const face = student.mood ? moodGlyph(student.mood) : "";
+    const teamColor = studentTeamColor(student.id);
+    if (teamColor) {
+      row.classList.add("has-team-color");
+      row.style.setProperty("--team", teamColor);
+    }
     row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
     list.appendChild(row);
   }
@@ -1854,34 +1884,19 @@ async function submitLogParticipation(iso) {
 }
 
 /**
- * Mark one tracking-mode button selected (checkmark) and clear the other.
+ * Set individual vs team from count (no Individual/Teams toggle).
  * @param {"individual"|"team"} mode
  */
 function selectTrackMode(mode) {
   trackMode = mode;
-  const individual = $("ap-gamify-no");
-  const team = $("ap-gamify-yes");
-  for (const [btn, on] of [
-    [individual, mode === "individual"],
-    [team, mode === "team"],
-  ]) {
-    if (!(btn instanceof HTMLElement)) continue;
-    btn.classList.toggle("is-selected", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    const check = btn.querySelector(".ap-att-check");
-    if (check) check.textContent = on ? "✓" : "";
-  }
-  if (mode !== "team" && ["teams", "names"].includes(currentStep)) {
-    showPanel("gamify");
-    return;
-  }
   if (mode === "individual" && draftRound.kind !== "open") {
     draftRound = { kind: "open", minutes: 20, title: "" };
   }
   if (mode === "individual" && nextDraftRound.kind !== "open") {
     nextDraftRound = { kind: "open", minutes: 10, title: "" };
   }
-  syncTeamFlowVisibility();
+  paintTeamsStripEnabled();
+  syncScoreboardPreview();
   if (currentStep === "rounds") renderRoundsPanel();
   updateStepSummaries();
   const nextMode = mode === "team" ? "teams" : "individual";
@@ -1889,6 +1904,7 @@ function selectTrackMode(mode) {
     teacherState.teams_mode = nextMode;
     patchTeacherState({ teams_mode: nextMode }, { silent: true });
   }
+  renderAttendanceList();
 }
 
 for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
@@ -1985,27 +2001,120 @@ $("ap-join-billboard-copy")?.addEventListener("click", (event) => {
 
 $("ap-join-billboard-code")?.addEventListener("click", openJoinStrip);
 
-$("ap-gamify-yes")?.addEventListener("click", () => {
-  if (isScoringLive()) return;
-  selectTrackMode("team");
-});
-
-$("ap-gamify-no")?.addEventListener("click", () => {
-  if (isScoringLive()) return;
-  selectTrackMode("individual");
-});
+const TEAM_COLORS = [
+  "#c8102e",
+  "#0b3d91",
+  "#ffb81c",
+  "#00843d",
+  "#7b2d8e",
+  "#e87722",
+  "#00a3e0",
+  "#5c3317",
+];
 
 /**
- * Team-count bounds from present students.
+ * ESPN-bar color for a 0-based team index.
+ * @param {number} sortOrder
+ * @returns {string}
+ */
+function teamColorByIndex(sortOrder) {
+  return TEAM_COLORS[Math.max(0, Number(sortOrder) || 0) % TEAM_COLORS.length];
+}
+
+/**
+ * Current stepper value (1 = no teams).
+ * @returns {number}
+ */
+function currentTeamCount() {
+  const raw = Number($("ap-n-teams")?.value);
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.round(raw));
+}
+
+/**
+ * Team-count bounds from present students. Min 1 = no teams.
  * @returns {{min:number, max:number}}
  */
 function nTeamsBounds() {
   const present = (overlayState?.present_ids || selectedPresent()).length;
-  return { min: 2, max: Math.max(2, present) };
+  return { min: 1, max: Math.max(2, present) };
 }
 
 /**
- * Clamp team count in the overlay stepper.
+ * Show Assign / Track / Rename only when count > 1.
+ */
+function paintTeamsStripEnabled() {
+  const team = currentTeamCount() > 1;
+  const assign = $("live-teams-assign");
+  if (assign) {
+    assign.hidden = false;
+    assign.setAttribute("aria-disabled", team ? "false" : "true");
+  }
+  const opts = $("ap-track-game-opts");
+  if (opts) {
+    opts.hidden = false;
+    opts.setAttribute("aria-disabled", team ? "false" : "true");
+    opts.querySelectorAll("input").forEach((box) => {
+      if (box instanceof HTMLInputElement) box.disabled = !team;
+    });
+  }
+  const rename = $("ap-teams-rename");
+  if (rename instanceof HTMLButtonElement) {
+    rename.hidden = false;
+    rename.disabled = !team;
+    rename.setAttribute("aria-disabled", team ? "false" : "true");
+  }
+  if (!team) closeTeamsPops();
+}
+
+/**
+ * Open one Teams popup (rename or manual). Never full-bleed under the list.
+ * @param {string} id
+ */
+function openTeamsPop(id) {
+  const pane = $("team-assign-pane");
+  const anchor =
+    $(id === "ap-panel-names" ? "ap-teams-rename" : "ap-assign-manual") ||
+    $("live-option-card");
+  if (pane) {
+    if (anchor) {
+      const box = anchor.getBoundingClientRect();
+      const width = Math.min(320, window.innerWidth - 24);
+      let left = Math.round(box.right - width);
+      if (left < 12) left = 12;
+      if (left + width > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - width - 12);
+      }
+      pane.style.top = `${Math.round(box.bottom + 8)}px`;
+      pane.style.left = `${left}px`;
+      pane.style.right = "auto";
+      pane.style.width = `${width}px`;
+    }
+    pane.hidden = false;
+    pane.removeAttribute("hidden");
+  }
+  for (const popId of ["ap-manual-assign", "ap-panel-names"]) {
+    const el = $(popId);
+    if (!(el instanceof HTMLElement)) continue;
+    el.hidden = popId !== id;
+    if (popId === id) el.removeAttribute("hidden");
+  }
+}
+
+/**
+ * Hide rename + manual popups and their host.
+ */
+function closeTeamsPops() {
+  for (const popId of ["ap-manual-assign", "ap-panel-names"]) {
+    const el = $(popId);
+    if (el) el.hidden = true;
+  }
+  const pane = $("team-assign-pane");
+  if (pane) pane.hidden = true;
+}
+
+/**
+ * Clamp team count in the overlay stepper. Count 1 = individual / no teams.
  * @param {number} value
  */
 function setNTeams(value) {
@@ -2014,8 +2123,18 @@ function setNTeams(value) {
   const el = $("ap-n-teams");
   if (el) {
     el.value = String(n);
+    el.min = String(min);
     el.max = String(max);
   }
+  if (n > 1) {
+    if (trackMode !== "team") lastAssignMode = "balanced";
+    selectAssignMode(lastAssignMode || "balanced");
+    selectTrackMode("team");
+  } else {
+    selectTrackMode("individual");
+  }
+  paintTeamsStripEnabled();
+  renderAttendanceList();
 }
 
 /**
@@ -2036,20 +2155,16 @@ function renderTeamsPanel() {
       ? Boolean(overlayState.show_rank)
       : localStorage.getItem(rankKey) === "1";
   }
-  setNTeams(Number($("ap-n-teams")?.value) || 2);
-  selectAssignMode(lastAssignMode || "balanced");
+  setNTeams(Number($("ap-n-teams")?.value) || 1);
+  if (currentTeamCount() > 1) selectAssignMode(lastAssignMode || "balanced");
 }
 
 /**
  * Show/hide the scoreboard mock preview (below checkbox container, above footer).
  */
 function syncScoreboardPreview() {
-  const opts = $("ap-track-game-opts");
-  const box = $("ap-scoreboard-toggle");
   const wrap = $("ap-scoreboard-preview-wrap");
-  const teamVisible = opts instanceof HTMLElement && !opts.hidden;
-  const checked = box instanceof HTMLInputElement && box.checked;
-  if (wrap) wrap.hidden = !(teamVisible && checked);
+  if (wrap) wrap.hidden = true;
 }
 
 /**
@@ -2068,13 +2183,12 @@ function selectAssignMode(mode) {
     const on = key === mode;
     btn.classList.toggle("is-selected", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
-    const check = btn.querySelector(".ap-att-check");
-    if (check) check.textContent = on ? "✓" : "";
   }
 }
 
 $("ap-n-teams-down")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) - 1));
 $("ap-n-teams-up")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) + 1));
+$("ap-n-teams")?.addEventListener("change", () => setNTeams(Number($("ap-n-teams").value)));
 $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
   const box = event.target;
   if (box instanceof HTMLInputElement) {
@@ -2121,9 +2235,9 @@ async function assign(mode) {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  $("ap-manual-assign")?.classList.add("hidden");
-  renderNamesPanel();
-  showPanel("names");
+  closeTeamsPops();
+  renderAttendanceList();
+  updateStepSummaries();
 }
 
 /**
@@ -2216,19 +2330,22 @@ function paintMeetClock() {
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
+  if (currentTeamCount() < 2) return;
   selectAssignMode("random");
-  $("ap-manual-assign")?.classList.add("hidden");
+  closeTeamsPops();
 });
 $("ap-assign-balanced")?.addEventListener("click", () => {
+  if (currentTeamCount() < 2) return;
   selectAssignMode("balanced");
-  $("ap-manual-assign")?.classList.add("hidden");
+  closeTeamsPops();
 });
 $("ap-assign-manual")?.addEventListener("click", () => {
+  if (currentTeamCount() < 2) return;
   selectAssignMode("manual");
   const nTeams = Number($("ap-n-teams").value);
-  const present = new Set(overlayState.present_ids || selectedPresent());
+  const present = new Set(overlayState?.present_ids || selectedPresent());
   const students = sortStudents(
-    (overlayState.students || []).filter((s) => present.has(s.id)),
+    (overlayState?.students || []).filter((s) => present.has(s.id)),
     nameSort
   );
   const list = $("ap-manual-list");
@@ -2246,8 +2363,9 @@ $("ap-assign-manual")?.addEventListener("click", () => {
       </div>`;
     })
     .join("");
-  $("ap-manual-assign")?.classList.remove("hidden");
+  openTeamsPop("ap-manual-assign");
 });
+$("ap-manual-done")?.addEventListener("click", () => closeTeamsPops());
 /**
  * True when manual team picker sizes differ by at most one student.
  * @returns {boolean}
@@ -2266,10 +2384,14 @@ function manualTeamsBalanced() {
 }
 
 $("ap-teams-next")?.addEventListener("click", () => {
+  if (currentTeamCount() <= 1) {
+    clickExistingNext("ap-gamify-next");
+    return;
+  }
   const mode = lastAssignMode || "balanced";
   if (mode === "manual") {
     const open = $("ap-manual-assign");
-    if (!open || open.classList.contains("hidden")) {
+    if (!open || open.hidden) {
       showError(
         "#ap-overlay-error",
         new Error("Choose Assign Manually and set each student's team, then Next.")
@@ -2344,6 +2466,65 @@ function wireDefaultTeamNameClear(input) {
     }
   });
 }
+
+/**
+ * Persist rename fields without leaving TEAMS.
+ * @returns {Promise<void>}
+ */
+async function saveTeamNamesFromPop() {
+  const teams = [...document.querySelectorAll("#ap-name-list input")]
+    .map((el) => ({
+      id: Number(el.dataset.teamId),
+      name: el.value,
+    }))
+    .filter((row) => Number.isFinite(row.id) && row.id > 0);
+  if (!teams.length) return;
+  overlayState = await api(`/api/classes/${classId}/game/rename`, {
+    method: "POST",
+    body: JSON.stringify({ teams, go_live: false }),
+  });
+  renderAttendanceList();
+  updateStepSummaries();
+}
+
+/**
+ * Draft Team 1..N fields when assign has not run yet.
+ */
+function renderDraftNamesPanel() {
+  const box = $("ap-name-list");
+  if (!box) return;
+  const n = currentTeamCount();
+  box.innerHTML = "";
+  for (let i = 0; i < n; i += 1) {
+    const wrap = document.createElement("div");
+    wrap.className = "team-preview";
+    wrap.innerHTML = `<label class="field">Team ${i + 1}<input type="text" data-team-index="${i}" value="Team ${i + 1}"></label>`;
+    box.appendChild(wrap);
+    const input = wrap.querySelector("input");
+    if (input instanceof HTMLInputElement) wireDefaultTeamNameClear(input);
+  }
+}
+
+$("ap-teams-rename")?.addEventListener("click", async () => {
+  if (currentTeamCount() < 2 || isScoringLive()) return;
+  try {
+    const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
+    if (assigned.length >= 2) {
+      renderNamesPanel();
+    } else {
+      renderDraftNamesPanel();
+    }
+    openTeamsPop("ap-panel-names");
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
+
+$("ap-teams-rename-done")?.addEventListener("click", () => {
+  saveTeamNamesFromPop()
+    .then(() => closeTeamsPops())
+    .catch((err) => showError("#ap-overlay-error", err));
+});
 
 $("ap-start-game")?.addEventListener("click", async () => {
   pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
@@ -3116,9 +3297,15 @@ async function resumeLiveClassIfNeeded() {
       }
       renderAttendanceList();
       if (status === "teams" || status === "names") {
-        selectTrackMode("team");
+        const nAssigned = (state.teams || []).filter((team) => team.name !== "Class").length;
+        if (nAssigned >= 2) setNTeams(nAssigned);
+        else selectTrackMode("team");
         renderTeamsPanel();
-        showPanel(status === "names" ? "names" : "teams");
+        showPanel("teams");
+        if (status === "names") {
+          renderNamesPanel();
+          openTeamsPop("ap-panel-names");
+        }
       } else if (status === "rounds") {
         selectTrackMode("team");
         showPanel("rounds");

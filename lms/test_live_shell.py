@@ -88,7 +88,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-option-card"', html)
         self.assertIn("live-options-strip", html)
-        self.assertIn('id="join-options-hint"', html)
+        self.assertNotIn('id="join-options-hint"', html)
+        self.assertNotIn("Waiting for students to join.", html)
         self.assertIn('id="teams-option-card"', html)
         self.assertIn('id="meet-option-card"', html)
         self.assertIn('id="round-option-card"', html)
@@ -138,11 +139,14 @@ class LiveShellTests(unittest.TestCase):
             "ap-att-list",
             "ap-att-log",
             "ap-allow-guests",
-            "ap-gamify-no",
-            "ap-gamify-yes",
             "ap-gamify-next",
             "ap-n-teams",
             "ap-assign-balanced",
+            "ap-assign-random",
+            "ap-assign-manual",
+            "ap-scoreboard-toggle",
+            "ap-rank-toggle",
+            "ap-teams-rename",
             "ap-teams-next",
             "ap-meet-start",
             "ap-meet-minutes",
@@ -256,7 +260,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('for (const id of ["live-shell-left", "class-list-pane"', js)
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
-        self.assertIn('if (hint) hint.hidden = stage !== "join";', js)
+        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertIn("card.hidden = !showStrip;", js)
         self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
         self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
@@ -377,6 +382,88 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('patchTeacherState({', reveal)
         self.assertIn("mc_ui:", reveal)
         self.assertNotIn("innerHTML", js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0])
+
+    def test_beat3_teams_strip_is_one_condensed_row(self) -> None:
+        """Beat 3: TEAMS OptionsStrip is count / assign / track / rename only."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="teams-option-card"', html)
+        self.assertIn("live-teams-strip", html)
+        self.assertIn('id="ap-n-teams"', html)
+        self.assertIn('min="1"', html)
+        self.assertIn('id="ap-n-teams-down"', html)
+        self.assertIn('id="ap-n-teams-up"', html)
+        self.assertIn('id="live-teams-assign"', html)
+        self.assertIn(">Balanced<", html)
+        self.assertIn(">Random<", html)
+        self.assertIn(">Manual<", html)
+        self.assertIn('id="ap-scoreboard-toggle"', html)
+        self.assertIn('id="ap-rank-toggle"', html)
+        self.assertIn(">Scoreboard<", html)
+        self.assertIn(">Rank<", html)
+        self.assertIn('id="ap-teams-rename"', html)
+        self.assertIn(">Rename<", html)
+        self.assertIn('id="ap-manual-assign"', html)
+        self.assertIn('id="ap-panel-names"', html)
+        self.assertIn('id="team-assign-pane"', html)
+        self.assertNotIn("Individual (1) vs teams", html)
+        self.assertNotIn('id="ap-gamify-no"', html)
+        self.assertNotIn('id="ap-gamify-yes"', html)
+        self.assertNotIn("Team assign unlocks when Tracking is Team", html)
+        self.assertNotIn("Number of teams", html)
+        self.assertNotIn("Assign Balanced", html)
+        self.assertNotIn("Assign Randomly", html)
+        self.assertNotIn("Assign Manually", html)
+        self.assertNotIn("Run as Game", html)
+        strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
+        self.assertIn('id="ap-n-teams"', strip_html)
+        self.assertIn('id="ap-assign-balanced"', strip_html)
+        self.assertIn('id="ap-scoreboard-toggle"', strip_html)
+        self.assertIn('id="ap-rank-toggle"', strip_html)
+        self.assertIn('id="ap-teams-rename"', strip_html)
+        self.assertLess(strip_html.find('id="ap-n-teams"'), strip_html.find('id="live-teams-assign"'))
+        self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="ap-track-game-opts"'))
+        self.assertLess(strip_html.find('id="ap-track-game-opts"'), strip_html.find('id="ap-teams-rename"'))
+        self.assertLess(strip_html.find('id="ap-teams-rename"'), strip_html.find('id="team-assign-pane"'))
+        body_i = html.index('class="live-shell-body"')
+        self.assertLess(html.index('id="team-assign-pane"'), body_i)
+        self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-teams-strip {", css)
+        teams_css = css.split("body.staff-shell .live-teams-strip {")[1].split(
+            "body.staff-shell .live-teams-strip .live-teams-count {"
+        )[0]
+        self.assertIn("flex-wrap: nowrap", teams_css)
+        self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
+        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
+        pop_css = css.split("body.staff-shell .live-options-strip #team-assign-pane {")[1].split(
+            "body.staff-shell #team-assign-pane[hidden]"
+        )[0]
+        self.assertIn("position: fixed", pop_css)
+        self.assertNotIn("flex: 1 1 auto", pop_css)
+        self.assertIn("#class-list-pane .ap-att-row.has-team-color .ap-att-name", css)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function currentTeamCount()", js)
+        self.assertIn("function paintTeamsStripEnabled()", js)
+        self.assertIn("function openTeamsPop(", js)
+        self.assertIn("getBoundingClientRect()", js)
+        self.assertIn("function studentTeamColor(", js)
+        self.assertIn("return { min: 1, max: Math.max(2, present) }", js)
+        self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
+        self.assertIn("has-team-color", js)
+        self.assertNotIn('id="ap-gamify-no"', js)
+        self.assertNotIn("$(\"ap-gamify-yes\")", js)
+        self.assertNotIn("Team assign unlocks when Tracking is Team", js)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
+        self.assertNotIn("Waiting for students to join.", html)
+        self.assertNotIn("join-options-hint", html)
+        self.assertNotIn("live-options-hint", css)
+        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertRegex(
+            html,
+            r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
+        )
 
 
 if __name__ == "__main__":

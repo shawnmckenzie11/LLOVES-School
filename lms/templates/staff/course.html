@@ -149,111 +149,70 @@
         </div>
       </header>
 
-      <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options">
-        <p class="live-options-hint" id="join-options-hint">Waiting for students to join.</p>
-        <div id="teams-option-card" class="live-option-card-body" hidden>
-          <div id="ap-panel-gamify" class="live-track-chip ap-panel" data-step="gamify">
-            <span class="live-track-chip-label">Individual (1) vs teams</span>
-            <span id="ap-gamify-summary" class="live-track-chip-meta"></span>
-            <button type="button" class="live-track-opt is-selected" id="ap-gamify-no" aria-pressed="true">
-              <span class="ap-att-check" aria-hidden="true">✓</span>
-              <span class="ap-att-name">Individual</span>
-            </button>
-            <button type="button" class="live-track-opt" id="ap-gamify-yes" aria-pressed="false">
-              <span class="ap-att-check" aria-hidden="true"></span>
-              <span class="ap-att-name">Teams</span>
-            </button>
-            <button type="button" class="track-nav-next live-chip-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
+      <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
+        <div id="teams-option-card" class="live-option-card-body live-teams-strip" hidden>
+          <div class="stepper ap-teams-stepper live-teams-count" role="group" aria-label="Team count">
+            <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
+            <input id="ap-n-teams" type="number" min="1" value="1" inputmode="numeric" aria-label="Team count">
+            <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
           </div>
-          <section id="team-assign-pane" class="live-pane is-standby" hidden>
-            <p class="live-standby-hint" id="team-assign-standby">Team assign unlocks when Tracking is Team.</p>
-            <section id="ap-panel-teams" class="ap-panel" data-step="teams" data-team-flow>
-              <h2 class="live-pane-title">Teams <span id="ap-teams-summary" class="live-pane-meta"></span></h2>
-              <label class="field" for="ap-n-teams">Number of teams</label>
-              <div class="stepper ap-teams-stepper">
-                <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
-                <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric">
-                <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
-              </div>
-              <div class="ap-choice-stack ap-assign-stack">
-                <button type="button" class="ap-track-btn is-selected" id="ap-assign-balanced" aria-pressed="true">
-                  <span class="ap-att-check" aria-hidden="true">✓</span>
-                  <span class="ap-att-name">Assign Balanced</span>
-                </button>
-                <p class="hint">Split by prior participation totals for fair teams.</p>
-                <button type="button" class="ap-track-btn" id="ap-assign-random" aria-pressed="false">
-                  <span class="ap-att-check" aria-hidden="true"></span>
-                  <span class="ap-att-name">Assign Randomly</span>
-                </button>
-                <p class="hint">Shuffle present students into teams.</p>
-                <button type="button" class="ap-track-btn" id="ap-assign-manual" aria-pressed="false">
-                  <span class="ap-att-check" aria-hidden="true"></span>
-                  <span class="ap-att-name">Assign Manually</span>
-                </button>
-                <p class="hint">Pick each student&apos;s team before continuing.</p>
-              </div>
-              <div id="ap-manual-assign" class="hidden">
-                <div id="ap-manual-list" class="manual-list"></div>
-              </div>
-              <div class="ap-track-game-opts" id="ap-track-game-opts" hidden>
-                <div class="ap-game-opt-row">
-                  <label class="scoreboard-opt" for="ap-scoreboard-toggle">
-                    <input type="checkbox" id="ap-scoreboard-toggle" checked>
-                    <span class="ap-game-opt-copy">
-                      <span class="ap-game-opt-title">Run as Game</span>
-                      <span class="hint compact">Include scoreboard during class</span>
-                    </span>
-                  </label>
-                </div>
-                <div class="ap-game-opt-row">
-                  <label class="scoreboard-opt" for="ap-rank-toggle">
-                    <input type="checkbox" id="ap-rank-toggle">
-                    <span class="ap-game-opt-copy">
-                      <span class="ap-game-opt-title">Allow students to privately see their rank in class</span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-              <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
-                <div class="scoreboard-preview" aria-hidden="true">
-                  <div class="sb-preview-top">
-                    <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
-                    <span class="sb-preview-clock">19:16</span>
-                  </div>
-                  <div class="sb-preview-teams">
-                    <div class="sb-preview-team sb-preview-team--1">
-                      <span class="sb-preview-name">TEAM 1</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                    <div class="sb-preview-team sb-preview-team--2">
-                      <span class="sb-preview-name">TEAM 2</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                    <div class="sb-preview-team sb-preview-team--3">
-                      <span class="sb-preview-name">TEAM 3</span>
-                      <span class="sb-preview-score">0</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="live-pane-footer live-legacy-control">
-                <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
-                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-                <button type="button" class="track-nav-next" id="ap-teams-next" data-track-nav="next">Next →</button>
-              </div>
-            </section>
-            <section id="ap-panel-names" class="ap-panel" data-step="names" data-team-flow>
-              <h2 class="live-pane-title">Meet your team <span id="ap-names-summary" class="live-pane-meta"></span></h2>
+          <div class="live-teams-assign" id="live-teams-assign" role="group" aria-label="Assign" aria-disabled="true">
+            <button type="button" class="live-round-pick is-selected" id="ap-assign-balanced" aria-pressed="true">Balanced</button>
+            <button type="button" class="live-round-pick" id="ap-assign-random" aria-pressed="false">Random</button>
+            <button type="button" class="live-round-pick" id="ap-assign-manual" aria-pressed="false">Manual</button>
+          </div>
+          <div class="live-teams-track" id="ap-track-game-opts" aria-disabled="true">
+            <label class="live-unlock-toggle" for="ap-scoreboard-toggle">
+              <input type="checkbox" id="ap-scoreboard-toggle" checked>
+              <span>Scoreboard</span>
+            </label>
+            <label class="live-unlock-toggle" for="ap-rank-toggle">
+              <input type="checkbox" id="ap-rank-toggle">
+              <span>Rank</span>
+            </label>
+          </div>
+          <button type="button" class="live-round-pick" id="ap-teams-rename" disabled aria-disabled="true">Rename</button>
+          <span id="ap-gamify-summary" class="live-legacy-control"></span>
+          <span id="ap-teams-summary" class="live-legacy-control"></span>
+          <button type="button" class="live-legacy-control" id="ap-gamify-next" data-track-nav="next">Next →</button>
+          <button type="button" class="live-legacy-control" id="ap-teams-next" data-track-nav="next">Next →</button>
+          <button type="button" class="live-legacy-control" id="ap-start-game" data-track-nav="next">Next →</button>
+          <section id="team-assign-pane" class="live-teams-pops" hidden>
+            <div id="ap-manual-assign" class="live-teams-pop" hidden>
+              <div id="ap-manual-list" class="manual-list"></div>
+              <button type="button" id="ap-manual-done">Done</button>
+            </div>
+            <div id="ap-panel-names" class="live-teams-pop" hidden>
               <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
+              <span id="ap-names-summary" class="live-legacy-control"></span>
               <div id="ap-name-list" class="ap-name-list-compact"></div>
-              <div class="live-pane-footer live-legacy-control">
-                <button type="button" class="secondary track-nav-prev" id="ap-names-back" data-track-nav="prev">← Prev</button>
-                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-                <button type="button" class="track-nav-next" id="ap-start-game" data-track-nav="next">Next →</button>
+              <button type="button" id="ap-teams-rename-done">Done</button>
+              <button type="button" class="live-legacy-control" id="ap-names-back" data-track-nav="prev">← Prev</button>
+            </div>
+            <section id="ap-panel-teams" class="ap-panel live-legacy-control" data-step="teams" data-team-flow></section>
+            <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
+              <div class="scoreboard-preview" aria-hidden="true">
+                <div class="sb-preview-top">
+                  <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
+                  <span class="sb-preview-clock">19:16</span>
+                </div>
+                <div class="sb-preview-teams">
+                  <div class="sb-preview-team sb-preview-team--1">
+                    <span class="sb-preview-name">TEAM 1</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--2">
+                    <span class="sb-preview-name">TEAM 2</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                  <div class="sb-preview-team sb-preview-team--3">
+                    <span class="sb-preview-name">TEAM 3</span>
+                    <span class="sb-preview-score">0</span>
+                  </div>
+                </div>
               </div>
-            </section>
+            </div>
           </section>
-          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start Meet</button>
         </div>
         <div id="meet-option-card" class="live-option-card-body" hidden>
           <label class="field" for="ap-meet-minutes">Meet timer (min)</label>
@@ -265,6 +224,7 @@
             </div>
             <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
           </div>
+          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start Meet</button>
           <button type="button" id="meet-chain-skip-c" class="secondary">Skip C</button>
           <button type="button" id="meet-chain-end" class="secondary">End Meet</button>
         </div>
