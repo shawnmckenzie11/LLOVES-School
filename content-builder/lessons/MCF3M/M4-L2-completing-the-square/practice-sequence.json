@@ -1,0 +1,250 @@
+{
+  "schema_version": "practice-sequence.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "processes": [
+    {
+      "id": "expand-cts-shared-model-revisit",
+      "name": "On one shared quadratic, reverse Lesson 1 expand (vertex→standard) with completing the square (standard→vertex) and confirm both directions leave the graph unchanged (A2.7 review only)",
+      "support_fade": {
+        "worked": "mcf3m-m4-ontario-a27-cts-revisit",
+        "variation": "mcf3m-m4-ontario-a27-cts-revisit",
+        "partial": "mcf3m-m4-ontario-a27-cts-revisit",
+        "independent": "mcf3m-m4-ontario-a27-cts-revisit",
+        "retrieval": "mcf3m-m4-openstax-ia2e-try9118-verify"
+      }
+    },
+    {
+      "id": "complete-square-diagram",
+      "name": "Complete the square with algebra tiles or an area diagram (a = 1, integer b) so the completed square and leftover constant are visible before algebra",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+        "variation": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+        "partial": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+        "independent": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+        "retrieval": "mcf3m-m4-openstax-ia2e-ex960-algebraic"
+      }
+    },
+    {
+      "id": "complete-square-algebraic",
+      "name": "Algebraically complete the square for f(x) = x^2 + bx + c (a = 1) to produce (x − h)^2 + k",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+        "variation": "mcf3m-m4-openstax-ia2e-try9119",
+        "partial": "mcf3m-m4-openstax-ia2e-try9119",
+        "independent": "mcf3m-m4-openstax-ia2e-try9119",
+        "retrieval": "mcf3m-m4-openstax-ia2e-try9118-verify"
+      }
+    },
+    {
+      "id": "complete-square-factor-a",
+      "name": "When a ≠ 1, factor a from the x^2 and x terms before completing the square, then finish to a(x − h)^2 + k",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-ia2e-ex959",
+        "variation": "mcf3m-m4-openstax-ia2e-ex959",
+        "partial": "mcf3m-m4-openstax-ia2e-ex959",
+        "independent": "mcf3m-m4-openstax-ia2e-ex959",
+        "retrieval": "mcf3m-m4-openstax-ia2e-try9118-verify"
+      }
+    },
+    {
+      "id": "complete-square-rational-b-over-a",
+      "name": "Complete the square when b/a is a simple rational (Ministry e.g. ½, 0.75), as variation after integer cases",
+      "support_fade": {
+        "worked": "mcf3m-m4-owned-cts-rational-half",
+        "variation": "mcf3m-m4-owned-cts-rational-half",
+        "partial": "mcf3m-m4-owned-cts-rational-half",
+        "independent": "mcf3m-m4-owned-cts-rational-half",
+        "retrieval": "mcf3m-m4-openstax-ia2e-try9120-sketch"
+      }
+    },
+    {
+      "id": "verify-equivalence-tech",
+      "name": "After producing vertex form, verify with graphing technology that standard and vertex writings are equivalent representations",
+      "support_fade": {
+        "worked": "mcf3m-m4-ontario-a27-cts-revisit",
+        "variation": "mcf3m-m4-openstax-ia2e-try9118-verify",
+        "partial": "mcf3m-m4-openstax-ia2e-try9118-verify",
+        "independent": "mcf3m-m4-openstax-ia2e-try9118-verify",
+        "retrieval": "mcf3m-m4-ontario-a27-cts-revisit"
+      }
+    },
+    {
+      "id": "sketch-from-standard-via-cts",
+      "name": "From standard form, complete the square to obtain vertex, axis, and max/min, then sketch those key features only (A2.11 light)",
+      "support_fade": {
+        "worked": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+        "variation": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+        "partial": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+        "independent": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+        "retrieval": "mcf3m-m4-owned-strategy-cts-vs-factor"
+      }
+    },
+    {
+      "id": "strategy-choose-cts-vs-factor",
+      "name": "Choose a suitable sketch strategy — completing the square for the vertex, or factoring when intercepts are friendly — with criteria (light; no formula)",
+      "support_fade": {
+        "worked": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "variation": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "partial": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "independent": "mcf3m-m4-owned-strategy-cts-vs-factor",
+        "retrieval": "mcf3m-m4-openstax-ia2e-try9120-sketch"
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "source_ref": "mcf3m-m4-ontario-a27-cts-revisit",
+      "title": "A2.7 sample flipped: expand then complete the square on 3(x − 1)^2 + 4",
+      "placement": "worked_example",
+      "process_id": "expand-cts-shared-model-revisit",
+      "purpose": "Bloom Analyze/Apply (brief target Analyze; A2.7 REVIEW only). Required expand↔CTS revisit on the shared Ministry sample function. FAME Fading worked + Explanation (thin 1-item slot: same id reused for variation/partial/independent): show vertex→standard expand beside standard→vertex CTS and confirm both leave the graph unchanged; self-explanation how a different graph after CTS would contradict inverse rewrite. Also fills verify-equivalence-tech worked/retrieval. Bank id mcf3m-m4-ontario-a27-cts-revisit (approved). Quote seed A2.7 sample only; do not invent Ministry wording.",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+      "title": "OpenStax IA 2e Ex. 9.60: tiles/area for x^2 + 6x + 5",
+      "placement": "worked_example",
+      "process_id": "complete-square-diagram",
+      "purpose": "Bloom Understand. FAME Fading worked + Explanation (thin 1-item slot for diagram): fully explained tiles/area I-do so the completed square and leftover constant are visible before algebra; think-aloud why splitting six x-tiles names the leftover. FAME Alternating pair with ex960-algebraic on the same function. Bank id mcf3m-m4-openstax-ia2e-ex960-diagram (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-ex960-algebraic",
+      "title": "OpenStax IA 2e Ex. 9.60: complete the square for x^2 + 6x + 5",
+      "placement": "worked_example",
+      "process_id": "complete-square-algebraic",
+      "purpose": "Bloom Apply/Understand. FAME Fading worked + Explanation: match algebraic steps to the 9.60 diagram on the same function; think-aloud why add-and-subtract 9 on one side (rewrite, not solve). Retrieval for complete-square-diagram. FAME Alternating I-do before try9119 you-do. Bank id mcf3m-m4-openstax-ia2e-ex960-algebraic (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-try9119",
+      "title": "OpenStax IA 2e Try It 9.119: complete the square for x^2 + 2x − 3",
+      "placement": "guided_practice",
+      "process_id": "complete-square-algebraic",
+      "purpose": "Bloom Apply. FAME Alternating you-do after 9.60 algebraic I-do; FAME Fading variation/partial/independent (thin reuse of this one licensed a=1 sign-of-b variation — fade last rewrite step first). Do not reteach transformations. Bank id mcf3m-m4-openstax-ia2e-try9119 (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-ex959",
+      "title": "OpenStax IA 2e Ex. 9.59: factor a = −3 before completing the square",
+      "placement": "worked_example",
+      "process_id": "complete-square-factor-a",
+      "purpose": "Bloom Apply. FAME Fading worked + Explanation (thin 1-item slot): isolate factoring a from the x^2 and x terms before completing the square; think-aloud why forgetting that step (forget-factor-a) breaks the inside of the square. Bank id mcf3m-m4-openstax-ia2e-ex959 (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-owned-cts-rational-half",
+      "title": "Owned: complete the square when b/a = 1/2",
+      "placement": "core_practice",
+      "process_id": "complete-square-rational-b-over-a",
+      "purpose": "Bloom Apply. FAME Fading independent/core after integer a=1 cases (thin 1-item slot): same CTS steps when b/a = 1/2; not a new method and not Ministry wording (A2.8 examples array empty; ½ quoted from the A2.8 statement only). Bank id mcf3m-m4-owned-cts-rational-half (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-try9118-verify",
+      "title": "OpenStax IA 2e Try It 9.118: complete the square and check graphs",
+      "placement": "guided_practice",
+      "process_id": "verify-equivalence-tech",
+      "purpose": "Bloom Apply. FAME Alternating student tech-verify after the shared-model revisit; fills verify-equivalence-tech variation/partial/independent and retrieval for expand-cts-shared-model-revisit, complete-square-algebraic, and complete-square-factor-a. Technology-compare language follows A2.8 statement, not a new Ministry example. Bank id mcf3m-m4-openstax-ia2e-try9118-verify (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-openstax-ia2e-try9120-sketch",
+      "title": "OpenStax IA 2e Try It 9.120: sketch key features via CTS",
+      "placement": "core_practice",
+      "process_id": "sketch-from-standard-via-cts",
+      "purpose": "Bloom Apply. FAME Fading independent/core for A2.11 light (thin 1-item slot): CTS → vertex, axis, max/min → sketch those features only; no interval laundry list. Retrieval for complete-square-rational-b-over-a and strategy-choose-cts-vs-factor. Bank id mcf3m-m4-openstax-ia2e-try9120-sketch (approved).",
+      "visible_by_default": true
+    },
+    {
+      "source_ref": "mcf3m-m4-owned-strategy-cts-vs-factor",
+      "title": "Owned: choose CTS vs factoring to sketch (light)",
+      "placement": "additional_practice",
+      "process_id": "strategy-choose-cts-vs-factor",
+      "purpose": "Bloom Analyze. FAME Fading additional / thin 1-item slot for strategy-choose-cts-vs-factor; criteria for CTS-vs-factor sketch (not a random pick; no formula). Not visible by default (Try another). Retrieval for sketch-from-standard-via-cts. Bank id mcf3m-m4-owned-strategy-cts-vs-factor (approved). FAME Mistakes: no signposted incorrect worked example in this approved bank — hand to formative-feedback-designer.",
+      "visible_by_default": false
+    },
+    {
+      "source_ref": "mcf3m-m4-nelson-c3-32-pr-q4",
+      "title": "Nelson §3.2 Practising: algebraic CTS mix (oracle only)",
+      "placement": "excluded",
+      "purpose": "Density oracle only for algebraic CTS mix (a = 1 and a ≠ 1). Not in bank-sourced-candidates (student_html_allowed false).",
+      "visible_by_default": false,
+      "exclusion_reason": "Nelson Functions 11 — student_html_allowed false. Density oracle only; do not print stem in student HTML."
+    }
+  ],
+  "sets": [
+    {
+      "id": "revisit-expand-cts",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-ontario-a27-cts-revisit"
+      ]
+    },
+    {
+      "id": "worked-diagram",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-ex960-diagram"
+      ]
+    },
+    {
+      "id": "worked-algebraic",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-ex960-algebraic"
+      ]
+    },
+    {
+      "id": "guided-algebraic-you-do",
+      "placement": "guided_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-try9119"
+      ]
+    },
+    {
+      "id": "worked-factor-a",
+      "placement": "worked_example",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-ex959"
+      ]
+    },
+    {
+      "id": "core-rational",
+      "placement": "core_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-owned-cts-rational-half"
+      ]
+    },
+    {
+      "id": "guided-verify",
+      "placement": "guided_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-try9118-verify"
+      ]
+    },
+    {
+      "id": "core-sketch",
+      "placement": "core_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-openstax-ia2e-try9120-sketch"
+      ]
+    },
+    {
+      "id": "additional-strategy",
+      "placement": "additional_practice",
+      "visible_count": 1,
+      "item_refs": [
+        "mcf3m-m4-owned-strategy-cts-vs-factor"
+      ]
+    }
+  ]
+}

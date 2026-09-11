@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-try9118-verify",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "apply",
+  "bloom_secondary": null,
+  "process_tags": [
+    "verify-equivalence-tech"
+  ],
+  "placement_hint": "guided_practice",
+  "fame_checks": {
+    "suitable_as_worked": false,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "If the two graphs land on top of each other, what does that tell you about completing the square — did the curve move?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Targets misconception cts-changes-graph. Rewrite answer is author-computed. Can alternate after Example 9.59 (factor-a worked) before independent verify."
+}

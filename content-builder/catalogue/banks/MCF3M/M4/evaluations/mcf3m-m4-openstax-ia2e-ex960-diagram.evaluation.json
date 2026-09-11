@@ -1,0 +1,26 @@
+{
+  "schema_version": "bank-item-evaluation.v1",
+  "bank_item_id": "mcf3m-m4-openstax-ia2e-ex960-diagram",
+  "course_code": "MCF3M",
+  "module": 4,
+  "bloom_level": "understand",
+  "bloom_secondary": null,
+  "process_tags": [
+    "complete-square-diagram"
+  ],
+  "placement_hint": "worked_example",
+  "fame_checks": {
+    "suitable_as_worked": true,
+    "suitable_for_fading": true,
+    "suitable_for_alternating_pair": true,
+    "mistakes_example_ok": false,
+    "explanation_prompt_suggested": "Why does splitting the six x-tiles into two equal sides let you name the leftover constant before any algebra?"
+  },
+  "licence_ok": true,
+  "student_html_allowed": true,
+  "remember_only_flag": false,
+  "disposition": "include",
+  "exclusion_reason": null,
+  "evaluated_by": "bank-curator",
+  "notes": "Brief target Understand. Alternate with mcf3m-m4-openstax-ia2e-ex960-algebraic on the same function (FAME Alternating). CC BY-NC-SA 4.0 from IA 2e preface; non-commercial school HTML matches existing M4 OpenStax pattern. review_status selected — Shawn gates approve."
+}
