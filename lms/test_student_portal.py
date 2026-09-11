@@ -871,6 +871,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertFalse(live_prompt["waiting_room"])
         payload = live_prompt["prompt"]["payload"]
         self.assertEqual(payload["item_id"], "meet-team")
+        self.assertEqual(payload["step"], "A")
+        self.assertEqual(payload["chain"], ["A", "C", "B"])
         self.assertEqual(payload["prompt"], MEET_TEAM_PROMPT)
         self.assertEqual(len(payload["choices"]), 5)
         for fixed in MEET_TEAM_FIXED_CHOICES:
@@ -922,6 +924,9 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("Waiting room — class is about to begin.", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
+        self.assertNotIn("cue.meet_a", js)
+        self.assertNotIn("cue.meet_c", js)
+        self.assertNotIn("cue.meet_b", js)
         self.assertNotIn("carousel", js.lower())
         self.assertNotIn("data.items", js)
         self.assertNotIn("payload.items", js)

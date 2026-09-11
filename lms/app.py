@@ -85,6 +85,7 @@ from live_media import (  # noqa: E402
 )
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
+from meet_team import is_meet_team_payload  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -3350,6 +3351,40 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         prompt_id = int(body.get("prompt_id") or active["id"])
         if prompt_id != int(active["id"]):
             return jsonify({"ok": False, "error": "Prompt is no longer active."}), 409
+        meet_payload = active.get("payload") or {}
+        if is_meet_team_payload(meet_payload):
+            choice = ""
+            if isinstance(response, dict):
+                choice = str(
+                    response.get("choice") or response.get("text") or ""
+                ).strip()
+            recorded = school.record_meet_chain_pick(
+                live_session_id,
+                participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+                student_id=int(student_id) if student_id not in (None, "") else None,
+                choice=choice,
+            )
+            my_response = {
+                "response": {"choice": choice},
+                "awarded_points": None,
+                "updated_at": None,
+                "ephemeral": True,
+            }
+            body: dict[str, Any] = {
+                "ok": True,
+                "ack": True,
+                "my_response": my_response,
+                "meet_chip": school.student_meet_chip(
+                    live_session_id,
+                    participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+                    student_id=int(student_id)
+                    if student_id not in (None, "")
+                    else None,
+                ),
+            }
+            if recorded is None and not choice:
+                return jsonify({"ok": False, "error": "Meet is not live."}), 409
+            return jsonify(body)
         try:
             saved = school.submit_live_prompt_response(
                 prompt_id,
@@ -3695,7 +3730,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         POST JSON may include ``advance`` (``next`` / ``prev``) to move
         ``stage`` only, plus any subset of stage / round / teams_mode /
-        layout_preset / frames / active_tab / refs / cue_id. Does not
+        layout_preset / frames / active_tab / refs / cue_id / meet_chain,
+        or ``meet_action`` (``next`` / ``skip_c`` / ``clear``). Does not
         duplicate ``active_media`` or prompt payloads. ``canvas_ephemeral``
         is always true.
         """
@@ -3728,6 +3764,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "active_media_ref",
             "prompt_ref",
             "cue_id",
+            "meet_chain",
+            "meet_action",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
@@ -4769,7 +4807,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/assign", methods=["POST"])
     @login_required
     def api_assign(class_id: int):
-        """Assign teams and seed the Meet Your Team warm-up."""
+        """Assign teams and leave waiting-room Minds-On (JOIN). Meet mounts later."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
@@ -4782,7 +4820,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 str(body.get("mode") or ""),
                 assignments=raw_assignments,
             )
-            school.activate_meet_team_warmup_for_class(class_id)
+            school.clear_waiting_room_minds_on_for_class(class_id)
             return state
 
         return _staff_post(class_id, run)
@@ -4847,7 +4885,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/meet-teams", methods=["POST"])
     @login_required
     def api_meet_teams(class_id: int):
-        """Start Meet the Teams overlay and seed the teammate warm-up."""
+        """Start Meet overlay timer and mount the QH chain at A."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""

@@ -20,14 +20,23 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from meet_team import (  # noqa: E402
+    CUE_MEET_CLEAR,
+    CUE_MEET_OPEN,
+    MEET_CHAIN_DEFAULT,
+    MEET_NEED_POOL,
+    MEET_SPARK_POOL,
     MEET_TEAM_FIXED_CHOICES,
     MEET_TEAM_ITEM_ID,
     MEET_TEAM_LABEL,
     MEET_TEAM_PROMPT,
     MEET_TEAM_WARMUP_POOL,
+    advance_meet_chain,
     is_meet_team_payload,
+    meet_step_payload,
     meet_team_choices,
     meet_team_prompt_payload,
+    new_meet_chain_state,
+    skip_meet_c,
 )
 from minds_on import is_minds_on_payload  # noqa: E402
 from quick_hitter import (  # noqa: E402
@@ -55,13 +64,20 @@ class MeetTeamHelperTests(unittest.TestCase):
         self.assertTrue(payload["ephemeral"])
         self.assertFalse(payload["durable_store"])
         self.assertEqual(payload["clear_on"], CLEAR_ON_TEAM_CHALLENGE)
-        self.assertEqual(payload["chain_length"], 1)
+        self.assertEqual(payload["step"], "A")
+        self.assertEqual(payload["chain"], ["A", "C", "B"])
+        self.assertEqual(payload["chain_index"], 1)
+        self.assertEqual(payload["chain_length"], 3)
         self.assertEqual(len(payload["items"]), 1)
         self.assertNotIn("key", payload)
         self.assertTrue(is_meet_team_payload(payload))
         self.assertFalse(is_minds_on_payload(payload))
         self.assertFalse(is_meet_team_payload({"item_id": "minds_on"}))
         self.assertFalse(is_meet_team_payload(None))
+        self.assertEqual(CUE_MEET_OPEN, "cue.meet_open")
+        self.assertEqual(CUE_MEET_CLEAR, "cue.meet_clear")
+        self.assertNotIn("cue.meet_a", (CUE_MEET_OPEN, CUE_MEET_CLEAR))
+        self.assertNotIn("meet_a", (CUE_MEET_OPEN, CUE_MEET_CLEAR))
 
     def test_fixed_three_always_present(self) -> None:
         """keeps us kind, team leader, and Not sure land on every draw."""
@@ -106,6 +122,45 @@ class MeetTeamHelperTests(unittest.TestCase):
                 "Not sure",
             ],
         )
+
+    def test_chain_order_and_skip_c(self) -> None:
+        """Default A→C→B; density escape drops C first."""
+        self.assertEqual(list(MEET_CHAIN_DEFAULT), ["A", "C", "B"])
+        state = new_meet_chain_state(rng=random.Random(1))
+        self.assertEqual(state["chain"], ["A", "C", "B"])
+        self.assertEqual(state["index"], 0)
+        nxt = advance_meet_chain(state)
+        self.assertEqual(nxt["chain"][nxt["index"]], "C")
+        last = advance_meet_chain(nxt)
+        self.assertEqual(last["chain"][last["index"]], "B")
+        still = advance_meet_chain(last)
+        self.assertEqual(still["index"], last["index"])
+        skipped = skip_meet_c(new_meet_chain_state(rng=random.Random(2)))
+        self.assertEqual(skipped["chain"], ["A", "B"])
+        self.assertEqual(skipped["chain"][skipped["index"]], "A")
+        mid = advance_meet_chain(new_meet_chain_state(rng=random.Random(3)))
+        self.assertEqual(mid["chain"][mid["index"]], "C")
+        dropped = skip_meet_c(mid)
+        self.assertEqual(dropped["chain"], ["A", "B"])
+        self.assertEqual(dropped["chain"][dropped["index"]], "B")
+
+    def test_spark_and_need_are_ops_stubs(self) -> None:
+        """C/B pool ids stay course-agnostic Ops stubs."""
+        spark = meet_step_payload("C", rng=random.Random(0))
+        self.assertEqual(spark["step"], "C")
+        self.assertEqual(spark["item_id"], "meet-c")
+        self.assertEqual(spark["chain_index"], 2)
+        self.assertTrue(any(spark["spark_id"] == row["id"] for row in MEET_SPARK_POOL))
+        self.assertIn("Ops spark stub", spark["prompt"])
+        need = meet_step_payload("B", rng=random.Random(0))
+        self.assertEqual(need["step"], "B")
+        self.assertEqual(need["item_id"], "meet-b")
+        self.assertTrue(need["prompt"].startswith("One thing our team might need"))
+        self.assertIn("Not sure", need["choices"])
+        self.assertTrue(any(need["need_prompt_id"] == row["id"] for row in MEET_NEED_POOL))
+        short = meet_team_prompt_payload(rng=random.Random(0), include_c=False)
+        self.assertEqual(short["chain"], ["A", "B"])
+        self.assertEqual(short["chain_length"], 2)
 
 
 class MeetTeamLivePromptTests(unittest.TestCase):
@@ -189,17 +244,25 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         )
         self.assertEqual(assigned.status_code, 200, assigned.get_json())
 
-    def _assert_meet_team_prompt(self, body: dict) -> dict:
-        """Require the universal teammate MC and return its payload."""
+    def _assert_meet_step(self, body: dict, step: str) -> dict:
+        """Require one visible Meet chain item and return its payload."""
         self.assertFalse(body.get("waiting_room"), body)
         prompt = body.get("prompt") or {}
         payload = prompt.get("payload") or {}
-        self.assertEqual(payload.get("item_id"), "meet-team")
         self.assertEqual(payload.get("ride"), "meet_team")
-        self.assertEqual(payload.get("prompt"), MEET_TEAM_PROMPT)
+        self.assertEqual(payload.get("step"), step)
         self.assertTrue(payload.get("ephemeral"))
         self.assertFalse(payload.get("durable_store"))
         self.assertEqual(payload.get("clear_on"), CLEAR_ON_TEAM_CHALLENGE)
+        self.assertFalse(is_minds_on_payload(payload))
+        self.assertNotIn("key", payload)
+        return payload
+
+    def _assert_meet_team_prompt(self, body: dict) -> dict:
+        """Require Meet step A and return its payload."""
+        payload = self._assert_meet_step(body, "A")
+        self.assertEqual(payload.get("item_id"), "meet-team")
+        self.assertEqual(payload.get("prompt"), MEET_TEAM_PROMPT)
         choices = list(payload.get("choices") or [])
         self.assertEqual(len(choices), 5)
         for fixed in MEET_TEAM_FIXED_CHOICES:
@@ -208,27 +271,28 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(len(extra), 2)
         for choice in extra:
             self.assertIn(choice, MEET_TEAM_WARMUP_POOL)
-        self.assertFalse(is_minds_on_payload(payload))
-        self.assertNotIn("key", payload)
         return payload
 
-    def test_assign_clears_minds_on_and_seeds_warmup(self) -> None:
-        """Generate teams drops waiting-room Minds-On and shows the teammate poll."""
+    def test_assign_clears_minds_on_without_mounting_meet(self) -> None:
+        """Generate teams leaves JOIN Minds-On; Meet waits for MEET enter."""
         idle = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(idle["waiting_room"])
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
 
         self._staff_assign_two_teams()
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
-        self._assert_meet_team_prompt(live_prompt)
+        self.assertFalse(live_prompt.get("waiting_room"), live_prompt)
+        prompt = live_prompt.get("prompt")
+        if prompt is not None:
+            payload = prompt.get("payload") or {}
+            self.assertFalse(is_minds_on_payload(payload))
+            self.assertFalse(is_meet_team_payload(payload))
         state = self.student.get("/api/student/state").get_json()
-        self._assert_meet_team_prompt(state)
+        self.assertNotEqual(state.get("teacher_state", {}).get("cue_id"), CUE_MEET_OPEN)
 
     def test_meet_teams_clears_minds_on_and_seeds_warmup(self) -> None:
-        """Meet Teams after assign keeps the warmup (does not resurrect Minds-On)."""
+        """Start Meet after assign mounts A and fires cue.meet_open once."""
         self._staff_assign_two_teams()
-        first = self.student.get("/api/student/live-prompt").get_json()
-        first_choices = list(first["prompt"]["payload"]["choices"])
         meet = self.staff.post(
             f"/api/classes/{self.class_id}/game/meet-teams",
             json={"minutes": 3},
@@ -237,7 +301,127 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(meet.get_json()["game"]["overlay_phase"], "meet_teams")
         again = self.student.get("/api/student/live-prompt").get_json()
         payload = self._assert_meet_team_prompt(again)
-        self.assertEqual(payload["choices"], first_choices)
+        self.assertEqual(payload["chain"], ["A", "C", "B"])
+        teacher = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(teacher["stage"], "meet")
+        self.assertEqual(teacher["cue_id"], CUE_MEET_OPEN)
+        self.assertEqual(teacher["active_tab"], "questions")
+        self.assertEqual(teacher["layout_preset"], "questions_full")
+        self.assertEqual(teacher["meet_chain"]["index"], 0)
+        again_state = self.student.get("/api/student/state").get_json()
+        self.assertEqual(again_state["teacher_state"]["cue_id"], CUE_MEET_OPEN)
+        self.assertNotIn("meet_a", str(again_state["teacher_state"].get("cue_id")))
+
+    def test_teacher_next_walks_a_c_b_then_clear_wipes(self) -> None:
+        """Next advances A→C→B; End Meet → ROUND wipes picks and fires meet_clear."""
+        self._staff_assign_two_teams()
+        self.staff.post(
+            f"/api/classes/{self.class_id}/game/meet-teams",
+            json={"minutes": 3},
+        )
+        first = self._assert_meet_team_prompt(
+            self.student.get("/api/student/live-prompt").get_json()
+        )
+        prompt_id = int(
+            self.student.get("/api/student/live-prompt").get_json()["prompt"]["id"]
+        )
+        pick = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt_id,
+                "response": {"choice": "keeps us kind"},
+            },
+        )
+        self.assertEqual(pick.status_code, 200, pick.get_json())
+        self.assertTrue(pick.get_json().get("my_response", {}).get("ephemeral"))
+        self.assertEqual(pick.get_json().get("meet_chip"), "keeps us kind")
+        teacher_after = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertIn("keeps us kind", teacher_after["meet_chain"]["a_picks"].values())
+        with self.school._lock:
+            stored = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM live_session_responses WHERE prompt_id = ?",
+                (prompt_id,),
+            ).fetchone()
+        self.assertEqual(int(stored["n"]), 0)
+
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "next"},
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        spark = self._assert_meet_step(
+            self.student.get("/api/student/live-prompt").get_json(), "C"
+        )
+        self.assertEqual(spark["item_id"], "meet-c")
+        self.assertEqual(spark["chain_index"], 2)
+        self.assertNotEqual(nxt.get_json()["teacher_state"]["cue_id"], "cue.meet_c")
+
+        nxt2 = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "next"},
+        )
+        need = self._assert_meet_step(
+            self.student.get("/api/student/live-prompt").get_json(), "B"
+        )
+        self.assertEqual(need["item_id"], "meet-b")
+        self.assertTrue(need["prompt"].startswith("One thing our team might need"))
+        self.assertEqual(first["chain"], ["A", "C", "B"])
+
+        ended = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "clear"},
+        )
+        self.assertEqual(ended.status_code, 200, ended.get_json())
+        body = ended.get_json()["teacher_state"]
+        self.assertEqual(body["stage"], "round")
+        self.assertEqual(body["cue_id"], CUE_MEET_CLEAR)
+        self.assertIsNone(body.get("meet_chain"))
+        cleared = self.student.get("/api/student/live-prompt").get_json()
+        if cleared.get("prompt") is not None:
+            self.assertFalse(
+                is_meet_team_payload((cleared["prompt"] or {}).get("payload"))
+            )
+        self.assertIsNone(cleared.get("meet_chip") or None)
+        state = self.student.get("/api/student/state").get_json()
+        self.assertEqual(state["teacher_state"]["cue_id"], CUE_MEET_CLEAR)
+        self.assertFalse(state.get("meet_chip"))
+
+    def test_skip_c_makes_a_then_b(self) -> None:
+        """Skip C density escape: A → B, no spark card."""
+        self._staff_assign_two_teams()
+        self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "meet"},
+        )
+        self._assert_meet_team_prompt(
+            self.student.get("/api/student/live-prompt").get_json()
+        )
+        skipped = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "skip_c"},
+        )
+        self.assertEqual(skipped.status_code, 200, skipped.get_json())
+        chain = skipped.get_json()["teacher_state"]["meet_chain"]
+        self.assertEqual(chain["chain"], ["A", "B"])
+        self.assertEqual(chain["index"], 0)
+        still_a = self._assert_meet_team_prompt(
+            self.student.get("/api/student/live-prompt").get_json()
+        )
+        self.assertEqual(still_a["chain"], ["A", "B"])
+        self.assertEqual(still_a["chain_length"], 2)
+        self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "next"},
+        )
+        need = self._assert_meet_step(
+            self.student.get("/api/student/live-prompt").get_json(), "B"
+        )
+        self.assertEqual(need["chain_index"], 2)
+        self.assertEqual(need["chain_length"], 2)
 
     def test_start_rounds_clears_meet_team_warmup(self) -> None:
         """Team Challenge start drops the ephemeral teammate poll."""

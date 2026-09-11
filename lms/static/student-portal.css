@@ -378,6 +378,50 @@ body.student-home.is-live .student-live-response {
   border-color: #2dd4bf;
 }
 
+.prompt-choice.is-selected {
+  border-color: #2dd4bf;
+  background: #134e4a;
+}
+
+.prompt-choice:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.meet-progress-dots {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0 0 0.55rem;
+}
+
+.meet-dot {
+  min-width: 1.45rem;
+  text-align: center;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid #2a4660;
+  color: #9fb3c8;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.meet-dot.is-current {
+  border-color: #2dd4bf;
+  color: #99f6e4;
+}
+
+.me-meet-chip {
+  margin: 0.2rem 0 0.35rem;
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #134e4a;
+  border: 1px solid #2dd4bf;
+  color: #99f6e4;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
 .prompt-numeric,
 .prompt-share {
   display: flex;

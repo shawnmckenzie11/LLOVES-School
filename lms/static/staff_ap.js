@@ -154,7 +154,7 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null}} */
+/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any}} */
 let teacherState = {
   stage: "join",
   round: null,
@@ -167,6 +167,7 @@ let teacherState = {
   canvas_ephemeral: true,
   updated_at: "",
   cue_id: null,
+  meet_chain: null,
 };
 
 let teacherStateInFlight = false;
@@ -313,6 +314,7 @@ function paintTeacherShell() {
   paintOptionCard();
   paintFrames();
   paintRightFlag();
+  paintMeetChainChrome();
 }
 
 /**
@@ -336,22 +338,78 @@ function paintQuestionArtifact(media) {
   const row = media || {};
   const cons = String(row.cons_item || "").trim();
   const toast = String(row.toast || row.caption || "").trim();
-  const meetOn = String(overlayState?.game?.overlay_phase || "") === "meet_teams";
-  if (meetOn) {
-    status.textContent = "Meet universal question is live on the existing prompt channel.";
+  const chain = teacherState.meet_chain;
+  const meetOn =
+    teacherState.stage === "meet" ||
+    String(overlayState?.game?.overlay_phase || "") === "meet_teams";
+  if (meetOn && chain && Array.isArray(chain.chain) && chain.chain.length) {
+    const step = String(chain.chain[chain.index] || "A");
+    const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
+    status.textContent = "Meet QH chain is live on the existing prompt channel. Questions tab only.";
     flag.hidden = false;
-    flag.textContent = "Meet · Today I’m the teammate who…";
+    flag.textContent = `Meet · ${step} · ${labels[step] || step}`;
+    paintMeetChainChrome();
     return;
   }
   if (cons) {
     status.textContent = "CONS / QH ride uses the existing active-media + prompt channel.";
     flag.hidden = false;
     flag.textContent = toast ? `${cons} · ${toast}` : cons;
+    paintMeetChainChrome();
     return;
   }
-  status.textContent = "No live prompt. Meet universal Q and CONS/QH use the existing session channels.";
+  status.textContent = "No live prompt. Meet QH chain and CONS/QH use the existing session channels.";
   flag.hidden = true;
   flag.textContent = "";
+  paintMeetChainChrome();
+}
+
+/**
+ * Soft A/B counts and A→C→B dots. No full ResultsStrip.
+ */
+function paintMeetChainChrome() {
+  const chrome = $("meet-chain-chrome");
+  const dots = $("meet-chain-dots");
+  const countsEl = $("meet-soft-counts");
+  const skip = $("meet-chain-skip-c");
+  const next = $("meet-chain-next");
+  const chain = teacherState.meet_chain;
+  const on = teacherState.stage === "meet" && chain && Array.isArray(chain.chain);
+  if (chrome) chrome.hidden = !on;
+  if (!on) return;
+  const letters = chain.chain;
+  const index = Number(chain.index) || 0;
+  const step = String(letters[index] || "A");
+  if (dots) {
+    dots.innerHTML = letters
+      .map((letter, i) => {
+        const cls = i === index ? "is-current" : i < index ? "is-done" : "";
+        return `<span class="meet-dot ${cls}" data-step="${letter}">${letter}</span>`;
+      })
+      .join("");
+  }
+  if (countsEl) {
+    const bag = step === "B" ? chain.b_picks || {} : chain.a_picks || {};
+    const counts = {};
+    Object.values(bag).forEach((choice) => {
+      const key = String(choice || "").trim();
+      if (!key) return;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const parts = Object.keys(counts).map((key) => `${key} · ${counts[key]}`);
+    countsEl.textContent =
+      step === "C"
+        ? "Soft react only — no leaderboard."
+        : parts.length
+          ? `Soft counts · ${parts.join(" · ")}`
+          : "Soft counts · waiting for taps";
+  }
+  if (skip instanceof HTMLButtonElement) {
+    skip.hidden = !letters.includes("C") || step === "B";
+  }
+  if (next instanceof HTMLButtonElement) {
+    next.disabled = index >= letters.length - 1;
+  }
 }
 
 /**
@@ -3031,6 +3089,15 @@ $("live-stage-prev")?.addEventListener("click", () => {
 });
 $("live-stage-next")?.addEventListener("click", () => {
   patchTeacherState({ advance: "next" });
+});
+$("meet-chain-next")?.addEventListener("click", () => {
+  patchTeacherState({ meet_action: "next" });
+});
+$("meet-chain-skip-c")?.addEventListener("click", () => {
+  patchTeacherState({ meet_action: "skip_c" });
+});
+$("meet-chain-end")?.addEventListener("click", () => {
+  patchTeacherState({ meet_action: "clear" });
 });
 
 document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {

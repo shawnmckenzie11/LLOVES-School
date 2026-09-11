@@ -10,7 +10,22 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+try:
+    from meet_team import (
+        CUE_MEET_CLEAR,
+        CUE_MEET_OPEN,
+        public_meet_chain,
+    )
+except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.meet_team import (
+        CUE_MEET_CLEAR,
+        CUE_MEET_OPEN,
+        public_meet_chain,
+    )
+
 STAGES: tuple[str, ...] = ("join", "teams", "meet", "round", "play")
+MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
+MEET_WONDER_CUES: tuple[str, ...] = (CUE_MEET_OPEN, CUE_MEET_CLEAR)
 ROUNDS: tuple[str, ...] = ("minds_on", "action", "consolidation")
 TEAMS_MODES: tuple[str, ...] = ("teams", "individual")
 TABS: tuple[str, ...] = ("media", "questions", "canvas_slides")
@@ -51,6 +66,7 @@ def default_teacher_state() -> dict[str, Any]:
         "canvas_ephemeral": True,
         "updated_at": _now_iso(),
         "cue_id": None,
+        "meet_chain": None,
     }
 
 
@@ -119,6 +135,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["cue_id"] = None
     else:
         base["cue_id"] = str(cue).strip() or None
+    base["meet_chain"] = public_meet_chain(stored.get("meet_chain"))
     return base
 
 
@@ -151,6 +168,7 @@ def apply_teacher_state_update(
     active_media_ref: Any = None,
     prompt_ref: Any = None,
     cue_id: Any = None,
+    meet_chain: Any = None,
     canvas_ephemeral: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
@@ -167,6 +185,7 @@ def apply_teacher_state_update(
         active_media_ref: Id pointing at existing ``active_media`` (not a copy).
         prompt_ref: Id pointing at an existing prompt (not a copy).
         cue_id: Optional one-beat Wonder cue id, or empty to clear.
+        meet_chain: Optional ephemeral MeetChainState, or empty to clear.
         canvas_ephemeral: Ignored; the field stays ``True``.
 
     Returns:
@@ -226,6 +245,11 @@ def apply_teacher_state_update(
         base["prompt_ref"] = _clean_ref(prompt_ref)
     if cue_id is not None:
         base["cue_id"] = _clean_ref(cue_id)
+    if meet_chain is not None:
+        if meet_chain in (None, "", {}, False):
+            base["meet_chain"] = None
+        else:
+            base["meet_chain"] = public_meet_chain(meet_chain)
     base["canvas_ephemeral"] = True
     base["updated_at"] = _now_iso()
     return base

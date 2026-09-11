@@ -354,8 +354,17 @@
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel" data-content-id="questions" data-flag="question" data-slot="">
                 <h2 class="live-pane-title">Question</h2>
-                <p class="hint compact" id="question-artifact-status">No live prompt. Meet universal Q and CONS/QH use the existing session channels.</p>
+                <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
                 <p class="live-question-flag" id="question-artifact-flag" hidden></p>
+                <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
+                  <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
+                  <p class="hint compact" id="meet-soft-counts"></p>
+                  <div class="meet-chain-actions">
+                    <button type="button" id="meet-chain-next">Next</button>
+                    <button type="button" id="meet-chain-skip-c" class="secondary">Skip C</button>
+                    <button type="button" id="meet-chain-end" class="secondary">End Meet</button>
+                  </div>
+                </div>
               </section>
               <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
                 <h2 class="live-pane-title">Canvas / Slides</h2>
