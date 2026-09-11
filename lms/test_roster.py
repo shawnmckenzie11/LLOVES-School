@@ -1176,10 +1176,12 @@ class RosterTests(unittest.TestCase):
         self.assertGreater(before["observations"], 0)
         self.assertEqual(len(self.school.list_live_sessions_for_class(class_id)), 2)
 
-        outsider = self.school.register_staff("outsider@gmail.com")
+        self.school.register_staff("outsider@gmail.com")
         other_client = self.app.test_client()
         other_client.get("/auth/google?portal=staff")
         other_client.get("/auth/google/callback?email=outsider@gmail.com&name=O")
+        outsider = self.school.get_user_by_email("outsider@gmail.com")
+        assert outsider is not None
         other_client.post(
             "/verify-email",
             data={"code": outsider["verification_code"]},
@@ -1220,7 +1222,13 @@ class RosterTests(unittest.TestCase):
         fresh = self.school.get_active_live_session_for_class(class_id)
         self.assertIsNotNone(fresh)
         assert fresh is not None
-        self.assertNotIn(int(fresh["id"]), {first_id, second_id})
+        self.assertEqual(fresh["status"], "active")
+        self.assertEqual(len(self.school.list_live_sessions_for_class(class_id)), 1)
+        children = self._count_session_children([int(fresh["id"])])
+        self.assertEqual(children["attendees"], 0)
+        self.assertEqual(children["responses"], 0)
+        self.assertEqual(children["observations"], 0)
+        self.assertFalse(fresh.get("active_media_json"))
 
     def test_begin_class_tracking_stays_authed_after_student_join(self) -> None:
         """Same-browser student join must not wipe staff Begin Class Tracking auth."""
