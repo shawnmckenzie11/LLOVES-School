@@ -2074,7 +2074,13 @@ function paintTeamsStripEnabled() {
  */
 function openTeamsPop(id) {
   const pane = $("team-assign-pane");
+  const strip = $("live-option-card");
   if (pane) {
+    if (strip) {
+      const box = strip.getBoundingClientRect();
+      pane.style.top = `${Math.round(box.bottom + 6)}px`;
+      pane.style.right = `${Math.max(12, Math.round(window.innerWidth - box.right))}px`;
+    }
     pane.hidden = false;
     pane.removeAttribute("hidden");
   }
@@ -2457,10 +2463,12 @@ function wireDefaultTeamNameClear(input) {
  * @returns {Promise<void>}
  */
 async function saveTeamNamesFromPop() {
-  const teams = [...document.querySelectorAll("#ap-name-list input")].map((el) => ({
-    id: Number(el.dataset.teamId),
-    name: el.value,
-  }));
+  const teams = [...document.querySelectorAll("#ap-name-list input")]
+    .map((el) => ({
+      id: Number(el.dataset.teamId),
+      name: el.value,
+    }))
+    .filter((row) => Number.isFinite(row.id) && row.id > 0);
   if (!teams.length) return;
   overlayState = await api(`/api/classes/${classId}/game/rename`, {
     method: "POST",
@@ -2470,14 +2478,33 @@ async function saveTeamNamesFromPop() {
   updateStepSummaries();
 }
 
+/**
+ * Draft Team 1..N fields when assign has not run yet.
+ */
+function renderDraftNamesPanel() {
+  const box = $("ap-name-list");
+  if (!box) return;
+  const n = currentTeamCount();
+  box.innerHTML = "";
+  for (let i = 0; i < n; i += 1) {
+    const wrap = document.createElement("div");
+    wrap.className = "team-preview";
+    wrap.innerHTML = `<label class="field">Team ${i + 1}<input type="text" data-team-index="${i}" value="Team ${i + 1}"></label>`;
+    box.appendChild(wrap);
+    const input = wrap.querySelector("input");
+    if (input instanceof HTMLInputElement) wireDefaultTeamNameClear(input);
+  }
+}
+
 $("ap-teams-rename")?.addEventListener("click", async () => {
   if (currentTeamCount() < 2 || isScoringLive()) return;
   try {
     const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
-    if (assigned.length < 2) {
-      await assign(lastAssignMode || "balanced");
+    if (assigned.length >= 2) {
+      renderNamesPanel();
+    } else {
+      renderDraftNamesPanel();
     }
-    renderNamesPanel();
     openTeamsPop("ap-panel-names");
   } catch (err) {
     showError("#ap-overlay-error", err);

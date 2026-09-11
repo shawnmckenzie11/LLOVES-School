@@ -437,7 +437,7 @@ class LiveShellTests(unittest.TestCase):
         pop_css = css.split("body.staff-shell .live-options-strip #team-assign-pane {")[1].split(
             "body.staff-shell #team-assign-pane[hidden]"
         )[0]
-        self.assertIn("position: absolute", pop_css)
+        self.assertIn("position: fixed", pop_css)
         self.assertNotIn("flex: 1 1 auto", pop_css)
         self.assertIn("#class-list-pane .ap-att-row.has-team-color .ap-att-name", css)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
