@@ -199,10 +199,7 @@ class LiveShellTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("--live-options-max-h: calc(var(--live-options-row-h) * 2 + 1.1rem)", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
-        self.assertIn(
-            "grid-template-rows: auto minmax(0, var(--live-options-max-h)) auto minmax(12rem, 1fr)",
-            css,
-        )
+        self.assertIn("grid-template-rows: auto auto auto minmax(12rem, 1fr)", css)
         self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
         self.assertIn(
             "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 2;",

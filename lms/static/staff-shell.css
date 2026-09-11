@@ -1301,7 +1301,7 @@ body.staff-shell .track-live-root.live-shell-root {
   max-width: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, var(--live-options-max-h)) auto minmax(12rem, 1fr);
+  grid-template-rows: auto auto auto minmax(12rem, 1fr);
   gap: var(--live-shell-gap);
   align-items: stretch;
 }
