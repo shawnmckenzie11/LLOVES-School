@@ -1500,12 +1500,8 @@ body.staff-shell .live-options-strip {
   min-height: 0;
   overflow: auto;
 }
-body.staff-shell .live-options-hint {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #475569;
-}
-body.staff-shell .live-options-hint[hidden] {
+body.staff-shell .live-options-strip[hidden],
+body.staff-shell .live-option-card[hidden] {
   display: none !important;
 }
 body.staff-shell .live-unlock-toggle {
@@ -1514,9 +1510,6 @@ body.staff-shell .live-unlock-toggle {
   gap: 0.35rem;
   font-size: 0.82rem;
   font-weight: 600;
-}
-body.staff-shell .live-option-card[hidden] {
-  display: none !important;
 }
 body.staff-shell .live-option-card-body {
   display: flex;

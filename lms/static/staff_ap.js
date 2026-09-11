@@ -280,7 +280,6 @@ function lockClassListPane() {
 function paintOptionCard() {
   const stage = teacherState.stage;
   const card = $("live-option-card");
-  const hint = $("join-options-hint");
   const teams = $("teams-option-card");
   const meet = $("meet-option-card");
   const round = $("round-option-card");
@@ -289,10 +288,10 @@ function paintOptionCard() {
   const rounds = $("round-slide-settings");
   lockClassListPane();
   if (card) {
-    card.hidden = false;
-    card.removeAttribute("hidden");
+    const showStrip = stage !== "join";
+    card.hidden = !showStrip;
+    if (showStrip) card.removeAttribute("hidden");
   }
-  if (hint) hint.hidden = stage !== "join";
   if (teams) teams.hidden = stage !== "teams";
   if (meet) meet.hidden = stage !== "meet";
   if (round) round.hidden = stage !== "round";

@@ -88,7 +88,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-option-card"', html)
         self.assertIn("live-options-strip", html)
-        self.assertIn('id="join-options-hint"', html)
+        self.assertNotIn('id="join-options-hint"', html)
+        self.assertNotIn("Waiting for students to join.", html)
         self.assertIn('id="teams-option-card"', html)
         self.assertIn('id="meet-option-card"', html)
         self.assertIn('id="round-option-card"', html)
@@ -259,7 +260,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('for (const id of ["live-shell-left", "class-list-pane"', js)
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
-        self.assertIn('if (hint) hint.hidden = stage !== "join";', js)
+        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertIn("card.hidden = !showStrip;", js)
         self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
         self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
@@ -454,6 +456,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Team assign unlocks when Tracking is Team", js)
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
+        self.assertNotIn("Waiting for students to join.", html)
+        self.assertNotIn("join-options-hint", html)
+        self.assertNotIn("live-options-hint", css)
+        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertRegex(
+            html,
+            r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
+        )
 
 
 if __name__ == "__main__":
