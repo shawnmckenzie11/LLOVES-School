@@ -1,5 +1,5 @@
 /**
- * Run Live Class accordion: join-only attendance, teams, dense scoring.
+ * Run Live Class dual-pane shell: persistent class/teams left, flagged right.
  */
 import {
   api,
@@ -116,27 +116,53 @@ function notifyAttendanceRefresh() {
 }
 
 /**
- * Whether the game is in live scoring (locks prior accordion steps).
+ * Whether the game is in live scoring (locks prior setup actions).
  * @returns {boolean}
  */
 function isScoringLive() {
   return scoringLocked || overlayState?.game?.status === "live";
 }
 
+const STAGE_BY_STEP = {
+  validate: "join",
+  att: "join",
+  gamify: "join",
+  teams: "teams",
+  names: "meet",
+  rounds: "challenge",
+  score: "freeze",
+};
+
+const FLAG_BY_STAGE = {
+  join: "media",
+  teams: "media",
+  meet: "question",
+  challenge: "rounds",
+  freeze: "score",
+};
+
+const REACHED_STAGES = new Set(["join"]);
+
 /**
- * Smooth-scroll a Tracking accordion target into view (mobile-friendly top align).
- * Avoids nested list scrollers; skips no-ops when the step did not change.
- * @param {HTMLElement|null} [focusEl] Prefer this node (e.g. Add Round form).
+ * Map a setup step onto the StageRail id.
+ * @param {string} [step]
+ * @returns {string}
+ */
+function stageForStep(step = currentStep) {
+  return STAGE_BY_STEP[step === "live" ? "score" : step] || "join";
+}
+
+/**
+ * Scroll the flagged right panel into view on stacked layouts.
+ * @param {HTMLElement|null} [focusEl]
  * @param {ScrollLogicalPosition} [block]
  */
 function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
-  const step =
-    (focusEl instanceof HTMLElement && focusEl.closest(".track-step.ap-panel")) ||
-    document.querySelector(".track-step.ap-panel.is-current:not([hidden])") ||
-    document.querySelector(`.track-step.ap-panel[data-step="${currentStep}"]`);
-  const target = focusEl instanceof HTMLElement ? focusEl : step;
+  const flagged =
+    document.querySelector(".live-flag-panel.is-flagged") ||
+    document.querySelector(`.ap-panel[data-step="${currentStep}"]`);
+  const target = focusEl instanceof HTMLElement ? focusEl : flagged;
   if (!(target instanceof HTMLElement) || target.hidden) return;
-
   const run = () => {
     try {
       target.scrollIntoView({ behavior: "smooth", block, inline: "nearest" });
@@ -144,12 +170,80 @@ function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
       target.scrollIntoView(true);
     }
   };
-  // Double rAF so expand/collapse layout settles before scrolling.
   requestAnimationFrame(() => requestAnimationFrame(run));
 }
 
 /**
- * Expand one accordion step; collapse others; apply lock chrome.
+ * Mark StageRail current/reached without collapsing the left column.
+ */
+function paintStageRail() {
+  const stage = stageForStep();
+  REACHED_STAGES.add(stage);
+  document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
+    const id = btn.getAttribute("data-stage") || "";
+    const on = id === stage;
+    btn.classList.toggle("is-active", on);
+    if (on) btn.setAttribute("aria-current", "step");
+    else btn.removeAttribute("aria-current");
+    btn.classList.toggle("is-reached", REACHED_STAGES.has(id));
+  });
+}
+
+/**
+ * Flag one right-hand panel; keep the others mounted.
+ * @param {string} [stage]
+ */
+function paintRightFlag(stage = stageForStep()) {
+  const flag = FLAG_BY_STAGE[stage] || "media";
+  document.querySelectorAll(".live-flag-panel").forEach((el) => {
+    const on = el.getAttribute("data-flag") === flag;
+    el.classList.toggle("is-flagged", on);
+  });
+  const right = $("live-shell-right");
+  if (right) right.dataset.flag = flag;
+}
+
+/**
+ * Mirror the meeting date into the persistent header.
+ */
+function paintHeaderDate() {
+  const el = $("live-header-date");
+  if (!el) return;
+  const iso = String($("ap-meeting-date")?.value || overlayState?.session?.meeting_date || "").trim();
+  el.textContent = iso || "Date —";
+}
+
+/**
+ * Flag Meet universal Q / CONS / QH from existing session fields (no new poll).
+ * @param {any} [media]
+ */
+function paintQuestionArtifact(media) {
+  const status = $("question-artifact-status");
+  const flag = $("question-artifact-flag");
+  if (!status || !flag) return;
+  const row = media || {};
+  const cons = String(row.cons_item || "").trim();
+  const toast = String(row.toast || row.caption || "").trim();
+  const meetOn = String(overlayState?.game?.overlay_phase || "") === "meet_teams";
+  if (meetOn) {
+    status.textContent = "Meet universal question is live on the existing prompt channel.";
+    flag.hidden = false;
+    flag.textContent = "Meet · Today I’m the teammate who…";
+    return;
+  }
+  if (cons) {
+    status.textContent = "CONS / QH ride uses the existing active-media + prompt channel.";
+    flag.hidden = false;
+    flag.textContent = toast ? `${cons} · ${toast}` : cons;
+    return;
+  }
+  status.textContent = "No live prompt. Meet universal Q and CONS/QH use the existing session channels.";
+  flag.hidden = true;
+  flag.textContent = "";
+}
+
+/**
+ * Flag the current stage; left panes stay mounted. Advance never collapses left.
  * @param {string} name
  * @param {{scroll?: boolean, forceScroll?: boolean, scrollTarget?: HTMLElement|null, scrollBlock?: ScrollLogicalPosition}} [opts]
  */
@@ -161,27 +255,29 @@ function showPanel(name, opts = {}) {
   hideError("#ap-overlay-error");
   syncTeamFlowVisibility();
 
-  document.querySelectorAll(".track-step.ap-panel").forEach((el) => {
+  document.querySelectorAll(".ap-panel[data-step]").forEach((el) => {
     const step = el.dataset.step || "";
-    const isScore = step === "score";
-    const isCurrent = step === currentStep || (currentStep === "score" && isScore);
-    const isSetup = !isScore && step !== "validate";
-    const teamFlowHidden = el.hasAttribute("data-team-flow") && trackMode !== "team";
-    el.classList.toggle("hidden", (step === "validate" && currentStep !== "validate") || teamFlowHidden);
-    el.classList.toggle("is-current", isCurrent && !teamFlowHidden);
-    el.classList.toggle("is-collapsed", !isCurrent || teamFlowHidden);
-    el.classList.toggle("is-locked", locked && isSetup);
-    const body = el.querySelector(".track-step-body");
-    const summary = el.querySelector(".track-step-summary");
-    if (body) body.hidden = !isCurrent || teamFlowHidden;
-    if (summary) summary.setAttribute("aria-expanded", isCurrent && !teamFlowHidden ? "true" : "false");
-    const lockEl = el.querySelector(".track-step-lock");
-    if (lockEl) lockEl.hidden = !(locked && isSetup);
+    const isCurrent = step === currentStep || (currentStep === "score" && step === "score");
+    const isValidate = step === "validate";
+    el.classList.toggle("is-current", isCurrent);
+    el.classList.toggle("is-locked", locked && step !== "score" && step !== "validate");
+    if (isValidate) {
+      const hide = currentStep !== "validate";
+      el.hidden = hide;
+      el.classList.toggle("hidden", hide);
+    } else {
+      el.hidden = false;
+      el.classList.remove("hidden", "is-collapsed");
+    }
   });
 
   if (name === "gamify" && !trackMode) {
     selectTrackMode("individual");
   }
+  paintStageRail();
+  paintRightFlag();
+  paintHeaderDate();
+  paintQuestionArtifact();
   updateStepSummaries();
 
   const shouldScroll =
@@ -193,20 +289,33 @@ function showPanel(name, opts = {}) {
 }
 
 /**
- * Show Teams / Meet only under Team Tracking; rounds stay for both modes.
- * Expose Run as Game opts for team mode only.
+ * Keep TeamAssignPane mounted; standby when Individual tracking is on.
  */
 function syncTeamFlowVisibility() {
   const team = trackMode === "team";
-  const accordion = $("track-accordion");
-  if (accordion) accordion.classList.toggle("is-team-flow", team);
+  const pane = $("team-assign-pane");
+  if (pane) {
+    pane.classList.toggle("is-standby", !team);
+    pane.removeAttribute("hidden");
+  }
   document.querySelectorAll("[data-team-flow]").forEach((el) => {
-    if (el instanceof HTMLElement) el.hidden = !team;
+    if (!(el instanceof HTMLElement)) return;
+    if (el.closest("#team-assign-pane")) {
+      el.hidden = false;
+      el.removeAttribute("hidden");
+      return;
+    }
+    el.hidden = !team;
   });
   const rounds = $("ap-panel-rounds");
-  if (rounds) rounds.hidden = false;
+  if (rounds) {
+    rounds.hidden = false;
+    rounds.removeAttribute("hidden");
+  }
   const opts = $("ap-track-game-opts");
   if (opts) opts.hidden = !team;
+  const standby = $("team-assign-standby");
+  if (standby) standby.hidden = team;
   syncScoreboardPreview();
   if (team) {
     renderTeamsPanel();
@@ -470,7 +579,9 @@ async function pollLiveSessionAttendees() {
       present.map((row) => Number(row.student_id)),
       present
     );
-    paintActiveMediaStatus(payload?.active_media || payload?.session?.active_media);
+    const media = payload?.active_media || payload?.session?.active_media;
+    paintActiveMediaStatus(media);
+    paintQuestionArtifact(media);
     ensureC1MediaSeeded();
   } catch (_) {
     /* keep polling */
@@ -532,6 +643,7 @@ function paintActiveMediaStatus(media) {
     preview.src = teacherSrc;
   }
   preview.hidden = false;
+  paintQuestionArtifact(media);
   const params = (media && media.params) || { a: 1, b: 0, c: 0 };
   try {
     preview.contentWindow?.postMessage(
@@ -1117,11 +1229,14 @@ function renderAttendanceList() {
 }
 
 /**
- * Live present count in the accordion heading.
+ * Live present count in the header and class-list pane.
  */
 function updateAttCount() {
+  const n = selectedPresent().length + sessionGuests.length;
   const el = $("ap-att-count");
-  if (el) el.textContent = `Attendance: ${selectedPresent().length + sessionGuests.length}`;
+  if (el) el.textContent = `Attendance: ${n}`;
+  const present = $("live-header-present");
+  if (present) present.textContent = `Present ${n}`;
 }
 
 /**
@@ -1687,10 +1802,11 @@ function applyMeetTimerUi(state = overlayState) {
       btn.textContent = "Resume";
       btn.dataset.meetState = "paused";
     } else {
-      btn.textContent = "Start";
+      btn.textContent = "Meet";
       btn.dataset.meetState = "idle";
     }
   }
+  paintQuestionArtifact();
 }
 
 /** Meet Your Team countdown deadline (epoch ms), or 0 when idle/paused. */
@@ -2676,24 +2792,71 @@ export async function openLogParticipation() {
   }
 }
 
-document.querySelectorAll("[data-accordion-toggle]").forEach((btn) => {
-  btn.addEventListener("click", (event) => {
-    // Accordion headers are display-only; navigate with Prev / Next footers.
-    event.preventDefault();
-  });
-});
-
 document.querySelectorAll("[data-track-nav='prev']").forEach((btn) => {
   btn.addEventListener("click", () => {
     if (btn.hasAttribute("disabled") || isScoringLive()) return;
-    const current = btn.closest(".track-step.ap-panel")?.getAttribute("data-step");
+    const current = btn.closest(".ap-panel")?.getAttribute("data-step");
     const back = {
       gamify: "att",
-      teams: "gamify",
+      teams: "att",
       names: "teams",
-      rounds: trackMode === "team" ? "names" : "gamify",
+      rounds: trackMode === "team" ? "names" : "att",
     };
     const target = back[current || ""];
+    if (target) showPanel(target);
+  });
+});
+
+/**
+ * Click an existing next-control so Advance does not add a new channel.
+ * @param {string} id
+ */
+function clickExistingNext(id) {
+  const btn = $(id);
+  if (btn instanceof HTMLButtonElement && !btn.disabled) btn.click();
+}
+
+$("live-advance")?.addEventListener("click", () => {
+  if (currentStep === "validate") {
+    clickExistingNext("ap-validate-apply");
+    return;
+  }
+  if (currentStep === "att" || currentStep === "gamify") {
+    clickExistingNext("ap-gamify-next");
+    return;
+  }
+  if (currentStep === "teams") {
+    clickExistingNext("ap-teams-next");
+    return;
+  }
+  if (currentStep === "names") {
+    clickExistingNext("ap-start-game");
+    return;
+  }
+  if (currentStep === "rounds") {
+    clickExistingNext("ap-rounds-start");
+  }
+});
+
+$("live-start")?.addEventListener("click", () => {
+  if (currentStep === "names") {
+    clickExistingNext("ap-start-game");
+    return;
+  }
+  clickExistingNext("ap-rounds-start");
+});
+
+document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const stage = btn.getAttribute("data-stage") || "";
+    if (!REACHED_STAGES.has(stage)) return;
+    const target = {
+      join: "att",
+      teams: trackMode === "team" ? "teams" : "att",
+      meet: trackMode === "team" ? "names" : "att",
+      challenge: "rounds",
+      freeze: "score",
+    }[stage];
     if (target) showPanel(target);
   });
 });

@@ -90,7 +90,7 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root"
+         class="track-live-root live-shell-root"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
@@ -101,271 +101,267 @@
          data-run="{{ '1' if run_live else '0' }}"
          data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
-      <div id="ap-join-billboard"
-           class="ap-join-billboard"
-           {% if not live_session_code %}hidden{% endif %}>
-        <p class="ap-join-billboard-label">Class join code</p>
-        <div class="ap-join-billboard-row">
-          <span id="ap-join-billboard-code"
-                class="ap-join-billboard-code"
-                role="button"
-                tabindex="0"
-                title="Click to copy"
-                aria-live="polite">{{ live_session_code or '····' }}</span>
-          <button type="button" id="ap-join-billboard-copy" class="ap-join-billboard-copy">Copy</button>
+
+      <header class="live-header" id="live-header">
+        <div class="live-header-identity">
+          <span class="live-header-class">{{ cls.section_code or cls.ontario_code or cls.course_code }}</span>
+          <span class="live-header-date" id="live-header-date">Date —</span>
+          <span class="live-header-present" id="live-header-present">Present 0</span>
+          <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
         </div>
-        <p class="ap-join-billboard-copied" id="ap-join-billboard-copied" hidden>Copied</p>
-        <p class="ap-join-billboard-hint">Share this code with students. It stays here even if the overlay popup is blocked.</p>
-      </div>
-      <section class="ap-active-media" id="ap-active-media">
-        <h2>Active Media</h2>
-        <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
+        <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
+          <button type="button" class="live-stage-btn is-active" data-stage="join" aria-current="step">Join</button>
+          <button type="button" class="live-stage-btn" data-stage="teams">Teams</button>
+          <button type="button" class="live-stage-btn" data-stage="meet">Meet</button>
+          <button type="button" class="live-stage-btn" data-stage="challenge">Challenge</button>
+          <button type="button" class="live-stage-btn" data-stage="freeze">Freeze/CONS</button>
+        </nav>
+        <div class="live-header-actions">
+          <div id="ap-panel-gamify" class="live-track-chip ap-panel" data-step="gamify">
+            <span class="live-track-chip-label">Tracking</span>
+            <span id="ap-gamify-summary" class="live-track-chip-meta"></span>
+            <button type="button" class="live-track-opt is-selected" id="ap-gamify-no" aria-pressed="true">
+              <span class="ap-att-check" aria-hidden="true">✓</span>
+              <span class="ap-att-name">Individual</span>
+            </button>
+            <button type="button" class="live-track-opt" id="ap-gamify-yes" aria-pressed="false">
+              <span class="ap-att-check" aria-hidden="true"></span>
+              <span class="ap-att-name">Team</span>
+            </button>
+            <button type="button" class="track-nav-next live-chip-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
+          </div>
+          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Meet</button>
+          <button type="button" id="live-start" class="live-header-start">Start</button>
+          <button type="button" id="live-advance" class="live-header-advance">Advance</button>
+        </div>
+        <div class="live-header-join">
+          <div id="ap-join-billboard"
+               class="ap-join-billboard"
+               {% if not live_session_code %}hidden{% endif %}>
+            <p class="ap-join-billboard-label">Class join code</p>
+            <div class="ap-join-billboard-row">
+              <span id="ap-join-billboard-code"
+                    class="ap-join-billboard-code"
+                    role="button"
+                    tabindex="0"
+                    title="Click to copy"
+                    aria-live="polite">{{ live_session_code or '····' }}</span>
+              <button type="button" id="ap-join-billboard-copy" class="ap-join-billboard-copy">Copy</button>
+            </div>
+            <p class="ap-join-billboard-copied" id="ap-join-billboard-copied" hidden>Copied</p>
+            <p class="ap-join-billboard-hint">Share this code. It stays here if the overlay is blocked.</p>
+          </div>
+          <p class="hint compact ap-join-strip" id="ap-join-strip" hidden>
+            <button type="button" class="linkish" id="ap-open-overlay">Open join strip</button>
+            <span> — popup was blocked; open the Zoom-share overlay once.</span>
+          </p>
+        </div>
+      </header>
+
+      <section id="ap-panel-validate" class="live-date-panel ap-panel hidden" data-step="validate" hidden>
+        <h2 class="live-pane-title">Class Date</h2>
+        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
+        <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
+        <input type="hidden" id="ap-valid-date" class="ap-date-input">
+        <div class="live-pane-footer">
+          <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+          <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
+          <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
+        </div>
       </section>
-      <div class="track-accordion" id="track-accordion">
 
-        <section id="ap-panel-validate" class="track-step ap-panel hidden" data-step="validate">
-          <div class="track-step-summary" data-accordion-toggle="validate" aria-expanded="false">
-            <span class="track-step-title">Class Date</span>
-          </div>
-          <div class="track-step-body">
-            <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
-            <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
-            <input type="hidden" id="ap-valid-date" class="ap-date-input">
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-              <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-att" class="track-step ap-panel" data-step="att">
-          <div class="track-step-summary" data-accordion-toggle="att" aria-expanded="true">
-            <span class="track-step-title">Attendance <span id="ap-att-count" class="att-count">Attendance: 0</span></span>
-            <span class="track-step-meta" id="ap-att-summary"></span>
-            <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
-          </div>
-          <div class="track-step-body">
-            <p class="hint">Join-only: students appear present when they enter the live session code.</p>
-            <label class="ap-guest-toggle" id="ap-guest-toggle">
-              <input type="checkbox" id="ap-allow-guests">
-              <span>Allow guests (names not on roster)</span>
-            </label>
-            <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on — names not on the roster can join this session.</p>
-            <p class="hint compact">Off by default. When checked, unmatched first names can join and show as guests on the overlay.</p>
-            <p class="hint compact ap-join-strip" id="ap-join-strip" hidden>
-              <button type="button" class="linkish" id="ap-open-overlay">Open join strip</button>
-              <span> — popup was blocked; open the Zoom-share overlay once.</span>
-            </p>
-            <input type="hidden" id="ap-meeting-date" value="">
-            <div id="ap-att-list" class="check-list ap-att-readonly"></div>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-              <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-gamify" class="track-step ap-panel" data-step="gamify">
-          <div class="track-step-summary" data-accordion-toggle="gamify" aria-expanded="false">
-            <span class="track-step-title">Tracking mode</span>
-            <span class="track-step-meta" id="ap-gamify-summary"></span>
-            <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
-          </div>
-          <div class="track-step-body">
-            <div class="ap-track-choice ap-choice-stack">
-              <button type="button" class="ap-track-btn is-selected" id="ap-gamify-no" aria-pressed="true">
-                <span class="ap-att-check" aria-hidden="true">✓</span>
-                <span class="ap-att-name">Individual Tracking</span>
-              </button>
-              <p class="hint">Assign points to individuals in the class list.</p>
-              <button type="button" class="ap-track-btn" id="ap-gamify-yes" aria-pressed="false">
-                <span class="ap-att-check" aria-hidden="true"></span>
-                <span class="ap-att-name">Team Tracking</span>
-              </button>
-              <p class="hint">Assign points to individuals and groups creatively.</p>
-            </div>
-            <div class="ap-track-game-opts" id="ap-track-game-opts" hidden>
-              <div class="ap-game-opt-row">
-                <label class="scoreboard-opt" for="ap-scoreboard-toggle">
-                  <input type="checkbox" id="ap-scoreboard-toggle" checked>
-                  <span class="ap-game-opt-copy">
-                    <span class="ap-game-opt-title">Run as Game</span>
-                    <span class="hint compact">Include scoreboard during class</span>
-                  </span>
-                </label>
-              </div>
-              <div class="ap-game-opt-row">
-                <label class="scoreboard-opt" for="ap-rank-toggle">
-                  <input type="checkbox" id="ap-rank-toggle">
-                  <span class="ap-game-opt-copy">
-                    <span class="ap-game-opt-title">Allow students to privately see their rank in class</span>
-                  </span>
-                </label>
-              </div>
-            </div>
-            <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
-              <div class="scoreboard-preview" aria-hidden="true">
-                <div class="sb-preview-top">
-                  <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
-                  <span class="sb-preview-clock">19:16</span>
-                </div>
-                <div class="sb-preview-teams">
-                  <div class="sb-preview-team sb-preview-team--1">
-                    <span class="sb-preview-name">TEAM 1</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                  <div class="sb-preview-team sb-preview-team--2">
-                    <span class="sb-preview-name">TEAM 2</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                  <div class="sb-preview-team sb-preview-team--3">
-                    <span class="sb-preview-name">TEAM 3</span>
-                    <span class="sb-preview-score">0</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
-              <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-gamify-next" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-teams" class="track-step ap-panel" data-step="teams" data-team-flow hidden>
-          <div class="track-step-summary" data-accordion-toggle="teams" aria-expanded="false">
-            <span class="track-step-title">Teams</span>
-            <span class="track-step-meta" id="ap-teams-summary"></span>
-            <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
-          </div>
-          <div class="track-step-body">
-            <label class="field" for="ap-n-teams">Number of teams</label>
-            <div class="stepper ap-teams-stepper">
-              <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
-              <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric">
-              <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
-            </div>
-            <div class="ap-choice-stack ap-assign-stack">
-              <button type="button" class="ap-track-btn is-selected" id="ap-assign-balanced" aria-pressed="true">
-                <span class="ap-att-check" aria-hidden="true">✓</span>
-                <span class="ap-att-name">Assign Balanced</span>
-              </button>
-              <p class="hint">Split by prior participation totals for fair teams.</p>
-              <button type="button" class="ap-track-btn" id="ap-assign-random" aria-pressed="false">
-                <span class="ap-att-check" aria-hidden="true"></span>
-                <span class="ap-att-name">Assign Randomly</span>
-              </button>
-              <p class="hint">Shuffle present students into teams.</p>
-              <button type="button" class="ap-track-btn" id="ap-assign-manual" aria-pressed="false">
-                <span class="ap-att-check" aria-hidden="true"></span>
-                <span class="ap-att-name">Assign Manually</span>
-              </button>
-              <p class="hint">Pick each student&apos;s team before continuing.</p>
-            </div>
-            <div id="ap-manual-assign" class="hidden">
-              <div id="ap-manual-list" class="manual-list"></div>
-            </div>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
-              <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-teams-next" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-names" class="track-step ap-panel" data-step="names" data-team-flow hidden>
-          <div class="track-step-summary" data-accordion-toggle="names" aria-expanded="false">
-            <span class="track-step-title">Meet Your Team</span>
-            <span class="track-step-meta" id="ap-names-summary"></span>
-            <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
-          </div>
-          <div class="track-step-body">
-            <label class="field" for="ap-meet-minutes">Meet Your Team timer (min)</label>
-            <div class="ap-meet-timer-row" id="ap-meet-timer-row">
-              <div class="stepper ap-teams-stepper" id="ap-meet-stepper">
-                <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
-                <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
-                <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
-              </div>
-              <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
-              <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
-            </div>
-            <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
-            <div id="ap-name-list" class="ap-name-list-compact"></div>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" id="ap-names-back" data-track-nav="prev">← Prev</button>
-              <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-start-game" data-track-nav="next">Next →</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-rounds" class="track-step ap-panel" data-step="rounds" hidden>
-          <div class="track-step-summary" data-accordion-toggle="rounds" aria-expanded="false">
-            <span class="track-step-title" id="ap-rounds-title">Start Round 1</span>
-            <span class="track-step-meta" id="ap-rounds-summary"></span>
-            <span class="track-step-lock" hidden aria-hidden="true">Locked</span>
-          </div>
-          <div class="track-step-body">
-            <p class="hint compact" id="ap-rounds-hint">Set up one round at a time. Open Question uses action chips when scoring.</p>
-            <div id="ap-rounds-list" class="ap-rounds-list ap-rounds-compact"></div>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" id="ap-rounds-back" data-track-nav="prev">← Prev</button>
-              <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-              <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start Round 1</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="ap-panel-score" class="track-step ap-panel" data-step="score">
-          <div class="track-step-summary" data-accordion-toggle="score" aria-expanded="false">
-            <span class="track-step-title">Scoring</span>
-            <span class="track-step-meta" id="ap-score-summary"></span>
-          </div>
-          <div class="track-step-body">
-            <div id="ap-score-past-rounds" class="ap-past-rounds" hidden></div>
-            <div id="ap-break-banner" class="ap-break-banner" hidden></div>
-            <div class="ap-score-shell">
-              <header class="ap-score-header">
-                <div class="ap-score-header-top">
-                  <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
-                  <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
-                    <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
-                      <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
-                    </label>
-                    <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
-                  </div>
-                </div>
-                <div class="ap-round-bar">
-                  <span id="ap-round-label"></span>
-                  <span id="ap-round-clock"></span>
-                </div>
-                <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
-              </header>
-              <div class="ap-score-body">
-                <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
-                <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
-              </div>
-            </div>
-            <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
-              <h3 id="ap-next-round-title">Start Round 2</h3>
-              <div id="ap-next-round-fields" class="ap-rounds-list ap-rounds-compact"></div>
-              <div class="row-actions compact">
-                <button type="button" class="secondary" id="ap-next-round-cancel">Cancel</button>
-                <button type="button" id="ap-next-round-start">Start Round 2</button>
+      <div class="live-shell-body">
+        <aside class="live-shell-left" id="live-shell-left">
+          <section id="class-list-pane" class="live-pane">
+            <section id="ap-panel-att" class="ap-panel" data-step="att">
+              <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
+              <p class="hint">Join-only: students appear present when they enter the live session code.</p>
+              <label class="ap-guest-toggle" id="ap-guest-toggle">
+                <input type="checkbox" id="ap-allow-guests">
+                <span>Allow guests (names not on roster)</span>
+              </label>
+              <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on — names not on the roster can join this session.</p>
+              <p class="hint compact">Off by default. When checked, unmatched first names can join and show as guests on the overlay.</p>
+              <input type="hidden" id="ap-meeting-date" value="">
+              <div id="ap-att-list" class="check-list ap-att-readonly"></div>
+              <div class="live-pane-footer">
+                <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+                <button type="button" class="track-nav-next" id="ap-att-log" data-track-nav="next">Next →</button>
               </div>
             </section>
-            <div class="track-step-footer">
-              <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-              <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
-              <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
-              <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
-            </div>
-          </div>
-        </section>
+          </section>
+
+          <section id="team-assign-pane" class="live-pane is-standby">
+            <p class="live-standby-hint" id="team-assign-standby">Team assign unlocks when Tracking is Team.</p>
+            <section id="ap-panel-teams" class="ap-panel" data-step="teams" data-team-flow>
+              <h2 class="live-pane-title">Teams <span id="ap-teams-summary" class="live-pane-meta"></span></h2>
+              <label class="field" for="ap-n-teams">Number of teams</label>
+              <div class="stepper ap-teams-stepper">
+                <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
+                <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric">
+                <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
+              </div>
+              <div class="ap-choice-stack ap-assign-stack">
+                <button type="button" class="ap-track-btn is-selected" id="ap-assign-balanced" aria-pressed="true">
+                  <span class="ap-att-check" aria-hidden="true">✓</span>
+                  <span class="ap-att-name">Assign Balanced</span>
+                </button>
+                <p class="hint">Split by prior participation totals for fair teams.</p>
+                <button type="button" class="ap-track-btn" id="ap-assign-random" aria-pressed="false">
+                  <span class="ap-att-check" aria-hidden="true"></span>
+                  <span class="ap-att-name">Assign Randomly</span>
+                </button>
+                <p class="hint">Shuffle present students into teams.</p>
+                <button type="button" class="ap-track-btn" id="ap-assign-manual" aria-pressed="false">
+                  <span class="ap-att-check" aria-hidden="true"></span>
+                  <span class="ap-att-name">Assign Manually</span>
+                </button>
+                <p class="hint">Pick each student&apos;s team before continuing.</p>
+              </div>
+              <div id="ap-manual-assign" class="hidden">
+                <div id="ap-manual-list" class="manual-list"></div>
+              </div>
+              <div class="ap-track-game-opts" id="ap-track-game-opts" hidden>
+                <div class="ap-game-opt-row">
+                  <label class="scoreboard-opt" for="ap-scoreboard-toggle">
+                    <input type="checkbox" id="ap-scoreboard-toggle" checked>
+                    <span class="ap-game-opt-copy">
+                      <span class="ap-game-opt-title">Run as Game</span>
+                      <span class="hint compact">Include scoreboard during class</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="ap-game-opt-row">
+                  <label class="scoreboard-opt" for="ap-rank-toggle">
+                    <input type="checkbox" id="ap-rank-toggle">
+                    <span class="ap-game-opt-copy">
+                      <span class="ap-game-opt-title">Allow students to privately see their rank in class</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
+                <div class="scoreboard-preview" aria-hidden="true">
+                  <div class="sb-preview-top">
+                    <span class="sb-preview-round">ROUND 1 · OPEN QUESTION ROUND</span>
+                    <span class="sb-preview-clock">19:16</span>
+                  </div>
+                  <div class="sb-preview-teams">
+                    <div class="sb-preview-team sb-preview-team--1">
+                      <span class="sb-preview-name">TEAM 1</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                    <div class="sb-preview-team sb-preview-team--2">
+                      <span class="sb-preview-name">TEAM 2</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                    <div class="sb-preview-team sb-preview-team--3">
+                      <span class="sb-preview-name">TEAM 3</span>
+                      <span class="sb-preview-score">0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="live-pane-footer">
+                <button type="button" class="secondary track-nav-prev" data-track-nav="prev">← Prev</button>
+                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+                <button type="button" class="track-nav-next" id="ap-teams-next" data-track-nav="next">Next →</button>
+              </div>
+            </section>
+            <section id="ap-panel-names" class="ap-panel" data-step="names" data-team-flow>
+              <h2 class="live-pane-title">Meet your team <span id="ap-names-summary" class="live-pane-meta"></span></h2>
+              <label class="field" for="ap-meet-minutes">Meet Your Team timer (min)</label>
+              <div class="ap-meet-timer-row" id="ap-meet-timer-row">
+                <div class="stepper ap-teams-stepper" id="ap-meet-stepper">
+                  <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
+                  <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric">
+                  <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
+                </div>
+                <span class="ap-meet-live-clock" id="ap-meet-live-clock" hidden aria-live="polite">3:00</span>
+              </div>
+              <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
+              <div id="ap-name-list" class="ap-name-list-compact"></div>
+              <div class="live-pane-footer">
+                <button type="button" class="secondary track-nav-prev" id="ap-names-back" data-track-nav="prev">← Prev</button>
+                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+                <button type="button" class="track-nav-next" id="ap-start-game" data-track-nav="next">Next →</button>
+              </div>
+            </section>
+          </section>
+        </aside>
+
+        <main class="live-shell-right" id="live-shell-right">
+          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds">
+            <section id="ap-panel-rounds" class="ap-panel" data-step="rounds">
+              <h2 class="live-pane-title" id="ap-rounds-title">Start Round 1 <span id="ap-rounds-summary" class="live-pane-meta"></span></h2>
+              <p class="hint compact" id="ap-rounds-hint">Set up one round at a time. Open Question uses action chips when scoring.</p>
+              <div id="ap-rounds-list" class="ap-rounds-list ap-rounds-compact"></div>
+              <div class="live-pane-footer">
+                <button type="button" class="secondary track-nav-prev" id="ap-rounds-back" data-track-nav="prev">← Prev</button>
+                <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
+                <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start Round 1</button>
+              </div>
+            </section>
+          </section>
+
+          <section id="media-artifact-zone" class="live-flag-panel is-flagged" data-flag="media">
+            <section class="ap-active-media" id="ap-active-media">
+              <h2>Active Media</h2>
+              <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
+            </section>
+          </section>
+
+          <section id="question-artifact-zone" class="live-flag-panel" data-flag="question">
+            <h2 class="live-pane-title">Question</h2>
+            <p class="hint compact" id="question-artifact-status">No live prompt. Meet universal Q and CONS/QH use the existing session channels.</p>
+            <p class="live-question-flag" id="question-artifact-flag" hidden></p>
+          </section>
+
+          <section id="results-strip" class="live-flag-panel" data-flag="score">
+            <section id="ap-panel-score" class="ap-panel" data-step="score">
+              <h2 class="live-pane-title">Results <span id="ap-score-summary" class="live-pane-meta"></span></h2>
+              <div id="ap-score-past-rounds" class="ap-past-rounds" hidden></div>
+              <div id="ap-break-banner" class="ap-break-banner" hidden></div>
+              <div class="ap-score-shell">
+                <header class="ap-score-header">
+                  <div class="ap-score-header-top">
+                    <p id="ap-live-meta" class="hint compact">Note: Team points not passed in gradebook</p>
+                    <div id="ap-oq-profile-bar" class="ap-oq-profile-bar" hidden>
+                      <label class="ap-oq-profile-label" for="ap-oq-profile-select">Profile
+                        <select id="ap-oq-profile-select" class="ap-oq-profile-select"></select>
+                      </label>
+                      <a id="ap-oq-profiles-link" class="ap-oq-profiles-link" href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" target="_blank" rel="noopener">Go to Profiles</a>
+                    </div>
+                  </div>
+                  <div class="ap-round-bar">
+                    <span id="ap-round-label"></span>
+                    <span id="ap-round-clock"></span>
+                  </div>
+                  <div id="ap-score-team-tabs" class="ap-score-team-tabs" hidden></div>
+                </header>
+                <div class="ap-score-body">
+                  <div id="ap-score-list" class="ap-score-list ap-score-dense"></div>
+                  <div id="ap-live-teams" class="ap-live-teams ap-score-dense"></div>
+                </div>
+              </div>
+              <section id="ap-add-next-round" class="ap-add-next-round" hidden aria-labelledby="ap-next-round-title">
+                <h3 id="ap-next-round-title">Start Round 2</h3>
+                <div id="ap-next-round-fields" class="ap-rounds-list ap-rounds-compact"></div>
+                <div class="row-actions compact">
+                  <button type="button" class="secondary" id="ap-next-round-cancel">Cancel</button>
+                  <button type="button" id="ap-next-round-start">Start Round 2</button>
+                </div>
+              </section>
+              <div class="live-pane-footer">
+                <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
+                <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
+                <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
+                <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
+              </div>
+            </section>
+          </section>
+        </main>
       </div>
       <script type="module" src="/static/staff_ap.js"></script>
     </div>
