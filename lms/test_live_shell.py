@@ -444,6 +444,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function currentTeamCount()", js)
         self.assertIn("function paintTeamsStripEnabled()", js)
         self.assertIn("function openTeamsPop(", js)
+        self.assertIn("getBoundingClientRect()", js)
         self.assertIn("function studentTeamColor(", js)
         self.assertIn("return { min: 1, max: Math.max(2, present) }", js)
         self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
