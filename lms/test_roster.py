@@ -482,6 +482,71 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn("Live Class in Progress", idle_home)
         self.assertNotIn("End Live Class", idle_home)
 
+    def test_staff_home_end_live_targets_active_session_on_other_cards(self) -> None:
+        """In Progress cards always offer End targeting the active class_id.
+
+        When the live session belongs to class A, a card for class B still
+        shows End Live Class and posts ``/staff/class/{A}/end-live``. That
+        remains true after A is archived off the dashboard.
+        """
+        first = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        class_a = first.get_json()["class"]["id"]
+        other = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        second = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": other["id"],
+                "days": "T/Th/F",
+                "time": "2:00pm",
+                "codenames": ["Birch"],
+            },
+        )
+        class_b = second.get_json()["class"]["id"]
+        self.assertNotEqual(class_a, class_b)
+
+        self.client.post(f"/staff/class/{class_a}/run-live")
+        both_cards = self.client.get("/staff").get_data(as_text=True)
+        self.assertEqual(both_cards.count(">Live Class in Progress<"), 2)
+        self.assertEqual(both_cards.count(">End Live Class<"), 2)
+        self.assertEqual(both_cards.count(f"/staff/class/{class_a}/end-live"), 2)
+        self.assertNotIn(f"/staff/class/{class_b}/end-live", both_cards)
+        self.assertIn("course-action-live-row", both_cards)
+        self.assertIn(f"/staff/class/{class_b}", both_cards)
+
+        self.school.archive_offering(int(self.offering["id"]))
+        orphan_card = self.client.get("/staff").get_data(as_text=True)
+        self.assertNotIn(f"/staff/class/{class_a}?", orphan_card)
+        self.assertNotIn(f"/staff/class/{class_a}\"", orphan_card)
+        self.assertIn(">Live Class in Progress<", orphan_card)
+        self.assertIn(">End Live Class<", orphan_card)
+        self.assertIn(f"/staff/class/{class_a}/end-live", orphan_card)
+        self.assertNotIn(f"/staff/class/{class_b}/end-live", orphan_card)
+        self.assertEqual(orphan_card.count(">Live Class in Progress<"), 1)
+        self.assertEqual(orphan_card.count(">End Live Class<"), 1)
+
+        ended = self.client.post(
+            f"/staff/class/{class_a}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_a))
+        idle = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn("Run Live Class", idle)
+        self.assertNotIn("Live Class in Progress", idle)
+        self.assertNotIn("End Live Class", idle)
+
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
         rv = self.client.post(

@@ -51,22 +51,20 @@
           {% set live_active = active_live_session %}
           {% set live_here = live_active and live_active.class_id|int == cls.id|int %}
           {% if live_active %}
-          <div class="course-action-row{% if live_here %} course-action-live-row{% endif %}">
+          <div class="course-action-row course-action-live-row">
             <button type="button" class="course-action course-action-live is-disabled" disabled aria-disabled="true" aria-label="Live Class in Progress">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M8 5v14l11-7z"/>
               </svg>
               <span>Live Class in Progress</span>
             </button>
-            {% if live_here %}
-            <form class="course-action-end-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
+            <form class="course-action-end-form" method="post" action="{{ url_for('staff_end_live_class', class_id=live_active.class_id) }}"
                   data-confirm="End Live Class? All session data will be lost."
                   onsubmit="return confirm(this.dataset.confirm);">
               <button type="submit" class="course-action course-action-end secondary" aria-label="End Live Class">
                 <span>End Live Class</span>
               </button>
             </form>
-            {% endif %}
           </div>
           {% else %}
           <div class="course-action-row">
