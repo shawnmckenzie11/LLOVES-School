@@ -62,6 +62,7 @@ Factory lives in [`content-builder/`](content-builder/README.md). **Course Produ
 | Specialist | Path | Output |
 |-------|------|----------|
 | Course Production Director | [`.cursor/agents/course-director.md`](.cursor/agents/course-director.md) | Parent/coordinator: workflow, coherence gate, production record |
+| Coherence Architect | [`.cursor/agents/coherence-architect.md`](.cursor/agents/coherence-architect.md) | `coherence-contract.json` (MD gate throughline) |
 | Lesson director | [`.cursor/agents/lesson-director.md`](.cursor/agents/lesson-director.md) | `lesson-brief.json` |
 | Bank curator | [`.cursor/agents/bank-curator.md`](.cursor/agents/bank-curator.md) | `catalogue/banks/` + evaluations |
 | Practice designer | [`.cursor/agents/practice-designer.md`](.cursor/agents/practice-designer.md) | `practice-sequence.json` |
