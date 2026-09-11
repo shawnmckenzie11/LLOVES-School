@@ -2370,9 +2370,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Wipe every live session for this class after the teacher confirms.
 
         Staff may only terminate a class they own (IT in-tenant included via
-        ``teacher_owns_class``), and only from the course card that holds
-        their active session (one-session-per-teacher). The confirm dialog
-        warns that all session data will be lost.
+        ``teacher_owns_class``), and only their one active session
+        (``class_id`` must match ``get_active_live_session_for_teacher``).
+        Dashboard cards always post this route with the active session's
+        ``class_id``, even when that class is not the card being rendered.
+        The confirm dialog warns that all session data will be lost.
         """
         user = current_user()
         assert user is not None
