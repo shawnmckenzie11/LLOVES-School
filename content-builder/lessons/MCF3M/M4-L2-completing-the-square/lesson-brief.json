@@ -1,0 +1,338 @@
+{
+  "schema_version": "lesson-brief.v2",
+  "course_code": "MCF3M",
+  "lesson_id": "M4-L2-completing-the-square",
+  "module": 4,
+  "lesson_number": 2,
+  "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+  "module_title": "Quadratic Models",
+  "source_refs": {
+    "module_strand_map": ".local-data/curriculum/MCF3M/module-strand-map.json",
+    "expectations_seed": "lms/seeds/mcf3m_expectations.json",
+    "pattern_brief": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+    "md_gate": "MD PASS prepare — A2.8 NEW; A2.11 NEW scoped light; A2.7 REVIEW only"
+  },
+  "central_question": "If someone hands you only the expanded equation of a curve that rises and then falls (or the other way around), how do you rewrite it so the high or low point is obvious — without guessing from a graph?",
+  "intended_understanding": "Completing the square rewrites a quadratic from standard form f(x) = ax^2 + bx + c into vertex form f(x) = a(x − h)^2 + k so the vertex (h, k) and related features become readable; the rewrite does not move the graph. Students use a diagram or tiles and matching algebra (including factoring out a when a ≠ 1, and simple rational b/a), verify equivalence with graphing technology, then sketch key features from standard via that path. Expanding (Lesson 1) and completing the square are inverse same-curve rewrites.",
+  "prerequisite_assumptions": [
+    "Students can inspect vertex form for vertex, axis, and maximum or minimum, including plus-inside (x + …) as (x − h), and decide max vs min from the sign of a (Module 4 Lesson 1; A2.10 vertex share).",
+    "Students can expand f(x) = a(x − h)^2 + k into standard form and verify with graphing technology that the two writings are equivalent (Module 4 Lesson 1; A2.7). This lesson revisits that direction as review on a shared model; it does not new-teach expansion.",
+    "Roles of a, h, and k as transformations of y = x^2 are already taught (Module 1; A2.5). This lesson does not reteach stretching, reflecting, or sliding.",
+    "Students can already sketch g(x) = a(x − h)^2 + k from y = x^2 (Module 1; A2.6) once vertex form is in hand.",
+    "Students can expand and simplify quadratic expressions, including binomial squares (Module 2; A1.2). Completing the square undoes that fluency; expand skill is assumed, not retaught.",
+    "Students already inspect standard and factored form for intercepts and related features (Module 3; A2.10 share). This lesson does not reteach intercept reading; it may use factored form only as a light strategy alternative for sketching when friendly."
+  ],
+  "processes_to_teach": [
+    "complete-square-diagram: Given a = 1 and integer b, complete the square with algebra tiles or an area diagram so the completed square and leftover constant are visible before any algebra.",
+    "complete-square-algebraic (a=1): Algebraically complete the square for f(x) = x^2 + bx + c (a = 1), matching the diagram steps, to produce f(x) = (x − h)^2 + k.",
+    "complete-square-factor-a: When a ≠ 1, factor a out of the x^2 and x terms before completing the square, then finish to a(x − h)^2 + k — treat forgetting to factor a as a dedicated fracture point.",
+    "complete-square-rational-b-over-a: Complete the square when b/a is a simple rational (Ministry e.g. ½, 0.75), as deliberate variation after integer cases.",
+    "verify-equivalence-tech: After producing vertex form, verify with graphing technology that standard and vertex writings are equivalent representations of the same curve.",
+    "sketch-from-standard-via-cts (A2.11 light): From a standard-form equation, complete the square to obtain the vertex (and axis / max-min from the produced vertex form), then sketch those key features — not the full interval / feature laundry list.",
+    "strategy-choose-cts-vs-factor (light): Given standard form, choose a suitable sketch strategy — completing the square for the vertex, or factoring when intercepts are friendly — with criteria, without teaching factoring as primary solving.",
+    "revisit L1 expand↔CTS on one shared model: On one quadratic written both ways, reverse Lesson 1’s expand path with completing the square and confirm both directions leave the graph unchanged (A2.7 review only)."
+  ],
+  "cognitive_targets": {
+    "complete-square-diagram": "Understand",
+    "complete-square-algebraic": "Apply",
+    "complete-square-factor-a": "Apply",
+    "complete-square-rational-b-over-a": "Apply",
+    "verify-equivalence-tech": "Apply",
+    "sketch-from-standard-via-cts": "Apply",
+    "strategy-choose-cts-vs-factor": "Analyze",
+    "revisit-expand-cts-shared-model": "Analyze"
+  },
+  "purpose_map": [
+    {
+      "section": "hook",
+      "purpose": "Put students in a situation where they need the high or low point but are handed only standard form — so guessing from a graph is unavailable or unreliable."
+    },
+    {
+      "section": "minds-on",
+      "purpose": "Flip Lesson 1’s three-form contrast: given standard form of a familiar model, ask which writing would make the vertex readable, without yet completing the square. (Analyze: which form affords what.)"
+    },
+    {
+      "section": "action: L1 revisit expand↔CTS on shared model",
+      "purpose": "On one shared quadratic, show expand (vertex→standard) beside completing the square (standard→vertex); students confirm both rewrites leave the graph unchanged. Cognitive target Analyze; A2.7 review only — not new teach."
+    },
+    {
+      "section": "action: worked complete-square-diagram",
+      "purpose": "Fully demonstrate completing the square with tiles/diagram for a = 1, integer b, so the completed square and leftover are visible. Cognitive target Understand. (complete-square-diagram)"
+    },
+    {
+      "section": "action: worked complete-square-algebraic (a=1)",
+      "purpose": "Match algebraic steps to the diagram on the same example, producing (x − h)^2 + k. Cognitive target Apply. (complete-square-algebraic)"
+    },
+    {
+      "section": "action: varied algebraic CTS (a=1)",
+      "purpose": "Repeat algebraic completing the square on a second a = 1 case that varies the sign of b or c, so the first example is not a template to copy. (Apply)"
+    },
+    {
+      "section": "action: complete-square-factor-a",
+      "purpose": "Isolate factoring out a before completing when a ≠ 1; treat forgetting this step as the named fracture. Cognitive target Apply. (complete-square-factor-a)"
+    },
+    {
+      "section": "action: complete-square-rational-b-over-a",
+      "purpose": "Deliberate variation with simple rational b/a (e.g. ½, 0.75 per Ministry). Cognitive target Apply. (complete-square-rational-b-over-a)"
+    },
+    {
+      "section": "action: verify-equivalence-tech",
+      "purpose": "Students verify that their completed-square vertex form and the original standard form share the same graph/table under graphing technology. Cognitive target Apply. (verify-equivalence-tech)"
+    },
+    {
+      "section": "action: sketch-from-standard-via-cts",
+      "purpose": "From standard form, CTS → read vertex, axis, max/min from the produced vertex form → sketch those key features only (A2.11 light; no full interval dump). Cognitive target Apply. (sketch-from-standard-via-cts)"
+    },
+    {
+      "section": "action: strategy-choose-cts-vs-factor (light)",
+      "purpose": "On a short pair of standard-form equations, choose CTS vs factoring for sketching with stated criteria; plant when to wait for formula without teaching formula. Cognitive target Analyze. (strategy-choose-cts-vs-factor)"
+    },
+    {
+      "section": "consolidation",
+      "purpose": "Return to the hook situation with a fresh standard-form model: complete the square independently, read max/min, sketch key features, and retrieve that completing the square does not move the curve."
+    }
+  ],
+  "hook_constraint": "Need a situation where the high or low point matters but students are given only standard form (or an expanded model), so they cannot rely on an already-visible vertex equation. Prefer continuity with Lesson 1’s hook family if that situation can flip to standard-given; otherwise a new same-class context (path, throw, fountain, height). Consolidation must return to that same situation. No required login, Gizmos, or Desmos API. No Nelson CTS stems.",
+  "instructional_sequence_intent": "Need high/low but only standard form given (hook) → which writing would show the vertex (minds-on flip) → shared-model L1 revisit expand↔CTS (same curve both ways) → worked diagram CTS (a=1) → matching algebraic CTS → varied a=1 → factor-out a ≠ 1 → rational b/a → tech verify equivalence → sketch key features from standard via CTS (A2.11 light) → light CTS-vs-factor strategy choice (plant formula) → consolidation returns to hook with Key Idea / Need to Know.",
+  "expectations": [
+    {
+      "code": "A2.8",
+      "statement": "express the equation of a quadratic function in the vertex form f(x) = a(x − h)^2 + k, given the standard form f(x) = ax^2 + bx + c, by completing the square (e.g., using algebra tiles or diagrams; algebraically), including cases where b/a is a simple rational number (e.g., ½, 0.75), and verify, using graphing technology, that these forms are equivalent representations",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "NEW teach",
+      "why_this_lesson": "Core of Lesson 2: standard → vertex by completing the square (diagram/tiles and algebraically), including simple rational b/a, with technology verification. MD gate: NEW primary."
+    },
+    {
+      "code": "A2.11",
+      "statement": "sketch the graph of a quadratic function whose equation is given in the standard form f(x) = ax^2 + bx + c by using a suitable strategy (e.g., completing the square and finding the vertex; factoring, if possible, to locate the x-intercepts), and identify the key features of the graph (e.g., the vertex, the x- and y-intercepts, the equation of the axis of symmetry, the intervals where the function is positive or negative, the intervals where the function is increasing or decreasing)",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "NEW teach (scoped / light)",
+      "why_this_lesson": "Light share only: from standard, complete the square to obtain the vertex and related key features, then sketch. Not the full feature laundry list (intervals dump deferred). MD gate: NEW scoped.",
+      "scope_note": "Emphasize completing the square and finding the vertex; factoring-to-intercepts only as a light alternate strategy when friendly. Full positive/negative and increasing/decreasing interval inventory is not this lesson’s core."
+    },
+    {
+      "code": "A2.7",
+      "statement": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "REVIEW only",
+      "why_this_lesson": "Already taught in Module 4 Lesson 1 (vertex → standard expand + verify). Appears here only as the reverse direction on a shared model in the L1 revisit beat. Must not reappear as new teach. MD gate: REVIEW only."
+    }
+  ],
+  "not_this_lesson": [
+    {
+      "code": "A2.5",
+      "reason": "Module 1 already mapped transformations / roles of a, h, k. Treat as prerequisite, not a new M4 target. MD lock: park transform reteach.",
+      "mapped_in": "module-strand-map.json module_number 1"
+    },
+    {
+      "code": "A2.6",
+      "reason": "Module 1 already mapped sketching by transforming y = x^2. Treat as prerequisite once vertex form is produced; do not reteach stretches, reflections, or slides. MD lock: park transform reteach.",
+      "mapped_in": "module-strand-map.json module_number 1"
+    },
+    {
+      "code": "A2.7",
+      "reason": "Expand vertex → standard plus technology verify is Module 4 Lesson 1 new teach. On this lesson it is REVIEW only (shared-model expand↔CTS flip). Do not new-teach expansion here. MD lock: A2.7 REVIEW only.",
+      "mapped_in": "Module 4 Lesson 1 (M4-L1-vertex-form)"
+    },
+    {
+      "code": "A2.10",
+      "reason": "Vertex-form inspection is Module 4 Lesson 1; standard/factored inspection is Module 3. Do not new-teach three-form inspection here. MD lock: park A2.10 new teach.",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    },
+    {
+      "code": "A1.6",
+      "reason": "Quadratic formula is Module 4 Lesson 3. Strategy beat may plant when to wait for the formula; do not teach or apply it. MD lock: park formula."
+    },
+    {
+      "code": "A1.7",
+      "reason": "Discriminant is Module 4 Lesson 4. MD lock: park discriminant."
+    },
+    {
+      "code": "A1.8",
+      "reason": "Comparing graphing, factoring, and the quadratic formula spans later M4 lessons, not Lesson 2. MD lock: park zeros-three-ways / strategy dump beyond light CTS-vs-factor."
+    },
+    {
+      "code": "A3.2",
+      "reason": "Fitting a quadratic to scatter-plot data is Module 4 Lesson 5."
+    },
+    {
+      "code": "A3.3",
+      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Contextual max/min after CTS is possible in the hook family but not attached as A3.3 coverage."
+    },
+    {
+      "code_or_topic": "zeros three ways (expand/factor, inverse ops, graph)",
+      "reason": "Parked by MD lock. This lesson stays on completing the square and a light sketch-strategy choice; zeros-three-ways belongs later in M4 if A1.8 / solving lessons take it."
+    },
+    {
+      "code_or_topic": "full A2.11 feature laundry list (sign and monotonicity intervals)",
+      "reason": "A2.11 is NEW scoped/light: vertex, axis, max/min, and a sketch from CTS. Full intervals where the function is positive or negative, and increasing or decreasing, are deferred. MD lock: park full interval dump."
+    },
+    {
+      "code_or_topic": "transformation reteach (roles of a, h, k / sketch from y = x^2)",
+      "reason": "A2.5 and A2.6 remain Module 1. Once vertex form is in hand, students may reuse that language; do not reteach stretching, reflecting, or sliding. MD lock: park transform reteach."
+    }
+  ],
+  "prerequisites": [
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 1,
+      "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "source": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+      "related_code": "A2.7",
+      "related_statement": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already expand vertex form to standard and verify with graphing technology. This lesson revisits that direction as REVIEW only on a shared model, then teaches the inverse rewrite."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 1,
+      "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "source": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+      "related_code": "A2.10",
+      "related_statement": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already inspect vertex form for vertex, axis, and maximum or minimum (M4 share). After completing the square they reuse that reading; they do not new-learn inspection.",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 1,
+      "lesson_number": 4,
+      "title": "Lesson 4: Exploring Transformations of Quadratic Functions",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.5",
+      "related_statement": "determine, through investigation using technology, the roles of a, h, and k in quadratic functions of the form f(x) = a(x − h)^2 + k, and describe these roles in terms of transformations on the graph of f(x) = x^2 (i.e., translations; reflections in the x-axis; vertical stretches and compressions to and from the x-axis)",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Roles of a, h, and k as transformations are already taught. This lesson does not reteach stretching, reflecting, or sliding."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 1,
+      "lesson_numbers": [
+        5,
+        6
+      ],
+      "titles": [
+        "Lesson 5: Graphing Quadratic Functions using Transformations",
+        "Lesson 6: Using Multiple Transformations to Graph Quadratic Functions"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.6",
+      "related_statement": "sketch graphs of g(x) = a(x − h)^2 + k by applying one or more transformations to the graph of f(x) = x^2",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students can already sketch g(x) = a(x − h)^2 + k from y = x^2 once vertex form is in hand."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 2,
+      "lesson_numbers": [
+        1,
+        2
+      ],
+      "titles": [
+        "Lesson 1: Expanding Polynomials PART 1",
+        "Lesson 2: Expanding Polynomials PART 2"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A1.2",
+      "related_statement": "represent situations (e.g., the area of a picture frame of variable width) using quadratic expressions in one variable, and expand and simplify quadratic expressions in one variable [e.g., 2x(x + 4) − (x + 3)^2]*",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Completing the square undoes binomial-square expansion fluency. Expand skill is assumed, not retaught."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 3,
+      "lesson_number": 1,
+      "title": "Lesson 1: Relating Standard & Factored Form",
+      "source": ".local-data/curriculum/MCF3M/module-lessons.json",
+      "related_code": "A2.10",
+      "related_statement": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Module 3 already treated inspecting standard and factored form for intercepts. This lesson may use factored form only as a light sketch-strategy alternative when intercepts are friendly.",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    }
+  ],
+  "representations": [
+    {
+      "type": "equation",
+      "form": "standard",
+      "must_connect": true,
+      "note": "f(x) = ax^2 + bx + c as the given writing to rewrite."
+    },
+    {
+      "type": "diagram",
+      "form": "algebra_tiles_or_area",
+      "must_connect": true,
+      "note": "Tiles or an area diagram that make the completed square and leftover constant visible before algebra."
+    },
+    {
+      "type": "equation",
+      "form": "vertex",
+      "must_connect": true,
+      "note": "Produced f(x) = a(x − h)^2 + k; vertex (h, k) readable after the rewrite."
+    },
+    {
+      "type": "graph",
+      "must_connect": true,
+      "note": "Same parabola before and after completing the square; sketch key features from the produced vertex form."
+    },
+    {
+      "type": "table",
+      "must_connect": true,
+      "note": "Shared points after completing the square, to show the representations match."
+    },
+    {
+      "type": "verbal",
+      "must_connect": true,
+      "note": "Name the rewrite steps, the vertex, axis, maximum or minimum, and that the curve did not move."
+    },
+    {
+      "type": "equation",
+      "form": "factored",
+      "must_connect": false,
+      "note": "Optional light alternate for sketching when intercepts are friendly. Not a production target and not a solving lesson."
+    }
+  ],
+  "misconceptions": [
+    {
+      "label": "instructional_hypothesis",
+      "id": "cts-changes-graph",
+      "hypothesis": "Students think completing the square produces a different parabola rather than an equivalent representation of the same curve."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "forget-factor-a",
+      "hypothesis": "When a ≠ 1, students complete the square on ax^2 + bx as if a were 1, or they factor a from only one term, so the inside of the square is wrong."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "b-half-sign",
+      "hypothesis": "Students take half of b with the wrong sign, or add (b/2)^2 without balancing, so h or k is off even when a = 1."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "rational-b-over-a",
+      "hypothesis": "Students stall or invent integer shortcuts when b/a is a simple rational (e.g. ½, 0.75), treating those cases as a different method instead of the same steps with fractions."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "h-sign-after-cts",
+      "hypothesis": "After producing vertex form, students misread (x + …) as a positive h, repeating Lesson 1’s h-sign error on their own rewrite."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "strategy-without-criteria",
+      "hypothesis": "Students pick completing the square or factoring at random, or wait for a formula on every standard-form sketch, without criteria for which writing makes the needed feature readable."
+    }
+  ],
+  "uncertainties": [
+    "A2.11 is attached as NEW scoped/light per MD gate. Confirm the light boundary holds in production: vertex + axis + max/min + sketch from CTS, without requiring the full Ministry example list of sign and monotonicity intervals in this lesson.",
+    "A2.7 is listed under expectations with posture REVIEW only (shared-model revisit). Confirm parent/LMS mapping still shows A2.7 as owned by L1, not double-counted as L2 new coverage.",
+    "Hook continuity with L1’s fountain/arc family vs a fresh standard-given context is left to hook-curator under hook_constraint; confirm preferred continuity.",
+    "module-lessons.json remains absent from git; titles and prior-lesson refs follow strand-map inventory + L1 pattern. Confirm when SoT is restored.",
+    "Bank still has no CTS process slots (bank-curator after queue); this brief names process ids for downstream slots but does not create bank items.",
+    "Whether a ≠ 1 and rational b/a each need full FAME fade chains vs variation-only after a=1 fluency — practice-designer decision after this brief."
+  ]
+}
