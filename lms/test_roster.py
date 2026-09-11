@@ -518,7 +518,7 @@ class RosterTests(unittest.TestCase):
 
         self.client.post(f"/staff/class/{class_a}/run-live")
         both_cards = self.client.get("/staff").get_data(as_text=True)
-        self.assertEqual(both_cards.count("Live Class in Progress"), 2)
+        self.assertEqual(both_cards.count(">Live Class in Progress<"), 2)
         self.assertEqual(both_cards.count(">End Live Class<"), 2)
         self.assertEqual(both_cards.count(f"/staff/class/{class_a}/end-live"), 2)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", both_cards)
@@ -529,11 +529,11 @@ class RosterTests(unittest.TestCase):
         orphan_card = self.client.get("/staff").get_data(as_text=True)
         self.assertNotIn(f"/staff/class/{class_a}?", orphan_card)
         self.assertNotIn(f"/staff/class/{class_a}\"", orphan_card)
-        self.assertIn("Live Class in Progress", orphan_card)
+        self.assertIn(">Live Class in Progress<", orphan_card)
         self.assertIn(">End Live Class<", orphan_card)
         self.assertIn(f"/staff/class/{class_a}/end-live", orphan_card)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", orphan_card)
-        self.assertEqual(orphan_card.count("Live Class in Progress"), 1)
+        self.assertEqual(orphan_card.count(">Live Class in Progress<"), 1)
         self.assertEqual(orphan_card.count(">End Live Class<"), 1)
 
         ended = self.client.post(
