@@ -1,5 +1,5 @@
 /**
- * Run Live Class IA v1 shell: stage rail + condensed roster + Active Content frames.
+ * Run Live Class IA v2 shell: single-line header, OptionsStrip, dual body.
  */
 import {
   api,
@@ -143,31 +143,34 @@ const LAYOUT_PRESETS = {
 };
 
 const FLAG_BY_STAGE = {
-  join: "media",
-  teams: "media",
+  join: "question",
+  teams: "question",
   meet: "question",
-  round: "rounds",
-  play: "score",
-  challenge: "rounds",
+  round: "question",
+  play: "question",
+  challenge: "question",
   freeze: "score",
 };
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any}} */
+/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>}} */
 let teacherState = {
   stage: "join",
   round: null,
   teams_mode: "individual",
-  layout_preset: "media_full",
-  frames: { A: "media" },
-  active_tab: "media",
+  layout_preset: "questions_full",
+  frames: { A: "questions" },
+  active_tab: "questions",
   active_media_ref: null,
-  prompt_ref: null,
+  prompt_ref: "minds_on",
   canvas_ephemeral: true,
   updated_at: "",
   cue_id: null,
   meet_chain: null,
+  state_seq: 0,
+  student_frames: { questions: true, media: false, canvas: false },
+  unlocks: { media: false, canvas: false },
 };
 
 let teacherStateInFlight = false;
@@ -241,29 +244,44 @@ function paintStageRail() {
 }
 
 /**
- * Show TEAMS* / ROUND* option cards under the header.
+ * Swap condensed OptionsStrip bodies. Never rebuild Left|Right chrome.
  */
 function paintOptionCard() {
   const stage = teacherState.stage;
   const card = $("live-option-card");
+  const hint = $("join-options-hint");
   const teams = $("teams-option-card");
+  const meet = $("meet-option-card");
   const round = $("round-option-card");
+  const play = $("play-option-card");
   const teamPane = $("team-assign-pane");
   const rounds = $("round-slide-settings");
-  const showTeams = stage === "teams";
-  const showRound = stage === "round";
-  if (card) card.hidden = !showTeams && !showRound;
-  if (teams) teams.hidden = !showTeams;
-  if (round) round.hidden = !showRound;
-  if (teamPane) {
-    teamPane.hidden = !showTeams;
-    if (showTeams) teamPane.removeAttribute("hidden");
+  if (card) {
+    card.hidden = false;
+    card.removeAttribute("hidden");
   }
-  if (rounds) rounds.hidden = !showRound;
+  if (hint) hint.hidden = stage !== "join";
+  if (teams) teams.hidden = stage !== "teams";
+  if (meet) meet.hidden = stage !== "meet";
+  if (round) round.hidden = stage !== "round";
+  if (play) play.hidden = stage !== "play";
+  if (teamPane) {
+    teamPane.hidden = stage !== "teams";
+    if (stage === "teams") teamPane.removeAttribute("hidden");
+  }
+  if (rounds) {
+    rounds.hidden = stage !== "round";
+    if (stage === "round") rounds.removeAttribute("hidden");
+  }
   document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
     const on = btn.getAttribute("data-round") === (teacherState.round || "minds_on");
     btn.classList.toggle("is-active", on);
   });
+  const unlockMedia = $("live-unlock-media");
+  const unlockCanvas = $("live-unlock-canvas");
+  const unlocks = teacherState.unlocks || {};
+  if (unlockMedia instanceof HTMLInputElement) unlockMedia.checked = Boolean(unlocks.media);
+  if (unlockCanvas instanceof HTMLInputElement) unlockCanvas.checked = Boolean(unlocks.canvas);
 }
 
 /**
@@ -295,19 +313,35 @@ function paintFrames() {
 }
 
 /**
- * Flag ResultsStrip when play is scoring; keep media mounted.
+ * Flag Active Content; ResultsStrip stays inside TabQuestions only.
  * @param {string} [stage]
  */
 function paintRightFlag(stage = teacherState.stage || stageForStep()) {
-  const flag = FLAG_BY_STAGE[stage] || "media";
-  const results = $("results-strip");
-  if (results) results.classList.toggle("is-flagged", flag === "score" || isScoringLive());
+  const flag = FLAG_BY_STAGE[stage] || "question";
   const right = $("live-shell-right");
   if (right) right.dataset.flag = flag;
+  paintResultsStrip();
 }
 
 /**
- * Paint rail, option cards, and CSS slots from teacherState.
+ * Show ResultsStrip only when TabQuestions has live responses.
+ */
+function paintResultsStrip() {
+  const results = $("results-strip");
+  if (!results) return;
+  const stage = teacherState.stage;
+  const list = $("ap-score-list");
+  const hasRows = Boolean(list && list.children.length);
+  const show =
+    stage !== "join" &&
+    stage !== "teams" &&
+    (hasRows || (stage === "play" && isScoringLive()));
+  results.hidden = !show;
+  results.classList.toggle("is-flagged", show);
+}
+
+/**
+ * Paint rail, OptionsStrip, and CSS slots from teacherState.
  */
 function paintTeacherShell() {
   paintStageRail();
@@ -465,7 +499,7 @@ function syncTeamFlowVisibility() {
   const pane = $("team-assign-pane");
   if (pane) {
     pane.classList.toggle("is-standby", !team);
-    const show = teacherState.stage === "teams" || teacherState.stage === "meet";
+    const show = teacherState.stage === "teams";
     pane.hidden = !show;
     if (show) pane.removeAttribute("hidden");
   }
@@ -2634,6 +2668,7 @@ function renderScoreList() {
       .join("");
   }
   updateStepSummaries();
+  paintResultsStrip();
 }
 
 /**
@@ -3032,16 +3067,9 @@ $("live-start")?.addEventListener("click", () => {
   clickExistingNext("ap-rounds-start");
 });
 
-document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const stage = btn.getAttribute("data-stage") || "";
-    if (!TEACHER_STAGES.includes(stage)) return;
-    patchTeacherState({ stage });
-  });
-});
-
 /**
  * POST a thin LiveTeacherState patch. Prev/Next only send ``advance``.
+ * Stage pills are display-only and never write state.
  * @param {Record<string, unknown>} body
  * @param {{silent?: boolean}} [opts]
  */
@@ -3144,6 +3172,17 @@ document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
     const round = btn.getAttribute("data-round") || "minds_on";
     patchTeacherState({ round, stage: "round" });
   });
+});
+
+$("live-unlock-media")?.addEventListener("change", () => {
+  const box = $("live-unlock-media");
+  if (!(box instanceof HTMLInputElement)) return;
+  patchTeacherState({ unlocks: { media: box.checked } });
+});
+$("live-unlock-canvas")?.addEventListener("change", () => {
+  const box = $("live-unlock-canvas");
+  if (!(box instanceof HTMLInputElement)) return;
+  patchTeacherState({ unlocks: { canvas: box.checked } });
 });
 
 document.querySelectorAll("input[name='live-team-keep']").forEach((input) => {

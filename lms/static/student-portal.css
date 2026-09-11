@@ -282,6 +282,7 @@ body.student-home.has-media .student-live-response {
 }
 
 .media-pane {
+  position: relative;
   flex: 1 1 auto;
   min-height: 12rem;
   border: 1px solid #1e3348;
@@ -291,6 +292,49 @@ body.student-home.has-media .student-live-response {
 }
 
 .media-pane[hidden] {
+  display: none !important;
+}
+
+.media-pane.is-locked iframe {
+  pointer-events: none;
+}
+
+.canvas-pane {
+  position: relative;
+  min-height: 8rem;
+  border: 1px solid #1e3348;
+  border-radius: 12px;
+  background: #122033;
+  color: #e8eef8;
+  padding: 0.85rem;
+}
+
+.canvas-pane[hidden] {
+  display: none !important;
+}
+
+.canvas-pane-copy {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #c5d4e8;
+}
+
+.student-frame-lock {
+  position: absolute;
+  z-index: 2;
+  top: 0.55rem;
+  right: 0.55rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(245, 197, 24, 0.45);
+  color: #f5c518;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.student-frame-lock[hidden] {
   display: none !important;
 }
 

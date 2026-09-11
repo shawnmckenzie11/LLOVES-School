@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Teacher Run Live Class IA v1 shell markup and existing control IDs."""
+"""Teacher Run Live Class IA v2 shell markup and existing control IDs."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app import create_app  # noqa: E402
 
 
 class LiveShellTests(unittest.TestCase):
-    """Staff live tab is IA v1 stage rail + condensed roster + Active Content."""
+    """Staff live tab is IA v2 single-line header + OptionsStrip + dual body."""
 
     def setUp(self) -> None:
         """Isolated app with one assigned teacher and rostered class."""
@@ -66,11 +66,12 @@ class LiveShellTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_live_tab_shell_has_header_and_dual_panes(self) -> None:
-        """IA v1 shell IDs are present; track accordion is gone."""
+        """IA v2 shell IDs are present; v1 full-bleed leftovers are gone."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn("live-shell-ia-v1", html)
+        self.assertIn("live-shell-ia-v2", html)
+        self.assertNotIn("live-shell-ia-v1", html)
         self.assertIn('id="live-header"', html)
         self.assertIn('id="live-stage-rail"', html)
         self.assertIn('id="live-stage-prev"', html)
@@ -82,10 +83,18 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('data-stage="play"', html)
         self.assertNotIn('data-stage="challenge"', html)
         self.assertNotIn('data-stage="freeze"', html)
+        self.assertIn("live-stage-pill", html)
+        self.assertNotIn("live-stage-btn", html)
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-option-card"', html)
+        self.assertIn("live-options-strip", html)
+        self.assertIn('id="join-options-hint"', html)
         self.assertIn('id="teams-option-card"', html)
+        self.assertIn('id="meet-option-card"', html)
         self.assertIn('id="round-option-card"', html)
+        self.assertIn('id="play-option-card"', html)
+        self.assertIn('id="live-unlock-media"', html)
+        self.assertIn('id="live-unlock-canvas"', html)
         self.assertIn("Minds on", html)
         self.assertIn("Consolidation", html)
         self.assertIn("Keep teams", html)
@@ -108,10 +117,18 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="media-artifact-zone"', html)
         self.assertIn('id="question-artifact-zone"', html)
         self.assertIn('id="results-strip"', html)
+        self.assertIn('id="results-strip" class="live-flag-panel" data-flag="score" hidden', html)
+        q_index = html.index('id="question-artifact-zone"')
+        r_index = html.index('id="results-strip"')
+        self.assertLess(q_index, r_index)
+        self.assertGreater(html.find("</section>", r_index), r_index)
         self.assertNotIn('id="track-accordion"', html)
         self.assertNotIn("data-accordion-toggle", html)
         self.assertEqual(html.count('id="ap-media-preview"'), 1)
         self.assertIn("/static/live-media/m1c1-c1-real-slice.html?role=teacher", html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn('patchTeacherState({ stage })', js)
+        self.assertIn("Stage pills are display-only", js)
 
     def test_live_tab_preserves_existing_control_ids(self) -> None:
         """Attendance, teams, meet, rounds, media, and scoring IDs stay wired."""
@@ -166,17 +183,15 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
 
-    def test_class_list_pane_has_readable_min_width(self) -> None:
-        """ClassListPane stays condensed but wide enough for names + mood chips."""
+    def test_class_list_pane_has_readable_clamp(self) -> None:
+        """ClassListPane uses the v2 readable clamp, not the v1 140px rail."""
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("--live-left-min: 18rem", css)
-        self.assertIn("--live-left-max: 25%", css)
-        self.assertIn(
-            "minmax(var(--live-left-min), var(--live-left-max))", css
-        )
+        self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
+        self.assertIn("grid-template-columns: var(--live-left-width) minmax(0, 1fr)", css)
+        self.assertIn("flex-wrap: nowrap", css)
         self.assertNotIn("--live-left-min: 140px", css)
         self.assertNotIn("minmax(var(--live-left-min), 15%)", css)
-        self.assertNotIn("max-width: var(--live-left-max)", css)
+        self.assertNotIn("body.staff-shell #team-assign-pane {\n  grid-column: 1 / -1;", css)
         self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
 
 

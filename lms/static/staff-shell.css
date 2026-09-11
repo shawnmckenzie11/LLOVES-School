@@ -1292,8 +1292,10 @@ body.staff-shell .track-live-root.live-shell-root {
   --live-border: #d5dde6;
   --live-header-h: 52px;
   --live-rail-active: #1f6feb;
-  --live-left-min: 18rem;
-  --live-left-max: 25%;
+  --live-left-min: 220px;
+  --live-left-ideal: 24%;
+  --live-left-max: 320px;
+  --live-left-width: clamp(220px, 24%, 320px);
   max-width: none;
   display: flex;
   flex-direction: column;
@@ -1301,14 +1303,16 @@ body.staff-shell .track-live-root.live-shell-root {
 }
 body.staff-shell .live-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.45rem 0.75rem;
   min-height: var(--live-header-h);
-  padding: 0.4rem 0.65rem;
+  max-height: var(--live-header-h);
+  padding: 0.35rem 0.65rem;
   background: var(--live-pane-bg);
   border: 1px solid var(--live-border);
   border-radius: 8px;
+  overflow: hidden;
 }
 body.staff-shell .live-header-identity {
   display: flex;
@@ -1328,9 +1332,11 @@ body.staff-shell .live-header-att-count {
 }
 body.staff-shell .live-stage-rail {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.3rem;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 body.staff-shell .live-stage-stepper {
   appearance: none;
@@ -1348,33 +1354,39 @@ body.staff-shell .live-stage-stepper:disabled {
   opacity: 0.45;
   cursor: default;
 }
-body.staff-shell .live-stage-btn {
+body.staff-shell .live-stage-btn,
+body.staff-shell .live-stage-pill {
   appearance: none;
   border: 1px solid var(--live-border);
   border-radius: 999px;
   background: #fff;
   color: #12202e;
   font: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  padding: 0.28rem 0.65rem;
-  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.55rem;
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
 }
-body.staff-shell .live-stage-btn.is-active {
+body.staff-shell .live-stage-btn.is-active,
+body.staff-shell .live-stage-pill.is-active {
   border-color: var(--live-rail-active);
   background: var(--live-rail-active);
   color: #fff;
 }
-body.staff-shell .live-stage-btn.is-reached:not(.is-active) {
+body.staff-shell .live-stage-btn.is-reached:not(.is-active),
+body.staff-shell .live-stage-pill.is-reached:not(.is-active) {
   border-color: #93c5fd;
 }
 body.staff-shell .live-header-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem;
-  flex: 1 1 100%;
-  margin-left: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 body.staff-shell .live-end-class-form {
   display: flex;
@@ -1446,11 +1458,27 @@ body.staff-shell .live-legacy-control {
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+body.staff-shell .live-options-strip,
 body.staff-shell .live-option-card {
-  padding: 0.65rem 0.85rem;
+  padding: 0.45rem 0.75rem;
   background: var(--live-pane-bg);
   border: 1px solid var(--live-border);
   border-radius: 8px;
+}
+body.staff-shell .live-options-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+body.staff-shell .live-options-hint[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-unlock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 body.staff-shell .live-option-card[hidden] {
   display: none !important;
@@ -1517,7 +1545,8 @@ body.staff-shell .live-content-chip {
   cursor: grab;
 }
 body.staff-shell .live-header-join {
-  flex: 1 1 100%;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 body.staff-shell .live-header .ap-join-billboard {
   margin: 0;
@@ -1551,7 +1580,7 @@ body.staff-shell .live-date-panel.hidden {
 }
 body.staff-shell .live-shell-body {
   display: grid;
-  grid-template-columns: minmax(var(--live-left-min), var(--live-left-max)) minmax(0, 1fr);
+  grid-template-columns: var(--live-left-width) minmax(0, 1fr);
   gap: var(--live-shell-gap);
   align-items: start;
 }
@@ -1560,6 +1589,7 @@ body.staff-shell .live-shell-left {
   flex-direction: column;
   gap: var(--live-shell-gap);
   min-width: var(--live-left-min);
+  max-width: var(--live-left-max);
   width: 100%;
   min-height: 12rem;
 }
@@ -1570,9 +1600,16 @@ body.staff-shell .live-shell-right {
   min-width: 0;
 }
 body.staff-shell #team-assign-pane {
-  grid-column: 1 / -1;
+  width: 100%;
 }
 body.staff-shell #team-assign-pane[hidden] {
+  display: none !important;
+}
+body.staff-shell #meet-option-card[hidden],
+body.staff-shell #play-option-card[hidden] {
+  display: none !important;
+}
+body.staff-shell #results-strip[hidden] {
   display: none !important;
 }
 body.staff-shell .live-active-content {
