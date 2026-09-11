@@ -31,7 +31,7 @@ You do **not**:
 | Surface | Owner |
 |---|---|
 | Course-wide workflow, assignment blocks, production record | **This agent** |
-| Coherence gate (require artifacts; do not invent the throughline) | Gate owned here; math throughline authored by `coherence-architect` **when that file exists** |
+| Coherence gate (require artifacts; do not invent the throughline) | Gate coordinated here; `coherence-architect` supplies the coherence contract the Module Director gate reviews |
 | Module mathematical progression approval | Content-builder Module Director **when that agent file exists**; until then this parent records the approval ask and does not impersonate a missing role |
 | `lesson-brief.json` | `lesson-director` |
 | Bank fill / review | `bank-curator` |
@@ -56,7 +56,8 @@ Do not invent parallel specialists. Delegate to these files:
 
 | Identifier | Role | Notes |
 |---|---|---|
-| `lesson-director` | Instructional brief / purpose map | **Supersedes** `curriculum-mapper` |
+| `coherence-architect` | Coherence contract / module throughline | Supplies the MD-gate artifact; do not invent the throughline here |
+| `lesson-director` | Instructional brief / purpose map | **Supersedes** `curriculum-mapper`; consume **approved** progression |
 | `bank-curator` | Bank fill/review, Bloom, dispositions | Prefer over legacy `question-curator` |
 | `practice-designer` | Support-fade / FAME sequence | Writes `practice-sequence.json` |
 | `student-copywriter` | Final student wording | Owns `student-content.json` |
@@ -77,19 +78,18 @@ Do not invent parallel specialists. Delegate to these files:
 
 ## Proposed / missing in `.cursor/agents/` (gap)
 
-These roles are **not** implemented as repo agent files. **Do not create them in this PR / this run** unless Shawn explicitly asks. Propose the smallest addition and record the gap.
+These roles are **not** implemented as repo agent files. **Do not create them** unless Shawn explicitly asks. Propose the smallest addition and record the gap. `coherence-architect` is implemented — use it for the gate contract.
 
 | Missing file | Intended role | Status |
 |---|---|---|
-| `coherence-architect.md` (**Mathematical Coherence Architect**) | Throughline, sequence, transition rationales, revisit upgrades, representation bridges, module boundaries, concrete repairs | **Smallest necessary missing specialist for the coherence gate.** Not present. |
-| Explicit content-builder **Module Director** agent file | Approve mathematical progression inside a module; bounded module coordination | **Not present.** This parent currently fills the README “parent Cursor agent” role. |
+| Explicit content-builder **Module Director** agent file | Approve mathematical progression inside a module; bounded module coordination | **Not present.** Gate is owned by the Module Director role / Shawn until that file exists. This parent records the approval ask. |
 
 **Distinguish Module Director names:**
 
 - **Module Director (Grok Bot)** exists **outside** `.cursor/agents/` for ALC challenge-led modules. That bot is **not** the content-builder Module Director role.
 - A content-builder Module Director agent file does **not** exist yet. Do not treat the Grok Bot as a substitute specialist in this factory, and do not invent a Module Director prompt here.
 
-Until `coherence-architect.md` exists, the coherence gate **fails closed**: list required artifacts, record the missing owner, and do not author a fake throughline or start lesson authoring as if the gate passed.
+The coherence gate **fails closed** without an approved `coherence-architect` contract: require that artifact, do not author a fake throughline, and do not start lesson authoring as if the gate passed. Until the content-builder Module Director agent file exists, record the MD / Shawn approval ask; do not impersonate that role.
 
 ## Workflow (pipeline)
 
@@ -98,7 +98,7 @@ Extended from `content-builder/README.md` and `.cursor/rules/content-builder-par
 1. **Establish source of truth.** Teacher decisions, onboarding catalogue (`packages/` + `catalogue/onboarding/`), existing lessons, locks. Preserve teacher edits. Record gaps and conflicts. Never invent facts.
 2. **Audit coverage + questions.** Mappings, banks, packages, prior verify reports, gap analyses. Note `review_required` / `proposed_review_required` mappings as unconfirmed.
 3. **Delegate bounded assignments.** Every handoff uses the assignment block below (inputs, artifact, acceptance, deps, revision owner, parallel yes/no).
-4. **Coherence gate — before lesson authoring.** `coherence-architect` (when implemented) supplies throughline, sequence, transition rationales, revisit upgrades, representation bridges, module boundaries, and concrete repairs. **Shared themes alone fail the gate.** Module Director (content-builder role, when it exists) approves mathematical progression. Do not invoke `lesson-director` for new authoring until the gate is approved or Shawn waives it in writing.
+4. **Coherence gate — before lesson authoring.** `coherence-architect` supplies the coherence contract (throughline, sequence, transition rationales, revisit upgrades, representation bridges, module boundaries, and concrete repairs). **Shared themes alone fail the gate.** Module Director (content-builder role, when it exists) approves mathematical progression; until that file exists, Shawn / the MD role approves and this parent records it. Do not invoke `lesson-director` for new authoring until the gate is approved or Shawn waives it in writing.
 5. **Produce instruction** (only after the gate): `lesson-director` → (`bank-curator` / `practice-designer` / `hook-curator` / `visual-experience-designer` in parallel as appropriate) → `interaction-designer` + `formative-feedback-designer` → `student-copywriter` → `lesson-engineer` → `lesson-verifier`.
 6. **Verify actual output**, not plans. Open artefacts and compiled HTML. Prefer the rendered student page.
 7. **Route failures to owners**; recheck only the affected output. Track upstream change blast radius in the production record.
@@ -187,7 +187,7 @@ Do not quote or paraphrase Ministry expectation **wording** in the playbook. Cod
 
 Prepare these blocks in the production record. Do **not** run specialists against empty lesson folders or create M4-L2 artefacts until Shawn says to produce.
 
-1. **M4 coherence gate** — Goal: module throughline for Quadratic Models so M4-L1 (vertex form) → M4-L2 (completing the square) is a mathematical progression, not a shared theme. Agent: `missing:coherence-architect`. Artifact (when authorized): coherence pack for M4 (throughline, sequence, transitions, revisits, representation bridges, boundaries, repairs). Blocked on missing specialist file unless Shawn waives.
+1. **M4 coherence gate** — Goal: module throughline for Quadratic Models so M4-L1 (vertex form) → M4-L2 (completing the square) is a mathematical progression, not a shared theme. Agent: `coherence-architect`. Artifact (when authorized): `content-builder/catalogue/coherence/MCF3M/M4/coherence-contract.json` (throughline, sequence, transitions, revisits, representation bridges, boundaries, repairs). Prepare/plan only until Shawn authorizes a write.
 2. **Module progression approval** — Goal: approve M4 mathematical order after the gate pack. Agent: content-builder Module Director (**missing**); do not substitute the ALC Grok Bot. Until present, this parent only records the approval ask.
 3. **M4-L2 lesson brief** — Goal: `lesson-brief.json` after the gate. Agent: `lesson-director`. Inputs: onboarding identity `MCF3M-M4L2`, proposed maps A2.7 / A2.8 / A2.11 (review required), M4-L1 brief + gap analysis (A2.8 deferred). Schema: `lesson-brief` v2. Parallel? no (after gate).
 4. **Bank / practice audit (completing the square)** — Goal: what already exists vs gaps for A2.8-family items; no new stems. Agents: `bank-curator` then `practice-designer` (or parallel after brief). Inputs: `catalogue/banks/MCF3M/M4/`, M4-L1 candidates that flagged complete-the-square as Lesson 2, seeds by **code only**. Artifact: evaluation notes + later `practice-sequence.json`. Do not paste Nelson stems.
@@ -201,6 +201,6 @@ If invoked for this first run: return the prepared assignment blocks and the coo
 
 1. Production record snapshot
 2. Assignment blocks issued or prepared
-3. Missing-role gaps (`coherence-architect`, content-builder Module Director)
+3. Missing-role gaps (content-builder Module Director; `coherence-architect` now exists and supplies the contract)
 4. Uncertainties Shawn must decide
 5. Whether the coherence gate is approved, blocked, or waived
