@@ -543,6 +543,40 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(str(again[0]["visit_token"]), token1)
         self.assertEqual(str(again[0]["participant_uuid"]), uuid1)
 
+    def test_landing_and_legacy_routes_keep_avatar_after_mood(self) -> None:
+        """Cookie rejoin and /waiting / /game must not skip the avatar step."""
+        join = self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(join.status_code, 302)
+        self.assertIn("/student/mood", join.headers.get("Location", ""))
+
+        mood = self.student.post(
+            "/student/mood",
+            data={"mood": "good"},
+            follow_redirects=False,
+        )
+        self.assertEqual(mood.status_code, 302)
+        self.assertIn("/student/character", mood.headers.get("Location", ""))
+        self.assertNotIn("/student/home", mood.headers.get("Location", ""))
+
+        landing = self.student.get("/", follow_redirects=False)
+        self.assertEqual(landing.status_code, 302)
+        self.assertIn("/student/character", landing.headers.get("Location", ""))
+        self.assertNotIn("/student/home", landing.headers.get("Location", ""))
+
+        for path in ("/student/waiting", "/student/game"):
+            bounced = self.student.get(path, follow_redirects=False)
+            self.assertEqual(bounced.status_code, 302, path)
+            self.assertIn("/student/character", bounced.headers.get("Location", ""), path)
+            self.assertNotIn("/student/home", bounced.headers.get("Location", ""), path)
+
+        char_page = self.student.get("/student/character", follow_redirects=False)
+        self.assertEqual(char_page.status_code, 200)
+        self.assertIn("Choose your Avatar", char_page.get_data(as_text=True))
+
     def test_rejoin_cookie_cleared_when_session_ends(self) -> None:
         """Ended sessions drop the httpOnly auto-resume cookie."""
         from student_portal import REJOIN_COOKIE_NAME

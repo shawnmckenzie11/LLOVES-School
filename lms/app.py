@@ -1213,7 +1213,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         Celebrations live on the same page at ``/#celebrations`` (coming soon).
         While a live session is active, the httpOnly rejoin cookie skips
-        code+name and sends the student back to home.
+        code+name and resumes the unfinished join step (mood → character →
+        home). It must not skip the required avatar pick.
         """
         token = rejoin_token_from_cookie()
         if token:
