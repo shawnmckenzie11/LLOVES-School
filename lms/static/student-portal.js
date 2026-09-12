@@ -1,8 +1,11 @@
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
+import { formatCountdown, remainingUntilMs } from "/static/common.js";
+
 const waitEl = document.getElementById("student-wait");
 const meEl = document.getElementById("me-board");
+const displayTimeEl = document.getElementById("student-display-time");
 const boardEl = document.getElementById("class-board");
 const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
@@ -104,6 +107,45 @@ function pts(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "0";
   return String(Math.round(n * 10) / 10);
+}
+
+const IDLE_DISPLAY_TIME = "--:--";
+/** @type {number} */
+let displayEndsAtMs = 0;
+/** @type {boolean} */
+let displayTimerPaused = false;
+
+/**
+ * Paint the fixed SessionTimer slot above the student name.
+ * Never hides the slot — idle stays ``--:--`` so layout does not jump.
+ * @param {any} [payload]
+ */
+function paintDisplayTime(payload) {
+  if (!displayTimeEl) return;
+  const timer = (payload && payload.session_timer) || {};
+  const running = Boolean(timer.running) && Boolean(timer.ends_at_ms);
+  const paused = Boolean(timer.paused);
+  if (running) {
+    displayEndsAtMs = Number(timer.ends_at_ms) || 0;
+    displayTimerPaused = false;
+    displayTimeEl.textContent = formatCountdown(remainingUntilMs(displayEndsAtMs));
+    return;
+  }
+  displayEndsAtMs = 0;
+  displayTimerPaused = paused;
+  if (paused) {
+    displayTimeEl.textContent = formatCountdown(Number(timer.remaining_sec) || 0);
+    return;
+  }
+  displayTimeEl.textContent = IDLE_DISPLAY_TIME;
+}
+
+/**
+ * Tick the reserved display-time slot once per second while running.
+ */
+function tickDisplayTime() {
+  if (!displayTimeEl || !displayEndsAtMs || displayTimerPaused) return;
+  displayTimeEl.textContent = formatCountdown(remainingUntilMs(displayEndsAtMs));
 }
 
 /**
@@ -1016,6 +1058,7 @@ async function tick() {
     const prevSeq = lastStateSeq;
     applyTeacherProjection(data);
     applyLayout(data);
+    paintDisplayTime(data);
     paintMe(data);
     paintBoard(data);
     paintRoundBanner(data);
@@ -1059,6 +1102,7 @@ if (promptFeedback) {
 
 tick();
 setInterval(tick, 4000);
+setInterval(tickDisplayTime, 1000);
 
 const bootCodename = body && body.dataset ? body.dataset.codename : "";
 if (bootCodename) {

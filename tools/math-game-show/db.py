@@ -511,6 +511,52 @@ def round_ends_at_ms(started_at: str | None, duration_sec: int | None) -> int | 
     end = started + timedelta(seconds=int(duration_sec))
     return int(end.timestamp() * 1000)
 
+
+def idle_session_timer() -> dict[str, Any]:
+    """Return the idle SessionTimer mirror (no countdown armed)."""
+    return {
+        "running": False,
+        "paused": False,
+        "ends_at_ms": None,
+        "remaining_sec": None,
+    }
+
+
+def public_session_timer(game: dict[str, Any] | None) -> dict[str, Any]:
+    """Project teacher SessionTimer fields for student display time.
+
+    Idle when nothing is running or paused. Students do not see the
+    stepper's planned minutes — they keep ``--:--`` so layout stays put.
+
+    Args:
+        game: ``game_state()['game']`` blob, or None.
+
+    Returns:
+        ``{running, paused, ends_at_ms, remaining_sec}``.
+    """
+    fields = game if isinstance(game, dict) else {}
+    ends = fields.get("round_ends_at_ms")
+    paused = bool(fields.get("timer_paused"))
+    remaining = fields.get("round_remaining_sec")
+    running = bool(ends) and not paused
+    try:
+        ends_i = int(ends) if running else None
+    except (TypeError, ValueError):
+        ends_i = None
+        running = False
+    try:
+        remaining_i = int(remaining) if remaining not in (None, "") else None
+    except (TypeError, ValueError):
+        remaining_i = None
+    if not running and not paused:
+        return idle_session_timer()
+    return {
+        "running": running,
+        "paused": paused and not running,
+        "ends_at_ms": ends_i,
+        "remaining_sec": remaining_i,
+    }
+
 # Future TODO (Teacher Game Dashboard): allow students to award points to one
 # another. Scoring is teacher-only until then; keep the log `from` field.
 
@@ -1672,6 +1718,7 @@ class GameShowDB:
             "class_id": int(class_id),
             "round_label": round_label,
             "round_kind": round_kind,
+            "session_timer": self.session_timer_payload(class_id),
             "me": me,
             "scoreboard": self.scoreboard(class_id),
         }
@@ -3255,6 +3302,21 @@ class GameShowDB:
             )
             self.conn.commit()
         return self.game_state(class_id)
+
+    def session_timer_payload(self, class_id: int) -> dict[str, Any]:
+        """Return the public SessionTimer mirror for one class.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Idle timer when no open game exists.
+        """
+        try:
+            state = self.game_state(class_id)
+        except KeyError:
+            return idle_session_timer()
+        return public_session_timer(state.get("game"))
 
     def start_session_timer(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
         """Start a stage-independent countdown without changing overlay phase.

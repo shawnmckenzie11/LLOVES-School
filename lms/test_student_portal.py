@@ -740,6 +740,51 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("Aspen", html)
         self.assertNotIn("last_display", html.lower())
 
+    def test_beat20_session_timer_mirrors_teacher_clock(self) -> None:
+        """Beat 20: student state binds SessionTimer; idle stays ``--:--``."""
+        self._join_maple_home()
+        home = self.student.get("/student/home")
+        self.assertEqual(home.status_code, 200)
+        html = home.get_data(as_text=True)
+        self.assertIn('id="student-display-time"', html)
+        self.assertLess(
+            html.index('id="student-display-time"'), html.index('id="me-board"')
+        )
+        self.assertIn("--:--", html)
+        idle = self.student.get("/api/student/state").get_json()
+        timer = idle.get("session_timer")
+        self.assertIsInstance(timer, dict)
+        self.assertFalse(timer.get("running"))
+        self.assertFalse(timer.get("paused"))
+        self.assertIsNone(timer.get("ends_at_ms"))
+        self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        started = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 5},
+        )
+        self.assertEqual(started.status_code, 200, started.get_json())
+        staff_game = started.get_json()["game"]
+        live = self.student.get("/api/student/state").get_json()
+        mirrored = live.get("session_timer")
+        self.assertTrue(mirrored.get("running"), mirrored)
+        self.assertFalse(mirrored.get("paused"))
+        self.assertEqual(
+            mirrored.get("ends_at_ms"), staff_game.get("round_ends_at_ms")
+        )
+        paused = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/pause",
+            json={},
+        )
+        self.assertEqual(paused.status_code, 200, paused.get_json())
+        frozen = self.student.get("/api/student/state").get_json()["session_timer"]
+        self.assertFalse(frozen.get("running"))
+        self.assertTrue(frozen.get("paused"))
+        self.assertIsNone(frozen.get("ends_at_ms"))
+        self.assertGreater(int(frozen.get("remaining_sec") or 0), 0)
+
     def _join_maple_home(self) -> None:
         """Join Maple through mood and character so /api/student/state is on home."""
         self.student.post(

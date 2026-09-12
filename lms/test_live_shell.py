@@ -698,6 +698,46 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn('stage === "play" ? 5 : 3', defaults)
 
+    def test_beat20_student_display_time_is_fixed_above_name(self) -> None:
+        """Beat 20: one reserved display-time slot above the name; no stage clocks."""
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="student-display-time"', html)
+        self.assertIn('id="me-board"', html)
+        self.assertLess(
+            html.index('id="student-display-time"'), html.index('id="me-board"')
+        )
+        self.assertIn("--:--", html)
+        self.assertEqual(html.count('id="student-display-time"'), 1)
+        self.assertNotIn('id="ap-meet-live-clock"', html)
+        self.assertNotIn('id="ap-round-clock"', html)
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn(".student-me .student-display-time {", css)
+        clock_css = css.split(".student-me .student-display-time {")[1].split("}")[0]
+        self.assertIn("min-height: 1.25rem", clock_css)
+        self.assertIn("font-variant-numeric: tabular-nums", clock_css)
+        self.assertNotIn(
+            ".student-me .student-display-time[hidden] {\n  display: none !important;",
+            css,
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("function paintDisplayTime(", js)
+        self.assertIn("function tickDisplayTime(", js)
+        self.assertIn("payload.session_timer", js)
+        self.assertIn('IDLE_DISPLAY_TIME = "--:--"', js)
+        paint = js.split("function paintDisplayTime(")[1].split(
+            "function tickDisplayTime("
+        )[0]
+        self.assertNotIn("hidden", paint)
+        self.assertNotIn("innerHTML", paint)
+        self.assertNotIn("replaceChildren", paint)
+        me = js.split("function paintMe(")[1].split("function paintBoard(")[0]
+        self.assertNotIn("student-display-time", me)
+        self.assertNotIn("session_timer", me)
+        self.assertIn("paintDisplayTime(data)", js)
+        self.assertIn("setInterval(tickDisplayTime, 1000)", js)
+
     def test_beat12_join_to_teams_clears_mc_ghosts(self) -> None:
         """Beat 12: JOIN→TEAMS drops JOIN tally chrome; Left lock stays."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")

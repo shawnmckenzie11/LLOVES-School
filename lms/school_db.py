@@ -7938,6 +7938,15 @@ class SchoolDB(LovesDB):
             scoreboard = self.game.scoreboard(class_id)
         except Exception:  # noqa: BLE001 - guest home must still render
             scoreboard = {"teams": [], "final": False}
+        try:
+            session_timer = self.game.session_timer_payload(int(class_id))
+        except Exception:  # noqa: BLE001 - guest home must still render
+            session_timer = {
+                "running": False,
+                "paused": False,
+                "ends_at_ms": None,
+                "remaining_sec": None,
+            }
         return {
             "ok": True,
             "status": "waiting",
@@ -7946,6 +7955,7 @@ class SchoolDB(LovesDB):
             "class_id": int(class_id),
             "round_label": "",
             "round_kind": "",
+            "session_timer": session_timer,
             "unmatched": True,
             "me": {
                 "id": None,

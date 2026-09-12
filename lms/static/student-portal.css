@@ -657,6 +657,19 @@ body.student-home.is-live .student-live-response {
   color: #9aa6c3;
 }
 
+.student-me .student-display-time {
+  margin: 0 0 0.2rem;
+  min-height: 1.25rem;
+  line-height: 1.25rem;
+  text-align: center;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #9aa6c3;
+}
+
 .student-me .me-name {
   font-weight: 700;
   margin: 0 0 0.55rem;
