@@ -296,6 +296,7 @@ function paintOptionCard() {
   }
   if (teams) teams.hidden = stage !== "teams";
   if (meet) meet.hidden = stage !== "meet";
+  if (stage === "meet") applyMeetTimerUi();
   if (round) round.hidden = stage !== "round";
   if (play) play.hidden = stage !== "play";
   if (teamPane && stage !== "teams") {
@@ -2340,6 +2341,11 @@ function setMeetMinutes(value) {
   const n = Math.max(1, Math.min(30, Number(value) || 3));
   const el = $("ap-meet-minutes");
   if (el) el.value = String(n);
+  const clock = $("ap-meet-live-clock");
+  const btn = $("ap-meet-start");
+  if (clock && (btn?.dataset.meetState || "idle") === "idle") {
+    clock.textContent = formatCountdown(n * 60);
+  }
 }
 
 /**
@@ -2356,10 +2362,13 @@ async function startMeetTeamsPhase() {
 }
 
 /**
- * Paint Meet Your Team Start/Pause control from game timer fields.
+ * Paint Meet Your Team Start/Pause/Resume in the OptionsStrip.
+ * Updates label and clock text in place. Never hides the stepper,
+ * never remounts Left|Right chrome, never swaps layout mode.
  * @param {any} [state]
  */
 function applyMeetTimerUi(state = overlayState) {
+  lockClassListPane();
   const game = state?.game || {};
   const stepper = $("ap-meet-stepper");
   const clock = $("ap-meet-live-clock");
@@ -2370,15 +2379,29 @@ function applyMeetTimerUi(state = overlayState) {
     Boolean(game.round_ends_at_ms) &&
     !game.timer_paused;
   const paused = phase === "meet_teams" && Boolean(game.timer_paused);
-  if (stepper) stepper.hidden = running || paused;
+  if (stepper) {
+    stepper.hidden = false;
+    stepper.removeAttribute("hidden");
+    const freeze = running || paused;
+    stepper.setAttribute("aria-disabled", freeze ? "true" : "false");
+    for (const el of stepper.querySelectorAll("button, input")) {
+      if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) {
+        el.disabled = freeze;
+      }
+    }
+  }
   if (clock) {
-    clock.hidden = !(running || paused);
+    clock.hidden = false;
+    clock.removeAttribute("hidden");
     if (running) {
       meetEndsAtMs = Number(game.round_ends_at_ms) || 0;
       clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
     } else if (paused) {
       meetEndsAtMs = 0;
       clock.textContent = formatCountdown(Number(game.round_remaining_sec) || 0);
+    } else {
+      meetEndsAtMs = 0;
+      clock.textContent = formatCountdown(meetMinutes() * 60);
     }
   }
   if (btn) {
@@ -2389,11 +2412,10 @@ function applyMeetTimerUi(state = overlayState) {
       btn.textContent = "Resume";
       btn.dataset.meetState = "paused";
     } else {
-      btn.textContent = "Meet";
+      btn.textContent = "Start";
       btn.dataset.meetState = "idle";
     }
   }
-  paintQuestionArtifact();
 }
 
 /** Meet Your Team countdown deadline (epoch ms), or 0 when idle/paused. */
@@ -2401,12 +2423,13 @@ let meetEndsAtMs = 0;
 
 /**
  * Tick the Meet Your Team countdown when running.
+ * Clock text only — never toggles hidden or remounts chrome.
  */
 function paintMeetClock() {
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
-  if (!clock || clock.hidden) return;
-  if (btn?.dataset.meetState === "paused") return;
+  if (!clock) return;
+  if (btn?.dataset.meetState !== "running") return;
   if (!meetEndsAtMs) return;
   clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
 }
@@ -2659,7 +2682,6 @@ $("ap-meet-start")?.addEventListener("click", async () => {
       return;
     }
     await startMeetTeamsPhase();
-    await patchTeacherState({ stage: "meet" });
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
