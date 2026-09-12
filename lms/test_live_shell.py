@@ -554,6 +554,33 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
 
+    def test_beat22_presence_updates_team_max_live(self) -> None:
+        """Beat 22: ClassList join/leave clamps team max and refreshes the meter."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        ticks = js.split("async function applySessionPresentTicks(")[1].split(
+            "async function pollLiveSessionAttendees("
+        )[0]
+        self.assertIn("sessionPresentIds = next", ticks)
+        self.assertNotIn("sessionPresentIds.add(id)", ticks)
+        self.assertIn("setNTeams(currentTeamCount())", ticks)
+        self.assertIn("renderAttendanceList()", ticks)
+        self.assertIn("No second poll", js)
+        self.assertIn("TEAMS max (= presentCount)", js)
+        bounds = js.split("function nTeamsBounds()")[1].split("function divisionStrength(")[0]
+        self.assertIn("presentCountForTeams()", bounds)
+        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
+        paint = js.split("function paintDivisionMeter()")[1].split(
+            "function paintTeamsStripEnabled()"
+        )[0]
+        self.assertIn("presentCountForTeams()", paint)
+        self.assertIn("divisionStrength(present, teamCount)", paint)
+        poll = js.split("async function pollLiveSessionAttendees(")[1].split(
+            "function startLiveSessionPolling("
+        )[0]
+        self.assertIn("applySessionPresentTicks(", poll)
+        self.assertIn("!row?.left_at", poll)
+        self.assertNotIn("setInterval", ticks)
+
     def test_beat4_rename_is_portaled_modal(self) -> None:
         """Beat 4: Rename is a body-portaled dialog, not an OptionsStrip popover."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")

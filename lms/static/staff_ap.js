@@ -958,7 +958,9 @@ function syncLiveSessionPolling() {
 }
 
 /**
- * Tick join-only roster for students currently in the live session.
+ * Sync ClassList to students currently in the live session (join and leave).
+ * Same presence channel updates TEAMS max (= presentCount) and the
+ * division-strength meter on JOIN and TEAMS. No second poll.
  * After scoring starts, refresh game state so late joiners appear on teams.
  * @param {Iterable<number>} ids
  * @param {Array<{student_id?:number,mood?:string}>} [attendees]
@@ -966,7 +968,7 @@ function syncLiveSessionPolling() {
 async function applySessionPresentTicks(ids, attendees) {
   const next = new Set([...ids].map(Number).filter((n) => Number.isFinite(n) && n > 0));
   const prevSize = sessionPresentIds.size;
-  for (const id of next) sessionPresentIds.add(id);
+  sessionPresentIds = next;
   if (Array.isArray(attendees) && overlayState?.students) {
     const moodById = new Map(
       attendees
@@ -980,6 +982,7 @@ async function applySessionPresentTicks(ids, attendees) {
   }
   renderAttendanceList();
   updateStepSummaries();
+  setNTeams(currentTeamCount());
 
   if (isScoringLive() && next.size > prevSize) {
     try {
