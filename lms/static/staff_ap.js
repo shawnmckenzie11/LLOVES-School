@@ -303,6 +303,7 @@ function paintOptionCard() {
     if (showStrip) card.removeAttribute("hidden");
   }
   if (teams) teams.hidden = stage !== "teams";
+  if (stage !== "teams") hideTeamsAssignError();
   if (meet) meet.hidden = stage !== "meet";
   if (stage === "meet") applyMeetTimerUi();
   if (round) round.hidden = stage !== "round";
@@ -2535,34 +2536,89 @@ function manualTeamsBalanced() {
   return max - min <= 1;
 }
 
+/**
+ * Show an assign failure inside the TEAMS OptionsStrip.
+ * Never writes ``#ap-overlay-error`` or remounts Active Content.
+ * @param {unknown} err
+ */
+function showTeamsAssignError(err) {
+  hideError("#ap-overlay-error");
+  showError("#live-teams-assign-error", err);
+}
+
+/**
+ * Hide the TEAMS OptionsStrip assign error.
+ */
+function hideTeamsAssignError() {
+  hideError("#live-teams-assign-error");
+}
+
+/**
+ * TEAMS → MEET Next: commit Generate/assign then ``stage=meet`` in one write.
+ * Count 1 skips team buckets (individual-safe). Failures stay on TEAMS.
+ * @returns {Promise<void>}
+ */
+async function advanceTeamsToMeet() {
+  hideTeamsAssignError();
+  const ids = selectedPresent();
+  if (!ids.length) {
+    showTeamsAssignError(
+      new Error(
+        "No students have joined yet. Share the live session code, then continue when someone is present."
+      )
+    );
+    return;
+  }
+  const nTeams = currentTeamCount();
+  const body = { advance: "next" };
+  if (nTeams >= 2) {
+    const mode = lastAssignMode || "balanced";
+    if (mode === "manual") {
+      const open = $("ap-manual-assign");
+      if (!open || open.hidden) {
+        showTeamsAssignError(
+          new Error("Choose Assign Manually and set each student's team, then Next.")
+        );
+        return;
+      }
+      if (!manualTeamsBalanced()) {
+        showTeamsAssignError(
+          new Error(
+            "Balance teams so sizes are equal or off by one, or pick Assign Balanced / Assign Randomly."
+          )
+        );
+        return;
+      }
+    }
+    body.teams_mode = "teams";
+    body.assign = {
+      n_teams: nTeams,
+      mode,
+      present_ids: ids,
+    };
+    if (mode === "manual") {
+      body.assign.assignments = [...document.querySelectorAll("#ap-manual-list .team-step")].map(
+        (el) => ({
+          student_id: Number(el.dataset.studentId),
+          team_index: Number(el.dataset.teamIndex),
+        })
+      );
+    }
+  } else {
+    body.teams_mode = "individual";
+  }
+  const beforeStage = teacherState.stage;
+  await patchTeacherState(body, { errorSelector: "#live-teams-assign-error" });
+  if (teacherState.stage === beforeStage && beforeStage === "teams") {
+    return;
+  }
+  hideTeamsAssignError();
+  closeTeamsPops();
+  renderAttendanceList();
+}
+
 $("ap-teams-next")?.addEventListener("click", () => {
-  if (currentTeamCount() <= 1) {
-    clickExistingNext("ap-gamify-next");
-    return;
-  }
-  const mode = lastAssignMode || "balanced";
-  if (mode === "manual") {
-    const open = $("ap-manual-assign");
-    if (!open || open.hidden) {
-      showError(
-        "#ap-overlay-error",
-        new Error("Choose Assign Manually and set each student's team, then Next.")
-      );
-      return;
-    }
-    if (!manualTeamsBalanced()) {
-      showError(
-        "#ap-overlay-error",
-        new Error(
-          "Balance teams so sizes are equal or off by one, or pick Assign Balanced / Assign Randomly."
-        )
-      );
-      return;
-    }
-    assign("manual").catch((err) => showError("#ap-overlay-error", err));
-    return;
-  }
-  assign(mode).catch((err) => showError("#ap-overlay-error", err));
+  advanceTeamsToMeet();
 });
 $("ap-manual-list")?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-step]");
@@ -3611,9 +3667,13 @@ async function patchTeacherState(body, opts = {}) {
       body: JSON.stringify(body),
     });
     if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+    if (res?.game) {
+      overlayState = res.game;
+      renderAttendanceList();
+    }
     return teacherState;
   } catch (err) {
-    if (!opts.silent) showError("#ap-overlay-error", err);
+    if (!opts.silent) showError(opts.errorSelector || "#ap-overlay-error", err);
     return teacherState;
   } finally {
     teacherStateInFlight = false;
@@ -3631,6 +3691,10 @@ $("live-stage-prev")?.addEventListener("click", () => {
   patchTeacherState({ advance: "prev" });
 });
 $("live-stage-next")?.addEventListener("click", () => {
+  if (teacherState.stage === "teams") {
+    advanceTeamsToMeet();
+    return;
+  }
   patchTeacherState({ advance: "next" });
 });
 $("meet-chain-next")?.addEventListener("click", () => {

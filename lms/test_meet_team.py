@@ -450,6 +450,113 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(need["chain_index"], 2)
         self.assertEqual(need["chain_length"], 2)
 
+    def _staff_mark_present(self) -> list[int]:
+        """Begin the meeting and persist present flags without assigning."""
+        begin = self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(begin.status_code, 200, begin.get_json())
+        ids = [int(student["id"]) for student in begin.get_json()["students"]]
+        att = self.staff.post(
+            f"/api/classes/{self.class_id}/game/attendance",
+            json={"present_ids": ids, "meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(att.status_code, 200, att.get_json())
+        return ids
+
+    def test_teams_next_assigns_and_meets_in_one_seq(self) -> None:
+        """TEAMS→Meet Next commits assign + stage=meet in one state_seq."""
+        ids = self._staff_mark_present()
+        teams_stage = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        self.assertEqual(teams_stage.status_code, 200, teams_stage.get_json())
+        before = teams_stage.get_json()["teacher_state"]
+        self.assertEqual(before["stage"], "teams")
+        seq = int(before["state_seq"])
+        game_before = self.school.game.game_state(self.class_id)
+        self.assertLess(len(game_before.get("teams") or []), 2)
+
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "advance": "next",
+                "teams_mode": "teams",
+                "assign": {
+                    "n_teams": 2,
+                    "mode": "random",
+                    "present_ids": ids,
+                },
+            },
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        body = nxt.get_json()
+        teacher = body["teacher_state"]
+        self.assertEqual(teacher["stage"], "meet")
+        self.assertEqual(teacher["state_seq"], seq + 1)
+        self.assertEqual(teacher["teams_mode"], "teams")
+        assigned = body.get("game") or self.school.game.game_state(self.class_id)
+        teams = [team for team in assigned.get("teams") or [] if team.get("name") != "Class"]
+        self.assertGreaterEqual(len(teams), 2)
+        members = [member for team in teams for member in team.get("members") or []]
+        self.assertGreaterEqual(len(members), 1)
+        again = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(again["stage"], "meet")
+        self.assertEqual(again["state_seq"], seq + 1)
+
+    def test_teams_next_count_one_skips_assign_without_crash(self) -> None:
+        """Count=1 Next still enters MEET and does not call assign_teams."""
+        ids = self._staff_mark_present()[:1]
+        self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "advance": "next",
+                "teams_mode": "individual",
+                "assign": {"n_teams": 1, "mode": "balanced", "present_ids": ids},
+            },
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        teacher = nxt.get_json()["teacher_state"]
+        self.assertEqual(teacher["stage"], "meet")
+        self.assertEqual(teacher["teams_mode"], "individual")
+        game = self.school.game.game_state(self.class_id)
+        teams = [team for team in game.get("teams") or [] if team.get("name") != "Class"]
+        self.assertLess(len(teams), 2)
+
+    def test_teams_next_assign_failure_stays_on_teams(self) -> None:
+        """Failed assign returns 400 and does not commit stage=meet."""
+        ids = self._staff_mark_present()
+        parked = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        seq = int(parked.get_json()["teacher_state"]["state_seq"])
+        bad = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "advance": "next",
+                "assign": {
+                    "n_teams": 99,
+                    "mode": "balanced",
+                    "present_ids": ids,
+                },
+            },
+        )
+        self.assertEqual(bad.status_code, 400, bad.get_json())
+        after = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(after["stage"], "teams")
+        self.assertEqual(after["state_seq"], seq)
+
     def test_start_rounds_clears_meet_team_warmup(self) -> None:
         """Team Challenge start drops the ephemeral teammate poll."""
         self._staff_assign_two_teams()

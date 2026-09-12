@@ -605,6 +605,51 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("applyMeetTimerUi();", option)
         self.assertIn("lockClassListPane();", option)
 
+    def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
+        """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="live-teams-assign-error"', html)
+        strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
+        self.assertIn('id="live-teams-assign-error"', strip_html)
+        self.assertLess(html.index('id="live-teams-assign-error"'), html.index('class="live-shell-body"'))
+        self.assertGreater(html.index('id="live-active-content"'), html.index('id="class-list-pane"'))
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-teams-strip .live-strip-error {", css)
+        overlay_css = css.split("body.staff-shell .live-shell-ia-v2 > #ap-overlay-error {")[1].split("}")[0]
+        self.assertIn("position: absolute", overlay_css)
+        self.assertNotIn("grid-row: 1", overlay_css)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("async function advanceTeamsToMeet()", js)
+        self.assertIn("function showTeamsAssignError(", js)
+        self.assertIn('showError("#live-teams-assign-error"', js)
+        self.assertIn('errorSelector: "#live-teams-assign-error"', js)
+        self.assertIn('if (teacherState.stage === "teams")', js)
+        self.assertIn("advanceTeamsToMeet()", js)
+        next_click = js.split('$("live-stage-next")?.addEventListener("click"')[1].split(
+            '$("meet-chain-next")'
+        )[0]
+        self.assertIn("advanceTeamsToMeet()", next_click)
+        self.assertIn('teacherState.stage === "teams"', next_click)
+        teams_next = js.split('$("ap-teams-next")?.addEventListener("click"')[1].split(
+            '$("ap-manual-list")'
+        )[0]
+        self.assertIn("advanceTeamsToMeet()", teams_next)
+        self.assertNotIn('showError("#ap-overlay-error"', teams_next)
+        advance = js.split("async function advanceTeamsToMeet()")[1].split(
+            '$("ap-teams-next")'
+        )[0]
+        self.assertIn("body.assign", advance)
+        self.assertIn("n_teams: nTeams", advance)
+        self.assertIn('body.teams_mode = "individual"', advance)
+        self.assertIn("showTeamsAssignError", advance)
+        self.assertNotIn("innerHTML", advance)
+        self.assertNotIn("replaceChildren", advance)
+        self.assertNotIn("paintTeacherShell", advance)
+        self.assertNotIn('showError("#ap-overlay-error"', advance)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
+
 
 if __name__ == "__main__":
     unittest.main()
