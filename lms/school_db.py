@@ -7821,29 +7821,36 @@ class SchoolDB(LovesDB):
         return credits
 
     def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
-        """End Class (save) or Quit (discard), then wipe the live SID.
+        """Save and End Class or Quit, then wipe the live SID.
 
-        End Class writes attendance plus +1 participation per MC round
-        answered (Meet taps excluded), then wipes live-session rows.
-        Quit writes nothing and discards the open game-show column.
+        Attendance always persists (including Quit). Save and End Class
+        also writes +1 participation per MC round answered (Meet taps
+        excluded). Quit zeros participation and discards ephemeral meet
+        taps / live QH with the SID wipe.
 
         Args:
             class_id: Game-show ``classes.id``.
-            persist: True for End Class; False for Quit.
+            persist: True to keep participation; False for Quit
+                (attendance only).
 
         Returns:
             Wipe payload from ``wipe_live_sessions_for_class``.
         """
-        if persist:
-            present_ids = self.present_student_ids_for_live_class(class_id)
-            credits = self.participation_round_credits_for_class(class_id)
-            try:
-                self.game.persist_end_class_column(
-                    int(class_id), present_ids, credits
-                )
-            except Exception:  # noqa: BLE001 — SID wipe still happens
-                pass
-        else:
+        present_ids = self.present_student_ids_for_live_class(class_id)
+        credits = (
+            self.participation_round_credits_for_class(class_id) if persist else {}
+        )
+        wrote = None
+        try:
+            wrote = self.game.persist_end_class_column(
+                int(class_id),
+                present_ids,
+                credits,
+                include_participation=bool(persist),
+            )
+        except Exception:  # noqa: BLE001 — SID wipe still happens
+            wrote = None
+        if wrote is None and not persist:
             try:
                 self.game.cancel_setup(int(class_id))
             except Exception:  # noqa: BLE001 — no open game is fine

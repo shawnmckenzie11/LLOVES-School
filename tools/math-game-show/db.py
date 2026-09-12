@@ -2963,16 +2963,21 @@ class GameShowDB:
         class_id: int,
         present_ids: list[int],
         credits: dict[int, Any],
+        *,
+        include_participation: bool = True,
     ) -> dict[str, Any] | None:
-        """Write attendance + +1/round participation, then end the column.
+        """Write attendance, optional +1/round participation, then end.
 
-        Used by teacher End Class (beat 19). Creates an open game when
-        none exists and there is something to persist.
+        Used by Save and End Class (attendance + participation) and Quit
+        (attendance only). Creates an open game when none exists and
+        there is something to persist.
 
         Args:
             class_id: Classes primary key.
             present_ids: Roster ids marked present.
             credits: ``student_id → iterable of round keys``.
+            include_participation: When False (Quit), zero live points
+                so only attendance remains.
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -2980,6 +2985,8 @@ class GameShowDB:
         """
         present_set = {int(x) for x in present_ids}
         credit_map: dict[int, int] = {}
+        if not include_participation:
+            credits = {}
         for raw_sid, rounds in (credits or {}).items():
             try:
                 sid = int(raw_sid)
@@ -3005,6 +3012,18 @@ class GameShowDB:
             self._write_attendance_unlocked(game, present_set)
             session_id = int(game["session_id"])
             game_id = int(game["id"])
+            if not include_participation:
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET points = 0,
+                        points_r1 = 0,
+                        points_r2 = 0,
+                        points_r3 = 0
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
             for sid, n in credit_map.items():
                 r1 = 1 if n >= 1 else 0
                 r2 = 1 if n >= 2 else 0

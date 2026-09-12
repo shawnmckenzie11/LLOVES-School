@@ -170,16 +170,17 @@ class LiveShellTests(unittest.TestCase):
             self.assertIn(f'id="{control_id}"', html)
 
     def test_live_tab_end_class_is_placement_only(self) -> None:
-        """Header End Class and Quit are distinct; both post finish routes."""
+        """Header Save and End Class and Quit are distinct finish routes."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn("Save attendance & participation, then end?", html)
-        self.assertIn("End without saving?", html)
+        self.assertIn("Save attendance and end without participation?", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
         self.assertIn(f"/staff/class/{self.class_id}/quit-live", html)
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-quit-class"', html)
-        self.assertIn('aria-label="End Class"', html)
+        self.assertIn('aria-label="Save and End Class"', html)
+        self.assertIn(">Save and End Class<", html)
         self.assertIn('aria-label="Quit"', html)
         self.assertIn("live-end-class-form", html)
         self.assertIn("live-quit-class-form", html)
@@ -189,7 +190,7 @@ class LiveShellTests(unittest.TestCase):
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
-        self.assertIn("End Live Class", home_html)
+        self.assertIn("Save and End Class", home_html)
         self.assertIn("Save attendance & participation, then end?", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
@@ -1173,7 +1174,7 @@ class LiveShellTests(unittest.TestCase):
         return dict(row) if row else None
 
     def test_beat19_end_class_persists_quit_discards(self) -> None:
-        """Beat 19: End Class saves A&P; Quit writes nothing; both clear SID."""
+        """Beat 24: Save and End Class keeps A&P; Quit keeps attendance only."""
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
         ).get_data(as_text=True)
@@ -1219,11 +1220,11 @@ class LiveShellTests(unittest.TestCase):
                     (self.class_id,),
                 ).fetchone()["n"]
             )
-        self.assertEqual(ended_after, ended_before)
+        self.assertEqual(ended_after, ended_before + 1)
         after_quit = self._ended_score_row(student_id)
         self.assertIsNotNone(after_quit)
         self.assertEqual(int(after_quit["present"]), 1)
-        self.assertEqual(int(after_quit["points"]), 1)
+        self.assertEqual(int(after_quit["points"]), 0)
 
 
 if __name__ == "__main__":

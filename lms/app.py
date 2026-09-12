@@ -2368,7 +2368,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """End Class: persist attendance/participation, then wipe the SID.
+        """Save and End Class: persist A&P, then wipe the SID.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
@@ -2399,10 +2399,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required
     def staff_quit_live_class(class_id: int):
-        """Quit: discard the open game column and wipe the live SID.
+        """Quit: keep attendance, discard participation, wipe the SID.
 
-        Same ownership rules as End Class. Writes no attendance or
-        participation.
+        Same ownership rules as Save and End Class. Attendance always
+        persists. Participation, meet taps, and live QH are discarded.
         """
         user = current_user()
         assert user is not None
