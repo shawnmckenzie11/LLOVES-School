@@ -33,7 +33,15 @@
       <a id="media-encore-link" href="#" target="_blank" rel="noopener noreferrer"></a>
     </p>
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting room — class is about to begin.{% endif %}</p>
-    <div id="prompt-shell" class="prompt-shell" hidden></div>
+    <div id="question-frame" class="question-frame">
+      <div id="prompt-shell" class="prompt-shell" hidden></div>
+      <div id="prompt-feedback" class="prompt-feedback" hidden role="dialog" aria-modal="false" aria-labelledby="prompt-feedback-lead" tabindex="-1">
+        <p id="prompt-feedback-lead" class="prompt-feedback-lead"></p>
+        <p id="prompt-feedback-why" class="prompt-feedback-why"></p>
+        <p id="prompt-feedback-helper" class="prompt-feedback-helper">You can Close whenever you’re ready.</p>
+        <button type="button" class="prompt-feedback-close" id="prompt-feedback-close">Close</button>
+      </div>
+    </div>
     <p id="prompt-ack" class="prompt-ack" hidden>Response received.</p>
   </main>
   <footer class="student-chrome student-chrome-bottom" aria-label="Class scoreboard">

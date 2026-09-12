@@ -364,6 +364,9 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(pick.status_code, 200, pick.get_json())
         self.assertTrue(pick.get_json().get("my_response", {}).get("ephemeral"))
         self.assertEqual(pick.get_json().get("meet_chip"), "keeps us kind")
+        self.assertNotIn("feedback", pick.get_json())
+        self.assertNotIn("feedback", pick.get_json().get("my_response") or {})
+        self.assertNotIn("lead", pick.get_json())
         teacher_after = self.staff.get(
             f"/api/live-sessions/{self.live_session_id}/teacher-state"
         ).get_json()["teacher_state"]

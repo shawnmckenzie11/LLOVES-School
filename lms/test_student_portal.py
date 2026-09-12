@@ -810,7 +810,15 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(live_prompt["prompt"]["payload"]["item_id"], "minds_on")
         self.assertNotIn("key", live_prompt["prompt"]["payload"])
 
-        for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "feedback"):
+        for field in (
+            "key",
+            "cement",
+            "soft_key",
+            "by_choice",
+            "on_submit",
+            "on_weak",
+            "feedback",
+        ):
             self.assertNotIn(field, prompt["payload"])
 
         submit = self.student.post(
@@ -824,11 +832,14 @@ class StudentPortalTests(unittest.TestCase):
         body = submit.get_json()
         self.assertTrue(body.get("ack"))
         self.assertEqual(body["feedback"]["source"], "by_choice")
+        self.assertEqual(body["feedback"]["lead"], "Good work.")
+        self.assertTrue(body["feedback"]["match"])
         self.assertEqual(
             body["feedback"]["text"],
             "Same step, same change — that’s a constant rate.",
         )
         self.assertEqual(body["my_response"]["feedback"]["text"], body["feedback"]["text"])
+        self.assertEqual(body["my_response"]["feedback"]["lead"], "Good work.")
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
             again["my_response"]["response"]["choice"],
@@ -838,7 +849,7 @@ class StudentPortalTests(unittest.TestCase):
             again["my_response"]["feedback"]["text"],
             body["feedback"]["text"],
         )
-        for field in ("key", "cement", "soft_key", "by_choice", "on_submit"):
+        for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "on_weak"):
             self.assertNotIn(field, again["prompt"]["payload"])
 
     def test_waiting_room_refreshes_authoritative_stem(self) -> None:
@@ -973,10 +984,19 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("Waiting room — class is about to begin.", html)
         self.assertNotIn("Waiting for your teacher to start scoring.", html)
         self.assertNotIn("meet-math", html)
-        self.assertIn("feedback.text", js)
-        self.assertIn("is-feedback", js)
+        self.assertIn("feedbackObject", js)
+        self.assertIn("fb.text", js)
+        self.assertIn("showFeedbackPanel", js)
+        self.assertIn("dismissFeedbackPanel", js)
+        self.assertIn("hideFeedbackPanel", js)
+        self.assertIn("Escape", js)
+        self.assertIn("Good work.", js)
+        self.assertNotIn("Wrong.", js)
+        self.assertNotIn("Wrong.", html)
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
-        self.assertIn(".prompt-ack.is-feedback", css)
+        self.assertIn(".prompt-feedback", css)
+        self.assertIn(".question-frame", css)
+        self.assertIn("max-height: min(70dvh, 36rem)", css)
 
     def test_generic_mc_submit_has_no_feedback(self) -> None:
         """A staff MC that is not Minds-On / CONS returns ack only."""
@@ -1000,6 +1020,52 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(body.get("ack"))
         self.assertNotIn("feedback", body)
         self.assertNotIn("feedback", body.get("my_response") or {})
+
+    def test_minds_on_miss_uses_soft_lead(self) -> None:
+        """Incorrect Minds-On choice returns the Wonder miss lead, never Wrong."""
+        self._join_maple_home()
+        prompt = self.student.get("/api/student/state").get_json()["prompt"]
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_CHOICES[1]},
+            },
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        body = submit.get_json()
+        self.assertEqual(body["feedback"]["lead"], "Not that one — stay with the picture.")
+        self.assertEqual(
+            body["feedback"]["text"],
+            "A curve changes steepness as you go. Constant rate stays even.",
+        )
+        self.assertFalse(body["feedback"]["match"])
+        self.assertNotEqual(body["feedback"]["lead"], "Wrong.")
+
+    def test_beat6_feedback_panel_lives_in_question_frame(self) -> None:
+        """Panel markup sits in the Question frame, not ClassList or ResultsStrip."""
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        frame_i = html.index('id="question-frame"')
+        shell_i = html.index('id="prompt-shell"')
+        panel_i = html.index('id="prompt-feedback"')
+        close_i = html.index('id="prompt-feedback-close"')
+        board_i = html.index('id="class-board"')
+        self.assertLess(frame_i, shell_i)
+        self.assertLess(shell_i, panel_i)
+        self.assertLess(panel_i, close_i)
+        self.assertLess(close_i, board_i)
+        self.assertIn(">Close<", html)
+        self.assertIn("You can Close whenever you’re ready.", html)
+        self.assertNotIn("Wrong.", html)
+        self.assertNotIn('id="results-strip"', html)
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn('getElementById("question-frame")', js)
+        self.assertIn("function showFeedbackPanel(", js)
+        self.assertIn("function dismissFeedbackPanel()", js)
+        self.assertIn('event.key === "Escape"', js)
+        self.assertNotIn("innerHTML = feedback", js)
 
 
 if __name__ == "__main__":

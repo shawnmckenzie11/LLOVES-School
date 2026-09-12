@@ -17,12 +17,20 @@ TEACHER_ONLY_FIELDS = (
     "soft_key",
     "by_choice",
     "on_submit",
+    "on_weak",
     "feedback",
     "feedback_id",
     "chips",
     "curriculum_chips",
     "expectation_codes",
 )
+
+# Wonder one-beat leads. Never “Wrong.”
+LEAD_MATCH = "Good work."
+LEAD_MISS = "Not that one — stay with the picture."
+LEAD_WEAK = "Almost — name what the picture forced."
+CLOSE_LABEL = "Close"
+HELPER_LINE = "You can Close whenever you’re ready."
 
 # Waiting-room item ids (current main + PR #42 rename).
 _MINDS_ON_ITEM_IDS = frozenset({"minds_on", "minds-on", "meet-math"})
@@ -165,6 +173,55 @@ _MINDS_ON_FEEDBACK_BY_SLOT = {
 }
 
 
+def share_response_text(response: Any) -> str:
+    """Return stripped share/draw text from a student response object.
+
+    Args:
+        response: Student answer JSON (``text`` or ``value``).
+    """
+    if not isinstance(response, dict):
+        return ""
+    raw = response.get("text")
+    if raw is None:
+        raw = response.get("value")
+    return str(raw if raw is not None else "").strip()
+
+
+def payload_feedback_entry(payload: Any, item_id: str) -> dict[str, Any]:
+    """Merge the C1–C3 table row with any local payload feedback object.
+
+    Teacher-authored ``by_choice`` / ``on_submit`` / ``on_weak`` / ``soft_key``
+    on the live prompt win over the catalogue table. Empty local keys keep
+    the table. Does not invent new pedagogy lines.
+
+    Args:
+        payload: Live-prompt JSON.
+        item_id: Canonical table key from ``canonical_feedback_item_id``.
+    """
+    entry = dict(FEEDBACK_TABLE.get(item_id) or {})
+    if not isinstance(payload, dict):
+        return entry
+    local = payload.get("feedback")
+    bag = local if isinstance(local, dict) else payload
+    soft = str(bag.get("soft_key") or "").strip()
+    if soft:
+        entry["soft_key"] = soft
+    by_choice = bag.get("by_choice")
+    if isinstance(by_choice, dict) and by_choice:
+        entry["by_choice"] = {
+            str(letter).strip().upper(): str(line).strip()
+            for letter, line in by_choice.items()
+            if str(letter).strip() and str(line).strip()
+        }
+    on_submit = str(bag.get("on_submit") or "").strip()
+    if on_submit:
+        entry["on_submit"] = on_submit
+    on_weak = str(bag.get("on_weak") or "").strip()
+    if on_weak:
+        entry["on_weak"] = on_weak
+    return entry
+
+
 def canonical_feedback_item_id(payload: Any) -> str:
     """Return the feedback table key, or empty when this prompt has none.
 
@@ -222,11 +279,11 @@ def choice_letter(response: Any, choices: Any) -> str | None:
 
 def resolve_live_prompt_feedback(
     payload: Any, response: Any
-) -> dict[str, str] | None:
-    """Return ``{text, source}`` for a Minds-On / CONS submit, or None.
+) -> dict[str, Any] | None:
+    """Return lead + why for a Minds-On / CONS submit, or None.
 
-    ``source`` is ``by_choice`` or ``on_submit``. Team Challenge and unknown
-    prompts return None.
+    ``source`` is ``by_choice``, ``on_submit``, or ``on_weak``. Team Challenge
+    and unknown prompts return None. Meet A/B/C is not a keyed item.
 
     Args:
         payload: Live-prompt payload (may include teacher-only fields).
@@ -235,25 +292,49 @@ def resolve_live_prompt_feedback(
     item_id = canonical_feedback_item_id(payload)
     if not item_id:
         return None
-    entry = FEEDBACK_TABLE.get(item_id) or {}
+    entry = payload_feedback_entry(payload, item_id)
     by_choice = entry.get("by_choice") or {}
     on_submit = str(entry.get("on_submit") or "").strip()
+    on_weak = str(entry.get("on_weak") or "").strip()
     letter = choice_letter(
         response, (payload or {}).get("choices") if isinstance(payload, dict) else []
     )
     if by_choice and letter:
         text = str(by_choice.get(letter) or "").strip()
         if text:
-            return {"text": text, "source": "by_choice"}
+            soft = str(entry.get("soft_key") or "").strip().upper()
+            match = bool(soft) and letter == soft
+            return {
+                "text": text,
+                "source": "by_choice",
+                "lead": LEAD_MATCH if match else LEAD_MISS,
+                "match": match,
+            }
+    share = share_response_text(response)
+    weak = not share
+    if weak and on_weak:
+        return {
+            "text": on_weak,
+            "source": "on_weak",
+            "lead": LEAD_WEAK,
+            "match": False,
+        }
     if on_submit:
-        return {"text": on_submit, "source": "on_submit"}
+        return {
+            "text": on_submit,
+            "source": "on_submit",
+            "lead": LEAD_WEAK if weak else LEAD_MATCH,
+            "match": not weak,
+        }
     return None
 
 
 def public_feedback_fragment(
     payload: Any, response: Any
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     """Student-safe feedback object for submit / my_response JSON.
+
+    Includes Wonder ``lead`` plus the why ``text``. Never leaks soft keys.
 
     Args:
         payload: Live-prompt payload.
@@ -262,7 +343,12 @@ def public_feedback_fragment(
     resolved = resolve_live_prompt_feedback(payload, response)
     if not resolved:
         return None
-    return {"text": resolved["text"], "source": resolved["source"]}
+    return {
+        "text": resolved["text"],
+        "source": resolved["source"],
+        "lead": resolved["lead"],
+        "match": bool(resolved.get("match")),
+    }
 
 
 def strip_teacher_prompt_fields(payload: Any) -> dict[str, Any]:

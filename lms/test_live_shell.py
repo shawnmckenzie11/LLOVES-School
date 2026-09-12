@@ -650,6 +650,28 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
 
+    def test_beat6_student_feedback_stays_off_staff_chrome(self) -> None:
+        """Beat 6: Good-work panel is student Question-frame only; Reveal stays."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        html = self.client.get(f"/staff/class/{self.class_id}?tab=live").get_data(
+            as_text=True
+        )
+        self.assertNotIn("prompt-feedback", js)
+        self.assertNotIn("Good work.", js)
+        self.assertNotIn("Not that one — stay with the picture.", js)
+        self.assertNotIn("prompt-feedback", css)
+        self.assertNotIn("Good work.", html)
+        self.assertNotIn('id="prompt-feedback"', html)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("function patchMcReveal(", js)
+        self.assertIn("function paintMcResultsSlot()", js)
+        self.assertIn('id="mc-results-slot"', html)
+        self.assertIn('id="results-strip"', html)
+        paint = js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0]
+        self.assertIn("lockClassListPane();", paint)
+        self.assertNotIn("innerHTML", paint)
+
 
 if __name__ == "__main__":
     unittest.main()

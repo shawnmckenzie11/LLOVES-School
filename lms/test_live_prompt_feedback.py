@@ -24,6 +24,9 @@ from live_media import (  # noqa: E402
 )
 from live_prompt_feedback import (  # noqa: E402
     FEEDBACK_TABLE,
+    LEAD_MATCH,
+    LEAD_MISS,
+    LEAD_WEAK,
     M1C1_FEEDBACK,
     M1C2_FEEDBACK,
     M1C3_FEEDBACK,
@@ -55,13 +58,19 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         via_letter = resolve_live_prompt_feedback(payload, {"choice": "A"})
         self.assertEqual(via_letter["source"], "by_choice")
         self.assertEqual(via_letter["text"], key_line)
+        self.assertEqual(via_letter["lead"], LEAD_MATCH)
+        self.assertTrue(via_letter["match"])
         via_text = resolve_live_prompt_feedback(
             payload, {"choice": MINDS_ON_CHOICES[0]}
         )
         self.assertEqual(via_text["text"], key_line)
+        self.assertEqual(via_text["lead"], LEAD_MATCH)
         other = resolve_live_prompt_feedback(payload, {"choice": "The graph curves"})
         self.assertEqual(other["source"], "by_choice")
         self.assertEqual(other["text"], M1C1_FEEDBACK["minds_on"]["by_choice"]["B"])
+        self.assertEqual(other["lead"], LEAD_MISS)
+        self.assertFalse(other["match"])
+        self.assertNotEqual(other["lead"], "Wrong.")
         self.assertNotIn("key", strip_teacher_prompt_fields(payload))
 
     def test_legacy_and_rename_item_ids(self) -> None:
@@ -94,10 +103,26 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         )
         self.assertEqual(share["source"], "on_submit")
         self.assertEqual(share["text"], M1C1_FEEDBACK["C1-CONS-4"]["on_submit"])
+        self.assertEqual(share["lead"], LEAD_MATCH)
+        empty = resolve_live_prompt_feedback({"item_id": "C1-CONS-4"}, {"text": "  "})
+        self.assertEqual(empty["lead"], LEAD_WEAK)
+        self.assertEqual(empty["source"], "on_submit")
+        self.assertFalse(empty["match"])
         still = resolve_live_prompt_feedback(
             {"item_id": "C1-CONS-5"}, {"text": "stretch?"}
         )
         self.assertEqual(still["text"], M1C1_FEEDBACK["C1-CONS-5"]["on_submit"])
+        self.assertEqual(still["lead"], LEAD_MATCH)
+        local_weak = resolve_live_prompt_feedback(
+            {
+                "item_id": "C1-CONS-4",
+                "on_weak": "Name the opening before you claim a.",
+            },
+            {"text": ""},
+        )
+        self.assertEqual(local_weak["source"], "on_weak")
+        self.assertEqual(local_weak["lead"], LEAD_WEAK)
+        self.assertEqual(local_weak["text"], "Name the opening before you claim a.")
 
     def test_team_challenge_stem_has_no_feedback(self) -> None:
         """Stem / generic MC is not a quick-hitter key."""
@@ -125,6 +150,7 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 "soft_key": "B",
                 "by_choice": {"B": "hidden"},
                 "on_submit": "hidden",
+                "on_weak": "hidden",
                 "feedback": {"text": "hidden"},
                 "chips": ["A2.1"],
                 "curriculum_chips": ["A2.1"],
@@ -147,6 +173,7 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             "soft_key",
             "by_choice",
             "on_submit",
+            "on_weak",
             "feedback",
             "chips",
             "curriculum_chips",
@@ -229,6 +256,20 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 {"choice": "A"},
             )
         )
+
+    def test_public_fragment_includes_lead_not_key(self) -> None:
+        """Student submit JSON gets lead + why and never the soft key."""
+        payload = minds_on_prompt_payload()
+        hit = public_feedback_fragment(payload, {"choice": "A"})
+        miss = public_feedback_fragment(payload, {"choice": "B"})
+        self.assertEqual(hit["lead"], LEAD_MATCH)
+        self.assertEqual(hit["text"], M1C1_FEEDBACK["minds_on"]["by_choice"]["A"])
+        self.assertEqual(miss["lead"], LEAD_MISS)
+        for fragment in (hit, miss):
+            self.assertNotIn("soft_key", fragment)
+            self.assertNotIn("by_choice", fragment)
+            self.assertNotIn("key", fragment)
+            self.assertNotEqual(fragment["lead"], "Wrong.")
 
 
 if __name__ == "__main__":
