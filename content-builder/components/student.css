@@ -16,6 +16,13 @@
  * .media.is-unavailable, .fallback, .cycle, .cycle-actions, .btn, .btn-primary,
  * .btn-secondary, .btn-ghost, .board-evidence, .board-actions, .live-eq,
  * .self-check, .practice-item, .jxgbox
+ *
+ * M4-L2 packet hooks (engineer attaches; no new design system):
+ * .progress-rail .now .next, .btn-advance / .cycle-actions .advance,
+ * .cycle.is-ok, .task-board, .media-slot, .cts-area-diagram,
+ * .board-figure.is-static, .diagram-inputs, .feedback-strip,
+ * .cycle-state.is-loading / .embed.is-loading / .media-slot.is-loading,
+ * .practice.is-empty, .end-of-cycle / .cycle.is-complete
  */
 
 @import url("./design-tokens.css");
@@ -411,11 +418,67 @@ details.solution[open] summary::before {
   color: var(--ink);
 }
 
-.board-wrap.is-unavailable .board-figure,
+.board-wrap.is-unavailable .board-figure:not(.is-static),
 .board-wrap.is-unavailable .jxgbox,
 .board-wrap.is-unavailable .controls,
 .board-wrap.is-unavailable .toolbar {
   display: none;
+}
+
+/* Static diagram path stays completable when the interactive board is down. */
+.media-slot,
+.cts-area-diagram,
+.board-figure.is-static {
+  margin: 0 0 var(--space-4);
+}
+
+.media-slot img,
+.cts-area-diagram img,
+.figure.cts-area-diagram img,
+.board-figure.is-static img,
+.board-wrap .media-slot img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  background: var(--figure-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.board-wrap .media-slot,
+.board-wrap .cts-area-diagram,
+.board-wrap .figure.cts-area-diagram,
+.board-wrap .board-figure.is-static {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+  background: var(--figure-bg);
+  border: 0;
+}
+
+.board-wrap.is-unavailable .media-slot,
+.board-wrap.is-unavailable .cts-area-diagram,
+.board-wrap.is-unavailable .figure.cts-area-diagram,
+.board-wrap.is-unavailable .board-figure.is-static,
+.board-wrap.is-unavailable .diagram-inputs,
+.board-wrap.is-unavailable .named-reading,
+.board-wrap.is-unavailable .cycle-actions,
+.board-wrap.is-unavailable .feedback-strip {
+  display: block;
+}
+
+.media.is-unavailable,
+.media-slot.is-unavailable {
+  border-style: dashed;
+  background: var(--surface-muted);
+}
+
+.media.is-unavailable .media-slot,
+.media.is-unavailable .cts-area-diagram,
+.media-slot.is-unavailable img {
+  opacity: 1;
 }
 
 .fallback summary {
@@ -429,10 +492,31 @@ details.solution[open] summary::before {
 /* ---- Board: task, graph, evidence, actions ---- */
 
 .named-reading,
-.expand-inputs {
+.expand-inputs,
+.diagram-inputs {
   display: grid;
   gap: var(--space-2);
   margin: 0 0 var(--space-3);
+}
+
+.diagram-inputs label {
+  display: grid;
+  grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-small);
+  font-weight: 650;
+}
+
+.diagram-inputs input[type="number"] {
+  min-height: var(--tap);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
 }
 
 .board-wrap {
@@ -473,6 +557,21 @@ details.solution[open] summary::before {
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+}
+
+.board-evidence .live-eq,
+.board-evidence .equation {
+  margin: 0;
+  background: var(--paper);
+}
+
+.board-evidence table {
+  margin-bottom: 0;
 }
 
 .controls {
@@ -518,28 +617,32 @@ details.solution[open] summary::before {
 }
 
 @media (min-width: 900px) {
-  .board-wrap:has(.board-evidence) {
+  /* L1-style board: figure | evidence. .task-board uses its own areas below. */
+  .board-wrap:has(.board-evidence):not(.task-board) {
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.85fr);
     align-items: start;
   }
 
-  .board-wrap:has(.board-evidence) .board-figure {
+  .board-wrap:has(.board-evidence):not(.task-board) .board-figure,
+  .board-wrap:has(.board-evidence):not(.task-board) .media-slot,
+  .board-wrap:has(.board-evidence):not(.task-board) .cts-area-diagram {
     grid-column: 1;
     grid-row: 1 / span 4;
     margin: 0;
   }
 
-  .board-wrap:has(.board-evidence) .board-evidence {
+  .board-wrap:has(.board-evidence):not(.task-board) .board-evidence {
     grid-column: 2;
   }
 
-  .board-wrap:has(.board-evidence) .controls,
-  .board-wrap:has(.board-evidence) .toolbar,
-  .board-wrap:has(.board-evidence) .cycle-actions,
-  .board-wrap:has(.board-evidence) .board-actions,
-  .board-wrap:has(.board-evidence) .feedback,
-  .board-wrap:has(.board-evidence) .hint {
+  .board-wrap:has(.board-evidence):not(.task-board) .controls,
+  .board-wrap:has(.board-evidence):not(.task-board) .toolbar,
+  .board-wrap:has(.board-evidence):not(.task-board) .cycle-actions,
+  .board-wrap:has(.board-evidence):not(.task-board) .board-actions,
+  .board-wrap:has(.board-evidence):not(.task-board) .feedback,
+  .board-wrap:has(.board-evidence):not(.task-board) .hint,
+  .board-wrap:has(.board-evidence):not(.task-board) .feedback-strip {
     grid-column: 1 / -1;
   }
 }
@@ -591,6 +694,63 @@ button[data-action="hint"] {
   color: var(--btn-ghost-fg);
   text-decoration: underline;
   text-underline-offset: 0.2em;
+}
+
+.btn-secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border-color: var(--line-strong);
+}
+
+/* Thin Advance: same family as Check, not a Wonder widget. Quiet until unlocked. */
+.btn-advance,
+.cycle-actions .advance,
+.cycle-actions [data-action="advance"] {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border-color: var(--line-strong);
+}
+
+.btn-advance:hover,
+.cycle-actions .advance:hover,
+.cycle-actions [data-action="advance"]:hover {
+  border-color: var(--ink);
+}
+
+.cycle:not(.is-ok) .btn-advance:disabled,
+.cycle:not(.is-ok) .cycle-actions .advance:disabled,
+.cycle:not(.is-ok) .cycle-actions [data-action="advance"]:disabled {
+  opacity: 0.45;
+}
+
+/* After a pass, Advance is the one primary; Check drops to secondary. */
+.cycle.is-ok .cycle-actions [data-action="submit"],
+.cycle.is-ok .cycle-actions .check,
+.cycle.is-ok .cycle-actions .btn-primary:not(.btn-advance):not(.advance) {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border-color: var(--line-strong);
+}
+
+.cycle.is-ok .btn-advance,
+.cycle.is-ok .cycle-actions .advance,
+.cycle.is-ok .cycle-actions [data-action="advance"] {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border-color: var(--btn-primary-bg);
+}
+
+.cycle.is-ok .btn-advance:hover,
+.cycle.is-ok .cycle-actions .advance:hover,
+.cycle.is-ok .cycle-actions [data-action="advance"]:hover {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+}
+
+.cycle.is-ok .btn-advance:focus-visible,
+.cycle.is-ok .cycle-actions .advance:focus-visible,
+.cycle.is-ok .cycle-actions [data-action="advance"]:focus-visible {
+  outline-color: var(--focus-on-accent);
 }
 
 button:disabled,
@@ -923,4 +1083,205 @@ table.data th,
 .fade-stage {
   font-weight: 700;
   color: var(--ink);
+}
+
+/* ---- M4-L2 lean packet chrome (extend L1; engineer wires markup) ---- */
+
+.progress-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+  max-width: none;
+}
+
+.progress-rail ol,
+.progress-rail ul {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rail-gap) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-rail li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.progress-rail li::before {
+  content: "";
+  width: var(--rail-size);
+  height: var(--rail-size);
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: 0 0 var(--rail-size);
+}
+
+.progress-rail .now,
+.progress-rail [aria-current="step"] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.progress-rail .now::before,
+.progress-rail [aria-current="step"]::before {
+  background: var(--accent);
+}
+
+.progress-rail .is-done::before {
+  background: var(--ok-line);
+}
+
+.progress-rail .next {
+  color: var(--muted);
+}
+
+.progress-rail .where,
+.progress-rail .whats-next {
+  margin: 0;
+}
+
+.feedback-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+}
+
+.feedback-strip .feedback,
+.feedback-strip .hint {
+  margin: 0;
+}
+
+/* Toast-density: at most three of ok / try-again / hint visible. */
+.feedback-strip > :nth-child(n + 4) {
+  display: none;
+}
+
+.cycle-state,
+.embed.is-loading,
+.media-slot.is-loading,
+.practice.is-empty,
+.end-of-cycle,
+.cycle.is-complete .end-of-cycle {
+  margin: var(--space-3) 0 0;
+  padding: var(--state-pad-y) var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+.cycle-state.is-loading::before,
+.embed.is-loading::before,
+.media-slot.is-loading::before {
+  content: "Loading the figure.";
+}
+
+.practice.is-empty::before {
+  content: "No extra practice on this step.";
+}
+
+.end-of-cycle:not(:empty)::before,
+.practice.is-empty:not(:empty)::before,
+.cycle-state.is-loading:not(:empty)::before,
+.embed.is-loading:not(:empty)::before,
+.media-slot.is-loading:not(:empty)::before {
+  content: none;
+}
+
+.end-of-cycle:empty::before {
+  content: "This cycle is complete.";
+}
+
+/* Phone (~390): task → graph → evidence → actions */
+.task-board,
+.board-wrap.task-board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.task-board > .progress-rail { order: 0; }
+.task-board > .task { order: 1; }
+.task-board > .board-figure,
+.task-board > .media-slot,
+.task-board > .cts-area-diagram,
+.task-board > .figure { order: 2; }
+.task-board > .board-evidence,
+.task-board > .diagram-inputs,
+.task-board > .named-reading,
+.task-board > .expand-inputs { order: 3; }
+.task-board > .cycle-actions,
+.task-board > .board-actions,
+.task-board > .toolbar { order: 4; }
+.task-board > .feedback-strip,
+.task-board > .feedback,
+.task-board > .hint,
+.task-board > .cycle-state,
+.task-board > .end-of-cycle { order: 5; }
+
+/* Desktop (~1280): task + graph side-by-side */
+@media (min-width: 1100px) {
+  .task-board,
+  .board-wrap.task-board {
+    display: grid;
+    grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.25fr);
+    grid-template-areas:
+      "rail rail"
+      "task graph"
+      "evidence graph"
+      "actions actions"
+      "feedback feedback";
+    align-items: start;
+    column-gap: var(--space-5);
+    row-gap: var(--space-3);
+  }
+
+  .task-board > .progress-rail { grid-area: rail; order: 0; }
+  .task-board > .task {
+    grid-area: task;
+    order: 0;
+    margin: 0;
+    max-width: none;
+  }
+  .task-board > .board-figure,
+  .task-board > .media-slot,
+  .task-board > .cts-area-diagram,
+  .task-board > .figure {
+    grid-area: graph;
+    order: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .task-board > .board-evidence,
+  .task-board > .diagram-inputs {
+    grid-area: evidence;
+    order: 0;
+  }
+  .task-board > .cycle-actions,
+  .task-board > .board-actions,
+  .task-board > .toolbar {
+    grid-area: actions;
+    order: 0;
+  }
+  .task-board > .feedback-strip,
+  .task-board > .feedback,
+  .task-board > .hint,
+  .task-board > .cycle-state,
+  .task-board > .end-of-cycle {
+    grid-area: feedback;
+    order: 0;
+  }
 }
