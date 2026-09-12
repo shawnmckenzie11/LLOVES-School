@@ -3300,6 +3300,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        payload["display_time"] = school.live_session_display_time(int(class_id))
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")

@@ -983,6 +983,61 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("async function advanceTeamsToMeet()", js)
         self.assertIn("function classListGroupsByTeam()", js)
 
+    def test_beat20_student_display_time_sits_above_name(self) -> None:
+        """Beat 20: one reserved display-time slot above the student name."""
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn('id="me-display-time"', home)
+        self.assertIn('id="me-board"', home)
+        self.assertLess(home.index('id="me-display-time"'), home.index('id="me-board"'))
+        self.assertEqual(home.count("me-display-time"), 2)
+        for name in ("join.html", "mood.html", "character.html", "pick.html", "waiting.html"):
+            page = (LMS_DIR / "templates" / "student" / name).read_text(encoding="utf-8")
+            self.assertNotIn("me-display-time", page)
+            self.assertNotIn("display-time", page)
+        landing = (LMS_DIR / "templates" / "landing.html").read_text(encoding="utf-8")
+        self.assertNotIn("me-display-time", landing)
+        slot_css = css.split(".student-chrome-top .me-display-time {")[1].split("}")[0]
+        self.assertIn("min-height: 1.25rem", slot_css)
+        self.assertIn("font-variant-numeric: tabular-nums", slot_css)
+        self.assertIn("function paintDisplayTime(", js)
+        self.assertIn("function tickDisplayTime(", js)
+        self.assertIn("function formatDisplayClock(", js)
+        paint = js.split("function paintDisplayTime(")[1].split(
+            "function tickDisplayTime("
+        )[0]
+        self.assertIn("payload.display_time", paint)
+        self.assertIn("dt.ends_at_ms", paint)
+        self.assertIn('dataset.state = "running"', paint)
+        self.assertIn('dataset.state = "paused"', paint)
+        self.assertIn('dataset.state = "idle"', paint)
+        self.assertNotIn("innerHTML", paint)
+        self.assertNotIn("replaceChildren", paint)
+        self.assertNotIn("hidden", paint)
+        me = js.split("function paintMe(")[1].split("function paintBoard(")[0]
+        self.assertNotIn("display-time", me)
+        self.assertNotIn("displayTime", me)
+        self.assertIn("paintDisplayTime(data)", js)
+        self.assertIn("paintMe(data)", js)
+        self.assertLess(js.index("paintDisplayTime(data)"), js.index("paintMe(data)"))
+        idle = self.school.live_session_display_time(self.class_id)
+        self.assertFalse(idle["running"])
+        self.assertEqual(idle["label"], "—")
+        self.school.game.start_session_timer(self.class_id, 5)
+        running = self.school.live_session_display_time(self.class_id)
+        self.assertTrue(running["running"])
+        self.assertIsInstance(running["ends_at_ms"], int)
+        self.assertGreaterEqual(running["remaining_sec"], 290)
+        self.school.game.pause_round_timer(self.class_id)
+        paused = self.school.live_session_display_time(self.class_id)
+        self.assertTrue(paused["paused"])
+        self.assertFalse(paused["running"])
+        self.assertIsNone(paused["ends_at_ms"])
+        self.assertGreater(paused["remaining_sec"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

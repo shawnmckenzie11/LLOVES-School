@@ -6992,6 +6992,65 @@ class SchoolDB(LovesDB):
         )
         return self._write_teacher_state(session_id, payload)
 
+    def live_session_display_time(self, class_id: int) -> dict[str, Any]:
+        """Student-facing SessionTimer snapshot (beat 20).
+
+        Mirrors the teacher SessionTimer: running countdown, paused
+        remaining, or idle. Does not invent a second clock source.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``{running, paused, ends_at_ms, remaining_sec, label}``.
+        """
+        idle = {
+            "running": False,
+            "paused": False,
+            "ends_at_ms": None,
+            "remaining_sec": 0,
+            "label": "—",
+        }
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001 — no open game is idle
+            return idle
+        game = state.get("game") or {}
+        ends_at_ms = game.get("round_ends_at_ms")
+        paused = bool(game.get("timer_paused"))
+        remaining = game.get("round_remaining_sec")
+        try:
+            remaining_i = max(0, int(remaining)) if remaining is not None else 0
+        except (TypeError, ValueError):
+            remaining_i = 0
+        try:
+            ends_i = int(ends_at_ms) if ends_at_ms is not None else None
+        except (TypeError, ValueError):
+            ends_i = None
+        running = bool(ends_i) and not paused
+
+        def _label(seconds: int) -> str:
+            n = max(0, int(seconds))
+            return f"{n // 60}:{n % 60:02d}"
+
+        if running:
+            return {
+                "running": True,
+                "paused": False,
+                "ends_at_ms": ends_i,
+                "remaining_sec": remaining_i,
+                "label": _label(remaining_i),
+            }
+        if paused:
+            return {
+                "running": False,
+                "paused": True,
+                "ends_at_ms": None,
+                "remaining_sec": remaining_i,
+                "label": _label(remaining_i),
+            }
+        return idle
+
     def live_session_teacher_state_payload(
         self, session_id: int
     ) -> dict[str, Any]:
