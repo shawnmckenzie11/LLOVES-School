@@ -23,7 +23,8 @@ D) Not sure
 
 ## Copy notes (not for students)
 
-- Soft key: **A**
+- Soft key: **A** (do not change)
+- LMS seeds must match this Stem section exactly.
 - Picture-forced opening check-in (Connect live of M1).
 - Never the Team Challenge stem.
 - One stem, four choices. Do not add a second Minds-On item.

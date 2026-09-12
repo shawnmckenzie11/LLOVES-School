@@ -14,6 +14,7 @@ back to C1 so existing smoke sessions keep the linear-rate check-in.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 try:
@@ -204,6 +205,43 @@ def minds_on_prompt_payload(live_slot: Any = None) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def parse_minds_on_student_md(text: str) -> dict[str, Any]:
+    """Parse stem, choices, and teacher soft key from a Minds-On student brief.
+
+    Keeps LMS seeds locked to the catalogue copywriter file. Soft keys stay
+    teacher-only.
+
+    Args:
+        text: Markdown from ``minds-on/MCF3M-M1-C*-minds-on-student.md``.
+
+    Returns:
+        ``prompt``, ``choices`` (A–D texts without the letter prefix), and
+        ``key``.
+    """
+    stem_match = re.search(
+        r"## Stem \(student-facing\)\s+(.+?)\n\s*A\)",
+        text,
+        flags=re.DOTALL,
+    )
+    if not stem_match:
+        raise ValueError("Minds-On student brief is missing a Stem section.")
+    prompt = " ".join(stem_match.group(1).split())
+    choices: list[str] = []
+    for letter in "ABCD":
+        row = re.search(
+            rf"^{letter}\) (.+)$",
+            text,
+            flags=re.MULTILINE,
+        )
+        if row is None:
+            raise ValueError(f"Minds-On student brief is missing choice {letter}.")
+        choices.append(row.group(1).strip())
+    key_match = re.search(r"Soft key:\s+\*\*([A-D])\*\*", text)
+    if not key_match:
+        raise ValueError("Minds-On student brief is missing a teacher soft key.")
+    return {"prompt": prompt, "choices": choices, "key": key_match.group(1)}
 
 
 def is_minds_on_payload(payload: Any) -> bool:

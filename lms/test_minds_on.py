@@ -34,6 +34,7 @@ from minds_on import (  # noqa: E402
     WAITING_ROOM_WAIT_LINE,
     is_minds_on_payload,
     minds_on_prompt_payload,
+    parse_minds_on_student_md,
 )
 from meet_team import meet_team_prompt_payload  # noqa: E402
 from quick_hitter import (  # noqa: E402
@@ -177,7 +178,18 @@ class MindsOnHelperTests(unittest.TestCase):
                 self.assertNotIn(field, payload["items"][0])
             brief_text = brief.read_text(encoding="utf-8")
             self.assertIn("No curriculum chips", brief_text)
-            self.assertNotIn("A2.", brief_text.split("## Stem (student-facing)")[1])
+            stem_block = brief_text.split("## Stem (student-facing)")[1]
+            self.assertNotIn("A2.", stem_block)
+        parsed_c2 = parse_minds_on_student_md(c2_brief.read_text(encoding="utf-8"))
+        self.assertEqual(parsed_c2["prompt"], MINDS_ON_C2_PROMPT)
+        self.assertEqual(parsed_c2["choices"], list(MINDS_ON_C2_CHOICES))
+        self.assertEqual(parsed_c2["key"], MINDS_ON_C2_KEY)
+        self.assertEqual(parsed_c2["key"], "A")
+        parsed_c3 = parse_minds_on_student_md(c3_brief.read_text(encoding="utf-8"))
+        self.assertEqual(parsed_c3["prompt"], MINDS_ON_C3_PROMPT)
+        self.assertEqual(parsed_c3["choices"], list(MINDS_ON_C3_CHOICES))
+        self.assertEqual(parsed_c3["key"], MINDS_ON_C3_KEY)
+        self.assertEqual(parsed_c3["key"], "B")
 
 
 if __name__ == "__main__":

@@ -23,7 +23,8 @@ D) Not sure
 
 ## Copy notes (not for students)
 
-- Soft key: **B**
+- Soft key: **B** (do not change)
+- LMS seeds must match this Stem section exactly.
 - Free-vs-forced check-in before the courtyard transfer live.
 - Never the Team Challenge stem.
 - One stem, four choices. Do not add a second Minds-On item.
