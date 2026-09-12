@@ -1,6 +1,7 @@
 # MCF3M M1C3 — live-class plan (Live-Class Designer)
 
 **Status:** draft for Monday review · Dual-serve MCF3M M1 + MCR3U M1  
+**CPD 2026-09-12:** Coverage Mapper countersigned C3. Wire fully clear. **No hold** on waiting-room Minds-On + light CONS. **Text-only Team Challenge still locked.**  
 **Stem:** `MCF3M-M1-C3-stem-and-slide.md` · **Context:** `MCF3M-M1-C3-context-packet.md` · **Verify:** `MCF3M-M1-C3-verify.md`  
 **Media:** **none** — empty ArtifactViewer / text-only chrome (paper sketch + table)  
 **Chips:** A2.3 / A2.4 · Adapted / not CEMC  

@@ -2,7 +2,7 @@
 
 Mathematical Verifier · 2026-09-10T07:11:09Z  
 Id: `adapted-MCF3M-M1-C2-yx2-transforms-v1` · **adapted / not CEMC**  
-Status: **verified** (math + gates). Live set: parked until Shawn expands beyond C1-only.
+Status: **verified** (math + gates). Live set (2026-09-12): Minds-On + light CONS cleared. **Text-only Team Challenge still locked.**
 
 ## Stem (curator)
 Start with \(y=x^2\). Apply vertical stretch/compress (\(a\neq 0\)), reflect in the x-axis, translate by \(h\) and \(k\). Produce **three** different graphs through \((2,5)\). Give each as \(y=a(x-h)^2+k\). Which parameters are forced by \((2,5)\), and which stay free?

@@ -2,7 +2,7 @@
 
 **Verdict:** `pass` for **C1–C3** (C1 B′ immersive; C2/C3 adapted, **no team-challenge media**). Monday review set.  
 **Dual-serve:** MCF3M M1 + MCR3U M1 (graph/function language)  
-**Countersign:** Coverage C1 rematch B = ok · Curator C1 = adapted · Verifier = pending Shawn green-light
+**Countersign:** Coverage C1 rematch B = ok · C2 re-passed 2026-09-12 · C3 countersigned 2026-09-12 · Curator C1–C3 = adapted
 
 ## Throughline claim
 Students learn to recognize a quadratic from graphs/tables and to say what a picture forces vs what stays free — then connect that to equations in the \(y=x^2\) family.  
@@ -41,7 +41,7 @@ Students learn to recognize a quadratic from graphs/tables and to say what a pic
 - Zeros / max-min algebra apps → **MCR3U M2** (do not force into M1 C1)
 
 ## Lesson packets
-Issue only after this card’s relevant row is `pass`. C1 packet may issue now; C2/C3 wait.
+Issue only after this card’s relevant row is `pass`. C1 packet may issue now. C2/C3 Minds-On + light CONS may issue; full text-only Team Challenge still locked.
 
 ## coherence_gate YAML
 ```yaml
@@ -61,7 +61,7 @@ coherence_gate:
     - "factoring → M2"
     - "zeros-primary → M3 / MCR3U M2"
   dual_serve: [MCF3M-M1, MCR3U-M1]
-  fixes_required: []  # C2/C3 locked for Monday; live-class plans still TBD
+  fixes_required: []  # C2/C3 Minds-On + light CONS cleared 2026-09-12; text-only TC still locked
   countersign:
     coverage: ok  # C1 B
     curator_provenance: ok  # adapted

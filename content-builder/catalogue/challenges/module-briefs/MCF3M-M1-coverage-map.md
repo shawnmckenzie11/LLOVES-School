@@ -1,6 +1,6 @@
 # MCF3M M1 — coverage map (scaffolding)
 
-Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
+Updated: 2026-09-12 · **module_curriculum_approved: false**
 
 ## Source integrity
 - Seed: `lms/seeds/mcf3m_expectations.json`
@@ -12,8 +12,8 @@ Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
 | Slot | Chips | Status |
 |---|---|---|
 | C1 | A2.1, A2.2 | live ready (incl. CONS-1…5) |
-| C2 | A2.5, A2.6 | stem locked · live plan TBD |
-| C3 | A2.3, A2.4 | stem locked · live plan TBD |
+| C2 | A2.5, A2.6 | stem locked · plan + Minds-On + light CONS (text-only TC locked) |
+| C3 | A2.3, A2.4 | stem locked · plan + Minds-On + light CONS (text-only TC locked) |
 
 ## Expectation records
 ### A2.1
@@ -53,9 +53,9 @@ Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
 - Introduction: `planned` — ['M1L7'] — Domain and range lesson
 - Guided: `planned` — ['M1L7'] — Numeric/graphical/algebraic domain and range
 - Independent practice: `gap` — No owned practice yet
-- Live application: `stem_locked_plan_tbd` — C3 — C3 stem locked (fountain courtyard); Live-Class plan TBD
-- Individual evidence: `gap` — Await C3 live plan + student return task
-- Unresolved gaps: Live-Class C3 plan missing; Student wording polish TBD; Async M1L7 practice not wired
+- Live application: `wired_minds_on_light_cons` — C3 — courtyard stem + live plan + waiting-room Minds-On + CONS-1…3; full text-only TC still locked
+- Individual evidence: `gap` — Minds-On is ephemeral (no gradebook); full TC return still locked
+- Unresolved gaps: Full text-only TC locked; student wording polish TBD for TC; Async M1L7 practice not wired
 - curriculum_approved: **False**
 
 ### A2.4
@@ -67,8 +67,8 @@ Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
 - Introduction: `planned` — ['M1L7'] — Context restrictions with domain/range
 - Guided: `planned` — ['M1L7'] — Real-world restrictions
 - Independent practice: `gap` — No owned practice yet
-- Live application: `stem_locked_plan_tbd` — C3 — Courtyard 0≤x≤8 and y≥0 are honest context restrictions if taught graph-first
-- Individual evidence: `gap` — Await C3 live individual evidence
+- Live application: `wired_minds_on_light_cons` — C3 — Courtyard 0≤x≤8 and y≥0 are honest context restrictions if taught graph-first; Minds-On + light CONS wired
+- Individual evidence: `gap` — Await C3 text-only TC individual evidence
 - Unresolved gaps: Same as A2.3; Must not treat zeros/formula as the C3 success criterion
 - curriculum_approved: **False**
 
@@ -81,9 +81,9 @@ Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
 - Introduction: `planned` — ['M1L4'] — Exploring transformations
 - Guided: `planned` — ['M1L4', 'M1L5', 'M1L6'] — Roles of a,h,k via investigation
 - Independent practice: `gap` — No owned practice yet
-- Live application: `stem_locked_plan_tbd` — C2 — Three graphs through (2,5); forced vs free parameters — honest A2.5 ask
-- Individual evidence: `gap` — Await C2 live plan + return
-- Unresolved gaps: Live-Class C2 plan missing; C1 CONS-3 drift may dual-log only — does not complete A2.5; CTS must stay unresolved (M4)
+- Live application: `wired_minds_on_light_cons` — C2 — three graphs through (2,5); live plan + waiting-room Minds-On + CONS-1…3; full text-only TC still locked
+- Individual evidence: `gap` — Minds-On is ephemeral (no gradebook); full TC return still locked
+- Unresolved gaps: Full text-only TC locked; C1 CONS-3 drift may dual-log only — does not complete A2.5; CTS must stay unresolved (M4)
 - curriculum_approved: **False**
 
 ### A2.6
@@ -95,18 +95,18 @@ Updated: 2026-09-10T09:25:28Z · **module_curriculum_approved: false**
 - Introduction: `planned` — ['M1L5'] — Graphing using transformations
 - Guided: `planned` — ['M1L5', 'M1L6'] — Sketch via transforms of y=x^2
 - Independent practice: `gap` — No owned practice yet
-- Live application: `stem_locked_plan_tbd` — C2 — Producing three transformed graphs through a point is sketch/transform practice
-- Individual evidence: `gap` — Await C2 live individual evidence
+- Live application: `wired_minds_on_light_cons` — C2 — Producing three transformed graphs through a point is sketch/transform practice; Minds-On + light CONS wired
+- Individual evidence: `gap` — Await C2 text-only TC individual evidence
 - Unresolved gaps: Same as A2.5; Need async sketches if C2 live is cut short
 - curriculum_approved: **False**
 
 ## Countersign on locked stems (this pass)
 - C1 B′: OK (prior rematch)
-- C2 adapted transforms through (2,5): **OK for A2.5/A2.6** — do not claim CTS
-- C3 courtyard domain/range: **OK for A2.3/A2.4** — graph-first; zeros/formula park
+- C2 adapted transforms through (2,5): **OK for A2.5/A2.6** (re-passed 2026-09-12) — do not claim CTS
+- C3 courtyard domain/range: **OK for A2.3/A2.4** (countersigned 2026-09-12) — graph-first; zeros/formula park
 
 ## Uncertainties for Shawn
-- Confirm C2/C3 in first live set now that stems are locked (Monday completeness says yes for review).
+- C2/C3 Minds-On + light CONS are in the live set (CPD 2026-09-12). Full text-only TC still locked.
 - When will async M1L1–L7 practice sequences exist so independent_practice leaves gap status?
 - A2.2 live evidence is partial — accept C1 coefficient language as intro only, requiring M1L3 for full stamp?
 - Spot-check seed vs PDF for high-stakes (seed note: not legal-certified).

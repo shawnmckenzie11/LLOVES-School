@@ -1,7 +1,7 @@
 {
   "module": "MCF3M-M1",
   "title": "Introduction to the Quadratic Function",
-  "updated": "2026-09-10T09:28:57Z",
+  "updated": "2026-09-12T00:00:00Z",
   "curriculum_source_version": {
     "path": "lms/seeds/mcf3m_expectations.json",
     "source_pdf": "lms/sources/ontario-curriculum/ontario-math-curriculum-gr-11-12.pdf",
@@ -32,28 +32,30 @@
       "badge": "adapted"
     },
     "C2": {
-      "status": "stem_locked_plan_tbd",
+      "status": "wired_minds_on_light_cons",
       "chips": [
         "A2.5",
         "A2.6"
       ],
       "badge": "adapted",
-      "coverage_countersign": "ok_2026-09-10",
-      "row_map": "MCF3M-M1-C2-coverage-row-map.md"
+      "coverage_countersign": "repassed_2026-09-12",
+      "row_map": "MCF3M-M1-C2-coverage-row-map.md",
+      "text_only_team_challenge": "locked"
     },
     "C3": {
-      "status": "stem_locked_plan_tbd",
+      "status": "wired_minds_on_light_cons",
       "chips": [
         "A2.3",
         "A2.4"
       ],
       "badge": "adapted",
-      "coverage_countersign": "ok_2026-09-10",
-      "row_map": "MCF3M-M1-C3-coverage-row-map.md"
+      "coverage_countersign": "countersigned_2026-09-12",
+      "row_map": "MCF3M-M1-C3-coverage-row-map.md",
+      "text_only_team_challenge": "locked"
     }
   },
   "module_curriculum_approved": false,
-  "block_reason": "Wording present from seed; async practice + C2/C3 live plans + full individual evidence still missing. No silent approval.",
+  "block_reason": "Wording present from seed; async practice + C2/C3 full text-only Team Challenge + full individual evidence still missing. Minds-On + light CONS cleared 2026-09-12. No silent approval.",
   "expectations": [
     {
       "code": "A2.1",
@@ -189,22 +191,24 @@
         "note": "No owned practice yet"
       },
       "live_application": {
-        "status": "stem_locked_plan_tbd",
+        "status": "wired_minds_on_light_cons",
         "challenge": "C3",
         "artefacts": [
           "MCF3M-M1-C3-stem-and-slide.md",
-          "MCF3M-M1-C3-verify.md"
+          "MCF3M-M1-C3-verify.md",
+          "MCF3M-M1-C3-live-class-plan.md",
+          "minds-on/MCF3M-M1-C3-minds-on-student.md"
         ],
-        "note": "C3 stem locked (fountain courtyard); Live-Class plan TBD"
+        "note": "C3 courtyard stem + live plan + waiting-room Minds-On + CONS-1…3; full text-only TC still locked"
       },
       "individual_evidence": {
         "status": "gap",
         "hooks": [],
-        "note": "Await C3 live plan + student return task"
+        "note": "Minds-On is ephemeral (no gradebook); full TC return still locked"
       },
       "unresolved_gaps": [
-        "Live-Class C3 plan missing",
-        "Student wording polish TBD",
+        "Full text-only Team Challenge still locked",
+        "Student wording polish TBD for TC",
         "Async M1L7 practice not wired"
       ],
       "curriculum_approved": false
@@ -239,17 +243,18 @@
         "note": "No owned practice yet"
       },
       "live_application": {
-        "status": "stem_locked_plan_tbd",
+        "status": "wired_minds_on_light_cons",
         "challenge": "C3",
         "artefacts": [
-          "MCF3M-M1-C3-stem-and-slide.md"
+          "MCF3M-M1-C3-stem-and-slide.md",
+          "MCF3M-M1-C3-live-class-plan.md"
         ],
-        "note": "Courtyard 0≤x≤8 and y≥0 are honest context restrictions if taught graph-first"
+        "note": "Courtyard 0≤x≤8 and y≥0 are honest context restrictions if taught graph-first; Minds-On + light CONS wired"
       },
       "individual_evidence": {
         "status": "gap",
         "hooks": [],
-        "note": "Await C3 live individual evidence"
+        "note": "Await C3 text-only TC individual evidence"
       },
       "unresolved_gaps": [
         "Same as A2.3",
@@ -289,21 +294,23 @@
         "note": "No owned practice yet"
       },
       "live_application": {
-        "status": "stem_locked_plan_tbd",
+        "status": "wired_minds_on_light_cons",
         "challenge": "C2",
         "artefacts": [
           "MCF3M-M1-C2-stem-and-slide.md",
-          "MCF3M-M1-C2-verify.md"
+          "MCF3M-M1-C2-verify.md",
+          "MCF3M-M1-C2-live-class-plan.md",
+          "minds-on/MCF3M-M1-C2-minds-on-student.md"
         ],
-        "note": "Three graphs through (2,5); forced vs free parameters — honest A2.5 ask"
+        "note": "Three graphs through (2,5); live plan + waiting-room Minds-On + CONS-1…3; full text-only TC still locked"
       },
       "individual_evidence": {
         "status": "gap",
         "hooks": [],
-        "note": "Await C2 live plan + return"
+        "note": "Minds-On is ephemeral (no gradebook); full TC return still locked"
       },
       "unresolved_gaps": [
-        "Live-Class C2 plan missing",
+        "Full text-only Team Challenge still locked",
         "C1 CONS-3 drift may dual-log only — does not complete A2.5",
         "CTS must stay unresolved (M4)"
       ],
@@ -340,17 +347,18 @@
         "note": "No owned practice yet"
       },
       "live_application": {
-        "status": "stem_locked_plan_tbd",
+        "status": "wired_minds_on_light_cons",
         "challenge": "C2",
         "artefacts": [
-          "MCF3M-M1-C2-stem-and-slide.md"
+          "MCF3M-M1-C2-stem-and-slide.md",
+          "MCF3M-M1-C2-live-class-plan.md"
         ],
-        "note": "Producing three transformed graphs through a point is sketch/transform practice"
+        "note": "Producing three transformed graphs through a point is sketch/transform practice; Minds-On + light CONS wired"
       },
       "individual_evidence": {
         "status": "gap",
         "hooks": [],
-        "note": "Await C2 live individual evidence"
+        "note": "Await C2 text-only TC individual evidence"
       },
       "unresolved_gaps": [
         "Same as A2.5",
@@ -377,7 +385,7 @@
     "MCF3M-M1-C3-coverage-row-map.md"
   ],
   "uncertainties_for_Shawn": [
-    "Confirm C2/C3 in first live set now that stems are locked (Monday completeness says yes for review).",
+    "C2/C3 Minds-On + light CONS are in the live set (CPD 2026-09-12). Full text-only TC still locked.",
     "When will async M1L1–L7 practice sequences exist so independent_practice leaves gap status?",
     "A2.2 live evidence is partial — accept C1 coefficient language as intro only, requiring M1L3 for full stamp?",
     "Spot-check seed vs PDF for high-stakes (seed note: not legal-certified)."

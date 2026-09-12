@@ -81,6 +81,6 @@ If live discussion jumps slots (C1 talk becomes full a,h,k transforms), **log du
 
 ## Uncertainties for Shawn
 
-1. Confirm C2/C3 still in the live set (or C1-only for first insertion).
+1. C2/C3 Minds-On + light CONS are in the live set (CPD 2026-09-12). Full text-only TC still locked.
 2. Whether immersive media is Pathway β under C1 (same coefficients) or a slot merge into C2 — that changes the coverage map.
 3. MCR3U: dual-tag **M1** only while graph/function language holds; zeros/symmetry-algebra → retag M2 / park.
