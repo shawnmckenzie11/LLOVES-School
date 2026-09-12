@@ -18,6 +18,8 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from meet_team import meet_team_prompt_payload  # noqa: E402
+from minds_on import MINDS_ON_CHOICES  # noqa: E402
 
 
 class LiveShellTests(unittest.TestCase):
@@ -168,21 +170,27 @@ class LiveShellTests(unittest.TestCase):
             self.assertIn(f'id="{control_id}"', html)
 
     def test_live_tab_end_class_is_placement_only(self) -> None:
-        """Header End Class posts to the dashboard wipe route; semantics stay #49."""
+        """Header End Class and Quit are distinct; both post finish routes."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
-        self.assertIn("All session data will be lost", html)
+        self.assertIn("Save attendance and participation, then close this session.", html)
+        self.assertIn("Discard this session. Nothing will be saved.", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
+        self.assertIn(f"/staff/class/{self.class_id}/quit-live", html)
         self.assertIn('id="live-end-class"', html)
-        self.assertIn('aria-label="End Live Class"', html)
+        self.assertIn('id="live-quit-class"', html)
+        self.assertIn('aria-label="End Class"', html)
+        self.assertIn('aria-label="Quit"', html)
         self.assertIn("live-end-class-form", html)
+        self.assertIn("live-quit-class-form", html)
+        self.assertNotIn("All session data will be lost", html)
         self.assertNotIn('class="live-header-end danger live-legacy-control"', html)
         self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
         self.assertIn("End Live Class", home_html)
-        self.assertIn("All session data will be lost", home_html)
+        self.assertIn("Save attendance and participation, then close this session.", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
 
@@ -1100,6 +1108,120 @@ class LiveShellTests(unittest.TestCase):
         self.assertTrue(play_game.get("round_ends_at_ms"))
         self.assertGreaterEqual(int(play_game.get("round_remaining_sec") or 0), 290)
         self.assertLessEqual(int(play_game.get("round_remaining_sec") or 0), 300)
+
+    def _aspen_id(self) -> int:
+        """Roster id for the seeded Aspen student."""
+        row = self.school.game.find_student_by_codename(self.class_id, "Aspen")
+        assert row is not None
+        return int(row["id"])
+
+    def _open_live_with_aspen_answers(self) -> tuple[int, int]:
+        """Start a live session, join Aspen, answer Minds-On plus a Meet tap."""
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        student_id = self._aspen_id()
+        self.school.join_live_class_session(sid, student_id, codename="Aspen")
+        self.school.ensure_waiting_room_minds_on(sid)
+        prompt = self.school.get_active_live_prompt(sid)
+        assert prompt is not None
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]),
+            student_id,
+            {"choice": MINDS_ON_CHOICES[0]},
+        )
+        self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.school.record_meet_chain_pick(
+            sid, student_id=student_id, choice="This sparks something"
+        )
+        meet_prompt = self.school.set_live_session_prompt(
+            sid,
+            slide_index=901,
+            kind="mc",
+            payload=meet_team_prompt_payload(),
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(meet_prompt["id"]),
+            student_id,
+            {"choice": "This sparks something"},
+        )
+        return sid, student_id
+
+    def _ended_score_row(self, student_id: int) -> dict | None:
+        """Latest ended session_scores row for one student, if any."""
+        with self.school.game._lock:
+            row = self.school.game.conn.execute(
+                """
+                SELECT ss.present, ss.points, ss.points_r1
+                FROM session_scores ss
+                JOIN sessions s ON s.id = ss.session_id
+                WHERE s.class_id = ? AND ss.student_id = ? AND s.status = 'ended'
+                ORDER BY s.id DESC
+                LIMIT 1
+                """,
+                (self.class_id, int(student_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def test_beat19_end_class_persists_quit_discards(self) -> None:
+        """Beat 19: End Class saves A&P; Quit writes nothing; both clear SID."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="live-end-class"', html)
+        self.assertIn('id="live-quit-class"', html)
+        self.assertIn("/quit-live", html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("live-quit-class-form", js)
+        sid, student_id = self._open_live_with_aspen_answers()
+        ended = self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        self.assertIsNone(self.school.get_live_session(sid))
+        self.assertEqual(self.school.list_live_sessions_for_class(self.class_id), [])
+        saved = self._ended_score_row(student_id)
+        self.assertIsNotNone(saved)
+        self.assertEqual(int(saved["present"]), 1)
+        self.assertEqual(int(saved["points"]), 1)
+        self.assertEqual(int(saved["points_r1"]), 1)
+        with self.school.game._lock:
+            ended_before = int(
+                self.school.game.conn.execute(
+                    "SELECT COUNT(*) AS n FROM sessions WHERE class_id = ? AND status = 'ended'",
+                    (self.class_id,),
+                ).fetchone()["n"]
+            )
+        sid2, student_id = self._open_live_with_aspen_answers()
+        quit = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(quit.status_code, 302)
+        self.assertIsNone(self.school.get_live_session(sid2))
+        self.assertEqual(self.school.list_live_sessions_for_class(self.class_id), [])
+        with self.school.game._lock:
+            ended_after = int(
+                self.school.game.conn.execute(
+                    "SELECT COUNT(*) AS n FROM sessions WHERE class_id = ? AND status = 'ended'",
+                    (self.class_id,),
+                ).fetchone()["n"]
+            )
+        self.assertEqual(ended_after, ended_before)
+        after_quit = self._ended_score_row(student_id)
+        self.assertIsNotNone(after_quit)
+        self.assertEqual(int(after_quit["present"]), 1)
+        self.assertEqual(int(after_quit["points"]), 1)
 
 
 if __name__ == "__main__":

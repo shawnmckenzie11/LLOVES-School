@@ -59,7 +59,7 @@
               <span>Live Class in Progress</span>
             </button>
             <form class="course-action-end-form" method="post" action="{{ url_for('staff_end_live_class', class_id=live_active.class_id) }}"
-                  data-confirm="End Live Class? All session data will be lost."
+                  data-confirm="End Live Class? Save attendance and participation, then close this session."
                   onsubmit="return confirm(this.dataset.confirm);">
               <button type="submit" class="course-action course-action-end secondary" aria-label="End Live Class">
                 <span>End Live Class</span>

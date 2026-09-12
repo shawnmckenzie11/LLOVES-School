@@ -2958,6 +2958,89 @@ class GameShowDB:
             self.conn.commit()
         return {"ok": True, "class_id": class_id, "session_id": session_id}
 
+    def persist_end_class_column(
+        self,
+        class_id: int,
+        present_ids: list[int],
+        credits: dict[int, Any],
+    ) -> dict[str, Any] | None:
+        """Write attendance + +1/round participation, then end the column.
+
+        Used by teacher End Class (beat 19). Creates an open game when
+        none exists and there is something to persist.
+
+        Args:
+            class_id: Classes primary key.
+            present_ids: Roster ids marked present.
+            credits: ``student_id → iterable of round keys``.
+
+        Returns:
+            ``{ok, class_id, session_id}``, or ``None`` when there is
+            nothing to write and no open game.
+        """
+        present_set = {int(x) for x in present_ids}
+        credit_map: dict[int, int] = {}
+        for raw_sid, rounds in (credits or {}).items():
+            try:
+                sid = int(raw_sid)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(rounds, (set, list, tuple, frozenset)):
+                n = len({str(item) for item in rounds})
+            else:
+                try:
+                    n = int(rounds)
+                except (TypeError, ValueError):
+                    n = 0
+            if n > 0:
+                credit_map[sid] = n
+        try:
+            self._game_row(class_id)
+        except KeyError:
+            if not present_set and not credit_map:
+                return None
+            self.begin_game(class_id)
+        with self._lock:
+            game = self._game_row(class_id)
+            self._write_attendance_unlocked(game, present_set)
+            session_id = int(game["session_id"])
+            game_id = int(game["id"])
+            for sid, n in credit_map.items():
+                r1 = 1 if n >= 1 else 0
+                r2 = 1 if n >= 2 else 0
+                r3 = 1 if n >= 3 else 0
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET points = ?,
+                        points_r1 = ?,
+                        points_r2 = ?,
+                        points_r3 = ?
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (n, r1, r2, r3, session_id, sid),
+                )
+            self.conn.execute(
+                """
+                UPDATE sessions
+                SET status = 'ended', log_path = NULL
+                WHERE id = ?
+                """,
+                (session_id,),
+            )
+            self.conn.execute(
+                "UPDATE games SET status = 'ended' WHERE id = ?",
+                (game_id,),
+            )
+            if self._scoreboard_game_id() == game_id:
+                self._set_scoreboard_game(game_id)
+            self.conn.commit()
+        return {
+            "ok": True,
+            "class_id": int(class_id),
+            "session_id": session_id,
+        }
+
     def attendance_score_rows(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
         """Session meeting rows and present flags for the week grid.
 

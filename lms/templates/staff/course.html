@@ -135,9 +135,14 @@
         </nav>
         <div class="live-header-actions">
           <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
-                data-confirm="End Live Class? All session data will be lost."
+                data-confirm="End Class? Save attendance and participation, then close this session."
                 onsubmit="return confirm(this.dataset.confirm);">
-            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Live Class">End Class</button>
+            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Class">End Class</button>
+          </form>
+          <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
+                data-confirm="Quit? Discard this session. Nothing will be saved."
+                onsubmit="return confirm(this.dataset.confirm);">
+            <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
           </form>
           <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
           <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>

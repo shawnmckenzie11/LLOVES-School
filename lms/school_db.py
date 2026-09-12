@@ -7714,6 +7714,142 @@ class SchoolDB(LovesDB):
             "wiped_count": len(session_ids),
         }
 
+    def present_student_ids_for_live_class(self, class_id: int) -> list[int]:
+        """Roster ids who joined any live session for this class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Distinct student ids (may be empty).
+        """
+        sessions = self.list_live_sessions_for_class(class_id)
+        session_ids = [int(row["id"]) for row in sessions]
+        found: list[int] = []
+        if session_ids:
+            placeholders = ",".join("?" * len(session_ids))
+            with self._lock:
+                rows = self.conn.execute(
+                    f"""
+                    SELECT DISTINCT student_id
+                    FROM live_session_attendees
+                    WHERE live_session_id IN ({placeholders})
+                      AND student_id IS NOT NULL
+                    """,
+                    session_ids,
+                ).fetchall()
+            found = [int(row["student_id"]) for row in rows]
+        if found:
+            return found
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001
+            return []
+        return [
+            int(row["id"])
+            for row in (state.get("students") or [])
+            if row.get("present")
+        ]
+
+    def _mc_round_key(self, payload: dict[str, Any], kind: str) -> str | None:
+        """Participation round bucket for one MC prompt. Meet taps return None.
+
+        Args:
+            payload: Prompt payload JSON.
+            kind: ``live_session_prompts.kind``.
+
+        Returns:
+            Round key, or ``None`` to exclude the prompt.
+        """
+        if is_meet_team_payload(payload):
+            return None
+        item = str(payload.get("item_id") or "").strip()
+        if item.startswith("meet") or "meet" in item.lower():
+            return None
+        if item == "minds_on" or kind == MINDS_ON_KIND:
+            return "minds_on"
+        parts = item.rsplit("-", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0]
+        if item:
+            return item
+        token = str(kind or "").strip().lower()
+        if token and token not in {"idle", "meet", MEET_TEAM_KIND}:
+            return token
+        return None
+
+    def participation_round_credits_for_class(
+        self, class_id: int
+    ) -> dict[int, set[str]]:
+        """Map student id → MC round keys they answered (Meet excluded).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            One set of round keys per student who answered any non-Meet MC.
+        """
+        sessions = self.list_live_sessions_for_class(class_id)
+        session_ids = [int(row["id"]) for row in sessions]
+        if not session_ids:
+            return {}
+        placeholders = ",".join("?" * len(session_ids))
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT r.student_id, p.kind, p.payload
+                FROM live_session_responses r
+                JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id IN ({placeholders})
+                  AND r.student_id IS NOT NULL
+                """,
+                session_ids,
+            ).fetchall()
+        credits: dict[int, set[str]] = {}
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            key = self._mc_round_key(payload, str(row["kind"] or ""))
+            if key is None:
+                continue
+            sid = int(row["student_id"])
+            credits.setdefault(sid, set()).add(key)
+        return credits
+
+    def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
+        """End Class (save) or Quit (discard), then wipe the live SID.
+
+        End Class writes attendance plus +1 participation per MC round
+        answered (Meet taps excluded), then wipes live-session rows.
+        Quit writes nothing and discards the open game-show column.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            persist: True for End Class; False for Quit.
+
+        Returns:
+            Wipe payload from ``wipe_live_sessions_for_class``.
+        """
+        if persist:
+            present_ids = self.present_student_ids_for_live_class(class_id)
+            credits = self.participation_round_credits_for_class(class_id)
+            try:
+                self.game.persist_end_class_column(
+                    int(class_id), present_ids, credits
+                )
+            except Exception:  # noqa: BLE001 — SID wipe still happens
+                pass
+        else:
+            try:
+                self.game.cancel_setup(int(class_id))
+            except Exception:  # noqa: BLE001 — no open game is fine
+                pass
+        return self.wipe_live_sessions_for_class(int(class_id))
+
     def get_active_live_session_for_teacher(
         self, teacher_user_id: int
     ) -> dict[str, Any] | None:

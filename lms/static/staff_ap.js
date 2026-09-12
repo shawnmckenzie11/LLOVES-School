@@ -2060,6 +2060,12 @@ function selectTrackMode(mode) {
 
 for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
   $(id)?.addEventListener("click", () => {
+    const form = $("live-quit-class-form");
+    if (form instanceof HTMLFormElement) {
+      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+      form.submit();
+      return;
+    }
     if (id === "ap-score-cancel") {
       if (!window.confirm("Quit scoring? Scores already logged stay registered.")) return;
     }
@@ -2069,7 +2075,15 @@ for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
 
 document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   if (btn.id === "ap-score-cancel" || btn.id === "ap-validate-cancel") return;
-  btn.addEventListener("click", () => cancelOverlay());
+  btn.addEventListener("click", () => {
+    const form = $("live-quit-class-form");
+    if (form instanceof HTMLFormElement) {
+      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+      form.submit();
+      return;
+    }
+    cancelOverlay();
+  });
 });
 
 $("ap-allow-guests")?.addEventListener("change", async (event) => {

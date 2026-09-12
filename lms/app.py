@@ -2368,14 +2368,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """Wipe every live session for this class after the teacher confirms.
+        """End Class: persist attendance/participation, then wipe the SID.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
-        The confirm dialog warns that all session data will be lost.
         """
         user = current_user()
         assert user is not None
@@ -2384,14 +2383,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        school.wipe_live_sessions_for_class(int(class_id))
-        try:
-            school.game.end_game(class_id)
-        except Exception:  # noqa: BLE001 — no live game is fine
-            try:
-                school.game.cancel_setup(class_id)
-            except Exception:  # noqa: BLE001
-                pass
+        school.finish_live_class(int(class_id), persist=True)
+        return redirect(url_for("staff_home"))
+
+    @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
+    @staff_required
+    def staff_quit_live_class(class_id: int):
+        """Quit: discard the open game column and wipe the live SID.
+
+        Same ownership rules as End Class. Writes no attendance or
+        participation.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        active = school.get_active_live_session_for_teacher(int(user["id"]))
+        if active is None or int(active["class_id"]) != int(class_id):
+            return redirect(url_for("staff_home"))
+        school.finish_live_class(int(class_id), persist=False)
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
