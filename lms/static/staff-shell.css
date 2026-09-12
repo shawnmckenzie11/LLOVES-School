@@ -1427,6 +1427,15 @@ body.staff-shell .live-quit-class-form {
   margin: 0;
   flex-shrink: 0;
 }
+body.staff-shell .live-header-quit {
+  appearance: none;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.85rem;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
 body.staff-shell .live-track-chip {
   display: flex;
   flex-wrap: wrap;
@@ -1472,26 +1481,18 @@ body.staff-shell .live-header .ap-meet-start {
   padding: 0.28rem 0.7rem;
   font-weight: 700;
 }
-body.staff-shell .live-header-end,
-body.staff-shell .live-header-quit {
+body.staff-shell .live-header-end {
   appearance: none;
   min-height: 2.25rem;
   padding: 0.35rem 0.85rem;
   font: inherit;
   font-weight: 700;
   white-space: nowrap;
-  border-radius: 8px;
-  cursor: pointer;
-}
-body.staff-shell .live-header-end {
   background: #9f1239;
   color: #fff;
   border: 1px solid #9f1239;
-}
-body.staff-shell .live-header-quit {
-  background: #fff;
-  color: #334155;
-  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  cursor: pointer;
 }
 body.staff-shell .live-legacy-control {
   position: absolute;

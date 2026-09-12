@@ -12,10 +12,8 @@
       data-visit-token="{{ visit_token or '' }}"
       data-codename="{{ codename or '' }}">
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
-    <div class="student-me">
-      <p id="student-display-time" class="student-display-time" aria-live="polite">--:--</p>
-      <div id="me-board"></div>
-    </div>
+    <p class="me-display-time" id="me-display-time" aria-live="polite" data-state="idle">—</p>
+    <div id="me-board" class="student-me"></div>
     <p class="student-round-banner" id="student-round-banner" hidden></p>
   </header>
   <main class="student-live-response" id="live-response" aria-live="polite">

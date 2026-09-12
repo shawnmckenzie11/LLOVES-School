@@ -2368,16 +2368,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """End Class (save attendance + participation) or Quit (wipe only).
+        """End Class: persist attendance/participation, then wipe the SID.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
-
-        ``save=1`` (End Class) writes the class-day column then wipes the
-        ephemeral live session. ``save=0`` (Quit) wipes without a DB write.
         """
         user = current_user()
         assert user is not None
@@ -2386,18 +2383,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        save_raw = request.form.get("save", request.args.get("save", "1"))
-        save = str(save_raw).strip().lower() not in {"0", "false", "no", "off"}
-        school.finish_live_class(int(class_id), save=save)
-        if save:
-            return redirect(
-                url_for(
-                    "staff_course",
-                    class_id=class_id,
-                    tab="ap",
-                    view="attendance",
-                )
-            )
+        school.finish_live_class(int(class_id), persist=True)
+        return redirect(url_for("staff_home"))
+
+    @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
+    @staff_required
+    def staff_quit_live_class(class_id: int):
+        """Quit: discard the open game column and wipe the live SID.
+
+        Same ownership rules as End Class. Writes no attendance or
+        participation.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        active = school.get_active_live_session_for_teacher(int(user["id"]))
+        if active is None or int(active["class_id"]) != int(class_id):
+            return redirect(url_for("staff_home"))
+        school.finish_live_class(int(class_id), persist=False)
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
@@ -3306,6 +3310,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        payload["display_time"] = school.live_session_display_time(int(class_id))
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -3824,10 +3829,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         payload = {"ok": True, "teacher_state": state}
-        try:
-            payload["game"] = school.game.game_state(int(session_row["class_id"]))
-        except Exception:
-            pass
+        if "assign" in body or "advance" in body:
+            try:
+                payload["game"] = school.game.game_state(int(session_row["class_id"]))
+            except Exception:
+                pass
         return jsonify(payload)
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
@@ -4988,17 +4994,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(_body):
             """Apply one staff JSON mutation for this class."""
             return school.game.resume_round_timer(class_id)
-
-        return _staff_post(class_id, run)
-
-    @app.route("/api/classes/<int:class_id>/game/timer/stop", methods=["POST"])
-    @login_required
-    def api_timer_stop(class_id: int):
-        """Clear SessionTimer without changing the pedagogical stage."""
-
-        def run(_body):
-            """Apply one staff JSON mutation for this class."""
-            return school.game.stop_session_timer(class_id)
 
         return _staff_post(class_id, run)
 

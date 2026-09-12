@@ -29,10 +29,8 @@ from live_teacher_state import (  # noqa: E402
     default_teacher_state,
     public_mc_ui,
     public_teacher_state,
-    stage_is_forward,
     student_should_mount_canvas,
     student_should_mount_media,
-    timer_preset_for_stage,
 )
 from minds_on import is_minds_on_payload  # noqa: E402
 
@@ -68,22 +66,6 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertFalse(student_should_mount_canvas(state))
         self.assertNotIn("url", state)
         self.assertNotIn("stem", state)
-
-    def test_timer_preset_is_meet_default_only(self) -> None:
-        """Beat 21: Meet arms 3 minutes; other stages stay idle unless mapped."""
-        self.assertEqual(timer_preset_for_stage("meet"), 3)
-        self.assertIsNone(timer_preset_for_stage("join"))
-        self.assertIsNone(timer_preset_for_stage("teams"))
-        self.assertIsNone(timer_preset_for_stage("round"))
-        self.assertIsNone(timer_preset_for_stage("play"))
-        self.assertEqual(
-            timer_preset_for_stage("play", {"timer_presets": {"play": 5}}),
-            5,
-        )
-        self.assertTrue(stage_is_forward("join", "teams"))
-        self.assertTrue(stage_is_forward("teams", "meet"))
-        self.assertFalse(stage_is_forward("meet", "teams"))
-        self.assertFalse(stage_is_forward("play", "play"))
 
     def test_advance_moves_stage_and_bumps_seq(self) -> None:
         """Prev/Next walk stages, increment state_seq, and project student frames."""

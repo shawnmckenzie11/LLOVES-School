@@ -511,52 +511,6 @@ def round_ends_at_ms(started_at: str | None, duration_sec: int | None) -> int | 
     end = started + timedelta(seconds=int(duration_sec))
     return int(end.timestamp() * 1000)
 
-
-def idle_session_timer() -> dict[str, Any]:
-    """Return the idle SessionTimer mirror (no countdown armed)."""
-    return {
-        "running": False,
-        "paused": False,
-        "ends_at_ms": None,
-        "remaining_sec": None,
-    }
-
-
-def public_session_timer(game: dict[str, Any] | None) -> dict[str, Any]:
-    """Project teacher SessionTimer fields for student display time.
-
-    Idle when nothing is running or paused. Students do not see the
-    stepper's planned minutes — they keep ``--:--`` so layout stays put.
-
-    Args:
-        game: ``game_state()['game']`` blob, or None.
-
-    Returns:
-        ``{running, paused, ends_at_ms, remaining_sec}``.
-    """
-    fields = game if isinstance(game, dict) else {}
-    ends = fields.get("round_ends_at_ms")
-    paused = bool(fields.get("timer_paused"))
-    remaining = fields.get("round_remaining_sec")
-    running = bool(ends) and not paused
-    try:
-        ends_i = int(ends) if running else None
-    except (TypeError, ValueError):
-        ends_i = None
-        running = False
-    try:
-        remaining_i = int(remaining) if remaining not in (None, "") else None
-    except (TypeError, ValueError):
-        remaining_i = None
-    if not running and not paused:
-        return idle_session_timer()
-    return {
-        "running": running,
-        "paused": paused and not running,
-        "ends_at_ms": ends_i,
-        "remaining_sec": remaining_i,
-    }
-
 # Future TODO (Teacher Game Dashboard): allow students to award points to one
 # another. Scoring is teacher-only until then; keep the log `from` field.
 
@@ -1718,7 +1672,6 @@ class GameShowDB:
             "class_id": int(class_id),
             "round_label": round_label,
             "round_kind": round_kind,
-            "session_timer": self.session_timer_payload(class_id),
             "me": me,
             "scoreboard": self.scoreboard(class_id),
         }
@@ -3005,59 +2958,68 @@ class GameShowDB:
             self.conn.commit()
         return {"ok": True, "class_id": class_id, "session_id": session_id}
 
-    def persist_attendance_and_participation(
+    def persist_end_class_column(
         self,
         class_id: int,
         present_ids: list[int],
-        participation: dict[int, Any],
-    ) -> dict[str, Any]:
-        """Write present flags + per-round MC participation, then end the session.
+        credits: dict[int, Any],
+    ) -> dict[str, Any] | None:
+        """Write attendance + +1/round participation, then end the column.
 
-        Participation is ``+1`` per pedagogical round (minds_on / action /
-        consolidation) where the student submitted at least one MC.
-        Works from any open game status so End Class can save after JOIN.
+        Used by teacher End Class (beat 19). Creates an open game when
+        none exists and there is something to persist.
 
         Args:
             class_id: Classes primary key.
-            present_ids: Roster ids who joined the live session.
-            participation: ``student_id →`` set/list of round ids.
+            present_ids: Roster ids marked present.
+            credits: ``student_id → iterable of round keys``.
 
         Returns:
-            ``{ok, class_id, session_id}``.
+            ``{ok, class_id, session_id}``, or ``None`` when there is
+            nothing to write and no open game.
         """
         present_set = {int(x) for x in present_ids}
+        credit_map: dict[int, int] = {}
+        for raw_sid, rounds in (credits or {}).items():
+            try:
+                sid = int(raw_sid)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(rounds, (set, list, tuple, frozenset)):
+                n = len({str(item) for item in rounds})
+            else:
+                try:
+                    n = int(rounds)
+                except (TypeError, ValueError):
+                    n = 0
+            if n > 0:
+                credit_map[sid] = n
+        try:
+            self._game_row(class_id)
+        except KeyError:
+            if not present_set and not credit_map:
+                return None
+            self.begin_game(class_id)
         with self._lock:
             game = self._game_row(class_id)
             self._write_attendance_unlocked(game, present_set)
             session_id = int(game["session_id"])
-            students = self.conn.execute(
-                "SELECT id FROM students WHERE class_id = ?", (int(class_id),)
-            ).fetchall()
-            for row in students:
-                sid = int(row["id"])
-                raw = participation.get(sid)
-                if raw is None:
-                    raw = participation.get(str(sid))
-                rounds: set[str] = set()
-                if isinstance(raw, dict):
-                    rounds = {str(key) for key, val in raw.items() if val}
-                elif isinstance(raw, (list, tuple, set)):
-                    rounds = {str(item) for item in raw}
-                r1 = 1 if "minds_on" in rounds else 0
-                r2 = 1 if "action" in rounds else 0
-                r3 = 1 if "consolidation" in rounds else 0
-                pts = r1 + r2 + r3
-                if sid not in present_set:
-                    r1 = r2 = r3 = pts = 0
+            game_id = int(game["id"])
+            for sid, n in credit_map.items():
+                r1 = 1 if n >= 1 else 0
+                r2 = 1 if n >= 2 else 0
+                r3 = 1 if n >= 3 else 0
                 self.conn.execute(
                     """
                     UPDATE session_scores
-                    SET points = ?, points_r1 = ?, points_r2 = ?, points_r3 = ?
+                    SET points = ?,
+                        points_r1 = ?,
+                        points_r2 = ?,
+                        points_r3 = ?
                     WHERE session_id = ? AND student_id = ?
                     """,
-                    (float(pts), float(r1), float(r2), float(r3), session_id, sid),
+                    (n, r1, r2, r3, session_id, sid),
                 )
-            game_id = int(game["id"])
             self.conn.execute(
                 """
                 UPDATE sessions
@@ -3067,12 +3029,17 @@ class GameShowDB:
                 (session_id,),
             )
             self.conn.execute(
-                "UPDATE games SET status = 'ended' WHERE id = ?", (game_id,)
+                "UPDATE games SET status = 'ended' WHERE id = ?",
+                (game_id,),
             )
             if self._scoreboard_game_id() == game_id:
-                self._set_scoreboard_game(None)
+                self._set_scoreboard_game(game_id)
             self.conn.commit()
-        return {"ok": True, "class_id": int(class_id), "session_id": session_id}
+        return {
+            "ok": True,
+            "class_id": int(class_id),
+            "session_id": session_id,
+        }
 
     def attendance_score_rows(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
         """Session meeting rows and present flags for the week grid.
@@ -3372,88 +3339,6 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
-    def session_timer_payload(self, class_id: int) -> dict[str, Any]:
-        """Return the public SessionTimer mirror for one class.
-
-        Args:
-            class_id: Classes primary key.
-
-        Returns:
-            Idle timer when no open game exists.
-        """
-        try:
-            state = self.game_state(class_id)
-        except KeyError:
-            return idle_session_timer()
-        return public_session_timer(state.get("game"))
-
-    def stop_session_timer(self, class_id: int) -> dict[str, Any]:
-        """Clear the SessionTimer so it does not tick into the next stage.
-
-        No-ops when no open game exists. Meet overlay phase is cleared
-        with the clock so leftover Meet chrome cannot keep counting.
-
-        Args:
-            class_id: Classes primary key.
-
-        Returns:
-            Updated game state, or ``{ok, class_id, stopped: False}``.
-        """
-        try:
-            game = dict(self._game_row(class_id))
-        except KeyError:
-            return {"ok": True, "class_id": int(class_id), "stopped": False}
-        with self._lock:
-            phase = str(game.get("overlay_phase") or "")
-            if phase == "meet_teams":
-                self.conn.execute(
-                    """
-                    UPDATE games
-                    SET round_started_at = NULL,
-                        round_duration_sec = NULL,
-                        overlay_phase = NULL
-                    WHERE id = ?
-                    """,
-                    (int(game["id"]),),
-                )
-            else:
-                self.conn.execute(
-                    """
-                    UPDATE games
-                    SET round_started_at = NULL,
-                        round_duration_sec = NULL
-                    WHERE id = ?
-                    """,
-                    (int(game["id"]),),
-                )
-            self.conn.commit()
-        return self.game_state(class_id)
-
-    def arm_session_timer_for_stage(
-        self, class_id: int, minutes: int, *, meet: bool = False
-    ) -> dict[str, Any]:
-        """Start SessionTimer for a destination stage.
-
-        Meet with assigned teams uses ``start_meet_teams`` so the overlay
-        clock stays on the same SessionTimer fields. Individual / no
-        teams falls through to the generic timer.
-
-        Args:
-            class_id: Classes primary key.
-            minutes: Countdown length (clamped 1–30).
-            meet: True when the destination stage is MEET.
-
-        Returns:
-            Updated game state.
-        """
-        minutes_i = max(1, min(30, int(minutes) if minutes is not None else 3))
-        if meet:
-            try:
-                return self.start_meet_teams(class_id, minutes_i)
-            except (KeyError, ValueError):
-                pass
-        return self.start_session_timer(class_id, minutes_i)
-
     def start_session_timer(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
         """Start a stage-independent countdown without changing overlay phase.
 
@@ -3482,6 +3367,35 @@ class GameShowDB:
                 WHERE id = ?
                 """,
                 (self._now(), minutes_i * 60, int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def stop_session_timer(self, class_id: int) -> dict[str, Any]:
+        """Clear the session countdown to idle (not pause).
+
+        Teacher Next (beat 21) stops a running or paused clock so the
+        destination stage can apply its own preset or stay idle.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state, or an empty game payload when none exists.
+        """
+        try:
+            game = self._game_row(class_id)
+        except KeyError:
+            return {"ok": True, "game": {}}
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_started_at = NULL,
+                    round_duration_sec = NULL
+                WHERE id = ?
+                """,
+                (int(game["id"]),),
             )
             self.conn.commit()
         return self.game_state(class_id)

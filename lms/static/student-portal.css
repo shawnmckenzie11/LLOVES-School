@@ -640,6 +640,18 @@ body.student-home.is-live .student-live-response {
   font-size: 0.95rem;
 }
 
+.student-chrome-top .me-display-time {
+  margin: 0 0 0.35rem;
+  min-height: 1.25rem;
+  line-height: 1.25rem;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: #9aa6c3;
+}
+
 .student-me,
 .student-scoreboard {
   background: rgba(255, 255, 255, 0.04);
@@ -654,19 +666,6 @@ body.student-home.is-live .student-live-response {
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #9aa6c3;
-}
-
-.student-me .student-display-time {
-  margin: 0 0 0.2rem;
-  min-height: 1.25rem;
-  line-height: 1.25rem;
-  text-align: center;
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
   color: #9aa6c3;
 }
 

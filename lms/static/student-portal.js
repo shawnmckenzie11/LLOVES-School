@@ -1,11 +1,9 @@
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
-import { formatCountdown, remainingUntilMs } from "/static/common.js";
-
 const waitEl = document.getElementById("student-wait");
+const displayTimeEl = document.getElementById("me-display-time");
 const meEl = document.getElementById("me-board");
-const displayTimeEl = document.getElementById("student-display-time");
 const boardEl = document.getElementById("class-board");
 const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
@@ -99,6 +97,57 @@ function setTabTitle(codename) {
 }
 
 /**
+ * Format seconds as m:ss for the reserved display-time slot.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatDisplayClock(value) {
+  const n = Math.max(0, Math.floor(Number(value) || 0));
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+}
+
+/** Teacher SessionTimer deadline (epoch ms), or 0 when idle/paused. */
+let displayEndsAtMs = 0;
+
+/**
+ * Paint the reserved display-time slot above the student name.
+ * Text only — never remounts chrome or toggles hidden.
+ * @param {any} payload
+ */
+function paintDisplayTime(payload) {
+  if (!displayTimeEl) return;
+  const dt = payload && payload.display_time ? payload.display_time : {};
+  if (dt.running && dt.ends_at_ms) {
+    displayEndsAtMs = Number(dt.ends_at_ms) || 0;
+    const rem = displayEndsAtMs
+      ? Math.max(0, Math.ceil((displayEndsAtMs - Date.now()) / 1000))
+      : Number(dt.remaining_sec) || 0;
+    displayTimeEl.textContent = formatDisplayClock(rem);
+    displayTimeEl.dataset.state = "running";
+    return;
+  }
+  displayEndsAtMs = 0;
+  if (dt.paused) {
+    displayTimeEl.textContent = formatDisplayClock(dt.remaining_sec);
+    displayTimeEl.dataset.state = "paused";
+    return;
+  }
+  displayTimeEl.textContent = dt.label || "—";
+  displayTimeEl.dataset.state = "idle";
+}
+
+/**
+ * Tick the reserved display-time slot while the teacher timer is running.
+ */
+function tickDisplayTime() {
+  if (!displayTimeEl || displayTimeEl.dataset.state !== "running") return;
+  if (!displayEndsAtMs) return;
+  displayTimeEl.textContent = formatDisplayClock(
+    Math.max(0, Math.ceil((displayEndsAtMs - Date.now()) / 1000))
+  );
+}
+
+/**
  * Format a points value for the student boards.
  * @param {unknown} value
  * @returns {string}
@@ -107,45 +156,6 @@ function pts(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "0";
   return String(Math.round(n * 10) / 10);
-}
-
-const IDLE_DISPLAY_TIME = "--:--";
-/** @type {number} */
-let displayEndsAtMs = 0;
-/** @type {boolean} */
-let displayTimerPaused = false;
-
-/**
- * Paint the fixed SessionTimer slot above the student name.
- * Never hides the slot — idle stays ``--:--`` so layout does not jump.
- * @param {any} [payload]
- */
-function paintDisplayTime(payload) {
-  if (!displayTimeEl) return;
-  const timer = (payload && payload.session_timer) || {};
-  const running = Boolean(timer.running) && Boolean(timer.ends_at_ms);
-  const paused = Boolean(timer.paused);
-  if (running) {
-    displayEndsAtMs = Number(timer.ends_at_ms) || 0;
-    displayTimerPaused = false;
-    displayTimeEl.textContent = formatCountdown(remainingUntilMs(displayEndsAtMs));
-    return;
-  }
-  displayEndsAtMs = 0;
-  displayTimerPaused = paused;
-  if (paused) {
-    displayTimeEl.textContent = formatCountdown(Number(timer.remaining_sec) || 0);
-    return;
-  }
-  displayTimeEl.textContent = IDLE_DISPLAY_TIME;
-}
-
-/**
- * Tick the reserved display-time slot once per second while running.
- */
-function tickDisplayTime() {
-  if (!displayTimeEl || !displayEndsAtMs || displayTimerPaused) return;
-  displayTimeEl.textContent = formatCountdown(remainingUntilMs(displayEndsAtMs));
 }
 
 /**
@@ -1102,7 +1112,7 @@ if (promptFeedback) {
 
 tick();
 setInterval(tick, 4000);
-setInterval(tickDisplayTime, 1000);
+setInterval(tickDisplayTime, 250);
 
 const bootCodename = body && body.dataset ? body.dataset.codename : "";
 if (bootCodename) {
