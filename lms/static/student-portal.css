@@ -479,6 +479,64 @@ body.student-home.is-live .student-live-response {
   gap: 0.55rem;
 }
 
+.question-frame .mc-reveal-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: min(14rem, 40dvh);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.question-frame .mc-reveal-row {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.2rem 0.45rem;
+  align-items: center;
+  margin: 0.35rem 0;
+}
+
+.question-frame .mc-reveal-letter {
+  grid-column: 1;
+  grid-row: 1;
+  font-weight: 700;
+  color: #e8f1f8;
+}
+
+.question-frame .mc-reveal-label {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  font-size: 0.82rem;
+  color: #c5d4e8;
+}
+
+.question-frame .mc-reveal-meta {
+  grid-column: 3;
+  grid-row: 1;
+  font-size: 0.78rem;
+  color: #9fb3c8;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.question-frame .mc-reveal-track {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  min-width: 0;
+  height: 0.65rem;
+  background: #1e3348;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.question-frame .mc-reveal-fill {
+  display: block;
+  height: 100%;
+  background: #5eead4;
+  border-radius: inherit;
+}
+
 .prompt-choice,
 .prompt-submit {
   width: 100%;

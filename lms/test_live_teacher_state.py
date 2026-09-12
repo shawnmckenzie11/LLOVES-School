@@ -212,7 +212,9 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertNotIn("payload", state)
 
     def test_mc_ui_reveal_is_additive_and_bumps_seq(self) -> None:
-        """Reveal chrome is optional, defaults student-off, and bumps state_seq."""
+        """JOIN Reveal shares + closes the poll; Hide unshares but stays closed."""
+        from live_teacher_state import bind_join_share_on_reveal, mc_poll_closed
+
         state = default_teacher_state()
         self.assertNotIn("mc_ui", state)
         self.assertIsNone(public_mc_ui(None))
@@ -223,7 +225,9 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(shown["state_seq"], 1)
         self.assertEqual(shown["mc_ui"]["prompt_ref"], MINDS_ON_PROMPT_REF)
         self.assertTrue(shown["mc_ui"]["reveal"])
-        self.assertFalse(shown["mc_ui"]["reveal_to_students"])
+        self.assertTrue(shown["mc_ui"]["reveal_to_students"])
+        self.assertTrue(shown["mc_ui"]["poll_closed"])
+        self.assertTrue(mc_poll_closed(shown))
         hidden = apply_teacher_state_update(
             shown,
             mc_ui={
@@ -234,6 +238,9 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         )
         self.assertEqual(hidden["state_seq"], 2)
         self.assertFalse(hidden["mc_ui"]["reveal"])
+        self.assertFalse(hidden["mc_ui"]["reveal_to_students"])
+        self.assertTrue(hidden["mc_ui"]["poll_closed"])
+        self.assertTrue(mc_poll_closed(hidden))
         moved = apply_teacher_state_update(hidden, prompt_ref="C1-CONS-1")
         self.assertNotIn("mc_ui", moved)
         kept = public_teacher_state(
@@ -244,6 +251,27 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         )
         self.assertEqual(kept["mc_ui"]["prompt_ref"], "C1-CONS-1")
         self.assertTrue(kept["mc_ui"]["reveal"])
+        self.assertTrue(kept["mc_ui"]["reveal_to_students"])
+        play = apply_teacher_state_update(
+            {"stage": "play", "prompt_ref": "C1-CONS-1"},
+            mc_ui={"prompt_ref": "C1-CONS-1", "reveal": True},
+        )
+        self.assertTrue(play["mc_ui"]["reveal"])
+        self.assertFalse(play["mc_ui"]["reveal_to_students"])
+        self.assertFalse(play["mc_ui"]["poll_closed"])
+        forced = bind_join_share_on_reveal(
+            {
+                "stage": "join",
+                "mc_ui": {
+                    "prompt_ref": MINDS_ON_PROMPT_REF,
+                    "reveal": True,
+                    "reveal_to_students": False,
+                    "poll_closed": False,
+                },
+            }
+        )
+        self.assertTrue(forced["mc_ui"]["reveal_to_students"])
+        self.assertTrue(forced["mc_ui"]["poll_closed"])
         with self.assertRaises(ValueError):
             apply_teacher_state_update(None, mc_ui="yes")
 
@@ -425,7 +453,10 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(shown.status_code, 200, shown.get_json())
-        self.assertTrue(shown.get_json()["teacher_state"]["mc_ui"]["reveal"])
+        join_ui = shown.get_json()["teacher_state"]["mc_ui"]
+        self.assertTrue(join_ui["reveal"])
+        self.assertTrue(join_ui["reveal_to_students"])
+        self.assertTrue(join_ui["poll_closed"])
         nxt = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={"advance": "next"},
@@ -505,7 +536,8 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(shown.status_code, 200, shown.get_json())
         body = shown.get_json()["teacher_state"]
         self.assertTrue(body["mc_ui"]["reveal"])
-        self.assertFalse(body["mc_ui"]["reveal_to_students"])
+        self.assertTrue(body["mc_ui"]["reveal_to_students"])
+        self.assertTrue(body["mc_ui"]["poll_closed"])
         self.assertIsNone(body.get("cue_id"))
         self.assertGreaterEqual(body["state_seq"], 1)
 
