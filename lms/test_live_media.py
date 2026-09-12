@@ -980,6 +980,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         ).get_json()
         self.assertEqual(len(pack["cons_pack"]), 5)
         self.assertEqual(pack["cons_pack"][0]["id"], "C1-CONS-1")
+        self.assertNotIn("chips", pack["cons_pack"][0])
 
 
 if __name__ == "__main__":
