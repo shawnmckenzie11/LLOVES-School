@@ -17,11 +17,16 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 
 from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_STEM,
-    student_cons_prompt_payload,
     c1_cons_catalog,
+    c2_cons_catalog,
+    c3_cons_catalog,
+    student_cons_prompt_payload,
 )
 from live_prompt_feedback import (  # noqa: E402
+    FEEDBACK_TABLE,
     M1C1_FEEDBACK,
+    M1C2_FEEDBACK,
+    M1C3_FEEDBACK,
     public_feedback_fragment,
     resolve_live_prompt_feedback,
     strip_teacher_prompt_fields,
@@ -121,12 +126,16 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 "by_choice": {"B": "hidden"},
                 "on_submit": "hidden",
                 "feedback": {"text": "hidden"},
+                "chips": ["A2.1"],
+                "curriculum_chips": ["A2.1"],
+                "expectation_codes": ["A2.1"],
                 "items": [
                     {
                         "item_id": "minds_on",
                         "key": "A",
                         "cement": "hidden",
                         "prompt": "stem",
+                        "chips": ["A2.1"],
                     }
                 ],
             }
@@ -139,10 +148,14 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             "by_choice",
             "on_submit",
             "feedback",
+            "chips",
+            "curriculum_chips",
+            "expectation_codes",
         ):
             self.assertNotIn(field, cleaned)
         self.assertNotIn("key", cleaned["items"][0])
         self.assertNotIn("cement", cleaned["items"][0])
+        self.assertNotIn("chips", cleaned["items"][0])
         self.assertEqual(cleaned["items"][0]["prompt"], "stem")
 
     def test_keys_brief_lists_soft_keys(self) -> None:
@@ -156,6 +169,66 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         self.assertIn(M1C1_FEEDBACK["C1-CONS-1"]["by_choice"]["B"], text)
         self.assertIn(M1C1_FEEDBACK["C1-CONS-4"]["on_submit"], text)
         self.assertIn("Never attach feedback to the Team Challenge stem", text)
+
+    def test_c2_and_c3_minds_on_and_light_cons(self) -> None:
+        """C2/C3 use their own Match/Miss lines; C1 table stays untouched."""
+        c2 = minds_on_prompt_payload("C2")
+        hit = resolve_live_prompt_feedback(c2, {"choice": "A"})
+        self.assertEqual(hit["text"], M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["A"])
+        miss = resolve_live_prompt_feedback(c2, {"choice": "B"})
+        self.assertEqual(miss["text"], M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["B"])
+        c3 = minds_on_prompt_payload("C3")
+        c3_hit = resolve_live_prompt_feedback(c3, {"choice": "B"})
+        self.assertEqual(c3_hit["text"], M1C3_FEEDBACK["C3-minds_on"]["by_choice"]["B"])
+        c3_miss = resolve_live_prompt_feedback(c3, {"choice": "A"})
+        self.assertEqual(c3_miss["text"], M1C3_FEEDBACK["C3-minds_on"]["by_choice"]["A"])
+        cons1 = student_cons_prompt_payload(c2_cons_catalog()[0])
+        cons_hit = resolve_live_prompt_feedback(cons1, {"choice": "No"})
+        self.assertEqual(cons_hit["text"], M1C2_FEEDBACK["C2-CONS-1"]["by_choice"]["B"])
+        share = resolve_live_prompt_feedback(
+            student_cons_prompt_payload(c2_cons_catalog()[1]),
+            {"text": "the point ties a, h, and k"},
+        )
+        self.assertEqual(share["text"], M1C2_FEEDBACK["C2-CONS-2"]["on_submit"])
+        c3_cons = resolve_live_prompt_feedback(
+            student_cons_prompt_payload(c3_cons_catalog()[0]),
+            {"choice": "No"},
+        )
+        self.assertEqual(c3_cons["text"], M1C3_FEEDBACK["C3-CONS-1"]["by_choice"]["B"])
+        self.assertIn("C2-CONS-1", FEEDBACK_TABLE)
+        self.assertIn("C3-CONS-3", FEEDBACK_TABLE)
+        self.assertEqual(
+            M1C1_FEEDBACK["minds_on"]["by_choice"]["A"],
+            FEEDBACK_TABLE["minds_on"]["by_choice"]["A"],
+        )
+        c2_md = (
+            REPO_ROOT
+            / "content-builder"
+            / "catalogue"
+            / "challenges"
+            / "module-briefs"
+            / "quick-hitters"
+            / "MCF3M-M1-C2-feedback-keys.md"
+        )
+        c3_md = (
+            REPO_ROOT
+            / "content-builder"
+            / "catalogue"
+            / "challenges"
+            / "module-briefs"
+            / "quick-hitters"
+            / "MCF3M-M1-C3-feedback-keys.md"
+        )
+        self.assertTrue(c2_md.is_file(), c2_md)
+        self.assertTrue(c3_md.is_file(), c3_md)
+        self.assertIn(M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["A"], c2_md.read_text())
+        self.assertIn(M1C3_FEEDBACK["C3-minds_on"]["by_choice"]["B"], c3_md.read_text())
+        self.assertIsNone(
+            resolve_live_prompt_feedback(
+                {"prompt": DEFAULT_LIVE_MEDIA_STEM, "live_slot": "C2"},
+                {"choice": "A"},
+            )
+        )
 
 
 if __name__ == "__main__":

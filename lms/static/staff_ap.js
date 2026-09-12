@@ -177,6 +177,8 @@ let teacherState = {
   state_seq: 0,
   student_frames: { questions: true, media: false, canvas: false },
   unlocks: { media: false, canvas: false },
+  live_slot: "C1",
+  text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
 
 let teacherStateInFlight = false;
@@ -230,6 +232,12 @@ function adoptTeacherState(next) {
   } else {
     delete teacherState.mc_ui;
   }
+  if (next.text_ride && typeof next.text_ride === "object") {
+    teacherState.text_ride = { ...next.text_ride };
+  }
+  const slot = String(next.live_slot || teacherState.live_slot || "C1").toUpperCase();
+  teacherState.live_slot = slot;
+  textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
@@ -502,6 +510,7 @@ function paintTeacherShell() {
   paintFrames();
   paintRightFlag();
   paintMeetChainChrome();
+  paintLiveSlotPicks();
 }
 
 /**
@@ -518,13 +527,50 @@ function paintHeaderDate() {
  * Flag Meet universal Q / CONS / QH from existing session fields (no new poll).
  * @param {any} [media]
  */
+function paintLiveSlotPicks() {
+  const slot = String(teacherState.live_slot || textOnlyChallenge || "C1").toUpperCase();
+  document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
+    const on = btn.getAttribute("data-live-slot") === slot;
+    btn.classList.toggle("is-active", on);
+  });
+  const textOnly = slot === "C2" || slot === "C3";
+  textOnlyChallenge = textOnly ? slot : "";
+  const rideBox = $("text-ride-controls");
+  if (rideBox) rideBox.hidden = !textOnly;
+  const preview = $("ap-media-preview");
+  if (preview) {
+    preview.hidden = textOnly;
+    if (textOnly) preview.setAttribute("hidden", "");
+    else preview.removeAttribute("hidden");
+  }
+  const mediaZone = $("media-artifact-zone");
+  if (mediaZone) mediaZone.classList.toggle("is-parked", textOnly);
+  const ride = teacherState.text_ride || {};
+  const frozen = Boolean(ride.frozen);
+  const freezeBtn = $("text-ride-freeze");
+  if (freezeBtn) {
+    freezeBtn.classList.toggle("is-active", frozen);
+    freezeBtn.textContent = frozen ? "Frozen" : "Freeze";
+  }
+  const cons = String(ride.cons_item || "").trim();
+  document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
+    const id = btn.getAttribute("data-cons-item") || "";
+    const suffix = id.replace("CONS-", "");
+    btn.disabled = !frozen;
+    btn.setAttribute("aria-disabled", frozen ? "false" : "true");
+    btn.classList.toggle("is-active", cons.endsWith(`CONS-${suffix}`));
+  });
+}
+
 function paintQuestionArtifact(media) {
+  paintLiveSlotPicks();
   const status = $("question-artifact-status");
   const flag = $("question-artifact-flag");
   if (!status || !flag) return;
   const row = media || {};
-  const cons = String(row.cons_item || "").trim();
-  const toast = String(row.toast || row.caption || "").trim();
+  const ride = teacherState.text_ride || {};
+  const cons = String(row.cons_item || ride.cons_item || "").trim();
+  const toast = String(row.toast || row.caption || ride.toast || "").trim();
   const chain = teacherState.meet_chain;
   const meetOn =
     teacherState.stage === "meet" ||
@@ -1100,6 +1146,7 @@ async function postActiveMedia(body) {
     body: JSON.stringify(body),
   });
   paintActiveMediaStatus(res.active_media);
+  if (res?.teacher_state) adoptTeacherState(res.teacher_state);
   return res.active_media;
 }
 
@@ -3639,6 +3686,38 @@ document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const round = btn.getAttribute("data-round") || "minds_on";
     patchTeacherState({ round, stage: "round" });
+  });
+});
+
+document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const slot = btn.getAttribute("data-live-slot") || "C1";
+    textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
+    postActiveMedia({ challenge: slot })
+      .then(() => {
+        if (slot === "C1") return ensureC1MediaSeeded();
+        paintLiveSlotPicks();
+        return null;
+      })
+      .catch((err) => showError("#ap-overlay-error", err));
+  });
+});
+
+$("text-ride-freeze")?.addEventListener("click", () => {
+  if (!textOnlyChallenge) return;
+  const frozen = !Boolean((teacherState.text_ride || {}).frozen);
+  postActiveMedia({ frozen })
+    .then(() => paintLiveSlotPicks())
+    .catch((err) => showError("#ap-overlay-error", err));
+});
+
+document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!textOnlyChallenge) return;
+    const item = btn.getAttribute("data-cons-item") || "";
+    postActiveMedia({ cons_item: `${textOnlyChallenge}-${item}` })
+      .then(() => paintLiveSlotPicks())
+      .catch((err) => showError("#ap-overlay-error", err));
   });
 });
 

@@ -17,16 +17,23 @@ try:
     from live_media import (
         apply_active_media_update,
         challenge_clears_active_media,
-        get_c1_cons_item,
-        is_c1_cons_payload,
+        cons_unlock_toast,
+        TOAST_FREEZE,
+        get_cons_item,
         is_c1_real_slice,
+        is_cons_payload,
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
     from live_mc import build_mc_tally
     from live_teacher_state import (
+        CUE_CONS_UNLOCK,
+        CUE_FREEZE,
         apply_teacher_state_update,
+        default_text_ride,
+        normalize_live_slot,
         public_teacher_state,
+        public_text_ride,
     )
     from live_prompt_feedback import (
         public_feedback_fragment,
@@ -61,16 +68,23 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_media import (
         apply_active_media_update,
         challenge_clears_active_media,
-        get_c1_cons_item,
-        is_c1_cons_payload,
+        cons_unlock_toast,
+        TOAST_FREEZE,
+        get_cons_item,
         is_c1_real_slice,
+        is_cons_payload,
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
     from lms.live_mc import build_mc_tally
     from lms.live_teacher_state import (
+        CUE_CONS_UNLOCK,
+        CUE_FREEZE,
         apply_teacher_state_update,
+        default_text_ride,
+        normalize_live_slot,
         public_teacher_state,
+        public_text_ride,
     )
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
@@ -5790,14 +5804,20 @@ class SchoolDB(LovesDB):
         kind_norm = (kind or "idle").strip().lower()
         if kind_norm not in {"mc", "numeric", "share", "draw", "idle"}:
             raise ValueError(f"unsupported prompt kind: {kind}")
-        if is_c1_cons_payload(payload):
-            media = self.live_session_active_media_payload(session_id)
-            if not media or not media.get("frozen"):
-                raise ValueError("Consolidation is available only after freeze.")
-            if not is_c1_real_slice(media):
-                raise ValueError(
-                    "C1 consolidation is only for the Real-slice channel."
-                )
+        if is_cons_payload(payload):
+            slot = self.session_live_slot(session_id)
+            if slot == "C1":
+                media = self.live_session_active_media_payload(session_id)
+                if not media or not media.get("frozen"):
+                    raise ValueError("Consolidation is available only after freeze.")
+                if not is_c1_real_slice(media):
+                    raise ValueError(
+                        "C1 consolidation is only for the Real-slice channel."
+                    )
+            else:
+                ride = self.session_text_ride(session_id)
+                if not ride.get("frozen"):
+                    raise ValueError("Consolidation is available only after freeze.")
         body = json.dumps(payload or {})
         now = _now()
         with self._lock:
@@ -5944,6 +5964,32 @@ class SchoolDB(LovesDB):
                 return True
         return False
 
+    def session_live_slot(self, session_id: int) -> str:
+        """Return the session live slot ``C1`` / ``C2`` / ``C3``.
+
+        Defaults to C1 when the teacher channel has no slot yet.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return "C1"
+        return normalize_live_slot(teacher.get("live_slot"))
+
+    def session_text_ride(self, session_id: int) -> dict[str, Any]:
+        """Return the C2/C3 text-only freeze + CONS ride.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return default_text_ride()
+        return public_text_ride(teacher.get("text_ride"))
+
     def _minds_on_row_exists(self, session_id: int) -> bool:
         """True when this session already has a Minds-On prompt row.
 
@@ -5979,7 +6025,7 @@ class SchoolDB(LovesDB):
             return None
         if self._meet_team_row_exists(session_id):
             return None
-        desired = minds_on_prompt_payload()
+        desired = minds_on_prompt_payload(self.session_live_slot(session_id))
         active = self.get_active_live_prompt(session_id)
         if active and is_minds_on_payload(active.get("payload")):
             current = active.get("payload") or {}
@@ -6028,7 +6074,7 @@ class SchoolDB(LovesDB):
             session_id,
             slide_index=MINDS_ON_SLIDE_INDEX,
             kind=MINDS_ON_KIND,
-            payload=minds_on_prompt_payload(),
+            payload=minds_on_prompt_payload(self.session_live_slot(session_id)),
             activate=False,
         )
 
@@ -6476,10 +6522,17 @@ class SchoolDB(LovesDB):
         if is_meet_team_payload(raw_payload) and meet_state is None:
             if str((teacher or {}).get("stage") or "") != "meet":
                 return empty
-        if is_c1_cons_payload(raw_payload):
-            media = self.live_session_active_media_payload(session_id)
-            if not media or not media.get("frozen") or not is_c1_real_slice(media):
-                return empty
+        if is_cons_payload(raw_payload):
+            slot = self.session_live_slot(session_id)
+            if slot == "C1":
+                media = self.live_session_active_media_payload(session_id)
+                if not media or not media.get("frozen") or not is_c1_real_slice(media):
+                    return empty
+            else:
+                ride = self.session_text_ride(session_id)
+                item_id = str(raw_payload.get("item_id") or "").strip()
+                if not ride.get("frozen") or item_id != str(ride.get("cons_item") or ""):
+                    return empty
         prior = None
         my_response = None
         if is_meet_team_payload(raw_payload) and meet_state is not None:
@@ -6688,6 +6741,54 @@ class SchoolDB(LovesDB):
             kwargs["toast"] = toast
         if toast_key is not None:
             kwargs["toast_key"] = toast_key
+        slot = (
+            normalize_live_slot(challenge)
+            if challenge is not None
+            else self.session_live_slot(session_id)
+        )
+        text_only = slot in {"C2", "C3"}
+        if text_only:
+            payload = None
+            if challenge is not None or current is not None:
+                payload = apply_active_media_update(
+                    current, challenge=slot, updated_at=_now()
+                )
+                encoded = json.dumps(payload) if payload else None
+                with self._lock:
+                    self.conn.execute(
+                        """
+                        UPDATE live_class_sessions
+                        SET active_media_json = ?
+                        WHERE id = ?
+                        """,
+                        (encoded, int(session_id)),
+                    )
+                    self.conn.commit()
+            self._persist_live_slot(session_id, slot)
+            waiting_room = not self._session_left_waiting_room(session_id)
+            if waiting_room:
+                self.ensure_waiting_room_minds_on(session_id)
+            elif challenge is not None:
+                teacher = self.live_session_teacher_state_payload(session_id)
+                stage = str(teacher.get("stage") or "")
+                frames = teacher.get("student_frames") or {}
+                if stage in {"round", "play"} or bool(frames.get("media")):
+                    self.clear_session_warmups(session_id)
+            if (
+                frozen is not None
+                or cons_item is not None
+                or toast is not None
+                or toast_key is not None
+            ):
+                self._apply_text_ride_update(
+                    session_id,
+                    frozen=frozen,
+                    cons_item=cons_item,
+                    toast=toast,
+                    toast_key=toast_key,
+                )
+            self._sync_cons_prompt(session_id, None)
+            return None
         payload = apply_active_media_update(current, **kwargs)
         encoded = json.dumps(payload) if payload else None
         with self._lock:
@@ -6700,18 +6801,103 @@ class SchoolDB(LovesDB):
                 (encoded, int(session_id)),
             )
             self.conn.commit()
-        if payload is not None or challenge_clears_active_media(challenge):
+        if challenge is not None:
+            self._persist_live_slot(session_id, slot)
+            if not self._session_left_waiting_room(session_id):
+                self.ensure_waiting_room_minds_on(session_id)
+        if payload is not None:
             teacher = self.live_session_teacher_state_payload(session_id)
             stage = str(teacher.get("stage") or "")
             frames = teacher.get("student_frames") or {}
-            if (
-                challenge_clears_active_media(challenge)
-                or stage in {"round", "play"}
-                or bool(frames.get("media"))
-            ):
+            if stage in {"round", "play"} or bool(frames.get("media")):
                 self.clear_session_warmups(session_id)
-        self._sync_c1_cons_prompt(session_id, payload)
+        self._sync_cons_prompt(session_id, payload)
         return payload
+
+    def _persist_live_slot(self, session_id: int, live_slot: str) -> dict[str, Any]:
+        """Write ``live_slot`` on the teacher channel and reset C1 text_ride.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_slot: ``C1`` / ``C2`` / ``C3``.
+        """
+        current = self.live_session_teacher_state_payload(session_id)
+        slot = normalize_live_slot(live_slot)
+        if current.get("live_slot") == slot:
+            return current
+        payload = apply_teacher_state_update(
+            current,
+            live_slot=slot,
+            text_ride=default_text_ride(),
+        )
+        return self._write_teacher_state(session_id, payload)
+
+    def _apply_text_ride_update(
+        self,
+        session_id: int,
+        *,
+        frozen: Any = None,
+        cons_item: Any = None,
+        toast: Any = None,
+        toast_key: Any = None,
+    ) -> dict[str, Any]:
+        """Patch the C2/C3 text-only freeze + CONS ride.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            frozen: Session freeze (CONS unlocks only after True).
+            cons_item: Post-freeze CONS id, or empty to clear.
+            toast: Optional Wonder toast overlay.
+            toast_key: Optional toast identity.
+        """
+        slot = self.session_live_slot(session_id)
+        if slot not in {"C2", "C3"}:
+            raise ValueError("Text-only consolidation is only for C2 and C3.")
+        current = self.live_session_teacher_state_payload(session_id)
+        ride = public_text_ride(current.get("text_ride"))
+        prev_frozen = bool(ride.get("frozen"))
+        prev_cons = str(ride.get("cons_item") or "")
+        if frozen is not None:
+            if isinstance(frozen, str):
+                ride["frozen"] = frozen.strip().lower() in {"1", "true", "yes"}
+            else:
+                ride["frozen"] = bool(frozen)
+        wanted = None
+        if cons_item is not None:
+            item = get_cons_item(cons_item, live_slot=slot)
+            wanted = str(item["id"]) if item else ""
+            if wanted and not ride.get("frozen"):
+                raise ValueError("Consolidation is available only after freeze.")
+            ride["cons_item"] = wanted
+        elif not ride.get("frozen"):
+            ride["cons_item"] = ""
+        toast_given = toast is not None
+        if toast is not None:
+            ride["toast"] = str(toast or "").strip()
+        if toast_key is not None:
+            ride["toast_key"] = str(toast_key or "").strip()
+        freeze_on = bool(ride.get("frozen")) and not prev_frozen
+        new_cons = str(ride.get("cons_item") or "")
+        cons_unlock_on = bool(new_cons) and new_cons != prev_cons
+        cue_id = None
+        if freeze_on:
+            if not toast_given:
+                ride["toast"] = TOAST_FREEZE
+                ride["toast_key"] = "freeze"
+            cue_id = CUE_FREEZE
+        elif cons_unlock_on:
+            if not toast_given:
+                ride["toast"] = cons_unlock_toast(slot)
+                ride["toast_key"] = "cons_unlock"
+            cue_id = CUE_CONS_UNLOCK
+        payload = apply_teacher_state_update(
+            current,
+            live_slot=slot,
+            text_ride=ride,
+            cue_id=cue_id if cue_id else current.get("cue_id"),
+            prompt_ref=new_cons or current.get("prompt_ref"),
+        )
+        return self._write_teacher_state(session_id, payload)
 
     def live_session_teacher_state_payload(
         self, session_id: int
@@ -6832,6 +7018,7 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
+        posted_slot = kwargs.get("live_slot")
         meet_action = kwargs.pop("meet_action", None)
         if meet_action is not None:
             token = str(meet_action).strip().lower()
@@ -6873,7 +7060,26 @@ class SchoolDB(LovesDB):
             self._mount_meet_chain(
                 session_id, payload, chain_state=state, fire_open=False
             )
-        return self._write_teacher_state(session_id, payload)
+        written = self._write_teacher_state(session_id, payload)
+        if posted_slot is not None:
+            slot = normalize_live_slot(posted_slot)
+            if slot in {"C2", "C3"}:
+                media = self.live_session_active_media_payload(session_id)
+                if media is not None:
+                    encoded = None
+                    with self._lock:
+                        self.conn.execute(
+                            """
+                            UPDATE live_class_sessions
+                            SET active_media_json = ?
+                            WHERE id = ?
+                            """,
+                            (encoded, int(session_id)),
+                        )
+                        self.conn.commit()
+            if not self._session_left_waiting_room(session_id):
+                self.ensure_waiting_room_minds_on(session_id)
+        return written
 
     def record_meet_chain_pick(
         self,
@@ -6934,27 +7140,42 @@ class SchoolDB(LovesDB):
     def _sync_c1_cons_prompt(
         self, session_id: int, media: dict[str, Any] | None
     ) -> None:
+        """Compatibility wrapper — CONS sync is slot-aware."""
+        self._sync_cons_prompt(session_id, media)
+
+    def _sync_cons_prompt(
+        self, session_id: int, media: dict[str, Any] | None
+    ) -> None:
         """Push or clear the live-prompt row to match ``cons_item`` after freeze.
+
+        C1 reads ``cons_item`` from the Real-slice blob. C2/C3 read the
+        text-only ``text_ride`` on teacher state (no ``active_media_json``).
 
         Args:
             session_id: ``live_class_sessions.id``.
             media: Public active-media payload, or ``None`` when cleared.
         """
+        slot = self.session_live_slot(session_id)
         wanted = ""
-        if media and media.get("frozen") and is_c1_real_slice(media):
-            wanted = str(media.get("cons_item") or "").strip()
+        if slot == "C1":
+            if media and media.get("frozen") and is_c1_real_slice(media):
+                wanted = str(media.get("cons_item") or "").strip()
+        else:
+            ride = self.session_text_ride(session_id)
+            if ride.get("frozen"):
+                wanted = str(ride.get("cons_item") or "").strip()
         active = self.get_active_live_prompt(session_id)
         if not wanted:
-            if active and is_c1_cons_payload(active.get("payload")):
+            if active and is_cons_payload(active.get("payload")):
                 self.clear_active_live_prompt(session_id)
             return
-        item = get_c1_cons_item(wanted)
+        item = get_cons_item(wanted, live_slot=slot)
         if item is None:
-            if active and is_c1_cons_payload(active.get("payload")):
+            if active and is_cons_payload(active.get("payload")):
                 self.clear_active_live_prompt(session_id)
             return
         current_id = ""
-        if active and is_c1_cons_payload(active.get("payload")):
+        if active and is_cons_payload(active.get("payload")):
             current_id = str((active.get("payload") or {}).get("item_id") or "")
         if current_id == item["id"] and active and active.get("kind") == item["kind"]:
             return

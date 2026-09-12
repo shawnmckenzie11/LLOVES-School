@@ -26,4 +26,4 @@
 
 ## Gaps
 - Independent practice for A2.3/A2.4 still open
-- Student-copywriter polish if not yet landed for C3
+- Waiting-room Minds-On student MC is on the C2+C3 LMS PR (soft key B). Full text-only TC wording still open.

@@ -1,6 +1,7 @@
 # Coverage countersign — MCF3M M1 C2 & C3 stems
 
 **Date:** 2026-09-10 · Coverage Mapper  
+**CPD update:** 2026-09-12 — Coverage Mapper **countersigned C3** and **re-passed C2**. C3 wire is fully clear. Proceed M1 C2+C3 **Minds-On + light CONS** with **no hold**. **Text-only Team Challenge still locked** (no `active_media_json`, no Real-slice / peels). Ship both slots in the same LMS PR.  
 **Seed:** `lms/seeds/mcf3m_expectations.json` (verified_from_pdf_text_extraction; PDF `ontario-math-curriculum-gr-11-12.pdf` pp. 59–68)  
 **Checklist:** `MCF3M-M1-monday-completeness.md`  
 **Coverage map:** `MCF3M-M1-coverage-map.md` / `.json` (updated this pass)
@@ -26,7 +27,7 @@
 
 **Park rules respected:** CTS / standard↔vertex → M4; domain/range → C3; Adapted / not CEMC; no team-challenge media required.
 
-**Gaps still open:** Live-Class plan TBD; independent practice TBD; individual evidence hook named in context packet but not yet run.
+**Gaps still open:** Independent practice TBD; individual evidence hook named in context packet but not yet run. Live-Class plan exists (`MCF3M-M1-C2-live-class-plan.md`). Waiting-room Minds-On + 3-item CONS cleared for LMS wire (2026-09-12). Full text-only Team Challenge still locked.
 
 ## C3 — why OK
 
@@ -38,7 +39,7 @@
 
 **Park rules respected:** formula-first / zeros-as-goal → M3/M4; Adapted / not CEMC; courtyard reading locked (good for A2.4 honesty).
 
-**Gaps still open:** Live-Class plan TBD; student wording polish TBD; independent practice TBD.
+**Gaps still open:** Student wording polish TBD (full TC copy); independent practice TBD. Live-Class plan exists (`MCF3M-M1-C3-live-class-plan.md`). Waiting-room Minds-On + 3-item CONS cleared for LMS wire (2026-09-12). Full text-only Team Challenge still locked.
 
 ## Dual-serve
 
@@ -50,6 +51,6 @@ Do not place paraphrased Ministry prose on student slides. Teacher chips only: C
 
 ## Uncertainties for Shawn / ELC
 
-1. When Live-Class C2/C3 plans land, re-run row maps (same pattern as C1 CONS).
+1. Live-Class C2/C3 plans landed; row maps for Minds-On + light CONS can follow the C1 CONS pattern when ELC wants a second pass. Full text-only TC remains locked.
 2. A2.5 seed emphasizes “using technology” — paper/Desmos optional is fine; flag if Shawn wants tech required for approval.
 3. Spot-check seed vs PDF for high-stakes (seed self-note: not legal-certified).

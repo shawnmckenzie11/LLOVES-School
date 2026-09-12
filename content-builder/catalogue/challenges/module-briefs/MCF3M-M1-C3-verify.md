@@ -2,7 +2,7 @@
 
 Mathematical Verifier · 2026-09-10T07:11:09Z  
 Id: `adapted-MCF3M-M1-C3-domain-range-v1` · **adapted / not CEMC**  
-Status: **verified** (wall/nozzle flags cleared by MD stem lock). Ready for live when Shawn expands.
+Status: **verified** (wall/nozzle flags cleared by MD stem lock). Live set (2026-09-12): Coverage Mapper countersigned C3. Minds-On + light CONS cleared. **Text-only Team Challenge still locked.**
 
 ## Stem (curator)
 Fountain path \(y=-0.2(x-3)^2+4.5\). Graph/table first: (1) what heights are possible? (2) which \(x\) make sense if far wall at \(8\) m and water cannot go underground? Defend domain/range from the graph.

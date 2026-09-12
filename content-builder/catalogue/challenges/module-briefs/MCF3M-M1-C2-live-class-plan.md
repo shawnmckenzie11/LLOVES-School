@@ -1,6 +1,7 @@
 # MCF3M M1C2 — live-class plan (Live-Class Designer)
 
 **Status:** draft for Monday review · Dual-serve MCF3M M1 + MCR3U M1  
+**CPD 2026-09-12:** Coverage Mapper re-passed C2. **No hold** on waiting-room Minds-On + light CONS. **Text-only Team Challenge still locked.**  
 **Stem:** `MCF3M-M1-C2-stem-and-slide.md` · **Context:** `MCF3M-M1-C2-context-packet.md` · **Verify:** `MCF3M-M1-C2-verify.md`  
 **Media:** **none** — empty ArtifactViewer / text-only chrome (paper, board, optional Desmos teacher-side)  
 **Chips:** A2.5 / A2.6 · Adapted / not CEMC  

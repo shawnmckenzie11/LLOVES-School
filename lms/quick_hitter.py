@@ -6,7 +6,7 @@ for visuals (Real-slice etc.) only. Not a gradebook writeback.
 Minds-On (``ride=minds_on``) is **one MC** — ``items`` length 1. Do not
 build a Minds-On carousel. Meet (``ride=meet_team``) is a length 2–3
 QH pack scoped to MEET (A → C → B; drop C first). CONS
-(``ride=cons``) is the multi-item ride (3–5; C1 is 5).
+(``ride=cons``) is the multi-item ride (3–5; C1 is 5; C2/C3 are 3).
 """
 
 from __future__ import annotations

@@ -325,6 +325,19 @@
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
                 <h2 class="live-pane-title">Question</h2>
+                <div class="live-slot-picks" id="live-slot-picks" role="group" aria-label="Live slot">
+                  <button type="button" class="live-round-pick is-active" data-live-slot="C1">C1</button>
+                  <button type="button" class="live-round-pick" data-live-slot="C2">C2</button>
+                  <button type="button" class="live-round-pick" data-live-slot="C3">C3</button>
+                </div>
+                <div id="text-ride-controls" class="live-text-ride" hidden>
+                  <button type="button" id="text-ride-freeze" class="live-round-pick">Freeze</button>
+                  <div class="live-slot-picks" id="text-ride-cons" role="group" aria-label="Light consolidation">
+                    <button type="button" class="live-round-pick" data-cons-item="CONS-1" disabled>CONS 1</button>
+                    <button type="button" class="live-round-pick" data-cons-item="CONS-2" disabled>CONS 2</button>
+                    <button type="button" class="live-round-pick" data-cons-item="CONS-3" disabled>CONS 3</button>
+                  </div>
+                </div>
                 <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
                 <p class="live-question-flag" id="question-artifact-flag" hidden></p>
                 <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
