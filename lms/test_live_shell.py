@@ -173,8 +173,8 @@ class LiveShellTests(unittest.TestCase):
         """Header End Class and Quit are distinct; both post finish routes."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
-        self.assertIn("Save attendance and participation, then close this session.", html)
-        self.assertIn("Discard this session. Nothing will be saved.", html)
+        self.assertIn("Save attendance & participation, then end?", html)
+        self.assertIn("End without saving?", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
         self.assertIn(f"/staff/class/{self.class_id}/quit-live", html)
         self.assertIn('id="live-end-class"', html)
@@ -190,7 +190,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
         self.assertIn("End Live Class", home_html)
-        self.assertIn("Save attendance and participation, then close this session.", home_html)
+        self.assertIn("Save attendance & participation, then end?", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
 
@@ -1188,6 +1188,8 @@ class LiveShellTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(ended.status_code, 302)
+        self.assertIn("tab=ap", ended.headers.get("Location", ""))
+        self.assertIn("view=attendance", ended.headers.get("Location", ""))
         self.assertIsNone(self.school.get_live_session(sid))
         self.assertEqual(self.school.list_live_sessions_for_class(self.class_id), [])
         saved = self._ended_score_row(student_id)
