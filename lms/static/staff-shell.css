@@ -1557,6 +1557,47 @@ body.staff-shell .live-teams-strip .live-teams-count input {
   font-weight: 700;
   text-align: center;
 }
+body.staff-shell .live-teams-strip .live-division-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0 0 0 0.2rem;
+  max-height: 1.75rem;
+  flex: 0 0 auto;
+}
+body.staff-shell .live-teams-strip .live-division-meter[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-teams-strip .live-division-bars {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  width: 2.15rem;
+  height: 0.5rem;
+}
+body.staff-shell .live-teams-strip .live-division-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: 2px;
+  background: #e2e8f0;
+}
+body.staff-shell .live-teams-strip .live-division-meter[data-band="optimal"] .live-division-bar {
+  background: #16a34a;
+}
+body.staff-shell .live-teams-strip .live-division-meter[data-band="okay"] .live-division-bar:nth-child(-n+2) {
+  background: #d97706;
+}
+body.staff-shell .live-teams-strip .live-division-meter[data-band="not_recommended"] .live-division-bar:first-child {
+  background: #dc2626;
+}
+body.staff-shell .live-teams-strip .live-division-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  color: #475569;
+}
 body.staff-shell .live-teams-assign,
 body.staff-shell .live-teams-track {
   display: inline-flex;

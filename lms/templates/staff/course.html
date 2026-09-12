@@ -155,6 +155,20 @@
             <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
             <input id="ap-n-teams" type="number" min="1" value="1" inputmode="numeric" aria-label="Team count">
             <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
+            <div id="ap-division-meter"
+                 class="live-division-meter"
+                 hidden
+                 role="meter"
+                 aria-label="Division strength"
+                 aria-valuemin="0"
+                 aria-valuemax="2">
+              <span class="live-division-bars" aria-hidden="true">
+                <span class="live-division-bar"></span>
+                <span class="live-division-bar"></span>
+                <span class="live-division-bar"></span>
+              </span>
+              <span id="ap-division-meter-label" class="live-division-label"></span>
+            </div>
           </div>
           <div class="live-teams-assign" id="live-teams-assign" role="group" aria-label="Assign" aria-disabled="true">
             <button type="button" class="live-round-pick is-selected" id="ap-assign-balanced" aria-pressed="true">Balanced</button>

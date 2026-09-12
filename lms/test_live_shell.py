@@ -454,7 +454,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function openTeamsPop(", js)
         self.assertIn("getBoundingClientRect()", js)
         self.assertIn("function studentTeamColor(", js)
-        self.assertIn("return { min: 1, max: Math.max(2, present) }", js)
+        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
         self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
         self.assertIn("has-team-color", js)
         self.assertNotIn('id="ap-gamify-no"', js)
@@ -470,6 +470,80 @@ class LiveShellTests(unittest.TestCase):
             html,
             r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
         )
+
+    def test_beat11_team_count_max_and_division_meter(self) -> None:
+        """Beat 11: max = present count; compact 3-band meter beside +/-."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
+        self.assertIn('id="ap-n-teams"', strip_html)
+        self.assertIn('id="ap-n-teams-down"', strip_html)
+        self.assertIn('id="ap-n-teams-up"', strip_html)
+        self.assertIn('id="ap-division-meter"', strip_html)
+        self.assertIn('id="ap-division-meter-label"', strip_html)
+        self.assertIn("live-division-meter", strip_html)
+        self.assertIn("live-division-bar", strip_html)
+        self.assertEqual(strip_html.count('class="live-division-bar"'), 3)
+        self.assertIn('role="meter"', strip_html)
+        self.assertIn("Division strength", strip_html)
+        self.assertLess(strip_html.find('id="ap-n-teams-up"'), strip_html.find('id="ap-division-meter"'))
+        self.assertLess(strip_html.find('id="ap-division-meter"'), strip_html.find('id="live-teams-assign"'))
+        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-shell-left"'))
+        self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertNotIn('id="ap-division-meter"', left_html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function presentCountForTeams()", js)
+        self.assertIn("function nTeamsBounds()", js)
+        self.assertIn("function divisionStrength(presentCount, teamCount)", js)
+        self.assertIn("function paintDivisionMeter()", js)
+        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
+        self.assertNotIn("return { min: 1, max: Math.max(2, present) }", js)
+        bounds = js.split("function nTeamsBounds()")[1].split("function divisionStrength(")[0]
+        self.assertIn("presentCountForTeams()", bounds)
+        present_fn = js.split("function presentCountForTeams()")[1].split(
+            "function nTeamsBounds()"
+        )[0]
+        self.assertIn("selectedPresent().length", present_fn)
+        strength = js.split("function divisionStrength(presentCount, teamCount)")[1].split(
+            "function paintDivisionMeter()"
+        )[0]
+        self.assertIn('if (k <= 1) return "individuals"', strength)
+        self.assertIn('if (low < 2) return "not_recommended"', strength)
+        self.assertIn("if (n >= 4 && remainder <= 1) return \"optimal\"", strength)
+        self.assertIn('return "okay"', strength)
+        paint = js.split("function paintDivisionMeter()")[1].split("function paintTeamsStripEnabled()")[
+            0
+        ]
+        self.assertIn('band === "individuals"', paint)
+        self.assertIn("meter.hidden = true", paint)
+        self.assertIn("Optimal", paint)
+        self.assertIn("Okay", paint)
+        self.assertIn("Not recommended", paint)
+        self.assertIn("paintDivisionMeter();", js.split("function paintTeamsStripEnabled()")[1].split(
+            "function paintRoundStrip()"
+        )[0])
+        self.assertIn(
+            "paintDivisionMeter();",
+            js.split("function renderAttendanceList()")[1].split("function updateAttCount()")[0],
+        )
+        self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-teams-strip .live-division-meter {", css)
+        meter_css = css.split("body.staff-shell .live-teams-strip .live-division-meter {")[1].split(
+            "body.staff-shell .live-teams-strip .live-division-meter[hidden] {"
+        )[0]
+        self.assertIn("max-height: 1.75rem", meter_css)
+        self.assertIn("flex: 0 0 auto", meter_css)
+        self.assertIn("body.staff-shell .live-teams-strip {", css)
+        teams_css = css.split("body.staff-shell .live-teams-strip {")[1].split(
+            "body.staff-shell .live-teams-strip .live-teams-count {"
+        )[0]
+        self.assertIn("flex-wrap: nowrap", teams_css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
 
     def test_beat4_rename_is_portaled_modal(self) -> None:
         """Beat 4: Rename is a body-portaled dialog, not an OptionsStrip popover."""
