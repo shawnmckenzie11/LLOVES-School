@@ -126,12 +126,16 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 "by_choice": {"B": "hidden"},
                 "on_submit": "hidden",
                 "feedback": {"text": "hidden"},
+                "chips": ["A2.1"],
+                "curriculum_chips": ["A2.1"],
+                "expectation_codes": ["A2.1"],
                 "items": [
                     {
                         "item_id": "minds_on",
                         "key": "A",
                         "cement": "hidden",
                         "prompt": "stem",
+                        "chips": ["A2.1"],
                     }
                 ],
             }
@@ -144,10 +148,14 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             "by_choice",
             "on_submit",
             "feedback",
+            "chips",
+            "curriculum_chips",
+            "expectation_codes",
         ):
             self.assertNotIn(field, cleaned)
         self.assertNotIn("key", cleaned["items"][0])
         self.assertNotIn("cement", cleaned["items"][0])
+        self.assertNotIn("chips", cleaned["items"][0])
         self.assertEqual(cleaned["items"][0]["prompt"], "stem")
 
     def test_keys_brief_lists_soft_keys(self) -> None:

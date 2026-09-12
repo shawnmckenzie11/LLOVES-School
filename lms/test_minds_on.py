@@ -171,6 +171,13 @@ class MindsOnHelperTests(unittest.TestCase):
         self.assertEqual(unknown["prompt"], MINDS_ON_PROMPT)
         self.assertTrue(is_minds_on_payload(c2))
         self.assertTrue(is_minds_on_payload(c3))
+        for payload, brief in ((c2, c2_brief), (c3, c3_brief)):
+            for field in ("chips", "curriculum_chips", "expectation_codes"):
+                self.assertNotIn(field, payload)
+                self.assertNotIn(field, payload["items"][0])
+            brief_text = brief.read_text(encoding="utf-8")
+            self.assertIn("No curriculum chips", brief_text)
+            self.assertNotIn("A2.", brief_text.split("## Stem (student-facing)")[1])
 
 
 if __name__ == "__main__":

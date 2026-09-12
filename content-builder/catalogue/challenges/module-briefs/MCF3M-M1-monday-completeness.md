@@ -12,8 +12,8 @@ Updated: 2026-09-12 (CPD: Coverage Mapper countersigned C3, re-passed C2; no hol
 
 ## Paths
 - C1: `MCF3M-M1-C1-stem-and-slide.md` · consolidation pack · beat packet  
-- C2: `MCF3M-M1-C2-stem-and-slide.md` · `MCF3M-M1-C2-context-packet.md` · `MCF3M-M1-C2-verify.md` · `MCF3M-M1-C2-live-class-plan.md` · `minds-on/MCF3M-M1-C2-minds-on-student.md`  
-- C3: `MCF3M-M1-C3-stem-and-slide.md` · `MCF3M-M1-C3-context-packet.md` · `MCF3M-M1-C3-verify.md` · `MCF3M-M1-C3-live-class-plan.md` · `minds-on/MCF3M-M1-C3-minds-on-student.md`  
+- C2: `MCF3M-M1-C2-stem-and-slide.md` · `MCF3M-M1-C2-context-packet.md` · `MCF3M-M1-C2-verify.md` · `MCF3M-M1-C2-live-class-plan.md` · `minds-on/MCF3M-M1-C2-minds-on-student.md` · `minds-on/MCF3M-M1-C2-minds-on-coverage.md`  
+- C3: `MCF3M-M1-C3-stem-and-slide.md` · `MCF3M-M1-C3-context-packet.md` · `MCF3M-M1-C3-verify.md` · `MCF3M-M1-C3-live-class-plan.md` · `minds-on/MCF3M-M1-C3-minds-on-student.md` · `minds-on/MCF3M-M1-C3-minds-on-coverage.md`  
 - Coherence: `MCF3M-M1-coherence-card.md` (update C2/C3 to pass)
 
 ## Still missing for “Monday live complete”

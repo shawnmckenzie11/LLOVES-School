@@ -19,6 +19,9 @@ TEACHER_ONLY_FIELDS = (
     "on_submit",
     "feedback",
     "feedback_id",
+    "chips",
+    "curriculum_chips",
+    "expectation_codes",
 )
 
 # Waiting-room item ids (current main + PR #42 rename).
