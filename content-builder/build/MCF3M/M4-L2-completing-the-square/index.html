@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lesson 2: Relating the Standard &amp; Vertex Forms: Completing the Square</title>
+  <link rel="stylesheet" href="jsxgraph.css">
+  <link rel="stylesheet" href="student.css">
+  <link rel="stylesheet" href="completing-the-square.css">
+</head>
+<body>
+  <article class="lesson">
+    <h1>Lesson 2: Relating the Standard &amp; Vertex Forms: Completing the Square</h1>
+    <div class="lesson-meta"><p class="lesson-goal"><span class="chrome-label">Goal</span> Rewrite standard form into vertex form by completing the square, so the high or low point is readable.</p><p class="you-will-need"><span class="chrome-label">You will need</span> Paper, tiles or a sketched square, and the graph board on this page.</p></div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-hook" aria-controls="panel-hook" aria-selected="true">The water</button><button type="button" role="tab" id="tab-minds-on" aria-controls="panel-minds-on" aria-selected="false">Minds on</button><button type="button" role="tab" id="tab-action" aria-controls="panel-action" aria-selected="false">Action</button><button type="button" role="tab" id="tab-consolidation" aria-controls="panel-consolidation" aria-selected="false">Consolidation</button>
+    </div>
+    <section class="panel active" id="panel-hook" role="tabpanel" aria-labelledby="tab-hook"><div class="prose"><figure class="figure"><img src="media/fountain-arc-500.jpg" alt="Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."></figure>
+<p>You need the highest point. This time you only have the expanded writing.</p>
+<p class="equation">y = -x² + 6x - 5</p>
+<div class="task"><p>Do not sketch a careful graph yet. What about this writing makes the peak hard to name?</p></div></div></section><section class="panel" id="panel-minds-on" role="tabpanel" aria-labelledby="tab-minds-on" hidden><div class="prose"><p>Standard form makes the y-intercept easy to see. Vertex form makes the turning point easy to see.</p>
+<div class="task"><p>You are handed only standard form. Which writing would make the vertex readable?</p></div></div></section><section class="panel" id="panel-action" role="tabpanel" aria-labelledby="tab-action" hidden><div class="prose"><aside class="support-fade" aria-label="Practice support"><p class="chrome-label">Check → Practise → Extend</p><p class="support-fade-process">Completing the square</p><ol class="fade-stages"><li><span class="fade-stage">Check / worked</span> Reverse last lesson’s expand, then see the square and match the algebra.</li><li><span class="fade-stage">Practise</span> A new a = 1 case, factor a first, then a simple fraction, then check the graph.</li><li><span class="fade-stage">Extend</span> Sketch key features. Try another for a sketch-plan choice.</li></ol></aside>
+<h2>Same curve, both ways</h2>
+<p>Expand, then complete the square. Same graph?</p>
+
+<div class="cycle board-wrap" data-spec-id="expand-cts-revisit" data-tool="equivalence" data-abc-a="3" data-abc-b="-6" data-abc-c="7">
+  <p class="stage-cue">Expand, then complete the square.</p>
+  <p class="given-eq">f(x) = 3(x − 1)² + 4</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs expand-inputs"><label>a <input data-standard="a" type="text" inputmode="decimal"></label><label>b <input data-standard="b" type="text" inputmode="decimal"></label><label>c <input data-standard="c" type="text" inputmode="decimal"></label></div><div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-expand-cts-revisit" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="3" data-abc-b="-6" data-abc-c="7"></div>
+  </figure>
+  <h3>Shared points</h3><table class="data" data-table></table>
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>Do the two writings sit on one curve?</p></div>
+<h2>See the square first</h2>
+<p>Name the side and the leftover. Algebra comes next.</p>
+
+<div class="cycle board-wrap" data-spec-id="diagram-ex960" data-tool="diagram">
+  <p class="stage-cue">Name the side and the leftover.</p>
+  <p class="given-eq">f(x) = x² + 6x + 5</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  
+<div class="area-diagram" role="img" aria-label="Static completed-square picture for x² + 6x + 5. One x² square, six x-rectangles, a filled completing corner, and five unit squares.">
+  <div class="square-grid"><div class="sq arm">x²</div><div class="sq arm">x</div><div class="sq arm">x</div><div class="sq arm">x</div><div class="sq arm">x</div><div class="sq complete">1</div><div class="sq complete">1</div><div class="sq complete">1</div><div class="sq arm">x</div><div class="sq complete">1</div><div class="sq complete">1</div><div class="sq complete">1</div><div class="sq arm">x</div><div class="sq complete">1</div><div class="sq complete">1</div><div class="sq complete">1</div></div>
+  <div class="unit-row"><div class="sq unit">1</div><div class="sq unit">1</div><div class="sq unit">1</div><div class="sq unit">1</div><div class="sq unit">1</div></div>
+  <p class="area-caption">x² + 6x + 5</p>
+</div>
+<div class="cts-inputs"><label>Side <input data-side type="text" inputmode="decimal"></label><label>Leftover <input data-leftover type="text" inputmode="decimal"></label></div>
+  
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>What in the picture is the side? What is the leftover?</p></div>
+<div class="cts-reveal" data-reveal-after="diagram-ex960" hidden><h2>Match the algebra</h2><p>Write vertex form for the same function.</p>
+<div class="cycle board-wrap" data-spec-id="algebraic-ex960" data-tool="rewrite" data-abc-a="1" data-abc-b="6" data-abc-c="5">
+  <p class="stage-cue">Write vertex form for the same function.</p>
+  <p class="given-eq">f(x) = x² + 6x + 5</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-algebraic-ex960" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="1" data-abc-b="6" data-abc-c="5"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+<div class="self-check"><p>How does the writing match the side and the leftover?</p></div></div>
+<h2>Your turn</h2>
+<p>Same steps. New numbers.</p>
+
+<div class="cycle board-wrap" data-spec-id="algebraic-try9119" data-tool="rewrite" data-abc-a="1" data-abc-b="2" data-abc-c="-3">
+  <p class="stage-cue">Same steps. New numbers.</p>
+  <p class="given-eq">f(x) = x² + 2x − 3</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-algebraic-try9119" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="1" data-abc-b="2" data-abc-c="-3"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>How do you read h from the brackets?</p></div>
+<h2>When a is not 1</h2>
+<p>Factor a from the x terms first.</p>
+
+<div class="cycle board-wrap" data-spec-id="factor-a-ex959" data-tool="rewrite" data-abc-a="-3" data-abc-b="-6" data-abc-c="-1">
+  <p class="stage-cue">Factor a from the x terms first.</p>
+  <p class="given-eq">f(x) = −3x² − 6x − 1</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-factor-a-ex959" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="-3" data-abc-b="-6" data-abc-c="-1"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>If a stayed 1, what inside the brackets would go wrong?</p></div>
+<h2>A simple fraction</h2>
+<p>Same steps. Half of 1/2 is a fraction.</p>
+
+<div class="cycle board-wrap" data-spec-id="rational-half" data-tool="rewrite" data-abc-a="1" data-abc-b="0.5" data-abc-c="1">
+  <p class="stage-cue">Same steps. Half of 1/2 is a fraction.</p>
+  <p class="given-eq">f(x) = x² + (1/2)x + 1</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-rational-half" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="1" data-abc-b="0.5" data-abc-c="1"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>Which step matched the integer cases?</p></div>
+<h2>Check the graph</h2>
+<p>Complete the square, then overlay.</p>
+
+<div class="cycle board-wrap" data-spec-id="verify-try9118" data-tool="equivalence" data-abc-a="2" data-abc-b="-8" data-abc-c="3">
+  <p class="stage-cue">Complete the square, then overlay.</p>
+  <p class="given-eq">f(x) = 2x² − 8x + 3</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p>
+  
+  <figure class="board-figure">
+    <div id="board-verify-try9118" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="2" data-abc-b="-8" data-abc-c="3"></div>
+  </figure>
+  <h3>Shared points</h3><table class="data" data-table></table>
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>Do both writings give the same outputs?</p></div>
+<h2>Sketch key features</h2>
+<p>Vertex, axis, max or min. Not a list of intervals.</p>
+
+<div class="cycle board-wrap" data-spec-id="sketch-try9120" data-tool="sketch" data-abc-a="1" data-abc-b="-8" data-abc-c="12">
+  <p class="stage-cue">Vertex, axis, max or min.</p>
+  <p class="given-eq">f(x) = x² − 8x + 12</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p><div class="named-reading"><label>Vertex x <input data-named="x" type="text" inputmode="decimal"></label><label>Vertex y <input data-named="y" type="text" inputmode="decimal"></label><label>Axis <input data-named="axis" type="text" placeholder="x = …"></label><label>Max or min <select data-named="extreme"><option value=""></option><option value="maximum">maximum</option><option value="minimum">minimum</option></select></label></div>
+  
+  <figure class="board-figure">
+    <div id="board-sketch-try9120" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="1" data-abc-b="-8" data-abc-c="12"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button><button type="button" data-action="another" hidden>Try another</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>How did completing the square make the vertex readable?</p></div>
+<div class="cts-reveal" data-reveal-after="sketch-try9120-try-another" hidden><h2>Try another: which sketch plan?</h2><p>Choose factoring or completing the square. One reason each. No formula.</p>
+<div class="cycle board-wrap" data-spec-id="strategy-cts-vs-factor" data-tool="strategy">
+  <p class="stage-cue">Choose factoring or completing the square.</p>
+  
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  
+<div class="strategy-pair">
+  <div class="strategy-choice">
+    <p>A. f(x) = x² − 5x + 6</p>
+    <label>Strategy
+      <select data-choice="A">
+        <option value=""></option>
+        <option value="factor">factor</option>
+        <option value="complete-the-square">complete the square</option>
+      </select>
+    </label>
+    <label>One reason <textarea data-reason="A" rows="2"></textarea></label>
+  </div>
+  <div class="strategy-choice">
+    <p>B. g(x) = x² + 4x + 7</p>
+    <label>Strategy
+      <select data-choice="B">
+        <option value=""></option>
+        <option value="factor">factor</option>
+        <option value="complete-the-square">complete the square</option>
+      </select>
+    </label>
+    <label>One reason <textarea data-reason="B" rows="2"></textarea></label>
+  </div>
+</div>
+
+  
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    <button type="button" data-action="advance" hidden>Advance</button>
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+<div class="self-check"><p>What feature made each choice a fit?</p></div></div>
+<p>On paper: expand and complete the square on the shared model, then check a few table points on one sketch.</p></div></section><section class="panel" id="panel-consolidation" role="tabpanel" aria-labelledby="tab-consolidation" hidden><div class="prose"><section class="key-idea" aria-label="Key idea"><p class="chrome-label">Key idea</p><p>Completing the square rewrites ax² + bx + c as a(x - h)² + k. The graph does not move.</p></section>
+<section class="need-to-know" aria-label="Need to know"><p class="chrome-label">Need to know</p><ul><li>See the square and leftover before the algebra when you can.</li><li>When a is not 1, factor a from the x² and x terms first.</li><li>A simple rational b/a uses the same steps.</li><li>Plus inside the brackets still means h is negative.</li></ul></section>
+<figure class="figure"><img src="media/fountain-arc-500.jpg" alt="Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."></figure>
+<p>Back to the stream. You still have only the expanded writing.</p>
+<p class="equation">y = -x² + 6x - 5</p>
+<p>Do not move the board yet.</p>
+
+<div class="cycle board-wrap" data-spec-id="fresh-hook-cts" data-tool="sketch" data-abc-a="-1" data-abc-b="6" data-abc-c="-5">
+  <p class="stage-cue">Do not move the board yet.</p>
+  <p class="given-eq">y = −x² + 6x − 5</p>
+  <div class="prediction"><label>Your prediction <input data-prediction type="text" autocomplete="off"></label></div>
+  <div class="cts-inputs"><label>a <input data-ahk="a" type="text" inputmode="decimal" step="any"></label><label>h <input data-ahk="h" type="text" inputmode="decimal"></label><label>k <input data-ahk="k" type="text" inputmode="decimal"></label></div><p class="live-eq" data-live-eq hidden></p><div class="named-reading"><label>Vertex x <input data-named="x" type="text" inputmode="decimal"></label><label>Vertex y <input data-named="y" type="text" inputmode="decimal"></label><label>Axis <input data-named="axis" type="text" placeholder="x = …"></label><label>Max or min <select data-named="extreme"><option value=""></option><option value="maximum">maximum</option><option value="minimum">minimum</option></select></label></div>
+  
+  <figure class="board-figure">
+    <div id="board-fresh-hook-cts" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="-1" data-abc-b="6" data-abc-c="-5"></div>
+  </figure>
+  
+
+  
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+
+</div>
+
+<div class="self-check"><p>How did completing the square name the high point?</p></div></div></section>
+    <div class="credits"><p>OpenStax Intermediate Algebra 2e, CC BY-NC-SA 4.0</p><p>Ontario curriculum sample: Queen’s Printer for Ontario</p><p>Water arc photo: GuidoB, CC BY-SA 3.0</p></div>
+  </article>
+  <script src="jsxgraphcore.js"></script>
+  <script src="completing-the-square-board.js"></script>
+  <script src="completing-the-square-checker.js"></script>
+  <script src="completing-the-square-cycle.js"></script>
+  <script>
+
+    (function () {
+      var messages = {"hint-alg960-1-half-b": "Half of 6 is 3.", "hint-alg960-2-add-subtract": "Add and subtract 9 on the same side.", "hint-alg960-3-read-h": "Read h from (x − h) in your rewrite.", "hint-diagram-1-half-b": "Start with half of 6.", "hint-diagram-2-square-area": "The completed square is 3 by 3.", "hint-diagram-3-leftover": "Leftover constant is 5 − 9.", "hint-factor-a-1-pull-a": "Factor a from x² and x first.", "hint-factor-a-2-half-inside": "Half the new inside linear coefficient.", "hint-factor-a-3-balance-outside": "Balance outside by a · (half)².", "hint-fresh-1-factor-neg": "Factor −1 from x² and x first.", "hint-fresh-2-cts": "Complete the square inside the brackets.", "hint-fresh-3-read-features": "Read vertex, axis, and max from vertex form.", "hint-rational-1-same-steps": "Use the same completing-the-square steps.", "hint-rational-2-half-of-half": "Half of 1/2 is 1/4.", "hint-rational-3-balance-sixteenth": "Add and subtract 1/16.", "hint-revisit-1-expand": "Expand 3(x − 1)² + 4 to standard form.", "hint-revisit-2-cts-back": "Complete the square back to vertex form.", "hint-revisit-3-same-curve": "Technology should show one curve, not two.", "hint-sketch-1-cts-first": "Complete the square first.", "hint-sketch-2-read-vertex": "Read (h, k) from vertex form.", "hint-sketch-3-axis-and-extreme": "Axis through the vertex; max/min from the sign of a.", "hint-strategy-1-what-feature": "Name the feature you need.", "hint-strategy-2-friendly-intercepts": "Friendly intercepts → factoring.", "hint-strategy-3-vertex-when-no-intercepts": "Need the vertex (or no friendly intercepts) → complete the square.", "hint-try9119-1-half-b": "Start with half of b.", "hint-try9119-2-add-subtract-square": "Add and subtract that square on the same side.", "hint-try9119-3-read-h-from-brackets": "Read h from (x − h) in your rewrite.", "hint-verify-1-factor-two": "Factor 2 first.", "hint-verify-2-half-inside": "Half of −4 is −2.", "hint-verify-3-tech-same-curve": "Technology should show one curve, not two.", "msg-alg960-follow-up": "Name the a, h, k you wrote and the pair you want.", "msg-alg960-h-off": "Your h is not −3 yet. Half of 6, then read (x − h).", "msg-alg960-h-ok-k-off": "Your h matches. Adjust k using the leftover after (b/2)².", "msg-alg960-h-sign": "h = 3 would be (x − 3). You want (x + 3), so h = −3.", "msg-alg960-match": "That matches (x + 3)² − 4. Next: you try one.", "msg-alg960-other": "Compare your a, h, k with 1, −3, −4.", "msg-diagram-follow-up": "What side length and leftover did you name?", "msg-diagram-leftover-off": "Side looks right. Leftover is 5 − 9 = −4.", "msg-diagram-match": "Side 3 and leftover −4. Same picture next in algebra.", "msg-diagram-other": "Compare your side length and leftover with 3 and −4.", "msg-diagram-side-off": "Side length is not 3 yet. Half of 6 is 3.", "msg-factor-a-explain": "Why factor a from the x² and x terms before completing the square?", "msg-factor-a-follow-up": "What a did you factor out first?", "msg-factor-a-forgot": "Your outer a is not −3. Factor −3 from the x² and x terms first.", "msg-factor-a-hk-off": "a looks right. Check h and k against the target vertex.", "msg-factor-a-match": "That matches −3(x + 1)² + 2. Next.", "msg-factor-a-other": "Compare your a, h, k with −3, −1, 2.", "msg-fresh-hook-axis-off": "Axis is the vertical line through the vertex.", "msg-fresh-hook-explain": "How did completing the square name the high point?", "msg-fresh-hook-extreme-off": "With a < 0, the vertex is a maximum.", "msg-fresh-hook-follow-up": "Name the vertex, axis, and max/min you want.", "msg-fresh-hook-forgot-a": "Factor −1 from the x² and x terms first.", "msg-fresh-hook-match": "Vertex (3, 4), axis x = 3, maximum. Hook closed.", "msg-fresh-hook-vertex-off": "Your vertex does not match (3, 4) yet.", "msg-rational-follow-up": "What is half of 1/2?", "msg-rational-h-off": "h is not −1/4 yet. Half of 1/2 is 1/4.", "msg-rational-k-off": "h looks right. Check the 1/16 you add and subtract against the constant.", "msg-rational-match": "That matches. Same steps as the integer cases — next.", "msg-rational-other": "Compare your a, h, k with 1, −1/4, 15/16.", "msg-revisit-follow-up": "Name the standard coeffs or a, h, k you have now.", "msg-revisit-match": "That rewrite matches. Check the graphs next.", "msg-revisit-off": "Compare your standard form or recovered a, h, k with the targets.", "msg-revisit-same-curve": "After expand and after CTS, do you still have the same graph?", "msg-sketch-axis-off": "Axis is the vertical line through the vertex.", "msg-sketch-explain": "How did completing the square make the vertex readable?", "msg-sketch-extreme-off": "With a > 0, the vertex is a minimum.", "msg-sketch-follow-up": "Name the vertex and axis you want.", "msg-sketch-match": "Vertex, axis, and minimum match. Next.", "msg-sketch-vertex-off": "Your vertex does not match (4, −4) yet.", "msg-strategy-differ": "Check which feature each equation makes easy — intercepts or vertex.", "msg-strategy-explain": "One criterion for A and one for B?", "msg-strategy-follow-up": "Which feature do you need first — intercepts or vertex?", "msg-strategy-match": "Those strategy choices fit. Say why in one line each.", "msg-strategy-mistakes-signpost": "This worked example chooses the wrong strategy on purpose.", "msg-strategy-self-check": "Compare your reasons to: friendly intercepts → factor; need vertex → complete the square.", "msg-strategy-why-wrong": "Why is that strategy a poor fit for that equation?", "msg-try9119-copied-960": "That looks like the last example. This one is (x + 1)² − 4.", "msg-try9119-explain": "Why add and subtract (b/2)² on one side — rewrite, not solve?", "msg-try9119-follow-up": "Name the h and k you have now, and the pair you want.", "msg-try9119-h-off": "Your h is not −1 yet. Half of b, then read (x − h).", "msg-try9119-h-ok-k-off": "Your h matches. Adjust k using the leftover after you add and subtract (b/2)².", "msg-try9119-h-positive": "h = 1 would be (x − 1). You want (x + 1), so h = −1.", "msg-try9119-match": "That rewrite matches. Same curve — next step.", "msg-try9119-other": "Compare your a, h, k with the target rewrite, then adjust.", "msg-verify-factor-two": "Factor 2 from the x² and x terms first.", "msg-verify-follow-up": "Name your a, h, k beside 2, 2, −5.", "msg-verify-forgot-a": "Factor 2 from the x² and x terms first.", "msg-verify-hk-off": "a looks right. Check h and k against (2, −5).", "msg-verify-match": "Rewrite matches. Check the graphs next.", "msg-verify-other": "Compare your a, h, k with 2, 2, −5.", "msg-verify-tech-same-curve": "Do both graphs sit on the same curve?", "msg-worked-algebraic-explain": "How does each algebra step match the diagram for the same function?", "msg-worked-diagram-explain": "Why does splitting the x-tiles name the leftover constant?", "toast-advance-to-algebraic": "Picture set — match it in algebra.", "toast-advance-to-consolidation": "Last step — return to the hook.", "toast-advance-to-diagram": "Nice — next: the tile picture.", "toast-advance-to-factor-a": "Next: factor a first.", "toast-advance-to-guided": "Your turn — complete the square.", "toast-advance-to-rational": "Next: a rational half.", "toast-advance-to-sketch": "Next: sketch key features.", "toast-advance-to-verify": "Next: rewrite, then check graphs."};
+      var hints = {"expand-cts-revisit": ["hint-revisit-1-expand", "hint-revisit-2-cts-back", "hint-revisit-3-same-curve"], "diagram-ex960": ["hint-diagram-1-half-b", "hint-diagram-2-square-area", "hint-diagram-3-leftover"], "algebraic-ex960": ["hint-alg960-1-half-b", "hint-alg960-2-add-subtract", "hint-alg960-3-read-h"], "algebraic-try9119": ["hint-try9119-1-half-b", "hint-try9119-2-add-subtract-square", "hint-try9119-3-read-h-from-brackets"], "factor-a-ex959": ["hint-factor-a-1-pull-a", "hint-factor-a-2-half-inside", "hint-factor-a-3-balance-outside"], "rational-half": ["hint-rational-1-same-steps", "hint-rational-2-half-of-half", "hint-rational-3-balance-sixteenth"], "verify-try9118": ["hint-verify-1-factor-two", "hint-verify-2-half-inside", "hint-verify-3-tech-same-curve"], "sketch-try9120": ["hint-sketch-1-cts-first", "hint-sketch-2-read-vertex", "hint-sketch-3-axis-and-extreme"], "strategy-cts-vs-factor": ["hint-strategy-1-what-feature", "hint-strategy-2-friendly-intercepts", "hint-strategy-3-vertex-when-no-intercepts"], "fresh-hook-cts": ["hint-fresh-1-factor-neg", "hint-fresh-2-cts", "hint-fresh-3-read-features"]};
+      var tabs = document.querySelectorAll('[role="tab"]');
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          tabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
+          tab.setAttribute("aria-selected", "true");
+          document.querySelectorAll('[role="tabpanel"]').forEach(function (panel) {
+            var on = panel.getAttribute("aria-labelledby") === tab.id;
+            panel.classList.toggle("active", on);
+            panel.hidden = !on;
+          });
+          document.querySelectorAll(".cycle").forEach(function (root) {
+            if (!panelHidden(root) && root._ctsApi && root._ctsApi.resize) {
+              root._ctsApi.resize();
+            }
+          });
+        });
+      });
+      function panelHidden(el) {
+        var panel = el.closest('[role="tabpanel"]');
+        return panel && panel.hidden;
+      }
+      document.querySelectorAll(".cycle").forEach(function (root) {
+        var specId = root.getAttribute("data-spec-id");
+        var tool = root.getAttribute("data-tool");
+        var box = root.querySelector(".jxgbox");
+        var api = null;
+        if (box && tool === "equivalence") {
+          var live = root.querySelector("[data-live-eq]");
+          if (live && !live.id) { live.id = specId + "-eq"; }
+          var table = root.querySelector("[data-table]");
+          api = initCtsEquivalenceBoard(box.id, {
+            abc: {
+              a: parseFloat(root.getAttribute("data-abc-a")),
+              b: parseFloat(root.getAttribute("data-abc-b")),
+              c: parseFloat(root.getAttribute("data-abc-c"))
+            },
+            equationEl: live,
+            tableEl: table
+          });
+        } else if (box && (tool === "sketch" || tool === "rewrite")) {
+          var live2 = root.querySelector("[data-live-eq]");
+          api = initCtsSketchBoard(box.id, { equationEl: live2 });
+        }
+        root._ctsApi = api;
+        bindCtsCycle(root, {
+          messages: messages,
+          api: api,
+          hints: hints[specId] || []
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
