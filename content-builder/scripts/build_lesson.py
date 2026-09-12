@@ -25,8 +25,28 @@ def math_text(text: str) -> str:
     return escape(t)
 
 
-def render_blocks(blocks: list, *, lesson_dir: Path, sets: dict, spec: dict) -> str:
+def _lesson_kind(student: dict, spec: dict) -> str:
+    """Return vertex (M4-L1) or cts (M4-L2) renderer."""
+    if student.get("lesson_id") == "M4-L2-completing-the-square":
+        return "cts"
+    if (spec.get("board") or {}).get("default_tool") == "jsxgraph-cts-equivalence-board":
+        return "cts"
+    return "vertex"
+
+
+def render_blocks(
+    blocks: list,
+    *,
+    lesson_dir: Path,
+    sets: dict,
+    spec: dict,
+    lesson_kind: str = "vertex",
+) -> str:
     """Render permitted student blocks to HTML."""
+    if lesson_kind == "cts":
+        return _render_cts_blocks(
+            blocks, lesson_dir=lesson_dir, sets=sets, spec=spec
+        )
     chunks: list[str] = []
     for block in blocks:
         kind = block["type"]
@@ -45,7 +65,13 @@ def render_blocks(blocks: list, *, lesson_dir: Path, sets: dict, spec: dict) -> 
                 f'<figure class="figure"><img src="{src}" alt="{alt}"></figure>'
             )
         elif kind == "example":
-            inner = render_blocks(block["blocks"], lesson_dir=lesson_dir, sets=sets, spec=spec)
+            inner = render_blocks(
+                block["blocks"],
+                lesson_dir=lesson_dir,
+                sets=sets,
+                spec=spec,
+                lesson_kind=lesson_kind,
+            )
             stage = escape(block.get("stage") or "worked")
             chunks.append(f'<div class="example is-{stage}">{inner}</div>')
         elif kind == "self-check":
@@ -98,7 +124,11 @@ def render_blocks(blocks: list, *, lesson_dir: Path, sets: dict, spec: dict) -> 
                     f'<p class="path-voice">{math_text(voice)}</p>' if voice else ""
                 )
                 inner = render_blocks(
-                    path.get("blocks") or [], lesson_dir=lesson_dir, sets=sets, spec=spec
+                    path.get("blocks") or [],
+                    lesson_dir=lesson_dir,
+                    sets=sets,
+                    spec=spec,
+                    lesson_kind=lesson_kind,
                 )
                 path_html.append(
                     f'<div class="path"><h3 class="path-label">{label}</h3>'
@@ -214,6 +244,333 @@ def _interactive_html(spec_id: str, spec: dict) -> str:
 """
 
 
+CTS_REVEAL_AFTER = {
+    "algebraic-ex960": "diagram-ex960",
+    "strategy-cts-vs-factor": "sketch-try9120-try-another",
+}
+
+# Stage cues are one-line student-content phrases, not feedback-spec toasts.
+CTS_TASKS = {
+    "expand-cts-revisit": {
+        "cue": "Expand, then complete the square.",
+        "given": "f(x) = 3(x − 1)² + 4",
+        "tool": "equivalence",
+        "abc": {"a": 3, "b": -6, "c": 7},
+        "has_abc": True,
+        "has_ahk": True,
+    },
+    "diagram-ex960": {
+        "cue": "Name the side and the leftover.",
+        "given": "f(x) = x² + 6x + 5",
+        "tool": "diagram",
+    },
+    "algebraic-ex960": {
+        "cue": "Write vertex form for the same function.",
+        "given": "f(x) = x² + 6x + 5",
+        "tool": "rewrite",
+        "has_ahk": True,
+        "abc": {"a": 1, "b": 6, "c": 5},
+    },
+    "algebraic-try9119": {
+        "cue": "Same steps. New numbers.",
+        "given": "f(x) = x² + 2x − 3",
+        "tool": "rewrite",
+        "has_ahk": True,
+        "abc": {"a": 1, "b": 2, "c": -3},
+    },
+    "factor-a-ex959": {
+        "cue": "Factor a from the x terms first.",
+        "given": "f(x) = −3x² − 6x − 1",
+        "tool": "rewrite",
+        "has_ahk": True,
+        "abc": {"a": -3, "b": -6, "c": -1},
+    },
+    "rational-half": {
+        "cue": "Same steps. Half of 1/2 is a fraction.",
+        "given": "f(x) = x² + (1/2)x + 1",
+        "tool": "rewrite",
+        "has_ahk": True,
+        "fractions": True,
+        "abc": {"a": 1, "b": 0.5, "c": 1},
+    },
+    "verify-try9118": {
+        "cue": "Complete the square, then overlay.",
+        "given": "f(x) = 2x² − 8x + 3",
+        "tool": "equivalence",
+        "abc": {"a": 2, "b": -8, "c": 3},
+        "has_ahk": True,
+    },
+    "sketch-try9120": {
+        "cue": "Vertex, axis, max or min.",
+        "given": "f(x) = x² − 8x + 12",
+        "tool": "sketch",
+        "has_ahk": True,
+        "has_features": True,
+        "try_another": True,
+        "abc": {"a": 1, "b": -8, "c": 12},
+    },
+    "strategy-cts-vs-factor": {
+        "cue": "Choose factoring or completing the square.",
+        "given": "",
+        "tool": "strategy",
+        "eq_a": "f(x) = x² − 5x + 6",
+        "eq_b": "g(x) = x² + 4x + 7",
+    },
+    "fresh-hook-cts": {
+        "cue": "Do not move the board yet.",
+        "given": "y = −x² + 6x − 5",
+        "tool": "sketch",
+        "has_ahk": True,
+        "has_features": True,
+        "abc": {"a": -1, "b": 6, "c": -5},
+    },
+}
+
+
+def _area_diagram_html() -> str:
+    """Static completed-square fallback for diagram-ex960 (open-call interactive)."""
+    cells = []
+    labels = [
+        "x²",
+        "x",
+        "x",
+        "x",
+        "x",
+        "",
+        "",
+        "",
+        "x",
+        "",
+        "",
+        "",
+        "x",
+        "",
+        "",
+        "",
+    ]
+    for label in labels:
+        kind = "filled" if label else "open"
+        cells.append(f'<div class="tile {kind}">{escape(label)}</div>')
+    units = "".join('<div class="tile unit">1</div>' for _ in range(5))
+    return f"""
+<div class="area-diagram" role="img" aria-label="Area picture for x² + 6x + 5. One x² square, six x-rectangles, and five unit squares. The completing corner is open.">
+  <div class="tile-grid">{"".join(cells)}</div>
+  <div class="unit-row">{units}</div>
+  <p class="area-caption">x² + 6x + 5</p>
+</div>
+"""
+
+
+def _cts_actions_html(*, try_another: bool = False) -> str:
+    """Lean cycle buttons. Try another is sketch-try9120 only."""
+    extra = (
+        '<button type="button" data-action="another" hidden>Try another</button>'
+        if try_another
+        else ""
+    )
+    return f"""
+  <div class="cycle-actions">
+    <button type="button" class="btn-primary" data-action="submit">Check</button>
+    <button type="button" data-action="hint">Hint</button>
+    <button type="button" data-action="reset">Reset</button>
+    {extra}
+  </div>
+  <p class="feedback" hidden></p>
+  <p class="hint" hidden></p>
+  <p class="toast" hidden></p>
+  <p class="self-check" data-after-pass hidden></p>
+"""
+
+
+def _cts_interactive_html(spec_id: str) -> str:
+    """Formative-cycle chrome for one M4-L2 task. Student wording stays in surrounding blocks."""
+    meta = CTS_TASKS.get(spec_id)
+    if not meta:
+        return ""
+    cue = escape(meta["cue"])
+    given = escape(meta.get("given") or "")
+    given_html = f'<p class="given-eq">{given}</p>' if given else ""
+    pred = (
+        '<div class="prediction"><label>Your prediction '
+        '<input data-prediction type="text" autocomplete="off"></label></div>'
+    )
+    body = ""
+    board = ""
+    if meta["tool"] == "diagram":
+        body = (
+            _area_diagram_html()
+            + '<div class="cts-inputs">'
+            '<label>Side <input data-side type="text" inputmode="decimal"></label>'
+            '<label>Leftover <input data-leftover type="text" inputmode="decimal"></label>'
+            "</div>"
+        )
+    if meta.get("has_abc") and spec_id == "expand-cts-revisit":
+        body += (
+            '<div class="cts-inputs expand-inputs">'
+            '<label>a <input data-standard="a" type="text" inputmode="decimal"></label>'
+            '<label>b <input data-standard="b" type="text" inputmode="decimal"></label>'
+            '<label>c <input data-standard="c" type="text" inputmode="decimal"></label>'
+            "</div>"
+        )
+    if meta.get("has_ahk"):
+        step = "any"
+        body += (
+            '<div class="cts-inputs">'
+            f'<label>a <input data-ahk="a" type="text" inputmode="decimal" step="{step}"></label>'
+            f'<label>h <input data-ahk="h" type="text" inputmode="decimal"></label>'
+            f'<label>k <input data-ahk="k" type="text" inputmode="decimal"></label>'
+            "</div>"
+            '<p class="live-eq" data-live-eq hidden></p>'
+        )
+    if meta.get("has_features"):
+        body += (
+            '<div class="named-reading">'
+            '<label>Vertex x <input data-named="x" type="text" inputmode="decimal"></label>'
+            '<label>Vertex y <input data-named="y" type="text" inputmode="decimal"></label>'
+            '<label>Axis <input data-named="axis" type="text" placeholder="x = …"></label>'
+            '<label>Max or min <select data-named="extreme">'
+            '<option value=""></option>'
+            '<option value="maximum">maximum</option>'
+            '<option value="minimum">minimum</option>'
+            "</select></label>"
+            "</div>"
+        )
+    if meta["tool"] == "strategy":
+        body = f"""
+<div class="strategy-pair">
+  <div class="strategy-choice">
+    <p>A. {escape(meta["eq_a"])}</p>
+    <label>Strategy
+      <select data-choice="A">
+        <option value=""></option>
+        <option value="factor">factor</option>
+        <option value="complete-the-square">complete the square</option>
+      </select>
+    </label>
+    <label>One reason <textarea data-reason="A" rows="2"></textarea></label>
+  </div>
+  <div class="strategy-choice">
+    <p>B. {escape(meta["eq_b"])}</p>
+    <label>Strategy
+      <select data-choice="B">
+        <option value=""></option>
+        <option value="factor">factor</option>
+        <option value="complete-the-square">complete the square</option>
+      </select>
+    </label>
+    <label>One reason <textarea data-reason="B" rows="2"></textarea></label>
+  </div>
+</div>
+"""
+    if meta["tool"] in {"equivalence", "sketch", "rewrite"}:
+        abc = meta.get("abc") or {}
+        box_id = f"board-{spec_id}"
+        table = (
+            '<h3>Shared points</h3><table class="data" data-table></table>'
+            if meta["tool"] == "equivalence"
+            else ""
+        )
+        board = f"""
+  <figure class="board-figure">
+    <div id="{box_id}" class="jxgbox" role="img" aria-label="Graph board" data-abc-a="{abc.get("a", "")}" data-abc-b="{abc.get("b", "")}" data-abc-c="{abc.get("c", "")}"></div>
+  </figure>
+  {table}
+"""
+    abc = meta.get("abc") or {}
+    abc_attrs = ""
+    if abc:
+        abc_attrs = (
+            f' data-abc-a="{abc["a"]}" data-abc-b="{abc["b"]}" data-abc-c="{abc["c"]}"'
+        )
+    return f"""
+<div class="cycle board-wrap" data-spec-id="{escape(spec_id)}" data-tool="{escape(meta["tool"])}"{abc_attrs}>
+  <p class="stage-cue">{cue}</p>
+  {given_html}
+  {pred}
+  {body}
+  {board}
+  {_cts_actions_html(try_another=bool(meta.get("try_another")))}
+</div>
+"""
+
+
+def _cts_common_block(
+    block: dict, *, lesson_dir: Path, sets: dict, spec: dict
+) -> str:
+    """Render a non-interactive student block for the CTS lesson."""
+    return render_blocks(
+        [block],
+        lesson_dir=lesson_dir,
+        sets=sets,
+        spec=spec,
+        lesson_kind="vertex",
+    )
+
+
+def _render_cts_blocks(
+    blocks: list, *, lesson_dir: Path, sets: dict, spec: dict
+) -> str:
+    """Render CTS blocks, wrapping tasks that stay hidden until a prior pass."""
+    wrap_from: dict[int, tuple[int, str]] = {}
+    for i, block in enumerate(blocks):
+        if block.get("type") != "interactive":
+            continue
+        after = CTS_REVEAL_AFTER.get(block.get("spec_id") or "")
+        if not after:
+            continue
+        start = i
+        for j in range(i - 1, -1, -1):
+            if blocks[j]["type"] == "h2":
+                start = j
+                break
+            if blocks[j]["type"] == "interactive":
+                break
+        end = i
+        if i + 1 < len(blocks) and blocks[i + 1]["type"] == "self-check":
+            end = i + 1
+        wrap_from[start] = (end, after)
+
+    chunks: list[str] = []
+    i = 0
+    while i < len(blocks):
+        if i in wrap_from:
+            end, after = wrap_from[i]
+            inner: list[str] = []
+            for k in range(i, end + 1):
+                inner.append(
+                    _cts_block_html(
+                        blocks[k],
+                        lesson_dir=lesson_dir,
+                        sets=sets,
+                        spec=spec,
+                    )
+                )
+            chunks.append(
+                f'<div class="cts-reveal" data-reveal-after="{escape(after)}" hidden>'
+                f'{"".join(inner)}</div>'
+            )
+            i = end + 1
+            continue
+        chunks.append(
+            _cts_block_html(
+                blocks[i], lesson_dir=lesson_dir, sets=sets, spec=spec
+            )
+        )
+        i += 1
+    return "\n".join(chunks)
+
+
+def _cts_block_html(
+    block: dict, *, lesson_dir: Path, sets: dict, spec: dict
+) -> str:
+    """One CTS student block."""
+    if block.get("type") == "interactive":
+        return _cts_interactive_html(block["spec_id"])
+    return _cts_common_block(
+        block, lesson_dir=lesson_dir, sets=sets, spec=spec
+    )
+
+
 def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
     """Write HTML from student-content.json and copy bundled assets."""
     student = json.loads((lesson_dir / "student-content.json").read_text(encoding="utf-8"))
@@ -225,17 +582,30 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
     if sets_path.is_file():
         sets = json.loads(sets_path.read_text(encoding="utf-8"))
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name in (
+    kind = _lesson_kind(student, spec)
+    assets = (
         "jsxgraph/jsxgraphcore.js",
         "jsxgraph/jsxgraph.css",
         "jsxgraph/LICENSE.MIT",
-        "vertex-form-board.js",
-        "vertex-form-checker.js",
-        "formative-cycle.js",
         "design-tokens.css",
         "student.css",
-    ):
+    )
+    if kind == "cts":
+        assets += (
+            "completing-the-square-board.js",
+            "completing-the-square-checker.js",
+            "completing-the-square-cycle.js",
+            "completing-the-square.css",
+        )
+    else:
+        assets += (
+            "vertex-form-board.js",
+            "vertex-form-checker.js",
+            "formative-cycle.js",
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name in assets:
         src = COMPONENTS / name
         dest = out_dir / Path(name).name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -260,7 +630,13 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
             f'aria-controls="panel-{escape(pid)}" aria-selected="{selected}">'
             f'{escape(part["nav_label"])}</button>'
         )
-        body = render_blocks(part["blocks"], lesson_dir=lesson_dir, sets=sets, spec=spec)
+        body = render_blocks(
+            part["blocks"],
+            lesson_dir=lesson_dir,
+            sets=sets,
+            spec=spec,
+            lesson_kind=kind,
+        )
         panels.append(
             f'<section class="panel{active}" id="panel-{escape(pid)}" '
             f'role="tabpanel" aria-labelledby="tab-{escape(pid)}"{hidden}>'
@@ -269,30 +645,40 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
 
     credits = "".join(f"<p>{math_text(c)}</p>" for c in student.get("credits") or [])
     messages_json = json.dumps(feedback_msgs.get("messages") or {}, ensure_ascii=False)
-    start = spec["board"]["starting_parameters"]
-    fresh = spec["board"]["fresh_case_parameters"]
-    hints = {
-        "match-plus-inside": [
-            "hint-match-1-live-equation",
-            "hint-match-2-brackets-to-h",
-            "hint-match-3-vertex-marker",
-        ],
-        "predict-h": [
-            "hint-predict-h-1-name-x-first",
-            "hint-predict-h-2-watch-marker",
-            "hint-predict-h-3-equation-after-move",
-        ],
-        "expand-same-graph": [
-            "hint-expand-1-square-the-binomial",
-            "hint-expand-2-distribute-a",
-            "hint-expand-3-add-k",
-        ],
-        "fresh-case": [
-            "hint-fresh-1-match-brackets",
-            "hint-fresh-2-axis-vertical",
-            "hint-fresh-3-sign-of-a",
-        ],
-    }
+    if kind == "cts":
+        feedback_spec_path = lesson_dir / "feedback-spec.json"
+        hints = {}
+        if feedback_spec_path.is_file():
+            feedback_spec = json.loads(feedback_spec_path.read_text(encoding="utf-8"))
+            for task in feedback_spec.get("tasks") or []:
+                hints[task["id"]] = task.get("hint_sequence") or []
+        start = None
+        fresh = None
+    else:
+        start = spec["board"]["starting_parameters"]
+        fresh = spec["board"]["fresh_case_parameters"]
+        hints = {
+            "match-plus-inside": [
+                "hint-match-1-live-equation",
+                "hint-match-2-brackets-to-h",
+                "hint-match-3-vertex-marker",
+            ],
+            "predict-h": [
+                "hint-predict-h-1-name-x-first",
+                "hint-predict-h-2-watch-marker",
+                "hint-predict-h-3-equation-after-move",
+            ],
+            "expand-same-graph": [
+                "hint-expand-1-square-the-binomial",
+                "hint-expand-2-distribute-a",
+                "hint-expand-3-add-k",
+            ],
+            "fresh-case": [
+                "hint-fresh-1-match-brackets",
+                "hint-fresh-2-axis-vertical",
+                "hint-fresh-3-sign-of-a",
+            ],
+        }
 
     goal_bits = []
     if student.get("goal"):
@@ -307,30 +693,81 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
         )
     goal_meta = f'<div class="lesson-meta">{"".join(goal_bits)}</div>' if goal_bits else ""
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(student["title"])}</title>
-  <link rel="stylesheet" href="jsxgraph.css">
-  <link rel="stylesheet" href="student.css">
-</head>
-<body>
-  <article class="lesson">
-    <h1>{escape(student["title"])}</h1>
-    {goal_meta}
-    <div class="tabs" role="tablist">
-      {"".join(tabs)}
-    </div>
-    {"".join(panels)}
-    <div class="credits">{credits}</div>
-  </article>
-  <script src="jsxgraphcore.js"></script>
-  <script src="vertex-form-board.js"></script>
+    extra_css = (
+        '  <link rel="stylesheet" href="completing-the-square.css">\n'
+        if kind == "cts"
+        else ""
+    )
+    extra_js = (
+        """  <script src="completing-the-square-board.js"></script>
+  <script src="completing-the-square-checker.js"></script>
+  <script src="completing-the-square-cycle.js"></script>
+"""
+        if kind == "cts"
+        else """  <script src="vertex-form-board.js"></script>
   <script src="vertex-form-checker.js"></script>
   <script src="formative-cycle.js"></script>
-  <script>
+"""
+    )
+    if kind == "cts":
+        boot = f"""
+    (function () {{
+      var messages = {messages_json};
+      var hints = {json.dumps(hints)};
+      var tabs = document.querySelectorAll('[role="tab"]');
+      tabs.forEach(function (tab) {{
+        tab.addEventListener("click", function () {{
+          tabs.forEach(function (t) {{ t.setAttribute("aria-selected", "false"); }});
+          tab.setAttribute("aria-selected", "true");
+          document.querySelectorAll('[role="tabpanel"]').forEach(function (panel) {{
+            var on = panel.getAttribute("aria-labelledby") === tab.id;
+            panel.classList.toggle("active", on);
+            panel.hidden = !on;
+          }});
+          document.querySelectorAll(".cycle").forEach(function (root) {{
+            if (!panelHidden(root) && root._ctsApi && root._ctsApi.resize) {{
+              root._ctsApi.resize();
+            }}
+          }});
+        }});
+      }});
+      function panelHidden(el) {{
+        var panel = el.closest('[role="tabpanel"]');
+        return panel && panel.hidden;
+      }}
+      document.querySelectorAll(".cycle").forEach(function (root) {{
+        var specId = root.getAttribute("data-spec-id");
+        var tool = root.getAttribute("data-tool");
+        var box = root.querySelector(".jxgbox");
+        var api = null;
+        if (box && tool === "equivalence") {{
+          var live = root.querySelector("[data-live-eq]");
+          if (live && !live.id) {{ live.id = specId + "-eq"; }}
+          var table = root.querySelector("[data-table]");
+          api = initCtsEquivalenceBoard(box.id, {{
+            abc: {{
+              a: parseFloat(root.getAttribute("data-abc-a")),
+              b: parseFloat(root.getAttribute("data-abc-b")),
+              c: parseFloat(root.getAttribute("data-abc-c"))
+            }},
+            equationEl: live,
+            tableEl: table
+          }});
+        }} else if (box && (tool === "sketch" || tool === "rewrite")) {{
+          var live2 = root.querySelector("[data-live-eq]");
+          api = initCtsSketchBoard(box.id, {{ equationEl: live2 }});
+        }}
+        root._ctsApi = api;
+        bindCtsCycle(root, {{
+          messages: messages,
+          api: api,
+          hints: hints[specId] || []
+        }});
+      }});
+    }})();
+"""
+    else:
+        boot = f"""
     (function () {{
       var messages = {messages_json};
       var hints = {json.dumps(hints)};
@@ -386,7 +823,30 @@ def build_lesson(lesson_dir: Path, out_dir: Path) -> Path:
         }});
       }});
     }})();
-  </script>
+"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escape(student["title"])}</title>
+  <link rel="stylesheet" href="jsxgraph.css">
+  <link rel="stylesheet" href="student.css">
+{extra_css}</head>
+<body>
+  <article class="lesson">
+    <h1>{escape(student["title"])}</h1>
+    {goal_meta}
+    <div class="tabs" role="tablist">
+      {"".join(tabs)}
+    </div>
+    {"".join(panels)}
+    <div class="credits">{credits}</div>
+  </article>
+  <script src="jsxgraphcore.js"></script>
+{extra_js}  <script>
+{boot}  </script>
 </body>
 </html>
 """

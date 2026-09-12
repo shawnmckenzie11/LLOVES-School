@@ -1,0 +1,137 @@
+/**
+ * M4-L2 completing-the-square chrome. Tokens come from student.css.
+ */
+
+.stage-cue {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.given-eq {
+  margin: 0;
+  font-size: 1.05em;
+}
+
+.cts-inputs,
+.named-reading,
+.strategy-pair {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+
+.cts-inputs label,
+.named-reading label,
+.prediction label,
+.strategy-choice label {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-small);
+  font-weight: 650;
+}
+
+.cts-inputs input,
+.named-reading input,
+.named-reading select,
+.prediction input,
+.strategy-choice select,
+.strategy-choice textarea {
+  font: inherit;
+  min-height: var(--tap);
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+}
+
+.prediction {
+  margin: 0 0 var(--space-3);
+}
+
+.toast {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ok-line);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: var(--text-small);
+}
+
+.toast[hidden],
+.cts-reveal[hidden] {
+  display: none;
+}
+
+.area-diagram {
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 0 var(--space-3);
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 16rem;
+}
+
+.tile {
+  aspect-ratio: 1;
+  border: 1px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 650;
+  font-size: var(--text-small);
+}
+
+.tile.filled {
+  background: var(--surface-muted);
+}
+
+.tile.open {
+  background: transparent;
+  border-style: dashed;
+}
+
+.unit-row {
+  display: flex;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+
+.tile.unit {
+  width: 2rem;
+  height: 2rem;
+}
+
+.area-caption {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.strategy-pair {
+  grid-template-columns: 1fr;
+}
+
+.strategy-choice {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.strategy-choice p {
+  margin: 0 0 var(--space-2);
+}
+
+@media (min-width: 720px) {
+  .strategy-pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}
