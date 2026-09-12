@@ -19,6 +19,8 @@ const mediaFrame = document.getElementById("media-frame");
 const mediaLock = document.getElementById("media-lock");
 const canvasPane = document.getElementById("canvas-pane");
 const canvasLock = document.getElementById("canvas-lock");
+const studentCanvas = document.getElementById("student-canvas");
+const canvasCursors = document.getElementById("canvas-cursors");
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
 const mediaCaption = document.getElementById("media-caption");
@@ -54,6 +56,10 @@ const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
 const MEET_CUE_COPY = {
   "cue.meet_open": "Meet your team",
   "cue.meet_clear": "Meet cleared",
+};
+const TEAMS_SPARK_CUES = new Set(["cue.teams_spark"]);
+const TEAMS_SPARK_CUE_COPY = {
+  "cue.teams_spark": "Shared spark",
 };
 const TEXT_RIDE_CUES = new Set(["cue.freeze", "cue.cons_unlock"]);
 const TEXT_RIDE_CUE_COPY = {
@@ -271,10 +277,11 @@ function studentProjection(payload) {
     stage,
     seq: Number.isFinite(seq) ? seq : 0,
     questions: frames.questions !== false,
-    media: Boolean(frames.media),
-    canvas: Boolean(frames.canvas),
+    media: Boolean(frames.media) || Boolean(unlocks.media),
+    canvas: Boolean(frames.canvas) || Boolean(unlocks.canvas),
     unlockMedia: Boolean(unlocks.media),
     unlockCanvas: Boolean(unlocks.canvas),
+    canvasAlign: String(ts.canvas_align || "student"),
   };
 }
 
@@ -293,6 +300,126 @@ function unmountStudentMedia() {
  * @param {any} payload
  * @returns {{media: boolean, canvas: boolean, unlockMedia: boolean}}
  */
+/**
+ * Draw remote strokes from the thin canvas-sync view.
+ * @param {any} view
+ */
+function paintRemoteCanvas(view) {
+  if (!(studentCanvas instanceof HTMLCanvasElement)) return;
+  const ctx = studentCanvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, studentCanvas.width, studentCanvas.height);
+  const strokes = Array.isArray(view?.strokes) ? view.strokes : [];
+  strokes.forEach((stroke) => {
+    const points = Array.isArray(stroke.points) ? stroke.points : [];
+    if (!points.length) return;
+    ctx.beginPath();
+    points.forEach((pt, i) => {
+      const x = Number(pt[0]) * studentCanvas.width;
+      const y = Number(pt[1]) * studentCanvas.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = String(stroke.color || "#12202e");
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+  if (!(canvasCursors instanceof HTMLElement)) return;
+  const cursors = Array.isArray(view?.cursors) ? view.cursors : [];
+  canvasCursors.innerHTML = cursors
+    .map((row) => {
+      const name = String(row.name || row.owner || "").replace(/[<>&]/g, "");
+      const color = String(row.color || "#0b3d91");
+      const left = Math.round(Number(row.x) * 1000) / 10;
+      const top = Math.round(Number(row.y) * 1000) / 10;
+      return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;color:${color}">${name}</span>`;
+    })
+    .join("");
+}
+
+/**
+ * Bind unique-per-student local drawing and team/teacher presence posts.
+ */
+function bindStudentCanvas() {
+  if (!(studentCanvas instanceof HTMLCanvasElement)) return;
+  const ctx = studentCanvas.getContext("2d");
+  if (!ctx) return;
+  let drawing = false;
+  let strokeId = "";
+  let lastAlign = "student";
+  const point = (event) => {
+    const rect = studentCanvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * studentCanvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * studentCanvas.height,
+    };
+  };
+  const postPresence = (p, ended) => {
+    if (lastAlign === "student") return;
+    const norm = { x: p.x / studentCanvas.width, y: p.y / studentCanvas.height };
+    fetch(
+      "/api/student/canvas-presence",
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          x: norm.x,
+          y: norm.y,
+          point: [norm.x, norm.y],
+          stroke_id: strokeId || undefined,
+          ended: Boolean(ended),
+        }),
+      })
+    ).catch(() => {});
+  };
+  studentCanvas.addEventListener("pointerdown", (event) => {
+    if (canvasLock && !canvasLock.hidden) return;
+    drawing = true;
+    strokeId = `s-${Date.now()}`;
+    const p = point(event);
+    if (lastAlign === "student") {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+    }
+    studentCanvas.setPointerCapture(event.pointerId);
+    postPresence(p, false);
+  });
+  studentCanvas.addEventListener("pointermove", (event) => {
+    if (!drawing) return;
+    const p = point(event);
+    if (lastAlign === "student") {
+      ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = "#12202e";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    postPresence(p, false);
+  });
+  studentCanvas.addEventListener("pointerup", (event) => {
+    if (drawing) postPresence(point(event), true);
+    drawing = false;
+    strokeId = "";
+  });
+  bindStudentCanvas.setAlign = (align) => {
+    lastAlign = String(align || "student");
+  };
+}
+
+/**
+ * Paint student canvas from teacher unlocks + canvas_sync view.
+ * @param {any} payload
+ */
+function paintStudentCanvas(payload) {
+  const proj = studentProjection(payload);
+  if (typeof bindStudentCanvas.setAlign === "function") {
+    bindStudentCanvas.setAlign(proj.canvasAlign);
+  }
+  if (!proj.canvas || !proj.unlockCanvas) return;
+  if (proj.canvasAlign === "student") return;
+  paintRemoteCanvas(payload.canvas_sync || payload.canvas_view || {});
+}
+
 function applyTeacherProjection(payload) {
   const proj = studentProjection(payload);
   if (proj.seq !== lastStateSeq) {
@@ -599,8 +726,8 @@ function paintMeetCue(payload) {
   const cue = String(ts.cue_id || "").trim();
   if (!cue || cue === lastCueId) return;
   lastCueId = cue;
-  const line = MEET_CUE_COPY[cue] || TEXT_RIDE_CUE_COPY[cue] || rideLine;
-  if (!MEET_CUES.has(cue) && !TEXT_RIDE_CUES.has(cue)) return;
+  const line = MEET_CUE_COPY[cue] || TEXT_RIDE_CUE_COPY[cue] || TEAMS_SPARK_CUE_COPY[cue] || rideLine;
+  if (!MEET_CUES.has(cue) && !TEXT_RIDE_CUES.has(cue) && !TEAMS_SPARK_CUES.has(cue)) return;
   window.clearTimeout(toastHideTimer);
   if (!line) {
     mediaToast.hidden = true;
@@ -684,9 +811,26 @@ function isJoinMindsOnPrompt(payload) {
 }
 
 /**
+ * True when the student Question face is the TEAMS shared spark.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function isTeamsSparkPrompt(payload) {
+  const data =
+    (payload && payload.prompt && payload.prompt.payload) ||
+    (payload && payload.payload) ||
+    {};
+  return (
+    String(data.source || "") === "teams_spark" ||
+    String(data.item_id || "") === "teams-spark" ||
+    String(data.pack || "") === "teams-spark"
+  );
+}
+
+/**
  * Render placeholder widgets for mc / numeric / share prompts.
  * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
- * JOIN→TEAMS unbinds that face (no leftover MC, summary, or feedback).
+ * JOIN→TEAMS unbinds Minds-On and binds the shared spark instead.
  * @param {any} payload
  */
 function paintPrompt(payload) {
@@ -698,6 +842,7 @@ function paintPrompt(payload) {
   const prompt = payload.prompt;
   const data = (prompt && prompt.payload) || {};
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
+  const isSpark = isTeamsSparkPrompt(payload);
   const answered = Boolean(payload.my_response);
   const summary = studentMcSummary(payload);
   if (summary && prompt && prompt.kind && prompt.kind !== "idle") {
@@ -726,7 +871,7 @@ function paintPrompt(payload) {
     }
     return;
   }
-  if (answered && !isMeet) {
+  if (answered && !isMeet && !isSpark) {
     const fb = feedbackObject(payload.my_response);
     const key = `${prompt.id}:${(fb && fb.lead) || ""}:${(fb && fb.text) || ""}`;
     if (key === lastFeedbackKey && (feedbackDismissed || (promptFeedback && !promptFeedback.hidden))) {
@@ -796,6 +941,10 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
           }>${escapeText(label)}</button>`;
         })
         .join("");
+    }
+    const sparkLine = String(data.student_feedback_after_reveal || "").trim();
+    if (sparkLine && isTeamsSparkPrompt({ prompt })) {
+      controls += `<p class="prompt-spark-feedback">${escapeText(sparkLine)}</p>`;
     }
   } else if (kind === "numeric") {
     controls = `
@@ -1068,6 +1217,7 @@ async function tick() {
     const prevSeq = lastStateSeq;
     applyTeacherProjection(data);
     applyLayout(data);
+    paintStudentCanvas(data);
     paintDisplayTime(data);
     paintMe(data);
     paintBoard(data);
@@ -1110,6 +1260,7 @@ if (promptFeedback) {
   });
 }
 
+bindStudentCanvas();
 tick();
 setInterval(tick, 4000);
 setInterval(tickDisplayTime, 250);

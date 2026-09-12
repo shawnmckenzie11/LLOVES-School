@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 try:
+    from live_canvas import CANVAS_ALIGNS, DEFAULT_CANVAS_ALIGN
     from meet_team import (
         CUE_MEET_CLEAR,
         CUE_MEET_OPEN,
@@ -18,7 +19,9 @@ try:
         meet_prompt_ref_for,
         public_meet_chain,
     )
+    from teams_spark import TEAMS_SPARK_PROMPT_REF
 except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.live_canvas import CANVAS_ALIGNS, DEFAULT_CANVAS_ALIGN
     from lms.meet_team import (
         CUE_MEET_CLEAR,
         CUE_MEET_OPEN,
@@ -26,6 +29,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         meet_prompt_ref_for,
         public_meet_chain,
     )
+    from lms.teams_spark import TEAMS_SPARK_PROMPT_REF
 
 STAGES: tuple[str, ...] = ("join", "teams", "meet", "round", "play")
 MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
@@ -66,6 +70,7 @@ def default_student_frames(stage: str | None = None) -> dict[str, bool]:
 
     JOIN / TEAMS / MEET / ROUND project Question only. PLAY shows all
     three frames; media and canvas stay locked until ``unlocks``.
+    Unlocks may still flag media/canvas onto students on any stage.
 
     Args:
         stage: Stage id, or None for JOIN defaults.
@@ -124,6 +129,7 @@ def default_teacher_state() -> dict[str, Any]:
         "state_seq": 0,
         "student_frames": default_student_frames("join"),
         "unlocks": default_unlocks(),
+        "canvas_align": DEFAULT_CANVAS_ALIGN,
         "live_slot": DEFAULT_LIVE_SLOT,
         "text_ride": default_text_ride(),
     }
@@ -186,6 +192,38 @@ def _clean_unlocks(raw: Any) -> dict[str, bool]:
         if parsed is not None:
             base[key] = parsed
     return base
+
+
+def normalize_canvas_align(raw: Any) -> str:
+    """Return a known canvas alignment token.
+
+    Args:
+        raw: Posted or stored ``canvas_align``.
+    """
+    token = str(raw or "").strip().lower()
+    if token in CANVAS_ALIGNS:
+        return token
+    return DEFAULT_CANVAS_ALIGN
+
+
+def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
+    """OR unlock flags onto student frames for any stage.
+
+    Default stage layouts may omit media/canvas. A teacher unlock still
+    projects that frame. Mutates ``state``.
+
+    Args:
+        state: In-progress public teacher state.
+    """
+    stage = str(state.get("stage") or "join")
+    frames = dict(state.get("student_frames") or default_student_frames(stage))
+    unlocks = state.get("unlocks") or default_unlocks()
+    if unlocks.get("media"):
+        frames["media"] = True
+    if unlocks.get("canvas"):
+        frames["canvas"] = True
+    state["student_frames"] = frames
+    return state
 
 
 def _clean_round_flags(raw: Any) -> dict[str, bool]:
@@ -346,10 +384,14 @@ def mc_poll_closed(teacher_state: Any) -> bool:
 def student_mc_summary_visible(teacher_state: Any) -> bool:
     """True when students should see the class MC distribution.
 
+    TEAMS shared spark shares a stay-line, not tally bars / chips.
+
     Args:
         teacher_state: Public ``LiveTeacherState`` dict, or None.
     """
     if not isinstance(teacher_state, dict):
+        return False
+    if str(teacher_state.get("stage") or "") == "teams":
         return False
     ui = teacher_state.get("mc_ui")
     if not isinstance(ui, dict):
@@ -358,10 +400,11 @@ def student_mc_summary_visible(teacher_state: Any) -> bool:
 
 
 def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
-    """Null JOIN Minds-On refs and reveal chrome. Questions stay mounted unbound.
+    """Null JOIN Minds-On refs and reveal chrome.
 
-    TEAMS has no Meet / Challenge prompt yet. The Question slot stays
-    visible and empty until a later bind. Does not fire a Wonder cue.
+    Used when leaving JOIN without binding another prompt. TEAMS now
+    binds the shared spark instead of staying unbound. Does not fire a
+    Wonder cue.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -371,6 +414,35 @@ def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
     """
     state["prompt_ref"] = None
     state.pop("mc_ui", None)
+    return state
+
+
+def bind_teams_spark_prompt(state: dict[str, Any]) -> dict[str, Any]:
+    """Bind the TEAMS shared spark onto the Question frame.
+
+    Drops leftover JOIN Minds-On ``mc_ui`` so Reveal chrome does not
+    leak. Fresh spark ``mc_ui`` starts unrevealed. Does not fire a
+    Wonder cue (enter-only cue is written by the session writer).
+
+    Args:
+        state: In-progress public teacher state (mutated).
+
+    Returns:
+        The same ``state`` dict.
+    """
+    state["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
+    existing = state.get("mc_ui")
+    same = (
+        isinstance(existing, dict)
+        and str(existing.get("prompt_ref") or "") == TEAMS_SPARK_PROMPT_REF
+    )
+    if not same:
+        state["mc_ui"] = {
+            "prompt_ref": TEAMS_SPARK_PROMPT_REF,
+            "reveal": False,
+            "reveal_to_students": False,
+            "poll_closed": False,
+        }
     return state
 
 
@@ -391,6 +463,7 @@ def bind_meet_student_projection(state: dict[str, Any]) -> dict[str, Any]:
     frames["media"] = False
     frames["canvas"] = False
     state["student_frames"] = frames
+    apply_unlock_frames(state)
     state["active_tab"] = "questions"
     state["layout_preset"] = "questions_full"
     state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
@@ -408,9 +481,10 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 
     Teacher Active Content stays mounted; this only swaps thin refs and
     the student projection map. PLAY reveals all three frames locked.
-    TEAMS nulls JOIN Minds-On ``prompt_ref`` / ``mc_ui`` (Question
-    stays visible and unbound). MEET binds ``prompt_ref`` + Question-only
-    frames so the chain is not teacher-only.
+    TEAMS binds the shared-spark ``prompt_ref`` (Question stays
+    visible; JOIN Minds-On ``mc_ui`` is dropped). MEET binds
+    ``prompt_ref`` + Question-only frames so the chain is not
+    teacher-only.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -421,6 +495,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """
     name = stage if stage in STAGES else "join"
     state["student_frames"] = default_student_frames(name)
+    apply_unlock_frames(state)
     if name in QUESTION_ONLY_STAGES:
         state["active_tab"] = "questions"
         if name == "join":
@@ -428,7 +503,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
             state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
             state["prompt_ref"] = MINDS_ON_PROMPT_REF
         elif name == "teams":
-            clear_join_prompt_bindings(state)
+            bind_teams_spark_prompt(state)
         elif name == "meet":
             bind_meet_student_projection(state)
     return state
@@ -437,9 +512,8 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 def student_should_mount_media(state: dict[str, Any] | None) -> bool:
     """True when the student Real-slice iframe may be mounted.
 
-    JOIN / TEAMS / MEET keep media unmounted even if the teacher preview
-    blob exists. PLAY mounts the frame; ``unlocks.media`` only unlocks
-    controls.
+    JOIN / TEAMS / MEET / ROUND hide media unless the teacher unlocks
+    it. PLAY mounts the frame; ``unlocks.media`` also unlocks controls.
 
     Args:
         state: Public teacher state.
@@ -449,7 +523,8 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
     frames = public.get("student_frames") or default_student_frames(public.get("stage"))
-    return bool(frames.get("media"))
+    unlocks = public.get("unlocks") or default_unlocks()
+    return bool(frames.get("media") or unlocks.get("media"))
 
 
 def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
@@ -463,7 +538,8 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
     frames = public.get("student_frames") or default_student_frames(public.get("stage"))
-    return bool(frames.get("canvas"))
+    unlocks = public.get("unlocks") or default_unlocks()
+    return bool(frames.get("canvas") or unlocks.get("canvas"))
 
 
 def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
@@ -508,7 +584,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     elif base["stage"] == "join":
         base["prompt_ref"] = MINDS_ON_PROMPT_REF
     elif base["stage"] == "teams":
-        base["prompt_ref"] = None
+        base["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
     base["canvas_ephemeral"] = True
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():
@@ -529,6 +605,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["student_frames"] = default_student_frames(base["stage"])
     if "unlocks" in stored:
         base["unlocks"] = _clean_unlocks(stored.get("unlocks"))
+    if "canvas_align" in stored:
+        base["canvas_align"] = normalize_canvas_align(stored.get("canvas_align"))
     if "round_flags" in stored:
         try:
             base["round_flags"] = _clean_round_flags(stored.get("round_flags"))
@@ -552,6 +630,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["text_ride"] = default_text_ride()
     if base["stage"] == "meet":
         bind_meet_student_projection(base)
+    apply_unlock_frames(base)
     return base
 
 
@@ -589,6 +668,7 @@ def apply_teacher_state_update(
     canvas_ephemeral: Any = None,
     student_frames: Any = None,
     unlocks: Any = None,
+    canvas_align: Any = None,
     mc_ui: Any = None,
     live_slot: Any = None,
     text_ride: Any = None,
@@ -615,7 +695,10 @@ def apply_teacher_state_update(
         meet_chain: Optional ephemeral MeetChainState, or empty to clear.
         canvas_ephemeral: Ignored; the field stays ``True``.
         student_frames: Optional ``{questions, media, canvas}`` projection.
-        unlocks: Optional ``{media, canvas}`` PLAY unlock flags.
+        unlocks: Optional ``{media, canvas}`` flags. Valid on any stage;
+            unlocked frames project even when the default layout omits them.
+        canvas_align: ``teacher`` (frozen), ``student`` (unique), or
+            ``team`` (shared within group).
         mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students,
             poll_closed}``. Reveal toggles bump ``state_seq``. JOIN
             Reveal commits ``reveal_to_students`` and closes the poll.
@@ -711,6 +794,8 @@ def apply_teacher_state_update(
         merged = dict(base.get("unlocks") or default_unlocks())
         merged.update(unlocks)
         base["unlocks"] = _clean_unlocks(merged)
+    if canvas_align is not None:
+        base["canvas_align"] = normalize_canvas_align(canvas_align)
     if live_slot is not None:
         base["live_slot"] = normalize_live_slot(live_slot)
     if text_ride is not None:
@@ -742,6 +827,7 @@ def apply_teacher_state_update(
     else:
         bind_join_share_on_reveal(base, previous_mc_ui=prev_mc_ui)
     base["canvas_ephemeral"] = True
+    apply_unlock_frames(base)
     base["updated_at"] = _now_iso()
     base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1
     return base

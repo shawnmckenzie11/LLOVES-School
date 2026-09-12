@@ -1527,6 +1527,28 @@ body.staff-shell .live-unlock-toggle {
   font-size: 0.82rem;
   font-weight: 600;
 }
+body.staff-shell .live-unlocks-strip {
+  flex-wrap: nowrap;
+  gap: 0.4rem 0.65rem;
+  min-height: 0;
+  max-height: var(--live-options-row-h);
+}
+body.staff-shell .live-canvas-align {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+body.staff-shell .live-canvas-align select {
+  max-width: 11.5rem;
+  min-height: 1.75rem;
+  padding: 0 0.35rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--live-border);
+  border-radius: 6px;
+  background: #fff;
+}
 body.staff-shell .live-option-card-body {
   display: flex;
   flex-wrap: wrap;
@@ -2275,6 +2297,45 @@ body.staff-shell .live-question-flag {
 }
 body.staff-shell .live-question-flag[hidden] {
   display: none !important;
+}
+body.staff-shell .teams-spark-card {
+  margin: 0.65rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #93c5fd;
+  background: #f8fbff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+body.staff-shell .teams-spark-card[hidden] {
+  display: none !important;
+}
+body.staff-shell .teams-spark-label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+body.staff-shell .teams-spark-prompt {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+body.staff-shell .teams-spark-choices,
+body.staff-shell .teams-spark-key {
+  margin: 0;
+  color: #334155;
+  font-size: 0.9rem;
+}
+body.staff-shell .teams-spark-key {
+  font-weight: 600;
+}
+body.staff-shell #teams-spark-reveal {
+  align-self: flex-start;
 }
 body.staff-shell .meet-chain-chrome {
   margin: 0.65rem 0 0;

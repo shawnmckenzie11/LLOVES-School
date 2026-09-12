@@ -170,16 +170,17 @@ class LiveShellTests(unittest.TestCase):
             self.assertIn(f'id="{control_id}"', html)
 
     def test_live_tab_end_class_is_placement_only(self) -> None:
-        """Header End Class and Quit are distinct; both post finish routes."""
+        """Header Save and End Class and Quit are distinct finish routes."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn("Save attendance & participation, then end?", html)
-        self.assertIn("End without saving?", html)
+        self.assertIn("Save attendance and end without participation?", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
         self.assertIn(f"/staff/class/{self.class_id}/quit-live", html)
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-quit-class"', html)
-        self.assertIn('aria-label="End Class"', html)
+        self.assertIn('aria-label="Save and End Class"', html)
+        self.assertIn(">Save and End Class<", html)
         self.assertIn('aria-label="Quit"', html)
         self.assertIn("live-end-class-form", html)
         self.assertIn("live-quit-class-form", html)
@@ -189,7 +190,7 @@ class LiveShellTests(unittest.TestCase):
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
-        self.assertIn("End Live Class", home_html)
+        self.assertIn("Save and End Class", home_html)
         self.assertIn("Save attendance & participation, then end?", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
@@ -272,8 +273,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('"class-list-pane"', js)
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
-        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
-        self.assertIn("card.hidden = !showStrip;", js)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn("live-canvas-align", js)
         self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
         self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
@@ -473,7 +474,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Waiting for students to join.", html)
         self.assertNotIn("join-options-hint", html)
         self.assertNotIn("live-options-hint", css)
-        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn('id="live-unlocks-strip"', html)
         self.assertRegex(
             html,
             r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
@@ -552,6 +554,94 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
+
+    def test_beat23_unlocks_any_stage_and_canvas_align(self) -> None:
+        """Beat 23: Media/Canvas flags on every stage; condensed alignment modes."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn('id="live-unlocks-strip"', html)
+        self.assertIn('id="live-unlock-media"', html)
+        self.assertIn('id="live-unlock-canvas"', html)
+        self.assertIn('id="live-canvas-align"', html)
+        self.assertIn("Frozen to teacher", html)
+        self.assertIn("Unique per student", html)
+        self.assertIn("Shared within group", html)
+        play_html = html.split('id="play-option-card"')[1].split("</section>")[0]
+        self.assertNotIn('id="live-unlock-media"', play_html)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn("patchTeacherState({ unlocks: { media:", js)
+        self.assertIn("patchTeacherState({ canvas_align:", js)
+        self.assertIn("canvas-presence", js)
+        self.assertIn("body.staff-shell .live-unlocks-strip {", css)
+        unlocks_css = css.split("body.staff-shell .live-unlocks-strip {")[1].split(
+            "body.staff-shell .live-canvas-align {"
+        )[0]
+        self.assertIn("flex-wrap: nowrap", unlocks_css)
+        self.assertIn("max-height: var(--live-options-row-h)", unlocks_css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("function paintStudentCanvas(", student_js)
+        self.assertIn("/api/student/canvas-presence", student_js)
+        self.assertIn("canvasAlign", student_js)
+        self.assertIn('id="student-canvas"', 
+            (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
+        )
+
+    def test_beat22_presence_updates_team_max_live(self) -> None:
+        """Beat 22: ClassList join/leave clamps team max and refreshes the meter."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        ticks = js.split("async function applySessionPresentTicks(")[1].split(
+            "async function pollLiveSessionAttendees("
+        )[0]
+        self.assertIn("sessionPresentIds = next", ticks)
+        self.assertNotIn("sessionPresentIds.add(id)", ticks)
+        self.assertIn("setNTeams(currentTeamCount())", ticks)
+        self.assertIn("renderAttendanceList()", ticks)
+        self.assertIn("No second poll", js)
+        self.assertIn("TEAMS max (= presentCount)", js)
+        bounds = js.split("function nTeamsBounds()")[1].split("function divisionStrength(")[0]
+        self.assertIn("presentCountForTeams()", bounds)
+        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
+        paint = js.split("function paintDivisionMeter()")[1].split(
+            "function paintTeamsStripEnabled()"
+        )[0]
+        self.assertIn("presentCountForTeams()", paint)
+        self.assertIn("divisionStrength(present, teamCount)", paint)
+        poll = js.split("async function pollLiveSessionAttendees(")[1].split(
+            "function startLiveSessionPolling("
+        )[0]
+        self.assertIn("applySessionPresentTicks(", poll)
+        self.assertIn("!row?.left_at", poll)
+        self.assertNotIn("setInterval", ticks)
+
+    def test_beat22b_teams_classlist_present_only(self) -> None:
+        """Beat 22b: TEAMS ClassList is present-only; joiners appear via the same poll."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        visible = js.split("function classListVisibleStudents(")[1].split(
+            "function classListRosterOrder("
+        )[0]
+        self.assertIn('stage || "").toLowerCase() !== "teams"', visible)
+        self.assertIn("sessionPresentIds.has(Number(stu.id))", visible)
+        self.assertIn("stu.guest", visible)
+        render = js.split("function renderAttendanceList()")[1].split(
+            "function updateAttCount()"
+        )[0]
+        self.assertIn("classListVisibleStudents(", render)
+        self.assertIn('dataset.presentOnly', render)
+        self.assertIn("classListRosterOrder(classListVisibleStudents(", render)
+        ticks = js.split("async function applySessionPresentTicks(")[1].split(
+            "async function pollLiveSessionAttendees("
+        )[0]
+        self.assertIn("renderAttendanceList()", ticks)
+        self.assertIn("setNTeams(currentTeamCount())", ticks)
+        shell = js.split("function paintTeacherShell()")[1].split(
+            "function paintHeaderDate()"
+        )[0]
+        self.assertIn("renderAttendanceList()", shell)
 
     def test_beat4_rename_is_portaled_modal(self) -> None:
         """Beat 4: Rename is a body-portaled dialog, not an OptionsStrip popover."""
@@ -729,6 +819,33 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('ts.stage || "") === "teams" && isJoinMindsOnPrompt', student)
         self.assertIn("hideFeedbackPanel()", student)
         self.assertIn("const seqChanged = lastStateSeq !== prevSeq", student)
+
+    def test_beat25_teams_shared_spark_question_frame(self) -> None:
+        """Beat 25: TEAMS Question frame hosts one shared spark, not Meet/Minds-On."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="teams-spark-card"', html)
+        self.assertIn('id="teams-spark-prompt"', html)
+        self.assertIn('id="teams-spark-key"', html)
+        self.assertIn('id="teams-spark-reveal"', html)
+        q_html = html.split('id="question-artifact-zone"')[1].split(
+            'id="results-strip"'
+        )[0]
+        self.assertIn('id="teams-spark-card"', q_html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function paintTeamsSparkCard(", js)
+        self.assertIn('teacherState.stage === "teams"', js)
+        self.assertIn("lastTeamsSpark", js)
+        self.assertIn("payload?.teams_spark", js)
+        self.assertIn('currentMcPromptRef()', js)
+        self.assertIn('stage || "") === "teams") return "teams-spark"', js)
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("function isTeamsSparkPrompt(", student)
+        self.assertIn("cue.teams_spark", student)
+        self.assertIn("student_feedback_after_reveal", student)
+        self.assertIn("isSpark", student)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .teams-spark-card {", css)
 
     def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
         """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""
@@ -1173,7 +1290,7 @@ class LiveShellTests(unittest.TestCase):
         return dict(row) if row else None
 
     def test_beat19_end_class_persists_quit_discards(self) -> None:
-        """Beat 19: End Class saves A&P; Quit writes nothing; both clear SID."""
+        """Beat 24: Save and End Class keeps A&P; Quit keeps attendance only."""
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
         ).get_data(as_text=True)
@@ -1219,11 +1336,11 @@ class LiveShellTests(unittest.TestCase):
                     (self.class_id,),
                 ).fetchone()["n"]
             )
-        self.assertEqual(ended_after, ended_before)
+        self.assertEqual(ended_after, ended_before + 1)
         after_quit = self._ended_score_row(student_id)
         self.assertIsNotNone(after_quit)
         self.assertEqual(int(after_quit["present"]), 1)
-        self.assertEqual(int(after_quit["points"]), 1)
+        self.assertEqual(int(after_quit["points"]), 0)
 
 
 if __name__ == "__main__":

@@ -178,9 +178,13 @@ let teacherState = {
   state_seq: 0,
   student_frames: { questions: true, media: false, canvas: false },
   unlocks: { media: false, canvas: false },
+  canvas_align: "student",
   live_slot: "C1",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
+
+/** @type {any} */
+let lastTeamsSpark = null;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
@@ -314,9 +318,8 @@ function paintOptionCard() {
   const rounds = $("round-slide-settings");
   lockClassListPane();
   if (card) {
-    const showStrip = stage !== "join" && stage !== "meet";
-    card.hidden = !showStrip;
-    if (showStrip) card.removeAttribute("hidden");
+    card.hidden = false;
+    card.removeAttribute("hidden");
   }
   if (teams) teams.hidden = stage !== "teams";
   if (stage !== "teams") hideTeamsAssignError();
@@ -339,6 +342,11 @@ function paintOptionCard() {
   const unlocks = teacherState.unlocks || {};
   if (unlockMedia instanceof HTMLInputElement) unlockMedia.checked = Boolean(unlocks.media);
   if (unlockCanvas instanceof HTMLInputElement) unlockCanvas.checked = Boolean(unlocks.canvas);
+  const align = $("live-canvas-align");
+  if (align instanceof HTMLSelectElement) {
+    const mode = String(teacherState.canvas_align || "student");
+    align.value = mode === "teacher" || mode === "team" ? mode : "student";
+  }
 }
 
 /**
@@ -506,6 +514,7 @@ function applyMcTally(tally) {
  * @returns {string}
  */
 function currentMcPromptRef() {
+  if (String(teacherState.stage || "") === "teams") return "teams-spark";
   return String(lastMcTally?.prompt_ref || teacherState.prompt_ref || "minds_on");
 }
 
@@ -516,12 +525,13 @@ function currentMcPromptRef() {
  */
 function patchMcReveal(reveal) {
   const joinShare = Boolean(reveal) && String(teacherState.stage || "") === "join";
+  const sparkShare = Boolean(reveal) && String(teacherState.stage || "") === "teams";
   const alreadyClosed = Boolean(teacherState.mc_ui && teacherState.mc_ui.poll_closed);
   patchTeacherState({
     mc_ui: {
       prompt_ref: currentMcPromptRef(),
       reveal: Boolean(reveal),
-      reveal_to_students: joinShare,
+      reveal_to_students: joinShare || sparkShare,
       poll_closed: joinShare || alreadyClosed,
     },
   });
@@ -539,6 +549,7 @@ function paintTeacherShell() {
   paintRightFlag();
   paintMeetChainChrome();
   paintLiveSlotPicks();
+  renderAttendanceList();
 }
 
 /**
@@ -590,6 +601,50 @@ function paintLiveSlotPicks() {
   });
 }
 
+/**
+ * Paint the TEAMS shared spark on the Question frame (teacher + soft key).
+ * @param {any} [card]
+ */
+function paintTeamsSparkCard(card) {
+  const root = $("teams-spark-card");
+  const promptEl = $("teams-spark-prompt");
+  const keyEl = $("teams-spark-key");
+  const choicesEl = $("teams-spark-choices");
+  const revealBtn = $("teams-spark-reveal");
+  const status = $("question-artifact-status");
+  const flag = $("question-artifact-flag");
+  if (!root || !promptEl) return;
+  const row = card && typeof card === "object" ? card : lastTeamsSpark || {};
+  promptEl.textContent = String(
+    row.prompt || "A farmer has 17 sheep. All but 9 run away. How many are left?"
+  );
+  const choices = Array.isArray(row.choices) && row.choices.length ? row.choices : ["8", "9", "17", "0"];
+  if (choicesEl) choicesEl.textContent = choices.join(" · ");
+  if (keyEl) {
+    keyEl.hidden = false;
+    keyEl.textContent = `Soft key · ${row.teacher_key || "9 — “all but 9” means 9 remain."}`;
+  }
+  root.hidden = false;
+  if (status) status.textContent = "Shared spark — talk, no gradebook.";
+  if (flag) {
+    flag.hidden = false;
+    flag.textContent = "TEAMS · Shared spark";
+  }
+  const revealed = Boolean(row.reveal);
+  if (revealBtn) {
+    revealBtn.hidden = revealed;
+    revealBtn.textContent = "Share the stay-line";
+  }
+}
+
+/**
+ * Hide the TEAMS spark card when Question is on another ride.
+ */
+function hideTeamsSparkCard() {
+  const root = $("teams-spark-card");
+  if (root) root.hidden = true;
+}
+
 function paintQuestionArtifact(media) {
   paintLiveSlotPicks();
   const status = $("question-artifact-status");
@@ -604,6 +659,7 @@ function paintQuestionArtifact(media) {
     teacherState.stage === "meet" ||
     String(overlayState?.game?.overlay_phase || "") === "meet_teams";
   if (meetOn && chain && Array.isArray(chain.chain) && chain.chain.length) {
+    hideTeamsSparkCard();
     const step = String(chain.chain[chain.index] || "A");
     const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
     status.textContent = "Meet QH chain is live on the existing prompt channel. Questions tab only.";
@@ -613,12 +669,19 @@ function paintQuestionArtifact(media) {
     return;
   }
   if (cons) {
+    hideTeamsSparkCard();
     status.textContent = "CONS / QH ride uses the existing active-media + prompt channel.";
     flag.hidden = false;
     flag.textContent = toast ? `${cons} · ${toast}` : cons;
     paintMeetChainChrome();
     return;
   }
+  if (teacherState.stage === "teams") {
+    paintTeamsSparkCard(lastTeamsSpark);
+    paintMeetChainChrome();
+    return;
+  }
+  hideTeamsSparkCard();
   status.textContent = "No live prompt. Meet QH chain and CONS/QH use the existing session channels.";
   flag.hidden = true;
   flag.textContent = "";
@@ -958,7 +1021,9 @@ function syncLiveSessionPolling() {
 }
 
 /**
- * Tick join-only roster for students currently in the live session.
+ * Sync ClassList to students currently in the live session (join and leave).
+ * Same presence channel updates TEAMS max (= presentCount) and the
+ * division-strength meter on JOIN and TEAMS. No second poll.
  * After scoring starts, refresh game state so late joiners appear on teams.
  * @param {Iterable<number>} ids
  * @param {Array<{student_id?:number,mood?:string}>} [attendees]
@@ -966,7 +1031,7 @@ function syncLiveSessionPolling() {
 async function applySessionPresentTicks(ids, attendees) {
   const next = new Set([...ids].map(Number).filter((n) => Number.isFinite(n) && n > 0));
   const prevSize = sessionPresentIds.size;
-  for (const id of next) sessionPresentIds.add(id);
+  sessionPresentIds = next;
   if (Array.isArray(attendees) && overlayState?.students) {
     const moodById = new Map(
       attendees
@@ -980,6 +1045,7 @@ async function applySessionPresentTicks(ids, attendees) {
   }
   renderAttendanceList();
   updateStepSummaries();
+  setNTeams(currentTeamCount());
 
   if (isScoringLive() && next.size > prevSize) {
     try {
@@ -1023,6 +1089,7 @@ async function pollLiveSessionAttendees() {
       present.map((row) => Number(row.student_id)),
       present
     );
+    lastTeamsSpark = payload?.teams_spark || null;
     const media = payload?.active_media || payload?.session?.active_media;
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
@@ -1713,6 +1780,22 @@ function classListGroupsByTeam() {
 }
 
 /**
+ * ClassList rows for the current stage.
+ * TEAMS is present-only (live heartbeat / sessionPresentIds). JOIN keeps
+ * the full roster. Guests stay visible because they are already present.
+ * @param {any[]} students
+ * @returns {any[]}
+ */
+function classListVisibleStudents(students) {
+  const rows = Array.isArray(students) ? students : [];
+  if (String(teacherState.stage || "").toLowerCase() !== "teams") return rows;
+  return rows.filter((stu) => {
+    if (stu && stu.guest) return true;
+    return sessionPresentIds.has(Number(stu.id));
+  });
+}
+
+/**
  * Roster order for ClassList: team groups after assign, else one flat list.
  * @param {any[]} students
  * @returns {{key: string, name: string, color: string, students: any[]}[]}
@@ -1771,6 +1854,7 @@ function appendAttendanceStudentRow(list, student, checked) {
 /**
  * Draw join-only attendance rows (display-only; no click toggles).
  * After TEAMS assign with count > 1, rows regroup under team-name separators.
+ * Beat 22b: TEAMS hides absent / not-yet-joined roster names.
  */
 function renderAttendanceList() {
   const checked = new Set(
@@ -1784,8 +1868,10 @@ function renderAttendanceList() {
   if (!list) return;
   list.innerHTML = "";
   const grouped = classListGroupsByTeam();
+  const teamsPresentOnly = String(teacherState.stage || "").toLowerCase() === "teams";
   list.dataset.grouped = grouped ? "1" : "0";
-  for (const group of classListRosterOrder(overlayState?.students || [])) {
+  list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
+  for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
     if (grouped && group.name) {
       const sep = document.createElement("div");
       sep.className = "ap-att-team-sep";
@@ -3943,6 +4029,13 @@ $("mc-reveal-btn")?.addEventListener("click", () => {
 $("mc-hide-reveal-btn")?.addEventListener("click", () => {
   patchMcReveal(false);
 });
+$("teams-spark-reveal")?.addEventListener("click", () => {
+  if (lastTeamsSpark && typeof lastTeamsSpark === "object") {
+    lastTeamsSpark = { ...lastTeamsSpark, reveal: true };
+  }
+  patchMcReveal(true);
+  paintTeamsSparkCard(lastTeamsSpark);
+});
 
 $("live-stage-prev")?.addEventListener("click", () => {
   patchTeacherState({ advance: "prev" });
@@ -4044,6 +4137,12 @@ $("live-unlock-canvas")?.addEventListener("change", () => {
   if (!(box instanceof HTMLInputElement)) return;
   patchTeacherState({ unlocks: { canvas: box.checked } });
 });
+$("live-canvas-align")?.addEventListener("change", () => {
+  const el = $("live-canvas-align");
+  if (!(el instanceof HTMLSelectElement)) return;
+  const mode = el.value === "teacher" || el.value === "team" ? el.value : "student";
+  patchTeacherState({ canvas_align: mode });
+});
 
 document.querySelectorAll("input[name='live-team-keep']").forEach((input) => {
   input.addEventListener("change", () => {
@@ -4086,7 +4185,7 @@ document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
 });
 
 /**
- * Ephemeral whiteboard: draw in memory only. No persist / CRDT / save.
+ * Ephemeral whiteboard: draw in memory; Frozen/team modes post a thin cursor.
  */
 function bindEphemeralCanvas() {
   const canvas = $("live-canvas-stub");
@@ -4094,6 +4193,7 @@ function bindEphemeralCanvas() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   let drawing = false;
+  let strokeId = "";
   const point = (event) => {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -4101,12 +4201,35 @@ function bindEphemeralCanvas() {
       y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     };
   };
+  const normalized = (p) => ({
+    x: p.x / canvas.width,
+    y: p.y / canvas.height,
+  });
+  const postPresence = (p, ended) => {
+    const sessionId = liveSessionId || readLiveSessionId();
+    if (!sessionId) return;
+    const align = String(teacherState.canvas_align || "student");
+    if (align === "student") return;
+    const norm = normalized(p);
+    api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+      method: "POST",
+      body: JSON.stringify({
+        x: norm.x,
+        y: norm.y,
+        point: [norm.x, norm.y],
+        stroke_id: strokeId || undefined,
+        ended: Boolean(ended),
+      }),
+    }).catch(() => {});
+  };
   canvas.addEventListener("pointerdown", (event) => {
     drawing = true;
+    strokeId = `t-${Date.now()}`;
     const p = point(event);
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
     canvas.setPointerCapture(event.pointerId);
+    postPresence(p, false);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!drawing) return;
@@ -4115,9 +4238,12 @@ function bindEphemeralCanvas() {
     ctx.strokeStyle = "#12202e";
     ctx.lineWidth = 2;
     ctx.stroke();
+    postPresence(p, false);
   });
-  canvas.addEventListener("pointerup", () => {
+  canvas.addEventListener("pointerup", (event) => {
+    if (drawing) postPresence(point(event), true);
     drawing = false;
+    strokeId = "";
   });
 }
 

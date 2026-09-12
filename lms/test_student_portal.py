@@ -975,6 +975,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
         self.assertIn('["cue.meet_open", "cue.meet_clear"]', js)
+        self.assertIn("cue.teams_spark", js)
         self.assertNotIn("cue.meet_a", js)
         self.assertNotIn("cue.meet_b", js)
         self.assertNotIn("carousel", js.lower())

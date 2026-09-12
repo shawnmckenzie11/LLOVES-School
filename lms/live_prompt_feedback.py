@@ -15,6 +15,7 @@ TEACHER_ONLY_FIELDS = (
     "key",
     "cement",
     "soft_key",
+    "teacher_key",
     "by_choice",
     "on_submit",
     "on_weak",

@@ -465,7 +465,8 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Live Class in Progress", live_home)
         self.assertNotIn("Run Live Class", live_home)
         self.assertIn(f"/staff/class/{class_id}/end-live", live_home)
-        self.assertIn(">End Live Class<", live_home)
+        self.assertIn(">Save and End Class<", live_home)
+        self.assertNotIn(">End Live Class<", live_home)
         self.assertNotIn(">End<", live_home)
         self.assertIn("Save attendance & participation, then end?", live_home)
         self.assertIn("return confirm(this.dataset.confirm)", live_home)
@@ -486,7 +487,7 @@ class RosterTests(unittest.TestCase):
         """In Progress cards always offer End targeting the active class_id.
 
         When the live session belongs to class A, a card for class B still
-        shows End Live Class and posts ``/staff/class/{A}/end-live``. That
+        shows Save and End Class and posts ``/staff/class/{A}/end-live``. That
         remains true after A is archived off the dashboard.
         """
         first = self.client.post(
@@ -519,7 +520,7 @@ class RosterTests(unittest.TestCase):
         self.client.post(f"/staff/class/{class_a}/run-live")
         both_cards = self.client.get("/staff").get_data(as_text=True)
         self.assertEqual(both_cards.count(">Live Class in Progress<"), 2)
-        self.assertEqual(both_cards.count(">End Live Class<"), 2)
+        self.assertEqual(both_cards.count(">Save and End Class<"), 2)
         self.assertEqual(both_cards.count(f"/staff/class/{class_a}/end-live"), 2)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", both_cards)
         self.assertIn("course-action-live-row", both_cards)
@@ -530,11 +531,11 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn(f"/staff/class/{class_a}?", orphan_card)
         self.assertNotIn(f"/staff/class/{class_a}\"", orphan_card)
         self.assertIn(">Live Class in Progress<", orphan_card)
-        self.assertIn(">End Live Class<", orphan_card)
+        self.assertIn(">Save and End Class<", orphan_card)
         self.assertIn(f"/staff/class/{class_a}/end-live", orphan_card)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", orphan_card)
         self.assertEqual(orphan_card.count(">Live Class in Progress<"), 1)
-        self.assertEqual(orphan_card.count(">End Live Class<"), 1)
+        self.assertEqual(orphan_card.count(">Save and End Class<"), 1)
 
         ended = self.client.post(
             f"/staff/class/{class_a}/end-live",

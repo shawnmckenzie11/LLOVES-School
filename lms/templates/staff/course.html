@@ -137,10 +137,10 @@
           <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
                 data-confirm="Save attendance & participation, then end?"
                 onsubmit="return confirm(this.dataset.confirm);">
-            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Class">End Class</button>
+            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="Save and End Class">Save and End Class</button>
           </form>
           <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
-                data-confirm="End without saving?"
+                data-confirm="Save attendance and end without participation?"
                 onsubmit="return confirm(this.dataset.confirm);">
             <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
           </form>
@@ -155,6 +155,23 @@
       </header>
 
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
+        <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
+          <label class="live-unlock-toggle" for="live-unlock-media">
+            <input type="checkbox" id="live-unlock-media">
+            <span>Media</span>
+          </label>
+          <label class="live-unlock-toggle" for="live-unlock-canvas">
+            <input type="checkbox" id="live-unlock-canvas">
+            <span>Canvas</span>
+          </label>
+          <label class="live-canvas-align" for="live-canvas-align">
+            <select id="live-canvas-align" aria-label="Canvas alignment">
+              <option value="teacher">Frozen to teacher</option>
+              <option value="student" selected>Unique per student</option>
+              <option value="team">Shared within group</option>
+            </select>
+          </label>
+        </div>
         <div id="teams-option-card" class="live-option-card-body live-teams-strip" hidden>
           <div class="stepper ap-teams-stepper live-teams-count" role="group" aria-label="Team count">
             <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
@@ -277,14 +294,6 @@
               <span class="live-content-chip" draggable="true" data-content-id="canvas_slides">canvas_slides</span>
             </div>
           </div>
-          <label class="live-unlock-toggle" for="live-unlock-media">
-            <input type="checkbox" id="live-unlock-media">
-            <span>Unlock media</span>
-          </label>
-          <label class="live-unlock-toggle" for="live-unlock-canvas">
-            <input type="checkbox" id="live-unlock-canvas">
-            <span>Unlock canvas</span>
-          </label>
         </div>
       </section>
 
@@ -366,6 +375,13 @@
                 </div>
                 <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
                 <p class="live-question-flag" id="question-artifact-flag" hidden></p>
+                <div id="teams-spark-card" class="teams-spark-card" hidden>
+                  <p class="teams-spark-label">Shared spark</p>
+                  <p class="teams-spark-prompt" id="teams-spark-prompt"></p>
+                  <p class="teams-spark-choices" id="teams-spark-choices"></p>
+                  <p class="teams-spark-key" id="teams-spark-key" hidden></p>
+                  <button type="button" id="teams-spark-reveal">Share the stay-line</button>
+                </div>
                 <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
                   <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
                   <p class="hint compact" id="meet-soft-counts"></p>
