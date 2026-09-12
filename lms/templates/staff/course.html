@@ -182,13 +182,6 @@
               <div id="ap-manual-list" class="manual-list"></div>
               <button type="button" id="ap-manual-done">Done</button>
             </div>
-            <div id="ap-panel-names" class="live-teams-pop" hidden>
-              <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
-              <span id="ap-names-summary" class="live-legacy-control"></span>
-              <div id="ap-name-list" class="ap-name-list-compact"></div>
-              <button type="button" id="ap-teams-rename-done">Done</button>
-              <button type="button" class="live-legacy-control" id="ap-names-back" data-track-nav="prev">← Prev</button>
-            </div>
             <section id="ap-panel-teams" class="ap-panel live-legacy-control" data-step="teams" data-team-flow></section>
             <div class="scoreboard-help" id="ap-scoreboard-preview-wrap" hidden>
               <div class="scoreboard-preview" aria-hidden="true">
@@ -407,8 +400,18 @@
           </section>
         </main>
       </div>
-      <script type="module" src="/static/staff_ap.js"></script>
     </div>
+    <dialog id="ap-teams-rename-dialog" class="live-rename-dialog" aria-labelledby="ap-teams-rename-title">
+      <div class="live-rename-dialog-card" id="ap-panel-names">
+        <h2 class="live-pane-title" id="ap-teams-rename-title">Rename teams</h2>
+        <p class="hint compact" id="ap-names-hint">Optional: Update team names below</p>
+        <span id="ap-names-summary" class="live-legacy-control"></span>
+        <div id="ap-name-list" class="ap-name-list-compact"></div>
+        <button type="button" id="ap-teams-rename-done">Done</button>
+        <button type="button" class="live-legacy-control" id="ap-names-back" data-track-nav="prev">← Prev</button>
+      </div>
+    </dialog>
+    <script type="module" src="/static/staff_ap.js"></script>
     {% elif tab == 'lesson-slides' %}
     <div class="card lesson-slides-wizard" id="lesson-slides-root" data-class-id="{{ cls.id }}">
       <h2>Lesson Slides</h2>

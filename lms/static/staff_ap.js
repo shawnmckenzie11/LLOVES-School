@@ -85,6 +85,8 @@ let draftRound = { kind: "open", minutes: 20, title: "" };
 let nextDraftRound = { kind: "open", minutes: 10, title: "" };
 let setupRoundNumber = 1;
 let mediaPushTimer = 0;
+/** Element that opened the rename dialog; focus returns here on close. */
+let teamsRenameFocusEl = null;
 
 const SEED_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html";
 const SEED_MEDIA_TITLE =
@@ -2068,14 +2070,92 @@ function paintTeamsStripEnabled() {
 }
 
 /**
- * Open one Teams popup (rename or manual). Never full-bleed under the list.
+ * Rename dialog element, or null when the live tab is not mounted.
+ * @returns {HTMLDialogElement|null}
+ */
+function teamsRenameDialog() {
+  const el = $("ap-teams-rename-dialog");
+  return el instanceof HTMLDialogElement ? el : null;
+}
+
+/**
+ * Portal the rename dialog onto ``document.body`` so OptionsStrip overflow cannot clip it.
+ * @returns {HTMLDialogElement|null}
+ */
+function mountTeamsRenameDialog() {
+  const dialog = teamsRenameDialog();
+  if (!dialog) return null;
+  if (dialog.parentElement !== document.body) {
+    document.body.appendChild(dialog);
+  }
+  if (dialog.dataset.wired !== "1") {
+    dialog.dataset.wired = "1";
+    dialog.addEventListener("cancel", () => {
+      // Escape: native dialog closes; discard unsaved names.
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        event.currentTarget.close();
+      }
+    });
+    dialog.addEventListener("close", () => {
+      restoreTeamsRenameFocus();
+    });
+  }
+  return dialog;
+}
+
+/**
+ * Return focus to the Rename control (or the opener) after the dialog closes.
+ */
+function restoreTeamsRenameFocus() {
+  const back = teamsRenameFocusEl;
+  teamsRenameFocusEl = null;
+  const target =
+    back instanceof HTMLElement && document.contains(back) ? back : $("ap-teams-rename");
+  if (target instanceof HTMLElement) target.focus();
+}
+
+/**
+ * Open the portaled rename modal and move focus into the first name field.
+ */
+function openTeamsRenameModal() {
+  const dialog = mountTeamsRenameDialog();
+  if (!dialog || typeof dialog.showModal !== "function") return;
+  closeTeamsPops({ keepRename: true });
+  const active = document.activeElement;
+  teamsRenameFocusEl = active instanceof HTMLElement ? active : $("ap-teams-rename");
+  if (!dialog.open) dialog.showModal();
+  const first = dialog.querySelector("#ap-name-list input");
+  if (first instanceof HTMLElement) first.focus();
+}
+
+/**
+ * Close the rename modal. Done saves first; Escape / backdrop discard.
+ * @param {{save?: boolean}} [opts]
+ * @returns {Promise<void>}
+ */
+async function closeTeamsRenameModal(opts = {}) {
+  if (opts.save) {
+    await saveTeamNamesFromPop();
+  }
+  const dialog = teamsRenameDialog();
+  if (dialog?.open) dialog.close();
+}
+
+/**
+ * Open the Manual assign popup. Rename uses ``openTeamsRenameModal`` instead.
  * @param {string} id
  */
 function openTeamsPop(id) {
+  if (id === "ap-panel-names") {
+    openTeamsRenameModal();
+    return;
+  }
+  const dialog = teamsRenameDialog();
+  if (dialog?.open) dialog.close();
   const pane = $("team-assign-pane");
-  const anchor =
-    $(id === "ap-panel-names" ? "ap-teams-rename" : "ap-assign-manual") ||
-    $("live-option-card");
+  const anchor = $("ap-assign-manual") || $("live-option-card");
   if (pane) {
     if (anchor) {
       const box = anchor.getBoundingClientRect();
@@ -2093,24 +2173,26 @@ function openTeamsPop(id) {
     pane.hidden = false;
     pane.removeAttribute("hidden");
   }
-  for (const popId of ["ap-manual-assign", "ap-panel-names"]) {
-    const el = $(popId);
-    if (!(el instanceof HTMLElement)) continue;
-    el.hidden = popId !== id;
-    if (popId === id) el.removeAttribute("hidden");
+  const el = $("ap-manual-assign");
+  if (el instanceof HTMLElement) {
+    el.hidden = false;
+    el.removeAttribute("hidden");
   }
 }
 
 /**
- * Hide rename + manual popups and their host.
+ * Hide the Manual popup and discard an open rename modal.
+ * @param {{keepRename?: boolean}} [opts]
  */
-function closeTeamsPops() {
-  for (const popId of ["ap-manual-assign", "ap-panel-names"]) {
-    const el = $(popId);
-    if (el) el.hidden = true;
-  }
+function closeTeamsPops(opts = {}) {
+  const el = $("ap-manual-assign");
+  if (el) el.hidden = true;
   const pane = $("team-assign-pane");
   if (pane) pane.hidden = true;
+  if (!opts.keepRename) {
+    const dialog = teamsRenameDialog();
+    if (dialog?.open) dialog.close();
+  }
 }
 
 /**
@@ -2468,7 +2550,7 @@ function wireDefaultTeamNameClear(input) {
 }
 
 /**
- * Persist rename fields without leaving TEAMS.
+ * Persist rename fields and refresh team labels without remounting shell chrome.
  * @returns {Promise<void>}
  */
 async function saveTeamNamesFromPop() {
@@ -2514,16 +2596,14 @@ $("ap-teams-rename")?.addEventListener("click", async () => {
     } else {
       renderDraftNamesPanel();
     }
-    openTeamsPop("ap-panel-names");
+    openTeamsRenameModal();
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
 });
 
 $("ap-teams-rename-done")?.addEventListener("click", () => {
-  saveTeamNamesFromPop()
-    .then(() => closeTeamsPops())
-    .catch((err) => showError("#ap-overlay-error", err));
+  closeTeamsRenameModal({ save: true }).catch((err) => showError("#ap-overlay-error", err));
 });
 
 $("ap-start-game")?.addEventListener("click", async () => {
@@ -3304,7 +3384,7 @@ async function resumeLiveClassIfNeeded() {
         showPanel("teams");
         if (status === "names") {
           renderNamesPanel();
-          openTeamsPop("ap-panel-names");
+          openTeamsRenameModal();
         }
       } else if (status === "rounds") {
         selectTrackMode("team");
@@ -3634,6 +3714,7 @@ if (localStorage.getItem(scoreboardKey) === null) {
 setMeetMinutes(3);
 
 if (root?.dataset.apView === "live") {
+  mountTeamsRenameDialog();
   bindActiveMediaControls();
   bindEphemeralCanvas();
   paintTeacherShell();

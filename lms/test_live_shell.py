@@ -465,6 +465,63 @@ class LiveShellTests(unittest.TestCase):
             r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
         )
 
+    def test_beat4_rename_is_portaled_modal(self) -> None:
+        """Beat 4: Rename is a body-portaled dialog, not an OptionsStrip popover."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="ap-teams-rename-dialog"', html)
+        self.assertIn('id="ap-panel-names"', html)
+        self.assertIn('id="ap-name-list"', html)
+        self.assertIn('id="ap-teams-rename-done"', html)
+        self.assertIn('id="ap-teams-rename"', html)
+        self.assertGreater(html.index('id="ap-teams-rename-dialog"'), html.index('id="ap-root"'))
+        self.assertGreater(html.index('id="ap-teams-rename-dialog"'), html.index('id="live-active-content"'))
+        self.assertGreater(html.index('id="ap-panel-names"'), html.index('id="ap-teams-rename-dialog"'))
+        strip_html = html.split('id="live-option-card"')[1].split('class="live-shell-body"')[0]
+        self.assertIn('id="ap-teams-rename"', strip_html)
+        self.assertNotIn('id="ap-teams-rename-dialog"', strip_html)
+        self.assertNotIn('id="ap-panel-names"', strip_html)
+        self.assertNotIn('id="ap-name-list"', strip_html)
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertNotIn('id="ap-teams-rename-dialog"', left_html)
+        self.assertNotIn('id="ap-panel-names"', left_html)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-rename-dialog[open]", css)
+        self.assertIn("body.staff-shell .live-rename-dialog::backdrop", css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn(
+            "body.staff-shell .live-options-strip {\n  position: relative;\n  z-index: 0;",
+            css,
+        )
+        self.assertNotIn("body.staff-shell .live-options-strip {\n  position: absolute;", css)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function mountTeamsRenameDialog()", js)
+        self.assertIn("document.body.appendChild(dialog)", js)
+        self.assertIn("function openTeamsRenameModal()", js)
+        self.assertIn("function closeTeamsRenameModal(", js)
+        self.assertIn("function restoreTeamsRenameFocus()", js)
+        self.assertIn("dialog.showModal()", js)
+        self.assertIn('dialog.addEventListener("cancel"', js)
+        self.assertIn("event.target === event.currentTarget", js)
+        self.assertIn("mountTeamsRenameDialog();", js)
+        self.assertIn("openTeamsRenameModal()", js)
+        rename_click = js.split('$("ap-teams-rename")?.addEventListener("click"')[1].split(
+            '$("ap-teams-rename-done")'
+        )[0]
+        self.assertIn("openTeamsRenameModal()", rename_click)
+        self.assertNotIn("openTeamsPop", rename_click)
+        done_click = js.split('$("ap-teams-rename-done")?.addEventListener("click"')[1].split(";")[0]
+        self.assertIn("closeTeamsRenameModal({ save: true })", done_click)
+        save = js.split("async function saveTeamNamesFromPop()")[1].split(
+            "function renderDraftNamesPanel"
+        )[0]
+        self.assertIn("renderAttendanceList()", save)
+        self.assertIn("updateStepSummaries()", save)
+        self.assertNotIn("paintTeacherShell", save)
+        self.assertNotIn("innerHTML", save)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
+
 
 if __name__ == "__main__":
     unittest.main()
