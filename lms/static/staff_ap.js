@@ -233,6 +233,11 @@ function adoptTeacherState(next) {
   } else {
     delete teacherState.mc_ui;
   }
+  const joinTally = lastMcTally && String(lastMcTally.prompt_ref || "") === "minds_on";
+  if (teacherState.stage === "teams" || (joinTally && teacherState.prompt_ref !== "minds_on")) {
+    lastMcTally = null;
+    lastMcBindKey = "";
+  }
   if (next.text_ride && typeof next.text_ride === "object") {
     teacherState.text_ride = { ...next.text_ride };
   }
@@ -245,6 +250,7 @@ function adoptTeacherState(next) {
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
+    paintResultsStrip();
     return;
   }
   paintMcResultsSlot();
@@ -481,6 +487,15 @@ function paintMcResultsSlot() {
  * @param {any} tally
  */
 function applyMcTally(tally) {
+  const unbound = !teacherState.prompt_ref || teacherState.stage === "teams";
+  const ref = tally && typeof tally === "object" ? String(tally.prompt_ref || "") : "";
+  if (unbound && (!ref || ref === "minds_on")) {
+    lastMcTally = null;
+    lastMcBindKey = "";
+    paintResultsStrip();
+    syncLiveSessionPolling();
+    return;
+  }
   lastMcTally = tally && typeof tally === "object" && tally.prompt_ref ? tally : null;
   paintResultsStrip();
   syncLiveSessionPolling();

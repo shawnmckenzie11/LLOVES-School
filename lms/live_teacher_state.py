@@ -287,6 +287,23 @@ def public_mc_ui(raw: Any, *, prompt_ref: str | None = None) -> dict[str, Any] |
     }
 
 
+def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
+    """Null JOIN Minds-On refs and reveal chrome. Questions stay mounted unbound.
+
+    TEAMS has no Meet / Challenge prompt yet. The Question slot stays
+    visible and empty until a later bind. Does not fire a Wonder cue.
+
+    Args:
+        state: In-progress public teacher state (mutated).
+
+    Returns:
+        The same ``state`` dict.
+    """
+    state["prompt_ref"] = None
+    state.pop("mc_ui", None)
+    return state
+
+
 def bind_meet_student_projection(state: dict[str, Any]) -> dict[str, Any]:
     """Bind Meet ``prompt_ref`` + ``meet_chain`` onto the student Question frame.
 
@@ -321,8 +338,9 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 
     Teacher Active Content stays mounted; this only swaps thin refs and
     the student projection map. PLAY reveals all three frames locked.
-    MEET binds ``prompt_ref`` + Question-only frames so the chain is
-    not teacher-only.
+    TEAMS nulls JOIN Minds-On ``prompt_ref`` / ``mc_ui`` (Question
+    stays visible and unbound). MEET binds ``prompt_ref`` + Question-only
+    frames so the chain is not teacher-only.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -340,7 +358,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
             state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
             state["prompt_ref"] = MINDS_ON_PROMPT_REF
         elif name == "teams":
-            state["prompt_ref"] = MINDS_ON_PROMPT_REF
+            clear_join_prompt_bindings(state)
         elif name == "meet":
             bind_meet_student_projection(state)
     return state
@@ -419,6 +437,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["prompt_ref"] = _clean_ref(prompt)
     elif base["stage"] == "join":
         base["prompt_ref"] = MINDS_ON_PROMPT_REF
+    elif base["stage"] == "teams":
+        base["prompt_ref"] = None
     base["canvas_ephemeral"] = True
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():
@@ -639,7 +659,7 @@ def apply_teacher_state_update(
         existing = base.get("mc_ui")
         if isinstance(existing, dict):
             current_ref = _clean_ref(base.get("prompt_ref"))
-            if current_ref and existing.get("prompt_ref") != current_ref:
+            if not current_ref or existing.get("prompt_ref") != current_ref:
                 base.pop("mc_ui", None)
     base["canvas_ephemeral"] = True
     base["updated_at"] = _now_iso()

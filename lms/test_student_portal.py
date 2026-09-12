@@ -970,6 +970,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("studentProjection", js)
         self.assertIn("unmountStudentMedia", js)
         self.assertIn("lastStateSeq", js)
+        self.assertIn("function isJoinMindsOnPrompt(", js)
+        self.assertIn('ts.stage || "") === "teams" && isJoinMindsOnPrompt', js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
         self.assertIn('["cue.meet_open", "cue.meet_clear"]', js)

@@ -5939,10 +5939,11 @@ class SchoolDB(LovesDB):
     def _session_left_waiting_room(self, session_id: int) -> bool:
         """True when scoring, MEET/ROUND/PLAY, or Minds-On has ended.
 
-        JOIN / TEAMS keep waiting-room Minds-On even when the teacher
-        preview has a local Real-slice blob. Meet Teams and later stages
-        leave the waiting room. Team Challenge / scoring still write a
-        Minds-On sentinel so lazy-seed cannot bring it back.
+        JOIN keeps waiting-room Minds-On even when the teacher preview
+        has a local Real-slice blob. TEAMS / Meet / later stages leave
+        the waiting room (JOIN→TEAMS closes the Minds-On poll). Team
+        Challenge / scoring still write a Minds-On sentinel so lazy-seed
+        cannot bring it back.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -5957,7 +5958,7 @@ class SchoolDB(LovesDB):
             return True
         stored = session_row.get("teacher_state")
         teacher = public_teacher_state(stored if isinstance(stored, dict) else None)
-        if str(teacher.get("stage") or "") in {"meet", "round", "play"}:
+        if str(teacher.get("stage") or "") in {"teams", "meet", "round", "play"}:
             return True
         frames = teacher.get("student_frames") or {}
         if frames.get("media") or frames.get("canvas"):
@@ -6464,7 +6465,8 @@ class SchoolDB(LovesDB):
         Source-agnostic: JOIN Minds-On, MEET soft MC, CONS, and any other
         ``kind=mc`` ride share this shape. Meet tallies ephemeral chain
         picks (no gradebook). Seeds waiting-room Minds-On so JOIN staff
-        polls see the same prompt students get.
+        polls see the same prompt students get. TEAMS has no JOIN
+        prompt — tally is empty until Meet / CONS / ROUND bind.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6477,6 +6479,9 @@ class SchoolDB(LovesDB):
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
             teacher = None
+        stage = str((teacher or {}).get("stage") or "")
+        if is_minds_on_payload(prompt.get("payload")) and stage != "join":
+            return None
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
         prompt_id = prompt.get("id")
@@ -6545,7 +6550,7 @@ class SchoolDB(LovesDB):
         meet_live = stage == "meet" and meet_state is not None
         if meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
-        else:
+        elif stage != "teams":
             self.ensure_waiting_room_minds_on(session_id)
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
@@ -6555,7 +6560,7 @@ class SchoolDB(LovesDB):
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
-        if is_minds_on_payload(raw_payload) and not waiting_room:
+        if is_minds_on_payload(raw_payload) and (not waiting_room or stage != "join"):
             return empty
         if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
@@ -7038,7 +7043,9 @@ class SchoolDB(LovesDB):
         leaving MEET wipes ephemeral picks and fires ``cue.meet_clear``.
         ``meet_action`` is ``next`` / ``skip_c`` / ``clear``. Optional
         ``assign`` on TEAMS→MEET commits roster teams before the same
-        ``state_seq`` write; count ``< 2`` skips assign.
+        ``state_seq`` write; count ``< 2`` skips assign. JOIN→TEAMS
+        nulls ``prompt_ref``, drops ``mc_ui``, and closes the Minds-On
+        poll (Wonder stays silent).
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7069,6 +7076,9 @@ class SchoolDB(LovesDB):
         payload = apply_teacher_state_update(current, **kwargs)
         new_stage = str(payload.get("stage") or "")
         entering = new_stage == "meet" and prev_stage != "meet"
+        entering_teams = new_stage == "teams" and prev_stage != "teams"
+        if entering_teams:
+            self.clear_waiting_room_minds_on(session_id)
         if assign is not None and entering:
             self._assign_teams_for_meet_advance(session_id, assign)
         leaving = prev_stage == "meet" and new_stage != "meet"
