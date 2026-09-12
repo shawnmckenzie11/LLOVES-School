@@ -3911,6 +3911,7 @@ async function patchTeacherState(body, opts = {}) {
     if (res?.teacher_state) adoptTeacherState(res.teacher_state);
     if (res?.game) {
       overlayState = res.game;
+      applySessionTimerUi(overlayState);
       renderAttendanceList();
     }
     return teacherState;

@@ -3288,6 +3288,35 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
+    def stop_session_timer(self, class_id: int) -> dict[str, Any]:
+        """Clear the session countdown to idle (not pause).
+
+        Teacher Next (beat 21) stops a running or paused clock so the
+        destination stage can apply its own preset or stay idle.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state, or an empty game payload when none exists.
+        """
+        try:
+            game = self._game_row(class_id)
+        except KeyError:
+            return {"ok": True, "game": {}}
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_started_at = NULL,
+                    round_duration_sec = NULL
+                WHERE id = ?
+                """,
+                (int(game["id"]),),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
     def pause_round_timer(self, class_id: int) -> dict[str, Any]:
         """Freeze the active Meet / round countdown at its remaining time.
 

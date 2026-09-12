@@ -7051,6 +7051,38 @@ class SchoolDB(LovesDB):
             }
         return idle
 
+    SESSION_TIMER_STAGE_PRESETS = {"meet": 3, "play": 5}
+
+    def apply_session_timer_on_stage_advance(
+        self, class_id: int, new_stage: str
+    ) -> dict[str, Any] | None:
+        """Stop the running SessionTimer, then start the destination preset.
+
+        MEET presets 3 minutes and PLAY presets 5. JOIN, TEAMS, and
+        ROUND have no preset and stay idle after the stop.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            new_stage: Destination pedagogical stage.
+
+        Returns:
+            Updated game state, or ``None`` when no game exists and
+            the destination has no preset to start.
+        """
+        try:
+            self.game.stop_session_timer(int(class_id))
+        except Exception:  # noqa: BLE001 — missing game is idle
+            pass
+        minutes = self.SESSION_TIMER_STAGE_PRESETS.get(
+            str(new_stage or "").strip().lower()
+        )
+        if minutes:
+            return self.game.start_session_timer(int(class_id), minutes)
+        try:
+            return self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001
+            return None
+
     def live_session_teacher_state_payload(
         self, session_id: int
     ) -> dict[str, Any]:
@@ -7223,6 +7255,11 @@ class SchoolDB(LovesDB):
                 session_id, payload, chain_state=state, fire_open=False
             )
         written = self._write_teacher_state(session_id, payload)
+        advance = str(kwargs.get("advance") or "").strip().lower()
+        if advance == "next" and new_stage and new_stage != prev_stage:
+            self.apply_session_timer_on_stage_advance(
+                int(session_row["class_id"]), new_stage
+            )
         if posted_slot is not None:
             slot = normalize_live_slot(posted_slot)
             if slot in {"C2", "C3"}:

@@ -1038,6 +1038,69 @@ class LiveShellTests(unittest.TestCase):
         self.assertIsNone(paused["ends_at_ms"])
         self.assertGreater(paused["remaining_sec"], 0)
 
+    def test_beat21_next_stops_timer_and_applies_stage_preset(self) -> None:
+        """Beat 21: Next stops a running timer; MEET/PLAY presets; else idle."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="session-timer"', html)
+        self.assertLess(html.index('id="session-timer"'), html.index('id="class-list-pane"'))
+        self.assertNotIn('id="meet-chain-skip-c"', html)
+        self.assertNotIn('id="meet-chain-end"', html)
+        self.assertNotIn("Skip C", html)
+        self.assertNotIn("End Meet", html)
+        patch = js.split("async function patchTeacherState(")[1].split(
+            '$("mc-reveal-btn")'
+        )[0]
+        self.assertIn("applySessionTimerUi(overlayState)", patch)
+        self.assertIn("function applySessionTimerUi(", js)
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        started = self.school.game.start_session_timer(self.class_id, 8)
+        self.assertTrue(started["game"].get("round_ends_at_ms"))
+        teams = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(teams.status_code, 200)
+        self.assertEqual(teams.get_json()["teacher_state"]["stage"], "teams")
+        idle_teams = teams.get_json().get("game") or {}
+        self.assertFalse((idle_teams.get("game") or {}).get("round_ends_at_ms"))
+        self.assertFalse((idle_teams.get("game") or {}).get("timer_paused"))
+        display_teams = self.school.live_session_display_time(self.class_id)
+        self.assertFalse(display_teams["running"])
+        self.assertFalse(display_teams["paused"])
+        meet = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(meet.get_json()["teacher_state"]["stage"], "meet")
+        meet_game = (meet.get_json().get("game") or {}).get("game") or {}
+        self.assertTrue(meet_game.get("round_ends_at_ms"))
+        self.assertGreaterEqual(int(meet_game.get("round_remaining_sec") or 0), 170)
+        self.assertLessEqual(int(meet_game.get("round_remaining_sec") or 0), 180)
+        display_meet = self.school.live_session_display_time(self.class_id)
+        self.assertTrue(display_meet["running"])
+        rnd = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(rnd.get_json()["teacher_state"]["stage"], "round")
+        round_game = (rnd.get_json().get("game") or {}).get("game") or {}
+        self.assertFalse(round_game.get("round_ends_at_ms"))
+        play = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(play.get_json()["teacher_state"]["stage"], "play")
+        play_game = (play.get_json().get("game") or {}).get("game") or {}
+        self.assertTrue(play_game.get("round_ends_at_ms"))
+        self.assertGreaterEqual(int(play_game.get("round_remaining_sec") or 0), 290)
+        self.assertLessEqual(int(play_game.get("round_remaining_sec") or 0), 300)
+
 
 if __name__ == "__main__":
     unittest.main()

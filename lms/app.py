@@ -3819,7 +3819,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         payload = {"ok": True, "teacher_state": state}
-        if "assign" in body:
+        if "assign" in body or "advance" in body:
             try:
                 payload["game"] = school.game.game_state(int(session_row["class_id"]))
             except Exception:
