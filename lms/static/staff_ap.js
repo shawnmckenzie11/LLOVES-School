@@ -3908,11 +3908,9 @@ async function patchTeacherState(body, opts = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
+    if (res?.game) overlayState = res.game;
     if (res?.teacher_state) adoptTeacherState(res.teacher_state);
-    if (res?.game) {
-      overlayState = res.game;
-      renderAttendanceList();
-    }
+    if (res?.game) renderAttendanceList();
     return teacherState;
   } catch (err) {
     if (!opts.silent) showError(opts.errorSelector || "#ap-overlay-error", err);

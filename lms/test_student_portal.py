@@ -785,6 +785,29 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIsNone(frozen.get("ends_at_ms"))
         self.assertGreater(int(frozen.get("remaining_sec") or 0), 0)
 
+    def test_beat21_student_timer_stops_when_teacher_advances(self) -> None:
+        """Beat 21: student display-time mirrors the stopped SessionTimer."""
+        self._join_maple_home()
+        self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 4},
+        )
+        running = self.student.get("/api/student/state").get_json()["session_timer"]
+        self.assertTrue(running.get("running"), running)
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(nxt.get_json()["teacher_state"]["stage"], "teams")
+        idle = self.student.get("/api/student/state").get_json()["session_timer"]
+        self.assertFalse(idle.get("running"), idle)
+        self.assertFalse(idle.get("paused"), idle)
+        self.assertIsNone(idle.get("ends_at_ms"))
+
     def _join_maple_home(self) -> None:
         """Join Maple through mood and character so /api/student/state is on home."""
         self.student.post(

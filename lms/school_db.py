@@ -36,7 +36,9 @@ try:
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
+        stage_is_forward,
         student_mc_summary_visible,
+        timer_preset_for_stage,
     )
     from live_prompt_feedback import (
         public_feedback_fragment,
@@ -92,7 +94,9 @@ except ImportError:  # ``python3 lms/app.py`` package import
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
+        stage_is_forward,
         student_mc_summary_visible,
+        timer_preset_for_stage,
     )
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
@@ -7164,6 +7168,12 @@ class SchoolDB(LovesDB):
                 session_id, payload, chain_state=state, fire_open=False
             )
         written = self._write_teacher_state(session_id, payload)
+        self._sync_session_timer_on_stage_change(
+            int(session_row["class_id"]),
+            prev_stage,
+            new_stage,
+            written,
+        )
         if posted_slot is not None:
             slot = normalize_live_slot(posted_slot)
             if slot in {"C2", "C3"}:
@@ -7240,6 +7250,41 @@ class SchoolDB(LovesDB):
             str(assign.get("mode") or "balanced"),
             assignments=raw_assignments,
         )
+
+    def _sync_session_timer_on_stage_change(
+        self,
+        class_id: int,
+        prev_stage: str,
+        new_stage: str,
+        state: dict[str, Any] | None,
+    ) -> None:
+        """Stop SessionTimer on forward Next; arm Meet / timer_preset if any.
+
+        Prev does not auto-restart. Destination Meet uses the 3-minute
+        SessionTimer default. Other stages stay idle unless
+        ``timer_presets`` names them.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            prev_stage: Stage before this write.
+            new_stage: Stage after this write.
+            state: Public teacher state (optional ``timer_presets``).
+        """
+        if not stage_is_forward(prev_stage, new_stage):
+            return
+        try:
+            self.game.stop_session_timer(int(class_id))
+        except KeyError:
+            pass
+        preset = timer_preset_for_stage(new_stage, state)
+        if not preset:
+            return
+        try:
+            self.game.arm_session_timer_for_stage(
+                int(class_id), preset, meet=new_stage == "meet"
+            )
+        except (KeyError, ValueError):
+            pass
 
     def record_meet_chain_pick(
         self,

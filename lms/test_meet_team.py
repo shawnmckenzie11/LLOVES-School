@@ -381,6 +381,60 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(after["stage"], "join")
         self.assertEqual(after["state_seq"], seq)
 
+    def test_beat21_forward_next_stops_timer_unless_meet_preset(self) -> None:
+        """Beat 21: Next stops SessionTimer; MEET re-arms the 3-minute default."""
+        self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        started = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 5},
+        )
+        self.assertEqual(started.status_code, 200, started.get_json())
+        self.assertIsInstance(started.get_json()["game"].get("round_ends_at_ms"), int)
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        self.assertEqual(nxt.get_json()["teacher_state"]["stage"], "teams")
+        stopped = (nxt.get_json().get("game") or {}).get("game") or {}
+        self.assertFalse(stopped.get("timer_paused"))
+        self.assertIsNone(stopped.get("round_ends_at_ms"))
+        prev = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"advance": "prev"},
+        )
+        self.assertEqual(prev.status_code, 200, prev.get_json())
+        self.assertEqual(prev.get_json()["teacher_state"]["stage"], "join")
+        prev_fields = (prev.get_json().get("game") or {}).get("game") or {}
+        self.assertIsNone(prev_fields.get("round_ends_at_ms"))
+        ids = self._staff_mark_present()
+        self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        meet = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "advance": "next",
+                "teams_mode": "teams",
+                "assign": {
+                    "n_teams": 2,
+                    "mode": "random",
+                    "present_ids": ids,
+                },
+            },
+        )
+        self.assertEqual(meet.status_code, 200, meet.get_json())
+        self.assertEqual(meet.get_json()["teacher_state"]["stage"], "meet")
+        meet_fields = (meet.get_json().get("game") or {}).get("game") or {}
+        self.assertIsInstance(meet_fields.get("round_ends_at_ms"), int)
+        self.assertFalse(meet_fields.get("timer_paused"))
+        self.assertGreaterEqual(int(meet_fields.get("round_remaining_sec") or 0), 170)
+        self.assertLessEqual(int(meet_fields.get("round_remaining_sec") or 0), 180)
+
     def test_teacher_next_walks_a_c_b_then_clear_wipes(self) -> None:
         """Next advances A→C→B; End Meet → ROUND wipes picks and fires meet_clear."""
         self._staff_assign_two_teams()

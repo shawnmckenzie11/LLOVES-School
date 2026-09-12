@@ -54,6 +54,52 @@ LAYOUT_PRESETS: dict[str, dict[str, str]] = {
 
 DEFAULT_LAYOUT_PRESET = "questions_full"
 QUESTION_ONLY_STAGES: frozenset[str] = frozenset({"join", "teams", "meet", "round"})
+# Minutes to arm when Next lands on this stage. Meet keeps the SessionTimer default.
+STAGE_TIMER_PRESETS: dict[str, int] = {"meet": 3}
+
+
+def timer_preset_for_stage(
+    stage: str, state: dict[str, Any] | None = None
+) -> int | None:
+    """Return minutes to arm when entering ``stage``, or None to stay idle.
+
+    Meet uses the SessionTimer default (3). An optional ``timer_presets``
+    map on teacher state overrides the built-in table for that stage.
+
+    Args:
+        stage: Destination stage id.
+        state: Optional public teacher state with ``timer_presets``.
+
+    Returns:
+        Clamped minutes (1–30), or None when the destination has no preset.
+    """
+    name = stage if stage in STAGES else ""
+    presets: dict[str, Any] = dict(STAGE_TIMER_PRESETS)
+    extra = state.get("timer_presets") if isinstance(state, dict) else None
+    if isinstance(extra, dict):
+        presets.update(extra)
+    raw = presets.get(name)
+    if raw in (None, ""):
+        return None
+    try:
+        minutes = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if minutes <= 0:
+        return None
+    return max(1, min(30, minutes))
+
+
+def stage_is_forward(prev_stage: str, new_stage: str) -> bool:
+    """True when ``new_stage`` is later than ``prev_stage`` on the rail.
+
+    Args:
+        prev_stage: Stage before the write.
+        new_stage: Stage after the write.
+    """
+    prev = prev_stage if prev_stage in STAGES else "join"
+    nxt = new_stage if new_stage in STAGES else "join"
+    return STAGES.index(nxt) > STAGES.index(prev)
 
 
 def _now_iso() -> str:

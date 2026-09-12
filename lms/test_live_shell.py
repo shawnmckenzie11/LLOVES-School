@@ -738,6 +738,21 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("paintDisplayTime(data)", js)
         self.assertIn("setInterval(tickDisplayTime, 1000)", js)
 
+    def test_beat21_next_adopts_game_before_shell_paint(self) -> None:
+        """Beat 21: teacher-state POST applies game (stopped timer) before paint."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        try_block = js.split("teacherStateInFlight = true;")[1].split(
+            "} catch (err)"
+        )[0]
+        self.assertLess(
+            try_block.index("if (res?.game) overlayState = res.game"),
+            try_block.index("adoptTeacherState"),
+        )
+        self.assertIn("applySessionTimerUi();", js)
+        app_py = (LMS_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertIn("/game/timer/stop", app_py)
+        self.assertIn("stop_session_timer", app_py)
+
     def test_beat12_join_to_teams_clears_mc_ghosts(self) -> None:
         """Beat 12: JOIN→TEAMS drops JOIN tally chrome; Left lock stays."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")

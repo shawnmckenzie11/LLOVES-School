@@ -3818,11 +3818,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         payload = {"ok": True, "teacher_state": state}
-        if "assign" in body:
-            try:
-                payload["game"] = school.game.game_state(int(session_row["class_id"]))
-            except Exception:
-                pass
+        try:
+            payload["game"] = school.game.game_state(int(session_row["class_id"]))
+        except Exception:
+            pass
         return jsonify(payload)
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
@@ -4983,6 +4982,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(_body):
             """Apply one staff JSON mutation for this class."""
             return school.game.resume_round_timer(class_id)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/timer/stop", methods=["POST"])
+    @login_required
+    def api_timer_stop(class_id: int):
+        """Clear SessionTimer without changing the pedagogical stage."""
+
+        def run(_body):
+            """Apply one staff JSON mutation for this class."""
+            return school.game.stop_session_timer(class_id)
 
         return _staff_post(class_id, run)
 

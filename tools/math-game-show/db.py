@@ -3318,6 +3318,73 @@ class GameShowDB:
             return idle_session_timer()
         return public_session_timer(state.get("game"))
 
+    def stop_session_timer(self, class_id: int) -> dict[str, Any]:
+        """Clear the SessionTimer so it does not tick into the next stage.
+
+        No-ops when no open game exists. Meet overlay phase is cleared
+        with the clock so leftover Meet chrome cannot keep counting.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            Updated game state, or ``{ok, class_id, stopped: False}``.
+        """
+        try:
+            game = dict(self._game_row(class_id))
+        except KeyError:
+            return {"ok": True, "class_id": int(class_id), "stopped": False}
+        with self._lock:
+            phase = str(game.get("overlay_phase") or "")
+            if phase == "meet_teams":
+                self.conn.execute(
+                    """
+                    UPDATE games
+                    SET round_started_at = NULL,
+                        round_duration_sec = NULL,
+                        overlay_phase = NULL
+                    WHERE id = ?
+                    """,
+                    (int(game["id"]),),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE games
+                    SET round_started_at = NULL,
+                        round_duration_sec = NULL
+                    WHERE id = ?
+                    """,
+                    (int(game["id"]),),
+                )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def arm_session_timer_for_stage(
+        self, class_id: int, minutes: int, *, meet: bool = False
+    ) -> dict[str, Any]:
+        """Start SessionTimer for a destination stage.
+
+        Meet with assigned teams uses ``start_meet_teams`` so the overlay
+        clock stays on the same SessionTimer fields. Individual / no
+        teams falls through to the generic timer.
+
+        Args:
+            class_id: Classes primary key.
+            minutes: Countdown length (clamped 1–30).
+            meet: True when the destination stage is MEET.
+
+        Returns:
+            Updated game state.
+        """
+        minutes_i = max(1, min(30, int(minutes) if minutes is not None else 3))
+        if meet:
+            try:
+                return self.start_meet_teams(class_id, minutes_i)
+            except (KeyError, ValueError):
+                pass
+        return self.start_session_timer(class_id, minutes_i)
+
     def start_session_timer(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
         """Start a stage-independent countdown without changing overlay phase.
 
