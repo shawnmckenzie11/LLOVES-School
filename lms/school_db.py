@@ -7001,24 +7001,28 @@ class SchoolDB(LovesDB):
         payloads. ``canvas_ephemeral`` stays true. Rising edge into
         ``meet`` mounts the A→C→B chain and fires ``cue.meet_open``;
         leaving MEET wipes ephemeral picks and fires ``cue.meet_clear``.
-        ``meet_action`` is ``next`` / ``skip_c`` / ``clear``.
+        ``meet_action`` is ``next`` / ``skip_c`` / ``clear``. Optional
+        ``assign`` on TEAMS→MEET commits roster teams before the same
+        ``state_seq`` write; count ``< 2`` skips assign.
 
         Args:
             session_id: ``live_class_sessions.id``.
             **kwargs: Fields accepted by ``apply_teacher_state_update``
-                plus optional ``meet_action``.
+                plus optional ``meet_action`` and ``assign``.
 
         Returns:
             Updated public teacher state.
 
         Raises:
             KeyError: If the live session is missing.
-            ValueError: Invalid stage, tab, preset, frames, or meet_action.
+            ValueError: Invalid stage, tab, preset, frames, meet_action,
+                or assign payload.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         posted_slot = kwargs.get("live_slot")
+        assign = kwargs.pop("assign", None)
         meet_action = kwargs.pop("meet_action", None)
         if meet_action is not None:
             token = str(meet_action).strip().lower()
@@ -7030,6 +7034,8 @@ class SchoolDB(LovesDB):
         payload = apply_teacher_state_update(current, **kwargs)
         new_stage = str(payload.get("stage") or "")
         entering = new_stage == "meet" and prev_stage != "meet"
+        if assign is not None and entering:
+            self._assign_teams_for_meet_advance(session_id, assign)
         leaving = prev_stage == "meet" and new_stage != "meet"
         if meet_action == "clear":
             payload["stage"] = "round"
@@ -7080,6 +7086,63 @@ class SchoolDB(LovesDB):
             if not self._session_left_waiting_room(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
         return written
+
+    def _assign_teams_for_meet_advance(
+        self, session_id: int, assign: Any
+    ) -> dict[str, Any] | None:
+        """Commit Balanced/Random/Manual assignment before MEET.
+
+        Count ``< 2`` is the individual path: skip team buckets so MEET
+        can still mount. Assign runs before the teacher-state write so a
+        failed Generate cannot leave the shell on a broken MEET pane.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            assign: ``{n_teams, mode, present_ids?, assignments?}``.
+
+        Returns:
+            Game state after assign, or ``None`` when count is below 2.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: Missing present students or an invalid payload.
+        """
+        if not isinstance(assign, dict):
+            raise ValueError("assign must be an object")
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        class_id = int(session_row["class_id"])
+        try:
+            n_teams = int(assign.get("n_teams") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("n_teams must be an integer") from exc
+        if n_teams < 2:
+            return None
+        raw_present = assign.get("present_ids") or []
+        if not isinstance(raw_present, list):
+            raise ValueError("present_ids must be a list")
+        present_ids: list[int] = []
+        for item in raw_present:
+            try:
+                present_ids.append(int(item))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("present_ids must be integers") from exc
+        if not present_ids:
+            raise ValueError(
+                "No students have joined yet. Share the live session code, "
+                "then continue when someone is present."
+            )
+        self.game.save_attendance(class_id, present_ids)
+        raw_assignments = assign.get("assignments")
+        if raw_assignments is not None and not isinstance(raw_assignments, list):
+            raise ValueError("assignments must be a list")
+        return self.game.assign_teams(
+            class_id,
+            n_teams,
+            str(assign.get("mode") or "balanced"),
+            assignments=raw_assignments,
+        )
 
     def record_meet_chain_pick(
         self,

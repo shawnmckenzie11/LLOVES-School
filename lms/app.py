@@ -3760,10 +3760,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         ``stage`` only, plus any subset of stage / round / teams_mode /
         layout_preset / frames / active_tab / refs / cue_id / meet_chain /
         student_frames / unlocks / ``mc_ui``, or ``meet_action``
-        (``next`` / ``skip_c`` / ``clear``). Every write increments
-        ``state_seq``. Reveal toggles are ``mc_ui`` only — no Wonder cue.
-        Does not duplicate ``active_media`` or prompt payloads.
-        ``canvas_ephemeral`` is always true.
+        (``next`` / ``skip_c`` / ``clear``). TEAMS→MEET may include
+        ``assign`` (``n_teams``, ``mode``, ``present_ids``, optional
+        ``assignments``) so Generate and ``stage=meet`` share one
+        ``state_seq``. Every write increments ``state_seq``. Reveal
+        toggles are ``mc_ui`` only — no Wonder cue. Does not duplicate
+        ``active_media`` or prompt payloads. ``canvas_ephemeral`` is
+        always true.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3796,6 +3799,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "cue_id",
             "meet_chain",
             "meet_action",
+            "assign",
             "student_frames",
             "unlocks",
             "mc_ui",
@@ -3808,7 +3812,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             state = school.set_live_session_teacher_state(session_id, **kwargs)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        return jsonify({"ok": True, "teacher_state": state})
+        payload = {"ok": True, "teacher_state": state}
+        if "assign" in body:
+            try:
+                payload["game"] = school.game.game_state(int(session_row["class_id"]))
+            except Exception:
+                pass
+        return jsonify(payload)
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

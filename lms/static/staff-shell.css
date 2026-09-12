@@ -1309,8 +1309,18 @@ body.staff-shell .track-live-root.live-shell-root {
   gap: var(--live-shell-gap);
   align-items: stretch;
 }
+body.staff-shell .live-shell-ia-v2 {
+  position: relative;
+}
 body.staff-shell .live-shell-ia-v2 > #ap-overlay-error {
-  grid-row: 1;
+  position: absolute;
+  top: 0.35rem;
+  left: 0.65rem;
+  right: 0.65rem;
+  z-index: 5;
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  pointer-events: none;
 }
 body.staff-shell .live-shell-ia-v2 > .live-header {
   grid-row: 1;
@@ -1605,6 +1615,17 @@ body.staff-shell .live-meet-strip .secondary {
 }
 body.staff-shell .live-teams-strip .live-round-pick {
   white-space: nowrap;
+}
+body.staff-shell .live-teams-strip .live-strip-error {
+  flex: 1 1 8rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 body.staff-shell .live-teams-track .live-unlock-toggle {
   white-space: nowrap;
