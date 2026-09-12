@@ -3005,6 +3005,75 @@ class GameShowDB:
             self.conn.commit()
         return {"ok": True, "class_id": class_id, "session_id": session_id}
 
+    def persist_attendance_and_participation(
+        self,
+        class_id: int,
+        present_ids: list[int],
+        participation: dict[int, Any],
+    ) -> dict[str, Any]:
+        """Write present flags + per-round MC participation, then end the session.
+
+        Participation is ``+1`` per pedagogical round (minds_on / action /
+        consolidation) where the student submitted at least one MC.
+        Works from any open game status so End Class can save after JOIN.
+
+        Args:
+            class_id: Classes primary key.
+            present_ids: Roster ids who joined the live session.
+            participation: ``student_id →`` set/list of round ids.
+
+        Returns:
+            ``{ok, class_id, session_id}``.
+        """
+        present_set = {int(x) for x in present_ids}
+        with self._lock:
+            game = self._game_row(class_id)
+            self._write_attendance_unlocked(game, present_set)
+            session_id = int(game["session_id"])
+            students = self.conn.execute(
+                "SELECT id FROM students WHERE class_id = ?", (int(class_id),)
+            ).fetchall()
+            for row in students:
+                sid = int(row["id"])
+                raw = participation.get(sid)
+                if raw is None:
+                    raw = participation.get(str(sid))
+                rounds: set[str] = set()
+                if isinstance(raw, dict):
+                    rounds = {str(key) for key, val in raw.items() if val}
+                elif isinstance(raw, (list, tuple, set)):
+                    rounds = {str(item) for item in raw}
+                r1 = 1 if "minds_on" in rounds else 0
+                r2 = 1 if "action" in rounds else 0
+                r3 = 1 if "consolidation" in rounds else 0
+                pts = r1 + r2 + r3
+                if sid not in present_set:
+                    r1 = r2 = r3 = pts = 0
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET points = ?, points_r1 = ?, points_r2 = ?, points_r3 = ?
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (float(pts), float(r1), float(r2), float(r3), session_id, sid),
+                )
+            game_id = int(game["id"])
+            self.conn.execute(
+                """
+                UPDATE sessions
+                SET status = 'ended', log_path = NULL
+                WHERE id = ?
+                """,
+                (session_id,),
+            )
+            self.conn.execute(
+                "UPDATE games SET status = 'ended' WHERE id = ?", (game_id,)
+            )
+            if self._scoreboard_game_id() == game_id:
+                self._set_scoreboard_game(None)
+            self.conn.commit()
+        return {"ok": True, "class_id": int(class_id), "session_id": session_id}
+
     def attendance_score_rows(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
         """Session meeting rows and present flags for the week grid.
 

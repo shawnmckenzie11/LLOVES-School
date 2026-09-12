@@ -164,25 +164,30 @@ class LiveShellTests(unittest.TestCase):
             "ap-join-strip",
             "ap-score-end",
             "ap-score-list",
+            "live-quit-class",
         ):
             self.assertIn(f'id="{control_id}"', html)
 
     def test_live_tab_end_class_is_placement_only(self) -> None:
-        """Header End Class posts to the dashboard wipe route; semantics stay #49."""
+        """Header End Class + Quit post the same route with save vs wipe."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
-        self.assertIn("All session data will be lost", html)
+        self.assertIn("Save attendance & participation, then end?", html)
+        self.assertIn("End without saving?", html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", html)
         self.assertIn('id="live-end-class"', html)
-        self.assertIn('aria-label="End Live Class"', html)
+        self.assertIn('id="live-quit-class"', html)
+        self.assertIn('aria-label="End Class"', html)
         self.assertIn("live-end-class-form", html)
+        self.assertIn("live-quit-class-form", html)
         self.assertNotIn('class="live-header-end danger live-legacy-control"', html)
+        self.assertNotIn("All session data will be lost", html)
         self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
         self.assertIn("End Live Class", home_html)
-        self.assertIn("All session data will be lost", home_html)
+        self.assertIn("Save attendance & participation, then end?", home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
 
@@ -752,6 +757,21 @@ class LiveShellTests(unittest.TestCase):
         app_py = (LMS_DIR / "app.py").read_text(encoding="utf-8")
         self.assertIn("/game/timer/stop", app_py)
         self.assertIn("stop_session_timer", app_py)
+
+    def test_beat19_end_class_and_quit_have_staff_confirm_copy(self) -> None:
+        """Beat 19: End Class saves; Quit wipes; Wonder stays silent."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="live-end-class"', html)
+        self.assertIn('id="live-quit-class"', html)
+        self.assertIn("Save attendance & participation, then end?", html)
+        self.assertIn("End without saving?", html)
+        self.assertIn('name="save" value="1"', html)
+        self.assertIn('name="save" value="0"', html)
+        self.assertNotIn("cue.freeze", html.split('id="live-end-class"')[0][-200:])
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-quit-class-form", css)
+        self.assertIn("body.staff-shell .live-header-quit", css)
 
     def test_beat12_join_to_teams_clears_mc_ghosts(self) -> None:
         """Beat 12: JOIN→TEAMS drops JOIN tally chrome; Left lock stays."""

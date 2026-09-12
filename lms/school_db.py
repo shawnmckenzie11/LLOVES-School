@@ -7663,6 +7663,127 @@ class SchoolDB(LovesDB):
             "wiped_count": len(session_ids),
         }
 
+    def pedagogical_mc_round(self, payload: Any, kind: Any) -> str | None:
+        """Map one live prompt to a participation round, or None to skip.
+
+        Meet A/B/C taps do not count. Minds-On → ``minds_on``; CONS →
+        ``consolidation``; any other ``kind=mc`` → ``action``.
+
+        Args:
+            payload: Prompt JSON object.
+            kind: Prompt kind string.
+        """
+        if str(kind or "").strip().lower() != "mc":
+            return None
+        if is_meet_team_payload(payload):
+            return None
+        if is_minds_on_payload(payload):
+            return "minds_on"
+        if is_cons_payload(payload):
+            return "consolidation"
+        return "action"
+
+    def live_class_present_roster_ids(self, class_id: int) -> list[int]:
+        """Roster ids who joined any live session for this class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        found: set[int] = set()
+        for live in self.list_live_sessions_for_class(int(class_id)):
+            for row in self.list_live_session_attendees(int(live["id"])):
+                if row.get("unmatched"):
+                    continue
+                sid = row.get("student_id")
+                if sid in (None, ""):
+                    continue
+                found.add(int(sid))
+        return sorted(found)
+
+    def live_class_mc_participation(
+        self, class_id: int
+    ) -> dict[int, set[str]]:
+        """Rounds where each roster student submitted at least one MC.
+
+        Meet chain picks are not ``live_session_responses`` and are ignored.
+        Multiple MCs in the same pedagogical round still count as one.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        out: dict[int, set[str]] = {}
+        for live in self.list_live_sessions_for_class(int(class_id)):
+            with self._lock:
+                rows = self.conn.execute(
+                    """
+                    SELECT r.student_id, p.kind, p.payload
+                    FROM live_session_responses r
+                    JOIN live_session_prompts p ON p.id = r.prompt_id
+                    WHERE p.live_session_id = ?
+                    """,
+                    (int(live["id"]),),
+                ).fetchall()
+            for row in rows:
+                sid = row["student_id"]
+                if sid in (None, ""):
+                    continue
+                raw = row["payload"] or "{}"
+                try:
+                    payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except json.JSONDecodeError:
+                    payload = {}
+                rnd = self.pedagogical_mc_round(payload, row["kind"])
+                if not rnd:
+                    continue
+                out.setdefault(int(sid), set()).add(rnd)
+        return out
+
+    def persist_live_class_attendance_and_participation(
+        self, class_id: int
+    ) -> dict[str, Any]:
+        """Save join attendance + MC participation, then close the class column.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``{ok, class_id, session_id}`` from the ended game session.
+        """
+        present_ids = self.live_class_present_roster_ids(class_id)
+        participation = self.live_class_mc_participation(class_id)
+        try:
+            self.game.game_state(int(class_id))
+        except KeyError:
+            self.game.begin_game(int(class_id))
+        return self.game.persist_attendance_and_participation(
+            int(class_id), present_ids, participation
+        )
+
+    def finish_live_class(self, class_id: int, *, save: bool) -> dict[str, Any]:
+        """End Class (save then wipe) or Quit (wipe only).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            save: True persists attendance + participation first.
+
+        Returns:
+            Wipe result from ``wipe_live_sessions_for_class``.
+        """
+        if save:
+            self.persist_live_class_attendance_and_participation(int(class_id))
+        else:
+            try:
+                self.game.cancel_setup(int(class_id))
+            except Exception:  # noqa: BLE001 — no open game is fine
+                pass
+        wiped = self.wipe_live_sessions_for_class(int(class_id))
+        if not save:
+            try:
+                self.game.cancel_setup(int(class_id))
+            except Exception:  # noqa: BLE001
+                pass
+        return wiped
+
     def get_active_live_session_for_teacher(
         self, teacher_user_id: int
     ) -> dict[str, Any] | None:

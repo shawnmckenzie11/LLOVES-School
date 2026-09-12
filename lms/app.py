@@ -2368,14 +2368,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """Wipe every live session for this class after the teacher confirms.
+        """End Class (save attendance + participation) or Quit (wipe only).
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
-        The confirm dialog warns that all session data will be lost.
+
+        ``save=1`` (End Class) writes the class-day column then wipes the
+        ephemeral live session. ``save=0`` (Quit) wipes without a DB write.
         """
         user = current_user()
         assert user is not None
@@ -2384,14 +2386,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        school.wipe_live_sessions_for_class(int(class_id))
-        try:
-            school.game.end_game(class_id)
-        except Exception:  # noqa: BLE001 — no live game is fine
-            try:
-                school.game.cancel_setup(class_id)
-            except Exception:  # noqa: BLE001
-                pass
+        save_raw = request.form.get("save", request.args.get("save", "1"))
+        save = str(save_raw).strip().lower() not in {"0", "false", "no", "off"}
+        school.finish_live_class(int(class_id), save=save)
+        if save:
+            return redirect(
+                url_for(
+                    "staff_course",
+                    class_id=class_id,
+                    tab="ap",
+                    view="attendance",
+                )
+            )
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
