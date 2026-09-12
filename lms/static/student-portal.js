@@ -244,6 +244,9 @@ function applyTeacherProjection(payload) {
   if (proj.seq !== lastStateSeq) {
     lastStateSeq = proj.seq;
   }
+  if (questionFrame) {
+    questionFrame.hidden = !proj.questions;
+  }
   if (canvasPane) {
     canvasPane.hidden = !proj.canvas;
     if (canvasLock) canvasLock.hidden = Boolean(proj.unlockCanvas);
@@ -296,13 +299,16 @@ function applyLayout(payload) {
   const proj = studentProjection(payload);
   const hasMedia = proj.media && Boolean(payload.active_media && payload.active_media.url);
   const waitingRoom = isWaitingRoom(payload);
+  const ts = (payload && payload.teacher_state) || {};
+  const meetOn = proj.stage === "meet" && Boolean(ts.meet_chain);
   body.classList.toggle("is-live", live);
   body.classList.toggle("has-media", hasMedia);
   body.classList.toggle("is-waiting-room", waitingRoom);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
     // Waiting-room keeps Wonder's line even when the Minds-On question is showing.
-    if (!waitingRoom && (hasPrompt || hasMedia)) {
+    // MEET hides leftover scoring-wait chrome — the Question frame holds the chain.
+    if ((!waitingRoom && (hasPrompt || hasMedia)) || meetOn) {
       waitEl.hidden = true;
       waitEl.textContent = "";
       waitEl.innerHTML = "";

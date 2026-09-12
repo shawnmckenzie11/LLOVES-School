@@ -24,6 +24,7 @@ from live_teacher_state import (  # noqa: E402
     MINDS_ON_PROMPT_REF,
     adjacent_stage,
     apply_teacher_state_update,
+    bind_meet_student_projection,
     default_teacher_state,
     public_mc_ui,
     public_teacher_state,
@@ -87,6 +88,47 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(back["state_seq"], 4)
         self.assertFalse(student_should_mount_media(back))
         self.assertEqual(adjacent_stage("join", -1), "join")
+
+    def test_meet_stage_binds_question_prompt_ref(self) -> None:
+        """MEET projects Question-only frames and meet-team prompt_ref."""
+        meet = apply_teacher_state_update(None, stage="meet")
+        self.assertEqual(meet["stage"], "meet")
+        self.assertEqual(meet["prompt_ref"], "meet-team")
+        self.assertEqual(
+            meet["student_frames"],
+            {"questions": True, "media": False, "canvas": False},
+        )
+        self.assertEqual(meet["active_tab"], "questions")
+        self.assertEqual(meet["layout_preset"], "questions_full")
+        self.assertFalse(student_should_mount_media(meet))
+        leftover = public_teacher_state(
+            {
+                "stage": "meet",
+                "prompt_ref": MINDS_ON_PROMPT_REF,
+                "student_frames": {"questions": False, "media": True, "canvas": False},
+            }
+        )
+        self.assertEqual(leftover["prompt_ref"], "meet-team")
+        self.assertTrue(leftover["student_frames"]["questions"])
+        self.assertFalse(leftover["student_frames"]["media"])
+        bound = bind_meet_student_projection(
+            {
+                "stage": "meet",
+                "meet_chain": {
+                    "stage": "meet",
+                    "chain": ["A", "C", "B"],
+                    "index": 1,
+                    "a_picks": {},
+                    "c_reacts": {},
+                    "b_picks": {},
+                    "spark_id": "ops-spark-stub-1",
+                    "need_prompt_id": "ops-need-stub-1",
+                    "rotated": ["notices details", "brings the calm"],
+                },
+            }
+        )
+        self.assertEqual(bound["prompt_ref"], "meet-c")
+        self.assertTrue(bound["student_frames"]["questions"])
 
     def test_unlocks_bump_seq_without_flicker_only(self) -> None:
         """PLAY unlock toggles are a teacher commit."""

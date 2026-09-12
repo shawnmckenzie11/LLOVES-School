@@ -1062,6 +1062,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn('id="results-strip"', html)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('getElementById("question-frame")', js)
+        self.assertIn("questionFrame.hidden = !proj.questions", js)
+        self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
         self.assertIn("function showFeedbackPanel(", js)
         self.assertIn("function dismissFeedbackPanel()", js)
         self.assertIn('event.key === "Escape"', js)

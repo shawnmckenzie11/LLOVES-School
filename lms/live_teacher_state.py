@@ -14,12 +14,16 @@ try:
     from meet_team import (
         CUE_MEET_CLEAR,
         CUE_MEET_OPEN,
+        MEET_TEAM_ITEM_ID,
+        meet_prompt_ref_for,
         public_meet_chain,
     )
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.meet_team import (
         CUE_MEET_CLEAR,
         CUE_MEET_OPEN,
+        MEET_TEAM_ITEM_ID,
+        meet_prompt_ref_for,
         public_meet_chain,
     )
 
@@ -252,11 +256,42 @@ def public_mc_ui(raw: Any, *, prompt_ref: str | None = None) -> dict[str, Any] |
     }
 
 
+def bind_meet_student_projection(state: dict[str, Any]) -> dict[str, Any]:
+    """Bind Meet ``prompt_ref`` + ``meet_chain`` onto the student Question frame.
+
+    MEET is Question-only. Students must see the visible chain step, not a
+    leftover Minds-On / scoring wait. Teacher Active Content stays mounted.
+
+    Args:
+        state: In-progress public teacher state (mutated).
+
+    Returns:
+        The same ``state`` dict.
+    """
+    frames = dict(state.get("student_frames") or default_student_frames("meet"))
+    frames["questions"] = True
+    frames["media"] = False
+    frames["canvas"] = False
+    state["student_frames"] = frames
+    state["active_tab"] = "questions"
+    state["layout_preset"] = "questions_full"
+    state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
+    chain = public_meet_chain(state.get("meet_chain"))
+    if chain is not None:
+        state["meet_chain"] = chain
+        state["prompt_ref"] = meet_prompt_ref_for(chain)
+    else:
+        state["prompt_ref"] = MEET_TEAM_ITEM_ID
+    return state
+
+
 def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """Fill student frames / JOIN focus for a newly entered stage.
 
     Teacher Active Content stays mounted; this only swaps thin refs and
     the student projection map. PLAY reveals all three frames locked.
+    MEET binds ``prompt_ref`` + Question-only frames so the chain is
+    not teacher-only.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -275,6 +310,8 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
             state["prompt_ref"] = MINDS_ON_PROMPT_REF
         elif name == "teams":
             state["prompt_ref"] = MINDS_ON_PROMPT_REF
+        elif name == "meet":
+            bind_meet_student_projection(state)
     return state
 
 
@@ -386,6 +423,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
         base["text_ride"] = default_text_ride()
+    if base["stage"] == "meet":
+        bind_meet_student_projection(base)
     return base
 
 
