@@ -273,8 +273,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('"class-list-pane"', js)
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
-        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
-        self.assertIn("card.hidden = !showStrip;", js)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn("live-canvas-align", js)
         self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
         self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
@@ -474,7 +474,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Waiting for students to join.", html)
         self.assertNotIn("join-options-hint", html)
         self.assertNotIn("live-options-hint", css)
-        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn('id="live-unlocks-strip"', html)
         self.assertRegex(
             html,
             r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
@@ -553,6 +554,42 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
+
+    def test_beat23_unlocks_any_stage_and_canvas_align(self) -> None:
+        """Beat 23: Media/Canvas flags on every stage; condensed alignment modes."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn('id="live-unlocks-strip"', html)
+        self.assertIn('id="live-unlock-media"', html)
+        self.assertIn('id="live-unlock-canvas"', html)
+        self.assertIn('id="live-canvas-align"', html)
+        self.assertIn("Frozen to teacher", html)
+        self.assertIn("Unique per student", html)
+        self.assertIn("Shared within group", html)
+        play_html = html.split('id="play-option-card"')[1].split("</section>")[0]
+        self.assertNotIn('id="live-unlock-media"', play_html)
+        self.assertIn("card.hidden = false;", js)
+        self.assertIn("patchTeacherState({ unlocks: { media:", js)
+        self.assertIn("patchTeacherState({ canvas_align:", js)
+        self.assertIn("canvas-presence", js)
+        self.assertIn("body.staff-shell .live-unlocks-strip {", css)
+        unlocks_css = css.split("body.staff-shell .live-unlocks-strip {")[1].split(
+            "body.staff-shell .live-canvas-align {"
+        )[0]
+        self.assertIn("flex-wrap: nowrap", unlocks_css)
+        self.assertIn("max-height: var(--live-options-row-h)", unlocks_css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("function paintStudentCanvas(", student_js)
+        self.assertIn("/api/student/canvas-presence", student_js)
+        self.assertIn("canvasAlign", student_js)
+        self.assertIn('id="student-canvas"', 
+            (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
+        )
 
     def test_beat22_presence_updates_team_max_live(self) -> None:
         """Beat 22: ClassList join/leave clamps team max and refreshes the meter."""

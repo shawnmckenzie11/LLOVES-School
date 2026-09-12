@@ -3225,6 +3225,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        payload["canvas_sync"] = school.live_session_canvas_view(
+            live_session_id,
+            student_id=int(student_id) if student_id not in (None, "") else None,
+        )
         return render_template(
             "student/home.html",
             offering=offering,
@@ -3320,6 +3324,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        payload["canvas_sync"] = school.live_session_canvas_view(
+            live_session_id,
+            student_id=int(student_id) if student_id not in (None, "") else None,
+        )
         payload["display_time"] = school.live_session_display_time(int(class_id))
         return jsonify(payload)
 
@@ -3347,6 +3355,45 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             participant_uuid=pid,
         )
         return jsonify({"ok": True, **frag})
+
+    @app.route("/api/student/canvas-presence", methods=["POST"])
+    @student_required
+    def api_student_canvas_presence():
+        """Student cursor / team-stroke tick on the bound live session."""
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None:
+            return jsonify(
+                {"ok": False, "error": "Not joined.", "redirect": url_for("landing")}
+            ), 401
+        _offering, class_id, student_id = ident
+        if student_id in (None, ""):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        live_session_id = int(
+            ctx.get("live_session_id") or session["student_live_session_id"]
+        )
+        body = request.get_json(silent=True) or {}
+        team_id = school.student_team_id_for_class(int(class_id), int(student_id))
+        name = str(ctx.get("codename") or body.get("name") or student_id).strip()
+        blob = school.apply_live_canvas_presence(
+            live_session_id,
+            owner=str(int(student_id)),
+            name=name or str(student_id),
+            team_id=team_id,
+            x=body.get("x"),
+            y=body.get("y"),
+            stroke_id=str(body.get("stroke_id") or "") or None,
+            point=body.get("point"),
+            ended=bool(body.get("ended")),
+            as_teacher=False,
+        )
+        view = school.live_session_canvas_view(
+            live_session_id, student_id=int(student_id)
+        )
+        return jsonify({"ok": True, "canvas_sync": blob, "canvas_view": view})
 
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
@@ -3828,6 +3875,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "assign",
             "student_frames",
             "unlocks",
+            "canvas_align",
             "mc_ui",
             "live_slot",
             "text_ride",
@@ -3845,6 +3893,72 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except Exception:
                 pass
         return jsonify(payload)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/canvas-presence",
+        methods=["POST"],
+    )
+    def api_live_session_canvas_presence(session_id: int):
+        """Thin cursor / stroke tick for Frozen or team-shared canvas.
+
+        Staff or a joined student may post. Unique-per-student alignment
+        stores a cursor only. Wonder is not involved.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        body = request.get_json(silent=True) or {}
+        as_teacher = False
+        owner = ""
+        name = ""
+        team_id = None
+        if _can_view_live_session(session_row):
+            as_teacher = True
+            owner = "teacher"
+            name = "Teacher"
+        else:
+            denied = _require_active_live_attendee(as_json=True)
+            if denied is not None:
+                return denied
+            ident = _student_identity()
+            ctx = _student_live_context()
+            if ident is None or ctx is None:
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            if int(ctx.get("live_session_id") or 0) != int(session_id):
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            student_id = ident[2]
+            if student_id in (None, ""):
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            owner = str(int(student_id))
+            name = str(
+                (ctx or {}).get("codename")
+                or body.get("name")
+                or owner
+            ).strip() or owner
+            team_id = school.student_team_id_for_class(
+                int(session_row["class_id"]), int(student_id)
+            )
+        try:
+            blob = school.apply_live_canvas_presence(
+                session_id,
+                owner=owner,
+                name=name,
+                team_id=team_id,
+                x=body.get("x"),
+                y=body.get("y"),
+                stroke_id=str(body.get("stroke_id") or "") or None,
+                point=body.get("point"),
+                ended=bool(body.get("ended")),
+                as_teacher=as_teacher,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        view = school.live_session_canvas_view(
+            session_id,
+            student_id=int(owner) if owner.isdigit() else None,
+            as_teacher=as_teacher,
+        )
+        return jsonify({"ok": True, "canvas_sync": blob, "canvas_view": view})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

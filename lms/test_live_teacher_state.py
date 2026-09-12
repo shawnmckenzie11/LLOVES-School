@@ -53,6 +53,7 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
             {"questions": True, "media": False, "canvas": False},
         )
         self.assertEqual(state["unlocks"], {"media": False, "canvas": False})
+        self.assertEqual(state["canvas_align"], "student")
         self.assertTrue(state["canvas_ephemeral"])
         self.assertEqual(
             state["round_flags"],
@@ -175,6 +176,28 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertTrue(unlocked["unlocks"]["media"])
         self.assertFalse(unlocked["unlocks"]["canvas"])
         self.assertTrue(student_should_mount_media(unlocked))
+
+    def test_unlocks_project_media_on_any_stage(self) -> None:
+        """Beat 23: unlock flags mount media/canvas even on JOIN/MEET."""
+        join = apply_teacher_state_update(
+            None, unlocks={"media": True, "canvas": True}
+        )
+        self.assertEqual(join["stage"], "join")
+        self.assertTrue(join["student_frames"]["media"])
+        self.assertTrue(join["student_frames"]["canvas"])
+        self.assertTrue(student_should_mount_media(join))
+        self.assertTrue(student_should_mount_canvas(join))
+        meet = apply_teacher_state_update(join, stage="meet")
+        self.assertEqual(meet["stage"], "meet")
+        self.assertTrue(meet["unlocks"]["media"])
+        self.assertTrue(meet["unlocks"]["canvas"])
+        self.assertTrue(student_should_mount_media(meet))
+        self.assertTrue(student_should_mount_canvas(meet))
+        self.assertTrue(meet["student_frames"]["questions"])
+        aligned = apply_teacher_state_update(meet, canvas_align="team")
+        self.assertEqual(aligned["canvas_align"], "team")
+        frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
+        self.assertEqual(frozen["canvas_align"], "teacher")
 
     def test_preset_and_frames_are_content_ids(self) -> None:
         """Presets fill A/B/C; invalid frames raise."""
@@ -563,6 +586,38 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(body["round_flags"]["action"])
         self.assertTrue(body["round_flags"]["consolidation"])
         self.assertIsNone(body.get("cue_id"))
+
+    def test_canvas_presence_follows_alignment(self) -> None:
+        """Frozen-to-teacher publishes teacher strokes; unique stays empty."""
+        frozen = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"unlocks": {"canvas": True}, "canvas_align": "teacher"},
+        )
+        self.assertEqual(frozen.status_code, 200, frozen.get_json())
+        self.assertEqual(frozen.get_json()["teacher_state"]["canvas_align"], "teacher")
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/canvas-presence",
+            json={
+                "x": 0.2,
+                "y": 0.3,
+                "point": [0.2, 0.3],
+                "stroke_id": "t-1",
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        view = posted.get_json()["canvas_view"]
+        self.assertEqual(len(view["strokes"]), 1)
+        self.assertEqual(view["cursors"][0]["name"], "Teacher")
+        unique = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"canvas_align": "student"},
+        )
+        self.assertEqual(unique.status_code, 200, unique.get_json())
+        empty = self.school.live_session_canvas_view(
+            self.session_id, as_teacher=True
+        )
+        self.assertEqual(empty["strokes"], [])
+        self.assertEqual(empty["cursors"], [])
 
 
 if __name__ == "__main__":

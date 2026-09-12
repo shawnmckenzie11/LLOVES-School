@@ -319,6 +319,35 @@ body.student-home.has-media .student-live-response {
   color: #c5d4e8;
 }
 
+.student-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 10rem;
+  border-radius: 8px;
+  background: #f7fafc;
+  touch-action: none;
+}
+
+.canvas-cursors {
+  position: absolute;
+  inset: 0.85rem;
+  pointer-events: none;
+}
+
+.canvas-cursor-chip {
+  position: absolute;
+  transform: translate(-10%, -110%);
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 2px solid currentColor;
+}
+
 .student-frame-lock {
   position: absolute;
   z-index: 2;

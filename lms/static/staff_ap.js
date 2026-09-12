@@ -178,6 +178,7 @@ let teacherState = {
   state_seq: 0,
   student_frames: { questions: true, media: false, canvas: false },
   unlocks: { media: false, canvas: false },
+  canvas_align: "student",
   live_slot: "C1",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
@@ -314,9 +315,8 @@ function paintOptionCard() {
   const rounds = $("round-slide-settings");
   lockClassListPane();
   if (card) {
-    const showStrip = stage !== "join" && stage !== "meet";
-    card.hidden = !showStrip;
-    if (showStrip) card.removeAttribute("hidden");
+    card.hidden = false;
+    card.removeAttribute("hidden");
   }
   if (teams) teams.hidden = stage !== "teams";
   if (stage !== "teams") hideTeamsAssignError();
@@ -339,6 +339,11 @@ function paintOptionCard() {
   const unlocks = teacherState.unlocks || {};
   if (unlockMedia instanceof HTMLInputElement) unlockMedia.checked = Boolean(unlocks.media);
   if (unlockCanvas instanceof HTMLInputElement) unlockCanvas.checked = Boolean(unlocks.canvas);
+  const align = $("live-canvas-align");
+  if (align instanceof HTMLSelectElement) {
+    const mode = String(teacherState.canvas_align || "student");
+    align.value = mode === "teacher" || mode === "team" ? mode : "student";
+  }
 }
 
 /**
@@ -4047,6 +4052,12 @@ $("live-unlock-canvas")?.addEventListener("change", () => {
   if (!(box instanceof HTMLInputElement)) return;
   patchTeacherState({ unlocks: { canvas: box.checked } });
 });
+$("live-canvas-align")?.addEventListener("change", () => {
+  const el = $("live-canvas-align");
+  if (!(el instanceof HTMLSelectElement)) return;
+  const mode = el.value === "teacher" || el.value === "team" ? el.value : "student";
+  patchTeacherState({ canvas_align: mode });
+});
 
 document.querySelectorAll("input[name='live-team-keep']").forEach((input) => {
   input.addEventListener("change", () => {
@@ -4089,7 +4100,7 @@ document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
 });
 
 /**
- * Ephemeral whiteboard: draw in memory only. No persist / CRDT / save.
+ * Ephemeral whiteboard: draw in memory; Frozen/team modes post a thin cursor.
  */
 function bindEphemeralCanvas() {
   const canvas = $("live-canvas-stub");
@@ -4097,6 +4108,7 @@ function bindEphemeralCanvas() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   let drawing = false;
+  let strokeId = "";
   const point = (event) => {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -4104,12 +4116,35 @@ function bindEphemeralCanvas() {
       y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     };
   };
+  const normalized = (p) => ({
+    x: p.x / canvas.width,
+    y: p.y / canvas.height,
+  });
+  const postPresence = (p, ended) => {
+    const sessionId = liveSessionId || readLiveSessionId();
+    if (!sessionId) return;
+    const align = String(teacherState.canvas_align || "student");
+    if (align === "student") return;
+    const norm = normalized(p);
+    api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+      method: "POST",
+      body: JSON.stringify({
+        x: norm.x,
+        y: norm.y,
+        point: [norm.x, norm.y],
+        stroke_id: strokeId || undefined,
+        ended: Boolean(ended),
+      }),
+    }).catch(() => {});
+  };
   canvas.addEventListener("pointerdown", (event) => {
     drawing = true;
+    strokeId = `t-${Date.now()}`;
     const p = point(event);
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
     canvas.setPointerCapture(event.pointerId);
+    postPresence(p, false);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!drawing) return;
@@ -4118,9 +4153,12 @@ function bindEphemeralCanvas() {
     ctx.strokeStyle = "#12202e";
     ctx.lineWidth = 2;
     ctx.stroke();
+    postPresence(p, false);
   });
-  canvas.addEventListener("pointerup", () => {
+  canvas.addEventListener("pointerup", (event) => {
+    if (drawing) postPresence(point(event), true);
     drawing = false;
+    strokeId = "";
   });
 }
 

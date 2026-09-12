@@ -25,6 +25,12 @@ try:
         public_active_media_payload,
         staff_cons_prompt_payload,
     )
+    from live_canvas import (
+        apply_canvas_presence,
+        canvas_view_for,
+        cursor_color_for,
+        public_canvas_sync,
+    )
     from live_mc import build_mc_tally
     from live_teacher_state import (
         CUE_CONS_UNLOCK,
@@ -80,6 +86,12 @@ except ImportError:  # ``python3 lms/app.py`` package import
         is_cons_payload,
         public_active_media_payload,
         staff_cons_prompt_payload,
+    )
+    from lms.live_canvas import (
+        apply_canvas_presence,
+        canvas_view_for,
+        cursor_color_for,
+        public_canvas_sync,
     )
     from lms.live_mc import build_mc_tally
     from lms.live_teacher_state import (
@@ -1570,6 +1582,10 @@ class LovesDB:
         if "teacher_state_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN teacher_state_json TEXT"
+            )
+        if "canvas_sync_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN canvas_sync_json TEXT"
             )
         self.conn.execute(
             """
@@ -5283,6 +5299,17 @@ class SchoolDB(LovesDB):
             parsed_state if isinstance(parsed_state, dict) else None
         )
         item.pop("teacher_state_json", None)
+        canvas_raw = item.get("canvas_sync_json")
+        parsed_canvas = None
+        if isinstance(canvas_raw, str) and canvas_raw.strip():
+            try:
+                parsed_canvas = json.loads(canvas_raw)
+            except json.JSONDecodeError:
+                parsed_canvas = None
+        item["canvas_sync"] = public_canvas_sync(
+            parsed_canvas if isinstance(parsed_canvas, dict) else None
+        )
+        item.pop("canvas_sync_json", None)
         return item
 
     def get_active_live_session_for_class(self, class_id: int) -> dict[str, Any] | None:
@@ -7125,6 +7152,153 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return public_teacher_state(payload)
 
+    def live_session_canvas_sync(self, session_id: int) -> dict[str, Any]:
+        """Return the ephemeral canvas-sync blob for one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        stored = session_row.get("canvas_sync")
+        return public_canvas_sync(stored if isinstance(stored, dict) else None)
+
+    def _write_canvas_sync(
+        self, session_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist an ephemeral canvas-sync blob.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            payload: Public canvas-sync dict.
+        """
+        cleaned = public_canvas_sync(payload)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET canvas_sync_json = ?
+                WHERE id = ?
+                """,
+                (json.dumps(cleaned), int(session_id)),
+            )
+            self.conn.commit()
+        return cleaned
+
+    def student_team_id_for_class(
+        self, class_id: int, student_id: int
+    ) -> int | None:
+        """Assigned team id for a roster student, if teams exist.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_id: Roster id.
+        """
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001
+            return None
+        for team in state.get("teams") or []:
+            if str(team.get("name") or "") == "Class":
+                continue
+            for member in team.get("members") or []:
+                try:
+                    if int(member.get("id")) == int(student_id):
+                        return int(team.get("id") or 0) or None
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    def apply_live_canvas_presence(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        name: str,
+        team_id: int | None = None,
+        x: Any = None,
+        y: Any = None,
+        stroke_id: str | None = None,
+        point: Any = None,
+        ended: bool = False,
+        as_teacher: bool = False,
+    ) -> dict[str, Any]:
+        """Merge one ephemeral cursor / stroke tick.
+
+        Unique-per-student alignment stores cursors only. Frozen-to-teacher
+        publishes teacher strokes. Shared-within-group publishes team
+        strokes plus named cursors.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            owner: ``teacher`` or roster id string.
+            name: Cursor label.
+            team_id: Team bucket when known.
+            x: Cursor x in 0–1.
+            y: Cursor y in 0–1.
+            stroke_id: Stable stroke id while the pointer is down.
+            point: Optional ``[x, y]``.
+            ended: True when the pointer lifts.
+            as_teacher: True for the staff stub.
+        """
+        teacher = self.live_session_teacher_state_payload(session_id)
+        align = str(teacher.get("canvas_align") or "student")
+        publish = False
+        bucket = "teacher"
+        if align == "teacher" and as_teacher:
+            publish = True
+            bucket = "teacher"
+        elif align == "team" and not as_teacher and team_id is not None:
+            publish = True
+            bucket = "team"
+        color = cursor_color_for("teacher" if as_teacher else owner)
+        blob = apply_canvas_presence(
+            self.live_session_canvas_sync(session_id),
+            owner="teacher" if as_teacher else str(owner),
+            name=name,
+            color=color,
+            team_id=team_id,
+            x=x,
+            y=y,
+            stroke_id=stroke_id,
+            point=point,
+            ended=ended,
+            publish_stroke=publish and not ended,
+            stroke_bucket=bucket,
+        )
+        return self._write_canvas_sync(session_id, blob)
+
+    def live_session_canvas_view(
+        self,
+        session_id: int,
+        *,
+        student_id: int | None = None,
+        as_teacher: bool = False,
+    ) -> dict[str, Any]:
+        """Filtered strokes/cursors for staff or one student.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id when the viewer is a student.
+            as_teacher: True for the staff preview (all team buckets).
+        """
+        teacher = self.live_session_teacher_state_payload(session_id)
+        align = str(teacher.get("canvas_align") or "student")
+        team_id = None
+        if student_id not in (None, "") and not as_teacher:
+            session_row = self.get_live_session(session_id)
+            if session_row is not None:
+                team_id = self.student_team_id_for_class(
+                    int(session_row["class_id"]), int(student_id)
+                )
+        return canvas_view_for(
+            self.live_session_canvas_sync(session_id),
+            align=align,
+            team_id=team_id,
+            include_all_teams=bool(as_teacher and align == "team"),
+        )
+
     def _mount_meet_chain(
         self,
         session_id: int,
@@ -8042,6 +8216,9 @@ class SchoolDB(LovesDB):
             "teacher_state": self.live_session_teacher_state_payload(session_id),
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
+            "canvas_sync": self.live_session_canvas_view(
+                session_id, as_teacher=True
+            ),
         }
 
     def has_active_live_sessions(self) -> bool:
