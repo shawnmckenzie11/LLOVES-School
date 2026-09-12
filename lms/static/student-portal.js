@@ -561,12 +561,27 @@ function paintMeetCue(payload) {
 }
 
 /**
+ * True when the student Question face is still the JOIN Minds-On MC.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function isJoinMindsOnPrompt(payload) {
+  const data = (payload && payload.prompt && payload.prompt.payload) || {};
+  return String(data.ride || "") === "minds_on" || String(data.item_id || "") === "minds_on";
+}
+
+/**
  * Render placeholder widgets for mc / numeric / share prompts.
  * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
+ * JOIN→TEAMS unbinds that face (no leftover MC, summary, or feedback).
  * @param {any} payload
  */
 function paintPrompt(payload) {
   if (!promptShell) return;
+  const ts = (payload && payload.teacher_state) || {};
+  if (String(ts.stage || "") === "teams" && isJoinMindsOnPrompt(payload)) {
+    payload = { ...payload, prompt: null, my_response: null };
+  }
   const prompt = payload.prompt;
   const data = (prompt && prompt.payload) || {};
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
@@ -917,6 +932,7 @@ async function tick() {
       location.href = data.redirect;
       return;
     }
+    const prevSeq = lastStateSeq;
     applyTeacherProjection(data);
     applyLayout(data);
     paintMe(data);
@@ -930,7 +946,9 @@ async function tick() {
           (data.prompt.payload && data.prompt.payload.chain_index) || ""
         }`
       : "";
+    const seqChanged = lastStateSeq !== prevSeq;
     if (
+      seqChanged ||
       promptId !== lastPromptId ||
       meetSig !== lastMeetSig ||
       (data.my_response && promptShell && !promptShell.hidden)

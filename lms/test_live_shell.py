@@ -622,6 +622,30 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn('stage === "play" ? 5 : 3', defaults)
 
+    def test_beat12_join_to_teams_clears_mc_ghosts(self) -> None:
+        """Beat 12: JOIN→TEAMS drops JOIN tally chrome; Left lock stays."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        adopt = js.split("function adoptTeacherState(")[1].split(
+            "function paintStageRail()"
+        )[0]
+        self.assertIn('teacherState.stage === "teams"', adopt)
+        self.assertIn("lastMcTally = null", adopt)
+        self.assertIn("paintResultsStrip()", adopt)
+        apply = js.split("function applyMcTally(")[1].split(
+            "function currentMcPromptRef("
+        )[0]
+        self.assertIn('teacherState.stage === "teams"', apply)
+        self.assertIn('ref === "minds_on"', apply)
+        self.assertIn("lastMcTally = null", apply)
+        paint = js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0]
+        self.assertIn("lockClassListPane();", paint)
+        self.assertNotIn("innerHTML", paint)
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("function isJoinMindsOnPrompt(", student)
+        self.assertIn('ts.stage || "") === "teams" && isJoinMindsOnPrompt', student)
+        self.assertIn("hideFeedbackPanel()", student)
+        self.assertIn("const seqChanged = lastStateSeq !== prevSeq", student)
+
     def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
         """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")

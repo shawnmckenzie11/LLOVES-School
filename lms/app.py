@@ -4853,7 +4853,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/assign", methods=["POST"])
     @login_required
     def api_assign(class_id: int):
-        """Assign teams. JOIN/TEAMS keep waiting-room Minds-On until MEET."""
+        """Assign teams. JOIN keeps waiting-room Minds-On; TEAMS stage commit clears it."""
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
