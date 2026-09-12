@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M4-L2 VED fixture — packet chrome + static diagram</title>
+  <link rel="stylesheet" href="../../../components/student.css">
+  <style>
+    /* Fixture-only: mark regions for screenshots. Not student chrome. */
+    .fixture-note { max-width: 40rem; margin: 0 0 1rem; color: #57534e; font-size: 0.875rem; }
+    .fixture-block { margin: 0 0 2.5rem; }
+  </style>
+</head>
+<body>
+  <article class="lesson">
+    <h1>Completing the square — visual fixture</h1>
+    <p class="fixture-note">Hook demo for lesson-engineer. Not compiled student HTML. Copy stays in student-content.json.</p>
+
+    <div class="fixture-block" id="beat-diagram">
+      <ol class="progress-rail" aria-label="Cycle steps">
+        <li class="is-done">Same curve</li>
+        <li class="now" aria-current="step">See the square</li>
+        <li class="next">Match the algebra</li>
+      </ol>
+
+      <div class="cycle board-wrap task-board" data-spec-id="diagram-ex960">
+        <div class="task">
+          <p>Name the side of the completed square and the leftover. Then check.</p>
+        </div>
+        <figure class="figure media-slot cts-area-diagram">
+          <img src="media/cts-area-diagram-ex960.svg" alt="Area picture of x squared plus six x-rectangles and five unit squares. Three x-rectangles sit on each of two sides of the x-squared square. The completing corner is an empty three-by-three grid.">
+        </figure>
+        <div class="board-evidence">
+          <div class="diagram-inputs">
+            <label>Side <input type="number" name="side"></label>
+            <label>Leftover <input type="number" name="leftover"></label>
+          </div>
+        </div>
+        <div class="cycle-actions">
+          <button type="button" class="btn-primary" data-action="submit">Check</button>
+          <button type="button" class="btn-ghost" data-action="hint">Hint</button>
+          <button type="button" class="btn-advance" data-action="advance" disabled>Advance</button>
+        </div>
+        <div class="feedback-strip">
+          <p class="feedback is-retry">Compare the side you entered with the three x-rectangles on one side of the square.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="fixture-block" id="beat-ok">
+      <p class="chrome-label">After a pass — Advance is the primary</p>
+      <div class="cycle board-wrap is-ok">
+        <div class="cycle-actions">
+          <button type="button" class="btn-primary" data-action="submit">Check</button>
+          <button type="button" class="btn-ghost" data-action="hint">Hint</button>
+          <button type="button" class="btn-advance" data-action="advance">Advance</button>
+        </div>
+        <div class="feedback-strip">
+          <p class="feedback is-ok">Side and leftover match this picture.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="fixture-block" id="beat-unavailable">
+      <p class="chrome-label">Unavailable interactive — static path still completable</p>
+      <div class="cycle board-wrap is-unavailable">
+        <div class="media is-unavailable media-slot">
+          <figure class="figure cts-area-diagram">
+            <img src="media/cts-area-diagram-ex960.svg" alt="Static area picture remains visible when the interactive board is unavailable.">
+          </figure>
+          <p class="fallback">The tile board is not available. Use the picture, or paper tiles.</p>
+        </div>
+        <div class="diagram-inputs">
+          <label>Side <input type="number" name="side"></label>
+          <label>Leftover <input type="number" name="leftover"></label>
+        </div>
+        <div class="cycle-actions">
+          <button type="button" class="btn-primary" data-action="submit">Check</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="fixture-block" id="named-states">
+      <p class="chrome-label">Named states (one line each)</p>
+      <div class="media-slot is-loading embed is-loading"></div>
+      <div class="practice is-empty"></div>
+      <p class="end-of-cycle"></p>
+    </div>
+  </article>
+</body>
+</html>

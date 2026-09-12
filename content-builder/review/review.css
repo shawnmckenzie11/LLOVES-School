@@ -506,3 +506,89 @@ main:not(.review-main) {
 .onboarding .outline-link {
   font-weight: 650;
 }
+
+/* Board tokens match student.css — no packet delight / Wonder cues on review. */
+.review-main .board-evidence,
+.review-workspace .board-evidence,
+.card .board-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+}
+
+.review-main .progress-rail,
+.review-workspace .progress-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.review-main .progress-rail .now,
+.review-main .progress-rail [aria-current="step"] {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.review-main .btn-advance,
+.review-main .advance,
+.review-workspace .btn-advance {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border-color: var(--line-strong);
+}
+
+.review-main .feedback.is-ok,
+.review-main .feedback.is-retry,
+.review-main .hint {
+  /* Same ok / try-again / hint tokens as the student board. No motion. */
+  animation: none;
+  box-shadow: none;
+}
+
+.review-main .feedback.is-ok {
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-line);
+  color: var(--ok-fg);
+}
+
+.review-main .feedback.is-retry {
+  background: var(--retry-bg);
+  border: 1px solid var(--retry-line);
+  color: var(--retry-fg);
+}
+
+.review-main .hint,
+.review-main .feedback.is-hint {
+  background: var(--hint-bg);
+  border: 1px solid var(--hint-line);
+  color: var(--hint-fg);
+}
+
+.review-main .media.is-unavailable,
+.review-main .media-slot.is-unavailable {
+  padding: var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.review-main .cycle-state,
+.review-main .end-of-cycle,
+.review-main .practice.is-empty {
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
