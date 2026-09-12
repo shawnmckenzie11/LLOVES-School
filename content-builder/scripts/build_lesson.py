@@ -328,56 +328,59 @@ CTS_TASKS = {
 
 
 def _area_diagram_html() -> str:
-    """Static completed-square fallback for diagram-ex960 (open-call interactive)."""
-    cells = []
+    """Static completed-square figure for diagram-ex960. Not an interactive tile board."""
     labels = [
-        "x²",
-        "x",
-        "x",
-        "x",
-        "x",
-        "",
-        "",
-        "",
-        "x",
-        "",
-        "",
-        "",
-        "x",
-        "",
-        "",
-        "",
+        ("x²", "arm"),
+        ("x", "arm"),
+        ("x", "arm"),
+        ("x", "arm"),
+        ("x", "arm"),
+        ("1", "complete"),
+        ("1", "complete"),
+        ("1", "complete"),
+        ("x", "arm"),
+        ("1", "complete"),
+        ("1", "complete"),
+        ("1", "complete"),
+        ("x", "arm"),
+        ("1", "complete"),
+        ("1", "complete"),
+        ("1", "complete"),
     ]
-    for label in labels:
-        kind = "filled" if label else "open"
-        cells.append(f'<div class="tile {kind}">{escape(label)}</div>')
-    units = "".join('<div class="tile unit">1</div>' for _ in range(5))
+    cells = [
+        f'<div class="sq {kind}">{escape(label)}</div>' for label, kind in labels
+    ]
+    units = "".join('<div class="sq unit">1</div>' for _ in range(5))
     return f"""
-<div class="area-diagram" role="img" aria-label="Area picture for x² + 6x + 5. One x² square, six x-rectangles, and five unit squares. The completing corner is open.">
-  <div class="tile-grid">{"".join(cells)}</div>
+<div class="area-diagram" role="img" aria-label="Static completed-square picture for x² + 6x + 5. One x² square, six x-rectangles, a filled completing corner, and five unit squares.">
+  <div class="square-grid">{"".join(cells)}</div>
   <div class="unit-row">{units}</div>
   <p class="area-caption">x² + 6x + 5</p>
 </div>
 """
 
 
-def _cts_actions_html(*, try_another: bool = False) -> str:
-    """Lean cycle buttons. Try another is sketch-try9120 only."""
-    extra = (
-        '<button type="button" data-action="another" hidden>Try another</button>'
-        if try_another
-        else ""
-    )
+def _cts_actions_html(*, try_another: bool = False, advance: bool = True) -> str:
+    """Lean cycle buttons. Advance is existing chrome; Try another is sketch-try9120 only."""
+    extra = []
+    if advance:
+        extra.append(
+            '<button type="button" data-action="advance" hidden>Advance</button>'
+        )
+    if try_another:
+        extra.append(
+            '<button type="button" data-action="another" hidden>Try another</button>'
+        )
+    extra_html = "".join(extra)
     return f"""
   <div class="cycle-actions">
     <button type="button" class="btn-primary" data-action="submit">Check</button>
     <button type="button" data-action="hint">Hint</button>
     <button type="button" data-action="reset">Reset</button>
-    {extra}
+    {extra_html}
   </div>
   <p class="feedback" hidden></p>
   <p class="hint" hidden></p>
-  <p class="toast" hidden></p>
   <p class="self-check" data-after-pass hidden></p>
 """
 
@@ -489,7 +492,7 @@ def _cts_interactive_html(spec_id: str) -> str:
   {pred}
   {body}
   {board}
-  {_cts_actions_html(try_another=bool(meta.get("try_another")))}
+  {_cts_actions_html(try_another=bool(meta.get("try_another")), advance=spec_id != "fresh-hook-cts")}
 </div>
 """
 

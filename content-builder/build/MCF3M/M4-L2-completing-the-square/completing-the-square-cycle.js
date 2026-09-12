@@ -86,15 +86,16 @@
     "verify-try9118": "msg-verify-tech-same-curve",
   };
 
-  var TOAST = {
-    "expand-cts-revisit": "toast-advance-to-diagram",
-    "diagram-ex960": "toast-advance-to-algebraic",
-    "algebraic-ex960": "toast-advance-to-guided",
-    "algebraic-try9119": "toast-advance-to-factor-a",
-    "factor-a-ex959": "toast-advance-to-rational",
-    "rational-half": "toast-advance-to-verify",
-    "verify-try9118": "toast-advance-to-sketch",
-    "sketch-try9120": "toast-advance-to-consolidation",
+  var ADVANCE = {
+    "expand-cts-revisit": true,
+    "diagram-ex960": true,
+    "algebraic-ex960": true,
+    "algebraic-try9119": true,
+    "factor-a-ex959": true,
+    "rational-half": true,
+    "verify-try9118": true,
+    "sketch-try9120": true,
+    "strategy-cts-vs-factor": true,
   };
 
   function val(root, sel) {
@@ -200,8 +201,8 @@
     var api = opts.api;
     var feedback = root.querySelector(".feedback");
     var hintEl = root.querySelector(".hint");
-    var toastEl = root.querySelector(".toast");
     var liveEq = root.querySelector("[data-live-eq]");
+    var advanceBtn = root.querySelector("[data-action=advance]");
     var hintIndex = 0;
 
     function showFeedback(kind, messageId) {
@@ -211,12 +212,32 @@
       feedback.textContent = messages[messageId] || "";
     }
 
-    function showToast(messageId) {
-      if (!toastEl || !messageId) {
+    function advanceFrom() {
+      revealLocked(specId);
+      if (specId === "sketch-try9120" || specId === "strategy-cts-vs-factor") {
+        var tab = document.getElementById("tab-consolidation");
+        if (tab) {
+          tab.click();
+        }
         return;
       }
-      toastEl.hidden = false;
-      toastEl.textContent = messages[messageId] || "";
+      var unlocked = document.querySelector('[data-reveal-after="' + specId + '"]');
+      if (unlocked) {
+        unlocked.scrollIntoView({ block: "start" });
+        return;
+      }
+      var node = root.nextElementSibling;
+      while (
+        node &&
+        node.tagName !== "H2" &&
+        !node.classList.contains("cycle") &&
+        !node.classList.contains("cts-reveal")
+      ) {
+        node = node.nextElementSibling;
+      }
+      if (node) {
+        node.scrollIntoView({ block: "start" });
+      }
     }
 
     function submit() {
@@ -251,8 +272,9 @@
             extra.textContent = messages[AFTER_PASS[specId]] || "";
           }
         }
-        showToast(TOAST[specId]);
-        revealLocked(specId);
+        if (advanceBtn && ADVANCE[specId]) {
+          advanceBtn.hidden = false;
+        }
         var tryAnother = root.querySelector("[data-action=another]");
         if (tryAnother) {
           tryAnother.hidden = false;
@@ -272,8 +294,8 @@
       });
       feedback.hidden = true;
       hintEl.hidden = true;
-      if (toastEl) {
-        toastEl.hidden = true;
+      if (advanceBtn) {
+        advanceBtn.hidden = true;
       }
       if (liveEq) {
         liveEq.hidden = true;
@@ -305,6 +327,9 @@
         hintEl.hidden = false;
         hintEl.textContent = messages[id] || "";
       });
+    }
+    if (advanceBtn) {
+      advanceBtn.addEventListener("click", advanceFrom);
     }
     var anotherBtn = root.querySelector("[data-action=another]");
     if (anotherBtn) {
