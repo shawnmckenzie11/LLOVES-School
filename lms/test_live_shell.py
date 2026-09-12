@@ -150,10 +150,9 @@ class LiveShellTests(unittest.TestCase):
             "ap-teams-next",
             "ap-meet-start",
             "ap-meet-minutes",
+            "session-timer",
             "meet-chain-chrome",
             "meet-chain-next",
-            "meet-chain-skip-c",
-            "meet-chain-end",
             "ap-name-list",
             "ap-start-game",
             "ap-rounds-start",
@@ -213,7 +212,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("body.staff-shell .live-shell-body {\n  display: grid;", css)
         self.assertIn("align-items: stretch", css)
         self.assertIn("body.staff-shell .live-active-content {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
-        self.assertIn("body.staff-shell #class-list-pane {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
+        self.assertIn("body.staff-shell #class-list-pane {\n  flex: 1 1 auto;\n  min-height: 0;", css)
+        self.assertIn("body.staff-shell #session-timer {", css)
         self.assertNotIn("align-items: start;", css.split("body.staff-shell .live-shell-body")[1][:240])
         self.assertNotIn("position: absolute;\n  inset: 0;", css)
         self.assertNotIn("body.staff-shell .live-options-strip {\n  position: absolute;", css)
@@ -226,6 +226,7 @@ class LiveShellTests(unittest.TestCase):
         strip_i = html.index('id="live-option-card"')
         body_i = html.index('class="live-shell-body"')
         left_i = html.index('id="live-shell-left"')
+        timer_i = html.index('id="session-timer"')
         list_i = html.index('id="class-list-pane"')
         right_i = html.index('id="live-shell-right"')
         active_i = html.index('id="live-active-content"')
@@ -238,7 +239,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertLess(header_i, strip_i)
         self.assertLess(strip_i, body_i)
         self.assertLess(body_i, left_i)
-        self.assertLess(left_i, list_i)
+        self.assertLess(left_i, timer_i)
+        self.assertLess(timer_i, list_i)
         self.assertLess(list_i, right_i)
         self.assertLess(right_i, active_i)
         self.assertLess(strip_i, teams_i)
@@ -257,13 +259,15 @@ class LiveShellTests(unittest.TestCase):
         """Prev/Next and every stage only swap OptionsStrip; Left chrome stays."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function lockClassListPane()", js)
-        self.assertIn('for (const id of ["live-shell-left", "class-list-pane"', js)
+        self.assertIn('for (const id of [', js)
+        self.assertIn('"session-timer"', js)
+        self.assertIn('"class-list-pane"', js)
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
-        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
         self.assertIn("card.hidden = !showStrip;", js)
         self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
-        self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
+        self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
         self.assertIn('if (play) play.hidden = stage !== "play";', js)
         self.assertIn('patchTeacherState({ advance: "prev" })', js)
@@ -459,7 +463,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Waiting for students to join.", html)
         self.assertNotIn("join-options-hint", html)
         self.assertNotIn("live-options-hint", css)
-        self.assertIn('const showStrip = stage !== "join";', js)
+        self.assertIn('const showStrip = stage !== "join" && stage !== "meet";', js)
         self.assertRegex(
             html,
             r'<section[^>]*id="live-option-card"[^>]*\bhidden\b',
@@ -522,43 +526,43 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
 
-    def test_beat5_meet_timer_stays_in_options_strip(self) -> None:
-        """Beat 5: Meet timer lives in the height-capped strip; start is in-place."""
+    def test_beat14_session_timer_sits_above_class_list(self) -> None:
+        """Beat 14: one SessionTimer above ClassList; no Skip / End Meet."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
-        self.assertIn('id="meet-option-card"', html)
-        self.assertIn("live-meet-strip", html)
+        self.assertIn('id="session-timer"', html)
+        self.assertIn("live-session-timer", html)
         self.assertIn('id="ap-meet-stepper"', html)
         self.assertIn('id="ap-meet-minutes"', html)
         self.assertIn('id="ap-meet-live-clock"', html)
         self.assertIn('id="ap-meet-start"', html)
         self.assertIn(">Start<", html)
-        self.assertIn('id="meet-chain-skip-c"', html)
-        self.assertIn('id="meet-chain-end"', html)
+        self.assertNotIn('id="meet-chain-skip-c"', html)
+        self.assertNotIn('id="meet-chain-end"', html)
+        self.assertNotIn("Skip C", html)
+        self.assertNotIn("End Meet", html)
         self.assertNotIn("Meet timer (min)", html)
         self.assertNotIn("Start Meet", html)
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertIn('id="session-timer"', left_html)
+        self.assertIn('id="ap-meet-start"', left_html)
+        self.assertIn('id="ap-meet-live-clock"', left_html)
+        self.assertLess(left_html.index('id="session-timer"'), left_html.index('id="class-list-pane"'))
+        self.assertLess(html.index('id="ap-meet-start"'), html.index('id="class-list-pane"'))
         strip_html = html.split('id="meet-option-card"')[1].split(
             'id="round-option-card"'
         )[0]
-        self.assertIn('id="ap-meet-stepper"', strip_html)
-        self.assertIn('id="ap-meet-live-clock"', strip_html)
-        self.assertIn('id="ap-meet-start"', strip_html)
-        self.assertIn('id="meet-chain-skip-c"', strip_html)
-        self.assertIn('id="meet-chain-end"', strip_html)
-        self.assertNotIn(" hidden", strip_html.split('id="ap-meet-live-clock"')[0][-80:])
-        self.assertLess(html.index('id="meet-option-card"'), html.index('class="live-shell-body"'))
-        self.assertLess(html.index('id="ap-meet-start"'), html.index('class="live-shell-body"'))
-        self.assertLess(html.index('id="ap-meet-live-clock"'), html.index('id="class-list-pane"'))
-        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
-        self.assertNotIn('id="ap-meet-start"', left_html)
-        self.assertNotIn('id="ap-meet-live-clock"', left_html)
-        self.assertNotIn("live-meet-strip", left_html)
+        self.assertNotIn('id="ap-meet-start"', strip_html)
+        self.assertNotIn('id="ap-meet-live-clock"', strip_html)
+        self.assertNotIn("Skip C", strip_html)
+        self.assertNotIn("End Meet", strip_html)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .live-meet-strip {", css)
-        meet_css = css.split("body.staff-shell .live-meet-strip {")[1].split(
-            "body.staff-shell .live-meet-strip .live-meet-count {"
+        self.assertIn("body.staff-shell #session-timer {", css)
+        timer_css = css.split("body.staff-shell #session-timer {")[1].split(
+            "body.staff-shell #session-timer .live-meet-count {"
         )[0]
-        self.assertIn("flex-wrap: nowrap", meet_css)
+        self.assertIn("flex-wrap: nowrap", timer_css)
+        self.assertIn("max-height: var(--live-options-row-h)", timer_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         clock_css = css.split("body.staff-shell .ap-meet-live-clock {")[1].split("}")[0]
         self.assertIn("font-size: 0.95rem", clock_css)
@@ -573,15 +577,19 @@ class LiveShellTests(unittest.TestCase):
             css,
         )
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn("function applyMeetTimerUi(", js)
-        apply = js.split("function applyMeetTimerUi(")[1].split(
-            "function paintMeetClock("
+        self.assertIn("function applySessionTimerUi(", js)
+        self.assertIn("function startSessionTimer(", js)
+        self.assertIn("function sessionTimerDefaultMinutes(", js)
+        apply = js.split("function applySessionTimerUi(")[1].split(
+            "function paintSessionClock("
         )[0]
         self.assertIn("lockClassListPane();", apply)
         self.assertIn('btn.textContent = "Start"', apply)
         self.assertIn('btn.textContent = "Pause"', apply)
         self.assertIn('btn.textContent = "Resume"', apply)
         self.assertIn("clock.textContent = formatCountdown", apply)
+        self.assertIn("Boolean(game.round_ends_at_ms)", apply)
+        self.assertNotIn('phase === "meet_teams"', apply)
         self.assertNotIn("stepper.hidden = running", apply)
         self.assertNotIn("clock.hidden = !(running", apply)
         self.assertNotIn("paintQuestionArtifact", apply)
@@ -591,19 +599,28 @@ class LiveShellTests(unittest.TestCase):
         start = js.split('$("ap-meet-start")?.addEventListener("click"')[1].split(
             "function availableRoundKinds("
         )[0]
-        self.assertIn("applyMeetTimerUi(overlayState)", start)
-        self.assertIn("startMeetTeamsPhase()", start)
+        self.assertIn("applySessionTimerUi(overlayState)", start)
+        self.assertIn("startSessionTimer()", start)
         self.assertNotIn('patchTeacherState({ stage: "meet" })', start)
         self.assertNotIn("paintTeacherShell", start)
-        paint = js.split("function paintMeetClock()")[1].split(
+        self.assertNotIn("meet-chain-skip-c", js)
+        self.assertNotIn("meet-chain-end", js)
+        self.assertNotIn('meet_action: "skip_c"', js)
+        self.assertNotIn('meet_action: "clear"', js)
+        paint = js.split("function paintSessionClock()")[1].split(
             '$("ap-assign-random")'
         )[0]
         self.assertIn('btn?.dataset.meetState !== "running"', paint)
         self.assertNotIn("clock.hidden", paint)
         self.assertIn("lockClassListPane();", js)
         option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
-        self.assertIn("applyMeetTimerUi();", option)
+        self.assertIn("applySessionTimerUi();", option)
+        self.assertIn("applySessionTimerStageDefaults();", option)
         self.assertIn("lockClassListPane();", option)
+        defaults = js.split("function sessionTimerDefaultMinutes(")[1].split(
+            "function sessionTimerMinutes("
+        )[0]
+        self.assertIn('stage === "play" ? 5 : 3', defaults)
 
     def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
         """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""

@@ -4943,6 +4943,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         return _staff_post(class_id, run)
 
+    @app.route("/api/classes/<int:class_id>/game/timer/start", methods=["POST"])
+    @login_required
+    def api_timer_start(class_id: int):
+        """Start the stage-independent session countdown."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            minutes = body.get("minutes", 3)
+            try:
+                minutes_i = int(minutes)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("minutes must be an integer") from exc
+            return school.game.start_session_timer(class_id, minutes_i)
+
+        return _staff_post(class_id, run)
+
     @app.route("/api/classes/<int:class_id>/game/timer/pause", methods=["POST"])
     @login_required
     def api_timer_pause(class_id: int):

@@ -208,17 +208,7 @@
             </div>
           </section>
         </div>
-        <div id="meet-option-card" class="live-option-card-body live-meet-strip" hidden>
-          <div class="stepper ap-teams-stepper live-meet-count" id="ap-meet-stepper" role="group" aria-label="Meet timer minutes">
-            <button type="button" id="ap-meet-minutes-down" aria-label="Shorter meet timer">−</button>
-            <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric" aria-label="Meet timer minutes">
-            <button type="button" id="ap-meet-minutes-up" aria-label="Longer meet timer">+</button>
-          </div>
-          <span class="ap-meet-live-clock" id="ap-meet-live-clock" aria-live="polite">3:00</span>
-          <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
-          <button type="button" id="meet-chain-skip-c" class="secondary">Skip C</button>
-          <button type="button" id="meet-chain-end" class="secondary">End Meet</button>
-        </div>
+        <div id="meet-option-card" class="live-option-card-body" hidden></div>
         <div id="round-option-card" class="live-option-card-body" hidden>
           <p class="live-option-card-label">Always 3 rounds</p>
           <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Pedagogical rounds">
@@ -286,6 +276,15 @@
 
       <div class="live-shell-body">
         <aside class="live-shell-left" id="live-shell-left">
+          <section id="session-timer" class="live-session-timer" aria-label="Session timer">
+            <div class="stepper ap-teams-stepper live-meet-count" id="ap-meet-stepper" role="group" aria-label="Session timer minutes">
+              <button type="button" id="ap-meet-minutes-down" aria-label="Shorter session timer">−</button>
+              <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric" aria-label="Session timer minutes">
+              <button type="button" id="ap-meet-minutes-up" aria-label="Longer session timer">+</button>
+            </div>
+            <span class="ap-meet-live-clock" id="ap-meet-live-clock" aria-live="polite">3:00</span>
+            <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
+          </section>
           <section id="class-list-pane" class="live-pane">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
