@@ -84,6 +84,11 @@ def default_unlocks() -> dict[str, bool]:
     return {"media": False, "canvas": False}
 
 
+def default_round_flags() -> dict[str, bool]:
+    """Return inactive Minds-On / Action / Consolidation facets."""
+    return {name: False for name in ROUNDS}
+
+
 def default_text_ride() -> dict[str, Any]:
     """C2/C3 text-only freeze + CONS ride (never ``active_media_json``)."""
     return {
@@ -105,6 +110,7 @@ def default_teacher_state() -> dict[str, Any]:
     return {
         "stage": "join",
         "round": None,
+        "round_flags": default_round_flags(),
         "teams_mode": "individual",
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
@@ -180,6 +186,31 @@ def _clean_unlocks(raw: Any) -> dict[str, bool]:
         if parsed is not None:
             base[key] = parsed
     return base
+
+
+def _clean_round_flags(raw: Any) -> dict[str, bool]:
+    """Keep known pedagogical-round facet flags as booleans.
+
+    Args:
+        raw: ``{minds_on, action, consolidation}`` object, or a list of
+            active round ids.
+
+    Returns:
+        Complete flag map. Unknown keys are dropped.
+    """
+    base = default_round_flags()
+    if isinstance(raw, dict):
+        for key in ROUNDS:
+            parsed = _as_bool(raw.get(key))
+            if parsed is not None:
+                base[key] = parsed
+        return base
+    if isinstance(raw, (list, tuple)):
+        selected = {str(item).strip() for item in raw}
+        for key in ROUNDS:
+            base[key] = key in selected
+        return base
+    raise ValueError("round_flags must be an object")
 
 
 def normalize_live_slot(raw: Any) -> str:
@@ -408,6 +439,11 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["student_frames"] = default_student_frames(base["stage"])
     if "unlocks" in stored:
         base["unlocks"] = _clean_unlocks(stored.get("unlocks"))
+    if "round_flags" in stored:
+        try:
+            base["round_flags"] = _clean_round_flags(stored.get("round_flags"))
+        except ValueError:
+            base["round_flags"] = default_round_flags()
     if "mc_ui" in stored:
         try:
             cleaned = public_mc_ui(stored.get("mc_ui"), prompt_ref=base.get("prompt_ref"))
@@ -450,6 +486,7 @@ def apply_teacher_state_update(
     advance: Any = None,
     stage: Any = None,
     round: Any = None,
+    round_flags: Any = None,
     teams_mode: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
@@ -476,6 +513,7 @@ def apply_teacher_state_update(
         advance: ``next`` / ``prev`` to move ``stage`` only.
         stage: Explicit stage id.
         round: Pedagogical round, or empty to clear.
+        round_flags: ``{minds_on, action, consolidation}`` facet map.
         teams_mode: ``teams`` or ``individual``.
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
@@ -526,6 +564,11 @@ def apply_teacher_state_update(
             if name not in ROUNDS:
                 raise ValueError(f"unknown round: {name}")
             base["round"] = name
+    if round_flags is not None:
+        if round_flags in (None, "", {}, False):
+            base["round_flags"] = default_round_flags()
+        else:
+            base["round_flags"] = _clean_round_flags(round_flags)
     if teams_mode is not None:
         mode = str(teams_mode).strip()
         if mode not in TEAMS_MODES:

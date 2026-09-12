@@ -160,10 +160,11 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean}}} */
+/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean}}} */
 let teacherState = {
   stage: "join",
   round: null,
+  round_flags: { minds_on: false, action: false, consolidation: false },
   teams_mode: "individual",
   layout_preset: "questions_full",
   frames: { A: "questions" },
@@ -234,6 +235,9 @@ function adoptTeacherState(next) {
   }
   if (next.text_ride && typeof next.text_ride === "object") {
     teacherState.text_ride = { ...next.text_ride };
+  }
+  if (next.round_flags && typeof next.round_flags === "object") {
+    teacherState.round_flags = { ...next.round_flags };
   }
   const slot = String(next.live_slot || teacherState.live_slot || "C1").toUpperCase();
   teacherState.live_slot = slot;
@@ -320,13 +324,10 @@ function paintOptionCard() {
   }
   paintTeamsStripEnabled();
   if (rounds) {
-    rounds.hidden = stage !== "round";
-    if (stage === "round") rounds.removeAttribute("hidden");
+    rounds.hidden = true;
+    rounds.setAttribute("hidden", "");
   }
-  document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
-    const on = btn.getAttribute("data-round") === (teacherState.round || "minds_on");
-    btn.classList.toggle("is-active", on);
-  });
+  paintRoundStrip();
   const unlockMedia = $("live-unlock-media");
   const unlockCanvas = $("live-unlock-canvas");
   const unlocks = teacherState.unlocks || {};
@@ -2195,6 +2196,41 @@ function paintTeamsStripEnabled() {
     rename.setAttribute("aria-disabled", team ? "false" : "true");
   }
   if (!team) closeTeamsPops();
+  paintRoundStrip();
+}
+
+/**
+ * Beat 18: ROUND OptionsStrip is three facet checkboxes + SET when teams > 1.
+ * Teams = 1 hides the multi-pick chrome. SET is the only write.
+ */
+function paintRoundStrip() {
+  const team = currentTeamCount() > 1;
+  const picks = $("live-round-picks");
+  if (picks) {
+    picks.hidden = !team;
+    if (team) picks.removeAttribute("hidden");
+    else picks.setAttribute("hidden", "");
+  }
+  const flags = teacherState.round_flags || {};
+  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
+    if (!(box instanceof HTMLInputElement)) return;
+    const key = box.getAttribute("data-round") || "";
+    box.checked = Boolean(flags[key]);
+  });
+}
+
+/**
+ * Read the local ROUND facet checkboxes for a SET commit.
+ * @returns {{minds_on: boolean, action: boolean, consolidation: boolean}}
+ */
+function readRoundFlags() {
+  const flags = { minds_on: false, action: false, consolidation: false };
+  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
+    if (!(box instanceof HTMLInputElement)) return;
+    const key = box.getAttribute("data-round") || "";
+    if (key in flags) flags[key] = box.checked;
+  });
+  return flags;
 }
 
 /**
@@ -2981,9 +3017,9 @@ function renderRoundsPanel() {
   }
   box.innerHTML = roundEditorMarkup(draftRound, setupRoundNumber);
   const title = $("ap-rounds-title");
-  if (title) title.textContent = `Start Round ${setupRoundNumber}`;
+  if (title) title.textContent = `Scoring ${setupRoundNumber}`;
   const start = $("ap-rounds-start");
-  if (start) start.textContent = `Start Round ${setupRoundNumber}`;
+  if (start) start.textContent = "Start scoring";
   const hint = $("ap-rounds-hint");
   if (hint) {
     hint.textContent =
@@ -3059,9 +3095,9 @@ function renderNextRoundPanel() {
   const fields = $("ap-next-round-fields");
   if (fields) fields.innerHTML = roundEditorMarkup(nextDraftRound, setupRoundNumber);
   const title = $("ap-next-round-title");
-  if (title) title.textContent = `Start Round ${setupRoundNumber}`;
+  if (title) title.textContent = `Scoring ${setupRoundNumber}`;
   const start = $("ap-next-round-start");
-  if (start) start.textContent = `Start Round ${setupRoundNumber}`;
+  if (start) start.textContent = "Start scoring";
 }
 
 $("ap-add-round-btn")?.addEventListener("click", () => {
@@ -3854,11 +3890,9 @@ document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
   });
 });
 
-document.querySelectorAll("#live-round-picks [data-round]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const round = btn.getAttribute("data-round") || "minds_on";
-    patchTeacherState({ round, stage: "round" });
-  });
+$("live-round-set")?.addEventListener("click", () => {
+  if (currentTeamCount() <= 1) return;
+  patchTeacherState({ round_flags: readRoundFlags() });
 });
 
 document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {

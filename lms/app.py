@@ -3757,9 +3757,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         """Staff: read or patch the thin LiveTeacherState channel.
 
         POST JSON may include ``advance`` (``next`` / ``prev``) to move
-        ``stage`` only, plus any subset of stage / round / teams_mode /
-        layout_preset / frames / active_tab / refs / cue_id / meet_chain /
-        student_frames / unlocks / ``mc_ui``, or ``meet_action``
+        ``stage`` only, plus any subset of stage / round / round_flags /
+        teams_mode / layout_preset / frames / active_tab / refs / cue_id /
+        meet_chain / student_frames / unlocks / ``mc_ui``, or ``meet_action``
         (``next`` / ``skip_c`` / ``clear``). TEAMS→MEET may include
         ``assign`` (``n_teams``, ``mode``, ``present_ids``, optional
         ``assignments``) so Generate and ``stage=meet`` share one
@@ -3790,6 +3790,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "advance",
             "stage",
             "round",
+            "round_flags",
             "teams_mode",
             "layout_preset",
             "frames",
