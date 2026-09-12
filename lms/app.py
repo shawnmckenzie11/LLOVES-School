@@ -2375,6 +2375,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
+
+        After a save, staff land on Attendance & Participation so the
+        new class-day column is visible.
         """
         user = current_user()
         assert user is not None
@@ -2384,7 +2387,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
         school.finish_live_class(int(class_id), persist=True)
-        return redirect(url_for("staff_home"))
+        return redirect(
+            url_for(
+                "staff_course",
+                class_id=int(class_id),
+                tab="ap",
+                view="attendance",
+            )
+        )
 
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required

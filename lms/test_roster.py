@@ -467,7 +467,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn(f"/staff/class/{class_id}/end-live", live_home)
         self.assertIn(">End Live Class<", live_home)
         self.assertNotIn(">End<", live_home)
-        self.assertIn("Save attendance and participation, then close this session.", live_home)
+        self.assertIn("Save attendance & participation, then end?", live_home)
         self.assertIn("return confirm(this.dataset.confirm)", live_home)
         ended = self.client.post(
             f"/staff/class/{class_id}/end-live",
