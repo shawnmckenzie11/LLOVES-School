@@ -768,6 +768,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         cons1_body = cons1_submit.get_json()
         self.assertEqual(cons1_body["feedback"]["source"], "by_choice")
         self.assertEqual(cons1_body["feedback"]["text"], "Opens upward → a > 0.")
+        self.assertEqual(cons1_body["feedback"]["lead"], "Good work.")
+        self.assertTrue(cons1_body["feedback"]["match"])
         self.assertEqual(state["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
         self.assertNotIn("feedback", state["active_media"])
 
@@ -796,6 +798,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             cons4_submit.get_json()["feedback"]["text"],
             "Feature → claim. That’s the whole move.",
         )
+        self.assertEqual(cons4_submit.get_json()["feedback"]["lead"], "Good work.")
 
         cons5 = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",

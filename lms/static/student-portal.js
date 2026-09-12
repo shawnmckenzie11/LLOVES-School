@@ -6,6 +6,12 @@ const meEl = document.getElementById("me-board");
 const boardEl = document.getElementById("class-board");
 const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
+const questionFrame = document.getElementById("question-frame");
+const promptFeedback = document.getElementById("prompt-feedback");
+const promptFeedbackLead = document.getElementById("prompt-feedback-lead");
+const promptFeedbackWhy = document.getElementById("prompt-feedback-why");
+const promptFeedbackHelper = document.getElementById("prompt-feedback-helper");
+const promptFeedbackClose = document.getElementById("prompt-feedback-close");
 const promptAck = document.getElementById("prompt-ack");
 const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
@@ -33,6 +39,10 @@ let lastToastKey = "";
 let lastCueId = "";
 /** @type {string} */
 let lastMeetSig = "";
+/** @type {string} */
+let lastFeedbackKey = "";
+/** @type {boolean} */
+let feedbackDismissed = false;
 /** @type {number} */
 let lastStateSeq = -1;
 /** @type {number} */
@@ -560,6 +570,9 @@ function paintPrompt(payload) {
     promptShell.innerHTML = "";
     lastPromptId = null;
     lastMeetSig = "";
+    lastFeedbackKey = "";
+    feedbackDismissed = false;
+    hideFeedbackPanel();
     if (promptAck) {
       promptAck.hidden = true;
       promptAck.classList.remove("is-feedback");
@@ -567,16 +580,52 @@ function paintPrompt(payload) {
     return;
   }
   if (answered && !isMeet) {
+    const fb = feedbackObject(payload.my_response);
+    const key = `${prompt.id}:${(fb && fb.lead) || ""}:${(fb && fb.text) || ""}`;
+    if (key === lastFeedbackKey && (feedbackDismissed || (promptFeedback && !promptFeedback.hidden))) {
+      lastPromptId = Number(prompt.id);
+      return;
+    }
+    if (fb) {
+      renderPromptBody(prompt, data, payload, true);
+      if (key !== lastFeedbackKey || !feedbackDismissed) {
+        showFeedbackPanel(fb);
+        lastFeedbackKey = key;
+      }
+      lastPromptId = Number(prompt.id);
+      lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
+      return;
+    }
+    hideFeedbackPanel();
     promptShell.hidden = true;
     promptShell.innerHTML = "";
-    showPromptAck(feedbackLine(payload.my_response));
+    showPromptAck("");
     lastPromptId = Number(prompt.id);
+    lastFeedbackKey = key;
     return;
   }
+  hideFeedbackPanel();
+  lastFeedbackKey = "";
+  feedbackDismissed = false;
   if (promptAck) {
     promptAck.hidden = true;
     promptAck.classList.remove("is-feedback");
   }
+  const picked = String(
+    (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
+      ""
+  ).trim();
+  renderPromptBody(prompt, data, payload, Boolean(picked));
+}
+
+/**
+ * Paint the Question-frame stem + controls without remounting chrome.
+ * @param {any} prompt
+ * @param {any} data
+ * @param {any} payload
+ * @param {boolean} lockChoices
+ */
+function renderPromptBody(prompt, data, payload, lockChoices) {
   const kind = String(prompt.kind);
   const title = formatPromptHtml(data.prompt || data.question || "Live response");
   const picked = String(
@@ -591,7 +640,7 @@ function paintPrompt(payload) {
         const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
         const on = picked && label === picked ? " is-selected" : "";
         return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
-          picked ? " disabled" : ""
+          picked || lockChoices ? " disabled" : ""
         }>${escapeText(label)}</button>`;
       })
       .join("");
@@ -599,20 +648,30 @@ function paintPrompt(payload) {
     controls = `
       <label class="prompt-numeric">
         <span>Your answer</span>
-        <input type="number" inputmode="decimal" id="prompt-numeric-input" />
+        <input type="number" inputmode="decimal" id="prompt-numeric-input" ${
+          lockChoices ? "disabled" : ""
+        } />
       </label>
-      <button type="button" class="prompt-submit" id="prompt-numeric-submit">Submit</button>
+      <button type="button" class="prompt-submit" id="prompt-numeric-submit"${
+        lockChoices ? " disabled" : ""
+      }>Submit</button>
     `;
   } else if (kind === "share" || kind === "draw") {
-    const placeholder = escapeText(
-      data.placeholder || "Type a short note…"
+    const placeholder = escapeText(data.placeholder || "Type a short note…");
+    const shared = escapeText(
+      (payload.my_response && payload.my_response.response && payload.my_response.response.text) ||
+        ""
     );
     controls = `
       <label class="prompt-share">
         <span>${kind === "draw" ? "Mark and name" : "Share your work"}</span>
-        <textarea id="prompt-share-input" rows="3" maxlength="2000" placeholder="${placeholder}"></textarea>
+        <textarea id="prompt-share-input" rows="3" maxlength="2000" placeholder="${placeholder}"${
+          lockChoices ? " disabled" : ""
+        }>${shared}</textarea>
       </label>
-      <button type="button" class="prompt-submit" id="prompt-share-submit">Share</button>
+      <button type="button" class="prompt-submit" id="prompt-share-submit"${
+        lockChoices ? " disabled" : ""
+      }>Share</button>
     `;
   } else {
     controls = `<p class="prompt-idle">Unsupported prompt kind.</p>`;
@@ -643,7 +702,7 @@ function paintPrompt(payload) {
   `;
   lastPromptId = Number(prompt.id);
   lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
-  if (!picked) {
+  if (!picked && !lockChoices) {
     wirePromptControls(prompt);
   }
 }
@@ -679,15 +738,34 @@ function wirePromptControls(prompt) {
 }
 
 /**
- * One short feedback line from submit JSON or my_response.
+ * Student-safe feedback object from submit JSON or my_response.
+ * @param {any} data
+ * @returns {{text: string, lead: string, source: string, match?: boolean} | null}
+ */
+function feedbackObject(data) {
+  const top = data && data.feedback;
+  const mine = data && data.my_response && data.my_response.feedback;
+  const fb = top && top.text ? top : mine && mine.text ? mine : top || mine;
+  if (!fb || typeof fb !== "object") return null;
+  const text = String(fb.text || "").trim();
+  const lead = String(fb.lead || "").trim();
+  if (!text && !lead) return null;
+  return {
+    text,
+    lead,
+    source: String(fb.source || "").trim(),
+    match: Boolean(fb.match),
+  };
+}
+
+/**
+ * One short why line from submit JSON or my_response.
  * @param {any} data
  * @returns {string}
  */
 function feedbackLine(data) {
-  const top = data && data.feedback && data.feedback.text;
-  const mine =
-    data && data.my_response && data.my_response.feedback && data.my_response.feedback.text;
-  return String(top || mine || "").trim();
+  const fb = feedbackObject(data);
+  return fb ? fb.text : "";
 }
 
 /**
@@ -700,6 +778,61 @@ function showPromptAck(line) {
   promptAck.hidden = false;
   promptAck.textContent = text || "Response received.";
   promptAck.classList.toggle("is-feedback", Boolean(text));
+}
+
+/**
+ * Mount one lead + why + Close overlay inside the Question frame.
+ * @param {{text?: string, lead?: string}} fragment
+ */
+function showFeedbackPanel(fragment) {
+  if (!promptFeedback || !fragment) return;
+  const lead = String(fragment.lead || "").trim();
+  const why = String(fragment.text || "").trim();
+  if (!lead && !why) return;
+  hidePromptAck();
+  if (promptFeedbackLead) promptFeedbackLead.textContent = lead || "Good work.";
+  if (promptFeedbackWhy) promptFeedbackWhy.textContent = why;
+  if (promptFeedbackHelper) {
+    const dense = why.length > 180;
+    promptFeedbackHelper.hidden = dense;
+  }
+  promptFeedback.hidden = false;
+  if (questionFrame) questionFrame.classList.add("is-feedback");
+  feedbackDismissed = false;
+  if (promptFeedbackClose) {
+    promptFeedbackClose.focus();
+  } else {
+    promptFeedback.focus();
+  }
+}
+
+/**
+ * Hide the generic one-line ack.
+ */
+function hidePromptAck() {
+  if (!promptAck) return;
+  promptAck.hidden = true;
+  promptAck.classList.remove("is-feedback");
+}
+
+/**
+ * Dismiss the feedback overlay; keep the Question frame mounted.
+ */
+function dismissFeedbackPanel() {
+  hideFeedbackPanel();
+  feedbackDismissed = true;
+}
+
+/**
+ * Hide the overlay without treating it as an explicit Close.
+ */
+function hideFeedbackPanel() {
+  if (promptFeedback) {
+    promptFeedback.hidden = true;
+    if (promptFeedbackLead) promptFeedbackLead.textContent = "";
+    if (promptFeedbackWhy) promptFeedbackWhy.textContent = "";
+  }
+  if (questionFrame) questionFrame.classList.remove("is-feedback");
 }
 
 /**
@@ -725,20 +858,42 @@ async function submitResponse(promptId, response) {
     }
     if (data.ok && data.ack) {
       const meetRide = promptShell && promptShell.querySelector(".meet-progress-dots");
-      if (promptShell && !meetRide) {
-        promptShell.hidden = true;
-        promptShell.innerHTML = "";
-        showPromptAck(feedbackLine(data));
-      } else if (promptShell) {
+      if (meetRide) {
         const choice = String((response && response.choice) || "").trim();
         promptShell.querySelectorAll(".prompt-choice").forEach((btn) => {
           const on = btn.getAttribute("data-choice") === choice;
           btn.classList.toggle("is-selected", on);
           btn.disabled = true;
         });
-      } else {
-        showPromptAck(feedbackLine(data));
+        return;
       }
+      const fb = feedbackObject(data);
+      if (fb && promptShell) {
+        promptShell.querySelectorAll(".prompt-choice, .prompt-submit").forEach((btn) => {
+          btn.disabled = true;
+        });
+        promptShell.querySelectorAll("input, textarea").forEach((field) => {
+          field.disabled = true;
+        });
+        if (response && response.choice) {
+          promptShell.querySelectorAll(".prompt-choice").forEach((btn) => {
+            btn.classList.toggle(
+              "is-selected",
+              btn.getAttribute("data-choice") === String(response.choice)
+            );
+          });
+        }
+        const key = `${promptId}:${fb.lead}:${fb.text}`;
+        lastFeedbackKey = key;
+        showFeedbackPanel(fb);
+        return;
+      }
+      hideFeedbackPanel();
+      if (promptShell) {
+        promptShell.hidden = true;
+        promptShell.innerHTML = "";
+      }
+      showPromptAck(feedbackLine(data));
     }
   } catch (_err) {
     /* keep UI; next poll retries */
@@ -781,6 +936,18 @@ async function tick() {
   } catch (_err) {
     /* keep last paint */
   }
+}
+
+if (promptFeedbackClose) {
+  promptFeedbackClose.addEventListener("click", dismissFeedbackPanel);
+}
+if (promptFeedback) {
+  promptFeedback.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dismissFeedbackPanel();
+    }
+  });
 }
 
 tick();

@@ -377,11 +377,86 @@ body.student-home.is-live .student-live-response {
   text-align: center;
 }
 
+.question-frame {
+  position: relative;
+  max-height: min(70dvh, 36rem);
+  min-height: 0;
+}
+
 .prompt-shell {
   background: #122033;
   border: 1px solid #1e3348;
   border-radius: 12px;
   padding: 0.9rem 1rem 1rem;
+  max-height: min(70dvh, 36rem);
+  overflow: auto;
+}
+
+.prompt-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem 1rem;
+  border-radius: 12px;
+  background: rgba(12, 22, 36, 0.96);
+  border: 1px solid #2a4660;
+  color: #e8f1f8;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.prompt-feedback[hidden] {
+  display: none !important;
+}
+
+.prompt-feedback-lead {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: #e8f1f8;
+}
+
+.prompt-feedback-why {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  color: #c5d4e8;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+.prompt-feedback-helper {
+  margin: 0;
+  color: #9fb3c8;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.prompt-feedback-helper[hidden] {
+  display: none !important;
+}
+
+.prompt-feedback-close {
+  align-self: flex-start;
+  padding: 0.55rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid #2a4660;
+  background: #16324a;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.prompt-feedback-close:focus-visible {
+  outline: 2px solid #5eead4;
+  outline-offset: 2px;
 }
 
 .prompt-kind {
