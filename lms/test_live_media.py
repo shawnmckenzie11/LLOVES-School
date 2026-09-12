@@ -45,6 +45,7 @@ from live_media import (  # noqa: E402
     live_media_url_swap_allowed,
     normalize_active_media_url,
     public_active_media_payload,
+    staff_cons_prompt_payload,
     student_cons_prompt_payload,
 )
 
@@ -247,6 +248,18 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(len(c3_cons_catalog()), 3)
         self.assertEqual(c2_cons_catalog()[0]["key"], "B")
         self.assertEqual(c3_cons_catalog()[0]["key"], "B")
+        self.assertEqual(c2_cons_catalog()[0]["chips"], ["A2.5"])
+        self.assertEqual(c2_cons_catalog()[2]["chips"], ["A2.5", "A2.6"])
+        self.assertEqual(c3_cons_catalog()[0]["chips"], ["A2.4"])
+        self.assertEqual(c3_cons_catalog()[1]["chips"], ["A2.3", "A2.4"])
+        for row in c1_cons_catalog():
+            self.assertNotIn("chips", row)
+        c2_student = student_cons_prompt_payload(c2_cons_catalog()[0])
+        self.assertNotIn("chips", c2_student)
+        self.assertNotIn("key", c2_student)
+        c2_staff = staff_cons_prompt_payload(c2_cons_catalog()[0])
+        self.assertEqual(c2_staff["chips"], ["A2.5"])
+        self.assertEqual(c2_staff["key"], "B")
         with self.assertRaises(ValueError):
             get_c1_cons_item("C2-CONS-1")
         cons_prompt = student_cons_prompt_payload(catalog[0])
@@ -844,6 +857,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(defaults["live_slot"], "C2")
         self.assertEqual(len(defaults["cons_pack"]), 3)
         self.assertEqual(defaults["cons_pack"][0]["id"], "C2-CONS-1")
+        self.assertEqual(defaults["cons_pack"][0]["chips"], ["A2.5"])
+        self.assertEqual(defaults["cons_pack"][2]["chips"], ["A2.5", "A2.6"])
 
     def test_c2_c3_minds_on_and_light_cons_after_freeze(self) -> None:
         """C2/C3 seed their own Minds-On + 3-item CONS; C1 pack stays 5."""
@@ -867,6 +882,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(waiting["prompt"]["payload"]["live_slot"], "C2")
         self.assertEqual(len(waiting["prompt"]["payload"]["items"]), 1)
         self.assertNotIn("key", waiting["prompt"]["payload"])
+        self.assertNotIn("chips", waiting["prompt"]["payload"])
+        self.assertNotIn("curriculum_chips", waiting["prompt"]["payload"])
         submit = self.student.post(
             "/api/student/live-prompt/response",
             json={"response": {"choice": "A"}},
@@ -902,6 +919,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(after["prompt"]["payload"]["item_id"], "C2-CONS-1")
         self.assertEqual(after["prompt"]["payload"]["chain_length"], 3)
         self.assertNotIn("key", after["prompt"]["payload"])
+        self.assertNotIn("chips", after["prompt"]["payload"])
         cons_submit = self.student.post(
             "/api/student/live-prompt/response",
             json={"response": {"choice": "No"}},
@@ -940,6 +958,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         c3_after = self.student.get("/api/student/state").get_json()
         self.assertEqual(c3_after["prompt"]["payload"]["item_id"], "C3-CONS-1")
         self.assertEqual(c3_after["prompt"]["payload"]["chain_length"], 3)
+        self.assertNotIn("chips", c3_after["prompt"]["payload"])
         c3_submit = self.student.post(
             "/api/student/live-prompt/response",
             json={"response": {"choice": "B"}},

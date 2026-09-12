@@ -3648,6 +3648,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                             "index": item["index"],
                             "kind": item["kind"],
                             "prompt": item["prompt"],
+                            **(
+                                {
+                                    "chips": [
+                                        str(code).strip()
+                                        for code in (item.get("chips") or [])
+                                        if str(code).strip()
+                                    ]
+                                }
+                                if item.get("chips")
+                                else {}
+                            ),
                         }
                         for item in pack
                     ],

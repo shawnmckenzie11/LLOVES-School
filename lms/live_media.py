@@ -353,6 +353,9 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
 def c2_cons_catalog() -> list[dict[str, Any]]:
     """C2 post-freeze light CONS (3 items; text-only, no Real-slice).
 
+    Teacher-only ``chips`` are live-slot codes (A2.5 / A2.6). Waiting-room
+    Minds-On stays chip-free.
+
     Returns:
         CONS-1…3 dicts. ``kind`` is ``mc`` or ``share``.
     """
@@ -366,6 +369,7 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             "choices": ["Yes", "No", "Not sure"],
             "key": "B",
             "cement": "point ties parameters — h is not frozen alone",
+            "chips": ["A2.5"],
         },
         {
             "id": "C2-CONS-2",
@@ -375,6 +379,7 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             "prompt": "In one sentence: what does (2,5) force?",
             "key": "",
             "cement": "relation among a, h, k — not one frozen parameter",
+            "chips": ["A2.5"],
         },
         {
             "id": "C2-CONS-3",
@@ -386,12 +391,16 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             ),
             "key": "",
             "cement": "family awareness — another writing through the point",
+            "chips": ["A2.5", "A2.6"],
         },
     ]
 
 
 def c3_cons_catalog() -> list[dict[str, Any]]:
     """C3 post-freeze light CONS (courtyard domain/range; 3 items).
+
+    Teacher-only ``chips`` are live-slot codes (A2.3 / A2.4). Waiting-room
+    Minds-On stays chip-free.
 
     Returns:
         CONS-1…3 dicts. ``kind`` is ``mc``, ``share``, or ``draw``.
@@ -406,6 +415,7 @@ def c3_cons_catalog() -> list[dict[str, Any]]:
             "choices": ["Yes", "No", "Not sure"],
             "key": "B",
             "cement": "underground at the wall — domain is not [0, 8]",
+            "chips": ["A2.4"],
         },
         {
             "id": "C3-CONS-2",
@@ -415,6 +425,7 @@ def c3_cons_catalog() -> list[dict[str, Any]]:
             "prompt": "State the range of heights on the physical path.",
             "key": "",
             "cement": "ground to peak on the physical path",
+            "chips": ["A2.3", "A2.4"],
         },
         {
             "id": "C3-CONS-3",
@@ -427,6 +438,7 @@ def c3_cons_catalog() -> list[dict[str, Any]]:
             ),
             "key": "",
             "cement": "graph-first shade + one defence sentence",
+            "chips": ["A2.3", "A2.4"],
         },
     ]
 
@@ -596,12 +608,17 @@ def student_cons_prompt_payload(item: dict[str, Any]) -> dict[str, Any]:
 def staff_cons_prompt_payload(item: dict[str, Any]) -> dict[str, Any]:
     """Staff live-prompt payload including cement notes (not shown to students).
 
+    Live-slot CONS chips stay teacher-only. Student GET strips them.
+
     Args:
-        item: Row from ``c1_cons_catalog``.
+        item: Row from ``cons_catalog``.
     """
     payload = student_cons_prompt_payload(item)
     payload["key"] = item.get("key") or ""
     payload["cement"] = item.get("cement") or ""
+    chips = [str(code).strip() for code in (item.get("chips") or []) if str(code).strip()]
+    if chips:
+        payload["chips"] = chips
     return payload
 
 

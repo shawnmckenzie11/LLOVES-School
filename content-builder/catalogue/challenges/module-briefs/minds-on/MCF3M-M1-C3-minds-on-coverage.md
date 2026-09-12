@@ -12,7 +12,7 @@
 ## Chip rule (hard)
 
 - **Student Minds-On is chip-free.** Do not put A2.3 / A2.4 (or any Ministry code) on the waiting-room MC, live-prompt payload, or student chrome.
-- **CONS chips** land only on the live-slot CONS pack: **A2.3, A2.4** — see `MCF3M-M1-C3-coverage-row-map.md`. Codes only; never paraphrased Ministry prose on a student face.
+- **CONS chips** land only on the live-slot CONS pack (now wired): CONS-1 **A2.4** · CONS-2/3 **A2.3, A2.4**. Codes only on staff `cons_pack` / staff prompt. Never paraphrased Ministry prose on a student face.
 
 ## Why OK
 
