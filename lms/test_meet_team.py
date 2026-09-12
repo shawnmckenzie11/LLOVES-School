@@ -32,6 +32,7 @@ from meet_team import (  # noqa: E402
     MEET_TEAM_WARMUP_POOL,
     advance_meet_chain,
     is_meet_team_payload,
+    meet_prompt_ref_for,
     meet_step_payload,
     meet_team_choices,
     meet_team_prompt_payload,
@@ -161,6 +162,16 @@ class MeetTeamHelperTests(unittest.TestCase):
         short = meet_team_prompt_payload(rng=random.Random(0), include_c=False)
         self.assertEqual(short["chain"], ["A", "B"])
         self.assertEqual(short["chain_length"], 2)
+
+    def test_prompt_ref_follows_visible_step(self) -> None:
+        """Students bind meet-team / meet-c / meet-b from the chain index."""
+        state = new_meet_chain_state(rng=random.Random(4))
+        self.assertEqual(meet_prompt_ref_for(state), "meet-team")
+        self.assertEqual(meet_prompt_ref_for(None), "meet-team")
+        nxt = advance_meet_chain(state)
+        self.assertEqual(meet_prompt_ref_for(nxt), "meet-c")
+        last = advance_meet_chain(nxt)
+        self.assertEqual(meet_prompt_ref_for(last), "meet-b")
 
 
 class MeetTeamLivePromptTests(unittest.TestCase):
@@ -310,6 +321,9 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(teacher["cue_id"], CUE_MEET_OPEN)
         self.assertEqual(teacher["active_tab"], "questions")
         self.assertEqual(teacher["layout_preset"], "questions_full")
+        self.assertEqual(teacher["prompt_ref"], "meet-team")
+        self.assertTrue(teacher["student_frames"]["questions"])
+        self.assertFalse(teacher["student_frames"]["media"])
         self.assertEqual(teacher["meet_chain"]["index"], 0)
         again_state = self.student.get("/api/student/state").get_json()
         self.assertEqual(again_state["teacher_state"]["cue_id"], CUE_MEET_OPEN)
@@ -536,6 +550,99 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         ).get_json()["teacher_state"]
         self.assertEqual(again["stage"], "meet")
         self.assertEqual(again["state_seq"], seq + 1)
+
+    def test_teams_next_projects_meet_chain_to_students(self) -> None:
+        """Beat 15: TEAMS→Meet binds student Question frame to Meet step A."""
+        ids = self._staff_mark_present()
+        self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        nxt = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "advance": "next",
+                "teams_mode": "teams",
+                "assign": {
+                    "n_teams": 2,
+                    "mode": "random",
+                    "present_ids": ids,
+                },
+            },
+        )
+        self.assertEqual(nxt.status_code, 200, nxt.get_json())
+        teacher = nxt.get_json()["teacher_state"]
+        self.assertEqual(teacher["stage"], "meet")
+        self.assertEqual(teacher["prompt_ref"], "meet-team")
+        self.assertTrue(teacher["student_frames"]["questions"])
+        self.assertFalse(teacher["student_frames"]["media"])
+        self.assertEqual(teacher["meet_chain"]["index"], 0)
+        self.assertEqual(teacher["meet_chain"]["chain"], ["A", "C", "B"])
+        self.assertEqual(teacher["cue_id"], CUE_MEET_OPEN)
+
+        state = self.student.get("/api/student/state").get_json()
+        self.assertFalse(state.get("waiting_room"), state)
+        self.assertFalse(state.get("scoring"), state)
+        projected = state.get("teacher_state") or {}
+        self.assertEqual(projected["stage"], "meet")
+        self.assertEqual(projected["prompt_ref"], "meet-team")
+        self.assertTrue(projected["student_frames"]["questions"])
+        self.assertIsNotNone(projected.get("meet_chain"))
+        self.assertEqual(projected["meet_chain"]["index"], 0)
+        first = self._assert_meet_team_prompt(state)
+        self.assertEqual(first["chain"], ["A", "C", "B"])
+        live_prompt = self.student.get("/api/student/live-prompt").get_json()
+        self._assert_meet_team_prompt(live_prompt)
+
+        stepped = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"meet_action": "next"},
+        )
+        self.assertEqual(stepped.status_code, 200, stepped.get_json())
+        self.assertEqual(stepped.get_json()["teacher_state"]["prompt_ref"], "meet-c")
+        spark = self._assert_meet_step(
+            self.student.get("/api/student/state").get_json(), "C"
+        )
+        self.assertEqual(spark["item_id"], "meet-c")
+        after_c = self.student.get("/api/student/state").get_json()["teacher_state"]
+        self.assertEqual(after_c["prompt_ref"], "meet-c")
+        self.assertEqual(after_c["meet_chain"]["index"], 1)
+
+        left = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(left.status_code, 200, left.get_json())
+        self.assertEqual(left.get_json()["teacher_state"]["stage"], "round")
+        self.assertIsNone(left.get_json()["teacher_state"].get("meet_chain"))
+        cleared = self.student.get("/api/student/live-prompt").get_json()
+        if cleared.get("prompt") is not None:
+            self.assertFalse(
+                is_meet_team_payload((cleared["prompt"] or {}).get("payload"))
+            )
+        cleared_state = self.student.get("/api/student/state").get_json()
+        self.assertNotEqual(cleared_state.get("teacher_state", {}).get("stage"), "meet")
+        self.assertIsNone(cleared_state.get("teacher_state", {}).get("meet_chain"))
+
+    def test_meet_prompt_survives_teacher_media_preview(self) -> None:
+        """Teacher Real-slice preview must not hide the student Meet chain."""
+        from live_media import DEFAULT_LIVE_MEDIA_URL
+
+        self._staff_assign_two_teams()
+        entered = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "meet"},
+        )
+        self.assertEqual(entered.status_code, 200, entered.get_json())
+        media = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"url": DEFAULT_LIVE_MEDIA_URL},
+        )
+        self.assertEqual(media.status_code, 200, media.get_json())
+        state = self.student.get("/api/student/state").get_json()
+        self.assertEqual(state["teacher_state"]["stage"], "meet")
+        self.assertFalse(state["teacher_state"]["student_frames"]["media"])
+        self._assert_meet_team_prompt(state)
 
     def test_teams_next_count_one_skips_assign_without_crash(self) -> None:
         """Count=1 Next still enters MEET and does not call assign_teams."""

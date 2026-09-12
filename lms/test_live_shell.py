@@ -689,6 +689,16 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("lockClassListPane();", paint)
         self.assertNotIn("innerHTML", paint)
 
+    def test_beat15_student_js_projects_meet_question_frame(self) -> None:
+        """Beat 15: student Question frame follows student_frames + meet_chain."""
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("questionFrame.hidden = !proj.questions", js)
+        self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
+        self.assertIn("Waiting-room keeps Wonder's line", js)
+        self.assertNotIn("Waiting for your teacher to start scoring.", js)
+        self.assertNotIn("meet-chain-skip-c", js)
+        self.assertNotIn("End Meet", js)
+
 
 if __name__ == "__main__":
     unittest.main()

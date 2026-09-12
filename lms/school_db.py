@@ -30,6 +30,7 @@ try:
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
         apply_teacher_state_update,
+        bind_meet_student_projection,
         default_text_ride,
         normalize_live_slot,
         public_teacher_state,
@@ -46,10 +47,12 @@ try:
         MEET_TEAM_KIND,
         MEET_TEAM_SLIDE_INDEX,
         advance_meet_chain,
+        current_meet_step,
         is_meet_team_payload,
         meet_chip_for,
         meet_participant_key,
         meet_payload_for_state,
+        meet_prompt_ref_for,
         meet_team_prompt_payload,
         new_meet_chain_state,
         public_meet_chain,
@@ -81,6 +84,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
         apply_teacher_state_update,
+        bind_meet_student_projection,
         default_text_ride,
         normalize_live_slot,
         public_teacher_state,
@@ -97,10 +101,12 @@ except ImportError:  # ``python3 lms/app.py`` package import
         MEET_TEAM_KIND,
         MEET_TEAM_SLIDE_INDEX,
         advance_meet_chain,
+        current_meet_step,
         is_meet_team_payload,
         meet_chip_for,
         meet_participant_key,
         meet_payload_for_state,
+        meet_prompt_ref_for,
         meet_team_prompt_payload,
         new_meet_chain_state,
         public_meet_chain,
@@ -6139,6 +6145,35 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
 
+    def _ensure_student_meet_prompt(
+        self,
+        session_id: int,
+        chain_state: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Activate the visible Meet step on the student prompt channel.
+
+        Remounts only when the active row is missing, not a Meet ride, or
+        the step no longer matches ``meet_chain``. Teacher preview media
+        must not hide this prompt.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            chain_state: Public MeetChainState.
+
+        Returns:
+            The active Meet prompt row, or None when the session is missing.
+        """
+        step = current_meet_step(chain_state)
+        active = self.get_active_live_prompt(session_id)
+        payload = (active or {}).get("payload") or {}
+        if (
+            active
+            and is_meet_team_payload(payload)
+            and str(payload.get("step") or "") == str(step or "")
+        ):
+            return active
+        return self.seed_meet_team_warmup(session_id, chain_state=chain_state)
+
     def seed_meet_team_warmup(
         self,
         session_id: int,
@@ -6500,8 +6535,21 @@ class SchoolDB(LovesDB):
         Returns:
             Dict with ``prompt`` (or ``None``) and optional ``my_response``.
         """
-        self.ensure_waiting_room_minds_on(session_id)
-        waiting_room = not self._session_left_waiting_room(session_id)
+        teacher = None
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            teacher = None
+        stage = str((teacher or {}).get("stage") or "")
+        meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
+        meet_live = stage == "meet" and meet_state is not None
+        if meet_live:
+            self._ensure_student_meet_prompt(session_id, meet_state)
+        else:
+            self.ensure_waiting_room_minds_on(session_id)
+        waiting_room = False if meet_live else not self._session_left_waiting_room(
+            session_id
+        )
         prompt = self.get_active_live_prompt(session_id)
         empty = {"prompt": None, "my_response": None, "waiting_room": waiting_room}
         if prompt is None or prompt.get("kind") == "idle":
@@ -6509,19 +6557,8 @@ class SchoolDB(LovesDB):
         raw_payload = dict(prompt.get("payload") or {})
         if is_minds_on_payload(raw_payload) and not waiting_room:
             return empty
-        if is_meet_team_payload(raw_payload) and self._session_challenge_started(
-            session_id
-        ):
+        if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
-        teacher = None
-        try:
-            teacher = self.live_session_teacher_state_payload(session_id)
-        except KeyError:
-            teacher = None
-        meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
-        if is_meet_team_payload(raw_payload) and meet_state is None:
-            if str((teacher or {}).get("stage") or "") != "meet":
-                return empty
         if is_cons_payload(raw_payload):
             slot = self.session_live_slot(session_id)
             if slot == "C1":
@@ -6961,10 +6998,8 @@ class SchoolDB(LovesDB):
         self.clear_waiting_room_minds_on(session_id)
         self.seed_meet_team_warmup(session_id, chain_state=state)
         payload["meet_chain"] = state
-        payload["layout_preset"] = "questions_full"
-        payload["frames"] = {"A": "questions"}
-        payload["active_tab"] = "questions"
-        payload["prompt_ref"] = "meet-team"
+        payload["prompt_ref"] = meet_prompt_ref_for(state)
+        bind_meet_student_projection(payload)
         if fire_open:
             payload["cue_id"] = CUE_MEET_OPEN
         return payload

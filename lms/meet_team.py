@@ -302,6 +302,26 @@ def current_meet_step(state: dict[str, Any] | None) -> str | None:
     return cleaned["chain"][cleaned["index"]]
 
 
+MEET_PROMPT_REFS: dict[str, str] = {
+    "A": MEET_TEAM_ITEM_ID,
+    "C": MEET_STEP_C_ITEM_ID,
+    "B": MEET_STEP_B_ITEM_ID,
+}
+
+
+def meet_prompt_ref_for(state: dict[str, Any] | None) -> str:
+    """Return the student/teacher ``prompt_ref`` for the visible Meet step.
+
+    Args:
+        state: Public MeetChainState, or None for step A.
+
+    Returns:
+        ``meet-team``, ``meet-c``, or ``meet-b``.
+    """
+    step = current_meet_step(state) or "A"
+    return MEET_PROMPT_REFS.get(step, MEET_TEAM_ITEM_ID)
+
+
 def advance_meet_chain(state: dict[str, Any] | None) -> dict[str, Any] | None:
     """Advance one step. No-op on the last item.
 
