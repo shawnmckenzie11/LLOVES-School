@@ -192,6 +192,55 @@ def _apply_tighten(
     scores[t2] = s2
 
 
+def team_count_bounds(present_count: int) -> tuple[int, int]:
+    """Return ``(min, max)`` stepper bounds from present students.
+
+    Min is always 1 (no teams / individuals). Max is the present-student
+    count, not a low hard-cap. When nobody is present, max stays 1 so the
+    stepper cannot invent teams.
+
+    Args:
+        present_count: Number of present students.
+
+    Returns:
+        Inclusive ``(min, max)`` pair.
+    """
+    present = max(0, int(present_count))
+    return (1, max(1, present))
+
+
+def division_strength(present_count: int, team_count: int) -> str:
+    """Band for even-split roster quality at this team count.
+
+    Count 1 (no teams) is ``individuals``. Even-split sizes are
+    ``floor(N/K)`` or ``ceil(N/K)``. Optimal when those sizes differ by
+    at most one leftover (remainder ≤ 1) and every team has at least two
+    students once ``N ≥ 4``. Okay is a usable even-split leftover
+    (remainder > 1, still no singletons). Not recommended is degenerate:
+    empties, singletons, or ``N=3`` / ``K=2`` (sizes 2+1).
+
+    Args:
+        present_count: Number of present students (N).
+        team_count: Requested team count (K). ``1`` means no teams.
+
+    Returns:
+        ``individuals``, ``optimal``, ``okay``, or ``not_recommended``.
+    """
+    n = max(0, int(present_count))
+    k = int(team_count)
+    if k <= 1:
+        return "individuals"
+    if n < 1 or k > n:
+        return "not_recommended"
+    low = n // k
+    remainder = n % k
+    if low < 2:
+        return "not_recommended"
+    if n >= 4 and remainder <= 1:
+        return "optimal"
+    return "okay"
+
+
 def validate_team_count(n_teams: int, present_count: int) -> None:
     """Reject team counts that cannot run a game.
 

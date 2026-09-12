@@ -1808,6 +1808,7 @@ function renderAttendanceList() {
     list.appendChild(row);
   }
   updateAttCount();
+  paintDivisionMeter();
 }
 
 /**
@@ -2182,12 +2183,83 @@ function currentTeamCount() {
 }
 
 /**
+ * Present-student count for the TEAMS stepper and division meter.
+ * Prefers the live ClassList selection; empty overlay ``present_ids``
+ * must not pin the max at a low hard-cap.
+ * @returns {number}
+ */
+function presentCountForTeams() {
+  const selected = selectedPresent().length;
+  if (selected) return selected;
+  const overlay = overlayState?.present_ids;
+  return Array.isArray(overlay) ? overlay.length : 0;
+}
+
+/**
  * Team-count bounds from present students. Min 1 = no teams.
+ * Max is the present count (not a low hard-cap).
  * @returns {{min:number, max:number}}
  */
 function nTeamsBounds() {
-  const present = (overlayState?.present_ids || selectedPresent()).length;
-  return { min: 1, max: Math.max(2, present) };
+  const present = presentCountForTeams();
+  return { min: 1, max: Math.max(1, present) };
+}
+
+/**
+ * Even-split division band for N present students on K teams.
+ * Count 1 is individuals. Mirrors ``teams.division_strength``.
+ * @param {number} presentCount
+ * @param {number} teamCount
+ * @returns {"individuals"|"optimal"|"okay"|"not_recommended"}
+ */
+function divisionStrength(presentCount, teamCount) {
+  const n = Math.max(0, Math.round(Number(presentCount) || 0));
+  const k = Math.round(Number(teamCount) || 0);
+  if (k <= 1) return "individuals";
+  if (n < 1 || k > n) return "not_recommended";
+  const low = Math.floor(n / k);
+  const remainder = n % k;
+  if (low < 2) return "not_recommended";
+  if (n >= 4 && remainder <= 1) return "optimal";
+  return "okay";
+}
+
+/**
+ * Paint the compact division-strength meter beside +/- .
+ * Hidden at count 1 (individuals). Updates live with the stepper.
+ */
+function paintDivisionMeter() {
+  const meter = $("ap-division-meter");
+  if (!(meter instanceof HTMLElement)) return;
+  const teamCount = currentTeamCount();
+  const present = presentCountForTeams();
+  const band = divisionStrength(present, teamCount);
+  const labelEl = $("ap-division-meter-label");
+  if (band === "individuals") {
+    meter.hidden = true;
+    meter.removeAttribute("data-band");
+    meter.removeAttribute("aria-valuenow");
+    meter.removeAttribute("aria-valuetext");
+    meter.removeAttribute("title");
+    if (labelEl) labelEl.textContent = "";
+    return;
+  }
+  const labels = {
+    optimal: { short: "Optimal", title: "Optimal — even split, teams of 2+" },
+    okay: { short: "Okay", title: "Okay — usable even-split leftover" },
+    not_recommended: {
+      short: "Not recommended",
+      title: "Not recommended — uneven or singleton teams",
+    },
+  };
+  const copy = labels[band];
+  const valueNow = band === "optimal" ? 2 : band === "okay" ? 1 : 0;
+  meter.hidden = false;
+  meter.dataset.band = band;
+  meter.setAttribute("aria-valuenow", String(valueNow));
+  meter.setAttribute("aria-valuetext", copy.short);
+  meter.title = copy.title;
+  if (labelEl) labelEl.textContent = copy.short;
 }
 
 /**
@@ -2215,6 +2287,7 @@ function paintTeamsStripEnabled() {
     rename.setAttribute("aria-disabled", team ? "false" : "true");
   }
   if (!team) closeTeamsPops();
+  paintDivisionMeter();
   paintRoundStrip();
 }
 
