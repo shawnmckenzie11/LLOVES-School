@@ -73,6 +73,14 @@ try:
         is_minds_on_payload,
         minds_on_prompt_payload,
     )
+    from teams_spark import (
+        CUE_TEAMS_SPARK,
+        TEAMS_SPARK_KIND,
+        TEAMS_SPARK_SLIDE_INDEX,
+        is_teams_spark_payload,
+        staff_teams_spark_card,
+        teams_spark_prompt_payload,
+    )
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
@@ -134,6 +142,14 @@ except ImportError:  # ``python3 lms/app.py`` package import
         MINDS_ON_SLIDE_INDEX,
         is_minds_on_payload,
         minds_on_prompt_payload,
+    )
+    from lms.teams_spark import (
+        CUE_TEAMS_SPARK,
+        TEAMS_SPARK_KIND,
+        TEAMS_SPARK_SLIDE_INDEX,
+        is_teams_spark_payload,
+        staff_teams_spark_card,
+        teams_spark_prompt_payload,
     )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
@@ -6127,6 +6143,74 @@ class SchoolDB(LovesDB):
             return
         self.clear_waiting_room_minds_on(int(live["id"]))
 
+    def ensure_teams_spark(self, session_id: int) -> dict[str, Any] | None:
+        """Seed the TEAMS shared spark when the teacher is on TEAMS.
+
+        Lazy-seeds sessions that entered TEAMS before this prompt existed.
+        Refreshes the active payload when the locked copy changes. Does
+        not recreate the row after TEAMS→MEET cleared it.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The seeded prompt row, or ``None`` when skipped.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return None
+        if str(teacher.get("stage") or "") != "teams":
+            return None
+        desired = teams_spark_prompt_payload()
+        active = self.get_active_live_prompt(session_id)
+        if active and is_teams_spark_payload(active.get("payload")):
+            current = active.get("payload") or {}
+            if (
+                current.get("prompt") == desired["prompt"]
+                and current.get("choices") == desired["choices"]
+                and current.get("key") == desired.get("key")
+                and current.get("teacher_key") == desired.get("teacher_key")
+            ):
+                return None
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=TEAMS_SPARK_SLIDE_INDEX,
+            kind=TEAMS_SPARK_KIND,
+            payload=desired,
+            activate=True,
+        )
+
+    def clear_teams_spark(self, session_id: int) -> None:
+        """Deactivate the TEAMS shared spark when leaving TEAMS.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        active = self.get_active_live_prompt(session_id)
+        if active and is_teams_spark_payload(active.get("payload")):
+            self.clear_active_live_prompt(session_id)
+
+    def staff_teams_spark_payload(self, session_id: int) -> dict[str, Any] | None:
+        """Teacher-only spark card for the staff Question frame.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return None
+        if str(teacher.get("stage") or "") != "teams":
+            return None
+        self.ensure_teams_spark(session_id)
+        prompt = self.get_active_live_prompt(session_id)
+        if prompt is None or not is_teams_spark_payload(prompt.get("payload")):
+            return None
+        ui = teacher.get("mc_ui") if isinstance(teacher.get("mc_ui"), dict) else {}
+        revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))
+        return staff_teams_spark_card(prompt.get("payload"), reveal=revealed)
+
     def _prompt_at_slide(
         self, session_id: int, slide_index: int
     ) -> dict[str, Any] | None:
@@ -6495,9 +6579,9 @@ class SchoolDB(LovesDB):
 
         Source-agnostic: JOIN Minds-On, MEET soft MC, CONS, and any other
         ``kind=mc`` ride share this shape. Meet tallies ephemeral chain
-        picks (no gradebook). Seeds waiting-room Minds-On so JOIN staff
-        polls see the same prompt students get. TEAMS has no JOIN
-        prompt — tally is empty until Meet / CONS / ROUND bind.
+        picks (no gradebook).         Seeds waiting-room Minds-On so JOIN staff
+        polls see the same prompt students get. TEAMS shared spark
+        has no tally chips — returns empty until Meet / CONS / ROUND.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6511,7 +6595,11 @@ class SchoolDB(LovesDB):
         except KeyError:
             teacher = None
         stage = str((teacher or {}).get("stage") or "")
+        if stage == "teams":
+            return None
         if is_minds_on_payload(prompt.get("payload")) and stage != "join":
+            return None
+        if is_teams_spark_payload(prompt.get("payload")):
             return None
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
@@ -6611,7 +6699,9 @@ class SchoolDB(LovesDB):
         meet_live = stage == "meet" and meet_state is not None
         if meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
-        elif stage != "teams":
+        elif stage == "teams":
+            self.ensure_teams_spark(session_id)
+        else:
             self.ensure_waiting_room_minds_on(session_id)
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
@@ -6635,6 +6725,8 @@ class SchoolDB(LovesDB):
             return empty
         raw_payload = dict(prompt.get("payload") or {})
         if is_minds_on_payload(raw_payload) and (not waiting_room or stage != "join"):
+            return empty
+        if is_teams_spark_payload(raw_payload) and stage != "teams":
             return empty
         if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
@@ -6682,12 +6774,18 @@ class SchoolDB(LovesDB):
             )
             if fragment:
                 my_response["feedback"] = fragment
+        cleaned = strip_teacher_prompt_fields(raw_payload)
+        if is_teams_spark_payload(raw_payload):
+            ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
+            revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))
+            if not revealed:
+                cleaned.pop("student_feedback_after_reveal", None)
         out = {
             "prompt": {
                 "id": int(prompt["id"]),
                 "slide_index": int(prompt["slide_index"]),
                 "kind": str(prompt["kind"]),
-                "payload": strip_teacher_prompt_fields(raw_payload),
+                "payload": cleaned,
             },
             "my_response": my_response,
             "waiting_room": waiting_room,
@@ -7317,6 +7415,7 @@ class SchoolDB(LovesDB):
         """
         state = public_meet_chain(chain_state) or new_meet_chain_state()
         self.clear_waiting_room_minds_on(session_id)
+        self.clear_teams_spark(session_id)
         self.seed_meet_team_warmup(session_id, chain_state=state)
         payload["meet_chain"] = state
         payload["prompt_ref"] = meet_prompt_ref_for(state)
@@ -7359,10 +7458,11 @@ class SchoolDB(LovesDB):
         leaving MEET wipes ephemeral picks and fires ``cue.meet_clear``.
         ``meet_action`` is ``next`` / ``skip_c`` / ``clear``. Optional
         ``assign`` on TEAMS→MEET commits roster teams before the same
-        ``state_seq`` write; count ``< 2`` skips assign.         JOIN Reveal commits ``reveal_to_students`` and closes the
-        waiting-room poll so students see the class summary (Wonder
-        stays silent). JOIN→TEAMS nulls ``prompt_ref``, drops
-        ``mc_ui``, and closes the Minds-On poll.
+        ``state_seq`` write; count ``< 2`` skips assign. JOIN Reveal
+        commits ``reveal_to_students`` and closes the waiting-room poll
+        so students see the class summary (Wonder stays silent).
+        JOIN→TEAMS closes Minds-On, binds the shared spark, and fires
+        ``cue.teams_spark`` once. TEAMS→MEET clears the spark.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7394,8 +7494,14 @@ class SchoolDB(LovesDB):
         new_stage = str(payload.get("stage") or "")
         entering = new_stage == "meet" and prev_stage != "meet"
         entering_teams = new_stage == "teams" and prev_stage != "teams"
+        leaving_teams = prev_stage == "teams" and new_stage != "teams"
         if entering_teams:
             self.clear_waiting_room_minds_on(session_id)
+            self.ensure_teams_spark(session_id)
+            if "cue_id" not in kwargs:
+                payload["cue_id"] = CUE_TEAMS_SPARK
+        if leaving_teams:
+            self.clear_teams_spark(session_id)
         if assign is not None and entering:
             self._assign_teams_for_meet_advance(session_id, assign)
         leaving = prev_stage == "meet" and new_stage != "meet"
@@ -8216,6 +8322,7 @@ class SchoolDB(LovesDB):
             "teacher_state": self.live_session_teacher_state_payload(session_id),
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
+            "teams_spark": self.staff_teams_spark_payload(session_id),
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),

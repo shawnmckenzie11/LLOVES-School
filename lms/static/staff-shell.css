@@ -2298,6 +2298,45 @@ body.staff-shell .live-question-flag {
 body.staff-shell .live-question-flag[hidden] {
   display: none !important;
 }
+body.staff-shell .teams-spark-card {
+  margin: 0.65rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #93c5fd;
+  background: #f8fbff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+body.staff-shell .teams-spark-card[hidden] {
+  display: none !important;
+}
+body.staff-shell .teams-spark-label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+body.staff-shell .teams-spark-prompt {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+body.staff-shell .teams-spark-choices,
+body.staff-shell .teams-spark-key {
+  margin: 0;
+  color: #334155;
+  font-size: 0.9rem;
+}
+body.staff-shell .teams-spark-key {
+  font-weight: 600;
+}
+body.staff-shell #teams-spark-reveal {
+  align-self: flex-start;
+}
 body.staff-shell .meet-chain-chrome {
   margin: 0.65rem 0 0;
   display: flex;

@@ -820,6 +820,33 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("hideFeedbackPanel()", student)
         self.assertIn("const seqChanged = lastStateSeq !== prevSeq", student)
 
+    def test_beat25_teams_shared_spark_question_frame(self) -> None:
+        """Beat 25: TEAMS Question frame hosts one shared spark, not Meet/Minds-On."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="teams-spark-card"', html)
+        self.assertIn('id="teams-spark-prompt"', html)
+        self.assertIn('id="teams-spark-key"', html)
+        self.assertIn('id="teams-spark-reveal"', html)
+        q_html = html.split('id="question-artifact-zone"')[1].split(
+            'id="results-strip"'
+        )[0]
+        self.assertIn('id="teams-spark-card"', q_html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function paintTeamsSparkCard(", js)
+        self.assertIn('teacherState.stage === "teams"', js)
+        self.assertIn("lastTeamsSpark", js)
+        self.assertIn("payload?.teams_spark", js)
+        self.assertIn('currentMcPromptRef()', js)
+        self.assertIn('stage || "") === "teams") return "teams-spark"', js)
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("function isTeamsSparkPrompt(", student)
+        self.assertIn("cue.teams_spark", student)
+        self.assertIn("student_feedback_after_reveal", student)
+        self.assertIn("isSpark", student)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .teams-spark-card {", css)
+
     def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
         """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")

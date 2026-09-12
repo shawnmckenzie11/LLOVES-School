@@ -508,6 +508,15 @@ body.student-home.is-live .student-live-response {
   gap: 0.55rem;
 }
 
+.prompt-spark-feedback {
+  margin: 0.2rem 0 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  background: #e8f1fd;
+  color: #1e3a5f;
+  font-size: 0.95rem;
+}
+
 .question-frame .mc-reveal-bars {
   display: flex;
   flex-direction: column;

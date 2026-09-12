@@ -19,6 +19,7 @@ try:
         meet_prompt_ref_for,
         public_meet_chain,
     )
+    from teams_spark import TEAMS_SPARK_PROMPT_REF
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_canvas import CANVAS_ALIGNS, DEFAULT_CANVAS_ALIGN
     from lms.meet_team import (
@@ -28,6 +29,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         meet_prompt_ref_for,
         public_meet_chain,
     )
+    from lms.teams_spark import TEAMS_SPARK_PROMPT_REF
 
 STAGES: tuple[str, ...] = ("join", "teams", "meet", "round", "play")
 MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
@@ -382,10 +384,14 @@ def mc_poll_closed(teacher_state: Any) -> bool:
 def student_mc_summary_visible(teacher_state: Any) -> bool:
     """True when students should see the class MC distribution.
 
+    TEAMS shared spark shares a stay-line, not tally bars / chips.
+
     Args:
         teacher_state: Public ``LiveTeacherState`` dict, or None.
     """
     if not isinstance(teacher_state, dict):
+        return False
+    if str(teacher_state.get("stage") or "") == "teams":
         return False
     ui = teacher_state.get("mc_ui")
     if not isinstance(ui, dict):
@@ -394,10 +400,11 @@ def student_mc_summary_visible(teacher_state: Any) -> bool:
 
 
 def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
-    """Null JOIN Minds-On refs and reveal chrome. Questions stay mounted unbound.
+    """Null JOIN Minds-On refs and reveal chrome.
 
-    TEAMS has no Meet / Challenge prompt yet. The Question slot stays
-    visible and empty until a later bind. Does not fire a Wonder cue.
+    Used when leaving JOIN without binding another prompt. TEAMS now
+    binds the shared spark instead of staying unbound. Does not fire a
+    Wonder cue.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -407,6 +414,35 @@ def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
     """
     state["prompt_ref"] = None
     state.pop("mc_ui", None)
+    return state
+
+
+def bind_teams_spark_prompt(state: dict[str, Any]) -> dict[str, Any]:
+    """Bind the TEAMS shared spark onto the Question frame.
+
+    Drops leftover JOIN Minds-On ``mc_ui`` so Reveal chrome does not
+    leak. Fresh spark ``mc_ui`` starts unrevealed. Does not fire a
+    Wonder cue (enter-only cue is written by the session writer).
+
+    Args:
+        state: In-progress public teacher state (mutated).
+
+    Returns:
+        The same ``state`` dict.
+    """
+    state["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
+    existing = state.get("mc_ui")
+    same = (
+        isinstance(existing, dict)
+        and str(existing.get("prompt_ref") or "") == TEAMS_SPARK_PROMPT_REF
+    )
+    if not same:
+        state["mc_ui"] = {
+            "prompt_ref": TEAMS_SPARK_PROMPT_REF,
+            "reveal": False,
+            "reveal_to_students": False,
+            "poll_closed": False,
+        }
     return state
 
 
@@ -445,9 +481,10 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 
     Teacher Active Content stays mounted; this only swaps thin refs and
     the student projection map. PLAY reveals all three frames locked.
-    TEAMS nulls JOIN Minds-On ``prompt_ref`` / ``mc_ui`` (Question
-    stays visible and unbound). MEET binds ``prompt_ref`` + Question-only
-    frames so the chain is not teacher-only.
+    TEAMS binds the shared-spark ``prompt_ref`` (Question stays
+    visible; JOIN Minds-On ``mc_ui`` is dropped). MEET binds
+    ``prompt_ref`` + Question-only frames so the chain is not
+    teacher-only.
 
     Args:
         state: In-progress public teacher state (mutated).
@@ -466,7 +503,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
             state["frames"] = dict(LAYOUT_PRESETS["questions_full"])
             state["prompt_ref"] = MINDS_ON_PROMPT_REF
         elif name == "teams":
-            clear_join_prompt_bindings(state)
+            bind_teams_spark_prompt(state)
         elif name == "meet":
             bind_meet_student_projection(state)
     return state
@@ -547,7 +584,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     elif base["stage"] == "join":
         base["prompt_ref"] = MINDS_ON_PROMPT_REF
     elif base["stage"] == "teams":
-        base["prompt_ref"] = None
+        base["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
     base["canvas_ephemeral"] = True
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():

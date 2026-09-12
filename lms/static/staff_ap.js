@@ -183,6 +183,9 @@ let teacherState = {
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
 
+/** @type {any} */
+let lastTeamsSpark = null;
+
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
 
@@ -511,6 +514,7 @@ function applyMcTally(tally) {
  * @returns {string}
  */
 function currentMcPromptRef() {
+  if (String(teacherState.stage || "") === "teams") return "teams-spark";
   return String(lastMcTally?.prompt_ref || teacherState.prompt_ref || "minds_on");
 }
 
@@ -521,12 +525,13 @@ function currentMcPromptRef() {
  */
 function patchMcReveal(reveal) {
   const joinShare = Boolean(reveal) && String(teacherState.stage || "") === "join";
+  const sparkShare = Boolean(reveal) && String(teacherState.stage || "") === "teams";
   const alreadyClosed = Boolean(teacherState.mc_ui && teacherState.mc_ui.poll_closed);
   patchTeacherState({
     mc_ui: {
       prompt_ref: currentMcPromptRef(),
       reveal: Boolean(reveal),
-      reveal_to_students: joinShare,
+      reveal_to_students: joinShare || sparkShare,
       poll_closed: joinShare || alreadyClosed,
     },
   });
@@ -596,6 +601,50 @@ function paintLiveSlotPicks() {
   });
 }
 
+/**
+ * Paint the TEAMS shared spark on the Question frame (teacher + soft key).
+ * @param {any} [card]
+ */
+function paintTeamsSparkCard(card) {
+  const root = $("teams-spark-card");
+  const promptEl = $("teams-spark-prompt");
+  const keyEl = $("teams-spark-key");
+  const choicesEl = $("teams-spark-choices");
+  const revealBtn = $("teams-spark-reveal");
+  const status = $("question-artifact-status");
+  const flag = $("question-artifact-flag");
+  if (!root || !promptEl) return;
+  const row = card && typeof card === "object" ? card : lastTeamsSpark || {};
+  promptEl.textContent = String(
+    row.prompt || "A farmer has 17 sheep. All but 9 run away. How many are left?"
+  );
+  const choices = Array.isArray(row.choices) && row.choices.length ? row.choices : ["8", "9", "17", "0"];
+  if (choicesEl) choicesEl.textContent = choices.join(" · ");
+  if (keyEl) {
+    keyEl.hidden = false;
+    keyEl.textContent = `Soft key · ${row.teacher_key || "9 — “all but 9” means 9 remain."}`;
+  }
+  root.hidden = false;
+  if (status) status.textContent = "Shared spark — talk, no gradebook.";
+  if (flag) {
+    flag.hidden = false;
+    flag.textContent = "TEAMS · Shared spark";
+  }
+  const revealed = Boolean(row.reveal);
+  if (revealBtn) {
+    revealBtn.hidden = revealed;
+    revealBtn.textContent = "Share the stay-line";
+  }
+}
+
+/**
+ * Hide the TEAMS spark card when Question is on another ride.
+ */
+function hideTeamsSparkCard() {
+  const root = $("teams-spark-card");
+  if (root) root.hidden = true;
+}
+
 function paintQuestionArtifact(media) {
   paintLiveSlotPicks();
   const status = $("question-artifact-status");
@@ -610,6 +659,7 @@ function paintQuestionArtifact(media) {
     teacherState.stage === "meet" ||
     String(overlayState?.game?.overlay_phase || "") === "meet_teams";
   if (meetOn && chain && Array.isArray(chain.chain) && chain.chain.length) {
+    hideTeamsSparkCard();
     const step = String(chain.chain[chain.index] || "A");
     const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
     status.textContent = "Meet QH chain is live on the existing prompt channel. Questions tab only.";
@@ -619,12 +669,19 @@ function paintQuestionArtifact(media) {
     return;
   }
   if (cons) {
+    hideTeamsSparkCard();
     status.textContent = "CONS / QH ride uses the existing active-media + prompt channel.";
     flag.hidden = false;
     flag.textContent = toast ? `${cons} · ${toast}` : cons;
     paintMeetChainChrome();
     return;
   }
+  if (teacherState.stage === "teams") {
+    paintTeamsSparkCard(lastTeamsSpark);
+    paintMeetChainChrome();
+    return;
+  }
+  hideTeamsSparkCard();
   status.textContent = "No live prompt. Meet QH chain and CONS/QH use the existing session channels.";
   flag.hidden = true;
   flag.textContent = "";
@@ -1032,6 +1089,7 @@ async function pollLiveSessionAttendees() {
       present.map((row) => Number(row.student_id)),
       present
     );
+    lastTeamsSpark = payload?.teams_spark || null;
     const media = payload?.active_media || payload?.session?.active_media;
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
@@ -3970,6 +4028,13 @@ $("mc-reveal-btn")?.addEventListener("click", () => {
 });
 $("mc-hide-reveal-btn")?.addEventListener("click", () => {
   patchMcReveal(false);
+});
+$("teams-spark-reveal")?.addEventListener("click", () => {
+  if (lastTeamsSpark && typeof lastTeamsSpark === "object") {
+    lastTeamsSpark = { ...lastTeamsSpark, reveal: true };
+  }
+  patchMcReveal(true);
+  paintTeamsSparkCard(lastTeamsSpark);
 });
 
 $("live-stage-prev")?.addEventListener("click", () => {

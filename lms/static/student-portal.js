@@ -57,6 +57,10 @@ const MEET_CUE_COPY = {
   "cue.meet_open": "Meet your team",
   "cue.meet_clear": "Meet cleared",
 };
+const TEAMS_SPARK_CUES = new Set(["cue.teams_spark"]);
+const TEAMS_SPARK_CUE_COPY = {
+  "cue.teams_spark": "Shared spark",
+};
 const TEXT_RIDE_CUES = new Set(["cue.freeze", "cue.cons_unlock"]);
 const TEXT_RIDE_CUE_COPY = {
   "cue.freeze": "Park the wonderings. Leave the blank honest.",
@@ -722,8 +726,8 @@ function paintMeetCue(payload) {
   const cue = String(ts.cue_id || "").trim();
   if (!cue || cue === lastCueId) return;
   lastCueId = cue;
-  const line = MEET_CUE_COPY[cue] || TEXT_RIDE_CUE_COPY[cue] || rideLine;
-  if (!MEET_CUES.has(cue) && !TEXT_RIDE_CUES.has(cue)) return;
+  const line = MEET_CUE_COPY[cue] || TEXT_RIDE_CUE_COPY[cue] || TEAMS_SPARK_CUE_COPY[cue] || rideLine;
+  if (!MEET_CUES.has(cue) && !TEXT_RIDE_CUES.has(cue) && !TEAMS_SPARK_CUES.has(cue)) return;
   window.clearTimeout(toastHideTimer);
   if (!line) {
     mediaToast.hidden = true;
@@ -807,9 +811,26 @@ function isJoinMindsOnPrompt(payload) {
 }
 
 /**
+ * True when the student Question face is the TEAMS shared spark.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function isTeamsSparkPrompt(payload) {
+  const data =
+    (payload && payload.prompt && payload.prompt.payload) ||
+    (payload && payload.payload) ||
+    {};
+  return (
+    String(data.source || "") === "teams_spark" ||
+    String(data.item_id || "") === "teams-spark" ||
+    String(data.pack || "") === "teams-spark"
+  );
+}
+
+/**
  * Render placeholder widgets for mc / numeric / share prompts.
  * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
- * JOIN→TEAMS unbinds that face (no leftover MC, summary, or feedback).
+ * JOIN→TEAMS unbinds Minds-On and binds the shared spark instead.
  * @param {any} payload
  */
 function paintPrompt(payload) {
@@ -821,6 +842,7 @@ function paintPrompt(payload) {
   const prompt = payload.prompt;
   const data = (prompt && prompt.payload) || {};
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
+  const isSpark = isTeamsSparkPrompt(payload);
   const answered = Boolean(payload.my_response);
   const summary = studentMcSummary(payload);
   if (summary && prompt && prompt.kind && prompt.kind !== "idle") {
@@ -849,7 +871,7 @@ function paintPrompt(payload) {
     }
     return;
   }
-  if (answered && !isMeet) {
+  if (answered && !isMeet && !isSpark) {
     const fb = feedbackObject(payload.my_response);
     const key = `${prompt.id}:${(fb && fb.lead) || ""}:${(fb && fb.text) || ""}`;
     if (key === lastFeedbackKey && (feedbackDismissed || (promptFeedback && !promptFeedback.hidden))) {
@@ -919,6 +941,10 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
           }>${escapeText(label)}</button>`;
         })
         .join("");
+    }
+    const sparkLine = String(data.student_feedback_after_reveal || "").trim();
+    if (sparkLine && isTeamsSparkPrompt({ prompt })) {
+      controls += `<p class="prompt-spark-feedback">${escapeText(sparkLine)}</p>`;
     }
   } else if (kind === "numeric") {
     controls = `

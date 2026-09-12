@@ -33,6 +33,12 @@ from live_teacher_state import (  # noqa: E402
     student_should_mount_media,
 )
 from minds_on import is_minds_on_payload  # noqa: E402
+from teams_spark import (  # noqa: E402
+    CUE_TEAMS_SPARK,
+    TEAMS_SPARK_PROMPT,
+    TEAMS_SPARK_PROMPT_REF,
+    is_teams_spark_payload,
+)
 
 
 class LiveTeacherStateHelperTests(unittest.TestCase):
@@ -75,7 +81,7 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(nxt["stage"], "teams")
         self.assertEqual(nxt["layout_preset"], "questions_full")
         self.assertEqual(nxt["state_seq"], 1)
-        self.assertIsNone(nxt["prompt_ref"])
+        self.assertEqual(nxt["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         self.assertFalse(student_should_mount_media(nxt))
         self.assertTrue(nxt["canvas_ephemeral"])
         play = apply_teacher_state_update(nxt, stage="play")
@@ -97,7 +103,7 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(adjacent_stage("join", -1), "join")
 
     def test_join_to_teams_clears_prompt_ref_and_mc_ui(self) -> None:
-        """JOIN→TEAMS nulls Minds-On refs, drops reveal, keeps Question unbound."""
+        """JOIN→TEAMS drops Minds-On reveal and binds the shared spark."""
         revealed = apply_teacher_state_update(
             default_teacher_state(),
             mc_ui={"prompt_ref": MINDS_ON_PROMPT_REF, "reveal": True},
@@ -106,8 +112,9 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertTrue(revealed["mc_ui"]["reveal"])
         nxt = apply_teacher_state_update(revealed, advance="next")
         self.assertEqual(nxt["stage"], "teams")
-        self.assertIsNone(nxt["prompt_ref"])
-        self.assertNotIn("mc_ui", nxt)
+        self.assertEqual(nxt["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
+        self.assertEqual(nxt["mc_ui"]["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
+        self.assertFalse(nxt["mc_ui"]["reveal"])
         self.assertEqual(nxt["state_seq"], revealed["state_seq"] + 1)
         self.assertTrue(nxt["student_frames"]["questions"])
         self.assertFalse(nxt["student_frames"]["media"])
@@ -116,7 +123,7 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertIsNone(nxt.get("cue_id"))
         parked = public_teacher_state({"stage": "teams"})
         self.assertEqual(parked["stage"], "teams")
-        self.assertIsNone(parked["prompt_ref"])
+        self.assertEqual(parked["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         wiped = clear_join_prompt_bindings(
             {
                 "prompt_ref": MINDS_ON_PROMPT_REF,
@@ -391,7 +398,8 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         nxt_state = nxt.get_json()["teacher_state"]
         self.assertEqual(nxt_state["stage"], "teams")
         self.assertEqual(nxt_state["state_seq"], 1)
-        self.assertIsNone(nxt_state["prompt_ref"])
+        self.assertEqual(nxt_state["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
+        self.assertEqual(nxt_state.get("cue_id"), CUE_TEAMS_SPARK)
         self.assertFalse(nxt_state["student_frames"]["media"])
         laid = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
@@ -440,7 +448,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
 
     def test_join_to_teams_clears_teacher_and_student_questions(self) -> None:
-        """Beat 12: JOIN→TEAMS closes Minds-On for staff tally and students."""
+        """Beat 12 + 25: JOIN→TEAMS closes Minds-On and binds the shared spark."""
         live = self.school.get_live_session(self.session_id)
         student = self.app.test_client()
         student.post(
@@ -487,30 +495,115 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(nxt.status_code, 200, nxt.get_json())
         nxt_state = nxt.get_json()["teacher_state"]
         self.assertEqual(nxt_state["stage"], "teams")
-        self.assertIsNone(nxt_state["prompt_ref"])
-        self.assertNotIn("mc_ui", nxt_state)
+        self.assertEqual(nxt_state["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
+        self.assertEqual(nxt_state.get("cue_id"), CUE_TEAMS_SPARK)
+        self.assertEqual(nxt_state.get("mc_ui", {}).get("prompt_ref"), TEAMS_SPARK_PROMPT_REF)
+        self.assertFalse(nxt_state.get("mc_ui", {}).get("reveal"))
         self.assertGreater(nxt_state["state_seq"], seq)
-        self.assertIsNone(nxt_state.get("cue_id"))
         self.assertTrue(nxt_state["student_frames"]["questions"])
         self.assertFalse(nxt_state["student_frames"]["media"])
         self.assertEqual(nxt_state["layout_preset"], "questions_full")
         self.assertEqual(nxt_state["frames"], {"A": "questions"})
         staff_live = self.client.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(staff_live.status_code, 200, staff_live.get_json())
-        self.assertIsNone(staff_live.get_json().get("mc_tally"))
+        staff_body = staff_live.get_json()
+        self.assertIsNone(staff_body.get("mc_tally"))
+        spark = staff_body.get("teams_spark") or {}
+        self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
+        self.assertIn("9", str(spark.get("teacher_key") or ""))
+        self.assertFalse(spark.get("reveal"))
         student_teams = student.get("/api/student/state").get_json()
         self.assertEqual(student_teams.get("teacher_state", {}).get("stage"), "teams")
-        self.assertIsNone(student_teams.get("teacher_state", {}).get("prompt_ref"))
+        self.assertEqual(
+            student_teams.get("teacher_state", {}).get("prompt_ref"),
+            TEAMS_SPARK_PROMPT_REF,
+        )
         self.assertFalse(student_teams.get("waiting_room"), student_teams)
-        self.assertIsNone(student_teams.get("prompt"))
+        prompt = student_teams.get("prompt") or {}
+        payload = prompt.get("payload") or {}
+        self.assertTrue(is_teams_spark_payload(payload), student_teams)
+        self.assertFalse(is_minds_on_payload(payload), student_teams)
+        self.assertEqual(payload.get("prompt"), TEAMS_SPARK_PROMPT)
+        self.assertEqual(payload.get("choices"), ["8", "9", "17", "0"])
+        self.assertNotIn("key", payload)
+        self.assertNotIn("teacher_key", payload)
+        self.assertNotIn("student_feedback_after_reveal", payload)
         self.assertIsNone(student_teams.get("my_response"))
+        self.assertNotIn("mc_tally", student_teams)
         live_prompt = student.get("/api/student/live-prompt").get_json()
-        self.assertIsNone(live_prompt.get("prompt"))
+        self.assertTrue(is_teams_spark_payload((live_prompt.get("prompt") or {}).get("payload")))
         self.assertFalse(live_prompt.get("waiting_room"), live_prompt)
         if live_prompt.get("prompt") is not None:
             self.assertFalse(
                 is_minds_on_payload((live_prompt["prompt"] or {}).get("payload"))
             )
+
+    def test_beat25_teams_spark_reveals_then_clears_on_meet(self) -> None:
+        """Beat 25: spark stay-line is teacher-gated; TEAMS→MEET clears it."""
+        live = self.school.get_live_session(self.session_id)
+        student = self.app.test_client()
+        student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Aspen"},
+            follow_redirects=False,
+        )
+        student.post("/student/mood", data={"mood": "good"})
+        student.post("/student/character", data={"character": "fox"})
+        teams = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(teams.status_code, 200, teams.get_json())
+        first = teams.get_json()["teacher_state"]
+        self.assertEqual(first["cue_id"], CUE_TEAMS_SPARK)
+        mid = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"teams_mode": "teams"},
+        )
+        self.assertEqual(mid.status_code, 200, mid.get_json())
+        self.assertEqual(mid.get_json()["teacher_state"]["cue_id"], CUE_TEAMS_SPARK)
+        self.assertEqual(
+            mid.get_json()["teacher_state"]["prompt_ref"], TEAMS_SPARK_PROMPT_REF
+        )
+        shown = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "mc_ui": {
+                    "prompt_ref": TEAMS_SPARK_PROMPT_REF,
+                    "reveal": True,
+                    "reveal_to_students": True,
+                }
+            },
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        ui = shown.get_json()["teacher_state"]["mc_ui"]
+        self.assertTrue(ui["reveal"])
+        self.assertTrue(ui["reveal_to_students"])
+        self.assertFalse(ui.get("poll_closed"))
+        after = student.get("/api/student/state").get_json()
+        stay = (after.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(
+            stay.get("student_feedback_after_reveal"),
+            "All but nine means nine stay.",
+        )
+        self.assertNotIn("teacher_key", stay)
+        self.assertNotIn("mc_tally", after)
+        meet = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"advance": "next"},
+        )
+        self.assertEqual(meet.status_code, 200, meet.get_json())
+        meet_state = meet.get_json()["teacher_state"]
+        self.assertEqual(meet_state["stage"], "meet")
+        self.assertEqual(meet_state["prompt_ref"], "meet-team")
+        self.assertNotEqual(meet_state.get("cue_id"), CUE_TEAMS_SPARK)
+        staff_meet = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state"
+        ).get_json()
+        self.assertIsNone(staff_meet.get("teams_spark"))
+        student_meet = student.get("/api/student/state").get_json()
+        meet_payload = (student_meet.get("prompt") or {}).get("payload") or {}
+        self.assertFalse(is_teams_spark_payload(meet_payload), student_meet)
 
     def test_join_does_not_project_teacher_preview_media(self) -> None:
         """JOIN keeps Question-only frames after a teacher Real-slice seed."""
