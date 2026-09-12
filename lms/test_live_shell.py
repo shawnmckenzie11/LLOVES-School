@@ -618,6 +618,31 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("!row?.left_at", poll)
         self.assertNotIn("setInterval", ticks)
 
+    def test_beat22b_teams_classlist_present_only(self) -> None:
+        """Beat 22b: TEAMS ClassList is present-only; joiners appear via the same poll."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        visible = js.split("function classListVisibleStudents(")[1].split(
+            "function classListRosterOrder("
+        )[0]
+        self.assertIn('stage || "").toLowerCase() !== "teams"', visible)
+        self.assertIn("sessionPresentIds.has(Number(stu.id))", visible)
+        self.assertIn("stu.guest", visible)
+        render = js.split("function renderAttendanceList()")[1].split(
+            "function updateAttCount()"
+        )[0]
+        self.assertIn("classListVisibleStudents(", render)
+        self.assertIn('dataset.presentOnly', render)
+        self.assertIn("classListRosterOrder(classListVisibleStudents(", render)
+        ticks = js.split("async function applySessionPresentTicks(")[1].split(
+            "async function pollLiveSessionAttendees("
+        )[0]
+        self.assertIn("renderAttendanceList()", ticks)
+        self.assertIn("setNTeams(currentTeamCount())", ticks)
+        shell = js.split("function paintTeacherShell()")[1].split(
+            "function paintHeaderDate()"
+        )[0]
+        self.assertIn("renderAttendanceList()", shell)
+
     def test_beat4_rename_is_portaled_modal(self) -> None:
         """Beat 4: Rename is a body-portaled dialog, not an OptionsStrip popover."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")

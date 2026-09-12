@@ -544,6 +544,7 @@ function paintTeacherShell() {
   paintRightFlag();
   paintMeetChainChrome();
   paintLiveSlotPicks();
+  renderAttendanceList();
 }
 
 /**
@@ -1721,6 +1722,22 @@ function classListGroupsByTeam() {
 }
 
 /**
+ * ClassList rows for the current stage.
+ * TEAMS is present-only (live heartbeat / sessionPresentIds). JOIN keeps
+ * the full roster. Guests stay visible because they are already present.
+ * @param {any[]} students
+ * @returns {any[]}
+ */
+function classListVisibleStudents(students) {
+  const rows = Array.isArray(students) ? students : [];
+  if (String(teacherState.stage || "").toLowerCase() !== "teams") return rows;
+  return rows.filter((stu) => {
+    if (stu && stu.guest) return true;
+    return sessionPresentIds.has(Number(stu.id));
+  });
+}
+
+/**
  * Roster order for ClassList: team groups after assign, else one flat list.
  * @param {any[]} students
  * @returns {{key: string, name: string, color: string, students: any[]}[]}
@@ -1779,6 +1796,7 @@ function appendAttendanceStudentRow(list, student, checked) {
 /**
  * Draw join-only attendance rows (display-only; no click toggles).
  * After TEAMS assign with count > 1, rows regroup under team-name separators.
+ * Beat 22b: TEAMS hides absent / not-yet-joined roster names.
  */
 function renderAttendanceList() {
   const checked = new Set(
@@ -1792,8 +1810,10 @@ function renderAttendanceList() {
   if (!list) return;
   list.innerHTML = "";
   const grouped = classListGroupsByTeam();
+  const teamsPresentOnly = String(teacherState.stage || "").toLowerCase() === "teams";
   list.dataset.grouped = grouped ? "1" : "0";
-  for (const group of classListRosterOrder(overlayState?.students || [])) {
+  list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
+  for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
     if (grouped && group.name) {
       const sep = document.createElement("div");
       sep.className = "ap-att-team-sep";
