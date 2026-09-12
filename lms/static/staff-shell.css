@@ -1581,38 +1581,6 @@ body.staff-shell .live-meet-strip {
   gap: 0.4rem 0.65rem;
   min-height: 0;
 }
-body.staff-shell .live-meet-strip .live-meet-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  margin: 0;
-  max-width: none;
-  flex: 0 0 auto;
-}
-body.staff-shell .live-meet-strip .live-meet-count button,
-body.staff-shell .live-meet-strip .live-meet-count input {
-  min-width: 1.75rem;
-  min-height: 1.75rem;
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  font-size: 0.95rem;
-  line-height: 1;
-  border: 1px solid var(--live-border);
-  border-radius: 6px;
-  background: #fff;
-}
-body.staff-shell .live-meet-strip .live-meet-count input {
-  width: 2.1rem;
-  min-width: 2.1rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-align: center;
-}
-body.staff-shell .live-meet-strip .ap-meet-start,
-body.staff-shell .live-meet-strip .secondary {
-  white-space: nowrap;
-}
 body.staff-shell .live-teams-strip .live-round-pick {
   white-space: nowrap;
 }
@@ -1781,14 +1749,59 @@ body.staff-shell .live-shell-left {
   min-width: var(--live-left-min);
   max-width: var(--live-left-max);
   width: 100%;
+  min-height: 100%;
+}
+body.staff-shell #session-timer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  box-sizing: border-box;
+  min-height: var(--live-options-row-h);
+  max-height: var(--live-options-row-h);
+  padding: 0.15rem 0.45rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+body.staff-shell #session-timer .live-meet-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  max-width: none;
+  flex: 0 0 auto;
+}
+body.staff-shell #session-timer .live-meet-count button,
+body.staff-shell #session-timer .live-meet-count input {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  border: 1px solid var(--live-border);
+  border-radius: 6px;
+  background: #fff;
+}
+body.staff-shell #session-timer .live-meet-count input {
+  width: 2.1rem;
+  min-width: 2.1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
 }
 body.staff-shell .live-shell-right {
   min-width: 0;
 }
 body.staff-shell #class-list-pane {
   flex: 1 1 auto;
-  min-height: 100%;
-  height: 100%;
+  min-height: 0;
+  height: auto;
+  overflow: auto;
 }
 body.staff-shell .live-options-strip #round-slide-settings {
   width: auto;

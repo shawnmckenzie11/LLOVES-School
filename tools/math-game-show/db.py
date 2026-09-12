@@ -3256,6 +3256,38 @@ class GameShowDB:
             self.conn.commit()
         return self.game_state(class_id)
 
+    def start_session_timer(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
+        """Start a stage-independent countdown without changing overlay phase.
+
+        Creates an open game via ``begin_game`` when none exists so JOIN
+        and individual MEET can use the same SessionTimer chrome.
+
+        Args:
+            class_id: Classes primary key.
+            minutes: Countdown length (clamped 1–30). Default 3.
+
+        Returns:
+            Updated game state.
+        """
+        minutes_i = max(1, min(30, int(minutes) if minutes is not None else 3))
+        try:
+            game = self._game_row(class_id)
+        except KeyError:
+            self.begin_game(class_id)
+            game = self._game_row(class_id)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_started_at = ?,
+                    round_duration_sec = ?
+                WHERE id = ?
+                """,
+                (self._now(), minutes_i * 60, int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
     def pause_round_timer(self, class_id: int) -> dict[str, Any]:
         """Freeze the active Meet / round countdown at its remaining time.
 
@@ -4825,11 +4857,14 @@ class GameShowDB:
             current = 1
         active = plan[current - 1]
         live = str(game.get("status") or "") == "live"
-        started = game.get("round_started_at") if live else None
-        raw_dur = game.get("round_duration_sec") if live else None
+        has_session_clock = bool(game.get("round_started_at")) or (
+            not live and game.get("round_duration_sec") not in (None, "")
+        )
+        started = game.get("round_started_at") if live or has_session_clock else None
+        raw_dur = game.get("round_duration_sec") if live or has_session_clock else None
         duration_i = int(raw_dur) if raw_dur not in (None, "") else int(active["duration_sec"])
         started_s = str(started) if started else None
-        paused = live and started_s is None and duration_i > 0
+        paused = (live or has_session_clock) and started_s is None and duration_i > 0
         return {
             "round": current,
             "round_title": str(active["title"]),

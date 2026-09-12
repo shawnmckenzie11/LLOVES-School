@@ -341,6 +341,32 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(after["cue_id"], before["cue_id"])
         self.assertEqual(after["meet_chain"]["index"], before["meet_chain"]["index"])
 
+    def test_session_timer_starts_on_join_without_teams(self) -> None:
+        """Beat 14: JOIN timer start does not require teams or change stage."""
+        self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-08"},
+        )
+        before = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(before["stage"], "join")
+        seq = before["state_seq"]
+        started = self.staff.post(
+            f"/api/classes/{self.class_id}/game/timer/start",
+            json={"minutes": 5},
+        )
+        self.assertEqual(started.status_code, 200, started.get_json())
+        game = started.get_json()["game"]
+        self.assertNotEqual(game.get("overlay_phase"), "meet_teams")
+        self.assertFalse(game.get("timer_paused"))
+        self.assertIsInstance(game.get("round_ends_at_ms"), int)
+        after = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(after["stage"], "join")
+        self.assertEqual(after["state_seq"], seq)
+
     def test_teacher_next_walks_a_c_b_then_clear_wipes(self) -> None:
         """Next advances A→C→B; End Meet → ROUND wipes picks and fires meet_clear."""
         self._staff_assign_two_teams()

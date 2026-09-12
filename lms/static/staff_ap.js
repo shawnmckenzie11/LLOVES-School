@@ -274,7 +274,13 @@ function paintStageRail() {
 function lockClassListPane() {
   const stage = teacherState.stage || stageForStep();
   if (root) root.dataset.stage = stage;
-  for (const id of ["live-shell-left", "class-list-pane", "live-shell-body", "live-shell-right"]) {
+  for (const id of [
+    "live-shell-left",
+    "session-timer",
+    "class-list-pane",
+    "live-shell-body",
+    "live-shell-right",
+  ]) {
     const el = $(id);
     if (!(el instanceof HTMLElement)) continue;
     el.hidden = false;
@@ -298,14 +304,15 @@ function paintOptionCard() {
   const rounds = $("round-slide-settings");
   lockClassListPane();
   if (card) {
-    const showStrip = stage !== "join";
+    const showStrip = stage !== "join" && stage !== "meet";
     card.hidden = !showStrip;
     if (showStrip) card.removeAttribute("hidden");
   }
   if (teams) teams.hidden = stage !== "teams";
   if (stage !== "teams") hideTeamsAssignError();
-  if (meet) meet.hidden = stage !== "meet";
-  if (stage === "meet") applyMeetTimerUi();
+  if (meet) meet.hidden = true;
+  applySessionTimerStageDefaults();
+  applySessionTimerUi();
   if (round) round.hidden = stage !== "round";
   if (play) play.hidden = stage !== "play";
   if (teamPane && stage !== "teams") {
@@ -605,7 +612,6 @@ function paintMeetChainChrome() {
   const chrome = $("meet-chain-chrome");
   const dots = $("meet-chain-dots");
   const countsEl = $("meet-soft-counts");
-  const skip = $("meet-chain-skip-c");
   const next = $("meet-chain-next");
   const chain = teacherState.meet_chain;
   const on = teacherState.stage === "meet" && chain && Array.isArray(chain.chain);
@@ -637,9 +643,6 @@ function paintMeetChainChrome() {
         : parts.length
           ? `Soft counts · ${parts.join(" · ")}`
           : "Soft counts · waiting for taps";
-  }
-  if (skip instanceof HTMLButtonElement) {
-    skip.hidden = !letters.includes("C") || step === "B";
   }
   if (next instanceof HTMLButtonElement) {
     next.disabled = index >= letters.length - 1;
@@ -2372,21 +2375,32 @@ async function assign(mode) {
 }
 
 /**
- * Read Meet Your Team timer minutes from the stepper (default 3).
+ * Default session-timer minutes for the current pedagogical stage.
+ * Meet stays 3; Play uses 5. Other stages keep the Meet default.
+ * @param {string} [stage]
  * @returns {number}
  */
-function meetMinutes() {
+function sessionTimerDefaultMinutes(stage = teacherState.stage) {
+  return stage === "play" ? 5 : 3;
+}
+
+/**
+ * Read session timer minutes from the stepper.
+ * @returns {number}
+ */
+function sessionTimerMinutes() {
   const raw = Number($("ap-meet-minutes")?.value);
-  if (!Number.isFinite(raw)) return 3;
+  if (!Number.isFinite(raw)) return sessionTimerDefaultMinutes();
   return Math.max(1, Math.min(30, Math.round(raw)));
 }
 
 /**
- * Clamp the Meet Your Team timer control.
+ * Clamp the session timer stepper and idle clock.
  * @param {number} value
  */
-function setMeetMinutes(value) {
-  const n = Math.max(1, Math.min(30, Number(value) || 3));
+function setSessionTimerMinutes(value) {
+  const fallback = sessionTimerDefaultMinutes();
+  const n = Math.max(1, Math.min(30, Number(value) || fallback));
   const el = $("ap-meet-minutes");
   if (el) el.value = String(n);
   const clock = $("ap-meet-live-clock");
@@ -2396,37 +2410,61 @@ function setMeetMinutes(value) {
   }
 }
 
+let lastSessionTimerStage = "";
+
 /**
- * Post meet-teams phase so the live overlay shows Meet the Teams + countdown.
- * @returns {Promise<void>}
+ * Apply Meet (3) / Play (5) defaults when the idle timer changes stage.
  */
-async function startMeetTeamsPhase() {
-  const minutes = meetMinutes();
-  overlayState = await api(`/api/classes/${classId}/game/meet-teams`, {
-    method: "POST",
-    body: JSON.stringify({ minutes }),
-  });
-  applyMeetTimerUi(overlayState);
+function applySessionTimerStageDefaults() {
+  const stage = teacherState.stage || "join";
+  if (stage === lastSessionTimerStage) return;
+  lastSessionTimerStage = stage;
+  const btn = $("ap-meet-start");
+  if ((btn?.dataset.meetState || "idle") !== "idle") return;
+  setSessionTimerMinutes(sessionTimerDefaultMinutes(stage));
 }
 
 /**
- * Paint Meet Your Team Start/Pause/Resume in the OptionsStrip.
+ * Start the session countdown. MEET with teams still uses meet-teams so
+ * the overlay clock stays; every other stage uses the generic timer.
+ * @returns {Promise<void>}
+ */
+async function startSessionTimer() {
+  const minutes = sessionTimerMinutes();
+  const stage = teacherState.stage || "join";
+  if (stage === "meet") {
+    try {
+      overlayState = await api(`/api/classes/${classId}/game/meet-teams`, {
+        method: "POST",
+        body: JSON.stringify({ minutes }),
+      });
+      applySessionTimerUi(overlayState);
+      return;
+    } catch (_err) {
+      /* Individual / no teams — fall through to the generic timer. */
+    }
+  }
+  overlayState = await api(`/api/classes/${classId}/game/timer/start`, {
+    method: "POST",
+    body: JSON.stringify({ minutes }),
+  });
+  applySessionTimerUi(overlayState);
+}
+
+/**
+ * Paint SessionTimer Start/Pause/Resume above ClassList.
  * Updates label and clock text in place. Never hides the stepper,
  * never remounts Left|Right chrome, never swaps layout mode.
  * @param {any} [state]
  */
-function applyMeetTimerUi(state = overlayState) {
+function applySessionTimerUi(state = overlayState) {
   lockClassListPane();
   const game = state?.game || {};
   const stepper = $("ap-meet-stepper");
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
-  const phase = String(game.overlay_phase || "");
-  const running =
-    phase === "meet_teams" &&
-    Boolean(game.round_ends_at_ms) &&
-    !game.timer_paused;
-  const paused = phase === "meet_teams" && Boolean(game.timer_paused);
+  const running = Boolean(game.round_ends_at_ms) && !game.timer_paused;
+  const paused = Boolean(game.timer_paused);
   if (stepper) {
     stepper.hidden = false;
     stepper.removeAttribute("hidden");
@@ -2442,14 +2480,14 @@ function applyMeetTimerUi(state = overlayState) {
     clock.hidden = false;
     clock.removeAttribute("hidden");
     if (running) {
-      meetEndsAtMs = Number(game.round_ends_at_ms) || 0;
-      clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
+      sessionEndsAtMs = Number(game.round_ends_at_ms) || 0;
+      clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
     } else if (paused) {
-      meetEndsAtMs = 0;
+      sessionEndsAtMs = 0;
       clock.textContent = formatCountdown(Number(game.round_remaining_sec) || 0);
     } else {
-      meetEndsAtMs = 0;
-      clock.textContent = formatCountdown(meetMinutes() * 60);
+      sessionEndsAtMs = 0;
+      clock.textContent = formatCountdown(sessionTimerMinutes() * 60);
     }
   }
   if (btn) {
@@ -2466,20 +2504,20 @@ function applyMeetTimerUi(state = overlayState) {
   }
 }
 
-/** Meet Your Team countdown deadline (epoch ms), or 0 when idle/paused. */
-let meetEndsAtMs = 0;
+/** Session countdown deadline (epoch ms), or 0 when idle/paused. */
+let sessionEndsAtMs = 0;
 
 /**
- * Tick the Meet Your Team countdown when running.
+ * Tick the session countdown when running.
  * Clock text only — never toggles hidden or remounts chrome.
  */
-function paintMeetClock() {
+function paintSessionClock() {
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
   if (!clock) return;
   if (btn?.dataset.meetState !== "running") return;
-  if (!meetEndsAtMs) return;
-  clock.textContent = formatCountdown(remainingUntilMs(meetEndsAtMs));
+  if (!sessionEndsAtMs) return;
+  clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
@@ -2755,13 +2793,13 @@ $("ap-start-game")?.addEventListener("click", async () => {
 });
 
 $("ap-meet-minutes-down")?.addEventListener("click", () => {
-  setMeetMinutes(meetMinutes() - 1);
+  setSessionTimerMinutes(sessionTimerMinutes() - 1);
 });
 $("ap-meet-minutes-up")?.addEventListener("click", () => {
-  setMeetMinutes(meetMinutes() + 1);
+  setSessionTimerMinutes(sessionTimerMinutes() + 1);
 });
 $("ap-meet-minutes")?.addEventListener("change", () => {
-  setMeetMinutes(meetMinutes());
+  setSessionTimerMinutes(sessionTimerMinutes());
 });
 $("ap-meet-start")?.addEventListener("click", async () => {
   try {
@@ -2773,7 +2811,7 @@ $("ap-meet-start")?.addEventListener("click", async () => {
         method: "POST",
         body: "{}",
       });
-      applyMeetTimerUi(overlayState);
+      applySessionTimerUi(overlayState);
       return;
     }
     if (state === "paused") {
@@ -2781,10 +2819,10 @@ $("ap-meet-start")?.addEventListener("click", async () => {
         method: "POST",
         body: "{}",
       });
-      applyMeetTimerUi(overlayState);
+      applySessionTimerUi(overlayState);
       return;
     }
-    await startMeetTeamsPhase();
+    await startSessionTimer();
   } catch (err) {
     showError("#ap-overlay-error", err);
   }
@@ -3347,7 +3385,7 @@ function renderLiveTeams(state) {
 function paintLiveClock() {
   const clock = $("ap-round-clock");
   if (clock) clock.textContent = formatCountdown(remainingUntilMs(roundEndsAtMs));
-  paintMeetClock();
+  paintSessionClock();
 }
 
 setInterval(paintLiveClock, 1000);
@@ -3700,12 +3738,6 @@ $("live-stage-next")?.addEventListener("click", () => {
 $("meet-chain-next")?.addEventListener("click", () => {
   patchTeacherState({ meet_action: "next" });
 });
-$("meet-chain-skip-c")?.addEventListener("click", () => {
-  patchTeacherState({ meet_action: "skip_c" });
-});
-$("meet-chain-end")?.addEventListener("click", () => {
-  patchTeacherState({ meet_action: "clear" });
-});
 
 document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -3876,7 +3908,7 @@ selectTrackMode("individual");
 if (localStorage.getItem(scoreboardKey) === null) {
   localStorage.setItem(scoreboardKey, "1");
 }
-setMeetMinutes(3);
+setSessionTimerMinutes(3);
 
 if (root?.dataset.apView === "live") {
   mountTeamsRenameDialog();
