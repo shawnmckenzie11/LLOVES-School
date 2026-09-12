@@ -96,9 +96,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="play-option-card"', html)
         self.assertIn('id="live-unlock-media"', html)
         self.assertIn('id="live-unlock-canvas"', html)
-        self.assertIn("Minds on", html)
+        self.assertIn("Minds-On", html)
         self.assertIn("Consolidation", html)
-        self.assertIn("Keep teams", html)
+        self.assertIn(">SET<", html)
         self.assertIn('id="class-list-pane"', html)
         self.assertIn('id="team-assign-pane"', html)
         self.assertIn('id="live-active-content"', html)
@@ -774,6 +774,80 @@ class LiveShellTests(unittest.TestCase):
         self.assertLess(left_html.index('id="session-timer"'), left_html.index('id="class-list-pane"'))
         self.assertIn("function applySessionTimerUi(", js)
         self.assertIn("async function advanceTeamsToMeet()", js)
+
+    def test_beat18_round_strip_is_three_checkboxes_and_set(self) -> None:
+        """Beat 18: ROUND OptionsStrip is Minds-On / Action / Consolidation + SET."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        strip_html = html.split('id="round-option-card"')[1].split('id="play-option-card"')[0]
+        self.assertIn('id="live-round-picks"', strip_html)
+        self.assertIn('id="live-round-minds-on"', strip_html)
+        self.assertIn('id="live-round-action"', strip_html)
+        self.assertIn('id="live-round-consolidation"', strip_html)
+        self.assertIn('id="live-round-set"', strip_html)
+        self.assertIn(">Minds-On<", strip_html)
+        self.assertIn(">Action<", strip_html)
+        self.assertIn(">Consolidation<", strip_html)
+        self.assertIn(">SET<", strip_html)
+        self.assertEqual(strip_html.count('type="checkbox"'), 3)
+        self.assertEqual(strip_html.count('data-round="'), 3)
+        self.assertLess(strip_html.find('id="live-round-minds-on"'), strip_html.find('id="live-round-action"'))
+        self.assertLess(strip_html.find('id="live-round-action"'), strip_html.find('id="live-round-consolidation"'))
+        self.assertLess(strip_html.find('id="live-round-consolidation"'), strip_html.find('id="live-round-set"'))
+        self.assertIn('id="live-round-picks"', html)
+        self.assertRegex(
+            html,
+            r'<div class="live-round-picks"[^>]*id="live-round-picks"[^>]*\bhidden\b',
+        )
+        self.assertNotIn("Always 3 rounds", strip_html)
+        self.assertNotIn("Keep teams", strip_html)
+        self.assertNotIn("Reassign teams", strip_html)
+        self.assertNotIn("Start Round 1", strip_html)
+        self.assertNotIn("Start Round", strip_html)
+        self.assertNotIn("Set up one round at a time", strip_html)
+        self.assertNotIn("live-team-keep", strip_html)
+        self.assertNotIn('class="live-round-pick is-active"', strip_html)
+        self.assertLess(html.index('id="round-option-card"'), html.index('class="live-shell-body"'))
+        self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-shell-left"'))
+        self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertNotIn('id="live-round-picks"', left_html)
+        self.assertNotIn('id="live-round-set"', left_html)
+        self.assertIn("function paintRoundStrip()", js)
+        self.assertIn("function readRoundFlags()", js)
+        self.assertIn("currentTeamCount() > 1", js.split("function paintRoundStrip()")[1].split("function ")[0])
+        self.assertIn("picks.hidden = !team", js)
+        self.assertIn('$("live-round-set")?.addEventListener("click"', js)
+        set_click = js.split('$("live-round-set")?.addEventListener("click"')[1].split(
+            '$("text-ride-freeze")'
+        )[0]
+        self.assertIn("currentTeamCount() <= 1", set_click)
+        self.assertIn("round_flags: readRoundFlags()", set_click)
+        self.assertIn("patchTeacherState({ round_flags:", set_click)
+        self.assertNotIn("cue_id", set_click)
+        self.assertNotIn('patchTeacherState({ round,', js)
+        option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
+        self.assertIn("paintRoundStrip();", option)
+        self.assertIn("rounds.hidden = true", option)
+        self.assertNotIn("innerHTML", option)
+        self.assertIn("paintRoundStrip();", js.split("function paintTeamsStripEnabled()")[1].split("function paintRoundStrip()")[0])
+        self.assertIn("body.staff-shell .live-round-strip {", css)
+        strip_css = css.split("body.staff-shell .live-round-strip {")[1].split("}")[0]
+        self.assertIn("flex-wrap: nowrap", strip_css)
+        self.assertIn("max-height: var(--live-options-row-h)", strip_css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("body.staff-shell .live-round-picks[hidden] {", css)
+        self.assertIn(
+            "grid-template-columns: var(--live-left-width) minmax(0, 1fr)",
+            css,
+        )
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
+        self.assertIn("function applySessionTimerUi(", js)
+        self.assertIn("async function advanceTeamsToMeet()", js)
+        self.assertIn("function classListGroupsByTeam()", js)
 
 
 if __name__ == "__main__":

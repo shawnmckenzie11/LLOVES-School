@@ -1620,6 +1620,37 @@ body.staff-shell .live-text-ride {
 body.staff-shell .live-text-ride[hidden] {
   display: none !important;
 }
+body.staff-shell .live-round-strip {
+  flex-wrap: nowrap;
+  gap: 0.4rem 0.65rem;
+  min-height: 0;
+  max-height: var(--live-options-row-h);
+}
+body.staff-shell .live-round-strip .live-round-picks {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  min-height: 0;
+  max-height: var(--live-options-row-h);
+  flex: 1 1 auto;
+}
+body.staff-shell .live-round-picks[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-round-strip .live-round-dot {
+  color: #64748b;
+  font-weight: 700;
+  line-height: 1;
+}
+body.staff-shell .live-round-strip .live-unlock-toggle {
+  white-space: nowrap;
+}
+body.staff-shell .live-round-strip #live-round-set {
+  margin-left: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 body.staff-shell .live-round-picks,
 body.staff-shell .live-preset-row,
 body.staff-shell .live-content-palette {
@@ -1804,10 +1835,12 @@ body.staff-shell #class-list-pane {
   overflow: auto;
 }
 body.staff-shell .live-options-strip #round-slide-settings {
-  width: auto;
-  max-width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  flex: 0 0 auto;
 }
 body.staff-shell .live-options-strip #team-assign-pane {
   position: fixed;

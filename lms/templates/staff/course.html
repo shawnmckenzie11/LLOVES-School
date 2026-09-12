@@ -209,26 +209,33 @@
           </section>
         </div>
         <div id="meet-option-card" class="live-option-card-body" hidden></div>
-        <div id="round-option-card" class="live-option-card-body" hidden>
-          <p class="live-option-card-label">Always 3 rounds</p>
-          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Pedagogical rounds">
-            <button type="button" class="live-round-pick is-active" data-round="minds_on">Minds on</button>
-            <button type="button" class="live-round-pick" data-round="action">Action</button>
-            <button type="button" class="live-round-pick" data-round="consolidation">Consolidation</button>
+        <div id="round-option-card" class="live-option-card-body live-round-strip" hidden>
+          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round facets" hidden>
+            <label class="live-unlock-toggle" for="live-round-minds-on">
+              <input type="checkbox" id="live-round-minds-on" data-round="minds_on">
+              <span>Minds-On</span>
+            </label>
+            <span class="live-round-dot" aria-hidden="true">·</span>
+            <label class="live-unlock-toggle" for="live-round-action">
+              <input type="checkbox" id="live-round-action" data-round="action">
+              <span>Action</span>
+            </label>
+            <span class="live-round-dot" aria-hidden="true">·</span>
+            <label class="live-unlock-toggle" for="live-round-consolidation">
+              <input type="checkbox" id="live-round-consolidation" data-round="consolidation">
+              <span>Consolidation</span>
+            </label>
+            <button type="button" class="live-round-pick" id="live-round-set">SET</button>
           </div>
-          <div class="live-team-keep" role="group" aria-label="Teams for this round">
-            <label><input type="radio" name="live-team-keep" value="keep" checked> Keep teams</label>
-            <label><input type="radio" name="live-team-keep" value="reassign"> Reassign teams</label>
-          </div>
-          <section id="round-slide-settings" class="live-flag-panel" data-flag="rounds">
+          <section id="round-slide-settings" class="live-legacy-control live-flag-panel" data-flag="rounds" hidden>
             <section id="ap-panel-rounds" class="ap-panel" data-step="rounds">
-              <h2 class="live-pane-title" id="ap-rounds-title">Start Round 1 <span id="ap-rounds-summary" class="live-pane-meta"></span></h2>
-              <p class="hint compact" id="ap-rounds-hint">Set up one round at a time. Open Question uses action chips when scoring.</p>
+              <h2 class="live-pane-title" id="ap-rounds-title">Scoring <span id="ap-rounds-summary" class="live-pane-meta"></span></h2>
+              <p class="hint compact" id="ap-rounds-hint"></p>
               <div id="ap-rounds-list" class="ap-rounds-list ap-rounds-compact"></div>
               <div class="live-pane-footer">
                 <button type="button" class="secondary track-nav-prev" id="ap-rounds-back" data-track-nav="prev">← Prev</button>
                 <button type="button" class="secondary track-nav-quit" data-track-nav="quit">Quit</button>
-                <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start Round 1</button>
+                <button type="button" class="track-nav-next" id="ap-rounds-start" data-track-nav="next">Start scoring</button>
               </div>
             </section>
           </section>

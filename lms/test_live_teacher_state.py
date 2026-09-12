@@ -52,6 +52,10 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         )
         self.assertEqual(state["unlocks"], {"media": False, "canvas": False})
         self.assertTrue(state["canvas_ephemeral"])
+        self.assertEqual(
+            state["round_flags"],
+            {"minds_on": False, "action": False, "consolidation": False},
+        )
         self.assertIsNone(state["round"])
         self.assertIsNone(state["active_media_ref"])
         self.assertIsNone(state["meet_chain"])
@@ -210,6 +214,30 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertTrue(kept["mc_ui"]["reveal"])
         with self.assertRaises(ValueError):
             apply_teacher_state_update(None, mc_ui="yes")
+
+    def test_round_flags_set_bumps_state_seq(self) -> None:
+        """SET-style round_flags write is a teacher commit (state_seq++)."""
+        state = default_teacher_state()
+        self.assertEqual(state["state_seq"], 0)
+        self.assertFalse(state["round_flags"]["action"])
+        set_flags = apply_teacher_state_update(
+            state,
+            round_flags={"minds_on": True, "action": True, "consolidation": False},
+        )
+        self.assertEqual(set_flags["state_seq"], 1)
+        self.assertTrue(set_flags["round_flags"]["minds_on"])
+        self.assertTrue(set_flags["round_flags"]["action"])
+        self.assertFalse(set_flags["round_flags"]["consolidation"])
+        self.assertIsNone(set_flags.get("cue_id"))
+        again = apply_teacher_state_update(
+            set_flags, round_flags=["minds_on", "consolidation"]
+        )
+        self.assertEqual(again["state_seq"], 2)
+        self.assertTrue(again["round_flags"]["minds_on"])
+        self.assertFalse(again["round_flags"]["action"])
+        self.assertTrue(again["round_flags"]["consolidation"])
+        with self.assertRaises(ValueError):
+            apply_teacher_state_update(None, round_flags="minds_on")
 
 
 class LiveTeacherStateApiTests(unittest.TestCase):
@@ -377,6 +405,29 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(body["mc_ui"]["reveal_to_students"])
         self.assertIsNone(body.get("cue_id"))
         self.assertGreaterEqual(body["state_seq"], 1)
+
+    def test_round_flags_patch_increments_state_seq(self) -> None:
+        """Staff SET posts round_flags; Wonder stays silent."""
+        before = self.client.get(f"/api/live-sessions/{self.session_id}/teacher-state")
+        self.assertEqual(before.status_code, 200, before.get_json())
+        seq = int(before.get_json()["teacher_state"]["state_seq"])
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round_flags": {
+                    "minds_on": True,
+                    "action": False,
+                    "consolidation": True,
+                }
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        body = posted.get_json()["teacher_state"]
+        self.assertEqual(body["state_seq"], seq + 1)
+        self.assertTrue(body["round_flags"]["minds_on"])
+        self.assertFalse(body["round_flags"]["action"])
+        self.assertTrue(body["round_flags"]["consolidation"])
+        self.assertIsNone(body.get("cue_id"))
 
 
 if __name__ == "__main__":
