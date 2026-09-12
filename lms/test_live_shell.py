@@ -381,7 +381,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("desiredSessionPollMs()", js)
         self.assertIn("return lastMcTally ? 1000 : 2000", js)
         reveal = js.split("function patchMcReveal(")[1].split("function ")[0]
-        self.assertIn("reveal_to_students: false", reveal)
+        self.assertIn('teacherState.stage || "") === "join"', reveal)
+        self.assertIn("reveal_to_students: joinShare", reveal)
+        self.assertIn("poll_closed: joinShare || alreadyClosed", reveal)
         self.assertNotIn("cue_id", reveal)
         self.assertIn('patchTeacherState({', reveal)
         self.assertIn("mc_ui:", reveal)
@@ -722,6 +724,40 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-chain-skip-c", js)
         self.assertNotIn("End Meet", js)
+
+    def test_beat10_join_reveal_shares_summary_in_question_frame(self) -> None:
+        """Beat 10: JOIN Reveal shares bars in the student Question frame."""
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        student_css = (LMS_DIR / "static" / "student-portal.css").read_text(
+            encoding="utf-8"
+        )
+        html = self.client.get(f"/staff/class/{self.class_id}?tab=live").get_data(
+            as_text=True
+        )
+        reveal = staff_js.split("function patchMcReveal(")[1].split("function ")[0]
+        self.assertIn("joinShare", reveal)
+        self.assertIn("poll_closed", reveal)
+        self.assertNotIn("cue_id", reveal)
+        self.assertNotIn("innerHTML", reveal)
+        paint = staff_js.split("function paintTeacherShell()")[1].split(
+            "function paintHeaderDate()"
+        )[0]
+        self.assertIn("lockClassListPane();", paint)
+        self.assertNotIn("innerHTML", paint)
+        self.assertEqual(html.count('id="mc-results-slot"'), 1)
+        self.assertNotIn('id="mc-results-card"', html)
+        self.assertIn("function studentMcSummary(", student_js)
+        self.assertIn("function studentPollClosed(", student_js)
+        self.assertIn("function mcRevealBarsHtml(", student_js)
+        self.assertIn("hideFeedbackPanel()", student_js)
+        self.assertIn("student-mc-reveal-bars", student_js)
+        self.assertIn("summarySig !== lastSummarySig", student_js)
+        self.assertIn(".question-frame .mc-reveal-row", student_css)
+        self.assertIn(".question-frame .mc-reveal-fill", student_css)
+        self.assertNotIn("id=\"mc-results-card\"", student_js)
 
     def test_beat17_class_list_groups_by_team_when_assigned(self) -> None:
         """Beat 17: assigned teams>1 get name separators; count=1 stays flat."""

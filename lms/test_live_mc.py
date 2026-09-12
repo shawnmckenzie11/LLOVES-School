@@ -158,7 +158,7 @@ class LiveMcApiTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_join_minds_on_populates_and_reveal_stays_in_teacher_state(self) -> None:
-        """JOIN Minds-On: staff tally updates on submit; student gets no tally."""
+        """JOIN Minds-On: live tally is staff-only until Reveal shares + closes."""
         idle = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(idle.status_code, 200, idle.get_json())
         idle_tally = idle.get_json()["mc_tally"]
@@ -168,6 +168,7 @@ class LiveMcApiTests(unittest.TestCase):
         self.assertEqual(idle_tally["source"], "live_prompt")
         student = self.student.get("/api/student/state").get_json()
         self.assertNotIn("mc_tally", student)
+        self.assertFalse(student.get("poll_closed"))
         prompt = student["prompt"]
         self.assertEqual(prompt["payload"]["item_id"], "minds_on")
         submit = self.student.post(
@@ -197,15 +198,32 @@ class LiveMcApiTests(unittest.TestCase):
         self.assertEqual(shown.status_code, 200, shown.get_json())
         ui = shown.get_json()["teacher_state"]["mc_ui"]
         self.assertTrue(ui["reveal"])
-        self.assertFalse(ui["reveal_to_students"])
+        self.assertTrue(ui["reveal_to_students"])
+        self.assertTrue(ui["poll_closed"])
         self.assertIsNone(shown.get_json()["teacher_state"].get("cue_id"))
         student_after = self.student.get("/api/student/state").get_json()
-        self.assertNotIn("mc_tally", student_after)
-        self.assertFalse(
+        shared = student_after.get("mc_tally")
+        self.assertIsNotNone(shared)
+        self.assertEqual(shared["prompt_ref"], "minds_on")
+        self.assertEqual(shared["responded"], 1)
+        self.assertEqual(shared["choices"][0]["count"], 1)
+        self.assertEqual(shared["choices"][0]["pct"], 100)
+        self.assertTrue(student_after.get("poll_closed"))
+        self.assertTrue(
             (student_after.get("teacher_state") or {})
             .get("mc_ui", {})
             .get("reveal_to_students")
         )
+        blocked = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_CHOICES[1]},
+            },
+        )
+        self.assertEqual(blocked.status_code, 409, blocked.get_json())
+        self.assertTrue(blocked.get_json().get("poll_closed"))
+        self.assertEqual(blocked.get_json().get("error"), "Poll is closed.")
 
     def test_cons_mc_uses_the_same_tally_pipeline(self) -> None:
         """CONS-1 (not Minds-On) fills the same staff mc_tally shape."""

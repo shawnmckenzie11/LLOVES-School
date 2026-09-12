@@ -3347,6 +3347,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_prompt(live_session_id)
         if active is None or active.get("kind") == "idle":
             return jsonify({"ok": False, "error": "No active prompt."}), 409
+        if school.live_session_mc_poll_closed(live_session_id):
+            return jsonify(
+                {"ok": False, "error": "Poll is closed.", "poll_closed": True}
+            ), 409
         body = request.get_json(silent=True) or {}
         response = body.get("response")
         if not isinstance(response, dict):

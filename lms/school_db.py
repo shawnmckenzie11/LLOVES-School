@@ -32,9 +32,11 @@ try:
         apply_teacher_state_update,
         bind_meet_student_projection,
         default_text_ride,
+        mc_poll_closed,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
+        student_mc_summary_visible,
     )
     from live_prompt_feedback import (
         public_feedback_fragment,
@@ -86,9 +88,11 @@ except ImportError:  # ``python3 lms/app.py`` package import
         apply_teacher_state_update,
         bind_meet_student_projection,
         default_text_ride,
+        mc_poll_closed,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
+        student_mc_summary_visible,
     )
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
@@ -6498,6 +6502,35 @@ class SchoolDB(LovesDB):
             teacher_state=teacher,
         )
 
+    def live_session_mc_poll_closed(self, session_id: int) -> bool:
+        """True when JOIN Reveal (or an explicit flag) has closed the MC poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return False
+        return mc_poll_closed(teacher)
+
+    def student_visible_mc_tally(self, session_id: int) -> dict[str, Any] | None:
+        """Return the class MC summary only when the teacher has shared Reveal.
+
+        JOIN Reveal commits ``reveal_to_students``. Other stages stay
+        teacher-only unless that flag is set. Same tally shape as staff.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return None
+        if not student_mc_summary_visible(teacher):
+            return None
+        return self.live_session_mc_tally(session_id)
+
     def apply_prompt_score_to_participation(
         self,
         class_id: int,
@@ -6538,7 +6571,8 @@ class SchoolDB(LovesDB):
             participant_uuid: Live-session person key.
 
         Returns:
-            Dict with ``prompt`` (or ``None``) and optional ``my_response``.
+            Dict with ``prompt`` (or ``None``), optional ``my_response``,
+            and JOIN Reveal fields ``poll_closed`` / ``mc_tally``.
         """
         teacher = None
         try:
@@ -6556,7 +6590,20 @@ class SchoolDB(LovesDB):
             session_id
         )
         prompt = self.get_active_live_prompt(session_id)
-        empty = {"prompt": None, "my_response": None, "waiting_room": waiting_room}
+        poll_closed = mc_poll_closed(teacher)
+        shared_tally = (
+            self.student_visible_mc_tally(session_id)
+            if student_mc_summary_visible(teacher)
+            else None
+        )
+        empty = {
+            "prompt": None,
+            "my_response": None,
+            "waiting_room": waiting_room,
+            "poll_closed": poll_closed,
+        }
+        if shared_tally is not None:
+            empty["mc_tally"] = shared_tally
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
@@ -6608,7 +6655,7 @@ class SchoolDB(LovesDB):
             )
             if fragment:
                 my_response["feedback"] = fragment
-        return {
+        out = {
             "prompt": {
                 "id": int(prompt["id"]),
                 "slide_index": int(prompt["slide_index"]),
@@ -6617,6 +6664,7 @@ class SchoolDB(LovesDB):
             },
             "my_response": my_response,
             "waiting_room": waiting_room,
+            "poll_closed": poll_closed,
             "meet_chip": meet_chip_for(
                 meet_state,
                 meet_participant_key(
@@ -6626,6 +6674,9 @@ class SchoolDB(LovesDB):
             if meet_state is not None
             else None,
         }
+        if shared_tally is not None:
+            out["mc_tally"] = shared_tally
+        return out
 
     def live_session_active_media_payload(
         self, session_id: int
@@ -7043,9 +7094,10 @@ class SchoolDB(LovesDB):
         leaving MEET wipes ephemeral picks and fires ``cue.meet_clear``.
         ``meet_action`` is ``next`` / ``skip_c`` / ``clear``. Optional
         ``assign`` on TEAMS→MEET commits roster teams before the same
-        ``state_seq`` write; count ``< 2`` skips assign. JOIN→TEAMS
-        nulls ``prompt_ref``, drops ``mc_ui``, and closes the Minds-On
-        poll (Wonder stays silent).
+        ``state_seq`` write; count ``< 2`` skips assign.         JOIN Reveal commits ``reveal_to_students`` and closes the
+        waiting-room poll so students see the class summary (Wonder
+        stays silent). JOIN→TEAMS nulls ``prompt_ref``, drops
+        ``mc_ui``, and closes the Minds-On poll.
 
         Args:
             session_id: ``live_class_sessions.id``.

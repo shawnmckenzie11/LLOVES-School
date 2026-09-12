@@ -160,7 +160,7 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean}}} */
+/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
 let teacherState = {
   stage: "join",
   round: null,
@@ -511,14 +511,18 @@ function currentMcPromptRef() {
 
 /**
  * PATCH mc_ui only. Never sends a Wonder cue_id.
+ * JOIN Reveal shares the class summary and closes the poll.
  * @param {boolean} reveal
  */
 function patchMcReveal(reveal) {
+  const joinShare = Boolean(reveal) && String(teacherState.stage || "") === "join";
+  const alreadyClosed = Boolean(teacherState.mc_ui && teacherState.mc_ui.poll_closed);
   patchTeacherState({
     mc_ui: {
       prompt_ref: currentMcPromptRef(),
       reveal: Boolean(reveal),
-      reveal_to_students: false,
+      reveal_to_students: joinShare,
+      poll_closed: joinShare || alreadyClosed,
     },
   });
 }

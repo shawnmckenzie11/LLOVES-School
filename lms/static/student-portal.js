@@ -45,6 +45,8 @@ let lastFeedbackKey = "";
 let feedbackDismissed = false;
 /** @type {number} */
 let lastStateSeq = -1;
+/** @type {string} */
+let lastSummarySig = "";
 /** @type {number} */
 let toastHideTimer = 0;
 const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
@@ -561,6 +563,65 @@ function paintMeetCue(payload) {
 }
 
 /**
+ * Shared class MC tally when the teacher has Revealed to students.
+ * @param {any} payload
+ * @returns {any | null}
+ */
+function studentMcSummary(payload) {
+  const tally = payload && payload.mc_tally;
+  const ui = ((payload && payload.teacher_state) || {}).mc_ui || {};
+  if (!tally || !Array.isArray(tally.choices) || !tally.choices.length) return null;
+  if (!ui.reveal || !ui.reveal_to_students) return null;
+  return tally;
+}
+
+/**
+ * True when JOIN Reveal (or an explicit flag) has closed the poll.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function studentPollClosed(payload) {
+  if (Boolean(payload && payload.poll_closed)) return true;
+  const ui = ((payload && payload.teacher_state) || {}).mc_ui || {};
+  return Boolean(ui.poll_closed) || Boolean(studentMcSummary(payload));
+}
+
+/**
+ * Bind key so JOIN Reveal re-paints bars without remounting chrome.
+ * @param {any} payload
+ * @returns {string}
+ */
+function studentSummarySig(payload) {
+  const tally = studentMcSummary(payload);
+  if (!tally) return studentPollClosed(payload) ? "closed" : "";
+  return [
+    tally.prompt_ref || "",
+    tally.response_seq ?? "",
+    tally.response_count ?? "",
+    "reveal",
+  ].join("|");
+}
+
+/**
+ * Bars / % / labels — same optimal MC distribution as the teacher Reveal slot.
+ * @param {any} tally
+ * @returns {string}
+ */
+function mcRevealBarsHtml(tally) {
+  const rows = (tally && tally.choices) || [];
+  return `<div class="mc-reveal-bars" id="student-mc-reveal-bars">${rows
+    .map((row) => {
+      const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
+      const label = escapeText(row.label || "");
+      const id = escapeText(row.id || "");
+      return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${escapeText(
+        String(row.count ?? 0)
+      )} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
+    })
+    .join("")}</div>`;
+}
+
+/**
  * True when the student Question face is still the JOIN Minds-On MC.
  * @param {any} payload
  * @returns {boolean}
@@ -586,12 +647,25 @@ function paintPrompt(payload) {
   const data = (prompt && prompt.payload) || {};
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
   const answered = Boolean(payload.my_response);
+  const summary = studentMcSummary(payload);
+  if (summary && prompt && prompt.kind && prompt.kind !== "idle") {
+    hideFeedbackPanel();
+    if (promptAck) {
+      promptAck.hidden = true;
+      promptAck.classList.remove("is-feedback");
+    }
+    renderPromptBody(prompt, data, payload, true);
+    lastFeedbackKey = "";
+    lastSummarySig = studentSummarySig(payload);
+    return;
+  }
   if (!prompt || !prompt.kind || prompt.kind === "idle") {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
     lastPromptId = null;
     lastMeetSig = "";
     lastFeedbackKey = "";
+    lastSummarySig = "";
     feedbackDismissed = false;
     hideFeedbackPanel();
     if (promptAck) {
@@ -655,16 +729,22 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   ).trim();
   let controls = "";
   if (kind === "mc") {
-    const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];
-    controls = choices
-      .map((choice, index) => {
-        const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
-        const on = picked && label === picked ? " is-selected" : "";
-        return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
-          picked || lockChoices ? " disabled" : ""
-        }>${escapeText(label)}</button>`;
-      })
-      .join("");
+    const summary = studentMcSummary(payload);
+    const closed = studentPollClosed(payload) || lockChoices;
+    if (summary) {
+      controls = mcRevealBarsHtml(summary);
+    } else {
+      const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];
+      controls = choices
+        .map((choice, index) => {
+          const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
+          const on = picked && label === picked ? " is-selected" : "";
+          return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
+            picked || closed ? " disabled" : ""
+          }>${escapeText(label)}</button>`;
+        })
+        .join("");
+    }
   } else if (kind === "numeric") {
     controls = `
       <label class="prompt-numeric">
@@ -723,7 +803,8 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   `;
   lastPromptId = Number(prompt.id);
   lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
-  if (!picked && !lockChoices) {
+  lastSummarySig = studentSummarySig(payload);
+  if (!picked && !lockChoices && !studentMcSummary(payload) && !studentPollClosed(payload)) {
     wirePromptControls(prompt);
   }
 }
@@ -947,10 +1028,12 @@ async function tick() {
         }`
       : "";
     const seqChanged = lastStateSeq !== prevSeq;
+    const summarySig = studentSummarySig(data);
     if (
       seqChanged ||
       promptId !== lastPromptId ||
       meetSig !== lastMeetSig ||
+      summarySig !== lastSummarySig ||
       (data.my_response && promptShell && !promptShell.hidden)
     ) {
       paintPrompt(data);

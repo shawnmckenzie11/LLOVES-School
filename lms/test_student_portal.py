@@ -999,6 +999,85 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn(".prompt-feedback", css)
         self.assertIn(".question-frame", css)
         self.assertIn("max-height: min(70dvh, 36rem)", css)
+        self.assertIn("function studentMcSummary(", js)
+        self.assertIn("function mcRevealBarsHtml(", js)
+        self.assertIn("student-mc-reveal-bars", js)
+        self.assertIn(".question-frame .mc-reveal-row", css)
+
+    def test_join_reveal_closes_poll_and_shares_summary(self) -> None:
+        """Beat 10: JOIN Reveal closes submits and binds the class MC tally."""
+        from live_teacher_state import MINDS_ON_PROMPT_REF
+
+        self._join_maple_home()
+        aspen = self.app.test_client()
+        live = self.school.get_live_session(self.live_session_id)
+        aspen.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Aspen"},
+            follow_redirects=False,
+        )
+        aspen.post("/student/mood", data={"mood": "good"})
+        aspen.post("/student/character", data={"character": "fox"})
+        maple = self.student.get("/api/student/state").get_json()
+        prompt = maple["prompt"]
+        self.assertEqual(prompt["payload"]["item_id"], "minds_on")
+        self.assertNotIn("mc_tally", maple)
+        self.assertFalse(maple.get("poll_closed"))
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_CHOICES[0]},
+            },
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={
+                "mc_ui": {
+                    "prompt_ref": MINDS_ON_PROMPT_REF,
+                    "reveal": True,
+                }
+            },
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        ui = shown.get_json()["teacher_state"]["mc_ui"]
+        self.assertTrue(ui["reveal"])
+        self.assertTrue(ui["reveal_to_students"])
+        self.assertTrue(ui["poll_closed"])
+        self.assertIsNone(shown.get_json()["teacher_state"].get("cue_id"))
+        shared = self.student.get("/api/student/state").get_json()
+        tally = shared.get("mc_tally")
+        self.assertIsNotNone(tally)
+        self.assertEqual(tally["prompt_ref"], "minds_on")
+        self.assertEqual(tally["kind"], "mc")
+        self.assertEqual(tally["responded"], 1)
+        self.assertEqual(tally["choices"][0]["id"], "A")
+        self.assertEqual(tally["choices"][0]["count"], 1)
+        self.assertEqual(tally["choices"][0]["pct"], 100)
+        self.assertTrue(shared.get("poll_closed"))
+        self.assertEqual(shared["prompt"]["payload"]["item_id"], "minds_on")
+        unanswered = aspen.get("/api/student/state").get_json()
+        self.assertTrue(unanswered.get("poll_closed"))
+        self.assertIsNotNone(unanswered.get("mc_tally"))
+        self.assertEqual(unanswered["mc_tally"]["choices"][0]["pct"], 100)
+        blocked_maple = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_CHOICES[1]},
+            },
+        )
+        self.assertEqual(blocked_maple.status_code, 409, blocked_maple.get_json())
+        blocked_aspen = aspen.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_CHOICES[1]},
+            },
+        )
+        self.assertEqual(blocked_aspen.status_code, 409, blocked_aspen.get_json())
+        self.assertTrue(blocked_aspen.get_json().get("poll_closed"))
 
     def test_generic_mc_submit_has_no_feedback(self) -> None:
         """A staff MC that is not Minds-On / CONS returns ack only."""

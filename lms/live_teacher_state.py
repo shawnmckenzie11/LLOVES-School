@@ -259,14 +259,15 @@ def public_mc_ui(raw: Any, *, prompt_ref: str | None = None) -> dict[str, Any] |
     """Normalize additive MC reveal chrome, or None when cleared / absent.
 
     Student mirror stays off unless ``reveal_to_students`` is explicitly
-    true. Wonder cues are not part of this object.
+    true (JOIN Reveal later commits share via ``bind_join_share_on_reveal``).
+    Wonder cues are not part of this object.
 
     Args:
         raw: Stored or PATCH ``mc_ui`` object, or empty to clear.
         prompt_ref: Fallback id when the blob omits ``prompt_ref``.
 
     Returns:
-        ``{prompt_ref, reveal, reveal_to_students}`` or ``None``.
+        ``{prompt_ref, reveal, reveal_to_students, poll_closed}`` or ``None``.
 
     Raises:
         ValueError: When ``raw`` is present but not an object / has no ref.
@@ -280,11 +281,80 @@ def public_mc_ui(raw: Any, *, prompt_ref: str | None = None) -> dict[str, Any] |
         raise ValueError("mc_ui.prompt_ref is required")
     reveal = _as_bool(raw.get("reveal"))
     to_students = _as_bool(raw.get("reveal_to_students"))
+    poll_closed = _as_bool(raw.get("poll_closed"))
     return {
         "prompt_ref": ref,
         "reveal": bool(reveal) if reveal is not None else False,
         "reveal_to_students": bool(to_students) if to_students is not None else False,
+        "poll_closed": bool(poll_closed) if poll_closed is not None else False,
     }
+
+
+def bind_join_share_on_reveal(
+    state: dict[str, Any],
+    *,
+    previous_mc_ui: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """JOIN Reveal commits student share and closes the waiting-room poll.
+
+    Hide unshares the class summary but keeps ``poll_closed`` once set so
+    students cannot keep submitting. Other stages leave the posted
+    ``reveal_to_students`` flag alone. Wonder is not touched.
+
+    Args:
+        state: Public teacher state (mutated).
+        previous_mc_ui: Prior ``mc_ui`` so poll-closed sticks across Hide.
+
+    Returns:
+        The same ``state`` dict.
+    """
+    ui = state.get("mc_ui")
+    if not isinstance(ui, dict):
+        return state
+    prior = previous_mc_ui if isinstance(previous_mc_ui, dict) else {}
+    if prior.get("poll_closed"):
+        ui["poll_closed"] = True
+    if str(state.get("stage") or "") == "join" and ui.get("reveal"):
+        ui["reveal_to_students"] = True
+        ui["poll_closed"] = True
+    return state
+
+
+def mc_poll_closed(teacher_state: Any) -> bool:
+    """True when the teacher has closed the current MC poll.
+
+    JOIN Reveal sets ``poll_closed``. Hide keeps it closed. Other stages
+    only close when the flag is stored.
+
+    Args:
+        teacher_state: Public ``LiveTeacherState`` dict, or None.
+    """
+    if not isinstance(teacher_state, dict):
+        return False
+    ui = teacher_state.get("mc_ui")
+    if not isinstance(ui, dict):
+        return False
+    if ui.get("poll_closed"):
+        return True
+    return bool(
+        str(teacher_state.get("stage") or "") == "join"
+        and ui.get("reveal")
+        and ui.get("reveal_to_students")
+    )
+
+
+def student_mc_summary_visible(teacher_state: Any) -> bool:
+    """True when students should see the class MC distribution.
+
+    Args:
+        teacher_state: Public ``LiveTeacherState`` dict, or None.
+    """
+    if not isinstance(teacher_state, dict):
+        return False
+    ui = teacher_state.get("mc_ui")
+    if not isinstance(ui, dict):
+        return False
+    return bool(ui.get("reveal") and ui.get("reveal_to_students"))
 
 
 def clear_join_prompt_bindings(state: dict[str, Any]) -> dict[str, Any]:
@@ -473,6 +543,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             base.pop("mc_ui", None)
         else:
             base["mc_ui"] = cleaned
+            bind_join_share_on_reveal(base)
     if "live_slot" in stored:
         base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
     if "text_ride" in stored:
@@ -545,9 +616,10 @@ def apply_teacher_state_update(
         canvas_ephemeral: Ignored; the field stays ``True``.
         student_frames: Optional ``{questions, media, canvas}`` projection.
         unlocks: Optional ``{media, canvas}`` PLAY unlock flags.
-        mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students}``.
-            Reveal toggles bump ``state_seq``. ``reveal_to_students``
-            defaults false. Empty clears the blob.
+        mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students,
+            poll_closed}``. Reveal toggles bump ``state_seq``. JOIN
+            Reveal commits ``reveal_to_students`` and closes the poll.
+            Empty clears the blob.
         live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
@@ -560,6 +632,9 @@ def apply_teacher_state_update(
     """
     del canvas_ephemeral  # always true; callers cannot persist the stub
     base = public_teacher_state(current)
+    prev_mc_ui = (
+        dict(base["mc_ui"]) if isinstance(base.get("mc_ui"), dict) else None
+    )
     prev_stage = str(base.get("stage") or "join")
     if advance is not None:
         token = str(advance).strip().lower()
@@ -655,12 +730,17 @@ def apply_teacher_state_update(
             base.pop("mc_ui", None)
         else:
             base["mc_ui"] = cleaned
+            bind_join_share_on_reveal(base, previous_mc_ui=prev_mc_ui)
     elif prompt_ref is not None or stage_changed:
         existing = base.get("mc_ui")
         if isinstance(existing, dict):
             current_ref = _clean_ref(base.get("prompt_ref"))
             if not current_ref or existing.get("prompt_ref") != current_ref:
                 base.pop("mc_ui", None)
+            else:
+                bind_join_share_on_reveal(base, previous_mc_ui=prev_mc_ui)
+    else:
+        bind_join_share_on_reveal(base, previous_mc_ui=prev_mc_ui)
     base["canvas_ephemeral"] = True
     base["updated_at"] = _now_iso()
     base["state_seq"] = _clean_state_seq(base.get("state_seq")) + 1
