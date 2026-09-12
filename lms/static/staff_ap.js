@@ -1673,7 +1673,84 @@ function studentTeamColor(studentId) {
 }
 
 /**
+ * Assigned game teams (excludes the individual ``Class`` bucket).
+ * @returns {any[]}
+ */
+function assignedRosterTeams() {
+  return (overlayState?.teams || [])
+    .filter((team) => team && team.name !== "Class")
+    .slice()
+    .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+}
+
+/**
+ * True when ClassList regroups by team with name separators.
+ * Count 1 stays flat; grouping needs an assign commit (teams > 1).
+ * @returns {boolean}
+ */
+function classListGroupsByTeam() {
+  return currentTeamCount() > 1 && assignedRosterTeams().length >= 2;
+}
+
+/**
+ * Roster order for ClassList: team groups after assign, else one flat list.
+ * @param {any[]} students
+ * @returns {{key: string, name: string, color: string, students: any[]}[]}
+ */
+function classListRosterOrder(students) {
+  const roster = sortStudents(students || [], nameSort);
+  if (!classListGroupsByTeam()) {
+    return [{ key: "flat", name: "", color: "", students: roster }];
+  }
+  const seen = new Set();
+  const groups = [];
+  for (const team of assignedRosterTeams()) {
+    const memberIds = new Set((team.members || []).map((row) => Number(row.id)));
+    const members = roster.filter((row) => memberIds.has(Number(row.id)));
+    for (const row of members) seen.add(Number(row.id));
+    if (!members.length) continue;
+    const sortOrder = Number(team.sort_order) || 0;
+    groups.push({
+      key: String(team.id || sortOrder),
+      name: String(team.name || `Team ${sortOrder + 1}`).trim() || `Team ${sortOrder + 1}`,
+      color: team.color || teamColorByIndex(sortOrder),
+      students: members,
+    });
+  }
+  const leftover = roster.filter((row) => !seen.has(Number(row.id)));
+  if (leftover.length) {
+    groups.push({ key: "unassigned", name: "", color: "", students: leftover });
+  }
+  return groups;
+}
+
+/**
+ * Append one join-only attendance row (display-only; no click toggles).
+ * @param {HTMLElement} list
+ * @param {any} student
+ * @param {Set<any>} checked
+ */
+function appendAttendanceStudentRow(list, student, checked) {
+  const present = checked.has(student.id);
+  const late = sessionLateIds.has(student.id) || Boolean(student.late);
+  const row = document.createElement("div");
+  row.className = `ap-att-row${present ? " is-present" : ""}${late ? " is-late" : ""}`;
+  row.dataset.studentId = String(student.id);
+  row.setAttribute("aria-pressed", present ? "true" : "false");
+  const mark = late ? "L" : present ? "✓" : "";
+  const face = student.mood ? moodGlyph(student.mood) : "";
+  const teamColor = studentTeamColor(student.id);
+  if (teamColor) {
+    row.classList.add("has-team-color");
+    row.style.setProperty("--team", teamColor);
+  }
+  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
+  list.appendChild(row);
+}
+
+/**
  * Draw join-only attendance rows (display-only; no click toggles).
+ * After TEAMS assign with count > 1, rows regroup under team-name separators.
  */
 function renderAttendanceList() {
   const checked = new Set(
@@ -1686,22 +1763,21 @@ function renderAttendanceList() {
   const list = $("ap-att-list");
   if (!list) return;
   list.innerHTML = "";
-  for (const student of sortStudents(overlayState?.students || [], nameSort)) {
-    const present = checked.has(student.id);
-    const late = sessionLateIds.has(student.id) || Boolean(student.late);
-    const row = document.createElement("div");
-    row.className = `ap-att-row${present ? " is-present" : ""}${late ? " is-late" : ""}`;
-    row.dataset.studentId = String(student.id);
-    row.setAttribute("aria-pressed", present ? "true" : "false");
-    const mark = late ? "L" : present ? "✓" : "";
-    const face = student.mood ? moodGlyph(student.mood) : "";
-    const teamColor = studentTeamColor(student.id);
-    if (teamColor) {
-      row.classList.add("has-team-color");
-      row.style.setProperty("--team", teamColor);
+  const grouped = classListGroupsByTeam();
+  list.dataset.grouped = grouped ? "1" : "0";
+  for (const group of classListRosterOrder(overlayState?.students || [])) {
+    if (grouped && group.name) {
+      const sep = document.createElement("div");
+      sep.className = "ap-att-team-sep";
+      sep.setAttribute("role", "separator");
+      sep.dataset.teamKey = group.key;
+      if (group.color) sep.style.setProperty("--team", group.color);
+      sep.textContent = group.name;
+      list.appendChild(sep);
     }
-    row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
-    list.appendChild(row);
+    for (const student of group.students) {
+      appendAttendanceStudentRow(list, student, checked);
+    }
   }
   for (const guest of sessionGuests) {
     const row = document.createElement("div");
