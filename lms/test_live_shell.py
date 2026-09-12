@@ -522,6 +522,89 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
 
+    def test_beat5_meet_timer_stays_in_options_strip(self) -> None:
+        """Beat 5: Meet timer lives in the height-capped strip; start is in-place."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="meet-option-card"', html)
+        self.assertIn("live-meet-strip", html)
+        self.assertIn('id="ap-meet-stepper"', html)
+        self.assertIn('id="ap-meet-minutes"', html)
+        self.assertIn('id="ap-meet-live-clock"', html)
+        self.assertIn('id="ap-meet-start"', html)
+        self.assertIn(">Start<", html)
+        self.assertIn('id="meet-chain-skip-c"', html)
+        self.assertIn('id="meet-chain-end"', html)
+        self.assertNotIn("Meet timer (min)", html)
+        self.assertNotIn("Start Meet", html)
+        strip_html = html.split('id="meet-option-card"')[1].split(
+            'id="round-option-card"'
+        )[0]
+        self.assertIn('id="ap-meet-stepper"', strip_html)
+        self.assertIn('id="ap-meet-live-clock"', strip_html)
+        self.assertIn('id="ap-meet-start"', strip_html)
+        self.assertIn('id="meet-chain-skip-c"', strip_html)
+        self.assertIn('id="meet-chain-end"', strip_html)
+        self.assertNotIn(" hidden", strip_html.split('id="ap-meet-live-clock"')[0][-80:])
+        self.assertLess(html.index('id="meet-option-card"'), html.index('class="live-shell-body"'))
+        self.assertLess(html.index('id="ap-meet-start"'), html.index('class="live-shell-body"'))
+        self.assertLess(html.index('id="ap-meet-live-clock"'), html.index('id="class-list-pane"'))
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertNotIn('id="ap-meet-start"', left_html)
+        self.assertNotIn('id="ap-meet-live-clock"', left_html)
+        self.assertNotIn("live-meet-strip", left_html)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-meet-strip {", css)
+        meet_css = css.split("body.staff-shell .live-meet-strip {")[1].split(
+            "body.staff-shell .live-meet-strip .live-meet-count {"
+        )[0]
+        self.assertIn("flex-wrap: nowrap", meet_css)
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        clock_css = css.split("body.staff-shell .ap-meet-live-clock {")[1].split("}")[0]
+        self.assertIn("font-size: 0.95rem", clock_css)
+        self.assertIn("white-space: nowrap", clock_css)
+        self.assertNotIn("font-size: 1.65rem", css)
+        self.assertNotIn(
+            "body.staff-shell #ap-meet-stepper[hidden] {\n  display: none !important;",
+            css,
+        )
+        self.assertNotIn(
+            "body.staff-shell .ap-meet-live-clock[hidden] {\n  display: none !important;",
+            css,
+        )
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function applyMeetTimerUi(", js)
+        apply = js.split("function applyMeetTimerUi(")[1].split(
+            "function paintMeetClock("
+        )[0]
+        self.assertIn("lockClassListPane();", apply)
+        self.assertIn('btn.textContent = "Start"', apply)
+        self.assertIn('btn.textContent = "Pause"', apply)
+        self.assertIn('btn.textContent = "Resume"', apply)
+        self.assertIn("clock.textContent = formatCountdown", apply)
+        self.assertNotIn("stepper.hidden = running", apply)
+        self.assertNotIn("clock.hidden = !(running", apply)
+        self.assertNotIn("paintQuestionArtifact", apply)
+        self.assertNotIn("paintTeacherShell", apply)
+        self.assertNotIn("innerHTML", apply)
+        self.assertNotIn("replaceChildren", apply)
+        start = js.split('$("ap-meet-start")?.addEventListener("click"')[1].split(
+            "function availableRoundKinds("
+        )[0]
+        self.assertIn("applyMeetTimerUi(overlayState)", start)
+        self.assertIn("startMeetTeamsPhase()", start)
+        self.assertNotIn('patchTeacherState({ stage: "meet" })', start)
+        self.assertNotIn("paintTeacherShell", start)
+        paint = js.split("function paintMeetClock()")[1].split(
+            '$("ap-assign-random")'
+        )[0]
+        self.assertIn('btn?.dataset.meetState !== "running"', paint)
+        self.assertNotIn("clock.hidden", paint)
+        self.assertIn("lockClassListPane();", js)
+        option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
+        self.assertIn("applyMeetTimerUi();", option)
+        self.assertIn("lockClassListPane();", option)
+
 
 if __name__ == "__main__":
     unittest.main()

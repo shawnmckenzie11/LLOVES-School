@@ -6130,7 +6130,8 @@ class SchoolDB(LovesDB):
         """Enter MEET: clear Minds-On, mount A, fire ``cue.meet_open``.
 
         Staff Start Meet / Meet Teams path. No-op when the class has
-        no active live session.
+        no active live session, and no-op when MEET is already mounted
+        so a timer start does not bump ``state_seq`` or remount chrome.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -6141,7 +6142,18 @@ class SchoolDB(LovesDB):
         live = self.get_active_live_session_for_class(int(class_id))
         if live is None:
             return None
-        return self.set_live_session_teacher_state(int(live["id"]), stage="meet")
+        session_id = int(live["id"])
+        try:
+            current = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            current = None
+        if (
+            current
+            and str(current.get("stage") or "") == "meet"
+            and public_meet_chain(current.get("meet_chain"))
+        ):
+            return current
+        return self.set_live_session_teacher_state(session_id, stage="meet")
 
     def clear_meet_team_warmup(self, session_id: int) -> None:
         """Wipe the Meet chain when MEET ends or Team Challenge starts.

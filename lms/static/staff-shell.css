@@ -962,29 +962,25 @@ body.staff-shell #ap-scoreboard-preview-wrap[hidden] {
   display: none !important;
 }
 body.staff-shell .ap-meet-timer-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin: 0.35rem 0 0.55rem;
-}
-body.staff-shell .ap-meet-stepper[hidden],
-body.staff-shell #ap-meet-stepper[hidden] {
-  display: none !important;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+  margin: 0;
 }
 body.staff-shell .ap-meet-start {
   min-width: 5.5rem;
+  white-space: nowrap;
 }
 body.staff-shell .ap-meet-live-clock {
   margin: 0;
-  font-size: 1.65rem;
+  min-width: 3.25rem;
+  font-size: 0.95rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   color: #0f766e;
-}
-body.staff-shell .ap-meet-live-clock[hidden] {
-  display: none !important;
+  white-space: nowrap;
 }
 body.staff-shell .ap-join-strip {
   margin: 0.35rem 0 0.65rem;
@@ -1568,6 +1564,44 @@ body.staff-shell #ap-teams-rename[aria-disabled="true"] {
 body.staff-shell .live-teams-track[hidden],
 body.staff-shell #ap-teams-rename[hidden] {
   display: none !important;
+}
+body.staff-shell .live-meet-strip {
+  position: relative;
+  flex-wrap: nowrap;
+  gap: 0.4rem 0.65rem;
+  min-height: 0;
+}
+body.staff-shell .live-meet-strip .live-meet-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  max-width: none;
+  flex: 0 0 auto;
+}
+body.staff-shell .live-meet-strip .live-meet-count button,
+body.staff-shell .live-meet-strip .live-meet-count input {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  border: 1px solid var(--live-border);
+  border-radius: 6px;
+  background: #fff;
+}
+body.staff-shell .live-meet-strip .live-meet-count input {
+  width: 2.1rem;
+  min-width: 2.1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+}
+body.staff-shell .live-meet-strip .ap-meet-start,
+body.staff-shell .live-meet-strip .secondary {
+  white-space: nowrap;
 }
 body.staff-shell .live-teams-strip .live-round-pick {
   white-space: nowrap;

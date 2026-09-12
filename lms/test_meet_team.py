@@ -315,6 +315,32 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(again_state["teacher_state"]["cue_id"], CUE_MEET_OPEN)
         self.assertNotIn("meet_a", str(again_state["teacher_state"].get("cue_id")))
 
+    def test_meet_timer_start_does_not_remount_existing_meet(self) -> None:
+        """Timer start on an already-mounted MEET stage does not bump chrome."""
+        self._staff_assign_two_teams()
+        entered = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "meet"},
+        )
+        self.assertEqual(entered.status_code, 200, entered.get_json())
+        before = entered.get_json()["teacher_state"]
+        self.assertEqual(before["stage"], "meet")
+        self.assertEqual(before["cue_id"], CUE_MEET_OPEN)
+        seq = before["state_seq"]
+        meet = self.staff.post(
+            f"/api/classes/{self.class_id}/game/meet-teams",
+            json={"minutes": 3},
+        )
+        self.assertEqual(meet.status_code, 200, meet.get_json())
+        self.assertEqual(meet.get_json()["game"]["overlay_phase"], "meet_teams")
+        after = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state"
+        ).get_json()["teacher_state"]
+        self.assertEqual(after["stage"], "meet")
+        self.assertEqual(after["state_seq"], seq)
+        self.assertEqual(after["cue_id"], before["cue_id"])
+        self.assertEqual(after["meet_chain"]["index"], before["meet_chain"]["index"])
+
     def test_teacher_next_walks_a_c_b_then_clear_wipes(self) -> None:
         """Next advances A→C→B; End Meet → ROUND wipes picks and fires meet_clear."""
         self._staff_assign_two_teams()
