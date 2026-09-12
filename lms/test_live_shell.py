@@ -699,6 +699,82 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("meet-chain-skip-c", js)
         self.assertNotIn("End Meet", js)
 
+    def test_beat17_class_list_groups_by_team_when_assigned(self) -> None:
+        """Beat 17: assigned teams>1 get name separators; count=1 stays flat."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
+        html = page.get_data(as_text=True)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn('id="class-list-pane"', html)
+        self.assertIn('id="ap-att-list"', html)
+        self.assertIn("function assignedRosterTeams()", js)
+        self.assertIn("function classListGroupsByTeam()", js)
+        self.assertIn("function classListRosterOrder(", js)
+        self.assertIn("function appendAttendanceStudentRow(", js)
+        gate = js.split("function classListGroupsByTeam()")[1].split("function ")[0]
+        self.assertIn("currentTeamCount() > 1", gate)
+        self.assertIn("assignedRosterTeams().length >= 2", gate)
+        order = js.split("function classListRosterOrder(")[1].split(
+            "function appendAttendanceStudentRow("
+        )[0]
+        self.assertIn("if (!classListGroupsByTeam())", order)
+        self.assertIn('key: "flat"', order)
+        self.assertIn("team.name || `Team ${sortOrder + 1}`", order)
+        render = js.split("function renderAttendanceList()")[1].split(
+            "function updateAttCount()"
+        )[0]
+        self.assertIn("classListGroupsByTeam()", render)
+        self.assertIn("classListRosterOrder(", render)
+        self.assertIn('sep.className = "ap-att-team-sep"', render)
+        self.assertIn('sep.setAttribute("role", "separator")', render)
+        self.assertIn("grouped && group.name", render)
+        self.assertIn('list.dataset.grouped = grouped ? "1" : "0"', render)
+        self.assertIn("appendAttendanceStudentRow(", render)
+        self.assertIn("sessionGuests", render)
+        row_fn = js.split("function appendAttendanceStudentRow(")[1].split(
+            "function renderAttendanceList()"
+        )[0]
+        self.assertIn("has-team-color", row_fn)
+        self.assertIn("studentTeamColor(", row_fn)
+        self.assertIn("ap-att-check", row_fn)
+        self.assertIn("#ap-att-list .ap-att-row.is-present", js)
+        self.assertNotIn("ap-att-team-sep.is-present", js)
+        assign = js.split("async function assign(mode)")[1].split(
+            "function sessionTimerDefaultMinutes("
+        )[0]
+        self.assertIn("renderAttendanceList()", assign)
+        advance = js.split("async function advanceTeamsToMeet()")[1].split(
+            '$("ap-teams-next")'
+        )[0]
+        self.assertIn("renderAttendanceList()", advance)
+        save = js.split("async function saveTeamNamesFromPop()")[1].split(
+            "function renderDraftNamesPanel"
+        )[0]
+        self.assertIn("renderAttendanceList()", save)
+        self.assertNotIn("paintTeacherShell", save)
+        done_click = js.split('$("ap-teams-rename-done")?.addEventListener("click"')[1].split(";")[0]
+        self.assertIn("closeTeamsRenameModal({ save: true })", done_click)
+        set_n = js.split("function setNTeams(value)")[1].split("function renderTeamsPanel()")[0]
+        self.assertIn("renderAttendanceList()", set_n)
+        sep_css = css.split("body.staff-shell #class-list-pane .ap-att-team-sep {")[1].split("}")[0]
+        self.assertIn("max-width: 100%", sep_css)
+        self.assertIn("text-overflow: ellipsis", sep_css)
+        self.assertIn("white-space: nowrap", sep_css)
+        self.assertIn("color: var(--team, #334155)", sep_css)
+        self.assertIn("#class-list-pane .ap-att-row.has-team-color .ap-att-name", css)
+        self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
+        self.assertIn(
+            "grid-template-columns: var(--live-left-width) minmax(0, 1fr)",
+            css,
+        )
+        self.assertIn("max-height: var(--live-options-max-h)", css)
+        self.assertIn("function lockClassListPane()", js)
+        self.assertIn("lockClassListPane();", js)
+        left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
+        self.assertLess(left_html.index('id="session-timer"'), left_html.index('id="class-list-pane"'))
+        self.assertIn("function applySessionTimerUi(", js)
+        self.assertIn("async function advanceTeamsToMeet()", js)
+
 
 if __name__ == "__main__":
     unittest.main()

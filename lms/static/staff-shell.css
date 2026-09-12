@@ -1939,6 +1939,29 @@ body.staff-shell .live-rename-dialog-card #ap-teams-rename-done {
 body.staff-shell #class-list-pane .ap-att-row.has-team-color .ap-att-name {
   color: var(--team, inherit);
 }
+body.staff-shell #class-list-pane .ap-att-team-sep {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.45rem 0 0.15rem;
+  padding: 0 0.15rem 0.18rem;
+  border: 0;
+  border-bottom: 1px solid var(--team, #94a3b8);
+  background: transparent;
+  color: var(--team, #334155);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.staff-shell #class-list-pane .ap-att-team-sep:first-child {
+  margin-top: 0.05rem;
+}
 body.staff-shell #meet-option-card[hidden],
 body.staff-shell #play-option-card[hidden] {
   display: none !important;
