@@ -1,7 +1,7 @@
-"""M1C1 instant text feedback for Minds-On and CONS quick-hitters.
+"""Instant text feedback for Minds-On and CONS quick-hitters.
 
 Teacher-authored soft keys from
-``catalogue/challenges/module-briefs/quick-hitters/MCF3M-M1-C1-feedback-keys.md``.
+``catalogue/challenges/module-briefs/quick-hitters/MCF3M-M1-C{1,2,3}-feedback-keys.md``.
 Resolved server-side on submit. Student GET never includes the map, keys, or
 cement. Team Challenge stem has no keys. Local teacher DB only.
 """
@@ -18,6 +18,7 @@ TEACHER_ONLY_FIELDS = (
     "by_choice",
     "on_submit",
     "feedback",
+    "feedback_id",
 )
 
 # Waiting-room item ids (current main + PR #42 rename).
@@ -76,22 +77,110 @@ M1C1_FEEDBACK: dict[str, dict[str, Any]] = {
     },
 }
 
+M1C2_FEEDBACK: dict[str, dict[str, Any]] = {
+    "C2-minds_on": {
+        "soft_key": "A",
+        "by_choice": {
+            "A": "Good work. The U opens up — so a > 0.",
+            "B": "Not that one — look which way the arms open.",
+            "C": "Curves wait. This picture is still a parabola.",
+            "D": "Hint: which way do the arms open?",
+        },
+    },
+    "C2-CONS-1": {
+        "soft_key": "B",
+        "by_choice": {
+            "A": "One special case isn’t a law. Must the vertex sit on (2,5)?",
+            "B": (
+                "Good work. The point ties parameters — "
+                "it doesn’t freeze h alone."
+            ),
+            "C": "Hint: can you hit (2,5) with a vertex somewhere else?",
+        },
+    },
+    "C2-CONS-2": {
+        "on_submit": (
+            "The point ties a, h, and k — it doesn’t freeze one parameter."
+        ),
+    },
+    "C2-CONS-3": {
+        "on_submit": (
+            "Another writing through (2,5) shows the family — "
+            "not a single graph."
+        ),
+    },
+}
+
+M1C3_FEEDBACK: dict[str, dict[str, Any]] = {
+    "C3-minds_on": {
+        "soft_key": "B",
+        "by_choice": {
+            "A": (
+                "Not that one — one point doesn’t freeze a, h, and k "
+                "all at once."
+            ),
+            "B": "Good work. The point links the parameters — some stay free.",
+            "C": (
+                "Domain and range aren’t always all real numbers. "
+                "Context can cut them."
+            ),
+            "D": "Hint: does one marked point lock every parameter?",
+        },
+    },
+    "C3-CONS-1": {
+        "soft_key": "B",
+        "by_choice": {
+            "A": (
+                "Not above ground there — the path is already underground "
+                "at x = 8."
+            ),
+            "B": "Good work. At the wall the model is not above ground.",
+            "C": "Hint: check a table at x = 8. Is y still at least 0?",
+        },
+    },
+    "C3-CONS-2": {
+        "on_submit": "Heights on this path run from the ground up to the peak.",
+    },
+    "C3-CONS-3": {
+        "on_submit": (
+            "Shade the x-values that stay above ground — "
+            "then defend from the picture."
+        ),
+    },
+}
+
+FEEDBACK_TABLE: dict[str, dict[str, Any]] = {
+    **M1C1_FEEDBACK,
+    **M1C2_FEEDBACK,
+    **M1C3_FEEDBACK,
+}
+
+_MINDS_ON_FEEDBACK_BY_SLOT = {
+    "C1": "minds_on",
+    "C2": "C2-minds_on",
+    "C3": "C3-minds_on",
+}
+
 
 def canonical_feedback_item_id(payload: Any) -> str:
-    """Return the M1C1 feedback table key, or empty when this prompt has none.
+    """Return the feedback table key, or empty when this prompt has none.
 
     Args:
-        payload: Live-prompt JSON (item_id / pack / ride).
+        payload: Live-prompt JSON (item_id / pack / ride / live_slot).
     """
     if not isinstance(payload, dict):
         return ""
+    explicit = str(payload.get("feedback_id") or "").strip()
+    if explicit in FEEDBACK_TABLE:
+        return explicit
     item_id = str(payload.get("item_id") or "").strip()
     lowered = item_id.lower()
     ride = str(payload.get("ride") or "").strip().lower()
     pack = str(payload.get("pack") or "").strip().lower()
+    slot = str(payload.get("live_slot") or "").strip().upper()
     if lowered in _MINDS_ON_ITEM_IDS or ride == "minds_on" or pack in _MINDS_ON_PACK_IDS:
-        return "minds_on"
-    if item_id in M1C1_FEEDBACK:
+        return _MINDS_ON_FEEDBACK_BY_SLOT.get(slot, "minds_on")
+    if item_id in FEEDBACK_TABLE:
         return item_id
     return ""
 
@@ -143,7 +232,7 @@ def resolve_live_prompt_feedback(
     item_id = canonical_feedback_item_id(payload)
     if not item_id:
         return None
-    entry = M1C1_FEEDBACK.get(item_id) or {}
+    entry = FEEDBACK_TABLE.get(item_id) or {}
     by_choice = entry.get("by_choice") or {}
     on_submit = str(entry.get("on_submit") or "").strip()
     letter = choice_letter(

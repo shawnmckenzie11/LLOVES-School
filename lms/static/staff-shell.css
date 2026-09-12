@@ -1620,6 +1620,17 @@ body.staff-shell .live-option-card-label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+body.staff-shell .live-slot-picks,
+body.staff-shell .live-text-ride {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.5rem;
+}
+body.staff-shell .live-text-ride[hidden] {
+  display: none !important;
+}
 body.staff-shell .live-round-picks,
 body.staff-shell .live-preset-row,
 body.staff-shell .live-content-palette {

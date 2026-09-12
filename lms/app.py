@@ -80,7 +80,7 @@ from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_TITLE,
     DEFAULT_LIVE_MEDIA_URL,
-    c1_cons_catalog,
+    cons_catalog,
     live_media_url_swap_allowed,
 )
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
@@ -3596,10 +3596,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         ``reveal_lateral``, ``allow_3d_limited``, ``frozen``,
         ``student_controls_unlocked``, ``unlock_flags``, ``params``,
         view tools, stem/caption/answers, ``cons_item``, ``challenge``,
-        toast) on the current page. ``cons_item`` (CONS-1…5) unlocks only
-        after ``frozen: true`` on this blob (not a FlagStrip). C2/C3 clear
-        media and do not seed ``active_media_json``. CONS table checkboxes
-        in the Real-slice iframe are disabled until the next step.
+        toast) on the current page. ``cons_item`` unlocks only after
+        ``frozen: true`` (C1 on this blob; C2/C3 on teacher ``text_ride``).
+        C2/C3 clear media and do not seed ``active_media_json``. CONS table
+        checkboxes in the Real-slice iframe are disabled until the next step.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3607,12 +3607,16 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         if request.method == "GET":
+            live_slot = school.session_live_slot(session_id)
+            pack = cons_catalog(live_slot)
             return jsonify(
                 {
                     "ok": True,
                     "active_media": school.live_session_active_media_payload(
                         session_id
                     ),
+                    "live_slot": live_slot,
+                    "text_ride": school.session_text_ride(session_id),
                     "defaults": {
                         "url": DEFAULT_LIVE_MEDIA_URL,
                         "title": DEFAULT_LIVE_MEDIA_TITLE,
@@ -3645,7 +3649,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                             "kind": item["kind"],
                             "prompt": item["prompt"],
                         }
-                        for item in c1_cons_catalog()
+                        for item in pack
                     ],
                 }
             )
@@ -3720,7 +3724,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             media = school.set_live_session_active_media(session_id, **kwargs)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        return jsonify({"ok": True, "active_media": media})
+        return jsonify(
+            {
+                "ok": True,
+                "active_media": media,
+                "live_slot": school.session_live_slot(session_id),
+                "text_ride": school.session_text_ride(session_id),
+                "teacher_state": school.live_session_teacher_state_payload(
+                    session_id
+                ),
+            }
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/teacher-state",
@@ -3773,6 +3787,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "student_frames",
             "unlocks",
             "mc_ui",
+            "live_slot",
+            "text_ride",
         ):
             if key in body:
                 kwargs[key] = body.get(key)

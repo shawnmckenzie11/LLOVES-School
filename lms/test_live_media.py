@@ -28,6 +28,8 @@ from live_media import (  # noqa: E402
     DEFAULT_SURFACE_TRANSPARENCY,
     ENCORE_LABEL,
     ENCORE_YOUTUBE_URL,
+    TOAST_C2_CONS_UNLOCK,
+    TOAST_C3_CONS_UNLOCK,
     TOAST_CONS_4,
     TOAST_CONS_UNLOCK,
     TOAST_FREEZE,
@@ -35,8 +37,11 @@ from live_media import (  # noqa: E402
     TOAST_STUDENT_UNLOCK,
     apply_active_media_update,
     c1_cons_catalog,
+    c2_cons_catalog,
+    c3_cons_catalog,
     challenge_clears_active_media,
     get_c1_cons_item,
+    get_cons_item,
     live_media_url_swap_allowed,
     normalize_active_media_url,
     public_active_media_payload,
@@ -236,6 +241,14 @@ class LiveMediaHelperTests(unittest.TestCase):
         catalog = c1_cons_catalog()
         self.assertEqual(len(catalog), 5)
         self.assertEqual(get_c1_cons_item("CONS-5")["id"], "C1-CONS-5")
+        self.assertEqual(get_cons_item("C2-CONS-1")["id"], "C2-CONS-1")
+        self.assertEqual(get_cons_item(2, live_slot="C3")["id"], "C3-CONS-2")
+        self.assertEqual(len(c2_cons_catalog()), 3)
+        self.assertEqual(len(c3_cons_catalog()), 3)
+        self.assertEqual(c2_cons_catalog()[0]["key"], "B")
+        self.assertEqual(c3_cons_catalog()[0]["key"], "B")
+        with self.assertRaises(ValueError):
+            get_c1_cons_item("C2-CONS-1")
         cons_prompt = student_cons_prompt_payload(catalog[0])
         self.assertEqual(cons_prompt["artifact_id"], "quick-hitter-question-chain")
         self.assertEqual(cons_prompt["ride"], "cons")
@@ -803,15 +816,19 @@ class LiveMediaChannelTests(unittest.TestCase):
         )
         self.assertEqual(c2.status_code, 200, c2.get_json())
         self.assertIsNone(c2.get_json()["active_media"])
+        self.assertEqual(c2.get_json()["live_slot"], "C2")
         state = self.student.get("/api/student/state").get_json()
         self.assertIsNone(state.get("active_media"))
-        self.assertFalse(state.get("waiting_room"))
+        self.assertTrue(state.get("waiting_room"), state)
         prompt = state.get("prompt") or {}
-        self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "minds_on")
-        self.assertNotEqual((prompt.get("payload") or {}).get("item_id"), "meet-math")
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "minds_on")
+        self.assertEqual(payload.get("live_slot"), "C2")
+        self.assertEqual(payload.get("ride"), "minds_on")
+        self.assertNotIn("key", payload)
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
-            json={"cons_item": "C1-CONS-1"},
+            json={"cons_item": "C2-CONS-1"},
         )
         self.assertEqual(cons.status_code, 400)
         defaults = self.staff.get(
@@ -824,7 +841,126 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertFalse(defaults["defaults"]["c3"]["seed"])
         self.assertIn("not seed", defaults["defaults"]["c2"]["note"].lower())
         self.assertEqual(defaults["defaults"]["url"], DEFAULT_LIVE_MEDIA_URL)
-        self.assertEqual(len(defaults["cons_pack"]), 5)
+        self.assertEqual(defaults["live_slot"], "C2")
+        self.assertEqual(len(defaults["cons_pack"]), 3)
+        self.assertEqual(defaults["cons_pack"][0]["id"], "C2-CONS-1")
+
+    def test_c2_c3_minds_on_and_light_cons_after_freeze(self) -> None:
+        """C2/C3 seed their own Minds-On + 3-item CONS; C1 pack stays 5."""
+        from live_prompt_feedback import M1C2_FEEDBACK, M1C3_FEEDBACK
+        from minds_on import MINDS_ON_C2_PROMPT, MINDS_ON_C3_PROMPT, MINDS_ON_PROMPT
+
+        idle = self.student.get("/api/student/state").get_json()
+        self.assertTrue(idle.get("waiting_room"))
+        self.assertEqual(idle["prompt"]["payload"]["prompt"], MINDS_ON_PROMPT)
+        self.assertEqual(idle["teacher_state"]["live_slot"], "C1")
+
+        c2 = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"challenge": "C2"},
+        )
+        self.assertEqual(c2.status_code, 200, c2.get_json())
+        self.assertIsNone(c2.get_json()["active_media"])
+        waiting = self.student.get("/api/student/state").get_json()
+        self.assertTrue(waiting.get("waiting_room"), waiting)
+        self.assertEqual(waiting["prompt"]["payload"]["prompt"], MINDS_ON_C2_PROMPT)
+        self.assertEqual(waiting["prompt"]["payload"]["live_slot"], "C2")
+        self.assertEqual(len(waiting["prompt"]["payload"]["items"]), 1)
+        self.assertNotIn("key", waiting["prompt"]["payload"])
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={"response": {"choice": "A"}},
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        self.assertEqual(
+            submit.get_json()["feedback"]["text"],
+            M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["A"],
+        )
+
+        early = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"cons_item": "C2-CONS-1"},
+        )
+        self.assertEqual(early.status_code, 400)
+        frozen = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"frozen": True},
+        )
+        self.assertEqual(frozen.status_code, 200, frozen.get_json())
+        self.assertIsNone(frozen.get_json()["active_media"])
+        self.assertTrue(frozen.get_json()["text_ride"]["frozen"])
+        self.assertEqual(frozen.get_json()["teacher_state"]["cue_id"], "cue.freeze")
+        cons1 = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"cons_item": "C2-CONS-1"},
+        )
+        self.assertEqual(cons1.status_code, 200, cons1.get_json())
+        self.assertEqual(cons1.get_json()["text_ride"]["cons_item"], "C2-CONS-1")
+        self.assertEqual(cons1.get_json()["text_ride"]["toast"], TOAST_C2_CONS_UNLOCK)
+        after = self.student.get("/api/student/state").get_json()
+        self.assertIsNone(after.get("active_media"))
+        self.assertEqual(after["prompt"]["payload"]["item_id"], "C2-CONS-1")
+        self.assertEqual(after["prompt"]["payload"]["chain_length"], 3)
+        self.assertNotIn("key", after["prompt"]["payload"])
+        cons_submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={"response": {"choice": "No"}},
+        )
+        self.assertEqual(cons_submit.status_code, 200, cons_submit.get_json())
+        self.assertEqual(
+            cons_submit.get_json()["feedback"]["text"],
+            M1C2_FEEDBACK["C2-CONS-1"]["by_choice"]["B"],
+        )
+
+        c3 = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"challenge": "C3"},
+        )
+        self.assertEqual(c3.status_code, 200, c3.get_json())
+        self.assertIsNone(c3.get_json()["active_media"])
+        c3_state = self.student.get("/api/student/state").get_json()
+        # Slot switch after CONS left the waiting-room sentinel path.
+        if c3_state.get("waiting_room"):
+            self.assertEqual(c3_state["prompt"]["payload"]["prompt"], MINDS_ON_C3_PROMPT)
+        c3_frozen = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"frozen": True},
+        )
+        self.assertEqual(c3_frozen.status_code, 200, c3_frozen.get_json())
+        self.assertTrue(c3_frozen.get_json()["text_ride"]["frozen"])
+        c3_cons = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"cons_item": "C3-CONS-1"},
+        )
+        self.assertEqual(c3_cons.status_code, 200, c3_cons.get_json())
+        self.assertEqual(c3_cons.get_json()["text_ride"]["cons_item"], "C3-CONS-1")
+        self.assertEqual(
+            c3_cons.get_json()["text_ride"]["toast"], TOAST_C3_CONS_UNLOCK
+        )
+        c3_after = self.student.get("/api/student/state").get_json()
+        self.assertEqual(c3_after["prompt"]["payload"]["item_id"], "C3-CONS-1")
+        self.assertEqual(c3_after["prompt"]["payload"]["chain_length"], 3)
+        c3_submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={"response": {"choice": "B"}},
+        )
+        self.assertEqual(c3_submit.status_code, 200, c3_submit.get_json())
+        self.assertEqual(
+            c3_submit.get_json()["feedback"]["text"],
+            M1C3_FEEDBACK["C3-CONS-1"]["by_choice"]["B"],
+        )
+
+        back = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"challenge": "C1", "url": DEFAULT_LIVE_MEDIA_URL},
+        )
+        self.assertEqual(back.status_code, 200, back.get_json())
+        self.assertEqual(back.get_json()["active_media"]["challenge"], "C1")
+        pack = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/active-media"
+        ).get_json()
+        self.assertEqual(len(pack["cons_pack"]), 5)
+        self.assertEqual(pack["cons_pack"][0]["id"], "C1-CONS-1")
 
 
 if __name__ == "__main__":

@@ -69,9 +69,29 @@ TOAST_CONS_UNLOCK = (
     "Argue’s parked. Time to name what this picture forced."
 )
 TOAST_CONS_4 = "Feature → claim. That’s the whole move."
+TOAST_C2_CONS_UNLOCK = (
+    "Argue’s parked. Name what the point forced — and what’s still free."
+)
+TOAST_C3_CONS_UNLOCK = (
+    "Argue’s parked. Defend domain and range from the picture."
+)
 C1_CONS_PACK_ID = "C1-CONS"
+C2_CONS_PACK_ID = "C2-CONS"
+C3_CONS_PACK_ID = "C3-CONS"
 C1_CONS_SLIDE_BASE = 900
+C2_CONS_SLIDE_BASE = 920
+C3_CONS_SLIDE_BASE = 930
 C2_C3_CHALLENGES = frozenset({"C2", "C3"})
+CONS_PACK_IDS = {
+    "C1": C1_CONS_PACK_ID,
+    "C2": C2_CONS_PACK_ID,
+    "C3": C3_CONS_PACK_ID,
+}
+CONS_SLIDE_BASES = {
+    "C1": C1_CONS_SLIDE_BASE,
+    "C2": C2_CONS_SLIDE_BASE,
+    "C3": C3_CONS_SLIDE_BASE,
+}
 
 _UNSET = object()
 
@@ -330,6 +350,115 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
     ]
 
 
+def c2_cons_catalog() -> list[dict[str, Any]]:
+    """C2 post-freeze light CONS (3 items; text-only, no Real-slice).
+
+    Returns:
+        CONS-1…3 dicts. ``kind`` is ``mc`` or ``share``.
+    """
+    return [
+        {
+            "id": "C2-CONS-1",
+            "index": 1,
+            "kind": "mc",
+            "slide_index": C2_CONS_SLIDE_BASE + 1,
+            "prompt": "Is h forced to be 2?",
+            "choices": ["Yes", "No", "Not sure"],
+            "key": "B",
+            "cement": "point ties parameters — h is not frozen alone",
+        },
+        {
+            "id": "C2-CONS-2",
+            "index": 2,
+            "kind": "share",
+            "slide_index": C2_CONS_SLIDE_BASE + 2,
+            "prompt": "In one sentence: what does (2,5) force?",
+            "key": "",
+            "cement": "relation among a, h, k — not one frozen parameter",
+        },
+        {
+            "id": "C2-CONS-3",
+            "index": 3,
+            "kind": "share",
+            "slide_index": C2_CONS_SLIDE_BASE + 3,
+            "prompt": (
+                "Give one more equation through (2,5) not on your freeze list."
+            ),
+            "key": "",
+            "cement": "family awareness — another writing through the point",
+        },
+    ]
+
+
+def c3_cons_catalog() -> list[dict[str, Any]]:
+    """C3 post-freeze light CONS (courtyard domain/range; 3 items).
+
+    Returns:
+        CONS-1…3 dicts. ``kind`` is ``mc``, ``share``, or ``draw``.
+    """
+    return [
+        {
+            "id": "C3-CONS-1",
+            "index": 1,
+            "kind": "mc",
+            "slide_index": C3_CONS_SLIDE_BASE + 1,
+            "prompt": "At x = 8, is the model above ground?",
+            "choices": ["Yes", "No", "Not sure"],
+            "key": "B",
+            "cement": "underground at the wall — domain is not [0, 8]",
+        },
+        {
+            "id": "C3-CONS-2",
+            "index": 2,
+            "kind": "share",
+            "slide_index": C3_CONS_SLIDE_BASE + 2,
+            "prompt": "State the range of heights on the physical path.",
+            "key": "",
+            "cement": "ground to peak on the physical path",
+        },
+        {
+            "id": "C3-CONS-3",
+            "index": 3,
+            "kind": "draw",
+            "slide_index": C3_CONS_SLIDE_BASE + 3,
+            "prompt": "Shade the x-values that make sense; one defence sentence.",
+            "share_alt": (
+                "The x-values that make sense are ___ because ___."
+            ),
+            "key": "",
+            "cement": "graph-first shade + one defence sentence",
+        },
+    ]
+
+
+def cons_catalog(live_slot: Any = "C1") -> list[dict[str, Any]]:
+    """Return the CONS pack for one live slot.
+
+    Args:
+        live_slot: ``C1`` / ``C2`` / ``C3``.
+    """
+    slot = str(live_slot or "C1").strip().upper()
+    if slot == "C2":
+        return c2_cons_catalog()
+    if slot == "C3":
+        return c3_cons_catalog()
+    return c1_cons_catalog()
+
+
+def cons_unlock_toast(live_slot: Any = "C1") -> str:
+    """Wonder CONS-unlock line for one live slot.
+
+    Args:
+        live_slot: ``C1`` / ``C2`` / ``C3``.
+    """
+    slot = str(live_slot or "C1").strip().upper()
+    if slot == "C2":
+        return TOAST_C2_CONS_UNLOCK
+    if slot == "C3":
+        return TOAST_C3_CONS_UNLOCK
+    return TOAST_CONS_UNLOCK
+
+
 def get_c1_cons_item(raw: Any) -> dict[str, Any] | None:
     """Resolve CONS-1…5 from an index, id, or ``CONS-n`` slug.
 
@@ -356,7 +485,10 @@ def get_c1_cons_item(raw: Any) -> dict[str, Any] | None:
         text = str(raw).strip()
     if not text or text.lower() in {"none", "null", "clear", "0", "false"}:
         return None
-    match = re.search(r"(\d+)$", text.upper().replace(" ", ""))
+    compact = text.upper().replace(" ", "")
+    if compact.startswith("C2-") or compact.startswith("C3-"):
+        raise ValueError("C1 consolidation is only for the Real-slice channel.")
+    match = re.search(r"(\d+)$", compact)
     if match is None:
         raise ValueError("cons_item must be C1-CONS-1 through C1-CONS-5.")
     index = int(match.group(1))
@@ -366,24 +498,92 @@ def get_c1_cons_item(raw: Any) -> dict[str, Any] | None:
     raise ValueError("cons_item must be C1-CONS-1 through C1-CONS-5.")
 
 
+def get_cons_item(raw: Any, live_slot: Any = None) -> dict[str, Any] | None:
+    """Resolve a CONS item for C1, C2, or C3.
+
+    Args:
+        raw: ``1`` / ``"C2-CONS-1"`` / ``"CONS-1"``, or empty to clear.
+        live_slot: Fallback slot when ``raw`` has no ``C2-`` / ``C3-`` prefix.
+
+    Returns:
+        Catalog row, or ``None`` when clearing.
+
+    Raises:
+        ValueError: If ``raw`` is present but not in that slot's pack.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        if not raw:
+            return None
+        raise ValueError("cons_item must be CONS-1…n, not a boolean.")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        if int(raw) == 0:
+            return None
+        text = str(int(raw))
+    else:
+        text = str(raw).strip()
+    if not text or text.lower() in {"none", "null", "clear", "0", "false"}:
+        return None
+    compact = text.upper().replace(" ", "")
+    slot = str(live_slot or "").strip().upper()
+    if compact.startswith("C2"):
+        slot = "C2"
+    elif compact.startswith("C3"):
+        slot = "C3"
+    elif compact.startswith("C1"):
+        slot = "C1"
+    if slot not in {"C1", "C2", "C3"}:
+        slot = "C1"
+    if slot == "C1":
+        return get_c1_cons_item(text)
+    match = re.search(r"(\d+)$", compact)
+    if match is None:
+        raise ValueError(f"cons_item must be {slot}-CONS-1 through {slot}-CONS-3.")
+    index = int(match.group(1))
+    for item in cons_catalog(slot):
+        if int(item["index"]) == index:
+            return item
+    raise ValueError(f"cons_item must be {slot}-CONS-1 through {slot}-CONS-3.")
+
+
+def cons_live_slot_for_item(item: dict[str, Any] | None) -> str:
+    """Return the live slot encoded on a CONS catalog row.
+
+    Args:
+        item: Row from ``cons_catalog``.
+    """
+    if not item:
+        return "C1"
+    item_id = str(item.get("id") or "").strip().upper()
+    if item_id.startswith("C2-"):
+        return "C2"
+    if item_id.startswith("C3-"):
+        return "C3"
+    return "C1"
+
+
 def student_cons_prompt_payload(item: dict[str, Any]) -> dict[str, Any]:
     """Student-facing live-prompt payload (no keys / cement / park notes).
 
     Args:
-        item: Row from ``c1_cons_catalog``.
+        item: Row from ``cons_catalog``.
     """
+    slot = cons_live_slot_for_item(item)
+    catalog = cons_catalog(slot)
     payload: dict[str, Any] = quick_hitter_packaging(
         ride=RIDE_CONS,
         chain_index=int(item.get("index") or 1),
-        chain_length=len(c1_cons_catalog()),
+        chain_length=len(catalog),
         ephemeral=True,
         durable_store=False,
     )
     payload.update(
         {
-            "pack": C1_CONS_PACK_ID,
+            "pack": CONS_PACK_IDS[slot],
             "item_id": item["id"],
             "prompt": item["prompt"],
+            "live_slot": slot,
         }
     )
     if item.get("kind") == "mc":
@@ -406,7 +606,18 @@ def staff_cons_prompt_payload(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def is_c1_cons_payload(payload: Any) -> bool:
-    """True when a live-prompt payload belongs to the C1 CONS pack.
+    """True when a live-prompt payload belongs to any CONS pack.
+
+    Name kept for C1 callers. C2/C3 light CONS use the same ride.
+
+    Args:
+        payload: Prompt JSON object.
+    """
+    return is_cons_payload(payload)
+
+
+def is_cons_payload(payload: Any) -> bool:
+    """True when a live-prompt payload belongs to a C1/C2/C3 CONS pack.
 
     Args:
         payload: Prompt JSON object.
@@ -419,7 +630,9 @@ def is_c1_cons_payload(payload: Any) -> bool:
         return True
     pack = str(payload.get("pack") or "").strip().upper()
     item_id = str(payload.get("item_id") or "").strip().upper()
-    return pack == C1_CONS_PACK_ID or item_id.startswith("C1-CONS-")
+    if pack in CONS_PACK_IDS.values() or item_id.startswith("C1-CONS-"):
+        return True
+    return item_id.startswith("C2-CONS-") or item_id.startswith("C3-CONS-")
 
 
 def normalize_challenge(raw: Any) -> str:

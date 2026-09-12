@@ -42,6 +42,11 @@ const MEET_CUE_COPY = {
   "cue.meet_open": "Meet your team",
   "cue.meet_clear": "Meet cleared",
 };
+const TEXT_RIDE_CUES = new Set(["cue.freeze", "cue.cons_unlock"]);
+const TEXT_RIDE_CUE_COPY = {
+  "cue.freeze": "Park the wonderings. Leave the blank honest.",
+  "cue.cons_unlock": "Argue’s parked. Time to name what this picture forced.",
+};
 
 /** Open Question waiting copy shown on the Phone during that round. */
 const OPEN_QUESTION_WAIT_HTML = `
@@ -508,10 +513,24 @@ function paintMediaToast(media) {
  */
 function paintMeetCue(payload) {
   if (!mediaToast) return;
-  const cue = String((payload.teacher_state && payload.teacher_state.cue_id) || "").trim();
-  if (!MEET_CUES.has(cue) || cue === lastCueId) return;
+  const ts = (payload && payload.teacher_state) || {};
+  const ride = ts.text_ride || {};
+  const rideKey = String(ride.toast_key || "").trim();
+  const rideLine = String(ride.toast || "").trim();
+  if (rideKey && rideKey !== lastToastKey && rideLine) {
+    lastToastKey = rideKey;
+    window.clearTimeout(toastHideTimer);
+    mediaToast.textContent = rideLine;
+    mediaToast.hidden = false;
+    toastHideTimer = window.setTimeout(() => {
+      mediaToast.hidden = true;
+    }, 4200);
+  }
+  const cue = String(ts.cue_id || "").trim();
+  if (!cue || cue === lastCueId) return;
   lastCueId = cue;
-  const line = MEET_CUE_COPY[cue] || "";
+  const line = MEET_CUE_COPY[cue] || TEXT_RIDE_CUE_COPY[cue] || rideLine;
+  if (!MEET_CUES.has(cue) && !TEXT_RIDE_CUES.has(cue)) return;
   window.clearTimeout(toastHideTimer);
   if (!line) {
     mediaToast.hidden = true;
@@ -522,7 +541,7 @@ function paintMeetCue(payload) {
   mediaToast.hidden = false;
   toastHideTimer = window.setTimeout(() => {
     mediaToast.hidden = true;
-  }, 2200);
+  }, MEET_CUES.has(cue) ? 2200 : 4200);
 }
 
 /**

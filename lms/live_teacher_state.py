@@ -34,6 +34,11 @@ FRAME_KEYS: tuple[str, ...] = ("A", "B", "C")
 STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas")
 UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
 MINDS_ON_PROMPT_REF = "minds_on"
+LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3")
+DEFAULT_LIVE_SLOT = "C1"
+CUE_FREEZE = "cue.freeze"
+CUE_CONS_UNLOCK = "cue.cons_unlock"
+TEXT_RIDE_CUES: tuple[str, ...] = (CUE_FREEZE, CUE_CONS_UNLOCK)
 
 LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "media_full": {"A": "media"},
@@ -75,12 +80,23 @@ def default_unlocks() -> dict[str, bool]:
     return {"media": False, "canvas": False}
 
 
+def default_text_ride() -> dict[str, Any]:
+    """C2/C3 text-only freeze + CONS ride (never ``active_media_json``)."""
+    return {
+        "frozen": False,
+        "cons_item": "",
+        "toast": "",
+        "toast_key": "",
+    }
+
+
 def default_teacher_state() -> dict[str, Any]:
     """Return a fresh join-stage teacher state.
 
     Returns:
         Public ``LiveTeacherState`` dict with ``canvas_ephemeral: True``.
         JOIN focuses Questions and Minds-On; students do not get media.
+        ``live_slot`` defaults to C1; C2/C3 use ``text_ride`` instead of media.
     """
     return {
         "stage": "join",
@@ -98,6 +114,8 @@ def default_teacher_state() -> dict[str, Any]:
         "state_seq": 0,
         "student_frames": default_student_frames("join"),
         "unlocks": default_unlocks(),
+        "live_slot": DEFAULT_LIVE_SLOT,
+        "text_ride": default_text_ride(),
     }
 
 
@@ -157,6 +175,39 @@ def _clean_unlocks(raw: Any) -> dict[str, bool]:
         parsed = _as_bool(raw.get(key))
         if parsed is not None:
             base[key] = parsed
+    return base
+
+
+def normalize_live_slot(raw: Any) -> str:
+    """Return ``C1``, ``C2``, or ``C3``. Empty/unknown falls back to C1.
+
+    Args:
+        raw: Posted or stored slot / challenge id.
+    """
+    text = str(raw or "").strip().upper()
+    if text in LIVE_SLOTS:
+        return text
+    return DEFAULT_LIVE_SLOT
+
+
+def public_text_ride(raw: Any) -> dict[str, Any]:
+    """Normalize the C2/C3 text-only ride blob.
+
+    Args:
+        raw: Stored ``text_ride`` object, or empty.
+    """
+    base = default_text_ride()
+    if not isinstance(raw, dict):
+        return base
+    frozen = _as_bool(raw.get("frozen"))
+    if frozen is not None:
+        base["frozen"] = frozen
+    cons = str(raw.get("cons_item") or "").strip()
+    if not base["frozen"]:
+        cons = ""
+    base["cons_item"] = cons
+    base["toast"] = str(raw.get("toast") or "").strip()
+    base["toast_key"] = str(raw.get("toast_key") or "").strip()
     return base
 
 
@@ -329,6 +380,12 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             base.pop("mc_ui", None)
         else:
             base["mc_ui"] = cleaned
+    if "live_slot" in stored:
+        base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
+    if "text_ride" in stored:
+        base["text_ride"] = public_text_ride(stored.get("text_ride"))
+    if base.get("live_slot") == "C1":
+        base["text_ride"] = default_text_ride()
     return base
 
 
@@ -366,6 +423,8 @@ def apply_teacher_state_update(
     student_frames: Any = None,
     unlocks: Any = None,
     mc_ui: Any = None,
+    live_slot: Any = None,
+    text_ride: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -392,6 +451,9 @@ def apply_teacher_state_update(
         mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students}``.
             Reveal toggles bump ``state_seq``. ``reveal_to_students``
             defaults false. Empty clears the blob.
+        live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
+        text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
+            C2/C3 (never written to ``active_media_json``).
 
     Returns:
         Updated public state.
@@ -472,6 +534,19 @@ def apply_teacher_state_update(
         merged = dict(base.get("unlocks") or default_unlocks())
         merged.update(unlocks)
         base["unlocks"] = _clean_unlocks(merged)
+    if live_slot is not None:
+        base["live_slot"] = normalize_live_slot(live_slot)
+    if text_ride is not None:
+        if text_ride in (None, "", {}, False):
+            base["text_ride"] = default_text_ride()
+        elif not isinstance(text_ride, dict):
+            raise ValueError("text_ride must be an object")
+        else:
+            merged = dict(base.get("text_ride") or default_text_ride())
+            merged.update(text_ride)
+            base["text_ride"] = public_text_ride(merged)
+    if base.get("live_slot") == "C1":
+        base["text_ride"] = default_text_ride()
     if mc_ui is not None:
         cleaned = public_mc_ui(mc_ui, prompt_ref=base.get("prompt_ref"))
         if cleaned is None:
