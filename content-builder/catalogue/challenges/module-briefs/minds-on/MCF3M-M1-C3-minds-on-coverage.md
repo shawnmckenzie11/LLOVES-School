@@ -7,7 +7,7 @@
 
 ## Verdict
 
-**OK (countersigned 2026-09-12).** Waiting-room check-in only. Not the Team Challenge stem. Coverage re-check OK on this stem.
+**OK (countersigned 2026-09-12).** Waiting-room check-in only. Not the Team Challenge stem. Coverage re-check OK on polished C3 Minds-On — **clear to ship with polish.**
 
 ## Chip rule (hard)
 
