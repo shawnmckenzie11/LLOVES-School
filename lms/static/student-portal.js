@@ -28,7 +28,21 @@ const mediaToast = document.getElementById("media-toast");
 const mediaAnswers = document.getElementById("media-answers");
 const mediaEncore = document.getElementById("media-encore");
 const mediaEncoreLink = document.getElementById("media-encore-link");
+const meNameEl = document.getElementById("me-name");
+const meChipEl = document.getElementById("me-meet-chip");
+const mePointsEl = document.getElementById("me-points");
+const meTeamLabelEl = document.getElementById("me-team-label");
+const meTeamPointsEl = document.getElementById("me-team-points");
+const meRankEl = document.getElementById("me-rank");
+const meRankValueEl = document.getElementById("me-rank-value");
+const meRankOfEl = document.getElementById("me-rank-of");
+const saveWorkBtn = document.getElementById("save-work");
+const saveWorkToast = document.getElementById("save-work-toast");
 const body = document.body;
+const SAVE_WORK_OK = "Saved to your downloads.";
+const SAVE_WORK_EMPTY = "Nothing to save yet.";
+/** @type {number} */
+let saveWorkToastTimer = 0;
 
 /** @type {number | null} */
 let lastPromptId = null;
@@ -166,29 +180,178 @@ function pts(value) {
 
 /**
  * Paint private stats (points, team, optional rank).
+ * Updates identity + stats nodes only — never remounts Save Work.
  * @param {any} payload
  */
 function paintMe(payload) {
   if (!meEl) return;
   const me = payload.me || {};
-  const rankLine =
-    payload.show_rank && me.rank
-      ? `<p class="me-stat me-rank"><span class="me-stat-label">Rank</span><strong>${me.rank}</strong>${me.rank_of ? ` <span class="me-stat-of">/ ${me.rank_of}</span>` : ""}</p>`
-      : "";
+  if (meNameEl) meNameEl.textContent = String(me.codename || "Student");
   const chip = String(payload.meet_chip || "").trim();
-  const chipLine = chip
-    ? `<p class="me-meet-chip" title="Meet window only">${escapeText(chip)}</p>`
-    : "";
-  meEl.innerHTML = `
-    <p class="me-name">${escapeText(me.codename || "Student")}</p>
-    ${chipLine}
-    <div class="me-stats">
-      <p class="me-stat"><span class="me-stat-label">My points</span><strong>${escapeText(pts(me.points))}</strong></p>
-      <p class="me-stat"><span class="me-stat-label">${escapeText(me.team_name || "Team")}</span><strong>${escapeText(pts(me.team_points))}</strong></p>
-      ${rankLine}
-    </div>
-  `;
+  if (meChipEl) {
+    meChipEl.textContent = chip;
+    meChipEl.hidden = !chip;
+    if (chip) meChipEl.title = "Meet window only";
+    else meChipEl.removeAttribute("title");
+  }
+  if (mePointsEl) mePointsEl.textContent = pts(me.points);
+  if (meTeamLabelEl) meTeamLabelEl.textContent = String(me.team_name || "Team");
+  if (meTeamPointsEl) meTeamPointsEl.textContent = pts(me.team_points);
+  const showRank = Boolean(payload.show_rank && me.rank);
+  if (meRankEl) meRankEl.hidden = !showRank;
+  if (meRankValueEl) meRankValueEl.textContent = showRank ? String(me.rank) : "";
+  if (meRankOfEl) {
+    const of = showRank && me.rank_of ? `/ ${me.rank_of}` : "";
+    meRankOfEl.textContent = of;
+    meRankOfEl.hidden = !of;
+  }
   setTabTitle(String(me.codename || ""));
+}
+
+/**
+ * Show a short Save Work status under the button.
+ * @param {string} text
+ */
+function showSaveWorkToast(text) {
+  if (!saveWorkToast) return;
+  saveWorkToast.textContent = text;
+  saveWorkToast.hidden = false;
+  if (saveWorkToastTimer) window.clearTimeout(saveWorkToastTimer);
+  saveWorkToastTimer = window.setTimeout(() => {
+    saveWorkToast.hidden = true;
+  }, 2400);
+}
+
+/**
+ * True when a live pane is mounted (not hidden / unchecked).
+ * @param {HTMLElement | null} pane
+ * @returns {boolean}
+ */
+function paneIsMounted(pane) {
+  return Boolean(pane && !pane.hidden);
+}
+
+/**
+ * Snapshot a canvas as a PNG data URL, or null.
+ * @param {HTMLCanvasElement | null} canvas
+ * @returns {string | null}
+ */
+function canvasPngDataUrl(canvas) {
+  if (!(canvas instanceof HTMLCanvasElement) || !canvas.width || !canvas.height) {
+    return null;
+  }
+  try {
+    return canvas.toDataURL("image/png");
+  } catch (_err) {
+    return null;
+  }
+}
+
+/**
+ * Capture the first drawable canvas inside a same-origin media iframe.
+ * @param {HTMLIFrameElement | null} iframe
+ * @returns {{dataUrl: string, width: number, height: number} | null}
+ */
+function captureMediaFrame(iframe) {
+  if (!(iframe instanceof HTMLIFrameElement) || !iframe.src) return null;
+  try {
+    const doc = iframe.contentDocument;
+    if (!doc) return null;
+    const canvases = Array.from(doc.querySelectorAll("canvas"));
+    for (const canvas of canvases) {
+      const dataUrl = canvasPngDataUrl(canvas);
+      if (dataUrl) {
+        return { dataUrl, width: canvas.width, height: canvas.height };
+      }
+    }
+  } catch (_err) {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Load a data URL into an Image.
+ * @param {string} dataUrl
+ * @returns {Promise<HTMLImageElement>}
+ */
+function loadPngImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("png"));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Download a PNG data URL to the student device.
+ * @param {string} dataUrl
+ * @param {string} filename
+ */
+function downloadPng(dataUrl, filename) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/**
+ * Save the visible student canvas + media as one stacked PNG.
+ * Hidden / unchecked frames are omitted. No gradebook write.
+ */
+async function saveStudentWork() {
+  /** @type {{dataUrl: string, width: number, height: number}[]} */
+  const layers = [];
+  if (paneIsMounted(canvasPane)) {
+    const dataUrl = canvasPngDataUrl(studentCanvas);
+    if (dataUrl && studentCanvas) {
+      layers.push({
+        dataUrl,
+        width: studentCanvas.width,
+        height: studentCanvas.height,
+      });
+    }
+  }
+  if (paneIsMounted(mediaPane)) {
+    const media = captureMediaFrame(mediaFrame);
+    if (media) layers.push(media);
+  }
+  if (!layers.length) {
+    showSaveWorkToast(SAVE_WORK_EMPTY);
+    return;
+  }
+  try {
+    const images = await Promise.all(layers.map((layer) => loadPngImage(layer.dataUrl)));
+    const width = Math.max(...images.map((img) => img.naturalWidth || img.width));
+    const height = images.reduce(
+      (sum, img) => sum + (img.naturalHeight || img.height),
+      0
+    );
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, width);
+    out.height = Math.max(1, height);
+    const ctx = out.getContext("2d");
+    if (!ctx) {
+      showSaveWorkToast(SAVE_WORK_EMPTY);
+      return;
+    }
+    ctx.fillStyle = "#0b1020";
+    ctx.fillRect(0, 0, out.width, out.height);
+    let y = 0;
+    for (const img of images) {
+      const h = img.naturalHeight || img.height;
+      ctx.drawImage(img, 0, y);
+      y += h;
+    }
+    downloadPng(out.toDataURL("image/png"), "live-class-work.png");
+    showSaveWorkToast(SAVE_WORK_OK);
+  } catch (_err) {
+    showSaveWorkToast(SAVE_WORK_EMPTY);
+  }
 }
 
 /**
@@ -1259,6 +1422,12 @@ if (promptFeedback) {
       event.preventDefault();
       dismissFeedbackPanel();
     }
+  });
+}
+
+if (saveWorkBtn) {
+  saveWorkBtn.addEventListener("click", () => {
+    saveStudentWork();
   });
 }
 

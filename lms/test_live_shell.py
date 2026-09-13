@@ -1197,6 +1197,21 @@ class LiveShellTests(unittest.TestCase):
         self.assertIsNone(paused["ends_at_ms"])
         self.assertGreater(paused["remaining_sec"], 0)
 
+    def test_beat32_save_work_under_name_not_timer(self) -> None:
+        """Beat 32: Save Work stays under the name row on the student card."""
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertLess(home.index('id="me-display-time"'), home.index('id="me-name"'))
+        self.assertLess(home.index('id="me-name"'), home.index('id="save-work"'))
+        self.assertLess(home.index('id="save-work"'), home.index('id="me-stats"'))
+        self.assertIn(">Save Work<", home)
+        self.assertIn("Saved to your downloads.", js)
+        self.assertIn("Nothing to save yet.", js)
+        self.assertIn("function saveStudentWork()", js)
+        self.assertNotIn("meEl.innerHTML", js)
+
     def test_beat21_next_stops_timer_and_applies_stage_preset(self) -> None:
         """Beat 21: Next stops a running timer; MEET/PLAY presets; else idle."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")

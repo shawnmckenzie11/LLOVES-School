@@ -729,12 +729,42 @@ body.student-home.is-live .student-live-response {
   color: #9aa6c3;
 }
 
+.student-me .me-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.5rem;
+  margin: 0 0 0.4rem;
+}
+
 .student-me .me-name {
   font-weight: 700;
-  margin: 0 0 0.55rem;
+  margin: 0;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
   text-align: center;
+}
+
+.student-me .save-work {
+  display: block;
+  margin: 0 auto 0.45rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: #16324a;
+  color: #f4f6fb;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.student-me .save-work-toast {
+  margin: 0 0 0.4rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #99f6e4;
 }
 
 .student-me .me-stats {
