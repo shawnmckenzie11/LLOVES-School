@@ -209,7 +209,7 @@ function paintMe(payload) {
 }
 
 /**
- * Show a short Save Work status under the button.
+ * Show a short Save Work status in the student-card footer.
  * @param {string} text
  */
 function showSaveWorkToast(text) {

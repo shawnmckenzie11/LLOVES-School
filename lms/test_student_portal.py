@@ -1151,23 +1151,25 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn('event.key === "Escape"', js)
         self.assertNotIn("innerHTML = feedback", js)
 
-    def test_beat32_save_work_sits_under_name(self) -> None:
-        """Beat 32: Save Work is under the name row, not footer or timer."""
+    def test_beat32_save_work_sits_in_card_footer(self) -> None:
+        """Beat 32: Save Work is the student-card footer, not the page board."""
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
         self.assertLess(html.index('id="me-display-time"'), html.index('id="me-board"'))
-        self.assertLess(html.index('id="me-name"'), html.index('id="save-work"'))
-        self.assertLess(html.index('id="save-work"'), html.index('id="me-stats"'))
-        self.assertLess(html.index('id="me-stats"'), html.index('id="student-round-banner"'))
+        self.assertLess(html.index('id="me-name"'), html.index('id="me-stats"'))
+        self.assertLess(html.index('id="me-stats"'), html.index('id="me-card-footer"'))
+        self.assertLess(html.index('id="me-card-footer"'), html.index('id="save-work"'))
+        self.assertLess(html.index('id="save-work"'), html.index('id="student-round-banner"'))
         self.assertGreater(html.index('id="save-work"'), html.index('id="me-board"'))
         self.assertLess(html.index('id="save-work"'), html.index('id="class-board"'))
         self.assertIn(">Save Work<", html)
         self.assertNotIn("Saved to your downloads.", html)
         chrome = html[html.index('id="me-board"') : html.index('id="student-round-banner"')]
         self.assertIn('id="save-work"', chrome)
+        self.assertIn('id="me-card-footer"', chrome)
         self.assertNotIn('id="save-work"', html[html.index("student-chrome-bottom") :])
         for name in ("join.html", "mood.html", "character.html", "pick.html", "waiting.html"):
             page = (LMS_DIR / "templates" / "student" / name).read_text(
@@ -1186,8 +1188,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("paneIsMounted(mediaPane)", js)
         self.assertIn("live-class-work.png", js)
         self.assertNotIn("JSZip", js)
+        self.assertIn(".student-me .me-card-footer {", css)
         self.assertIn(".student-me .save-work {", css)
-        self.assertIn(".student-me .me-name-row {", css)
 
 
 if __name__ == "__main__":
