@@ -147,6 +147,8 @@ from paths import (  # noqa: E402
     public_brand,
 )
 from student_portal import (  # noqa: E402
+    EXIT_FEEDBACK_SESSION_KEY,
+    HOW_WAS_CLASS,
     bind_student_session,
     character_choices,
     clear_rejoin_cookie,
@@ -2465,7 +2467,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     view="attendance",
                 )
             )
-        if ap_view not in {"attendance", "participation"}:
+        if ap_view not in {"attendance", "participation", "feedback"}:
             ap_view = "attendance"
         portfolio_view = (request.args.get("view") or "build").strip().lower()
         if portfolio_view not in {"build", "marking"}:
@@ -2506,6 +2508,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             resource_id=class_id,
             detail={"tab": tab},
         )
+        exit_feedback = (
+            school.list_exit_feedback_for_class(class_id) if tab == "ap" else []
+        )
         return render_template(
             "staff/course.html",
             user=user,
@@ -2515,6 +2520,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             nav_courses=_staff_nav_courses(int(user["id"])),
             tab=tab,
             ap_view=ap_view,
+            exit_feedback=exit_feedback,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
@@ -2922,18 +2928,31 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
 
     def _ended_student_response(*, as_json: bool = False):
-        """Clear student keys + rejoin cookie and send the student to landing."""
+        """Clear student keys + rejoin cookie; send How-was-class when pending."""
+        pending = school.pending_exit_feedback(
+            class_id=session.get("student_class_id"),
+            student_id=session.get("student_id"),
+            participant_uuid=session.get("student_participant_uuid"),
+        )
+        if pending:
+            session[EXIT_FEEDBACK_SESSION_KEY] = pending["token"]
+        dest = (
+            url_for("student_exit_feedback")
+            if pending
+            else url_for("landing")
+        )
         clear_student_session_keys(session)
         if as_json:
             resp = jsonify(
                 {
                     "ok": True,
                     "status": "ended",
-                    "redirect": url_for("landing"),
+                    "feedback": bool(pending),
+                    "redirect": dest,
                 }
             )
         else:
-            resp = redirect(url_for("landing"))
+            resp = redirect(dest)
         clear_rejoin_cookie(resp)
         return resp
 
@@ -3126,6 +3145,40 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
             visit_token=visit_token,
             codename=str(ctx.get("codename") or ""),
+        )
+
+    @app.route("/student/exit", methods=["GET", "POST"])
+    def student_exit_feedback():
+        """How-was-class faces + optional comment after Quit or Save and End."""
+        token = str(session.get(EXIT_FEEDBACK_SESSION_KEY) or "").strip()
+        row = school.get_exit_feedback_by_token(token) if token else None
+        if row is None or row.get("submitted_at"):
+            session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+            return redirect(url_for("landing"))
+        error = None
+        if request.method == "POST":
+            skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
+            mood = (request.form.get("mood") or "").strip()
+            comment = request.form.get("comment") or ""
+            try:
+                school.submit_exit_feedback(
+                    token,
+                    mood=mood or None,
+                    comment=comment,
+                    skip=skip,
+                )
+            except ValueError as exc:
+                error = str(exc)
+            else:
+                session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+                return redirect(url_for("landing"))
+        return render_template(
+            "student/exit.html",
+            moods=mood_choices(),
+            error=error,
+            school_name=SCHOOL_NAME,
+            heading=HOW_WAS_CLASS,
+            comment=request.form.get("comment") or "",
         )
 
     @app.route("/student/character", methods=["GET", "POST"])

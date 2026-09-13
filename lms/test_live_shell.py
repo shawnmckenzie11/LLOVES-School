@@ -1458,6 +1458,81 @@ class LiveShellTests(unittest.TestCase):
         state = self.school.get_live_session_state(sid)
         self.assertEqual(int(state["game_points"][str(student_id)]), 3)
 
+    def _bind_aspen_live_session(self, sid: int, student_id: int) -> None:
+        """Attach Aspen's live keys to the staff test client session."""
+        attendees = self.school.list_live_session_attendees(sid)
+        uuid = str(attendees[0]["participant_uuid"]) if attendees else ""
+        with self.client.session_transaction() as sess:
+            sess["student_offering_id"] = int(self.offering["id"])
+            sess["student_class_id"] = int(self.class_id)
+            sess["student_id"] = int(student_id)
+            sess["student_codename"] = "Aspen"
+            sess["student_live_session_id"] = int(sid)
+            sess["student_participant_uuid"] = uuid
+
+    def test_beat28_exit_feedback_on_quit_and_save(self) -> None:
+        """Beat 28: students rate class after Quit or Save; staff sees Feedback."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=attendance"
+        ).get_data(as_text=True)
+        self.assertIn("view=feedback", html)
+        self.assertIn(">Feedback<", html)
+        sid, student_id = self._open_live_with_aspen_answers()
+        self._bind_aspen_live_session(sid, student_id)
+        quit = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(quit.status_code, 302)
+        pending = self.school.pending_exit_feedback(
+            class_id=self.class_id, student_id=student_id
+        )
+        self.assertIsNotNone(pending)
+        ended = self.client.get("/api/student/state")
+        self.assertEqual(ended.status_code, 200)
+        body = ended.get_json()
+        self.assertEqual(body.get("status"), "ended")
+        self.assertTrue(body.get("feedback"))
+        self.assertIn("/student/exit", body.get("redirect") or "")
+        page = self.client.get("/student/exit")
+        self.assertEqual(page.status_code, 200)
+        exit_html = page.get_data(as_text=True)
+        self.assertIn("How was class?", exit_html)
+        self.assertIn("/static/mood/good.svg", exit_html)
+        self.assertIn('name="comment"', exit_html)
+        sent = self.client.post(
+            "/student/exit",
+            data={"mood": "ok", "comment": "Clear lesson"},
+            follow_redirects=False,
+        )
+        self.assertEqual(sent.status_code, 302)
+        self.assertIsNone(
+            self.school.pending_exit_feedback(
+                class_id=self.class_id, student_id=student_id
+            )
+        )
+        rows = self.school.list_exit_feedback_for_class(self.class_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mood"], "ok")
+        self.assertEqual(rows[0]["comment"], "Clear lesson")
+        tab = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=feedback"
+        )
+        self.assertEqual(tab.status_code, 200)
+        tab_html = tab.get_data(as_text=True)
+        self.assertIn("How was class?", tab_html)
+        self.assertIn("Clear lesson", tab_html)
+        self.assertIn("/static/mood/ok.svg", tab_html)
+        sid2, student_id2 = self._open_live_with_aspen_answers()
+        self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        pending_save = self.school.pending_exit_feedback(
+            class_id=self.class_id, student_id=student_id2
+        )
+        self.assertIsNotNone(pending_save)
+
 
 if __name__ == "__main__":
     unittest.main()

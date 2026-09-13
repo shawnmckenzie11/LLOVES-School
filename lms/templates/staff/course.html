@@ -524,6 +524,8 @@
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
+           class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
       </nav>
 
       {% if ap_view == 'attendance' %}
@@ -571,6 +573,43 @@
       </div>
       <script type="module" src="/static/staff_attendance.js"></script>
       <script type="module" src="/static/staff_attendance_take.js"></script>
+      {% elif ap_view == 'feedback' %}
+      <div id="feedback-root" data-class-id="{{ cls.id }}">
+        <h2 class="track-step-title">How was class?</h2>
+        <p class="hint">Student faces and comments from Quit or Save and End Class.</p>
+        <div class="sheet-wrap">
+          <table class="sheet" id="feedback-sheet">
+            <thead>
+              <tr>
+                <th class="name">Student</th>
+                <th>Face</th>
+                <th>Comment</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in exit_feedback %}
+              <tr>
+                <td class="name">{{ row.codename or 'Student' }}</td>
+                <td class="feedback-mood">
+                  {% if row.mood %}
+                  <img class="mood-face" src="/static/mood/{{ row.mood }}.svg" alt="{{ row.mood }}" width="40" height="40">
+                  {% else %}
+                  —
+                  {% endif %}
+                </td>
+                <td>{{ row.comment or '' }}</td>
+                <td>{{ (row.submitted_at or '')[:16] }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="hint">No student feedback yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">

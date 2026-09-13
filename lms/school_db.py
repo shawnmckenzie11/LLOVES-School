@@ -374,6 +374,24 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
 
+CREATE TABLE IF NOT EXISTS live_class_feedback (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    offering_id INTEGER,
+    student_id INTEGER,
+    participant_uuid TEXT,
+    codename TEXT NOT NULL DEFAULT '',
+    meeting_date TEXT,
+    token TEXT NOT NULL UNIQUE,
+    mood TEXT,
+    comment TEXT,
+    submitted_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_class_feedback_class
+    ON live_class_feedback(class_id, submitted_at);
+
 CREATE TABLE IF NOT EXISTS google_api_tokens (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     refresh_token TEXT NOT NULL,
@@ -8145,13 +8163,202 @@ class SchoolDB(LovesDB):
         except Exception:  # noqa: BLE001 — live paint must not fail the answer
             return None
 
+    EXIT_FEEDBACK_MOODS = ("good", "ok", "low")
+
+    def open_exit_feedback_for_class(self, class_id: int) -> int:
+        """Mint pending How-was-class rows for current live attendees.
+
+        Must run before the SID wipe so student identity still exists.
+        Tokens survive both Save and End Class and Quit.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Number of new pending rows inserted.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return 0
+        session_id = int(live["id"])
+        offering_id = live.get("offering_id")
+        meeting_date = str(live.get("meeting_date") or "")[:10] or None
+        attendees = self.list_live_session_attendees(session_id)
+        now = _now()
+        inserted = 0
+        with self._lock:
+            for row in attendees:
+                student_id = row.get("student_id")
+                participant_uuid = str(row.get("participant_uuid") or "").strip()
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM live_class_feedback
+                    WHERE class_id = ?
+                      AND COALESCE(student_id, 0) = COALESCE(?, 0)
+                      AND COALESCE(participant_uuid, '') = COALESCE(?, '')
+                      AND submitted_at IS NULL
+                    LIMIT 1
+                    """,
+                    (int(class_id), student_id, participant_uuid),
+                ).fetchone()
+                if existing is not None:
+                    continue
+                token = secrets.token_urlsafe(18)
+                self.conn.execute(
+                    """
+                    INSERT INTO live_class_feedback (
+                        class_id, offering_id, student_id, participant_uuid,
+                        codename, meeting_date, token, mood, comment,
+                        submitted_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+                    """,
+                    (
+                        int(class_id),
+                        int(offering_id) if offering_id not in (None, "") else None,
+                        int(student_id) if student_id not in (None, "") else None,
+                        participant_uuid or None,
+                        str(row.get("codename") or ""),
+                        meeting_date,
+                        token,
+                        now,
+                    ),
+                )
+                inserted += 1
+            if inserted:
+                self.conn.commit()
+        return inserted
+
+    def pending_exit_feedback(
+        self,
+        *,
+        class_id: int | None = None,
+        student_id: int | None = None,
+        participant_uuid: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the latest unsubmitted exit-feedback row for this student.
+
+        Args:
+            class_id: Optional game-show ``classes.id``.
+            student_id: Roster id when the student is matched.
+            participant_uuid: Live-session person key for guests.
+        """
+        clauses = ["submitted_at IS NULL"]
+        args: list[Any] = []
+        if class_id not in (None, ""):
+            clauses.append("class_id = ?")
+            args.append(int(class_id))
+        if student_id not in (None, ""):
+            clauses.append("student_id = ?")
+            args.append(int(student_id))
+        elif str(participant_uuid or "").strip():
+            clauses.append("participant_uuid = ?")
+            args.append(str(participant_uuid).strip())
+        else:
+            return None
+        sql = f"""
+            SELECT * FROM live_class_feedback
+            WHERE {' AND '.join(clauses)}
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        with self._lock:
+            row = self.conn.execute(sql, args).fetchone()
+        return dict(row) if row else None
+
+    def get_exit_feedback_by_token(self, token: str) -> dict[str, Any] | None:
+        """Return one exit-feedback row by opaque token.
+
+        Args:
+            token: ``live_class_feedback.token``.
+        """
+        cleaned = str(token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_class_feedback WHERE token = ? LIMIT 1",
+                (cleaned,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def submit_exit_feedback(
+        self,
+        token: str,
+        *,
+        mood: str | None = None,
+        comment: str = "",
+        skip: bool = False,
+    ) -> dict[str, Any]:
+        """Persist How-was-class mood and optional comment.
+
+        Skip records ``submitted_at`` without a mood so the student is
+        not prompted again. Quit and Save and End Class both keep these
+        rows (they live outside the wiped live SID).
+
+        Args:
+            token: Opaque row token from the student session.
+            mood: ``good`` / ``ok`` / ``low`` when not skipping.
+            comment: Optional free text.
+            skip: True when the student declines to rate.
+
+        Returns:
+            The updated row.
+
+        Raises:
+            KeyError: Unknown token.
+            ValueError: Mood missing or not a check-in face.
+        """
+        row = self.get_exit_feedback_by_token(token)
+        if row is None:
+            raise KeyError("unknown exit feedback token")
+        if row.get("submitted_at"):
+            return row
+        cleaned_mood = None
+        if not skip:
+            cleaned_mood = str(mood or "").strip().lower()
+            if cleaned_mood not in self.EXIT_FEEDBACK_MOODS:
+                raise ValueError("Choose a face or skip.")
+        note = str(comment or "").strip()[:2000]
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_feedback
+                SET mood = ?, comment = ?, submitted_at = ?
+                WHERE token = ?
+                """,
+                (cleaned_mood, note, now, str(token).strip()),
+            )
+            self.conn.commit()
+        updated = self.get_exit_feedback_by_token(token)
+        assert updated is not None
+        return updated
+
+    def list_exit_feedback_for_class(self, class_id: int) -> list[dict[str, Any]]:
+        """Submitted How-was-class rows for the staff Feedback tab.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_class_feedback
+                WHERE class_id = ? AND submitted_at IS NOT NULL
+                ORDER BY submitted_at DESC, id DESC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
         """Save and End Class or Quit, then wipe the live SID.
 
         Attendance always persists (including Quit). Save and End Class
         also writes +1 participation per question answered (Meet social
         taps excluded). Quit zeros participation and discards ephemeral
-        meet taps / live QH with the SID wipe.
+        meet taps / live QH with the SID wipe. Exit-feedback tokens are
+        minted before the wipe so students can still rate the class.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -8161,6 +8368,7 @@ class SchoolDB(LovesDB):
         Returns:
             Wipe payload from ``wipe_live_sessions_for_class``.
         """
+        self.open_exit_feedback_for_class(int(class_id))
         present_ids = self.present_student_ids_for_live_class(class_id)
         credits = (
             self.participation_round_credits_for_class(class_id) if persist else {}

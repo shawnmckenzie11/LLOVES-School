@@ -67,6 +67,24 @@ body.student-portal .sub {
   margin-top: 1rem;
 }
 
+.exit-comment-field {
+  display: block;
+  margin-top: 1rem;
+}
+
+.exit-comment {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 5.5rem;
+  padding: 0.7rem 0.75rem;
+  border: 2px solid #1e3348;
+  border-radius: 12px;
+  background: #122033;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
 .mood-face {
   display: block;
   width: 3.12rem;

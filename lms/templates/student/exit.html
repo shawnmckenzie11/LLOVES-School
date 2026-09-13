@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ heading }} · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+</head>
+<body class="student-portal">
+  <div class="student-wrap">
+    <h1>{{ heading }}</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form class="mood-form exit-feedback-form" method="post" id="exit-feedback-form">
+      <div class="mood-row" role="radiogroup" aria-label="{{ heading }}">
+        {% for mood in moods if mood.key in ('good', 'ok', 'low') %}
+        <label class="mood-btn mood-{{ mood.key }}" title="{{ mood.label }}">
+          <input type="radio" name="mood" value="{{ mood.key }}">
+          <img class="mood-face" src="/static/mood/{{ mood.key }}.svg" alt="" width="83" height="83">
+          <span class="visually-hidden">{{ mood.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <label class="field exit-comment-field" for="exit-comment">
+        <span class="visually-hidden">Optional comment</span>
+        <textarea id="exit-comment" name="comment" class="exit-comment" rows="3" maxlength="2000" placeholder="Anything we should know? (optional)">{{ comment }}</textarea>
+      </label>
+      <div class="row-actions mood-join">
+        <button type="submit" name="skip" value="1" class="secondary">Skip</button>
+        <button type="submit">Send</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

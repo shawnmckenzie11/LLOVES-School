@@ -463,6 +463,10 @@ body.staff-shell .ap-subtabs a.on {
   color: #0f766e;
   border-bottom: 2px solid #0f766e;
 }
+body.staff-shell #feedback-sheet .mood-face {
+  width: 2rem;
+  height: 2rem;
+}
 body.staff-shell .scoreboard-opt {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
