@@ -15,11 +15,12 @@
     <p class="me-display-time" id="me-display-time" aria-live="polite" data-state="idle">—</p>
     <div id="me-board" class="student-me">
       <div class="me-name-row" id="me-name-row">
+        <span class="student-avatar" id="me-avatar" aria-hidden="true" hidden></span>
         <p class="me-name" id="me-name">Student</p>
         <p class="me-meet-chip" id="me-meet-chip" hidden></p>
       </div>
       <div class="me-save-slot" id="me-save-slot">
-        <button type="button" class="save-work" id="save-work">Save Work</button>
+        <button type="button" class="save-work" id="save-work">Save View</button>
         <p class="save-work-toast" id="save-work-toast" hidden role="status"></p>
       </div>
       <div class="me-stats" id="me-stats">
@@ -40,8 +41,13 @@
       <div id="media-lock" class="student-frame-lock" hidden>Media locked</div>
       <iframe id="media-frame" title="Live class media" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
-    <div id="canvas-pane" class="canvas-pane" hidden>
+      <div id="canvas-pane" class="canvas-pane" hidden>
       <div id="canvas-lock" class="student-frame-lock">Canvas locked</div>
+      <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
+        <button type="button" id="student-canvas-undo">Undo</button>
+        <button type="button" id="student-canvas-redo">Redo</button>
+        <button type="button" id="student-canvas-erase">Erase</button>
+      </div>
       <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live canvas"></canvas>
       <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
     </div>
@@ -49,6 +55,7 @@
       <a id="media-encore-link" href="#" target="_blank" rel="noopener noreferrer"></a>
     </p>
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting room — class is about to begin.{% endif %}</p>
+    <section id="game-show-welcome" class="game-show-welcome" hidden aria-label="VLC Math Game Show"></section>
     <div id="question-frame" class="question-frame">
       <div id="prompt-shell" class="prompt-shell" hidden></div>
       <div id="prompt-feedback" class="prompt-feedback" hidden role="dialog" aria-modal="false" aria-labelledby="prompt-feedback-lead" tabindex="-1">
@@ -57,12 +64,38 @@
         <p id="prompt-feedback-helper" class="prompt-feedback-helper">You can Close whenever you’re ready.</p>
         <button type="button" class="prompt-feedback-close" id="prompt-feedback-close">Close</button>
       </div>
+      <div id="prompt-poll-totals" class="prompt-poll-totals" hidden></div>
     </div>
     <p id="prompt-ack" class="prompt-ack" hidden>Response received.</p>
   </main>
   <footer class="student-chrome student-chrome-bottom" aria-label="Class scoreboard">
     <div id="class-board" class="student-scoreboard"></div>
+    <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
   </footer>
+  <div id="student-celebrate" class="student-celebrate" hidden>
+    <div class="student-winner-banner" id="student-winner-banner" hidden>
+      <p class="student-winner-kicker">Winner</p>
+      <p class="student-winner-name" id="student-winner-name"></p>
+    </div>
+    <div id="student-graffiti" class="live-overlay-graffiti" aria-hidden="true"></div>
+    <section id="how-was-class" class="how-was-class" hidden>
+      <h2>How was class?</h2>
+      <p class="hint">Pick a face. A short note is optional.</p>
+      <div class="mood-row" role="radiogroup" aria-label="How was class?">
+        <label class="mood-btn mood-good"><input type="radio" name="exit-mood" value="good"><img class="mood-face" src="/static/mood/good.svg" alt="Good" width="64" height="64"></label>
+        <label class="mood-btn mood-ok"><input type="radio" name="exit-mood" value="ok"><img class="mood-face" src="/static/mood/ok.svg" alt="Okay" width="64" height="64"></label>
+        <label class="mood-btn mood-low"><input type="radio" name="exit-mood" value="low"><img class="mood-face" src="/static/mood/low.svg" alt="Low" width="64" height="64"></label>
+      </div>
+      <label class="field" for="exit-comment">
+        <span class="visually-hidden">Optional comment</span>
+        <textarea id="exit-comment" rows="3" maxlength="2000" placeholder="Anything we should know? (optional)"></textarea>
+      </label>
+      <div class="row-actions">
+        <button type="button" class="secondary" id="exit-feedback-skip">Skip</button>
+        <button type="button" id="exit-feedback-send">Send</button>
+      </div>
+    </section>
+  </div>
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>

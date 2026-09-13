@@ -277,6 +277,7 @@
   // Staff iframe uses ?role=teacher. Student portal omits role (embedded).
   // ?role=student forces entry chrome when the file is opened in a tab.
   const teacherMode = role === "teacher" || (!embedded && role !== "student");
+  const studentAskAboveGraph = embedded && !teacherMode;
 
   const PAPER_YAW = 0.08;
   const PAPER_PITCH = -0.16;
@@ -431,7 +432,9 @@
     const showEq = teacherMode || state.revealAxes;
     eqEl.hidden = !showEq;
     if (chipEl) {
-      if (!teacherMode && state.revealLateral) {
+      if (studentAskAboveGraph) {
+        chipEl.hidden = true;
+      } else if (!teacherMode && state.revealLateral) {
         chipEl.hidden = false;
         chipEl.textContent = LATERAL_CHIP;
       } else {
@@ -903,7 +906,9 @@
       if (!data.allow_3d_limited) state.studentYawRange = 0;
     }
     if (typeof data.freeze_yaw === "boolean") state.freezeYaw = data.freeze_yaw;
-    if (chipEl && state.revealLateral && !teacherMode) {
+    if (chipEl && studentAskAboveGraph) {
+      chipEl.hidden = true;
+    } else if (chipEl && state.revealLateral && !teacherMode) {
       chipEl.textContent = LATERAL_CHIP;
     } else if (chipEl && typeof data.stem === "string" && data.stem.trim()) {
       chipEl.textContent = data.stem.trim();

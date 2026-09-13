@@ -208,6 +208,24 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
         self.assertEqual(frozen["canvas_align"], "teacher")
 
+    def test_round_unlocks_wait_until_play(self) -> None:
+        """ROUND stores unlocks but students only see them on PLAY."""
+        rnd = apply_teacher_state_update(
+            None, stage="round", unlocks={"media": True, "canvas": True}
+        )
+        self.assertEqual(rnd["stage"], "round")
+        self.assertTrue(rnd["unlocks"]["media"])
+        self.assertTrue(rnd["unlocks"]["canvas"])
+        self.assertFalse(rnd["student_frames"]["media"])
+        self.assertFalse(rnd["student_frames"]["canvas"])
+        self.assertFalse(student_should_mount_media(rnd))
+        self.assertFalse(student_should_mount_canvas(rnd))
+        play = apply_teacher_state_update(rnd, stage="play")
+        self.assertTrue(play["student_frames"]["media"])
+        self.assertTrue(play["student_frames"]["canvas"])
+        self.assertTrue(student_should_mount_media(play))
+        self.assertTrue(student_should_mount_canvas(play))
+
     def test_uncheck_collapses_media_and_canvas_frames(self) -> None:
         """Beat 29: uncheck removes the student frame; PLAY has no locked pane."""
         play = apply_teacher_state_update(None, stage="play")
@@ -538,7 +556,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         staff_live = self.client.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(staff_live.status_code, 200, staff_live.get_json())
         staff_body = staff_live.get_json()
-        self.assertIsNone(staff_body.get("mc_tally"))
+        self.assertIsNotNone(staff_body.get("mc_tally"))
         spark = staff_body.get("teams_spark") or {}
         self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
         self.assertIn("9", str(spark.get("teacher_key") or ""))
@@ -549,25 +567,25 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             student_teams.get("teacher_state", {}).get("prompt_ref"),
             TEAMS_SPARK_PROMPT_REF,
         )
-        self.assertFalse(student_teams.get("waiting_room"), student_teams)
-        prompt = student_teams.get("prompt") or {}
-        payload = prompt.get("payload") or {}
-        self.assertTrue(is_teams_spark_payload(payload), student_teams)
-        self.assertFalse(is_minds_on_payload(payload), student_teams)
-        self.assertEqual(payload.get("prompt"), TEAMS_SPARK_PROMPT)
-        self.assertEqual(payload.get("choices"), ["8", "9", "17", "0"])
-        self.assertNotIn("key", payload)
-        self.assertNotIn("teacher_key", payload)
-        self.assertNotIn("student_feedback_after_reveal", payload)
+        # TEAMS spark stays teacher-only; students get the VLC welcome card.
+        welcome = student_teams.get("game_show_welcome") or {}
+        self.assertEqual(welcome.get("title"), "VLC Math Game Show")
+        self.assertTrue(welcome.get("class_code"), welcome)
+        self.assertRegex(str(welcome.get("lesson_code") or ""), r"^M\d+-C\d+$")
+        self.assertEqual(len(welcome.get("rounds") or []), 3)
+        self.assertEqual(welcome["rounds"][0]["title"], "Open Question Round")
+        self.assertEqual(welcome["rounds"][1]["title"], "Team Challenge Round")
+        self.assertEqual(welcome["rounds"][2]["title"], "Consolidation Round")
+        names = {row.get("codename") for row in welcome.get("participants") or []}
+        self.assertIn("Aspen", names)
+        self.assertIsNone(student_teams.get("prompt"))
         self.assertIsNone(student_teams.get("my_response"))
-        self.assertNotIn("mc_tally", student_teams)
         live_prompt = student.get("/api/student/live-prompt").get_json()
-        self.assertTrue(is_teams_spark_payload((live_prompt.get("prompt") or {}).get("payload")))
-        self.assertFalse(live_prompt.get("waiting_room"), live_prompt)
-        if live_prompt.get("prompt") is not None:
-            self.assertFalse(
-                is_minds_on_payload((live_prompt["prompt"] or {}).get("payload"))
-            )
+        self.assertIsNone(live_prompt.get("prompt"))
+        self.assertEqual(
+            (live_prompt.get("game_show_welcome") or {}).get("title"),
+            "VLC Math Game Show",
+        )
 
     def test_beat25_teams_spark_reveals_then_clears_on_meet(self) -> None:
         """Beat 25: spark stay-line is teacher-gated; TEAMS→MEET clears it."""
@@ -613,12 +631,11 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(ui.get("poll_closed"))
         after = student.get("/api/student/state").get_json()
         stay = (after.get("prompt") or {}).get("payload") or {}
-        self.assertEqual(
-            stay.get("student_feedback_after_reveal"),
-            "All but nine means nine stay.",
-        )
+        # Spark stay-line stays on the teacher card; students keep the welcome card.
+        self.assertEqual((after.get("game_show_welcome") or {}).get("title"), "VLC Math Game Show")
+        self.assertIsNone(after.get("prompt"))
+        self.assertFalse(stay)
         self.assertNotIn("teacher_key", stay)
-        self.assertNotIn("mc_tally", after)
         meet = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={"advance": "next"},
@@ -711,6 +728,14 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertTrue(body["round_flags"]["consolidation"])
         self.assertIsNone(body.get("cue_id"))
         prompt = self.school.get_active_live_prompt(self.session_id)
+        payload = (prompt or {}).get("payload") or {}
+        self.assertNotEqual(payload.get("item_id"), "C1-CONS-1")
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}
         self.assertEqual(payload.get("item_id"), "C1-CONS-1")
@@ -739,6 +764,13 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertTrue(body["round_flags"]["consolidation"])
         ride = body.get("text_ride") or {}
         self.assertFalse(ride.get("frozen"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertFalse(is_cons_payload((prompt or {}).get("payload")))
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
         prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}
@@ -787,6 +819,13 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertFalse(is_cons_payload((prompt or {}).get("payload")))
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
         prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}

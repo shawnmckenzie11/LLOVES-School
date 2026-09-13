@@ -328,6 +328,18 @@ body.student-home.has-media .student-live-response {
   color: #e8eef8;
   padding: 0.85rem;
 }
+.canvas-pane .live-canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+.canvas-pane .live-canvas-toolbar button {
+  min-height: 2rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
 
 .canvas-pane[hidden] {
   display: none !important;
@@ -507,6 +519,52 @@ body.student-home.is-live .student-live-response {
   cursor: pointer;
 }
 
+.prompt-poll-totals {
+  margin: 0.65rem 0 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #1e3348;
+  border-radius: 10px;
+  background: #122033;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.prompt-poll-totals .meet-poll-kicker {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.15rem;
+}
+.prompt-poll-totals .meet-poll-class,
+.prompt-poll-totals .meet-poll-team {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+.prompt-poll-totals .meet-poll-class {
+  color: #e0f2fe;
+  background: #0c4a6e;
+  border: 1px solid #38bdf8;
+  border-left: 4px solid #38bdf8;
+}
+.prompt-poll-totals .meet-poll-class .meet-poll-kicker {
+  color: #7dd3fc;
+}
+.prompt-poll-totals .meet-poll-team {
+  color: #f3e8ff;
+  background: #4c1d95;
+  border: 1px solid #c084fc;
+  border-left: 4px solid #c084fc;
+}
+.prompt-poll-totals .meet-poll-team .meet-poll-kicker {
+  color: #e9d5ff;
+}
+.prompt-poll-totals[hidden] {
+  display: none !important;
+}
 .prompt-feedback-close:focus-visible {
   outline: 2px solid #5eead4;
   outline-offset: 2px;
@@ -747,6 +805,12 @@ body.student-home.is-live .student-live-response {
   margin: 0 0 0.4rem;
 }
 
+.student-me .student-avatar {
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
 .student-me .me-name {
   font-weight: 700;
   margin: 0;
@@ -958,5 +1022,439 @@ body.student-home.is-waiting-room .student-wait {
     border-top: none;
     border-left: 1px solid #1e3348;
     align-self: end;
+  }
+}
+
+.mc-reveal-row.is-correct {
+  outline: 2px solid #0f766e;
+  border-radius: 8px;
+}
+.mc-reveal-correct {
+  margin-left: 0.35rem;
+  color: #0f766e;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+.prompt-poll-card {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+}
+.prompt-poll-card.prompt-poll-team {
+  background: #4c1d95;
+  border: 1px solid #c084fc;
+}
+.prompt-poll-card.prompt-poll-class {
+  background: #0c4a6e;
+  border: 1px solid #38bdf8;
+}
+.score-pop-layer {
+  pointer-events: none;
+  position: relative;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+}
+.score-pop-chip {
+  position: absolute;
+  bottom: 2.4rem;
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: #f5c518;
+  color: #12202e;
+  font-weight: 800;
+  animation: score-pop-bounce 5s ease-out forwards;
+}
+@keyframes score-pop-bounce {
+  0% { transform: translateY(18px) scale(0.7); opacity: 0; }
+  12% { transform: translateY(-8px) scale(1.08); opacity: 1; }
+  22% { transform: translateY(0) scale(1); opacity: 1; }
+  75% { opacity: 1; }
+  100% { transform: translateY(-12px); opacity: 0; }
+}
+.student-celebrate {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+.student-celebrate .how-was-class {
+  pointer-events: auto;
+  position: absolute;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  width: min(22rem, calc(100% - 1.5rem));
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #e8eef8;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.student-celebrate .how-was-class h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+.student-celebrate .mood-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+}
+.student-celebrate .mood-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+.student-celebrate .mood-btn input {
+  position: absolute;
+  opacity: 0;
+}
+.live-overlay-graffiti {
+  pointer-events: none;
+  position: absolute;
+  inset: 12% 0 40%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-overlay-graffiti-tag {
+  font-family: Impact, "Haettenschweiler", "Arial Black", sans-serif;
+  font-size: clamp(2.2rem, 10vw, 4.6rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5c518;
+  text-shadow:
+    3px 3px 0 #12202e,
+    -2px 4px 0 #ef4444,
+    0 0 18px rgba(245, 197, 24, 0.65);
+  transform: rotate(-6deg);
+  animation: live-overlay-graffiti-spray 0.8s ease-out both;
+}
+.live-overlay-graffiti-drip {
+  position: absolute;
+  width: 8px;
+  border-radius: 0 0 8px 8px;
+  background: var(--c, #f5c518);
+  animation: live-overlay-graffiti-drip 1.6s ease-in var(--delay, 0s) both;
+}
+@keyframes live-overlay-graffiti-spray {
+  0% { opacity: 0; filter: blur(8px); transform: rotate(-6deg) scale(1.4); }
+  100% { opacity: 1; filter: blur(0); transform: rotate(-6deg) scale(1); }
+}
+@keyframes live-overlay-graffiti-drip {
+  0% { height: 0; opacity: 0; }
+  30% { opacity: 1; }
+  100% { height: var(--h, 48px); opacity: 0.75; }
+}
+body.student-home.is-celebrating .question-frame,
+body.student-home.is-celebrating .student-wait,
+body.student-home.is-celebrating .media-pane,
+body.student-home.is-celebrating .canvas-pane,
+body.student-home.is-celebrating .media-stem,
+body.student-home.is-celebrating .media-chip,
+body.student-home.is-celebrating .media-caption,
+body.student-home.is-celebrating .media-answers,
+body.student-home.is-celebrating .game-show-welcome,
+body.student-home.is-celebrating .me-save-slot {
+  display: none !important;
+}
+
+body.student-home.is-celebrating .student-me .me-stats {
+  display: flex;
+}
+
+.student-winner-banner {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  width: min(22rem, calc(100% - 1.5rem));
+  text-align: center;
+  z-index: 2;
+}
+
+.student-winner-kicker {
+  margin: 0 0 0.25rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #f5c518;
+}
+
+.student-winner-name {
+  margin: 0;
+  font-family: Impact, "Haettenschweiler", "Arial Black", sans-serif;
+  font-size: clamp(2rem, 9vw, 3.6rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5c518;
+  text-shadow:
+    3px 3px 0 #12202e,
+    -2px 4px 0 #ef4444,
+    0 0 18px rgba(245, 197, 24, 0.65);
+}
+
+
+/* TEAMS · VLC Math Game Show welcome */
+.game-show-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0 0 0.4rem;
+  padding: 0.85rem 0.75rem 1rem;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(245, 197, 24, 0.22), transparent 55%),
+    linear-gradient(180deg, #141a33 0%, #0b1020 100%);
+  border: 1px solid rgba(245, 197, 24, 0.28);
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.08), 0 16px 40px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.game-show-welcome[hidden] {
+  display: none;
+}
+
+.gs-banner {
+  text-align: center;
+}
+
+.gs-kicker {
+  margin: 0 0 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #f5c518;
+}
+
+.gs-title {
+  margin: 0;
+  font-size: clamp(1.45rem, 6.4vw, 2rem);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  background: linear-gradient(92deg, #fff6c8 0%, #f5c518 42%, #7eeadf 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gs-title-shimmer 6s linear infinite;
+  background-size: 180% 100%;
+}
+
+@keyframes gs-title-shimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 180% 50%; }
+}
+
+.gs-subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.gs-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.gs-code-label {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fb3c8;
+}
+
+.gs-rounds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.gs-round {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.65rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(18, 32, 51, 0.72);
+  border: 1px solid #1e3348;
+}
+
+.gs-round-n {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #f5c518;
+  padding-top: 0.1rem;
+}
+
+.gs-round-title {
+  margin: 0 0 0.2rem;
+  font-weight: 750;
+}
+
+.gs-round-blurb {
+  margin: 0;
+  color: #c5d0e2;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.gs-cast-kicker {
+  margin: 0 0 0.45rem;
+  text-align: center;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #9fb3c8;
+}
+
+.gs-cast-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gs-cast.is-orbit {
+  --gs-radius: min(38vw, 7.2rem);
+  min-height: calc(var(--gs-radius) * 2 + 3.4rem);
+  position: relative;
+}
+
+.gs-cast.is-orbit .gs-cast-list {
+  position: absolute;
+  left: 50%;
+  top: calc(1.4rem + var(--gs-radius));
+  width: 0;
+  height: 0;
+  animation: gs-orbit 22s linear infinite;
+}
+
+.gs-cast.is-orbit .gs-cast-chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform:
+    rotate(calc(var(--i) * 360deg / var(--n)))
+    translateX(var(--gs-radius))
+    rotate(calc(var(--i) * -360deg / var(--n)));
+  animation: gs-counter-orbit 22s linear infinite, gs-chip-bob 2.8s ease-in-out infinite;
+  animation-delay: 0s, calc(var(--i) * -0.18s);
+}
+
+.gs-cast.is-orbit .gs-cast-chip .name-with-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.5rem 0.28rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(11, 16, 32, 0.86);
+  border: 1px solid rgba(245, 197, 24, 0.28);
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.gs-cast.is-marquee {
+  overflow: hidden;
+}
+
+.gs-cast.is-marquee .gs-cast-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  width: max-content;
+  animation: gs-marquee 28s linear infinite;
+}
+
+.gs-cast.is-marquee .gs-cast-chip .name-with-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.55rem 0.28rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(11, 16, 32, 0.86);
+  border: 1px solid rgba(126, 234, 223, 0.28);
+  white-space: nowrap;
+}
+
+.gs-cast-empty {
+  text-align: center;
+  color: #9fb3c8;
+  font-size: 0.88rem;
+}
+
+.gs-cast .student-avatar {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+@keyframes gs-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gs-counter-orbit {
+  from {
+    transform:
+      rotate(calc(var(--i) * 360deg / var(--n)))
+      translateX(var(--gs-radius))
+      rotate(calc(var(--i) * -360deg / var(--n)));
+  }
+  to {
+    transform:
+      rotate(calc(var(--i) * 360deg / var(--n) + 360deg))
+      translateX(var(--gs-radius))
+      rotate(calc(var(--i) * -360deg / var(--n) - 360deg));
+  }
+}
+
+@keyframes gs-chip-bob {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(245, 197, 24, 0)); }
+  50% { filter: drop-shadow(0 0 8px rgba(245, 197, 24, 0.55)); }
+}
+
+@keyframes gs-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+body.student-home.is-game-show-welcome .student-wait,
+body.student-home.is-game-show-welcome .question-frame,
+body.student-home.is-game-show-welcome .media-pane,
+body.student-home.is-game-show-welcome .canvas-pane,
+body.student-home.is-game-show-welcome .media-chip,
+body.student-home.is-game-show-welcome .media-stem,
+body.student-home.is-game-show-welcome .media-caption,
+body.student-home.is-game-show-welcome .media-answers,
+body.student-home.is-game-show-welcome .media-toast,
+body.student-home.is-game-show-welcome .media-encore,
+body.student-home.is-game-show-welcome .prompt-ack {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-title,
+  .gs-cast.is-orbit .gs-cast-list,
+  .gs-cast.is-orbit .gs-cast-chip,
+  .gs-cast.is-marquee .gs-cast-list {
+    animation: none;
   }
 }

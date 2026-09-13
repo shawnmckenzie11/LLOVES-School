@@ -9,7 +9,7 @@
 </head>
 <body class="staff-shell staff-home">
   <div class="staff-home-corner" aria-label="Account">
-    <a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>
+    {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
@@ -58,13 +58,11 @@
               </svg>
               <span>Live Class in Progress</span>
             </button>
-            <form class="course-action-end-form" method="post" action="{{ url_for('staff_end_live_class', class_id=live_active.class_id) }}"
-                  data-confirm="Save attendance & participation, then end?"
-                  onsubmit="return confirm(this.dataset.confirm);">
-              <button type="submit" class="course-action course-action-end secondary" aria-label="Save and End Class">
-                <span>Save and End Class</span>
+            <div class="course-action-end-form">
+              <button type="button" class="course-action course-action-end secondary" data-open-end-live aria-label="End Live Class">
+                <span>End Live Class</span>
               </button>
-            </form>
+            </div>
           </div>
           {% else %}
           <div class="course-action-row">
@@ -216,6 +214,27 @@
     </section>
     {% endif %}
   </div>
+  {% if active_live_session %}
+  <dialog id="end-live-dialog" class="end-live-dialog">
+    <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=active_live_session.class_id) }}">
+      <h2>End Live Class</h2>
+      <p>Choose what to save before ending this class.</p>
+      <input type="hidden" name="end_options" value="1">
+      <label class="end-live-option">
+        <input type="checkbox" name="save_attendance" value="1" checked>
+        <span>Save attendance</span>
+      </label>
+      <label class="end-live-option">
+        <input type="checkbox" name="save_participation" value="1" checked>
+        <span>Save participation</span>
+      </label>
+      <div class="end-live-dialog-actions">
+        <button type="button" class="secondary" data-close-end-live>Cancel</button>
+        <button type="submit">End class</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
   <script type="module" src="/static/staff_home.js"></script>
   <script type="module" src="/static/staff_celebration.js"></script>
 </body>

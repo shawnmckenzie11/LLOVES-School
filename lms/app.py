@@ -54,6 +54,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 from auth import (  # noqa: E402
     current_user,
     google_oauth_ready,
+    it_emails,
     it_required,
     landing_kwargs,
     login_required,
@@ -2186,9 +2187,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/bots")
     @staff_required
     def staff_bots():
-        """Staff-only Grok bots showcase (Module Engineer and later cards)."""
+        """IT/Admin-only Grok bots showcase (Module Engineer and later cards)."""
         user = current_user()
         assert user is not None
+        email = str(user.get("email") or "").lower()
+        if user.get("role") != "it" and email not in it_emails():
+            return redirect(url_for("staff_home"))
         return render_template(
             "staff/bots.html",
             user=user,
@@ -2371,13 +2375,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """Save and End Class: persist A&P, then wipe the SID.
+        """End Live Class: persist chosen A&P columns, then wipe the SID.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
+
+        The dialog posts ``end_options`` plus optional ``save_attendance``
+        / ``save_participation`` checkboxes. A bare POST (tests / old
+        clients) still saves both.
 
         After a save, staff land on Attendance & Participation so the
         new class-day column is visible.
@@ -2389,7 +2397,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        school.finish_live_class(int(class_id), persist=True)
+        form = request.form
+        if str(form.get("end_options") or "") == "1":
+            save_attendance = str(form.get("save_attendance") or "") == "1"
+            save_participation = str(form.get("save_participation") or "") == "1"
+        else:
+            save_attendance = True
+            save_participation = True
+        school.finish_live_class(
+            int(class_id),
+            save_attendance=save_attendance,
+            save_participation=save_participation,
+            celebrate=True,
+        )
         return redirect(
             url_for(
                 "staff_course",
@@ -2404,7 +2424,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def staff_quit_live_class(class_id: int):
         """Quit: keep attendance, discard participation, wipe the SID.
 
-        Same ownership rules as Save and End Class. Attendance always
+        Same ownership rules as End Live Class. Attendance always
         persists. Participation, meet taps, and live QH are discarded.
         """
         user = current_user()
@@ -2412,9 +2432,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         active = school.get_active_live_session_for_teacher(int(user["id"]))
-        if active is None or int(active["class_id"]) != int(class_id):
-            return redirect(url_for("staff_home"))
-        school.finish_live_class(int(class_id), persist=False)
+        if active is not None and int(active["class_id"]) == int(class_id):
+            school.finish_live_class(int(class_id), persist=False, celebrate=False)
+        else:
+            school.wipe_live_sessions_for_class(int(class_id))
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
@@ -2512,6 +2533,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         exit_feedback = (
             school.list_exit_feedback_for_class(class_id) if tab == "ap" else []
         )
+        feedback_grid = (
+            school.feedback_grid_for_class(class_id)
+            if tab == "ap" and ap_view == "feedback"
+            else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
+        )
         live_packs = live_class_registry(
             (offering or {}).get("ontario_code")
             or cls.get("ontario_code")
@@ -2527,6 +2553,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             tab=tab,
             ap_view=ap_view,
             exit_feedback=exit_feedback,
+            feedback_grid=feedback_grid,
             live_packs=live_packs,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
@@ -2954,6 +2981,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 {
                     "ok": True,
                     "status": "ended",
+                    "celebrate": False,
                     "feedback": bool(pending),
                     "redirect": dest,
                 }
@@ -3154,6 +3182,29 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             codename=str(ctx.get("codename") or ""),
         )
 
+
+    @app.route("/api/student/exit-feedback", methods=["POST"])
+    def api_student_exit_feedback():
+        """Submit How-was-class from the celebrating student home overlay."""
+        data = request.get_json(silent=True) or {}
+        token = str(
+            data.get("token") or session.get(EXIT_FEEDBACK_SESSION_KEY) or ""
+        ).strip()
+        row = school.get_exit_feedback_by_token(token) if token else None
+        if row is None or row.get("submitted_at"):
+            return jsonify({"ok": False, "error": "No pending feedback."}), 404
+        skip = str(data.get("skip") or "").strip() in {"1", "true", "yes"}
+        try:
+            school.submit_exit_feedback(
+                token,
+                mood=str(data.get("mood") or "") or None,
+                comment=str(data.get("comment") or ""),
+                skip=skip,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True})
+
     @app.route("/student/exit", methods=["GET", "POST"])
     def student_exit_feedback():
         """How-was-class faces + optional comment after Quit or Save and End."""
@@ -3289,6 +3340,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_session_id,
             student_id=int(student_id) if student_id not in (None, "") else None,
         )
+        school.apply_student_end_overlay(
+            payload,
+            live_session_id,
+            class_id,
+            int(student_id) if student_id not in (None, "") else None,
+            pid,
+        )
+        if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
+            session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
         return render_template(
             "student/home.html",
             offering=offering,
@@ -3389,6 +3449,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             student_id=int(student_id) if student_id not in (None, "") else None,
         )
         payload["display_time"] = school.live_session_display_time(int(class_id))
+        school.apply_student_end_overlay(
+            payload,
+            live_session_id,
+            int(class_id),
+            int(student_id) if student_id not in (None, "") else None,
+            pid,
+        )
+        if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
+            session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -3555,6 +3624,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }
         if fragment:
             body["feedback"] = fragment
+        tally = school.live_session_mc_tally(live_session_id)
+        if tally is not None:
+            body["mc_tally"] = tally
         return jsonify(body)
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:

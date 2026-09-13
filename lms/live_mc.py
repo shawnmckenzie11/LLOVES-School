@@ -146,6 +146,11 @@ def build_mc_tally(
     if not labels:
         return None
     letters = [CHOICE_LETTERS[i] for i in range(len(labels))]
+    key = str(payload.get("key") or "").strip().upper()
+    if not key:
+        correct_ids = payload.get("correct_ids") or []
+        if isinstance(correct_ids, list) and correct_ids:
+            key = str(correct_ids[0] or "").strip().upper()
     counts = {letter: 0 for letter in letters}
     source = "live_prompt"
     raw_values: list[Any] = []
@@ -174,6 +179,7 @@ def build_mc_tally(
                 "label": label,
                 "count": count,
                 "pct": pct,
+                "correct": bool(key) and letter == key,
             }
         )
     ref = prompt_ref_for(prompt, teacher_state)

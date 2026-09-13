@@ -23,11 +23,14 @@ from app import create_app  # noqa: E402
 from live_class_constants import (  # noqa: E402
     M1C1_TEAM_CHALLENGE_CONTEXT,
     M1C1_TEAM_CHALLENGE_QUESTION,
+    MCR3U_M1C1_TEAM_CHALLENGE_CONTEXT,
+    MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
 )
 from live_class_slides import strand_from_module  # noqa: E402
 from slide_builder import (  # noqa: E402
     build_index_fill_requests,
     collect_consolidation_items,
+    default_team_challenge,
     filter_async_lessons,
     load_local_bank_items,
     load_official_example_stems,
@@ -41,6 +44,16 @@ from slide_builder import (  # noqa: E402
 
 class SlideBuilderMathTests(unittest.TestCase):
     """Pure window math, keyword filter, and unlabeled-shape fill."""
+
+    def test_mcr3u_m1c1_defaults_to_nominee_c(self) -> None:
+        """MCR3U M1C1 preview copy is Nested Square-Root Range, not the jigsaw."""
+        picked = default_team_challenge(1, 1, "MCR3U")
+        self.assertEqual(picked["context"], MCR3U_M1C1_TEAM_CHALLENGE_CONTEXT)
+        self.assertEqual(picked["question"], MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
+        self.assertIn("inputs", picked["question"].lower())
+        mcf = default_team_challenge(1, 1, "MCF3M")
+        self.assertEqual(mcf["context"], M1C1_TEAM_CHALLENGE_CONTEXT)
+        self.assertEqual(mcf["question"], M1C1_TEAM_CHALLENGE_QUESTION)
 
     def test_window_six_lessons_four_lives(self) -> None:
         """M1C1 with k=6 L=4 is Lessons 1-2; adjacent lives overlap."""

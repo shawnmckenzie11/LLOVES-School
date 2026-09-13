@@ -125,6 +125,25 @@ class LiveClassSlidesTests(unittest.TestCase):
         self.assertNotIn("jigsaw-able", m1c2["contest"]["title"])
         self.assertIn("one student leaves", m1c2["contest"]["title"].lower())
 
+    def test_mcr3u_m1c1_selects_nested_square_root_range(self) -> None:
+        """MCR3U Module 1 C1 contest is curator nominee C (Nested Square-Root Range)."""
+        bank = self.school.list_live_problems(ontario_code="MCR3U", active_only=True)
+        picked = select_live_problems(bank, strand="A", lesson_key="M1C1")
+        self.assertIsNotNone(picked["contest"])
+        self.assertEqual(picked["contest"]["title"], "Nested Square-Root Range")
+        self.assertEqual(picked["contest"]["module_hint"], "A/M1C1")
+        self.assertEqual(picked["contest"]["source"], "mathnet:03xe")
+        self.assertIn("A1.3", picked["contest"]["expectation_codes"])
+
+    def test_mcr3u_registry_lists_m1_c1(self) -> None:
+        """Stem lock registers MCR3U Module 1 live class C1."""
+        from live_class_packs import live_class_registry
+
+        registry = live_class_registry("MCR3U")
+        self.assertEqual(registry["slots_by_module"]["M1"], ["C1"])
+        packs = {row["slot"]: row for row in registry["packs"]}
+        self.assertIn("MCR3U-M1-C1-stem-and-slide.md", packs["C1"]["stem_path"])
+
     def test_timeline_lesson_key_and_slide_bodies(self) -> None:
         """M1C1 key from timeline; breakout is contest-only; consolidation lists standards."""
         placements = {

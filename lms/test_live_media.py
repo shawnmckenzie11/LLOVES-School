@@ -456,6 +456,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("freeze all", body)
         self.assertIn("generate all", body)
         self.assertIn('role !== "student"', body)
+        self.assertIn("studentaskabovegraph", body)
         self.assertIn("lateral axis", body)
         self.assertIn("lateral", body)
         self.assertIn("surface_alpha_min", body)

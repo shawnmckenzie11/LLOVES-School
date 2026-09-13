@@ -12,7 +12,7 @@
   <div class="wrap course-shell">
     <nav class="staff-top-menu" aria-label="Staff navigation">
       <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
-      <a class="staff-top-btn" href="{{ url_for('staff_bots') }}">Bots</a>
+      {% if user.role == 'it' %}<a class="staff-top-btn" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
       {% for item in nav_courses %}
       <a class="staff-top-btn{% if item.class_id and item.class_id == cls.id %} on{% endif %}"
          href="{{ item.href }}">{{ item.label }}</a>
@@ -126,7 +126,8 @@
         <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
         <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
           <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
-          <span class="live-stage-pill is-active" data-stage="join" aria-current="step">JOIN</span>
+          <span class="live-stage-pill is-active" data-stage="set_class" aria-current="step">SET CLASS</span>
+          <span class="live-stage-pill" data-stage="join">JOIN</span>
           <span class="live-stage-pill" data-stage="teams">TEAMS</span>
           <span class="live-stage-pill" data-stage="meet">MEET</span>
           <span class="live-stage-pill" data-stage="round">ROUND</span>
@@ -134,11 +135,9 @@
           <button type="button" class="live-stage-stepper" id="live-stage-next">Next</button>
         </nav>
         <div class="live-header-actions">
-          <form class="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}"
-                data-confirm="Save attendance & participation, then end?"
-                onsubmit="return confirm(this.dataset.confirm);">
-            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="Save and End Class">Save and End Class</button>
-          </form>
+          <div class="live-end-class-form">
+            <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
+          </div>
           <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
                 data-confirm="Save attendance and end without participation?"
                 onsubmit="return confirm(this.dataset.confirm);">
@@ -153,28 +152,6 @@
           <span class="live-header-present" id="live-header-present">Present 0</span>
         </div>
       </header>
-
-      {% set packs = live_packs if live_packs is defined else {} %}
-      <div class="live-pack-strip" id="live-pack-strip"
-           data-course="{{ packs.course or 'MCF3M' }}"
-           data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3"]}) | tojson }}'>
-        <label class="live-pack-field" for="live-module-select">
-          <span>Module</span>
-          <select id="live-module-select" aria-label="Module">
-            {% for mod in packs.modules or ['M1'] %}
-            <option value="{{ mod }}"{% if mod == 'M1' %} selected{% endif %}>{{ mod }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="live-pack-field" for="live-class-select">
-          <span>Live class</span>
-          <select id="live-class-select" aria-label="Live class">
-            {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3']) %}
-            <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
 
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
         <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
@@ -221,7 +198,7 @@
           </div>
           <div class="live-teams-track" id="ap-track-game-opts" aria-disabled="true">
             <label class="live-unlock-toggle" for="ap-scoreboard-toggle">
-              <input type="checkbox" id="ap-scoreboard-toggle" checked>
+              <input type="checkbox" id="ap-scoreboard-toggle">
               <span>Scoreboard</span>
             </label>
             <label class="live-unlock-toggle" for="ap-rank-toggle">
@@ -229,7 +206,6 @@
               <span>Rank</span>
             </label>
           </div>
-          <button type="button" class="live-round-pick" id="ap-teams-rename" disabled aria-disabled="true">Rename</button>
           <p id="live-teams-assign-error" class="live-strip-error error" hidden role="alert"></p>
           <span id="ap-gamify-summary" class="live-legacy-control"></span>
           <span id="ap-teams-summary" class="live-legacy-control"></span>
@@ -266,7 +242,9 @@
             </div>
           </section>
         </div>
-        <div id="meet-option-card" class="live-option-card-body" hidden></div>
+        <div id="meet-option-card" class="live-option-card-body live-meet-strip" hidden>
+          <button type="button" class="live-round-pick" id="ap-teams-rename" disabled aria-disabled="true">Rename teams</button>
+        </div>
         <div id="round-option-card" class="live-option-card-body live-round-strip" hidden>
           <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round type">
             <label class="live-pack-field live-round-type-field" for="live-round-type">
@@ -312,16 +290,32 @@
         </div>
       </section>
 
-      <section id="ap-panel-validate" class="live-date-panel ap-panel hidden" data-step="validate" hidden>
-        <h2 class="live-pane-title">Class Date</h2>
-        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester to continue.</p>
+      <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel hidden" data-step="validate" hidden>
+        <h2 class="live-pane-title">Set Class</h2>
+        {% set packs = live_packs if live_packs is defined else {} %}
+        <div class="live-pack-strip" id="live-pack-strip"
+             data-course="{{ packs.course or 'MCF3M' }}"
+             data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3"]}) | tojson }}'>
+          <label class="live-pack-field" for="live-module-select">
+            <span>Module</span>
+            <select id="live-module-select" aria-label="Module">
+              {% for mod in packs.modules or ['M1'] %}
+              <option value="{{ mod }}"{% if mod == 'M1' %} selected{% endif %}>{{ mod }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="live-pack-field" for="live-class-select">
+            <span>Live class</span>
+            <select id="live-class-select" aria-label="Live class">
+              {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3']) %}
+              <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester, then Next.</p>
         <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
         <input type="hidden" id="ap-valid-date" class="ap-date-input">
-        <div class="live-pane-footer">
-          <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-          <button type="button" class="secondary" id="ap-validate-cancel" data-track-nav="quit">Quit</button>
-          <button type="button" class="track-nav-next" id="ap-validate-apply" data-track-nav="next">Next →</button>
-        </div>
       </section>
 
       <div class="live-shell-body">
@@ -349,7 +343,6 @@
                 <span class="ap-att-col-name"></span>
                 <span class="ap-att-col-course" title="Prior course points">Course</span>
                 <span class="ap-att-col-game" title="This session">Game</span>
-                <span class="ap-att-col-team" title="Team">Team</span>
               </div>
               <div id="ap-att-list" class="check-list ap-att-readonly"></div>
               <div class="live-pane-footer live-legacy-control">
@@ -407,6 +400,10 @@
                 <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
                   <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
                   <p class="hint compact" id="meet-soft-counts"></p>
+                  <div id="meet-poll-totals" class="meet-poll-totals" hidden>
+                    <p class="meet-poll-class" id="meet-poll-class"></p>
+                    <div class="meet-poll-teams" id="meet-poll-teams"></div>
+                  </div>
                   <div class="meet-chain-actions">
                     <button type="button" id="meet-chain-next">Next</button>
                   </div>
@@ -415,9 +412,9 @@
                   <div id="mc-results-slot" class="mc-results-slot" data-mode="live" hidden>
                     <p id="mc-live-progress" class="mc-live-progress">0/0 responded</p>
                     <div id="mc-live-soft" class="mc-live-soft" hidden></div>
-                    <div id="mc-reveal-bars" class="mc-reveal-bars" hidden></div>
-                    <div class="mc-reveal-actions">
-                      <button type="button" id="mc-reveal-btn">Reveal results</button>
+                    <div id="mc-reveal-bars" class="mc-reveal-bars"></div>
+                    <div class="mc-reveal-actions" hidden>
+                      <button type="button" id="mc-reveal-btn" hidden>Reveal results</button>
                       <button type="button" id="mc-hide-reveal-btn" hidden>Hide reveal · keep collecting</button>
                     </div>
                   </div>
@@ -467,6 +464,11 @@
               <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
                 <h2 class="live-pane-title">Canvas / Slides</h2>
                 <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
+                <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
+                  <button type="button" id="live-canvas-undo">Undo</button>
+                  <button type="button" id="live-canvas-redo">Redo</button>
+                  <button type="button" id="live-canvas-erase">Erase</button>
+                </div>
                 <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
                 <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
               </section>
@@ -591,40 +593,97 @@
       {% elif ap_view == 'feedback' %}
       <div id="feedback-root" data-class-id="{{ cls.id }}">
         <h2 class="track-step-title">How was class?</h2>
-        <p class="hint">Student faces and comments from Quit or Save and End Class.</p>
+        <p class="hint">Before and after mood for each live class. Score is +1 for each step up, −1 for each step down.</p>
+        {% set grid = feedback_grid if feedback_grid is defined else {} %}
+        {% set columns = grid.columns if grid.columns is defined else [] %}
         <div class="sheet-wrap">
-          <table class="sheet" id="feedback-sheet">
+          <table class="sheet attendance-grid" id="feedback-sheet">
             <thead>
               <tr>
-                <th class="name">Student</th>
-                <th>Face</th>
-                <th>Comment</th>
-                <th>When</th>
+                <th class="name"{% if columns %} rowspan="2"{% endif %}>Student</th>
+                {% for col in columns %}
+                <th colspan="4" class="feedback-live-group">{{ col.key }}</th>
+                {% endfor %}
+                <th class="total"{% if columns %} rowspan="2"{% endif %}>Total</th>
               </tr>
+              {% if columns %}
+              <tr>
+                {% for col in columns %}
+                <th>Before</th>
+                <th>After</th>
+                <th>Score</th>
+                <th>Note</th>
+                {% endfor %}
+              </tr>
+              {% endif %}
             </thead>
             <tbody>
-              {% for row in exit_feedback %}
+              {% for student in grid.students or [] %}
               <tr>
-                <td class="name">{{ row.codename or 'Student' }}</td>
+                <td class="name">{{ student.codename or 'Student' }}</td>
+                {% for col in columns %}
+                {% set cell = (student.cells or {}).get(col.key) or {} %}
                 <td class="feedback-mood">
-                  {% if row.mood %}
-                  <img class="mood-face" src="/static/mood/{{ row.mood }}.svg" alt="{{ row.mood }}" width="40" height="40">
-                  {% else %}
-                  —
-                  {% endif %}
+                  {% if cell.before_mood %}
+                  <img class="mood-face" src="/static/mood/{{ cell.before_mood }}.svg" alt="{{ cell.before_mood }}" width="32" height="32">
+                  {% else %}—{% endif %}
                 </td>
-                <td>{{ row.comment or '' }}</td>
-                <td>{{ (row.submitted_at or '')[:16] }}</td>
+                <td class="feedback-mood">
+                  {% if cell.after_mood %}
+                  <img class="mood-face" src="/static/mood/{{ cell.after_mood }}.svg" alt="{{ cell.after_mood }}" width="32" height="32">
+                  {% else %}—{% endif %}
+                </td>
+                <td class="feedback-score">{% if cell.score is not none %}{{ cell.score }}{% else %}—{% endif %}</td>
+                <td>
+                  {% if cell.has_comment %}
+                  <button type="button" class="feedback-note-link" data-comment="{{ cell.comment|e }}" data-name="{{ student.codename|e }}">View</button>
+                  {% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="total">{% if student.total is not none %}{{ student.total }}{% else %}0{% endif %}</td>
               </tr>
               {% else %}
               <tr>
-                <td colspan="4" class="hint">No student feedback yet.</td>
+                <td colspan="{{ 2 + (columns|length * 4) }}" class="hint">No student feedback yet.</td>
               </tr>
               {% endfor %}
             </tbody>
+            {% if columns %}
+            <tfoot>
+              <tr>
+                <th class="name">Class total</th>
+                {% for col in columns %}
+                <td colspan="3"></td>
+                <td class="feedback-score">{{ (grid.totals or {}).get(col.key, 0) }}</td>
+                {% endfor %}
+                <th class="total">{{ grid.grand_total or 0 }}</th>
+              </tr>
+            </tfoot>
+            {% endif %}
           </table>
         </div>
+        <dialog id="feedback-comment-dialog" class="feedback-comment-dialog">
+          <form method="dialog" class="feedback-comment-card">
+            <h3 id="feedback-comment-title">Comment</h3>
+            <p id="feedback-comment-body" class="feedback-comment-body"></p>
+            <button type="submit">Close</button>
+          </form>
+        </dialog>
       </div>
+      <script>
+        (function () {
+          const dialog = document.getElementById("feedback-comment-dialog");
+          const title = document.getElementById("feedback-comment-title");
+          const body = document.getElementById("feedback-comment-body");
+          document.getElementById("feedback-root")?.addEventListener("click", (event) => {
+            const btn = event.target.closest(".feedback-note-link");
+            if (!btn || !dialog) return;
+            if (title) title.textContent = btn.dataset.name || "Comment";
+            if (body) body.textContent = btn.dataset.comment || "";
+            dialog.showModal();
+          });
+        })();
+      </script>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">
@@ -858,5 +917,25 @@
     <script type="module" src="/static/staff_ap_profiles.js"></script>
     {% endif %}
   </div>
+  <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+  <dialog id="end-live-dialog" class="end-live-dialog">
+    <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
+      <h2>End Live Class</h2>
+      <p>Choose what to save before ending this class.</p>
+      <input type="hidden" name="end_options" value="1">
+      <label class="end-live-option">
+        <input type="checkbox" name="save_attendance" value="1" checked>
+        <span>Save attendance</span>
+      </label>
+      <label class="end-live-option">
+        <input type="checkbox" name="save_participation" value="1" checked>
+        <span>Save participation</span>
+      </label>
+      <div class="end-live-dialog-actions">
+        <button type="button" class="secondary" data-close-end-live>Cancel</button>
+        <button type="submit">End class</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

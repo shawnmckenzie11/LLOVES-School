@@ -122,6 +122,8 @@ def default_teacher_state() -> dict[str, Any]:
         "active_media_ref": None,
         "prompt_ref": MINDS_ON_PROMPT_REF,
         "canvas_ephemeral": True,
+        "celebrate": False,
+        "winner": None,
         "updated_at": _now_iso(),
         "cue_id": None,
         "meet_chain": None,
@@ -218,8 +220,12 @@ def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
     stage = str(state.get("stage") or "join")
     frames = dict(state.get("student_frames") or default_student_frames(stage))
     unlocks = state.get("unlocks") or default_unlocks()
-    frames["media"] = bool(unlocks.get("media"))
-    frames["canvas"] = bool(unlocks.get("canvas"))
+    if stage == "round":
+        frames["media"] = False
+        frames["canvas"] = False
+    else:
+        frames["media"] = bool(unlocks.get("media"))
+        frames["canvas"] = bool(unlocks.get("canvas"))
     state["student_frames"] = frames
     return state
 
@@ -532,6 +538,8 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
         Whether the student media iframe should have a ``src``.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
+    if str(public.get("stage") or "") == "round":
+        return False
     unlocks = public.get("unlocks") or default_unlocks()
     return bool(unlocks.get("media"))
 
@@ -546,6 +554,8 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
         Whether the student canvas pane is visible.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
+    if str(public.get("stage") or "") == "round":
+        return False
     unlocks = public.get("unlocks") or default_unlocks()
     return bool(unlocks.get("canvas"))
 
@@ -594,6 +604,17 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     elif base["stage"] == "teams":
         base["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
     base["canvas_ephemeral"] = True
+    base["celebrate"] = bool(stored.get("celebrate"))
+    raw_winner = stored.get("winner")
+    if isinstance(raw_winner, dict):
+        winner_name = str(raw_winner.get("name") or "").strip()
+        base["winner"] = (
+            {"name": winner_name[:80], "score": raw_winner.get("score")}
+            if winner_name
+            else None
+        )
+    else:
+        base["winner"] = None
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():
         base["updated_at"] = stamp.strip()

@@ -27,7 +27,8 @@ import {
   suggestedLogDay,
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
-import { moodGlyph, nameWithMood } from "/static/mood_faces.js";
+import { nameWithMood } from "/static/mood_faces.js";
+import { bindWhiteboard } from "/static/live_whiteboard.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -144,6 +145,9 @@ const STAGE_BY_STEP = {
 };
 
 const TEACHER_STAGES = ["join", "teams", "meet", "round", "play"];
+const SETUP_STAGE = "set_class";
+/** True while Module + date are chosen, before Join mints the session. */
+let setupPhase = false;
 const LAYOUT_PRESETS = {
   media_full: { A: "media" },
   questions_full: { A: "questions" },
@@ -272,21 +276,23 @@ function adoptTeacherState(next) {
  * Mark StageRail from thin JSON stage (not the wizard step).
  */
 function paintStageRail() {
-  const stage = teacherState.stage || stageForStep();
-  REACHED_STAGES.add(stage);
+  const stage = setupPhase ? SETUP_STAGE : teacherState.stage || stageForStep();
+  if (!setupPhase) REACHED_STAGES.add(stage);
   document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
     const id = btn.getAttribute("data-stage") || "";
     const on = id === stage;
     btn.classList.toggle("is-active", on);
     if (on) btn.setAttribute("aria-current", "step");
     else btn.removeAttribute("aria-current");
-    btn.classList.toggle("is-reached", REACHED_STAGES.has(id));
+    btn.classList.toggle("is-reached", !setupPhase && REACHED_STAGES.has(id));
   });
   const index = TEACHER_STAGES.indexOf(stage);
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
-  if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
-  if (next instanceof HTMLButtonElement) next.disabled = index < 0 || index >= TEACHER_STAGES.length - 1;
+  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || index <= 0;
+  if (next instanceof HTMLButtonElement) {
+    next.disabled = setupPhase ? false : index < 0 || index >= TEACHER_STAGES.length - 1;
+  }
 }
 
 /**
@@ -294,20 +300,35 @@ function paintStageRail() {
  * Stage changes only swap OptionsStrip bodies and Active Content bindings.
  */
 function lockClassListPane() {
-  const stage = teacherState.stage || stageForStep();
-  if (root) root.dataset.stage = stage;
+  const stage = setupPhase ? SETUP_STAGE : teacherState.stage || stageForStep();
+  if (root) {
+    root.dataset.stage = stage;
+    root.dataset.setup = setupPhase ? "1" : "0";
+    root.classList.toggle("is-set-class", setupPhase);
+  }
+  const hideChrome = setupPhase;
   for (const id of [
     "live-shell-left",
     "session-timer",
     "class-list-pane",
     "live-shell-body",
     "live-shell-right",
+    "live-option-card",
   ]) {
     const el = $(id);
     if (!(el instanceof HTMLElement)) continue;
-    el.hidden = false;
-    el.removeAttribute("hidden");
-    el.classList.remove("hidden");
+    el.hidden = hideChrome;
+    if (hideChrome) el.setAttribute("hidden", "");
+    else {
+      el.removeAttribute("hidden");
+      el.classList.remove("hidden");
+    }
+  }
+  const date = $("ap-panel-validate");
+  if (date instanceof HTMLElement) {
+    date.hidden = !setupPhase;
+    date.classList.toggle("hidden", !setupPhase);
+    if (setupPhase) date.classList.add("is-current");
   }
 }
 
@@ -331,7 +352,7 @@ function paintOptionCard() {
   }
   if (teams) teams.hidden = stage !== "teams";
   if (stage !== "teams") hideTeamsAssignError();
-  if (meet) meet.hidden = true;
+  if (meet) meet.hidden = stage !== "meet";
   applySessionTimerStageDefaults();
   applySessionTimerUi();
   if (round) round.hidden = stage !== "round";
@@ -479,23 +500,21 @@ function paintMcResultsSlot() {
   if (progress) progress.textContent = `${responded}/${present} responded`;
   const softParts = (tally.choices || []).map((row) => `${row.id} · ${row.count}`);
   if (soft) {
-    soft.hidden = reveal || !softParts.length;
+    soft.hidden = !softParts.length;
     soft.textContent = softParts.length ? `Soft counts · ${softParts.join(" · ")}` : "";
   }
   if (bars) {
-    bars.hidden = !reveal;
-    if (reveal) {
-      bars.innerHTML = (tally.choices || [])
-        .map((row) => {
-          const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
-          const label = String(row.label || "").replace(/</g, "&lt;");
-          return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${row.count} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
-        })
-        .join("");
-    }
+    bars.hidden = false;
+    bars.innerHTML = (tally.choices || [])
+      .map((row) => {
+        const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
+        const label = String(row.label || "").replace(/</g, "&lt;");
+        return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${row.count} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
+      })
+      .join("");
   }
-  if (revealBtn) revealBtn.hidden = reveal;
-  if (hideBtn) hideBtn.hidden = !reveal;
+  if (revealBtn) revealBtn.hidden = true;
+  if (hideBtn) hideBtn.hidden = true;
 }
 
 /**
@@ -783,12 +802,63 @@ function paintMeetChainChrome() {
       step === "C"
         ? "Soft react only — no leaderboard."
         : parts.length
-          ? `Soft counts · ${parts.join(" · ")}`
-          : "Soft counts · waiting for taps";
+          ? `Class · ${parts.join(" · ")}`
+          : "Class · waiting for taps";
+    paintMeetPollTotals(step, bag, counts);
   }
   if (next instanceof HTMLButtonElement) {
     next.disabled = index >= letters.length - 1;
   }
+}
+
+/**
+ * Live Meet totals: whole-class plus each renamed team.
+ * @param {string} step
+ * @param {Record<string, string>} bag
+ * @param {Record<string, number>} classCounts
+ */
+function paintMeetPollTotals(step, bag, classCounts) {
+  const host = $("meet-poll-totals");
+  const classEl = $("meet-poll-class");
+  const teamsEl = $("meet-poll-teams");
+  if (!host) return;
+  if (step === "C") {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  const classParts = Object.keys(classCounts).map((key) => `${key} · ${classCounts[key]}`);
+  if (classEl) {
+    classEl.innerHTML = `<span class="meet-poll-kicker">Class-wide</span>${
+      classParts.length
+        ? escapeHtml(classParts.join(" · "))
+        : "waiting for taps"
+    }`;
+  }
+  if (!teamsEl) return;
+  const teams = assignedRosterTeams();
+  if (!teams.length) {
+    teamsEl.innerHTML = "";
+    return;
+  }
+  teamsEl.innerHTML = teams
+    .map((team) => {
+      const memberIds = new Set((team.members || []).map((row) => Number(row.id)));
+      const counts = {};
+      Object.entries(bag || {}).forEach(([key, choice]) => {
+        const sid = Number(String(key).replace(/^student:/, ""));
+        if (!memberIds.has(sid)) return;
+        const label = String(choice || "").trim();
+        if (!label) return;
+        counts[label] = (counts[label] || 0) + 1;
+      });
+      const parts = Object.keys(counts).map((key) => `${key} · ${counts[key]}`);
+      const name = String(team.name || "Team").trim() || "Team";
+      return `<p class="meet-poll-team"><span class="meet-poll-kicker">Team · ${escapeHtml(
+        name
+      )}</span>${parts.length ? escapeHtml(parts.join(" · ")) : "waiting"}</p>`;
+    })
+    .join("");
 }
 
 /**
@@ -1566,6 +1636,7 @@ async function proceedRunLiveBegin(iso, opts = {}) {
     body: JSON.stringify({ meeting_date: iso }),
   });
   if (overlayState.game?.status === "live") {
+    setupPhase = false;
     openLiveScoring(overlayState);
     await ensureLiveSessionMinted(opts);
     return;
@@ -1573,6 +1644,7 @@ async function proceedRunLiveBegin(iso, opts = {}) {
   if (liveSessionId) sessionPresentIds = new Set();
   scoringLocked = false;
   trackMode = null;
+  setupPhase = false;
   renderAttendanceList();
   showPanel("att");
   await ensureLiveSessionMinted(opts);
@@ -1600,17 +1672,6 @@ export async function openRunLiveClass() {
     const todayLogged = await isDateLogged(today);
     const decision = resolveLogDate(logContext, { todayLogged }, { flow: "run_live" });
 
-    if (decision.mode === "confirm_override") {
-      if (!(await confirmOverrideIfLogged(decision.iso))) return;
-      await proceedRunLiveBegin(decision.iso, { reservedWin: null });
-      return;
-    }
-
-    if (decision.mode === "auto") {
-      await proceedRunLiveBegin(decision.iso, { reservedWin: null });
-      return;
-    }
-
     pendingAction = async (pickedIso, actionOpts = {}) => {
       const iso =
         pickedIso ||
@@ -1622,7 +1683,8 @@ export async function openRunLiveClass() {
       });
     };
     fillValidateHint();
-    showValidateGrid(decision.iso);
+    showValidateGrid(decision.iso || today);
+    setupPhase = true;
     showPanel("validate");
   } catch (err) {
     showError("#ap-overlay-error", err);
@@ -1893,7 +1955,8 @@ function classListGroupsByTeam() {
  */
 function classListVisibleStudents(students) {
   const rows = Array.isArray(students) ? students : [];
-  if (String(teacherState.stage || "").toLowerCase() !== "teams") return rows;
+  const stage = String(teacherState.stage || "").toLowerCase();
+  if (setupPhase || stage === "join") return rows;
   return rows.filter((stu) => {
     if (stu && stu.guest) return true;
     return sessionPresentIds.has(Number(stu.id));
@@ -1946,7 +2009,6 @@ function appendAttendanceStudentRow(list, student, checked) {
   row.dataset.studentId = String(student.id);
   row.setAttribute("aria-pressed", present ? "true" : "false");
   const mark = late ? "L" : present ? "✓" : "";
-  const face = student.mood ? moodGlyph(student.mood) : "";
   const teamColor = studentTeamColor(student.id);
   if (teamColor) {
     row.classList.add("has-team-color");
@@ -1961,9 +2023,8 @@ function appendAttendanceStudentRow(list, student, checked) {
       sessionGamePoints[String(student.id)] ??
       0
   );
-  const team = studentTeamLabel(student.id);
-  const showTeam = currentTeamCount() > 1;
-  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-course" title="Course">${escapeHtml(course)}</span><span class="ap-att-game" title="Game">${escapeHtml(game)}</span>${showTeam ? `<span class="ap-att-team" title="Team">${escapeHtml(team)}</span>` : ""}<span class="ap-att-mood" aria-hidden="true">${face}</span>`;
+  const who = displayName(student);
+  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(who)}</span><span class="ap-att-course" title="Course">${escapeHtml(course)}</span><span class="ap-att-game" title="Game">${escapeHtml(game)}</span><button type="button" class="ap-att-plus" data-kind="student" data-id="${Number(student.id)}" data-amount="1" data-pop-name="${escapeHtml(who)}" ${present ? "" : "disabled"} aria-label="Add one point">+1</button>`;
   list.appendChild(row);
 }
 
@@ -1984,14 +2045,14 @@ function renderAttendanceList() {
   if (!list) return;
   list.innerHTML = "";
   const grouped = classListGroupsByTeam();
-  const teamsPresentOnly = String(teacherState.stage || "").toLowerCase() === "teams";
+  const teamsPresentOnly = !setupPhase && String(teacherState.stage || "").toLowerCase() !== "join";
   list.dataset.grouped = grouped ? "1" : "0";
   list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
-  list.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+  list.dataset.showTeam = "0";
   const cols = $("ap-att-cols");
   if (cols) {
     cols.hidden = false;
-    cols.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+    cols.dataset.showTeam = "0";
   }
   for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
     if (grouped && group.name) {
@@ -2000,7 +2061,9 @@ function renderAttendanceList() {
       sep.setAttribute("role", "separator");
       sep.dataset.teamKey = group.key;
       if (group.color) sep.style.setProperty("--team", group.color);
-      sep.textContent = group.name;
+      const presentTeam = group.students.some((stu) => checked.has(stu.id));
+      const teamId = Number(group.key);
+      sep.innerHTML = `<span class="ap-att-team-sep-name">${escapeHtml(group.name)}</span><button type="button" class="ap-att-plus" data-kind="team" data-id="${teamId}" data-amount="1" data-rule="each_member" data-pop-name="${escapeHtml(group.name)}" ${presentTeam && Number.isFinite(teamId) && teamId > 0 ? "" : "disabled"} aria-label="Add one point to ${escapeHtml(group.name)}">+1</button>`;
       list.appendChild(sep);
     }
     for (const student of group.students) {
@@ -2504,9 +2567,10 @@ function paintTeamsStripEnabled() {
   }
   const rename = $("ap-teams-rename");
   if (rename instanceof HTMLButtonElement) {
-    rename.hidden = false;
-    rename.disabled = !team;
-    rename.setAttribute("aria-disabled", team ? "false" : "true");
+    const onMeet = teacherState.stage === "meet";
+    rename.hidden = !onMeet;
+    rename.disabled = !onMeet || !team;
+    rename.setAttribute("aria-disabled", onMeet && team ? "false" : "true");
   }
   if (!team) closeTeamsPops();
   paintDivisionMeter();
@@ -2524,7 +2588,7 @@ function paintRoundStrip() {
     picks.removeAttribute("hidden");
   }
   const select = $("live-round-type");
-  if (select instanceof HTMLSelectElement) {
+  if (select instanceof HTMLSelectElement && document.activeElement !== select) {
     select.value = readRoundTypeFromState();
   }
 }
@@ -2711,7 +2775,7 @@ function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
   if (box) {
     const stored = localStorage.getItem(scoreboardKey);
-    box.checked = stored === null ? true : stored === "1";
+    box.checked = stored === "1";
     localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
   }
   syncScoreboardPreview();
@@ -3086,11 +3150,8 @@ async function advanceTeamsToMeet() {
   hideTeamsAssignError();
   closeTeamsPops();
   renderAttendanceList();
-  pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
-  localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
-  if (pendingScoreboard) {
-    openScoreboardOverlay();
-  }
+  pendingScoreboard = false;
+  localStorage.setItem(scoreboardKey, "0");
 }
 
 $("ap-teams-next")?.addEventListener("click", () => {
@@ -3190,7 +3251,7 @@ function renderDraftNamesPanel() {
 }
 
 $("ap-teams-rename")?.addEventListener("click", async () => {
-  if (currentTeamCount() < 2 || isScoringLive()) return;
+  if (teacherState.stage !== "meet" || currentTeamCount() < 2) return;
   try {
     const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
     if (assigned.length >= 2) {
@@ -3381,8 +3442,6 @@ $("ap-rounds-list")?.addEventListener("input", (event) => {
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
   const hasLiveOverlay = Boolean(liveSessionId || readLiveSessionId());
-  const wantEspn = pendingScoreboard && Boolean($("ap-scoreboard-toggle")?.checked);
-  const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     if (trackMode === "individual" && !["open", "challenge"].includes(draftRound.kind)) {
       draftRound = { ...draftRound, kind: "open" };
@@ -3397,14 +3456,11 @@ $("ap-rounds-start")?.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ rounds }),
     });
-    if (wantEspn) openScoreboardOverlay(overlay);
-    else overlay?.close();
     if (hasLiveOverlay) ensureLiveSessionOverlay();
     pendingScoreboard = false;
     openLiveScoring(overlayState);
     startLiveSessionPolling();
   } catch (err) {
-    overlay?.close();
     showError("#ap-overlay-error", err);
   }
 });
@@ -3845,10 +3901,29 @@ async function postScoreFromButton(btn) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  spawnScorePop(btn.dataset.popName || (payload.kind === "team" ? "Team" : "Student"));
+  const nextPoints = { ...sessionGamePoints };
+  for (const student of overlayState.students || []) {
+    if (student.id == null) continue;
+    const pts = Number(student.session_points ?? student.points ?? student.game_points);
+    if (Number.isFinite(pts)) nextPoints[String(student.id)] = pts;
+  }
+  sessionGamePoints = nextPoints;
   pendingTeam = null;
   liveStamp = "";
   openLiveScoring(overlayState, { stayOnScore: true });
 }
+
+$("ap-att-list")?.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button.ap-att-plus[data-kind]");
+  if (!btn) return;
+  try {
+    await postScoreFromButton(btn);
+    renderAttendanceList();
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  }
+});
 
 $("ap-live-teams")?.addEventListener("click", async (event) => {
   const cancel = event.target.closest("[data-cancel-rule]");
@@ -4173,6 +4248,10 @@ $("live-stage-prev")?.addEventListener("click", () => {
   patchTeacherState({ advance: "prev" });
 });
 $("live-stage-next")?.addEventListener("click", () => {
+  if (setupPhase) {
+    applyValidateDateChoice();
+    return;
+  }
   if (teacherState.stage === "teams") {
     advanceTeamsToMeet();
     return;
@@ -4222,10 +4301,24 @@ document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
   });
 });
 
-$("live-round-set")?.addEventListener("click", () => {
+/**
+ * Persist the ROUND type dropdown so the choice does not snap back.
+ */
+function commitRoundType() {
   const flags = readRoundFlags();
   const selected = Object.keys(flags).find((key) => flags[key]) || "minds_on";
+  teacherState.round = selected;
+  teacherState.round_flags = flags;
+  const select = $("live-round-type");
+  if (select instanceof HTMLSelectElement) select.value = selected;
   patchTeacherState({ round: selected, round_flags: flags });
+}
+
+$("live-round-type")?.addEventListener("change", () => {
+  commitRoundType();
+});
+$("live-round-set")?.addEventListener("click", () => {
+  commitRoundType();
 });
 
 /**
@@ -4356,66 +4449,32 @@ document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
 function bindEphemeralCanvas() {
   const canvas = $("live-canvas-stub");
   if (!(canvas instanceof HTMLCanvasElement)) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  let drawing = false;
-  let strokeId = "";
-  const point = (event) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
-      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
-    };
-  };
-  const normalized = (p) => ({
-    x: p.x / canvas.width,
-    y: p.y / canvas.height,
-  });
-  const postPresence = (p, ended) => {
-    const sessionId = liveSessionId || readLiveSessionId();
-    if (!sessionId) return;
-    const align = String(teacherState.canvas_align || "student");
-    if (align === "student") return;
-    const norm = normalized(p);
-    api(`/api/live-sessions/${sessionId}/canvas-presence`, {
-      method: "POST",
-      body: JSON.stringify({
-        x: norm.x,
-        y: norm.y,
-        point: [norm.x, norm.y],
-        stroke_id: strokeId || undefined,
-        ended: Boolean(ended),
-      }),
-    }).catch(() => {});
-  };
-  canvas.addEventListener("pointerdown", (event) => {
-    drawing = true;
-    strokeId = `t-${Date.now()}`;
-    const p = point(event);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    canvas.setPointerCapture(event.pointerId);
-    postPresence(p, false);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!drawing) return;
-    const p = point(event);
-    ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = "#12202e";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    postPresence(p, false);
-  });
-  canvas.addEventListener("pointerup", (event) => {
-    if (drawing) postPresence(point(event), true);
-    drawing = false;
-    strokeId = "";
+  bindWhiteboard(canvas, {
+    undoBtn: $("live-canvas-undo"),
+    redoBtn: $("live-canvas-redo"),
+    eraseBtn: $("live-canvas-erase"),
+    onPoint: (p, ended, strokeId) => {
+      const sessionId = liveSessionId || readLiveSessionId();
+      if (!sessionId) return;
+      const align = String(teacherState.canvas_align || "student");
+      if (align === "student") return;
+      api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+        method: "POST",
+        body: JSON.stringify({
+          x: p.x / canvas.width,
+          y: p.y / canvas.height,
+          point: [p.x / canvas.width, p.y / canvas.height],
+          stroke_id: strokeId || undefined,
+          ended: Boolean(ended),
+        }),
+      }).catch(() => {});
+    },
   });
 }
 
 selectTrackMode("individual");
 if (localStorage.getItem(scoreboardKey) === null) {
-  localStorage.setItem(scoreboardKey, "1");
+  localStorage.setItem(scoreboardKey, "0");
 }
 setSessionTimerMinutes(3);
 
@@ -4440,3 +4499,34 @@ if (root?.dataset.apView === "live") {
     }
   })().catch((err) => showError("#ap-overlay-error", err));
 }
+
+/**
+ * Bounce a student or team name off the live scoreboard, then fade it.
+ * @param {string} name
+ */
+function spawnScorePop(name) {
+  const layer = document.getElementById("score-pop-layer");
+  if (!(layer instanceof HTMLElement)) return;
+  const label = String(name || "").trim() || "Point";
+  const chip = document.createElement("p");
+  chip.className = "score-pop-chip";
+  chip.textContent = `+1 ${label}`;
+  layer.appendChild(chip);
+  window.setTimeout(() => chip.remove(), 5000);
+}
+
+/**
+ * Open / close the End Live Class save-options dialog.
+ */
+function wireEndLiveDialog() {
+  const dialog = document.getElementById("end-live-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) return;
+  document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
+    btn.addEventListener("click", () => dialog.showModal());
+  });
+  dialog.querySelector("[data-close-end-live]")?.addEventListener("click", () => {
+    dialog.close();
+  });
+}
+
+wireEndLiveDialog();

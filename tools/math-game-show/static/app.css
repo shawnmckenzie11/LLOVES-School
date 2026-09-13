@@ -1473,9 +1473,24 @@ body.live-overlay.overlay .live-overlay-stage {
 }
 
 .live-overlay-celebrate-members li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.92rem;
   opacity: 0;
   animation: live-overlay-member-in 0.45s ease forwards;
+}
+
+.live-overlay-celebrate-members .name-with-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.live-overlay-celebrate-members .student-avatar {
+  flex: 0 0 auto;
+  line-height: 1;
+  font-size: 1.15em;
 }
 
 .live-overlay-celebrate-members li:nth-child(1) { animation-delay: 0.15s; }
@@ -1560,6 +1575,45 @@ body.live-overlay.overlay .live-overlay-stage {
   100% { transform: rotate(var(--a, 0deg)) translateY(-42px); opacity: 0; }
 }
 
+.live-overlay-graffiti {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-overlay-graffiti-tag {
+  font-family: Impact, "Haettenschweiler", "Arial Black", sans-serif;
+  font-size: clamp(2.4rem, 8vw, 5.5rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5c518;
+  text-shadow:
+    3px 3px 0 #12202e,
+    -2px 4px 0 #ef4444,
+    0 0 18px rgba(245, 197, 24, 0.65);
+  transform: rotate(-6deg);
+  animation: live-overlay-graffiti-spray 0.8s ease-out both;
+}
+.live-overlay-graffiti-drip {
+  position: absolute;
+  width: 8px;
+  border-radius: 0 0 8px 8px;
+  background: var(--c, #f5c518);
+  animation: live-overlay-graffiti-drip 1.6s ease-in var(--delay, 0s) both;
+}
+@keyframes live-overlay-graffiti-spray {
+  0% { opacity: 0; filter: blur(8px); transform: rotate(-6deg) scale(1.4); }
+  100% { opacity: 1; filter: blur(0); transform: rotate(-6deg) scale(1); }
+}
+@keyframes live-overlay-graffiti-drip {
+  0% { height: 0; opacity: 0; }
+  30% { opacity: 1; }
+  100% { height: var(--h, 48px); opacity: 0.75; }
+}
+
 body.live-overlay.is-anticipation .live-overlay-roster {
   opacity: 0.55;
 }
@@ -1632,11 +1686,27 @@ body.live-overlay.is-celebrating .live-overlay-teams {
 }
 
 .live-overlay-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
   padding: 0.35rem 0.45rem;
   border-left: 3px solid #3d7eff;
   background: rgba(255, 255, 255, 0.04);
   font-size: 0.92rem;
   line-height: 1.25;
+}
+
+.live-overlay-list .name-with-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.live-overlay-list .student-avatar {
+  flex: 0 0 auto;
+  line-height: 1;
+  font-size: 1.15em;
 }
 
 .live-overlay-list li.is-guest {

@@ -25,6 +25,9 @@ from live_class_constants import (
     M1C1_TEAM_CHALLENGE_CONTEXT,
     M1C1_TEAM_CHALLENGE_NOTES,
     M1C1_TEAM_CHALLENGE_QUESTION,
+    MCR3U_M1C1_TEAM_CHALLENGE_CONTEXT,
+    MCR3U_M1C1_TEAM_CHALLENGE_NOTES,
+    MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
 )
 from slides_template import STOCK_REFLECTION, TEMPLATE_LAYOUT_NAMES
 
@@ -82,13 +85,25 @@ def lesson_key(module_number: int, live_index: int) -> str:
     return f"M{int(module_number)}C{int(live_index)}"
 
 
-def default_team_challenge(module_number: int, live_index: int) -> dict[str, str]:
+def default_team_challenge(
+    module_number: int,
+    live_index: int,
+    ontario_code: str = "MCF3M",
+) -> dict[str, str]:
     """Pre-fill team-challenge copy for the first M1C1 run.
 
     Args:
         module_number: Module number.
         live_index: Live class number in the module.
+        ontario_code: Course code. MCR3U M1C1 uses curator nominee C.
     """
+    code = str(ontario_code or "MCF3M").strip().upper()
+    if code == "MCR3U" and int(module_number) == 1 and int(live_index) == 1:
+        return {
+            "context": MCR3U_M1C1_TEAM_CHALLENGE_CONTEXT,
+            "question": MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
+            "speaker_notes": MCR3U_M1C1_TEAM_CHALLENGE_NOTES,
+        }
     if int(module_number) == 1 and int(live_index) == 1:
         return {
             "context": M1C1_TEAM_CHALLENGE_CONTEXT,
@@ -362,7 +377,7 @@ def preview_live_class(
     summary = (
         f"{key} connects to {', '.join(names)}" if names else f"{key} connects to no async Lessons"
     )
-    challenge = default_team_challenge(module_n, live_i)
+    challenge = default_team_challenge(module_n, live_i, ontario)
     return {
         "ok": True,
         "lesson_key": key,

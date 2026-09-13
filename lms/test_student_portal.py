@@ -174,11 +174,20 @@ class StudentPortalTests(unittest.TestCase):
         home_html = home.get_data(as_text=True)
         self.assertIn("Waiting room — class is about to begin.", home_html)
         self.assertNotIn("Waiting for your teacher to start scoring.", home_html)
+        self.assertLess(home_html.index('id="me-avatar"'), home_html.index('id="me-name"'))
+        overlay = self.school.get_live_session_state(self.live_session_id)
+        maple_att = next(
+            row
+            for row in overlay["attendees"]
+            if str(row.get("codename") or "") == "Maple"
+        )
+        self.assertEqual(maple_att.get("character"), "fox")
 
         state = self.student.get("/api/student/state")
         self.assertEqual(state.status_code, 200)
         payload = state.get_json()
         self.assertTrue(payload["ok"])
+        self.assertEqual((payload.get("me") or {}).get("character"), "fox")
         self.assertFalse(payload["show_rank"])
         self.assertNotIn("rank", payload.get("me") or {})
         self.assertTrue(payload.get("waiting_room"))
@@ -971,7 +980,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("unmountStudentMedia", js)
         self.assertIn("lastStateSeq", js)
         self.assertIn("function isJoinMindsOnPrompt(", js)
-        self.assertIn('ts.stage || "") === "teams" && isJoinMindsOnPrompt', js)
+        self.assertIn("function isJoinMindsOnPrompt(", js)
+        self.assertIn("function studentMeetPollsHtml(", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
         self.assertIn('["cue.meet_open", "cue.meet_clear"]', js)
@@ -1032,6 +1042,14 @@ class StudentPortalTests(unittest.TestCase):
             },
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
+        submitted = submit.get_json()
+        self.assertIsNotNone(submitted.get("mc_tally"), submitted)
+        self.assertIsNotNone((submitted.get("feedback") or submitted.get("my_response") or {}).get("text") or (submitted.get("my_response") or {}).get("feedback"), submitted)
+        after_answer = self.student.get("/api/student/state").get_json()
+        self.assertIsNotNone(after_answer.get("mc_tally"), after_answer)
+        self.assertIsNotNone(after_answer.get("my_response"), after_answer)
+        unanswered_before_reveal = aspen.get("/api/student/state").get_json()
+        self.assertNotIn("mc_tally", unanswered_before_reveal)
         shown = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/teacher-state",
             json={
@@ -1144,7 +1162,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn('id="results-strip"', html)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('getElementById("question-frame")', js)
-        self.assertIn("questionFrame.hidden = !proj.questions", js)
+        self.assertIn("questionFrame.hidden = welcomeOn || !proj.questions", js)
         self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
         self.assertIn("function showFeedbackPanel(", js)
         self.assertIn("function dismissFeedbackPanel()", js)
@@ -1152,7 +1170,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("innerHTML = feedback", js)
 
     def test_beat32_save_work_sits_under_name_row(self) -> None:
-        """Beat 32: Save Work is under the name row, not timer or Question."""
+        """Beat 32: Save View is under the name row, not timer or Question."""
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
@@ -1160,6 +1178,7 @@ class StudentPortalTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
         self.assertLess(html.index('id="me-display-time"'), html.index('id="me-board"'))
         self.assertLess(html.index('id="me-name-row"'), html.index('id="me-save-slot"'))
+        self.assertLess(html.index('id="me-avatar"'), html.index('id="me-name"'))
         self.assertLess(html.index('id="me-save-slot"'), html.index('id="save-work"'))
         self.assertLess(html.index('id="save-work"'), html.index('id="me-stats"'))
         self.assertLess(html.index('id="me-stats"'), html.index('id="student-round-banner"'))
@@ -1168,7 +1187,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertLess(html.index('id="save-work"'), html.index('id="media-pane"'))
         self.assertLess(html.index('id="save-work"'), html.index('id="class-board"'))
         self.assertNotIn('id="me-card-footer"', html)
-        self.assertIn(">Save Work<", html)
+        self.assertIn(">Save View<", html)
         self.assertNotIn("Saved to your downloads.", html)
         chrome = html[html.index('id="me-board"') : html.index('id="student-round-banner"')]
         self.assertIn('id="save-work"', chrome)
@@ -1180,20 +1199,66 @@ class StudentPortalTests(unittest.TestCase):
             )
             self.assertNotIn("save-work", page)
             self.assertNotIn("Save Work", page)
+            self.assertNotIn("Save View", page)
         paint = js.split("function paintMe(")[1].split("function showSaveWorkToast(")[0]
         self.assertNotIn("innerHTML", paint)
         self.assertNotIn("save-work", paint)
+        self.assertIn("meAvatarEl.textContent", paint)
+        self.assertIn("avatarGlyph", paint)
         self.assertIn("meNameEl.textContent", paint)
         self.assertIn("function saveStudentWork()", js)
         self.assertIn("Saved to your downloads.", js)
         self.assertIn("Nothing to save yet.", js)
-        self.assertIn("paneIsMounted(canvasPane)", js)
-        self.assertIn("paneIsMounted(mediaPane)", js)
-        self.assertIn("live-class-work.png", js)
+        self.assertIn("live-class-view.png", js)
+        self.assertIn("function collectViewCanvases(", js)
+        self.assertIn("captureMediaFrame(mediaFrame)", js)
+        self.assertIn('canvas.nodeName !== "CANVAS"', js)
+        self.assertIn("function captureEntireStudentView(", js)
+        self.assertIn("prompt-poll-totals", js)
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
+        self.assertIn('id="prompt-poll-totals"', home)
+        self.assertIn('id="student-canvas-undo"', home)
         self.assertNotIn("JSZip", js)
         self.assertIn(".student-me .me-save-slot {", css)
         self.assertIn(".student-me .save-work {", css)
+        self.assertIn('id="student-winner-name"', html)
+        self.assertIn("payload.celebrate", js)
+        self.assertIn("Waiting for the next question…", js)
+        self.assertIn("celebrating || welcomeOn", js)
+        self.assertNotIn("iframeOwnsAsk", js)
 
+    def test_teams_welcome_screen_is_wired_on_student_home(self) -> None:
+        """TEAMS clears the student prompt face and paints the VLC welcome card."""
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn('id="game-show-welcome"', html)
+        self.assertLess(html.index('id="student-wait"'), html.index('id="game-show-welcome"'))
+        self.assertLess(html.index('id="game-show-welcome"'), html.index('id="question-frame"'))
+        self.assertIn("function paintGameShowWelcome(", js)
+        self.assertIn("game_show_welcome", js)
+        self.assertIn("VLC Math Game Show", js)
+        self.assertIn("nameWithAvatar", js)
+        self.assertIn(".game-show-welcome", css)
+        self.assertIn("gs-orbit", css)
+
+    def test_overlay_and_student_names_use_avatars_not_moods(self) -> None:
+        """Live overlay + student home paint avatars left of names, never mood glyphs."""
+        overlay_js = (
+            LMS_DIR.parent / "tools" / "math-game-show" / "static" / "live_session_overlay.js"
+        ).read_text(encoding="utf-8")
+        avatars = (LMS_DIR / "static" / "student_avatars.js").read_text(encoding="utf-8")
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("nameWithAvatar", overlay_js)
+        self.assertIn("student_avatars.js", overlay_js)
+        self.assertNotIn("moodGlyph", overlay_js)
+        self.assertNotIn("mood_faces.js", overlay_js)
+        self.assertIn("avatarGlyph", avatars)
+        self.assertIn("nameWithAvatar", avatars)
+        self.assertIn("student_avatars.js", portal)
+        self.assertIn("avatarGlyph", portal)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -83,6 +83,7 @@ try:
         staff_teams_spark_card,
         teams_spark_prompt_payload,
     )
+    from game_show_welcome import game_show_welcome_payload
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
@@ -155,6 +156,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         staff_teams_spark_card,
         teams_spark_prompt_payload,
     )
+    from lms.game_show_welcome import game_show_welcome_payload
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
@@ -388,6 +390,9 @@ CREATE TABLE IF NOT EXISTS live_class_feedback (
     meeting_date TEXT,
     token TEXT NOT NULL UNIQUE,
     mood TEXT,
+    before_mood TEXT,
+    live_module TEXT,
+    live_slot TEXT,
     comment TEXT,
     submitted_at TEXT,
     created_at TEXT NOT NULL
@@ -1624,6 +1629,22 @@ class LovesDB:
         if "canvas_sync_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN canvas_sync_json TEXT"
+            )
+        feedback_cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(live_class_feedback)")
+        }
+        if "before_mood" not in feedback_cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_feedback ADD COLUMN before_mood TEXT"
+            )
+        if "live_module" not in feedback_cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_feedback ADD COLUMN live_module TEXT"
+            )
+        if "live_slot" not in feedback_cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_feedback ADD COLUMN live_slot TEXT"
             )
         self.conn.execute(
             """
@@ -5739,7 +5760,7 @@ class SchoolDB(LovesDB):
             visit_token: Optional stable rejoin token.
         """
         session_row = self.get_live_session(session_id)
-        if session_row is None or session_row.get("status") != "active":
+        if not self._session_open_for_student(session_row):
             return False
         attendee = None
         token = (visit_token or "").strip()
@@ -5751,7 +5772,9 @@ class SchoolDB(LovesDB):
                 attendee = None
         elif student_id not in (None, ""):
             attendee = self.get_live_session_attendee(session_id, int(student_id))
-        if attendee is None or attendee.get("left_at"):
+        if attendee is None:
+            return False
+        if attendee.get("left_at") and not self.session_is_celebrating(session_id):
             return False
         return True
 
@@ -5768,12 +5791,14 @@ class SchoolDB(LovesDB):
         if attendee is None:
             return None
         session_row = self.get_live_session(int(attendee["live_session_id"]))
-        if session_row is None or session_row.get("status") != "active":
+        if not self._session_open_for_student(session_row):
             return None
-        self.sweep_stale_live_attendees(
-            int(attendee["live_session_id"]), except_token=str(token)
-        )
-        return self._resume_live_attendee(attendee)
+        if session_row.get("status") == "active":
+            self.sweep_stale_live_attendees(
+                int(attendee["live_session_id"]), except_token=str(token)
+            )
+            return self._resume_live_attendee(attendee)
+        return dict(attendee)
 
     def resolve_student_visit_token(
         self, token: str, *, allow_left: bool = False
@@ -5794,9 +5819,10 @@ class SchoolDB(LovesDB):
         if attendee is None:
             return None
         if attendee.get("left_at") and not allow_left:
-            return None
+            if not self.session_is_celebrating(int(attendee["live_session_id"])):
+                return None
         session_row = self.get_live_session(int(attendee["live_session_id"]))
-        if session_row is None or session_row.get("status") != "active":
+        if not self._session_open_for_student(session_row):
             return None
         sid = attendee.get("student_id")
         return {
@@ -6019,10 +6045,12 @@ class SchoolDB(LovesDB):
         """True when scoring, MEET/ROUND/PLAY, or Minds-On has ended.
 
         JOIN keeps waiting-room Minds-On even when the teacher preview
-        has a local Real-slice blob. TEAMS / Meet / later stages leave
-        the waiting room (JOIN→TEAMS closes the Minds-On poll). Team
-        Challenge / scoring still write a Minds-On sentinel so lazy-seed
-        cannot bring it back.
+        has a local Real-slice blob. TEAMS keeps the teacher spark on
+        the staff Question frame; students get the VLC welcome card
+        instead of Minds-On. Meet / later stages leave the waiting room.
+        Team Challenge /
+        scoring still write a Minds-On sentinel so lazy-seed cannot
+        bring it back.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6037,7 +6065,7 @@ class SchoolDB(LovesDB):
             return True
         stored = session_row.get("teacher_state")
         teacher = public_teacher_state(stored if isinstance(stored, dict) else None)
-        if str(teacher.get("stage") or "") in {"teams", "meet", "round", "play"}:
+        if str(teacher.get("stage") or "") in {"meet", "round", "play"}:
             return True
         frames = teacher.get("student_frames") or {}
         if frames.get("media") or frames.get("canvas"):
@@ -6255,13 +6283,9 @@ class SchoolDB(LovesDB):
             return None
         if str(teacher.get("stage") or "") != "teams":
             return None
-        self.ensure_teams_spark(session_id)
-        prompt = self.get_active_live_prompt(session_id)
-        if prompt is None or not is_teams_spark_payload(prompt.get("payload")):
-            return None
         ui = teacher.get("mc_ui") if isinstance(teacher.get("mc_ui"), dict) else {}
         revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))
-        return staff_teams_spark_card(prompt.get("payload"), reveal=revealed)
+        return staff_teams_spark_card(teams_spark_prompt_payload(), reveal=revealed)
 
     def _prompt_at_slide(
         self, session_id: int, slide_index: int
@@ -6643,8 +6667,8 @@ class SchoolDB(LovesDB):
         Source-agnostic: JOIN Minds-On, MEET soft MC, CONS, and any other
         ``kind=mc`` ride share this shape. Meet tallies ephemeral chain
         picks (no gradebook).         Seeds waiting-room Minds-On so JOIN staff
-        polls see the same prompt students get. TEAMS shared spark
-        has no tally chips — returns empty until Meet / CONS / ROUND.
+        polls see the same prompt students get. TEAMS keeps that
+        Minds-On tally for students (teacher spark is staff-only).
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6658,9 +6682,10 @@ class SchoolDB(LovesDB):
         except KeyError:
             teacher = None
         stage = str((teacher or {}).get("stage") or "")
-        if stage == "teams":
-            return None
-        if is_minds_on_payload(prompt.get("payload")) and stage != "join":
+        if is_minds_on_payload(prompt.get("payload")) and stage not in {
+            "join",
+            "teams",
+        }:
             return None
         if is_teams_spark_payload(prompt.get("payload")):
             return None
@@ -6734,6 +6759,53 @@ class SchoolDB(LovesDB):
         _ = (class_id, student_id, points, prompt_id, label)
         return None
 
+    def student_game_show_welcome(self, session_id: int) -> dict[str, Any]:
+        """Build the TEAMS welcome card for student phones.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Title, class/lesson codes, round blurbs, and present avatars.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        class_id = int(session_row["class_id"])
+        cls = self.enrich_class(self.game.get_class(class_id))
+        class_code = str(
+            cls.get("section_code")
+            or cls.get("ontario_code")
+            or cls.get("course_code")
+            or ""
+        ).strip()
+        teacher = self.live_session_teacher_state_payload(session_id)
+        module = normalize_live_module(teacher.get("live_module"))
+        slot = normalize_live_slot(teacher.get("live_slot"))
+        characters = self.game.character_keys(class_id)
+        participants: list[dict[str, Any]] = []
+        for row in self.list_live_session_attendees(session_id, present_only=True):
+            sid = row.get("student_id")
+            name = first_name_only(str(row.get("codename") or "")) or (
+                "Guest" if row.get("unmatched") else "Student"
+            )
+            character = None
+            if sid not in (None, ""):
+                character = characters.get(int(sid))
+            participants.append(
+                {
+                    "student_id": int(sid) if sid not in (None, "") else None,
+                    "codename": name,
+                    "character": character,
+                }
+            )
+        participants.sort(key=lambda row: str(row.get("codename") or "").lower())
+        return game_show_welcome_payload(
+            class_code=class_code,
+            lesson_code=f"{module}-{slot}",
+            participants=participants,
+        )
+
     def student_live_prompt_payload(
         self,
         session_id: int,
@@ -6762,8 +6834,6 @@ class SchoolDB(LovesDB):
         meet_live = stage == "meet" and meet_state is not None
         if meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
-        elif stage == "teams":
-            self.ensure_teams_spark(session_id)
         else:
             self.ensure_waiting_room_minds_on(session_id)
         waiting_room = False if meet_live else not self._session_left_waiting_room(
@@ -6771,23 +6841,24 @@ class SchoolDB(LovesDB):
         )
         prompt = self.get_active_live_prompt(session_id)
         poll_closed = mc_poll_closed(teacher)
-        shared_tally = (
-            self.student_visible_mc_tally(session_id)
-            if student_mc_summary_visible(teacher)
-            else None
-        )
+        shared_tally = self.live_session_mc_tally(session_id)
         empty = {
             "prompt": None,
             "my_response": None,
             "waiting_room": waiting_room,
             "poll_closed": poll_closed,
         }
-        if shared_tally is not None:
+        if shared_tally is not None and student_mc_summary_visible(teacher):
             empty["mc_tally"] = shared_tally
+        if stage == "teams":
+            empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
+            return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
-        if is_minds_on_payload(raw_payload) and (not waiting_room or stage != "join"):
+        if is_minds_on_payload(raw_payload) and (
+            not waiting_room or stage not in {"join", "teams"}
+        ):
             return empty
         if is_teams_spark_payload(raw_payload) and stage != "teams":
             return empty
@@ -6862,7 +6933,9 @@ class SchoolDB(LovesDB):
             if meet_state is not None
             else None,
         }
-        if shared_tally is not None:
+        if shared_tally is not None and (
+            my_response is not None or student_mc_summary_visible(teacher)
+        ):
             out["mc_tally"] = shared_tally
         return out
 
@@ -7560,11 +7633,10 @@ class SchoolDB(LovesDB):
         entering_teams = new_stage == "teams" and prev_stage != "teams"
         leaving_teams = prev_stage == "teams" and new_stage != "teams"
         if entering_teams:
-            self.clear_waiting_room_minds_on(session_id)
-            self.ensure_teams_spark(session_id)
             if "cue_id" not in kwargs:
                 payload["cue_id"] = CUE_TEAMS_SPARK
         if leaving_teams:
+            self.clear_waiting_room_minds_on(session_id)
             self.clear_teams_spark(session_id)
         if assign is not None and entering:
             self._assign_teams_for_meet_advance(session_id, assign)
@@ -7599,10 +7671,9 @@ class SchoolDB(LovesDB):
                 session_id, payload, chain_state=state, fire_open=False
             )
         written = self._write_teacher_state(session_id, payload)
-        if "round_flags" in kwargs:
-            flags = written.get("round_flags") or {}
-            if flags.get("consolidation"):
-                self.mount_consolidation_pack(session_id)
+        flags = written.get("round_flags") or {}
+        if new_stage == "play" and flags.get("consolidation"):
+            self.mount_consolidation_pack(session_id)
         advance = str(kwargs.get("advance") or "").strip().lower()
         if advance == "next" and new_stage and new_stage != prev_stage:
             self.apply_session_timer_on_stage_advance(
@@ -8008,22 +8079,31 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def wipe_live_sessions_for_class(self, class_id: int) -> dict[str, Any]:
-        """Delete all live sessions and their data for a class.
+    def wipe_live_sessions_for_class(
+        self, class_id: int, session_ids: list[int] | None = None
+    ) -> dict[str, Any]:
+        """Delete live sessions and their data for a class.
 
-        Teacher End Live Class recovery: hung sessions plus leftover
+        Teacher Quit / new-run recovery: hung sessions plus leftover
         attendees, prompts, responses, observations, slides, and active
         media are removed so Run Live Class can start clean. Roster,
         gradebook, and lesson-slide decks stay intact.
 
         Args:
             class_id: Game-show ``classes.id``.
+            session_ids: Optional subset. Default is every session.
 
         Returns:
             ``{ok, class_id, wiped_session_ids, wiped_count}``.
         """
         sessions = self.list_live_sessions_for_class(class_id)
-        session_ids = [int(row["id"]) for row in sessions]
+        if session_ids is None:
+            session_ids = [int(row["id"]) for row in sessions]
+        else:
+            wanted = {int(sid) for sid in session_ids}
+            session_ids = [
+                int(row["id"]) for row in sessions if int(row["id"]) in wanted
+            ]
         for sid in session_ids:
             self.clear_attendee_moods_and_characters(sid)
         try:
@@ -8097,6 +8177,13 @@ class SchoolDB(LovesDB):
                 )
             self.conn.execute(
                 "DELETE FROM live_class_sessions WHERE class_id = ?",
+                (int(class_id),),
+            )
+            self.conn.execute(
+                """
+                DELETE FROM live_class_feedback
+                WHERE class_id = ? AND submitted_at IS NULL
+                """,
                 (int(class_id),),
             )
             self.conn.commit()
@@ -8247,7 +8334,8 @@ class SchoolDB(LovesDB):
         """Mint pending How-was-class rows for current live attendees.
 
         Must run before the SID wipe so student identity still exists.
-        Tokens survive both Save and End Class and Quit.
+        Tokens stay for End Live Class celebration; Quit deletes
+        unsubmitted rows with the SID.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -8263,6 +8351,14 @@ class SchoolDB(LovesDB):
         meeting_date = str(live.get("meeting_date") or "")[:10] or None
         attendees = self.list_live_session_attendees(session_id)
         now = _now()
+        live_module = "M1"
+        live_slot = "C1"
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            live_module = str(teacher.get("live_module") or "M1").upper()
+            live_slot = str(teacher.get("live_slot") or "C1").upper()
+        except KeyError:
+            pass
         inserted = 0
         with self._lock:
             for row in attendees:
@@ -8281,14 +8377,23 @@ class SchoolDB(LovesDB):
                 ).fetchone()
                 if existing is not None:
                     continue
+                before_mood = None
+                if student_id not in (None, ""):
+                    try:
+                        before_mood = self.game.get_mood(
+                            int(class_id), int(student_id), meeting_date
+                        )
+                    except Exception:  # noqa: BLE001 — missing mood is fine
+                        before_mood = None
                 token = secrets.token_urlsafe(18)
                 self.conn.execute(
                     """
                     INSERT INTO live_class_feedback (
                         class_id, offering_id, student_id, participant_uuid,
-                        codename, meeting_date, token, mood, comment,
+                        codename, meeting_date, token, mood, before_mood,
+                        live_module, live_slot, comment,
                         submitted_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?)
                     """,
                     (
                         int(class_id),
@@ -8298,6 +8403,9 @@ class SchoolDB(LovesDB):
                         str(row.get("codename") or ""),
                         meeting_date,
                         token,
+                        before_mood,
+                        live_module,
+                        live_slot,
                         now,
                     ),
                 )
@@ -8429,43 +8537,356 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
-        """Save and End Class or Quit, then wipe the live SID.
+    MOOD_RANK = {"low": 0, "ok": 1, "good": 2}
 
-        Attendance always persists (including Quit). Save and End Class
-        also writes +1 participation per question answered (Meet social
-        taps excluded). Quit zeros participation and discards ephemeral
-        meet taps / live QH with the SID wipe. Exit-feedback tokens are
-        minted before the wipe so students can still rate the class.
+    def mood_jump_score(self, before: str | None, after: str | None) -> int | None:
+        """+1 per mood step up, −1 per step down. None when either face is missing."""
+        left = self.MOOD_RANK.get(str(before or "").strip().lower())
+        right = self.MOOD_RANK.get(str(after or "").strip().lower())
+        if left is None or right is None:
+            return None
+        return int(right) - int(left)
+
+    def feedback_grid_for_class(self, class_id: int) -> dict[str, Any]:
+        """Roster table grouped by live class (M1C1) with before/after mood.
+
+        Rows include every rostered student. Comment text stays off the
+        grid; cells only flag a pop-out when a note exists.
 
         Args:
             class_id: Game-show ``classes.id``.
-            persist: True to keep participation; False for Quit
-                (attendance only).
+        """
+        try:
+            roster = list(self.game.dashboard(int(class_id), sort="az").get("students") or [])
+        except Exception:  # noqa: BLE001 — empty roster still shows submitted guests
+            roster = []
+        submitted = self.list_exit_feedback_for_class(int(class_id))
+        columns: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for row in submitted:
+            module = str(row.get("live_module") or "M1").upper()
+            slot = str(row.get("live_slot") or "C1").upper()
+            key = f"{module}{slot}"
+            if key in seen:
+                continue
+            seen.add(key)
+            columns.append({"key": key, "module": module, "slot": slot})
+        columns.sort(key=lambda col: (col["module"], col["slot"]))
+        by_student: dict[str, dict[str, Any]] = {}
+        extras: list[dict[str, Any]] = []
+        for row in submitted:
+            module = str(row.get("live_module") or "M1").upper()
+            slot = str(row.get("live_slot") or "C1").upper()
+            key = f"{module}{slot}"
+            sid = row.get("student_id")
+            identity = f"s:{sid}" if sid not in (None, "") else f"g:{row.get('participant_uuid')}"
+            bucket = by_student.setdefault(
+                identity,
+                {
+                    "student_id": sid,
+                    "codename": str(row.get("codename") or "Student"),
+                    "cells": {},
+                    "guest": sid in (None, ""),
+                },
+            )
+            if sid in (None, "") and identity not in {f"s:{r.get('id')}" for r in roster}:
+                extras.append(bucket)
+            score = self.mood_jump_score(row.get("before_mood"), row.get("mood"))
+            bucket["cells"][key] = {
+                "before_mood": row.get("before_mood"),
+                "after_mood": row.get("mood"),
+                "score": score,
+                "has_comment": bool(str(row.get("comment") or "").strip()),
+                "comment": str(row.get("comment") or ""),
+            }
+        students: list[dict[str, Any]] = []
+        for person in roster:
+            sid = person.get("id")
+            identity = f"s:{sid}"
+            bucket = by_student.get(identity) or {
+                "student_id": sid,
+                "codename": str(person.get("codename") or person.get("name") or "Student"),
+                "cells": {},
+                "guest": False,
+            }
+            total = 0
+            has_score = False
+            for cell in bucket["cells"].values():
+                if cell.get("score") is not None:
+                    total += int(cell["score"])
+                    has_score = True
+            bucket["total"] = total if has_score else 0
+            students.append(bucket)
+        for bucket in extras:
+            if bucket in students:
+                continue
+            total = 0
+            for cell in bucket["cells"].values():
+                if cell.get("score") is not None:
+                    total += int(cell["score"])
+            bucket["total"] = total
+            students.append(bucket)
+        totals = {col["key"]: 0 for col in columns}
+        for person in students:
+            for key, cell in (person.get("cells") or {}).items():
+                if key in totals and cell.get("score") is not None:
+                    totals[key] += int(cell["score"])
+        return {
+            "columns": columns,
+            "students": students,
+            "totals": totals,
+            "grand_total": sum(totals.values()),
+        }
+
+    def session_is_celebrating(self, session_id: int) -> bool:
+        """True when End Live Class left the SID up for student celebration."""
+        try:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
+        except KeyError:
+            return False
+        return bool(teacher.get("celebrate"))
+
+    def _session_open_for_student(self, session_row: dict[str, Any] | None) -> bool:
+        """True when students may still poll this live session.
+
+        Active classes stay open. Ended celebrating sessions stay readable
+        so the scoreboard and How-was-class overlay remain on student home.
+        """
+        if session_row is None:
+            return False
+        status = str(session_row.get("status") or "")
+        if status == "active":
+            return True
+        if status == "ended":
+            return self.session_is_celebrating(int(session_row["id"]))
+        return False
+
+
+    def snapshot_live_winner(self, class_id: int) -> dict[str, Any]:
+        """Winning team at End Live, or Class when no named teams exist.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        teams: list[Any] = []
+        try:
+            teams = list((self.game.scoreboard(int(class_id)) or {}).get("teams") or [])
+        except Exception:  # noqa: BLE001 — ended games still resolve below
+            teams = []
+        if not teams:
+            try:
+                with self.game._lock:
+                    row = self.game.conn.execute(
+                        """
+                        SELECT id FROM games
+                        WHERE class_id = ?
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (int(class_id),),
+                    ).fetchone()
+                if row is not None:
+                    state = self.game.game_state(int(class_id), game_id=int(row["id"]))
+                    teams = list(state.get("teams") or [])
+            except Exception:  # noqa: BLE001 — Class fallback
+                teams = []
+        named = [row for row in teams if str(row.get("name") or "") != "Class"]
+        pool = named or teams
+        if pool:
+            winner = max(pool, key=lambda row: float(row.get("score") or 0))
+            name = str(winner.get("name") or "").strip() or "Class"
+            return {"name": name, "score": winner.get("score")}
+        return {"name": "Class", "score": None}
+
+    def close_live_class_for_celebration(
+        self,
+        class_id: int,
+        winner: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """End the live SID for staff but keep student celebration + feedback.
+
+        Marks the session ended so new joins fail, writes ``celebrate`` on
+        teacher state, and leaves attendees in place. Quit still wipes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            winner: Optional pre-persist winning team snapshot.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return {"ok": True, "class_id": int(class_id), "celebrating": False}
+        session_id = int(live["id"])
+        self.open_exit_feedback_for_class(int(class_id))
+        try:
+            payload = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            payload = {"stage": "play"}
+        payload["celebrate"] = True
+        snap = winner if isinstance(winner, dict) else self.snapshot_live_winner(int(class_id))
+        name = str((snap or {}).get("name") or "").strip() or "Class"
+        payload["winner"] = {"name": name[:80], "score": (snap or {}).get("score")}
+        self._write_teacher_state(session_id, payload)
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET status = 'ended', ended_at = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (now, session_id),
+            )
+            self.conn.commit()
+        return {
+            "ok": True,
+            "class_id": int(class_id),
+            "celebrating": True,
+            "session_id": session_id,
+        }
+
+    def student_end_class_overlay(
+        self,
+        session_id: int,
+        class_id: int,
+        student_id: int | None = None,
+        participant_uuid: str = "",
+    ) -> dict[str, Any]:
+        """Scoreboard celebration + pending How-was-class for student home.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Optional roster id.
+            participant_uuid: Live-session person key.
+        """
+        if not self.session_is_celebrating(int(session_id)):
+            return {"celebrate": False}
+        winner = None
+        try:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
+            stored = teacher.get("winner")
+            if isinstance(stored, dict) and str(stored.get("name") or "").strip():
+                winner = stored
+        except Exception:  # noqa: BLE001 — fall through to scoreboard
+            winner = None
+        if winner is None:
+            winner = self.snapshot_live_winner(int(class_id))
+        pending = self.pending_exit_feedback(
+            class_id=int(class_id),
+            student_id=student_id,
+            participant_uuid=participant_uuid,
+        )
+        return {
+            "celebrate": True,
+            "winner": {
+                "name": str((winner or {}).get("name") or "Class"),
+                "score": (winner or {}).get("score"),
+            },
+            "exit_feedback": {
+                "pending": bool(pending),
+                "token": pending.get("token") if pending else None,
+            },
+        }
+
+    def apply_student_end_overlay(
+        self,
+        payload: dict[str, Any],
+        session_id: int,
+        class_id: int,
+        student_id: int | None,
+        participant_uuid: str = "",
+    ) -> dict[str, Any]:
+        """Merge celebration, winner, and ended-game points onto student state.
+
+        Args:
+            payload: Student home / ``/api/student/state`` dict.
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Optional roster id.
+            participant_uuid: Live-session person key.
+        """
+        overlay = self.student_end_class_overlay(
+            int(session_id),
+            int(class_id),
+            int(student_id) if student_id not in (None, "") else None,
+            participant_uuid,
+        )
+        payload.update(overlay)
+        if overlay.get("celebrate") and student_id not in (None, ""):
+            ended = self.game.student_live_payload(
+                int(class_id),
+                int(student_id),
+                include_ended=True,
+            )
+            if ended.get("me"):
+                payload["me"] = ended["me"]
+            if ended.get("scoreboard"):
+                payload["scoreboard"] = ended["scoreboard"]
+        return payload
+
+    def finish_live_class(
+        self,
+        class_id: int,
+        *,
+        persist: bool | None = None,
+        save_attendance: bool = True,
+        save_participation: bool = True,
+        celebrate: bool | None = None,
+    ) -> dict[str, Any]:
+        """End Live Class (keep student celebration) or Quit (wipe).
+
+        The End Live Class dialog can save attendance, participation,
+        both, or neither. Students keep the scoreboard, winner graphic,
+        and How-was-class until Quit wipes the SID.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            persist: Legacy Quit/Save flag. When set, attendance always
+                saves and participation follows this value.
+            save_attendance: Write the attendance column.
+            save_participation: Write +1/question participation.
+            celebrate: True for End Live Class; False for Quit. Default
+                follows ``persist`` (Quit is ``persist=False``).
 
         Returns:
-            Wipe payload from ``wipe_live_sessions_for_class``.
+            Celebration payload or wipe payload.
         """
-        self.open_exit_feedback_for_class(int(class_id))
+        if persist is not None:
+            save_attendance = True
+            save_participation = bool(persist)
+        if celebrate is None:
+            celebrate = persist is not False
         present_ids = self.present_student_ids_for_live_class(class_id)
+        winner = self.snapshot_live_winner(int(class_id)) if celebrate else None
         credits = (
-            self.participation_round_credits_for_class(class_id) if persist else {}
+            self.participation_round_credits_for_class(class_id)
+            if save_participation
+            else {}
         )
         wrote = None
-        try:
-            wrote = self.game.persist_end_class_column(
-                int(class_id),
-                present_ids,
-                credits,
-                include_participation=bool(persist),
-            )
-        except Exception:  # noqa: BLE001 — SID wipe still happens
-            wrote = None
-        if wrote is None and not persist:
+        if save_attendance or save_participation:
+            try:
+                wrote = self.game.persist_end_class_column(
+                    int(class_id),
+                    present_ids,
+                    credits,
+                    include_attendance=bool(save_attendance),
+                    include_participation=bool(save_participation),
+                )
+            except Exception:  # noqa: BLE001 — close still happens
+                wrote = None
+        if wrote is None and not save_attendance and not save_participation:
             try:
                 self.game.cancel_setup(int(class_id))
             except Exception:  # noqa: BLE001 — no open game is fine
                 pass
+        elif wrote is None and not save_participation:
+            try:
+                self.game.cancel_setup(int(class_id))
+            except Exception:  # noqa: BLE001 — no open game is fine
+                pass
+        if celebrate:
+            return self.close_live_class_for_celebration(int(class_id), winner=winner)
         return self.wipe_live_sessions_for_class(int(class_id))
 
     def get_active_live_session_for_teacher(
@@ -8560,7 +8981,14 @@ class SchoolDB(LovesDB):
                 "You already have a live class running. "
                 "Use End Live Class to finish it before starting another."
             )
-        # Drop prior-run mood/character so Mark Attendance starts clean.
+        # Drop a leftover End-Live celebration SID; keep historical ended rows.
+        celebrating = [
+            int(row["id"])
+            for row in self.list_live_sessions_for_class(int(class_id))
+            if self.session_is_celebrating(int(row["id"]))
+        ]
+        if celebrating:
+            self.wipe_live_sessions_for_class(int(class_id), session_ids=celebrating)
         self.game.clear_class_moods_and_characters(int(class_id))
         code = self.mint_unique_active_session_code()
         now = _now()
@@ -8650,14 +9078,17 @@ class SchoolDB(LovesDB):
         self.sweep_stale_live_attendees(session_id)
         attendees = self.list_live_session_attendees(session_id)
         moods = self.game.today_moods(int(session_row["class_id"]))
+        characters = self.game.character_keys(int(session_row["class_id"]))
         public_rows: list[dict[str, Any]] = []
         for row in attendees:
             sid = row.get("student_id")
             item = public_live_attendee(row)
             if sid not in (None, ""):
                 item["mood"] = moods.get(int(sid))
+                item["character"] = characters.get(int(sid))
             else:
                 item["mood"] = None
+                item["character"] = None
             public_rows.append(item)
         present = [row for row in public_rows if not row.get("left_at")]
         phase = "ended" if session_row.get("status") == "ended" else "live"

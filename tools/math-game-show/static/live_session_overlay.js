@@ -2,7 +2,7 @@
  * Narrow Zoom-share overlay: session code, join count, roster, optional teams.
  */
 import { escapeHtml, formatPoints, formatCountdown, remainingUntilMs } from "./common.js";
-import { moodGlyph } from "/static/mood_faces.js";
+import { nameWithAvatar } from "/static/student_avatars.js";
 
 const params = new URLSearchParams(location.search);
 if (params.get("overlay") === "1") {
@@ -32,6 +32,7 @@ const celebrateTeamEl = document.getElementById("live-celebrate-team");
 const celebrateMembersEl = document.getElementById("live-celebrate-members");
 const confettiEl = document.getElementById("live-confetti");
 const fireworksEl = document.getElementById("live-fireworks");
+const graffitiEl = document.getElementById("live-graffiti");
 
 let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
@@ -51,7 +52,7 @@ let anticipationIntensity = 0;
 /**
  * Present attendees (still in the session) from a state payload.
  * @param {any} state
- * @returns {Array<{student_id:number,codename:string,mood:string|null}>}
+ * @returns {Array<{student_id:number,codename:string,character:string|null}>}
  */
 function presentAttendees(state) {
   const rows = Array.isArray(state?.attendees) ? state.attendees : [];
@@ -62,7 +63,7 @@ function presentAttendees(state) {
       participant_uuid: String(row.participant_uuid || ""),
       unmatched: Boolean(row.unmatched),
       codename: String(row.codename || "").trim() || (row.unmatched ? "Guest" : `Student ${row.student_id}`),
-      mood: row.mood || null,
+      character: row.character || null,
     }))
     .sort((a, b) => a.codename.localeCompare(b.codename, undefined, { sensitivity: "base" }));
 }
@@ -111,15 +112,13 @@ function teamByStudentId(board) {
 }
 
 /**
- * One roster list item HTML (mood glyph + escaped codename).
- * @param {{codename:string,mood:string|null}} row
+ * One roster list item HTML (avatar left of name; no mood).
+ * @param {{codename:string,character:string|null}} row
  * @returns {string}
  */
 function rosterItemHtml(row) {
-  const face = moodGlyph(row.mood);
   const guest = row.unmatched ? ' <span class="live-guest-flag">guest</span>' : "";
-  const label = face ? `${face} ${escapeHtml(row.codename)}` : escapeHtml(row.codename);
-  return `<li class="${row.unmatched ? "is-guest" : ""}">${label}${guest}</li>`;
+  return `<li class="${row.unmatched ? "is-guest" : ""}">${nameWithAvatar(row.codename, row.character)}${guest}</li>`;
 }
 
 /**
@@ -131,7 +130,7 @@ function paintRoster() {
   const teamMode = hasTeamScoreboard(lastBoard);
   const key = [
     teamMode ? "team" : "flat",
-    present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.mood || ""}:${row.unmatched ? "g" : ""}`).join("|"),
+    present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.character || ""}:${row.unmatched ? "g" : ""}`).join("|"),
     teamMode
       ? (lastBoard?.teams || [])
           .map((t) => `${t.id}:${(t.players || []).map((p) => p.student_id).join(",")}`)
@@ -408,15 +407,21 @@ function maybeCelebrateWinner(board) {
   if (celebrateTeamEl) celebrateTeamEl.textContent = String(top.name || "Winner");
   const members = Array.isArray(top.players) ? top.players : [];
   if (celebrateMembersEl) {
+    const byId = new Map(
+      lastPresent.map((row) => [Number(row.student_id), row.character || null])
+    );
     celebrateMembersEl.innerHTML = members
       .map((p) => {
         const name = String(p.codename || p.first_name || p.name || "").trim() || "Player";
-        return `<li>${escapeHtml(name)}</li>`;
+        const sid = Number(p.student_id || p.id || 0);
+        const character = p.character || byId.get(sid) || null;
+        return `<li>${nameWithAvatar(name, character)}</li>`;
       })
       .join("");
   }
   spawnFireworks();
   spawnConfetti();
+  spawnGraffiti(String(top.name || "Winner"));
   window.setTimeout(() => {
     if (fireworksEl) fireworksEl.innerHTML = "";
   }, 10000);
@@ -426,7 +431,32 @@ function maybeCelebrateWinner(board) {
       celebrateEl.classList.add("is-settled");
     }
     if (confettiEl) confettiEl.innerHTML = "";
+    if (graffitiEl) graffitiEl.innerHTML = "";
   }, 20000);
+}
+
+/**
+ * Spray-paint the winning team name over the live overlay.
+ * @param {string} name
+ */
+function spawnGraffiti(name) {
+  if (!graffitiEl) return;
+  graffitiEl.innerHTML = "";
+  const tag = document.createElement("p");
+  tag.className = "live-overlay-graffiti-tag";
+  tag.textContent = name;
+  graffitiEl.appendChild(tag);
+  const colors = ["#f5c518", "#ef4444", "#3d7eff", "#9dffb0"];
+  for (let i = 0; i < 8; i += 1) {
+    const drip = document.createElement("span");
+    drip.className = "live-overlay-graffiti-drip";
+    drip.style.setProperty("--c", colors[i % colors.length]);
+    drip.style.setProperty("--delay", `${(0.2 + Math.random() * 0.8).toFixed(2)}s`);
+    drip.style.setProperty("--h", `${24 + Math.random() * 56}px`);
+    drip.style.left = `${18 + Math.random() * 64}%`;
+    drip.style.top = `${42 + Math.random() * 18}%`;
+    graffitiEl.appendChild(drip);
+  }
 }
 
 /**

@@ -31,6 +31,7 @@ from teams import (
     assign_random,
     color_for_team,
     default_team_name,
+    pick_late_team,
     validate_team_count,
 )
 
@@ -1252,7 +1253,7 @@ class GameShowDB:
         During Mark Attendance / setup, marks ordinary present (``P``).
         After scoring has started (``live``), delegates to
         :meth:`admit_late_joiner` so the student gets Late (``L``) plus a
-        race-safe random team (or the Class list for individual tracking).
+        balanced team (fewest players, then lowest score) or the Class list.
 
         Args:
             class_id: Classes primary key.
@@ -1284,16 +1285,78 @@ class GameShowDB:
                 return False
             session_id = int(game["session_id"])
             self._ensure_session_scores(session_id, int(class_id))
+            late = self._named_teams_exist_locked(int(game["id"]))
             self.conn.execute(
                 """
                 UPDATE session_scores
-                SET present = 1, late = 0
+                SET present = 1, late = ?
                 WHERE session_id = ? AND student_id = ?
                 """,
-                (session_id, int(student_id)),
+                (1 if late else 0, session_id, int(student_id)),
             )
+            if late:
+                self._assign_joiner_if_teams_locked(
+                    int(game["id"]), session_id, int(student_id)
+                )
             self.conn.commit()
         return True
+
+    def _named_teams_exist_locked(self, game_id: int) -> bool:
+        """True when this game already has named (non-Class) teams."""
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM game_teams
+            WHERE game_id = ? AND name != 'Class'
+            """,
+            (int(game_id),),
+        ).fetchone()
+        return bool(row and int(row["n"] or 0) > 0)
+
+    def _assign_joiner_if_teams_locked(
+        self, game_id: int, session_id: int, student_id: int
+    ) -> None:
+        """Put a mid-class joiner on the smallest / lowest-score team."""
+        already = self.conn.execute(
+            """
+            SELECT student_id FROM game_memberships
+            WHERE game_id = ? AND student_id = ?
+            """,
+            (int(game_id), int(student_id)),
+        ).fetchone()
+        if already is not None:
+            return
+        teams = [
+            dict(row)
+            for row in self.conn.execute(
+                """
+                SELECT t.id, t.name,
+                       (SELECT COUNT(*) FROM game_memberships m
+                        WHERE m.team_id = t.id) AS size,
+                       COALESCE((
+                           SELECT SUM(s.points)
+                           FROM game_memberships m
+                           JOIN session_scores s
+                             ON s.student_id = m.student_id
+                            AND s.session_id = ?
+                           WHERE m.team_id = t.id
+                       ), 0) AS score
+                FROM game_teams t
+                WHERE t.game_id = ? AND t.name != 'Class'
+                ORDER BY t.sort_order, t.id
+                """,
+                (int(session_id), int(game_id)),
+            )
+        ]
+        if not teams:
+            return
+        team_id = pick_late_team(teams)
+        self.conn.execute(
+            """
+            INSERT INTO game_memberships (game_id, team_id, student_id)
+            VALUES (?, ?, ?)
+            """,
+            (int(game_id), int(team_id), int(student_id)),
+        )
 
     def admit_late_joiner(
         self,
@@ -1305,7 +1368,7 @@ class GameShowDB:
         """Admit a rostered student who joins after live scoring started.
 
         Marks attendance Late (``present=1``, ``late=1``), assigns them to a
-        random existing team (or the sole Class team for individual tracking),
+        balanced existing team (fewest players, then lowest score),
         and is race-safe under the DB lock (idempotent if already a member).
 
         Args:
@@ -1358,11 +1421,22 @@ class GameShowDB:
                 dict(row)
                 for row in self.conn.execute(
                     """
-                    SELECT id, name FROM game_teams
-                    WHERE game_id = ?
-                    ORDER BY sort_order, id
+                    SELECT t.id, t.name,
+                           (SELECT COUNT(*) FROM game_memberships m
+                            WHERE m.team_id = t.id) AS size,
+                           COALESCE((
+                               SELECT SUM(s.points)
+                               FROM game_memberships m
+                               JOIN session_scores s
+                                 ON s.student_id = m.student_id
+                                AND s.session_id = ?
+                               WHERE m.team_id = t.id
+                           ), 0) AS score
+                    FROM game_teams t
+                    WHERE t.game_id = ?
+                    ORDER BY t.sort_order, t.id
                     """,
-                    (game_id,),
+                    (session_id, game_id),
                 )
             ]
             if not teams:
@@ -1370,7 +1444,7 @@ class GameShowDB:
             if len(teams) == 1 and str(teams[0].get("name") or "") == "Class":
                 team_id = int(teams[0]["id"])
             else:
-                team_id = int(picker.choice(teams)["id"])
+                team_id = pick_late_team(teams)
 
             if score is None:
                 self.conn.execute(
@@ -1512,6 +1586,24 @@ class GameShowDB:
             ).fetchall()
         return {int(row["student_id"]): str(row["mood"]) for row in rows}
 
+    def character_keys(self, class_id: int) -> dict[int, str]:
+        """Map student id → join-screen character key.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, character_key FROM students
+                WHERE class_id = ?
+                  AND character_key IS NOT NULL
+                  AND TRIM(character_key) != ''
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return {int(row["id"]): str(row["character_key"]) for row in rows}
+
     def attach_today_moods(self, class_id: int, students: list[dict[str, Any]]) -> None:
         """Set ``mood`` on each roster dict from today's check-ins.
 
@@ -1578,7 +1670,39 @@ class GameShowDB:
             ).fetchone()
         return int(row["id"]) if row else None
 
-    def student_live_payload(self, class_id: int, student_id: int) -> dict[str, Any]:
+    def _student_scoreboard(
+        self,
+        class_id: int,
+        open_game: Any,
+        include_ended: bool,
+    ) -> dict[str, Any]:
+        """Public scoreboard, falling back to an ended game after End Live.
+
+        Args:
+            class_id: Classes primary key.
+            open_game: Latest game row, possibly ended.
+            include_ended: When True, rebuild from that ended game.
+        """
+        board = self.scoreboard(class_id)
+        if board.get("teams"):
+            return board
+        if not include_ended or open_game is None:
+            return board
+        try:
+            return self._scoreboard_payload(
+                self.game_state(class_id, game_id=int(open_game["id"])),
+                live=False,
+            )
+        except Exception:  # noqa: BLE001 — idle board is fine
+            return board
+
+    def student_live_payload(
+        self,
+        class_id: int,
+        student_id: int,
+        *,
+        include_ended: bool = False,
+    ) -> dict[str, Any]:
         """Build the student home/API payload for one rostered student.
 
         Rank is computed among present students by ``session_points`` and
@@ -1587,6 +1711,8 @@ class GameShowDB:
         Args:
             class_id: Classes primary key.
             student_id: Students primary key.
+            include_ended: When True and no open game remains, read the
+                latest ended game so End Live can keep points and teams.
         """
         student = self.get_student(class_id, student_id)
         show_rank = self.get_show_rank(class_id)
@@ -1607,6 +1733,16 @@ class GameShowDB:
                 """,
                 (int(class_id),),
             ).fetchone()
+            if open_game is None and include_ended:
+                open_game = self.conn.execute(
+                    """
+                    SELECT id, status FROM games
+                    WHERE class_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (int(class_id),),
+                ).fetchone()
         round_label = ""
         round_kind = ""
         if open_game is not None:
@@ -1614,9 +1750,13 @@ class GameShowDB:
             if game_status == "live":
                 status = "scoring"
                 scoring = True
+            elif game_status == "ended":
+                # Celebration keeps the SID; do not mark the portal ended.
+                status = "waiting"
+                scoring = False
             else:
                 status = "setup"
-            state = self.game_state(class_id)
+            state = self.game_state(class_id, game_id=int(open_game["id"]))
             sid = int(student_id)
             for row in state.get("students") or []:
                 if int(row["id"]) != sid:
@@ -1673,7 +1813,7 @@ class GameShowDB:
             "round_label": round_label,
             "round_kind": round_kind,
             "me": me,
-            "scoreboard": self.scoreboard(class_id),
+            "scoreboard": self._student_scoreboard(class_id, open_game, include_ended),
         }
 
     def get_class_by_live_code(self, live_access_code: str) -> dict[str, Any] | None:
@@ -2964,20 +3104,22 @@ class GameShowDB:
         present_ids: list[int],
         credits: dict[int, Any],
         *,
+        include_attendance: bool = True,
         include_participation: bool = True,
     ) -> dict[str, Any] | None:
-        """Write attendance, optional +1/question participation, then end.
+        """Write optional attendance / +1/question participation, then end.
 
-        Used by Save and End Class (attendance + participation) and Quit
-        (attendance only). Creates an open game when none exists and
+        Used by End Live Class (teacher picks which columns to keep) and
+        Quit (attendance only). Creates an open game when none exists and
         there is something to persist.
 
         Args:
             class_id: Classes primary key.
             present_ids: Roster ids marked present.
             credits: ``student_id → iterable of question keys or a count``.
-            include_participation: When False (Quit), zero live points
-                so only attendance remains.
+            include_attendance: When False, skip the attendance write.
+            include_participation: When False (Quit / unchecked), zero
+                live points so only attendance remains.
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -3004,12 +3146,16 @@ class GameShowDB:
         try:
             self._game_row(class_id)
         except KeyError:
-            if not present_set and not credit_map:
+            if not (
+                (include_attendance and present_set)
+                or (include_participation and credit_map)
+            ):
                 return None
             self.begin_game(class_id)
         with self._lock:
             game = self._game_row(class_id)
-            self._write_attendance_unlocked(game, present_set)
+            if include_attendance:
+                self._write_attendance_unlocked(game, present_set)
             session_id = int(game["session_id"])
             game_id = int(game["id"])
             if not include_participation:
@@ -4158,8 +4304,8 @@ class GameShowDB:
         action_label = (label or "").strip() or None
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] != "live":
-                raise ValueError("Scoring starts after teams are created")
+            if str(game["status"] or "") in {"ended", "template"}:
+                raise ValueError("Scoring is closed")
             game_id = int(game["id"])
             session_id = int(game["session_id"])
             seq = int(game["event_seq"] or 0) + 1
