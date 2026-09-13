@@ -313,6 +313,10 @@ body.student-home.has-media .student-live-response {
   display: none !important;
 }
 
+.canvas-pane.is-readonly .student-canvas {
+  pointer-events: none;
+}
+
 .canvas-pane-copy {
   margin: 0;
   font-size: 0.88rem;

@@ -68,9 +68,9 @@ def _now_iso() -> str:
 def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     """Student frame visibility for one pedagogical stage.
 
-    JOIN / TEAMS / MEET / ROUND project Question only. PLAY shows all
-    three frames; media and canvas stay locked until ``unlocks``.
-    Unlocks may still flag media/canvas onto students on any stage.
+    JOIN / TEAMS / MEET / ROUND / PLAY project Question. Media and
+    canvas appear only while the matching unlock checkbox is on
+    (collapse when unchecked — no empty locked pane).
 
     Args:
         stage: Stage id, or None for JOIN defaults.
@@ -78,9 +78,7 @@ def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     Returns:
         ``{questions, media, canvas}`` booleans.
     """
-    name = stage if stage in STAGES else "join"
-    if name == "play":
-        return {"questions": True, "media": True, "canvas": True}
+    _ = stage
     return {"questions": True, "media": False, "canvas": False}
 
 
@@ -207,10 +205,10 @@ def normalize_canvas_align(raw: Any) -> str:
 
 
 def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
-    """OR unlock flags onto student frames for any stage.
+    """Project media/canvas only while the teacher unlock checkbox is on.
 
-    Default stage layouts may omit media/canvas. A teacher unlock still
-    projects that frame. Mutates ``state``.
+    Unchecked flags collapse the student frame (no empty locked pane).
+    PLAY no longer keeps a locked placeholder. Mutates ``state``.
 
     Args:
         state: In-progress public teacher state.
@@ -218,10 +216,8 @@ def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
     stage = str(state.get("stage") or "join")
     frames = dict(state.get("student_frames") or default_student_frames(stage))
     unlocks = state.get("unlocks") or default_unlocks()
-    if unlocks.get("media"):
-        frames["media"] = True
-    if unlocks.get("canvas"):
-        frames["canvas"] = True
+    frames["media"] = bool(unlocks.get("media"))
+    frames["canvas"] = bool(unlocks.get("canvas"))
     state["student_frames"] = frames
     return state
 
@@ -480,7 +476,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """Fill student frames / JOIN focus for a newly entered stage.
 
     Teacher Active Content stays mounted; this only swaps thin refs and
-    the student projection map. PLAY reveals all three frames locked.
+    the student projection map. PLAY still needs Media/Canvas unlocks.
     TEAMS binds the shared-spark ``prompt_ref`` (Question stays
     visible; JOIN Minds-On ``mc_ui`` is dropped). MEET binds
     ``prompt_ref`` + Question-only frames so the chain is not
@@ -512,8 +508,8 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 def student_should_mount_media(state: dict[str, Any] | None) -> bool:
     """True when the student Real-slice iframe may be mounted.
 
-    JOIN / TEAMS / MEET / ROUND hide media unless the teacher unlocks
-    it. PLAY mounts the frame; ``unlocks.media`` also unlocks controls.
+    The Media checkbox is the only mount switch. Unchecked collapses
+    the student frame instead of leaving an empty locked pane.
 
     Args:
         state: Public teacher state.
@@ -522,9 +518,8 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
         Whether the student media iframe should have a ``src``.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
     unlocks = public.get("unlocks") or default_unlocks()
-    return bool(frames.get("media") or unlocks.get("media"))
+    return bool(unlocks.get("media"))
 
 
 def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
@@ -537,9 +532,8 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
         Whether the student canvas pane is visible.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
     unlocks = public.get("unlocks") or default_unlocks()
-    return bool(frames.get("canvas") or unlocks.get("canvas"))
+    return bool(unlocks.get("canvas"))
 
 
 def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:

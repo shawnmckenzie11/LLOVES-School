@@ -277,8 +277,8 @@ function studentProjection(payload) {
     stage,
     seq: Number.isFinite(seq) ? seq : 0,
     questions: frames.questions !== false,
-    media: Boolean(frames.media) || Boolean(unlocks.media),
-    canvas: Boolean(frames.canvas) || Boolean(unlocks.canvas),
+    media: Boolean(unlocks.media),
+    canvas: Boolean(unlocks.canvas),
     unlockMedia: Boolean(unlocks.media),
     unlockCanvas: Boolean(unlocks.canvas),
     canvasAlign: String(ts.canvas_align || "student"),
@@ -355,7 +355,7 @@ function bindStudentCanvas() {
     };
   };
   const postPresence = (p, ended) => {
-    if (lastAlign === "student") return;
+    if (lastAlign === "student" || lastAlign === "teacher") return;
     const norm = { x: p.x / studentCanvas.width, y: p.y / studentCanvas.height };
     fetch(
       "/api/student/canvas-presence",
@@ -374,11 +374,12 @@ function bindStudentCanvas() {
     ).catch(() => {});
   };
   studentCanvas.addEventListener("pointerdown", (event) => {
+    if (lastAlign === "teacher") return;
     if (canvasLock && !canvasLock.hidden) return;
     drawing = true;
     strokeId = `s-${Date.now()}`;
     const p = point(event);
-    if (lastAlign === "student") {
+    if (lastAlign === "student" || lastAlign === "team") {
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
     }
@@ -386,9 +387,9 @@ function bindStudentCanvas() {
     postPresence(p, false);
   });
   studentCanvas.addEventListener("pointermove", (event) => {
-    if (!drawing) return;
+    if (!drawing || lastAlign === "teacher") return;
     const p = point(event);
-    if (lastAlign === "student") {
+    if (lastAlign === "student" || lastAlign === "team") {
       ctx.lineTo(p.x, p.y);
       ctx.strokeStyle = "#12202e";
       ctx.lineWidth = 2;
@@ -430,15 +431,16 @@ function applyTeacherProjection(payload) {
   }
   if (canvasPane) {
     canvasPane.hidden = !proj.canvas;
-    if (canvasLock) canvasLock.hidden = Boolean(proj.unlockCanvas);
+    canvasPane.classList.toggle("is-readonly", proj.canvas && proj.canvasAlign === "teacher");
+    if (canvasLock) canvasLock.hidden = true;
   }
   if (mediaPane) {
-    mediaPane.classList.toggle("is-locked", !proj.unlockMedia);
-    if (mediaLock) mediaLock.hidden = Boolean(proj.unlockMedia);
-  }
-  if (!proj.media) {
-    if (mediaPane) mediaPane.hidden = true;
-    unmountStudentMedia();
+    mediaPane.classList.remove("is-locked");
+    if (mediaLock) mediaLock.hidden = true;
+    if (!proj.media) {
+      mediaPane.hidden = true;
+      unmountStudentMedia();
+    }
   }
   return proj;
 }

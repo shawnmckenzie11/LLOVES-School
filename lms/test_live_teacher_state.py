@@ -88,11 +88,11 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(play["state_seq"], 2)
         self.assertEqual(
             play["student_frames"],
-            {"questions": True, "media": True, "canvas": True},
+            {"questions": True, "media": False, "canvas": False},
         )
         self.assertEqual(play["unlocks"], {"media": False, "canvas": False})
-        self.assertTrue(student_should_mount_media(play))
-        self.assertTrue(student_should_mount_canvas(play))
+        self.assertFalse(student_should_mount_media(play))
+        self.assertFalse(student_should_mount_canvas(play))
         still = apply_teacher_state_update(play, advance="next")
         self.assertEqual(still["stage"], "play")
         self.assertEqual(still["state_seq"], 3)
@@ -205,6 +205,35 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(aligned["canvas_align"], "team")
         frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
         self.assertEqual(frozen["canvas_align"], "teacher")
+
+    def test_uncheck_collapses_media_and_canvas_frames(self) -> None:
+        """Beat 29: uncheck removes the student frame; PLAY has no locked pane."""
+        play = apply_teacher_state_update(None, stage="play")
+        self.assertFalse(student_should_mount_media(play))
+        self.assertFalse(student_should_mount_canvas(play))
+        opened = apply_teacher_state_update(
+            play, unlocks={"media": True, "canvas": True}
+        )
+        self.assertTrue(opened["student_frames"]["media"])
+        self.assertTrue(opened["student_frames"]["canvas"])
+        closed = apply_teacher_state_update(
+            opened, unlocks={"media": False, "canvas": False}
+        )
+        self.assertFalse(closed["unlocks"]["media"])
+        self.assertFalse(closed["unlocks"]["canvas"])
+        self.assertFalse(closed["student_frames"]["media"])
+        self.assertFalse(closed["student_frames"]["canvas"])
+        self.assertFalse(student_should_mount_media(closed))
+        self.assertFalse(student_should_mount_canvas(closed))
+        stored = public_teacher_state(
+            {
+                "stage": "play",
+                "student_frames": {"questions": True, "media": True, "canvas": True},
+                "unlocks": {"media": False, "canvas": False},
+            }
+        )
+        self.assertFalse(stored["student_frames"]["media"])
+        self.assertFalse(stored["student_frames"]["canvas"])
 
     def test_preset_and_frames_are_content_ids(self) -> None:
         """Presets fill A/B/C; invalid frames raise."""

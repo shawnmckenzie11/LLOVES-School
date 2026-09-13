@@ -587,6 +587,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function paintStudentCanvas(", student_js)
         self.assertIn("/api/student/canvas-presence", student_js)
         self.assertIn("canvasAlign", student_js)
+        self.assertIn("media: Boolean(unlocks.media)", student_js)
+        self.assertIn("canvas: Boolean(unlocks.canvas)", student_js)
+        self.assertIn('canvasPane.classList.toggle("is-readonly"', student_js)
+        self.assertIn('if (lastAlign === "teacher") return;', student_js)
         self.assertIn('id="student-canvas"', 
             (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         )
