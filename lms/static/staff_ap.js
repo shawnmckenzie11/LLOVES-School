@@ -2514,36 +2514,43 @@ function paintTeamsStripEnabled() {
 }
 
 /**
- * Beat 18: ROUND OptionsStrip is three facet checkboxes + SET when teams > 1.
- * Teams = 1 hides the multi-pick chrome. SET is the only write.
+ * Beat 33: ROUND OptionsStrip is a type dropdown + SET, always visible.
+ * Teams = 1 no longer blanks the strip. SET is the only write.
  */
 function paintRoundStrip() {
-  const team = currentTeamCount() > 1;
   const picks = $("live-round-picks");
   if (picks) {
-    picks.hidden = !team;
-    if (team) picks.removeAttribute("hidden");
-    else picks.setAttribute("hidden", "");
+    picks.hidden = false;
+    picks.removeAttribute("hidden");
   }
-  const flags = teacherState.round_flags || {};
-  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
-    if (!(box instanceof HTMLInputElement)) return;
-    const key = box.getAttribute("data-round") || "";
-    box.checked = Boolean(flags[key]);
-  });
+  const select = $("live-round-type");
+  if (select instanceof HTMLSelectElement) {
+    select.value = readRoundTypeFromState();
+  }
 }
 
 /**
- * Read the local ROUND facet checkboxes for a SET commit.
+ * Selected pedagogical round from persisted flags (one type).
+ * @returns {"minds_on"|"action"|"consolidation"}
+ */
+function readRoundTypeFromState() {
+  const flags = teacherState.round_flags || {};
+  if (flags.consolidation) return "consolidation";
+  if (flags.action) return "action";
+  return "minds_on";
+}
+
+/**
+ * Read the ROUND type dropdown for a SET commit.
  * @returns {{minds_on: boolean, action: boolean, consolidation: boolean}}
  */
 function readRoundFlags() {
   const flags = { minds_on: false, action: false, consolidation: false };
-  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
-    if (!(box instanceof HTMLInputElement)) return;
-    const key = box.getAttribute("data-round") || "";
-    if (key in flags) flags[key] = box.checked;
-  });
+  const select = $("live-round-type");
+  const value =
+    select instanceof HTMLSelectElement ? select.value : readRoundTypeFromState();
+  if (value in flags) flags[value] = true;
+  else flags.minds_on = true;
   return flags;
 }
 
@@ -4216,8 +4223,9 @@ document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
 });
 
 $("live-round-set")?.addEventListener("click", () => {
-  if (currentTeamCount() <= 1) return;
-  patchTeacherState({ round_flags: readRoundFlags() });
+  const flags = readRoundFlags();
+  const selected = Object.keys(flags).find((key) => flags[key]) || "minds_on";
+  patchTeacherState({ round: selected, round_flags: flags });
 });
 
 /**

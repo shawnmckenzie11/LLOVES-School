@@ -268,20 +268,13 @@
         </div>
         <div id="meet-option-card" class="live-option-card-body" hidden></div>
         <div id="round-option-card" class="live-option-card-body live-round-strip" hidden>
-          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round facets" hidden>
-            <label class="live-unlock-toggle" for="live-round-minds-on">
-              <input type="checkbox" id="live-round-minds-on" data-round="minds_on">
-              <span>Minds-On</span>
-            </label>
-            <span class="live-round-dot" aria-hidden="true">·</span>
-            <label class="live-unlock-toggle" for="live-round-action">
-              <input type="checkbox" id="live-round-action" data-round="action">
-              <span>Action</span>
-            </label>
-            <span class="live-round-dot" aria-hidden="true">·</span>
-            <label class="live-unlock-toggle" for="live-round-consolidation">
-              <input type="checkbox" id="live-round-consolidation" data-round="consolidation">
-              <span>Consolidation</span>
+          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round type">
+            <label class="live-pack-field live-round-type-field" for="live-round-type">
+              <select id="live-round-type" aria-label="Round type">
+                <option value="minds_on">Minds-On</option>
+                <option value="action">Action</option>
+                <option value="consolidation">Consolidation</option>
+              </select>
             </label>
             <button type="button" class="live-round-pick" id="live-round-set">SET</button>
           </div>

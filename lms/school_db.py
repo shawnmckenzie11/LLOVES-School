@@ -19,6 +19,7 @@ try:
         challenge_clears_active_media,
         cons_unlock_toast,
         TOAST_FREEZE,
+        cons_catalog,
         get_cons_item,
         is_c1_real_slice,
         is_cons_payload,
@@ -90,6 +91,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         challenge_clears_active_media,
         cons_unlock_toast,
         TOAST_FREEZE,
+        cons_catalog,
         get_cons_item,
         is_c1_real_slice,
         is_cons_payload,
@@ -5879,17 +5881,27 @@ class SchoolDB(LovesDB):
             raise ValueError(f"unsupported prompt kind: {kind}")
         if is_cons_payload(payload):
             slot = self.session_live_slot(session_id)
+            flags = (
+                self.live_session_teacher_state_payload(session_id).get(
+                    "round_flags"
+                )
+                or {}
+            )
+            allow_round_set = bool(flags.get("consolidation"))
             if slot == "C1":
                 media = self.live_session_active_media_payload(session_id)
-                if not media or not media.get("frozen"):
-                    raise ValueError("Consolidation is available only after freeze.")
-                if not is_c1_real_slice(media):
-                    raise ValueError(
-                        "C1 consolidation is only for the Real-slice channel."
-                    )
+                if not allow_round_set:
+                    if not media or not media.get("frozen"):
+                        raise ValueError(
+                            "Consolidation is available only after freeze."
+                        )
+                    if not is_c1_real_slice(media):
+                        raise ValueError(
+                            "C1 consolidation is only for the Real-slice channel."
+                        )
             else:
                 ride = self.session_text_ride(session_id)
-                if not ride.get("frozen"):
+                if not allow_round_set and not ride.get("frozen"):
                     raise ValueError("Consolidation is available only after freeze.")
         body = json.dumps(payload or {})
         now = _now()
@@ -7587,6 +7599,10 @@ class SchoolDB(LovesDB):
                 session_id, payload, chain_state=state, fire_open=False
             )
         written = self._write_teacher_state(session_id, payload)
+        if "round_flags" in kwargs:
+            flags = written.get("round_flags") or {}
+            if flags.get("consolidation"):
+                self.mount_consolidation_pack(session_id)
         advance = str(kwargs.get("advance") or "").strip().lower()
         if advance == "next" and new_stage and new_stage != prev_stage:
             self.apply_session_timer_on_stage_advance(
@@ -7742,10 +7758,11 @@ class SchoolDB(LovesDB):
     def _sync_cons_prompt(
         self, session_id: int, media: dict[str, Any] | None
     ) -> None:
-        """Push or clear the live-prompt row to match ``cons_item`` after freeze.
+        """Push or clear the live-prompt row to match CONS after freeze or SET.
 
         C1 reads ``cons_item`` from the Real-slice blob. C2/C3 read the
         text-only ``text_ride`` on teacher state (no ``active_media_json``).
+        ROUND SET with Consolidation keeps CONS-1 mounted without freeze.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7762,6 +7779,17 @@ class SchoolDB(LovesDB):
                 wanted = str(ride.get("cons_item") or "").strip()
         active = self.get_active_live_prompt(session_id)
         if not wanted:
+            flags = (
+                self.live_session_teacher_state_payload(session_id).get(
+                    "round_flags"
+                )
+                or {}
+            )
+            if flags.get("consolidation"):
+                catalog = cons_catalog(slot)
+                if catalog:
+                    wanted = str(catalog[0]["id"])
+        if not wanted:
             if active and is_cons_payload(active.get("payload")):
                 self.clear_active_live_prompt(session_id)
             return
@@ -7776,6 +7804,31 @@ class SchoolDB(LovesDB):
         if current_id == item["id"] and active and active.get("kind") == item["kind"]:
             return
         self.set_live_session_prompt(
+            session_id,
+            slide_index=int(item["slide_index"]),
+            kind=str(item["kind"]),
+            payload=staff_cons_prompt_payload(item),
+            activate=True,
+        )
+
+    def mount_consolidation_pack(self, session_id: int) -> dict[str, Any] | None:
+        """Mount CONS-1 for the session live slot without requiring freeze.
+
+        ROUND SET with Consolidation pops the first CONS item on the live
+        prompt channel so teacher and student Question frames show it.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The mounted prompt row, or ``None`` when the CONS catalog is empty.
+        """
+        slot = self.session_live_slot(session_id)
+        catalog = cons_catalog(slot)
+        if not catalog:
+            return None
+        item = catalog[0]
+        return self.set_live_session_prompt(
             session_id,
             slide_index=int(item["slide_index"]),
             kind=str(item["kind"]),

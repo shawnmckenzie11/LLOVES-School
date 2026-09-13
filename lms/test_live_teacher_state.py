@@ -710,6 +710,88 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(body["round_flags"]["action"])
         self.assertTrue(body["round_flags"]["consolidation"])
         self.assertIsNone(body.get("cue_id"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "C1-CONS-1")
+
+    def test_beat33_consolidation_set_mounts_cons_without_freeze(self) -> None:
+        """Beat 33: Consolidation SET pops CONS-1 without a freeze."""
+        from live_media import is_cons_payload
+
+        idle = self.school.get_active_live_prompt(self.session_id)
+        if idle is not None:
+            self.assertFalse(is_cons_payload(idle.get("payload")))
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "consolidation",
+                "round_flags": {
+                    "minds_on": False,
+                    "action": False,
+                    "consolidation": True,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        body = posted.get_json()["teacher_state"]
+        self.assertEqual(body["round"], "consolidation")
+        self.assertTrue(body["round_flags"]["consolidation"])
+        ride = body.get("text_ride") or {}
+        self.assertFalse(ride.get("frozen"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertTrue(is_cons_payload(payload))
+        self.assertEqual(payload.get("item_id"), "C1-CONS-1")
+        self.assertIn("what must be true about a", str(payload.get("prompt") or ""))
+
+    def test_beat33_minds_on_set_does_not_mount_cons(self) -> None:
+        """Minds-On SET does not pop the CONS pack."""
+        from live_media import is_cons_payload
+
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "minds_on",
+                "round_flags": {
+                    "minds_on": True,
+                    "action": False,
+                    "consolidation": False,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        if prompt is not None:
+            self.assertFalse(is_cons_payload(prompt.get("payload")))
+
+    def test_beat33_c2_consolidation_set_mounts_c2_cons(self) -> None:
+        """Beat 33: Consolidation SET uses the session live-slot CONS pack."""
+        from live_media import is_cons_payload
+
+        slot = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"live_slot": "C2"},
+        )
+        self.assertEqual(slot.status_code, 200, slot.get_json())
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "consolidation",
+                "round_flags": {
+                    "minds_on": False,
+                    "action": False,
+                    "consolidation": True,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertTrue(is_cons_payload(payload))
+        self.assertEqual(payload.get("item_id"), "C2-CONS-1")
 
     def test_canvas_presence_follows_alignment(self) -> None:
         """Frozen-to-teacher publishes teacher strokes; unique stays empty."""

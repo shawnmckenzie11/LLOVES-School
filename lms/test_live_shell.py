@@ -1064,29 +1064,29 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function applySessionTimerUi(", js)
         self.assertIn("async function advanceTeamsToMeet()", js)
 
-    def test_beat18_round_strip_is_three_checkboxes_and_set(self) -> None:
-        """Beat 18: ROUND OptionsStrip is Minds-On / Action / Consolidation + SET."""
+    def test_beat33_round_type_dropdown_always_visible(self) -> None:
+        """Beat 33: ROUND OptionsStrip is a type dropdown + SET, even at teams=1."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         strip_html = html.split('id="round-option-card"')[1].split('id="play-option-card"')[0]
         self.assertIn('id="live-round-picks"', strip_html)
-        self.assertIn('id="live-round-minds-on"', strip_html)
-        self.assertIn('id="live-round-action"', strip_html)
-        self.assertIn('id="live-round-consolidation"', strip_html)
+        self.assertIn('id="live-round-type"', strip_html)
         self.assertIn('id="live-round-set"', strip_html)
         self.assertIn(">Minds-On<", strip_html)
         self.assertIn(">Action<", strip_html)
         self.assertIn(">Consolidation<", strip_html)
         self.assertIn(">SET<", strip_html)
-        self.assertEqual(strip_html.count('type="checkbox"'), 3)
-        self.assertEqual(strip_html.count('data-round="'), 3)
-        self.assertLess(strip_html.find('id="live-round-minds-on"'), strip_html.find('id="live-round-action"'))
-        self.assertLess(strip_html.find('id="live-round-action"'), strip_html.find('id="live-round-consolidation"'))
-        self.assertLess(strip_html.find('id="live-round-consolidation"'), strip_html.find('id="live-round-set"'))
+        self.assertIn('value="minds_on"', strip_html)
+        self.assertIn('value="action"', strip_html)
+        self.assertIn('value="consolidation"', strip_html)
+        self.assertNotIn('type="checkbox"', strip_html)
+        self.assertNotIn("data-round=", strip_html)
+        self.assertNotIn('id="live-round-minds-on"', strip_html)
+        self.assertLess(strip_html.find('id="live-round-type"'), strip_html.find('id="live-round-set"'))
         self.assertIn('id="live-round-picks"', html)
-        self.assertRegex(
+        self.assertNotRegex(
             html,
             r'<div class="live-round-picks"[^>]*id="live-round-picks"[^>]*\bhidden\b',
         )
@@ -1106,17 +1106,20 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('id="live-round-set"', left_html)
         self.assertIn("function paintRoundStrip()", js)
         self.assertIn("function readRoundFlags()", js)
-        self.assertIn("currentTeamCount() > 1", js.split("function paintRoundStrip()")[1].split("function ")[0])
-        self.assertIn("picks.hidden = !team", js)
+        self.assertIn("function readRoundTypeFromState()", js)
+        paint = js.split("function paintRoundStrip()")[1].split("function ")[0]
+        self.assertIn("picks.hidden = false", paint)
+        self.assertNotIn("currentTeamCount()", paint)
+        self.assertNotIn("picks.hidden = !team", js)
         self.assertIn('$("live-round-set")?.addEventListener("click"', js)
         set_click = js.split('$("live-round-set")?.addEventListener("click"')[1].split(
             '$("text-ride-freeze")'
         )[0]
-        self.assertIn("currentTeamCount() <= 1", set_click)
-        self.assertIn("round_flags: readRoundFlags()", set_click)
-        self.assertIn("patchTeacherState({ round_flags:", set_click)
+        self.assertNotIn("currentTeamCount() <= 1", set_click)
+        self.assertIn("round_flags: flags", set_click)
+        self.assertIn("round: selected", set_click)
+        self.assertIn("patchTeacherState({ round:", set_click)
         self.assertNotIn("cue_id", set_click)
-        self.assertNotIn('patchTeacherState({ round,', js)
         option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
         self.assertIn("paintRoundStrip();", option)
         self.assertIn("rounds.hidden = true", option)
@@ -1128,6 +1131,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("max-height: var(--live-options-row-h)", strip_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("body.staff-shell .live-round-picks[hidden] {", css)
+        self.assertIn("body.staff-shell .live-round-strip #live-round-type", css)
         self.assertIn(
             "grid-template-columns: var(--live-left-width) minmax(0, 1fr)",
             css,

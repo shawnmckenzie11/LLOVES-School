@@ -1740,13 +1740,14 @@ body.staff-shell .live-round-strip .live-round-picks {
 body.staff-shell .live-round-picks[hidden] {
   display: none !important;
 }
-body.staff-shell .live-round-strip .live-round-dot {
-  color: #64748b;
-  font-weight: 700;
-  line-height: 1;
+body.staff-shell .live-round-strip .live-round-type-field {
+  flex: 0 1 auto;
+  min-width: 0;
 }
-body.staff-shell .live-round-strip .live-unlock-toggle {
-  white-space: nowrap;
+body.staff-shell .live-round-strip #live-round-type {
+  min-width: 10rem;
+  max-height: calc(var(--live-options-row-h) - 0.2rem);
+  font-size: 0.85rem;
 }
 body.staff-shell .live-round-strip #live-round-set {
   margin-left: auto;
