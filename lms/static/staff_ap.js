@@ -64,6 +64,10 @@ let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
 let pendingScoreboard = false;
+/** @type {Record<string, number>} */
+let sessionGamePoints = {};
+/** @type {Record<string, number>} */
+let sessionCareerTotals = {};
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
@@ -1041,6 +1045,14 @@ async function applySessionPresentTicks(ids, attendees) {
     for (const student of overlayState.students) {
       const sid = Number(student.id);
       if (moodById.has(sid)) student.mood = moodById.get(sid);
+      const key = String(sid);
+      if (Object.prototype.hasOwnProperty.call(sessionGamePoints, key)) {
+        student.game_points = sessionGamePoints[key];
+        student.session_points = sessionGamePoints[key];
+      }
+      if (Object.prototype.hasOwnProperty.call(sessionCareerTotals, key)) {
+        student.career_total = sessionCareerTotals[key];
+      }
     }
   }
   renderAttendanceList();
@@ -1085,6 +1097,13 @@ async function pollLiveSessionAttendees() {
     syncAllowGuestsCheckbox(
       payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
     );
+    sessionGamePoints = payload?.game_points && typeof payload.game_points === "object"
+      ? payload.game_points
+      : {};
+    sessionCareerTotals =
+      payload?.career_totals && typeof payload.career_totals === "object"
+        ? payload.career_totals
+        : {};
     await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
@@ -1719,6 +1738,34 @@ function selectedPresent() {
  * @param {number} studentId
  * @returns {string|""}
  */
+/**
+ * Assigned team label when teams > 1, else empty.
+ * @param {number|string} studentId
+ * @returns {string}
+ */
+function studentTeamLabel(studentId) {
+  if (currentTeamCount() < 2) return "";
+  for (const team of assignedRosterTeams()) {
+    for (const member of team.members || []) {
+      if (Number(member.id) === Number(studentId)) {
+        return String(team.name || "").trim();
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * Compact number for ClassList Course / Game columns.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function classListPts(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n === 0) return "0";
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+}
+
 function studentTeamColor(studentId) {
   const nTeams = currentTeamCount();
   if (nTeams < 2) return "";
@@ -1847,7 +1894,18 @@ function appendAttendanceStudentRow(list, student, checked) {
     row.classList.add("has-team-color");
     row.style.setProperty("--team", teamColor);
   }
-  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
+  const course = classListPts(
+    student.career_total ?? sessionCareerTotals[String(student.id)] ?? 0
+  );
+  const game = classListPts(
+    student.game_points ??
+      student.session_points ??
+      sessionGamePoints[String(student.id)] ??
+      0
+  );
+  const team = studentTeamLabel(student.id);
+  const showTeam = currentTeamCount() > 1;
+  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-course" title="Course">${escapeHtml(course)}</span><span class="ap-att-game" title="Game">${escapeHtml(game)}</span>${showTeam ? `<span class="ap-att-team" title="Team">${escapeHtml(team)}</span>` : ""}<span class="ap-att-mood" aria-hidden="true">${face}</span>`;
   list.appendChild(row);
 }
 
@@ -1871,6 +1929,12 @@ function renderAttendanceList() {
   const teamsPresentOnly = String(teacherState.stage || "").toLowerCase() === "teams";
   list.dataset.grouped = grouped ? "1" : "0";
   list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
+  list.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+  const cols = $("ap-att-cols");
+  if (cols) {
+    cols.hidden = false;
+    cols.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+  }
   for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
     if (grouped && group.name) {
       const sep = document.createElement("div");
@@ -2957,6 +3021,11 @@ async function advanceTeamsToMeet() {
   hideTeamsAssignError();
   closeTeamsPops();
   renderAttendanceList();
+  pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
+  localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
+  if (pendingScoreboard) {
+    openScoreboardOverlay();
+  }
 }
 
 $("ap-teams-next")?.addEventListener("click", () => {
@@ -3247,9 +3316,7 @@ $("ap-rounds-list")?.addEventListener("input", (event) => {
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
   const hasLiveOverlay = Boolean(liveSessionId || readLiveSessionId());
-  // Live-overlay is primary for Track Live Class — skip separate ESPN window.
-  // Individual tracking never uses the team scoreboard overlay.
-  const wantEspn = trackMode === "team" && pendingScoreboard && !hasLiveOverlay;
+  const wantEspn = pendingScoreboard && Boolean($("ap-scoreboard-toggle")?.checked);
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     if (trackMode === "individual" && !["open", "challenge"].includes(draftRound.kind)) {

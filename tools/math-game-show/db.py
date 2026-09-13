@@ -2966,7 +2966,7 @@ class GameShowDB:
         *,
         include_participation: bool = True,
     ) -> dict[str, Any] | None:
-        """Write attendance, optional +1/round participation, then end.
+        """Write attendance, optional +1/question participation, then end.
 
         Used by Save and End Class (attendance + participation) and Quit
         (attendance only). Creates an open game when none exists and
@@ -2975,7 +2975,7 @@ class GameShowDB:
         Args:
             class_id: Classes primary key.
             present_ids: Roster ids marked present.
-            credits: ``student_id → iterable of round keys``.
+            credits: ``student_id → iterable of question keys or a count``.
             include_participation: When False (Quit), zero live points
                 so only attendance remains.
 
@@ -3059,6 +3059,52 @@ class GameShowDB:
             "class_id": int(class_id),
             "session_id": session_id,
         }
+
+    def write_live_participation(
+        self, class_id: int, credits: dict[int, int]
+    ) -> dict[str, Any] | None:
+        """Write this-session QH counts onto the open game without ending.
+
+        Args:
+            class_id: Classes primary key.
+            credits: ``student_id → distinct questions answered``.
+
+        Returns:
+            Game-state payload when an open game exists, else ``None``.
+        """
+        try:
+            game = self._game_row(int(class_id))
+        except KeyError:
+            return None
+        session_id = int(game["session_id"])
+        with self._lock:
+            self._ensure_session_scores(session_id, int(class_id))
+            for raw_sid, raw_n in (credits or {}).items():
+                try:
+                    sid = int(raw_sid)
+                    n = max(0, int(raw_n))
+                except (TypeError, ValueError):
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET points = ?,
+                        points_r1 = ?,
+                        points_r2 = ?,
+                        points_r3 = ?
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (
+                        n,
+                        1 if n >= 1 else 0,
+                        1 if n >= 2 else 0,
+                        1 if n >= 3 else 0,
+                        session_id,
+                        sid,
+                    ),
+                )
+            self.conn.commit()
+        return self.game_state(int(class_id))
 
     def attendance_score_rows(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
         """Session meeting rows and present flags for the week grid.

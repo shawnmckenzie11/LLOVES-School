@@ -20,6 +20,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from meet_team import meet_team_prompt_payload  # noqa: E402
 from minds_on import MINDS_ON_CHOICES  # noqa: E402
+from teams_spark import teams_spark_prompt_payload  # noqa: E402
 
 
 class LiveShellTests(unittest.TestCase):
@@ -204,7 +205,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("--live-left-min: 140px", css)
         self.assertNotIn("minmax(var(--live-left-min), 15%)", css)
         self.assertNotIn("body.staff-shell #team-assign-pane {\n  grid-column: 1 / -1;", css)
-        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
+        self.assertIn(
+            "grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto",
+            css,
+        )
 
     def test_beat1_geometry_locks_three_rows_and_stretch(self) -> None:
         """Beat 1: header / height-capped OptionsStrip / Left|Right stretch."""
@@ -450,7 +454,10 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("flex-wrap: nowrap", teams_css)
         self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
-        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
+        self.assertIn(
+            "grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto",
+            css,
+        )
         pop_css = css.split("body.staff-shell .live-options-strip #team-assign-pane {")[1].split(
             "body.staff-shell #team-assign-pane[hidden]"
         )[0]
@@ -594,6 +601,21 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="student-canvas"', 
             (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         )
+        home_html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="media-pane"', home_html)
+        self.assertIn('id="canvas-pane"', home_html)
+
+    def test_beat29_uncheck_collapses_student_frames(self) -> None:
+        """Beat 29: student JS hides Media/Canvas when unlocks are off."""
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn("media: Boolean(unlocks.media)", js)
+        self.assertIn("canvas: Boolean(unlocks.canvas)", js)
+        self.assertIn('canvasPane.classList.toggle("is-readonly"', js)
+        self.assertIn(".canvas-pane[hidden]", css)
+        self.assertIn(".media-pane[hidden]", css)
 
     def test_beat22_presence_updates_team_max_live(self) -> None:
         """Beat 22: ClassList join/leave clamps team max and refreshes the meter."""
@@ -1345,6 +1367,96 @@ class LiveShellTests(unittest.TestCase):
         self.assertIsNotNone(after_quit)
         self.assertEqual(int(after_quit["present"]), 1)
         self.assertEqual(int(after_quit["points"]), 0)
+
+    def test_beat26_teams_to_meet_starts_scoreboard(self) -> None:
+        """Beat 26: TEAMS→MEET opens the ESPN popup and meet_teams overlay."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        advance = js.split("async function advanceTeamsToMeet()")[1].split(
+            '$("ap-teams-next")'
+        )[0]
+        self.assertIn("openScoreboardOverlay()", advance)
+        self.assertIn("pendingScoreboard", advance)
+        self.assertIn("ap-scoreboard-toggle", advance)
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="ap-scoreboard-toggle"', html)
+
+    def test_beat27_classlist_course_game_team_cols(self) -> None:
+        """Beat 27: ClassList shows compact Course / Game / Team headers."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn('id="ap-att-cols"', html)
+        self.assertIn(">Course<", html)
+        self.assertIn(">Game<", html)
+        self.assertIn(">Team<", html)
+        self.assertIn("ap-att-course", js)
+        self.assertIn("ap-att-game", js)
+        self.assertIn("function studentTeamLabel(", js)
+        self.assertIn("body.staff-shell #class-list-pane .ap-att-cols", css)
+        self.assertIn('classListVisibleStudents', js)
+        self.assertIn('=== "teams"', js)
+
+    def test_beat31_participation_is_per_question(self) -> None:
+        """Beat 31: +1 per real QH; Meet social taps do not count."""
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        student_id = self._aspen_id()
+        self.school.join_live_class_session(sid, student_id, codename="Aspen")
+        self.school.ensure_waiting_room_minds_on(sid)
+        minds = self.school.get_active_live_prompt(sid)
+        assert minds is not None
+        self.school.submit_live_prompt_response(
+            int(minds["id"]), student_id, {"choice": MINDS_ON_CHOICES[0]}
+        )
+        spark = self.school.set_live_session_prompt(
+            sid,
+            slide_index=850,
+            kind="mc",
+            payload=teams_spark_prompt_payload(),
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(spark["id"]), student_id, {"choice": "9"}
+        )
+        extra = self.school.set_live_session_prompt(
+            sid,
+            slide_index=860,
+            kind="mc",
+            payload={
+                "item_id": "C1-QH-2",
+                "kind": "mc",
+                "prompt": "Second live QH",
+                "choices": ["A", "B"],
+            },
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(extra["id"]), student_id, {"choice": "A"}
+        )
+        meet_prompt = self.school.set_live_session_prompt(
+            sid,
+            slide_index=901,
+            kind="mc",
+            payload=meet_team_prompt_payload(),
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(meet_prompt["id"]),
+            student_id,
+            {"choice": "This sparks something"},
+        )
+        credits = self.school.participation_question_credits_for_class(
+            self.class_id
+        )
+        self.assertEqual(credits.get(student_id), 3)
+        state = self.school.get_live_session_state(sid)
+        self.assertEqual(int(state["game_points"][str(student_id)]), 3)
 
 
 if __name__ == "__main__":

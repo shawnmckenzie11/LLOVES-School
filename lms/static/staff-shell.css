@@ -2940,8 +2940,45 @@ body.staff-shell .track-live-root .ap-att-mood {
   font-size: 1.15rem;
   justify-self: end;
 }
+body.staff-shell #class-list-pane .ap-att-cols,
 body.staff-shell #class-list-pane .ap-att-row {
-  grid-template-columns: 1.25rem minmax(6rem, 1fr) auto;
+  display: grid;
+  grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto;
+  gap: 0.25rem 0.4rem;
+  align-items: baseline;
+}
+body.staff-shell #class-list-pane .ap-att-cols[data-show-team="1"],
+body.staff-shell #class-list-pane .ap-att-list[data-show-team="1"] .ap-att-row,
+body.staff-shell #class-list-pane #ap-att-list[data-show-team="1"] .ap-att-row {
+  grid-template-columns: 1.25rem minmax(3.5rem, 1fr) 2.4rem 2.2rem minmax(2.4rem, auto) auto;
+}
+body.staff-shell #class-list-pane .ap-att-cols {
+  padding: 0 0.15rem 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #8aa0b8;
+}
+body.staff-shell #class-list-pane .ap-att-cols[hidden] {
+  display: none;
+}
+body.staff-shell #class-list-pane .ap-att-cols[data-show-team="0"] .ap-att-col-team {
+  display: none;
+}
+body.staff-shell #class-list-pane .ap-att-course,
+body.staff-shell #class-list-pane .ap-att-game,
+body.staff-shell #class-list-pane .ap-att-team {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #c5d4e8;
+}
+body.staff-shell #class-list-pane .ap-att-team {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 body.staff-shell .ap-choice-stack {
   display: flex;

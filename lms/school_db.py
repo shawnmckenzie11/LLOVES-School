@@ -6545,6 +6545,17 @@ class SchoolDB(LovesDB):
         result = self.get_live_prompt_response(
             prompt_id, sid, participant_uuid=pid
         )
+        if sid is not None:
+            prompt_row = None
+            with self._lock:
+                prompt_row = self.conn.execute(
+                    "SELECT live_session_id FROM live_session_prompts WHERE id = ?",
+                    (int(prompt_id),),
+                ).fetchone()
+            if prompt_row is not None:
+                session_row = self.get_live_session(int(prompt_row["live_session_id"]))
+                if session_row is not None:
+                    self.sync_live_participation_scores(int(session_row["class_id"]))
         return result or {}
 
     def list_live_prompt_responses(self, prompt_id: int) -> list[dict[str, Any]]:
@@ -7610,12 +7621,18 @@ class SchoolDB(LovesDB):
         raw_assignments = assign.get("assignments")
         if raw_assignments is not None and not isinstance(raw_assignments, list):
             raise ValueError("assignments must be a list")
-        return self.game.assign_teams(
+        state = self.game.assign_teams(
             class_id,
             n_teams,
             str(assign.get("mode") or "balanced"),
             assignments=raw_assignments,
         )
+        try:
+            state = self.game.start_meet_teams(class_id, 3)
+        except Exception:  # noqa: BLE001 — scoreboard still opens from JS
+            pass
+        self.sync_live_participation_scores(class_id)
+        return state
 
     def record_meet_chain_pick(
         self,
@@ -8031,26 +8048,32 @@ class SchoolDB(LovesDB):
             if row.get("present")
         ]
 
-    def _mc_round_key(self, payload: dict[str, Any], kind: str) -> str | None:
-        """Participation round bucket for one MC prompt. Meet taps return None.
+    def _qh_credit_key(self, payload: dict[str, Any], kind: str) -> str | None:
+        """Participation key for one answered question. Meet social is None.
+
+        Pure Meet A/B/C taps are excluded. Real QH (Minds-On, teams spark,
+        CONS items, other non-Meet MC) each keep their own ``item_id``.
 
         Args:
             payload: Prompt payload JSON.
             kind: ``live_session_prompts.kind``.
 
         Returns:
-            Round key, or ``None`` to exclude the prompt.
+            Question key, or ``None`` to exclude the prompt.
         """
         if is_meet_team_payload(payload):
             return None
         item = str(payload.get("item_id") or "").strip()
-        if item.startswith("meet") or "meet" in item.lower():
-            return None
-        if item == "minds_on" or kind == MINDS_ON_KIND:
-            return "minds_on"
-        parts = item.rsplit("-", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            return parts[0]
+        lowered = item.lower()
+        if lowered in {"meet-team", "meet-a", "meet-b", "meet-c"} or (
+            lowered.startswith("meet-") and not is_teams_spark_payload(payload)
+        ):
+            if not is_minds_on_payload(payload) and not is_teams_spark_payload(
+                payload
+            ):
+                return None
+        if is_teams_spark_payload(payload):
+            return item or "teams-spark"
         if item:
             return item
         token = str(kind or "").strip().lower()
@@ -8058,16 +8081,20 @@ class SchoolDB(LovesDB):
             return token
         return None
 
-    def participation_round_credits_for_class(
+    def _mc_round_key(self, payload: dict[str, Any], kind: str) -> str | None:
+        """Backward-compatible alias for ``_qh_credit_key``."""
+        return self._qh_credit_key(payload, kind)
+
+    def participation_question_credits_for_class(
         self, class_id: int
-    ) -> dict[int, set[str]]:
-        """Map student id → MC round keys they answered (Meet excluded).
+    ) -> dict[int, int]:
+        """Map student id → distinct QH answers this live class (Meet excluded).
 
         Args:
             class_id: Game-show ``classes.id``.
 
         Returns:
-            One set of round keys per student who answered any non-Meet MC.
+            One count per student who answered any real QH.
         """
         sessions = self.list_live_sessions_for_class(class_id)
         session_ids = [int(row["id"]) for row in sessions]
@@ -8077,7 +8104,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT r.student_id, p.kind, p.payload
+                SELECT r.student_id, r.prompt_id, p.kind, p.payload
                 FROM live_session_responses r
                 JOIN live_session_prompts p ON p.id = r.prompt_id
                 WHERE p.live_session_id IN ({placeholders})
@@ -8085,7 +8112,7 @@ class SchoolDB(LovesDB):
                 """,
                 session_ids,
             ).fetchall()
-        credits: dict[int, set[str]] = {}
+        keys: dict[int, set[str]] = {}
         for row in rows:
             try:
                 payload = json.loads(row["payload"] or "{}")
@@ -8093,20 +8120,38 @@ class SchoolDB(LovesDB):
                 payload = {}
             if not isinstance(payload, dict):
                 payload = {}
-            key = self._mc_round_key(payload, str(row["kind"] or ""))
+            key = self._qh_credit_key(payload, str(row["kind"] or ""))
             if key is None:
                 continue
             sid = int(row["student_id"])
-            credits.setdefault(sid, set()).add(key)
-        return credits
+            keys.setdefault(sid, set()).add(f"{int(row['prompt_id'])}:{key}")
+        return {sid: len(seen) for sid, seen in keys.items()}
+
+    def participation_round_credits_for_class(
+        self, class_id: int
+    ) -> dict[int, int]:
+        """Map student id → QH counts (alias used by Save and End Class)."""
+        return self.participation_question_credits_for_class(class_id)
+
+    def sync_live_participation_scores(self, class_id: int) -> dict[str, Any] | None:
+        """Push live QH counts onto the open game so the scoreboard updates.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        credits = self.participation_question_credits_for_class(int(class_id))
+        try:
+            return self.game.write_live_participation(int(class_id), credits)
+        except Exception:  # noqa: BLE001 — live paint must not fail the answer
+            return None
 
     def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
         """Save and End Class or Quit, then wipe the live SID.
 
         Attendance always persists (including Quit). Save and End Class
-        also writes +1 participation per MC round answered (Meet taps
-        excluded). Quit zeros participation and discards ephemeral meet
-        taps / live QH with the SID wipe.
+        also writes +1 participation per question answered (Meet social
+        taps excluded). Quit zeros participation and discards ephemeral
+        meet taps / live QH with the SID wipe.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -8326,6 +8371,18 @@ class SchoolDB(LovesDB):
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),
+            "game_points": {
+                str(sid): int(n)
+                for sid, n in self.participation_question_credits_for_class(
+                    int(session_row["class_id"])
+                ).items()
+            },
+            "career_totals": {
+                str(sid): float(n)
+                for sid, n in (
+                    self.game.career_totals(int(session_row["class_id"])) or {}
+                ).items()
+            },
         }
 
     def has_active_live_sessions(self) -> bool:
