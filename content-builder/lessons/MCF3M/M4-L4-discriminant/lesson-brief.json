@@ -1,0 +1,263 @@
+{
+  "schema_version": "lesson-brief.v2",
+  "course_code": "MCF3M",
+  "lesson_id": "M4-L4-discriminant",
+  "module": 4,
+  "lesson_number": 4,
+  "title": "Lesson 4: Discriminant",
+  "module_title": "Quadratic Models",
+  "source_refs": {
+    "module_strand_map": ".local-data/curriculum/MCF3M/module-strand-map.json",
+    "expectations_seed": "lms/seeds/mcf3m_expectations.json",
+    "pattern_brief": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/lesson-brief.json",
+    "md_gate_verdict": "m4-coherence/MCF3M-M4L3-L4-MD-gate-verdict.md",
+    "coherence_contract_lean": "m4-coherence/M4L4-coherence-contract-lean.md"
+  },
+  "central_question": "Before you finish solving, how can you tell from the equation alone whether the curve will hit the x-axis twice, once, or not at all — and which solve strategy is worth using?",
+  "intended_understanding": "The discriminant D = b^2 − 4ac predicts the number of real roots of ax^2 + bx + c = 0 (positive → two, zero → one, negative → none), and those real roots match the graph’s x-intercepts. Students evaluate D, connect it to intercepts, and complete the Module 4 share of strategy comparison (graphing · factoring · quadratic formula). The formula itself is review-only here (apply to illustrate cases); completing the square is not retaught; full applications wait for Lesson 5.",
+  "prerequisite_assumptions": [
+    "Students can apply the quadratic formula using technology to find real roots of ax^2 + bx + c = 0 (Module 4 Lesson 3; A1.6 apply). Formula development is not retaught; apply-for-cases is REVIEW only.",
+    "Students can determine real roots by graphing and by factoring (Module 3 Lessons 2–3; A1.8 M3 share). This lesson completes the Module 4 strategy comparison by adding the formula and the discriminant as decision tools; it does not reteach graphing or factoring.",
+    "Students already have intercept / feature language from Module 3 and Lessons 1–2 (A1.5, A2.10). Completing the square and transformations are assumed known and are not retaught.",
+    "Students can read a, b, and c from a standard-zero equation, rearranging when needed (Module 4 Lesson 3). Discriminant evaluation uses that same triple."
+  ],
+  "processes_to_teach": [
+    "discriminant-evaluate: Evaluate D = b^2 − 4ac for a quadratic already written as ax^2 + bx + c = 0.",
+    "discriminant-to-number-of-real-roots: Connect the sign of D to the number of real roots (positive → two, zero → one, negative → none).",
+    "roots-to-x-intercepts-link: Relate the real roots of the equation to the x-intercepts of the corresponding graph, using the seed language that there are no real roots and no x-intercepts if b^2 − 4ac < 0.",
+    "predict-from-D-then-verify-graph (light): Predict the number of x-intercepts from D, then verify lightly on a graph — not a full sketch-from-standard lesson.",
+    "strategy-compare-graph-factor-formula: Complete the Module 4 share of A1.8 — determine real roots of a variety of quadratic equations and describe advantages and disadvantages of graphing, factoring, and using the quadratic formula.",
+    "apply-formula-review-for-cases (REVIEW only): Apply the quadratic formula (with technology as in Lesson 3) only to illustrate discriminant cases. Not new teach of the formula or its development."
+  ],
+  "cognitive_targets": {
+    "discriminant-evaluate": "Apply",
+    "discriminant-to-number-of-real-roots": "Understand",
+    "roots-to-x-intercepts-link": "Understand",
+    "predict-from-D-then-verify-graph": "Apply",
+    "strategy-compare-graph-factor-formula": "Evaluate",
+    "apply-formula-review-for-cases": "Apply"
+  },
+  "purpose_map": [
+    {
+      "section": "hook",
+      "purpose": "Put students in a situation where they need to know, from the equation alone, whether the curve hits the x-axis twice, once, or not at all — before they finish solving. Tiny how-many-solutions context only; not Lesson 5 modelling. Completing the square is not practiced."
+    },
+    {
+      "section": "minds-on",
+      "purpose": "Re-apply the Lesson 3 quadratic formula (REVIEW only) on one standard-zero equation so a, b, and c are live before D is named. Do not reteach formula development. (Apply: formula-review)"
+    },
+    {
+      "section": "action: worked D+number",
+      "purpose": "Fully demonstrate evaluating D = b^2 − 4ac and connecting its sign to the number of real roots on the same example. Cognitive targets Apply then Understand. (discriminant-evaluate; discriminant-to-number-of-real-roots)"
+    },
+    {
+      "section": "action: roots-to-x-intercepts",
+      "purpose": "Relate those real roots to the x-intercepts of the corresponding graph. Use the seed language: there are no real roots and no x-intercepts if b^2 − 4ac < 0. Cognitive target Understand. (roots-to-x-intercepts-link)"
+    },
+    {
+      "section": "action: predict-from-D-then-verify-graph",
+      "purpose": "Predict the number of x-intercepts from D, then verify lightly on a graph. Light only — not A2.11 sketch-from-standard. Cognitive target Apply. (predict-from-D-then-verify-graph)"
+    },
+    {
+      "section": "action: varied D cases",
+      "purpose": "Repeat D → number of real roots → intercept link on a second and third case that vary the sign of D, so the first example is not a template to copy. Stay inside real-root language; no complex arithmetic. (Apply / Understand)"
+    },
+    {
+      "section": "action: strategy-compare-graph-factor-formula",
+      "purpose": "Complete the Module 4 share of A1.8: on a short variety of equations, determine real roots and describe advantages and disadvantages of graphing, factoring, and using the quadratic formula — with D as a decision cue. Cognitive target Evaluate. (strategy-compare-graph-factor-formula)"
+    },
+    {
+      "section": "consolidation",
+      "purpose": "Return to the hook: evaluate D from the equation, name how many times the curve hits the x-axis, choose a solve strategy with a reason, and retrieve that D < 0 means no real roots and no x-intercepts."
+    }
+  ],
+  "hook_constraint": "Tiny how-many-solutions context is allowed; this is not full A3 modelling (A3.2 / A3.3). Do not practice completing the square. Prefer a lean Mobbin + Wonder visual if a hook visual is used. No complex arithmetic beyond the seed language (no real roots and no x-intercepts if b^2 − 4ac < 0). Consolidation must return to that same situation. No required login, Gizmos, or Desmos API. No Nelson discriminant stems.",
+  "instructional_sequence_intent": "Need how-many-hits from the equation alone (hook) → L3 formula apply REVIEW → worked D + number of real roots → roots-to-x-intercepts link (seed D<0 language) → predict from D then verify on a graph (light) → varied D cases → A1.8 complete compare (graphing · factoring · formula) → consolidation returns to hook with Key Idea / Need to Know.",
+  "expectations": [
+    {
+      "code": "A1.7",
+      "statement": "relate the real roots of a quadratic equation to the x-intercepts of the corresponding graph, and connect the number of real roots to the value of the discriminant (e.g., there are no real roots and no x-intercepts if b^2 − 4ac < 0)",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "NEW teach (primary)",
+      "why_this_lesson": "Core of Lesson 4: relate real roots to x-intercepts and connect the number of real roots to the discriminant (e.g., no real roots and no x-intercepts if b^2 − 4ac < 0). MD gate: NEW primary."
+    },
+    {
+      "code": "A1.8",
+      "statement": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "NEW teach (complete M4 share)",
+      "why_this_lesson": "Lesson 3 planted when the formula beats factoring or graphing. This lesson completes the Module 4 share: determine real roots of a variety of equations and describe advantages and disadvantages of graphing, factoring, and using the quadratic formula. MD gate: NEW complete M4 share.",
+      "scope_note": "Complete the three-strategy comparison here. Module 3 already owns graph/factor; Lesson 3 was REVIEW / light plant only.",
+      "strand_map_note": "A1.8 spans M3 (graph/factor) and M4 (formula/discriminant comparison)."
+    },
+    {
+      "code": "A1.6",
+      "statement": "explore the algebraic development of the quadratic formula (e.g., given the algebraic development, connect the steps to a numeric example; follow a demonstration of the algebraic development, with technology, such as computer algebra systems, or without technology [student reproduction of the development of the general case is not required]), and apply the formula to solve quadratic equations, using technology",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "REVIEW only",
+      "why_this_lesson": "Already taught in Module 4 Lesson 3 (explore development + apply with technology). Appears here only to illustrate discriminant cases. Must not reappear as new teach or as a required general-case derivation. MD gate: REVIEW only."
+    }
+  ],
+  "not_this_lesson": [
+    {
+      "code": "A1.6",
+      "reason": "Explore / algebraic development of the quadratic formula is Module 4 Lesson 3 new teach. On this lesson the formula is REVIEW only (apply to illustrate cases). Do not reteach development or require general-case reproduction. MD lock: park A1.6 development reteach.",
+      "mapped_in": "Module 4 Lesson 3 (M4-L3-quadratic-formula)"
+    },
+    {
+      "code": "A2.8",
+      "reason": "Completing the square (standard → vertex, including simple rational b/a, with technology verify) is Module 4 Lesson 2. Treat as prerequisite; do not reteach CTS. MD lock: no CTS reteach.",
+      "mapped_in": "Module 4 Lesson 2 (M4-L2-completing-the-square)"
+    },
+    {
+      "code": "A2.11",
+      "reason": "Sketching from standard form via CTS or factoring, and the key-feature inventory, is Module 4 Lesson 2 (light). Predict-from-D-then-verify-graph is light intercept-count only. MD lock: park A2.11.",
+      "mapped_in": "Module 4 Lesson 2 (M4-L2-completing-the-square)"
+    },
+    {
+      "code": "A3.2",
+      "reason": "Fitting a quadratic to scatter-plot data is Module 4 Lesson 5. MD lock: park A3 → L5.",
+      "mapped_in": "Module 4 Lesson 5"
+    },
+    {
+      "code": "A3.3",
+      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Tiny how-many-solutions hook context is allowed; it is not A3.3 coverage. MD lock: park A3 → L5.",
+      "mapped_in": "Module 4 Lesson 5"
+    },
+    {
+      "code_or_topic": "complex arithmetic beyond seed language",
+      "reason": "Stay with the seed example language: there are no real roots and no x-intercepts if b^2 − 4ac < 0. Do not introduce complex-number arithmetic or non-real root writing."
+    },
+    {
+      "code_or_topic": "themes-alone without strategy spine",
+      "reason": "A1.8 complete M4 share needs the graphing · factoring · formula comparison as a spine, not a theme-only discriminant story. MD lock: strategy-compare is required, not optional colour."
+    },
+    {
+      "code_or_topic": "completing-the-square reteach",
+      "reason": "A2.8 remains Lesson 2. CTS is assumed known and is not practiced in the hook or as a path to D. MD lock: no CTS reteach."
+    }
+  ],
+  "prerequisites": [
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 3,
+      "title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+      "source": "content-builder/lessons/MCF3M/M4-L3-quadratic-formula/lesson-brief.json",
+      "related_code": "A1.6",
+      "related_statement": "explore the algebraic development of the quadratic formula (e.g., given the algebraic development, connect the steps to a numeric example; follow a demonstration of the algebraic development, with technology, such as computer algebra systems, or without technology [student reproduction of the development of the general case is not required]), and apply the formula to solve quadratic equations, using technology",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already explored formula development (no general-case reproduction required) and applied the formula with technology. This lesson reuses apply-for-cases as REVIEW only."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 3,
+      "lesson_numbers": [
+        2,
+        3
+      ],
+      "titles": [
+        "Lesson 2: Solving Quadratic Equations by Graphing",
+        "Lesson 3: Solving Quadratic Functions by Factoring"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-strand-map.json",
+      "related_code": "A1.8",
+      "related_statement": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Module 3 already determined real roots by graphing and by factoring (A1.8 M3 share). This lesson completes the Module 4 share of the three-strategy comparison.",
+      "strand_map_note": "A1.8 spans M3 (graph/factor) and M4 (formula/discriminant comparison)."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 2,
+      "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+      "source": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/lesson-brief.json",
+      "related_code": "A2.8",
+      "related_statement": "express the equation of a quadratic function in the vertex form f(x) = a(x − h)^2 + k, given the standard form f(x) = ax^2 + bx + c, by completing the square (e.g., using algebra tiles or diagrams; algebraically), including cases where b/a is a simple rational number (e.g., ½, 0.75), and verify, using graphing technology, that these forms are equivalent representations",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Completing the square is assumed known. Reuse only; this lesson does not reteach CTS."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 1,
+      "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "source": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+      "related_code": "A2.10",
+      "related_statement": "describe the information (e.g., maximum, intercepts) that can be obtained by inspecting the standard form f(x) = ax^2 + bx + c, the vertex form f(x) = a(x − h)^2 + k, and the factored form f(x) = a(x − r)(x − s) of a quadratic function",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Soft reuse of feature / intercept language from inspecting forms. Do not reteach transformations or vertex-form inspection as new teach.",
+      "strand_map_note": "A2.10 spans M3 (factored/standard inspection) and M4 (vertex form)."
+    }
+  ],
+  "representations": [
+    {
+      "type": "equation",
+      "form": "standard_zero",
+      "must_connect": true,
+      "note": "ax^2 + bx + c = 0 as the writing from which a, b, c and D are read."
+    },
+    {
+      "type": "equation",
+      "form": "discriminant",
+      "must_connect": true,
+      "note": "D = b^2 − 4ac as the predictor of the number of real roots."
+    },
+    {
+      "type": "graph",
+      "must_connect": true,
+      "note": "Real roots as x-intercepts; used to verify a D prediction and to contrast graphing as a strategy."
+    },
+    {
+      "type": "verbal",
+      "must_connect": true,
+      "note": "Name the number of real roots, the intercept link (including D < 0), and advantages/disadvantages of graphing, factoring, and the formula."
+    },
+    {
+      "type": "tech",
+      "must_connect": true,
+      "note": "Technology to apply the formula for review cases and/or to check a graph against a D prediction."
+    },
+    {
+      "type": "equation",
+      "form": "quadratic_formula",
+      "must_connect": false,
+      "note": "Formula apply is REVIEW only to illustrate cases; not a production target and not a development reteach."
+    }
+  ],
+  "misconceptions": [
+    {
+      "label": "instructional_hypothesis",
+      "id": "D-sign-flip",
+      "hypothesis": "Students flip the sign of D (or of b^2 − 4ac) and then name the wrong number of real roots."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "D-formula-mix",
+      "hypothesis": "Students treat D as if it were the quadratic formula, or they substitute D into x = (−b ± √D) / (2a) without first deciding whether real roots exist."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "no-real-means-no-graph",
+      "hypothesis": "Students think D < 0 means there is no parabola, rather than no real roots and no x-intercepts."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "strategy-always-formula",
+      "hypothesis": "Students default to the formula on every equation, skipping the A1.8 comparison of graphing, factoring, and the formula."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "complex-arithmetic-creep",
+      "hypothesis": "Students (or a later writer) push past the seed language into complex-number arithmetic when D < 0, instead of stopping at no real roots and no x-intercepts."
+    }
+  ],
+  "uncertainties": [
+    "Whether strategy-compare Bloom should stay Evaluate (as locked here) or drop to Analyze — confirm if Evaluate is authentic for a short advantages/disadvantages compare.",
+    "How many D < 0 cases are enough to lock the intercept link without turning the lesson into a no-solution drill.",
+    "Whether the A1.8 complete compare should be a lean pros/cons table or a short-response pair (lean bar).",
+    "Tiny how-many-solutions hook vs a purely algebraic opener — hook-curator under hook_constraint.",
+    "module-lessons.json remains absent from git; titles and prior-lesson refs follow strand-map inventory + L3 pattern. Confirm when SoT is restored."
+  ]
+}

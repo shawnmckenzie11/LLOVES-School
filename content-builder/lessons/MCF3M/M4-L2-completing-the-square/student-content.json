@@ -1,0 +1,269 @@
+{
+  "schema_version": "student-content.v1",
+  "lesson_id": "M4-L2-completing-the-square",
+  "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+  "goal": "Rewrite standard form into vertex form by completing the square, so the high or low point is readable.",
+  "you_will_need": "Paper, tiles or a sketched square, and the graph board on this page.",
+  "credits": [
+    "OpenStax Intermediate Algebra 2e, CC BY-NC-SA 4.0",
+    "Ontario curriculum sample: Queen’s Printer for Ontario",
+    "Water arc photo: GuidoB, CC BY-SA 3.0"
+  ],
+  "parts": [
+    {
+      "id": "hook",
+      "nav_label": "The water",
+      "blocks": [
+        {
+          "type": "figure",
+          "src": "media/fountain-arc-500.jpg",
+          "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."
+        },
+        {
+          "type": "p",
+          "text": "You need the highest point. This time you only have the expanded writing."
+        },
+        {
+          "type": "equation",
+          "text": "\\(y = -x^2 + 6x - 5\\)"
+        },
+        {
+          "type": "task",
+          "prompt": "Do not sketch a careful graph yet. What about this writing makes the peak hard to name?"
+        }
+      ]
+    },
+    {
+      "id": "minds-on",
+      "nav_label": "Minds on",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Standard form makes the \\(y\\)-intercept easy to see. Vertex form makes the turning point easy to see."
+        },
+        {
+          "type": "task",
+          "prompt": "You are handed only standard form. Which writing would make the vertex readable?"
+        }
+      ]
+    },
+    {
+      "id": "action",
+      "nav_label": "Action",
+      "blocks": [
+        {
+          "type": "support-fade",
+          "title": "Check → Practise → Extend",
+          "process_name": "Completing the square",
+          "stages": {
+            "worked": "Reverse last lesson’s expand, then see the square and match the algebra.",
+            "practise": "A new a = 1 case, factor a first, then a simple fraction, then check the graph.",
+            "extend": "Sketch key features. Try another for a sketch-plan choice."
+          }
+        },
+        {
+          "type": "h2",
+          "text": "Same curve, both ways"
+        },
+        {
+          "type": "p",
+          "text": "Expand, then complete the square. Same graph?"
+        },
+        {
+          "type": "interactive",
+          "spec_id": "expand-cts-revisit"
+        },
+        {
+          "type": "self-check",
+          "prompt": "Do the two writings sit on one curve?",
+          "rubric_id": "expand-cts-revisit"
+        },
+        {
+          "type": "h2",
+          "text": "See the square first"
+        },
+        {
+          "type": "p",
+          "text": "Name the side and the leftover. Algebra comes next."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "diagram-ex960"
+        },
+        {
+          "type": "self-check",
+          "prompt": "What in the picture is the side? What is the leftover?",
+          "rubric_id": "diagram-ex960"
+        },
+        {
+          "type": "h2",
+          "text": "Match the algebra"
+        },
+        {
+          "type": "p",
+          "text": "Write vertex form for the same function."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "algebraic-ex960"
+        },
+        {
+          "type": "self-check",
+          "prompt": "How does the writing match the side and the leftover?",
+          "rubric_id": "algebraic-ex960"
+        },
+        {
+          "type": "h2",
+          "text": "Your turn"
+        },
+        {
+          "type": "p",
+          "text": "Same steps. New numbers."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "algebraic-try9119"
+        },
+        {
+          "type": "self-check",
+          "prompt": "How do you read h from the brackets?",
+          "rubric_id": "algebraic-try9119"
+        },
+        {
+          "type": "h2",
+          "text": "When a is not 1"
+        },
+        {
+          "type": "p",
+          "text": "Factor a from the x terms first."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "factor-a-ex959"
+        },
+        {
+          "type": "self-check",
+          "prompt": "If a stayed 1, what inside the brackets would go wrong?",
+          "rubric_id": "factor-a-ex959"
+        },
+        {
+          "type": "h2",
+          "text": "A simple fraction"
+        },
+        {
+          "type": "p",
+          "text": "Same steps. Half of 1/2 is a fraction."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "rational-half"
+        },
+        {
+          "type": "self-check",
+          "prompt": "Which step matched the integer cases?",
+          "rubric_id": "rational-half"
+        },
+        {
+          "type": "h2",
+          "text": "Check the graph"
+        },
+        {
+          "type": "p",
+          "text": "Complete the square, then overlay."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "verify-try9118"
+        },
+        {
+          "type": "self-check",
+          "prompt": "Do both writings give the same outputs?",
+          "rubric_id": "verify-try9118"
+        },
+        {
+          "type": "h2",
+          "text": "Sketch key features"
+        },
+        {
+          "type": "p",
+          "text": "Vertex, axis, max or min. Not a list of intervals."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "sketch-try9120"
+        },
+        {
+          "type": "self-check",
+          "prompt": "How did completing the square make the vertex readable?",
+          "rubric_id": "sketch-try9120"
+        },
+        {
+          "type": "h2",
+          "text": "Try another: which sketch plan?"
+        },
+        {
+          "type": "p",
+          "text": "Choose factoring or completing the square. One reason each. No formula."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "strategy-cts-vs-factor"
+        },
+        {
+          "type": "self-check",
+          "prompt": "What feature made each choice a fit?",
+          "rubric_id": "strategy-cts-vs-factor"
+        },
+        {
+          "type": "p",
+          "text": "On paper: expand and complete the square on the shared model, then check a few table points on one sketch."
+        }
+      ]
+    },
+    {
+      "id": "consolidation",
+      "nav_label": "Consolidation",
+      "blocks": [
+        {
+          "type": "key-idea",
+          "text": "Completing the square rewrites \\(ax^2 + bx + c\\) as \\(a(x - h)^2 + k\\). The graph does not move."
+        },
+        {
+          "type": "need-to-know",
+          "items": [
+            "See the square and leftover before the algebra when you can.",
+            "When a is not 1, factor a from the x^2 and x terms first.",
+            "A simple rational b/a uses the same steps.",
+            "Plus inside the brackets still means h is negative."
+          ]
+        },
+        {
+          "type": "figure",
+          "src": "media/fountain-arc-500.jpg",
+          "alt": "Two streams of water shoot from nozzles on a stone fountain rim and fall back into the basin. Each stream makes a smooth downward-opening arc; the highest point of each arc is visible against a park fence and trees."
+        },
+        {
+          "type": "p",
+          "text": "Back to the stream. You still have only the expanded writing."
+        },
+        {
+          "type": "equation",
+          "text": "\\(y = -x^2 + 6x - 5\\)"
+        },
+        {
+          "type": "p",
+          "text": "Do not move the board yet."
+        },
+        {
+          "type": "interactive",
+          "spec_id": "fresh-hook-cts"
+        },
+        {
+          "type": "self-check",
+          "prompt": "How did completing the square name the high point?",
+          "rubric_id": "fresh-hook-cts"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,269 @@
+{
+  "schema_version": "lesson-brief.v2",
+  "course_code": "MCF3M",
+  "lesson_id": "M4-L3-quadratic-formula",
+  "module": 4,
+  "lesson_number": 3,
+  "title": "Lesson 3: Solving Quadratic Equations: Quadratic Formula",
+  "module_title": "Quadratic Models",
+  "source_refs": {
+    "module_strand_map": ".local-data/curriculum/MCF3M/module-strand-map.json",
+    "expectations_seed": "lms/seeds/mcf3m_expectations.json",
+    "pattern_brief": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/lesson-brief.json",
+    "md_gate_verdict": "m4-coherence/MCF3M-M4L3-L4-MD-gate-verdict.md",
+    "coherence_contract_lean": "m4-coherence/M4L3-coherence-contract-lean.md"
+  },
+  "central_question": "When a quadratic equation will not factor nicely, how do you still find where the curve hits zero — without guessing from a sketch alone?",
+  "intended_understanding": "The quadratic formula is a reliable solve tool for ax^2 + bx + c = 0: students explore its algebraic development by connecting steps to a numeric example or following a demonstration (general-case reproduction is not required), then apply the formula using technology to find real roots. Standard form is the usual input; completing the square is assumed known from Lesson 2 and is not retaught. A light plant names when the formula beats factoring or graphing; the full strategy comparison waits for Lesson 4.",
+  "prerequisite_assumptions": [
+    "Students can rewrite a quadratic from standard form to vertex form by completing the square, including simple rational b/a, and verify with graphing technology (Module 4 Lesson 2; A2.8). Completing the square is assumed known; this lesson does not reteach it.",
+    "Students can expand vertex form to standard form and verify with graphing technology (Module 4 Lesson 1; A2.7). This lesson may reuse that fluency softly when a model is not already in ax^2 + bx + c = 0; it does not new-teach expansion.",
+    "Students can determine real roots by factoring and by graphing, and can describe a connection between those two strategies (Module 3 Lessons 2–3; A1.8 M3 share). This lesson plants the formula as a third option when factoring is ugly; it does not reteach factoring or graphing.",
+    "Students can expand and simplify quadratic expressions, and can factor when a factoring strategy applies (Module 2; A1.2 and later factoring lessons). Those fluencies are assumed so that “will not factor nicely” is a recognizable situation, not a new skill.",
+    "Students already relate factors used in solving to x-intercepts of the corresponding graph (Module 3; A1.5). This lesson may reuse that roots-as-x-intercepts language softly; it does not new-teach the intercept connection or discriminant sign rules."
+  ],
+  "processes_to_teach": [
+    "quadratic-formula-development-explore: Explore the algebraic development of the quadratic formula by connecting given steps to a numeric example or following a demonstration (with or without technology). Unassisted reproduction of the general-case development is not required. (A1.6 explore)",
+    "rearrange-to-standard-zero (optional): Rewrite an equation such as 100x^2 = 115x + 35 into ax^2 + bx + c = 0 so a, b, and c can be read for the formula.",
+    "quadratic-formula-apply-tech: Apply the quadratic formula using technology to solve quadratic equations for real roots.",
+    "classify-when-factor-vs-formula (light plant): Name when the formula beats factoring or graphing on a short ugly vs friendly pair — light plant only; the full advantages/disadvantages essay waits for Lesson 4."
+  ],
+  "cognitive_targets": {
+    "quadratic-formula-development-explore": "Understand",
+    "rearrange-to-standard-zero": "Apply",
+    "quadratic-formula-apply-tech": "Apply",
+    "classify-when-factor-vs-formula": "Analyze"
+  },
+  "purpose_map": [
+    {
+      "section": "hook",
+      "purpose": "Put students in a situation where they need the zeros (where the curve hits zero) but factoring is ugly or fails, so guessing from a sketch alone is unreliable. Completing the square is not practiced in the hook."
+    },
+    {
+      "section": "minds-on",
+      "purpose": "Have students try factoring and/or graphing on an ugly quadratic so they feel the limit of Module 3 strategies before the formula appears. Do not reteach factoring or graphing. (Analyze: which strategy is available.)"
+    },
+    {
+      "section": "action: rearrange-to-standard-zero",
+      "purpose": "Rewrite an equation such as the Ministry example 100x^2 = 115x + 35 into ax^2 + bx + c = 0 so a, b, and c can be read. Cognitive target Apply. (rearrange-to-standard-zero)"
+    },
+    {
+      "section": "action: quadratic-formula-development-explore",
+      "purpose": "Guided explore of the algebraic development — connect given steps to a numeric example or follow a demonstration (with or without technology). Students do not reproduce the general-case derivation unassisted. Cognitive target Understand. (quadratic-formula-development-explore)"
+    },
+    {
+      "section": "action: worked apply-tech",
+      "purpose": "Fully demonstrate applying the quadratic formula with technology to find real roots of a standard-zero equation. Cognitive target Apply. (quadratic-formula-apply-tech)"
+    },
+    {
+      "section": "action: varied apply-tech",
+      "purpose": "Repeat apply-with-technology on a second equation that varies signs or is not already in standard-zero form, so the first example is not a template to copy. Completing the square is not a required path. (Apply)"
+    },
+    {
+      "section": "action: classify-when-factor-vs-formula (light plant)",
+      "purpose": "On a short friendly-vs-ugly pair, name when the formula beats factoring or graphing. Light plant only — not the full advantages/disadvantages essay (Lesson 4). Cognitive target Analyze. (classify-when-factor-vs-formula)"
+    },
+    {
+      "section": "consolidation",
+      "purpose": "Return to the hook situation with a fresh equation that will not factor nicely: rearrange if needed, apply the formula with technology, and retrieve that general-case reproduction was not the goal."
+    }
+  ],
+  "hook_constraint": "Need a situation where zeros matter but factoring is ugly or fails, so students cannot rely on a friendly factor or a guess from a sketch. Tiny context is allowed; this is not Lesson 5 modelling (A3.2 / A3.3). Do not practice completing the square in the hook. Prefer a lean Mobbin + Wonder visual if a hook visual is used. Consolidation must return to that same situation. No required login, Gizmos, or Desmos API. No Nelson formula stems.",
+  "instructional_sequence_intent": "Need zeros when factoring is ugly (hook) → try factor/graph and feel the limit (minds-on) → rearrange to ax^2 + bx + c = 0 if needed → guided explore of formula development (no unassisted general-case reproduction) → worked apply-with-technology → varied apply-with-technology → light plant of when formula beats factoring/graphing → consolidation returns to hook with Key Idea / Need to Know.",
+  "expectations": [
+    {
+      "code": "A1.6",
+      "statement": "explore the algebraic development of the quadratic formula (e.g., given the algebraic development, connect the steps to a numeric example; follow a demonstration of the algebraic development, with technology, such as computer algebra systems, or without technology [student reproduction of the development of the general case is not required]), and apply the formula to solve quadratic equations, using technology",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "NEW teach (primary)",
+      "why_this_lesson": "Core of Lesson 3: explore the algebraic development of the quadratic formula (connect given steps to a numeric example or follow a demonstration; student reproduction of the general case is not required), then apply the formula using technology. MD gate: NEW primary."
+    },
+    {
+      "code": "A1.8",
+      "statement": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)",
+      "source": "lms/seeds/mcf3m_expectations.json",
+      "posture": "REVIEW / light plant",
+      "why_this_lesson": "Already begun in Module 3 (graphing and factoring). Appears here only as a light plant of when the formula beats those strategies. The full advantages/disadvantages comparison waits for Lesson 4. MD gate: REVIEW / light plant.",
+      "scope_note": "Plant only: name when the formula is the better tool on a short ugly vs friendly pair. Do not write the full three-strategy essay in this lesson.",
+      "strand_map_note": "A1.8 spans M3 (graph/factor) and M4 (formula/discriminant comparison)."
+    }
+  ],
+  "not_this_lesson": [
+    {
+      "code": "A1.7",
+      "reason": "Discriminant and connecting the number of real roots to b^2 − 4ac is Module 4 Lesson 4. MD lock: park A1.7.",
+      "mapped_in": "Module 4 Lesson 4 (M4-L4-discriminant)"
+    },
+    {
+      "code": "A2.8",
+      "reason": "Completing the square (standard → vertex, including simple rational b/a, with technology verify) is Module 4 Lesson 2. Treat as prerequisite; do not reteach CTS. MD lock: NO CTS reteach.",
+      "mapped_in": "Module 4 Lesson 2 (M4-L2-completing-the-square)"
+    },
+    {
+      "code": "A2.11",
+      "reason": "Sketching from standard form via CTS or factoring, and the key-feature inventory, is Module 4 Lesson 2 (light) — not a formula lesson. MD lock: park A2.11.",
+      "mapped_in": "Module 4 Lesson 2 (M4-L2-completing-the-square)"
+    },
+    {
+      "code": "A2.7",
+      "reason": "Expand vertex → standard plus technology verify is Module 4 Lesson 1 new teach. Soft reuse only if a model is not already in standard-zero form. Do not new-teach expansion. MD lock: park A2.7 new teach.",
+      "mapped_in": "Module 4 Lesson 1 (M4-L1-vertex-form)"
+    },
+    {
+      "code": "A1.8",
+      "reason": "The full advantages-and-disadvantages essay (graphing; factoring; using the quadratic formula) is Module 4 Lesson 4’s NEW complete M4 share. This lesson is REVIEW / light plant only. MD lock: park A1.8 full essay.",
+      "mapped_in": "Module 4 Lesson 4 (M4-L4-discriminant)",
+      "strand_map_note": "A1.8 spans M3 (graph/factor) and M4 (formula/discriminant comparison)."
+    },
+    {
+      "code": "A3.2",
+      "reason": "Fitting a quadratic to scatter-plot data is Module 4 Lesson 5.",
+      "mapped_in": "Module 4 Lesson 5"
+    },
+    {
+      "code": "A3.3",
+      "reason": "Full application problems given an algebraic model are Module 4 Lesson 5. Tiny hook context is allowed; it is not A3.3 coverage.",
+      "mapped_in": "Module 4 Lesson 5"
+    },
+    {
+      "code_or_topic": "unassisted general-case derivation of the quadratic formula",
+      "reason": "A1.6 states that student reproduction of the development of the general case is not required. Explore by connecting given steps to a numeric example or following a demonstration only. MD lock: no general-case reproduction required."
+    },
+    {
+      "code_or_topic": "discriminant sign rules (number of real roots from b^2 − 4ac)",
+      "reason": "A1.7 is Module 4 Lesson 4. This lesson may notice a technology result that is not two distinct reals; it does not teach sign rules. MD lock: park A1.7."
+    },
+    {
+      "code_or_topic": "completing-the-square reteach",
+      "reason": "A2.8 remains Lesson 2. CTS is assumed known and is not practiced in the hook or as a path to the formula. MD lock: NO CTS reteach."
+    }
+  ],
+  "prerequisites": [
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 2,
+      "title": "Lesson 2: Relating the Standard & Vertex Forms: Completing the Square",
+      "source": "content-builder/lessons/MCF3M/M4-L2-completing-the-square/lesson-brief.json",
+      "related_code": "A2.8",
+      "related_statement": "express the equation of a quadratic function in the vertex form f(x) = a(x − h)^2 + k, given the standard form f(x) = ax^2 + bx + c, by completing the square (e.g., using algebra tiles or diagrams; algebraically), including cases where b/a is a simple rational number (e.g., ½, 0.75), and verify, using graphing technology, that these forms are equivalent representations",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already complete the square to move standard → vertex and verify with graphing technology. This lesson assumes that fluency and does not reteach completing the square."
+    },
+    {
+      "kind": "prior_lesson",
+      "module": 4,
+      "lesson_number": 1,
+      "title": "Lesson 1: The Vertex Form of a Quadratic Function",
+      "source": "content-builder/lessons/MCF3M/M4-L1-vertex-form/lesson-brief.json",
+      "related_code": "A2.7",
+      "related_statement": "express the equation of a quadratic function in the standard form f(x) = ax^2 + bx + c, given the vertex form f(x) = a(x − h)^2 + k, and verify, using graphing technology, that these forms are equivalent representations",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Students already expand vertex form to standard and verify with graphing technology. Soft reuse only when a writing is not already ax^2 + bx + c = 0."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 3,
+      "lesson_numbers": [
+        2,
+        3
+      ],
+      "titles": [
+        "Lesson 2: Solving Quadratic Equations by Graphing",
+        "Lesson 3: Solving Quadratic Functions by Factoring"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-strand-map.json",
+      "related_code": "A1.8",
+      "related_statement": "determine the real roots of a variety of quadratic equations (e.g., 100x^2 = 115x + 35), and describe the advantages and disadvantages of each strategy (i.e., graphing; factoring; using the quadratic formula)",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Module 3 already determined real roots by graphing and by factoring (A1.8 M3 share). This lesson plants the formula as the third strategy when factoring is ugly; the full comparison waits for Lesson 4.",
+      "strand_map_note": "A1.8 spans M3 (graph/factor) and M4 (formula/discriminant comparison)."
+    },
+    {
+      "kind": "prior_lessons",
+      "module": 2,
+      "lesson_numbers": [
+        1,
+        2
+      ],
+      "titles": [
+        "Lesson 1: Expanding Polynomials PART 1",
+        "Lesson 2: Expanding Polynomials PART 2"
+      ],
+      "source": ".local-data/curriculum/MCF3M/module-strand-map.json",
+      "related_code": "A1.2",
+      "related_statement": "represent situations (e.g., the area of a picture frame of variable width) using quadratic expressions in one variable, and expand and simplify quadratic expressions in one variable [e.g., 2x(x + 4) − (x + 3)^2]*",
+      "related_statement_source": "lms/seeds/mcf3m_expectations.json",
+      "role": "Expand-and-simplify fluency is assumed so students can rearrange into ax^2 + bx + c = 0. Factoring fluency from later Module 2 lessons is also assumed so “will not factor nicely” is recognizable."
+    }
+  ],
+  "representations": [
+    {
+      "type": "equation",
+      "form": "standard_zero",
+      "must_connect": true,
+      "note": "ax^2 + bx + c = 0 as the usual input to the formula."
+    },
+    {
+      "type": "equation",
+      "form": "quadratic_formula",
+      "must_connect": true,
+      "note": "The formula as the solve tool; explore its development, then apply with technology."
+    },
+    {
+      "type": "graph",
+      "must_connect": true,
+      "note": "Roots as where the curve hits zero; graphing is a Module 3 strategy to contrast, not a new teach."
+    },
+    {
+      "type": "tech",
+      "must_connect": true,
+      "note": "Technology used to apply the formula (and optionally to follow a development demonstration)."
+    },
+    {
+      "type": "verbal",
+      "must_connect": true,
+      "note": "Name a, b, and c, the real roots, and when the formula is the better tool than factoring or graphing (light)."
+    },
+    {
+      "type": "equation",
+      "form": "vertex",
+      "must_connect": false,
+      "note": "Vertex form / completing the square is assumed from Lesson 2 and is not a production target."
+    }
+  ],
+  "misconceptions": [
+    {
+      "label": "instructional_hypothesis",
+      "id": "abc-sign-slip",
+      "hypothesis": "Students drop a sign when reading a, b, or c (especially after rearranging), so the formula is applied to the wrong triple."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "not-in-standard-zero",
+      "hypothesis": "Students plug coefficients from 100x^2 = 115x + 35 as if it were already ax^2 + bx + c = 0."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "formula-needs-cts-first",
+      "hypothesis": "Students think they must complete the square before using the formula, reteaching Lesson 2 instead of treating CTS as already known."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "must-derive-general-case",
+      "hypothesis": "Students (or a later writer) treat unassisted reproduction of the general-case development as required, contrary to A1.6."
+    },
+    {
+      "label": "instructional_hypothesis",
+      "id": "two-roots-always",
+      "hypothesis": "Students assume every quadratic has two real roots they can write from the formula, without noticing a technology result that is not two distinct reals. Discriminant sign rules stay parked for Lesson 4."
+    }
+  ],
+  "uncertainties": [
+    "How deep the explore beat should go (connect-steps-to-numeric vs follow-a-demo) without sliding into required general-case reproduction.",
+    "Which login-light technology stack to use for apply-with-technology (CAS vs graphing vs formula evaluator); no required student login.",
+    "How large the light A1.8 plant should be before it becomes the Lesson 4 essay.",
+    "Whether rearrange-to-standard-zero needs a full FAME fade chain or a single worked-then-varied beat — practice-designer decision after this brief.",
+    "module-lessons.json remains absent from git; titles and prior-lesson refs follow strand-map inventory + L2 pattern. Confirm when SoT is restored."
+  ]
+}
