@@ -9,18 +9,33 @@ GAME_SHOW_TITLE = "VLC Math Game Show"
 GAME_SHOW_ROUNDS: tuple[dict[str, str], ...] = (
     {
         "kind": "open",
-        "title": "Open Question Round",
-        "blurb": "The class works one question together. Ideas score as they land.",
+        "title": "You Lead the Way",
+        "blurb": (
+            "Every class begins with 10–30 minutes of open questions, like a "
+            "traditional open office. This is the time to ask about the "
+            "content, have module ideas explained, or get help with homework."
+        ),
     },
     {
         "kind": "challenge",
-        "title": "Team Challenge Round",
-        "blurb": "Your team takes on a richer problem. Teamwork and look-fors count.",
+        "title": "Team Challenge",
+        "blurb": (
+            "You will work with your group on one challenge that uses this "
+            "module's math and your ability to collaborate, model, and "
+            "problem-solve — not just to get the right answer, but to spot "
+            "connections that are hard to see alone. You finish by documenting "
+            "and sharing what you took from the group and how your thinking "
+            "sharpened; that write-up is the foundation of the portfolio."
+        ),
     },
     {
         "kind": "consolidation",
-        "title": "Consolidation Round",
-        "blurb": "Lock in today’s big idea and check that it stuck.",
+        "title": "Test-style practice + feedback",
+        "blurb": (
+            "We finish every class with a typical test-style question so you "
+            "get specific, timely feedback. That consolidates the processes "
+            "from the async lessons and supports solving the team challenge."
+        ),
     },
 )
 

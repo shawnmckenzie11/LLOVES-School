@@ -1719,6 +1719,9 @@ function paintGameShowWelcome(payload) {
     welcome.class_code || "",
     welcome.lesson_code || "",
     people.map((row) => `${row.codename || ""}:${row.character || ""}`).join("|"),
+    (welcome.rounds || [])
+      .map((row) => `${row.title || ""}:${row.blurb || ""}`)
+      .join("|"),
   ].join("::");
   if (key === lastWelcomeKey && !gameShowWelcomeEl.hidden) return;
   lastWelcomeKey = key;

@@ -573,9 +573,9 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertTrue(welcome.get("class_code"), welcome)
         self.assertRegex(str(welcome.get("lesson_code") or ""), r"^M\d+-C\d+$")
         self.assertEqual(len(welcome.get("rounds") or []), 3)
-        self.assertEqual(welcome["rounds"][0]["title"], "Open Question Round")
-        self.assertEqual(welcome["rounds"][1]["title"], "Team Challenge Round")
-        self.assertEqual(welcome["rounds"][2]["title"], "Consolidation Round")
+        self.assertEqual(welcome["rounds"][0]["title"], "You Lead the Way")
+        self.assertEqual(welcome["rounds"][1]["title"], "Team Challenge")
+        self.assertEqual(welcome["rounds"][2]["title"], "Test-style practice + feedback")
         names = {row.get("codename") for row in welcome.get("participants") or []}
         self.assertIn("Aspen", names)
         self.assertIsNone(student_teams.get("prompt"))

@@ -37,11 +37,15 @@ class GameShowWelcomeTests(unittest.TestCase):
         self.assertEqual(
             titles,
             [
-                "Open Question Round",
-                "Team Challenge Round",
-                "Consolidation Round",
+                "You Lead the Way",
+                "Team Challenge",
+                "Test-style practice + feedback",
             ],
         )
+        blurbs = [row["blurb"] for row in payload["rounds"]]
+        self.assertIn("10–30 minutes", blurbs[0])
+        self.assertIn("foundation of the portfolio", blurbs[1])
+        self.assertIn("test-style question", blurbs[2])
         for row in payload["rounds"]:
             self.assertTrue(row["blurb"])
         self.assertEqual(payload["participants"][0]["character"], "fox")
