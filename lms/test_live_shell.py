@@ -215,13 +215,17 @@ class LiveShellTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("--live-options-max-h: calc(var(--live-options-row-h) * 2 + 1.1rem)", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
-        self.assertIn("grid-template-rows: auto auto auto minmax(12rem, 1fr)", css)
+        self.assertIn("grid-template-rows: auto auto auto auto minmax(12rem, 1fr)", css)
         self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
         self.assertIn(
-            "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 2;",
+            "body.staff-shell .live-shell-ia-v2 > .live-pack-strip {\n  grid-row: 2;",
             css,
         )
-        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-shell-body {\n  grid-row: 4;", css)
+        self.assertIn(
+            "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 3;",
+            css,
+        )
+        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-shell-body {\n  grid-row: 5;", css)
         self.assertIn("body.staff-shell .live-shell-body {\n  display: grid;", css)
         self.assertIn("align-items: stretch", css)
         self.assertIn("body.staff-shell .live-active-content {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
@@ -1532,6 +1536,50 @@ class LiveShellTests(unittest.TestCase):
             class_id=self.class_id, student_id=student_id2
         )
         self.assertIsNotNone(pending_save)
+
+    def test_beat30_module_and_live_class_dropdown(self) -> None:
+        """Beat 30 interim: Module + Live class picks load the C-slot pack."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="live-pack-strip"', html)
+        self.assertIn('id="live-module-select"', html)
+        self.assertIn('id="live-class-select"', html)
+        self.assertIn(">Module<", html)
+        self.assertIn(">Live class<", html)
+        self.assertIn('value="M1"', html)
+        self.assertIn('value="C1"', html)
+        self.assertIn('value="C2"', html)
+        self.assertIn('value="C3"', html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("applyLivePackChoice", js)
+        self.assertIn("live_module", js)
+        start = self.school.start_live_class_session(
+            self.class_id,
+            int(self.teacher["id"]),
+            live_module="M1",
+            live_slot="C2",
+        )
+        sid = int(start["id"])
+        state = self.school.live_session_teacher_state_payload(sid)
+        self.assertEqual(state["live_module"], "M1")
+        self.assertEqual(state["live_slot"], "C2")
+        prompt = self.school.get_active_live_prompt(sid)
+        assert prompt is not None
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("live_slot"), "C2")
+        self.assertEqual(payload.get("live_module"), "M1")
+        self.assertEqual(payload.get("item_id"), "minds_on")
+        patched = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"live_module": "M1", "live_slot": "C3"},
+        )
+        self.assertEqual(patched.status_code, 200)
+        body = patched.get_json()["teacher_state"]
+        self.assertEqual(body["live_slot"], "C3")
+        again = self.school.get_active_live_prompt(sid)
+        assert again is not None
+        self.assertEqual((again.get("payload") or {}).get("live_slot"), "C3")
 
 
 if __name__ == "__main__":

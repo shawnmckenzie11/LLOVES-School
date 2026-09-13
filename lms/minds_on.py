@@ -133,28 +133,36 @@ def normalize_live_slot(raw: Any) -> str:
     return DEFAULT_LIVE_SLOT
 
 
-def minds_on_pack(live_slot: Any = None) -> dict[str, Any]:
-    """Return the waiting-room Minds-On pack for one live slot.
+def minds_on_pack(live_slot: Any = None, live_module: Any = None) -> dict[str, Any]:
+    """Return the waiting-room Minds-On pack for one module + live slot.
+
+    Interim: non-M1 modules fall back to the matching C-slot M1 pack when
+    no catalogue student brief is loaded here (LMS seeds stay locked).
 
     Args:
         live_slot: ``C1`` / ``C2`` / ``C3``. Defaults to C1.
+        live_module: ``M1`` / ``M2`` / … Defaults to M1.
     """
     slot = normalize_live_slot(live_slot)
-    return dict(_MINDS_ON_PACKS[slot])
+    pack = dict(_MINDS_ON_PACKS[slot])
+    module = str(live_module or "M1").strip().upper() or "M1"
+    pack["live_module"] = module if module.startswith("M") else "M1"
+    return pack
 
 
-def minds_on_items(live_slot: Any = None) -> list[dict[str, Any]]:
+def minds_on_items(live_slot: Any = None, live_module: Any = None) -> list[dict[str, Any]]:
     """Return the waiting-room Minds-On catalog: exactly one MC.
 
     Teacher-only ``key`` lives on the item. Student APIs must strip it.
 
     Args:
         live_slot: ``C1`` / ``C2`` / ``C3``. Defaults to C1.
+        live_module: ``M1`` / ``M2`` / … Defaults to M1.
 
     Returns:
         A one-element list. Callers must not paginate or carousel it.
     """
-    pack = minds_on_pack(live_slot)
+    pack = minds_on_pack(live_slot, live_module)
     return [
         {
             "item_id": MINDS_ON_ITEM_ID,
@@ -166,7 +174,7 @@ def minds_on_items(live_slot: Any = None) -> list[dict[str, Any]]:
     ]
 
 
-def minds_on_prompt_payload(live_slot: Any = None) -> dict[str, Any]:
+def minds_on_prompt_payload(live_slot: Any = None, live_module: Any = None) -> dict[str, Any]:
     """MC payload for the waiting-room Minds-On question.
 
     Includes teacher-only ``key``. Student APIs must strip it before send.
@@ -174,14 +182,15 @@ def minds_on_prompt_payload(live_slot: Any = None) -> dict[str, Any]:
 
     Args:
         live_slot: ``C1`` / ``C2`` / ``C3``. Defaults to C1.
+        live_module: ``M1`` / ``M2`` / … Defaults to M1.
 
     Returns:
         Live-prompt payload with ``item_id`` ``minds_on`` on the
         ``quick-hitter-question-chain`` artifact.
     """
     slot = normalize_live_slot(live_slot)
-    pack = minds_on_pack(slot)
-    items = minds_on_items(slot)
+    pack = minds_on_pack(slot, live_module)
+    items = minds_on_items(slot, live_module)
     item = items[0]
     payload = quick_hitter_packaging(
         ride=RIDE_MINDS_ON,
@@ -201,6 +210,7 @@ def minds_on_prompt_payload(live_slot: Any = None) -> dict[str, Any]:
             "key": item["key"],
             "items": items,
             "live_slot": slot,
+            "live_module": pack.get("live_module") or "M1",
             "feedback_id": pack["feedback_id"],
         }
     )

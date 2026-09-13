@@ -184,6 +184,7 @@ let teacherState = {
   unlocks: { media: false, canvas: false },
   canvas_align: "student",
   live_slot: "C1",
+  live_module: "M1",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
 
@@ -254,6 +255,9 @@ function adoptTeacherState(next) {
   }
   const slot = String(next.live_slot || teacherState.live_slot || "C1").toUpperCase();
   teacherState.live_slot = slot;
+  teacherState.live_module = String(
+    next.live_module || teacherState.live_module || "M1"
+  ).toUpperCase();
   textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
@@ -570,12 +574,63 @@ function paintHeaderDate() {
  * Flag Meet universal Q / CONS / QH from existing session fields (no new poll).
  * @param {any} [media]
  */
+function slotsByModule() {
+  const host = $("live-pack-strip");
+  if (!host) return { M1: ["C1", "C2", "C3"] };
+  try {
+    const raw = JSON.parse(host.getAttribute("data-slots-by-module") || "{}");
+    if (raw && typeof raw === "object") return raw;
+  } catch (_) {
+    /* keep default */
+  }
+  return { M1: ["C1", "C2", "C3"] };
+}
+
+/**
+ * Fill the Live class select for the current catalogue module.
+ * @param {string} [moduleId]
+ */
+function paintLiveClassOptions(moduleId) {
+  const select = $("live-class-select");
+  if (!select) return;
+  const module = String(moduleId || teacherState.live_module || "M1").toUpperCase();
+  const slots = slotsByModule()[module] || slotsByModule().M1 || ["C1", "C2", "C3"];
+  const current = String(teacherState.live_slot || select.value || "C1").toUpperCase();
+  select.innerHTML = slots
+    .map(
+      (slot) =>
+        `<option value="${slot}"${slot === current ? " selected" : ""}>${slot}</option>`
+    )
+    .join("");
+  if (![...select.options].some((opt) => opt.value === current) && slots[0]) {
+    select.value = slots[0];
+  }
+}
+
+/**
+ * Sync Module + Live class dropdowns with teacher state.
+ */
+function paintLivePackStrip() {
+  const moduleSelect = $("live-module-select");
+  const classSelect = $("live-class-select");
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  if (moduleSelect && moduleSelect.value !== module) {
+    moduleSelect.value = module;
+  }
+  paintLiveClassOptions(module);
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (classSelect && classSelect.value !== slot) {
+    classSelect.value = slot;
+  }
+}
+
 function paintLiveSlotPicks() {
   const slot = String(teacherState.live_slot || textOnlyChallenge || "C1").toUpperCase();
   document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
     const on = btn.getAttribute("data-live-slot") === slot;
     btn.classList.toggle("is-active", on);
   });
+  paintLivePackStrip();
   const textOnly = slot === "C2" || slot === "C3";
   textOnlyChallenge = textOnly ? slot : "";
   const rideBox = $("text-ride-controls");
@@ -1407,7 +1462,10 @@ async function ensureLiveSessionMinted(opts = {}) {
   if (!liveSessionId) {
     const res = await api(`/api/classes/${classId}/live-session/start`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({
+        live_module: $("live-module-select")?.value || teacherState.live_module || "M1",
+        live_slot: $("live-class-select")?.value || teacherState.live_slot || "C1",
+      }),
     });
     liveSessionId = Number(res.live_session_id || res.live_session?.id || 0);
     if (root && liveSessionId) {
@@ -4162,18 +4220,51 @@ $("live-round-set")?.addEventListener("click", () => {
   patchTeacherState({ round_flags: readRoundFlags() });
 });
 
+/**
+ * Persist Module + Live class and remount the waiting-room pack.
+ * @param {string} moduleId
+ * @param {string} slot
+ */
+function applyLivePackChoice(moduleId, slot) {
+  const module = String(moduleId || "M1").toUpperCase();
+  const liveSlot = String(slot || "C1").toUpperCase();
+  teacherState.live_module = module;
+  teacherState.live_slot = liveSlot;
+  textOnlyChallenge = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
+  const sessionId = liveSessionId || readLiveSessionId();
+  const write = sessionId
+    ? patchTeacherState({ live_module: module, live_slot: liveSlot }).then(() =>
+        postActiveMedia({ challenge: liveSlot })
+      )
+    : Promise.resolve();
+  write
+    .then(() => {
+      if (liveSlot === "C1" && sessionId) return ensureC1MediaSeeded();
+      paintLiveSlotPicks();
+      return null;
+    })
+    .catch((err) => showError("#ap-overlay-error", err));
+}
+
 document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const slot = btn.getAttribute("data-live-slot") || "C1";
-    textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
-    postActiveMedia({ challenge: slot })
-      .then(() => {
-        if (slot === "C1") return ensureC1MediaSeeded();
-        paintLiveSlotPicks();
-        return null;
-      })
-      .catch((err) => showError("#ap-overlay-error", err));
+    applyLivePackChoice(teacherState.live_module || "M1", slot);
   });
+});
+
+$("live-module-select")?.addEventListener("change", () => {
+  const module = $("live-module-select")?.value || "M1";
+  paintLiveClassOptions(module);
+  const slot = $("live-class-select")?.value || "C1";
+  applyLivePackChoice(module, slot);
+});
+
+$("live-class-select")?.addEventListener("change", () => {
+  applyLivePackChoice(
+    $("live-module-select")?.value || teacherState.live_module || "M1",
+    $("live-class-select")?.value || "C1"
+  );
 });
 
 $("text-ride-freeze")?.addEventListener("click", () => {

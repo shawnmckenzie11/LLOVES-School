@@ -154,6 +154,28 @@
         </div>
       </header>
 
+      {% set packs = live_packs if live_packs is defined else {} %}
+      <div class="live-pack-strip" id="live-pack-strip"
+           data-course="{{ packs.course or 'MCF3M' }}"
+           data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3"]}) | tojson }}'>
+        <label class="live-pack-field" for="live-module-select">
+          <span>Module</span>
+          <select id="live-module-select" aria-label="Module">
+            {% for mod in packs.modules or ['M1'] %}
+            <option value="{{ mod }}"{% if mod == 'M1' %} selected{% endif %}>{{ mod }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="live-pack-field" for="live-class-select">
+          <span>Live class</span>
+          <select id="live-class-select" aria-label="Live class">
+            {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3']) %}
+            <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
         <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
           <label class="live-unlock-toggle" for="live-unlock-media">

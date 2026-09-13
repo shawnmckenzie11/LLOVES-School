@@ -39,6 +39,7 @@ try:
         bind_meet_student_projection,
         default_text_ride,
         mc_poll_closed,
+        normalize_live_module,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
@@ -109,6 +110,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         bind_meet_student_projection,
         default_text_ride,
         mc_poll_closed,
+        normalize_live_module,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
@@ -6050,6 +6052,18 @@ class SchoolDB(LovesDB):
             return "C1"
         return normalize_live_slot(teacher.get("live_slot"))
 
+    def session_live_module(self, session_id: int) -> str:
+        """Return the session catalogue module ``M1`` / ``M2`` / …
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return "M1"
+        return normalize_live_module(teacher.get("live_module"))
+
     def session_text_ride(self, session_id: int) -> dict[str, Any]:
         """Return the C2/C3 text-only freeze + CONS ride.
 
@@ -6097,7 +6111,10 @@ class SchoolDB(LovesDB):
             return None
         if self._meet_team_row_exists(session_id):
             return None
-        desired = minds_on_prompt_payload(self.session_live_slot(session_id))
+        desired = minds_on_prompt_payload(
+            self.session_live_slot(session_id),
+            self.session_live_module(session_id),
+        )
         active = self.get_active_live_prompt(session_id)
         if active and is_minds_on_payload(active.get("payload")):
             current = active.get("payload") or {}
@@ -6106,6 +6123,8 @@ class SchoolDB(LovesDB):
                 and current.get("choices") == desired["choices"]
                 and current.get("key") == desired.get("key")
                 and current.get("items") == desired.get("items")
+                and current.get("live_slot") == desired.get("live_slot")
+                and current.get("live_module") == desired.get("live_module")
             ):
                 return None
             return self.set_live_session_prompt(
@@ -6146,7 +6165,10 @@ class SchoolDB(LovesDB):
             session_id,
             slide_index=MINDS_ON_SLIDE_INDEX,
             kind=MINDS_ON_KIND,
-            payload=minds_on_prompt_payload(self.session_live_slot(session_id)),
+            payload=minds_on_prompt_payload(
+                self.session_live_slot(session_id),
+                self.session_live_module(session_id),
+            ),
             activate=False,
         )
 
@@ -7510,6 +7532,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         posted_slot = kwargs.get("live_slot")
+        posted_module = kwargs.get("live_module")
         assign = kwargs.pop("assign", None)
         meet_action = kwargs.pop("meet_action", None)
         if meet_action is not None:
@@ -7569,8 +7592,10 @@ class SchoolDB(LovesDB):
             self.apply_session_timer_on_stage_advance(
                 int(session_row["class_id"]), new_stage
             )
-        if posted_slot is not None:
-            slot = normalize_live_slot(posted_slot)
+        if posted_slot is not None or posted_module is not None:
+            slot = normalize_live_slot(
+                posted_slot if posted_slot is not None else payload.get("live_slot")
+            )
             if slot in {"C2", "C3"}:
                 media = self.live_session_active_media_payload(session_id)
                 if media is not None:
@@ -8436,7 +8461,12 @@ class SchoolDB(LovesDB):
         return ended
 
     def start_live_class_session(
-        self, class_id: int, teacher_user_id: int
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        live_module: Any = None,
+        live_slot: Any = None,
     ) -> dict[str, Any]:
         """Mint a new active live session for this teacher.
 
@@ -8447,6 +8477,8 @@ class SchoolDB(LovesDB):
         Args:
             class_id: Game-show ``classes.id``.
             teacher_user_id: Staff user starting the meeting.
+            live_module: Optional catalogue module (``M1``).
+            live_slot: Optional live class (``C1`` / ``C2`` / ``C3``).
 
         Returns:
             The newly created active session row.
@@ -8462,6 +8494,14 @@ class SchoolDB(LovesDB):
         existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
         if existing is not None:
             if int(existing["class_id"]) == int(class_id):
+                if live_module is not None or live_slot is not None:
+                    self.set_live_session_teacher_state(
+                        int(existing["id"]),
+                        live_module=live_module,
+                        live_slot=live_slot,
+                    )
+                    refreshed = self.get_live_session(int(existing["id"]))
+                    return refreshed or existing
                 return existing
             raise ValueError(
                 "You already have a live class running. "
@@ -8491,7 +8531,14 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
-        self.ensure_waiting_room_minds_on(session_id)
+        if live_module is not None or live_slot is not None:
+            self.set_live_session_teacher_state(
+                session_id,
+                live_module=live_module,
+                live_slot=live_slot,
+            )
+        else:
+            self.ensure_waiting_room_minds_on(session_id)
         return session_row
 
 

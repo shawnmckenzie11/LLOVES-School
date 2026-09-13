@@ -69,6 +69,8 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertIsNone(state["active_media_ref"])
         self.assertIsNone(state["meet_chain"])
         self.assertIsNone(state["cue_id"])
+        self.assertEqual(state["live_slot"], "C1")
+        self.assertEqual(state["live_module"], "M1")
         self.assertFalse(student_should_mount_media(state))
         self.assertFalse(student_should_mount_canvas(state))
         self.assertNotIn("url", state)

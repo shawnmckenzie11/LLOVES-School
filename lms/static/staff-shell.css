@@ -1309,7 +1309,7 @@ body.staff-shell .track-live-root.live-shell-root {
   max-width: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto auto minmax(12rem, 1fr);
+  grid-template-rows: auto auto auto auto minmax(12rem, 1fr);
   gap: var(--live-shell-gap);
   align-items: stretch;
 }
@@ -1329,14 +1329,39 @@ body.staff-shell .live-shell-ia-v2 > #ap-overlay-error {
 body.staff-shell .live-shell-ia-v2 > .live-header {
   grid-row: 1;
 }
-body.staff-shell .live-shell-ia-v2 > .live-options-strip {
+body.staff-shell .live-shell-ia-v2 > .live-pack-strip {
   grid-row: 2;
 }
-body.staff-shell .live-shell-ia-v2 > .live-date-panel {
+body.staff-shell .live-shell-ia-v2 > .live-options-strip {
   grid-row: 3;
 }
-body.staff-shell .live-shell-ia-v2 > .live-shell-body {
+body.staff-shell .live-shell-ia-v2 > .live-date-panel {
   grid-row: 4;
+}
+body.staff-shell .live-shell-ia-v2 > .live-shell-body {
+  grid-row: 5;
+}
+body.staff-shell .live-pack-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.35rem 0.65rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+}
+body.staff-shell .live-pack-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #334155;
+}
+body.staff-shell .live-pack-field select {
+  min-width: 4.5rem;
+  font-size: 0.85rem;
 }
 body.staff-shell .live-header {
   display: flex;

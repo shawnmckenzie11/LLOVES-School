@@ -44,6 +44,7 @@ UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
 MINDS_ON_PROMPT_REF = "minds_on"
 LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3")
 DEFAULT_LIVE_SLOT = "C1"
+DEFAULT_LIVE_MODULE = "M1"
 CUE_FREEZE = "cue.freeze"
 CUE_CONS_UNLOCK = "cue.cons_unlock"
 TEXT_RIDE_CUES: tuple[str, ...] = (CUE_FREEZE, CUE_CONS_UNLOCK)
@@ -129,6 +130,7 @@ def default_teacher_state() -> dict[str, Any]:
         "unlocks": default_unlocks(),
         "canvas_align": DEFAULT_CANVAS_ALIGN,
         "live_slot": DEFAULT_LIVE_SLOT,
+        "live_module": DEFAULT_LIVE_MODULE,
         "text_ride": default_text_ride(),
     }
 
@@ -257,6 +259,18 @@ def normalize_live_slot(raw: Any) -> str:
     if text in LIVE_SLOTS:
         return text
     return DEFAULT_LIVE_SLOT
+
+
+def normalize_live_module(raw: Any) -> str:
+    """Return ``M1``, ``M2``, … Unknown values fall back to M1.
+
+    Args:
+        raw: Posted or stored module id.
+    """
+    text = str(raw or "").strip().upper()
+    if len(text) >= 2 and text[0] == "M" and text[1:].isdigit():
+        return text
+    return DEFAULT_LIVE_MODULE
 
 
 def public_text_ride(raw: Any) -> dict[str, Any]:
@@ -618,6 +632,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             bind_join_share_on_reveal(base)
     if "live_slot" in stored:
         base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
+    if "live_module" in stored:
+        base["live_module"] = normalize_live_module(stored.get("live_module"))
     if "text_ride" in stored:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
@@ -665,6 +681,7 @@ def apply_teacher_state_update(
     canvas_align: Any = None,
     mc_ui: Any = None,
     live_slot: Any = None,
+    live_module: Any = None,
     text_ride: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
@@ -698,6 +715,7 @@ def apply_teacher_state_update(
             Reveal commits ``reveal_to_students`` and closes the poll.
             Empty clears the blob.
         live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
+        live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
 
@@ -792,6 +810,8 @@ def apply_teacher_state_update(
         base["canvas_align"] = normalize_canvas_align(canvas_align)
     if live_slot is not None:
         base["live_slot"] = normalize_live_slot(live_slot)
+    if live_module is not None:
+        base["live_module"] = normalize_live_module(live_module)
     if text_ride is not None:
         if text_ride in (None, "", {}, False):
             base["text_ride"] = default_text_ride()

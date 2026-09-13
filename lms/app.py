@@ -83,6 +83,7 @@ from live_media import (  # noqa: E402
     cons_catalog,
     live_media_url_swap_allowed,
 )
+from live_class_packs import live_class_registry  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
@@ -2511,6 +2512,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         exit_feedback = (
             school.list_exit_feedback_for_class(class_id) if tab == "ap" else []
         )
+        live_packs = live_class_registry(
+            (offering or {}).get("ontario_code")
+            or cls.get("ontario_code")
+            or "MCF3M"
+        )
         return render_template(
             "staff/course.html",
             user=user,
@@ -2521,6 +2527,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             tab=tab,
             ap_view=ap_view,
             exit_feedback=exit_feedback,
+            live_packs=live_packs,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
@@ -3931,6 +3938,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "canvas_align",
             "mc_ui",
             "live_slot",
+            "live_module",
             "text_ride",
         ):
             if key in body:
@@ -4153,8 +4161,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         assert user is not None
         try:
+            body = request.get_json(silent=True) or {}
             session_row = school.start_live_class_session(
-                class_id, int(user["id"])
+                class_id,
+                int(user["id"]),
+                live_module=body.get("live_module"),
+                live_slot=body.get("live_slot"),
             )
             return jsonify(
                 {
