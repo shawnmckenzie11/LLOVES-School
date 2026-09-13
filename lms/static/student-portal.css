@@ -755,13 +755,13 @@ body.student-home.is-live .student-live-response {
   text-align: center;
 }
 
-.student-me .me-card-footer {
+.student-me .me-save-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
-  margin-top: auto;
-  padding-top: 0.55rem;
+  flex: 0 0 auto;
+  margin: 0 0 0.45rem;
 }
 
 .student-me .save-work {

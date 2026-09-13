@@ -1197,16 +1197,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertIsNone(paused["ends_at_ms"])
         self.assertGreater(paused["remaining_sec"], 0)
 
-    def test_beat32_save_work_card_footer_not_timer(self) -> None:
-        """Beat 32: Save Work is the student-card footer, below stats."""
+    def test_beat32_save_work_under_name_not_timer(self) -> None:
+        """Beat 32: Save Work is under the name row, not the timer."""
         home = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertLess(home.index('id="me-display-time"'), home.index('id="me-name"'))
-        self.assertLess(home.index('id="me-name"'), home.index('id="me-stats"'))
-        self.assertLess(home.index('id="me-stats"'), home.index('id="me-card-footer"'))
-        self.assertLess(home.index('id="me-card-footer"'), home.index('id="save-work"'))
+        self.assertLess(home.index('id="me-name-row"'), home.index('id="me-save-slot"'))
+        self.assertLess(home.index('id="me-save-slot"'), home.index('id="save-work"'))
+        self.assertLess(home.index('id="save-work"'), home.index('id="me-stats"'))
+        self.assertNotIn('id="me-card-footer"', home)
         self.assertIn(">Save Work<", home)
         self.assertIn("Saved to your downloads.", js)
         self.assertIn("Nothing to save yet.", js)
