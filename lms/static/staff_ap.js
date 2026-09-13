@@ -64,6 +64,10 @@ let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
 let pendingScoreboard = false;
+/** @type {Record<string, number>} */
+let sessionGamePoints = {};
+/** @type {Record<string, number>} */
+let sessionCareerTotals = {};
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
@@ -180,6 +184,7 @@ let teacherState = {
   unlocks: { media: false, canvas: false },
   canvas_align: "student",
   live_slot: "C1",
+  live_module: "M1",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
 
@@ -250,6 +255,9 @@ function adoptTeacherState(next) {
   }
   const slot = String(next.live_slot || teacherState.live_slot || "C1").toUpperCase();
   teacherState.live_slot = slot;
+  teacherState.live_module = String(
+    next.live_module || teacherState.live_module || "M1"
+  ).toUpperCase();
   textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
@@ -566,12 +574,63 @@ function paintHeaderDate() {
  * Flag Meet universal Q / CONS / QH from existing session fields (no new poll).
  * @param {any} [media]
  */
+function slotsByModule() {
+  const host = $("live-pack-strip");
+  if (!host) return { M1: ["C1", "C2", "C3"] };
+  try {
+    const raw = JSON.parse(host.getAttribute("data-slots-by-module") || "{}");
+    if (raw && typeof raw === "object") return raw;
+  } catch (_) {
+    /* keep default */
+  }
+  return { M1: ["C1", "C2", "C3"] };
+}
+
+/**
+ * Fill the Live class select for the current catalogue module.
+ * @param {string} [moduleId]
+ */
+function paintLiveClassOptions(moduleId) {
+  const select = $("live-class-select");
+  if (!select) return;
+  const module = String(moduleId || teacherState.live_module || "M1").toUpperCase();
+  const slots = slotsByModule()[module] || slotsByModule().M1 || ["C1", "C2", "C3"];
+  const current = String(teacherState.live_slot || select.value || "C1").toUpperCase();
+  select.innerHTML = slots
+    .map(
+      (slot) =>
+        `<option value="${slot}"${slot === current ? " selected" : ""}>${slot}</option>`
+    )
+    .join("");
+  if (![...select.options].some((opt) => opt.value === current) && slots[0]) {
+    select.value = slots[0];
+  }
+}
+
+/**
+ * Sync Module + Live class dropdowns with teacher state.
+ */
+function paintLivePackStrip() {
+  const moduleSelect = $("live-module-select");
+  const classSelect = $("live-class-select");
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  if (moduleSelect && moduleSelect.value !== module) {
+    moduleSelect.value = module;
+  }
+  paintLiveClassOptions(module);
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (classSelect && classSelect.value !== slot) {
+    classSelect.value = slot;
+  }
+}
+
 function paintLiveSlotPicks() {
   const slot = String(teacherState.live_slot || textOnlyChallenge || "C1").toUpperCase();
   document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
     const on = btn.getAttribute("data-live-slot") === slot;
     btn.classList.toggle("is-active", on);
   });
+  paintLivePackStrip();
   const textOnly = slot === "C2" || slot === "C3";
   textOnlyChallenge = textOnly ? slot : "";
   const rideBox = $("text-ride-controls");
@@ -1041,6 +1100,14 @@ async function applySessionPresentTicks(ids, attendees) {
     for (const student of overlayState.students) {
       const sid = Number(student.id);
       if (moodById.has(sid)) student.mood = moodById.get(sid);
+      const key = String(sid);
+      if (Object.prototype.hasOwnProperty.call(sessionGamePoints, key)) {
+        student.game_points = sessionGamePoints[key];
+        student.session_points = sessionGamePoints[key];
+      }
+      if (Object.prototype.hasOwnProperty.call(sessionCareerTotals, key)) {
+        student.career_total = sessionCareerTotals[key];
+      }
     }
   }
   renderAttendanceList();
@@ -1085,6 +1152,13 @@ async function pollLiveSessionAttendees() {
     syncAllowGuestsCheckbox(
       payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
     );
+    sessionGamePoints = payload?.game_points && typeof payload.game_points === "object"
+      ? payload.game_points
+      : {};
+    sessionCareerTotals =
+      payload?.career_totals && typeof payload.career_totals === "object"
+        ? payload.career_totals
+        : {};
     await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
@@ -1388,7 +1462,10 @@ async function ensureLiveSessionMinted(opts = {}) {
   if (!liveSessionId) {
     const res = await api(`/api/classes/${classId}/live-session/start`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({
+        live_module: $("live-module-select")?.value || teacherState.live_module || "M1",
+        live_slot: $("live-class-select")?.value || teacherState.live_slot || "C1",
+      }),
     });
     liveSessionId = Number(res.live_session_id || res.live_session?.id || 0);
     if (root && liveSessionId) {
@@ -1719,6 +1796,34 @@ function selectedPresent() {
  * @param {number} studentId
  * @returns {string|""}
  */
+/**
+ * Assigned team label when teams > 1, else empty.
+ * @param {number|string} studentId
+ * @returns {string}
+ */
+function studentTeamLabel(studentId) {
+  if (currentTeamCount() < 2) return "";
+  for (const team of assignedRosterTeams()) {
+    for (const member of team.members || []) {
+      if (Number(member.id) === Number(studentId)) {
+        return String(team.name || "").trim();
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * Compact number for ClassList Course / Game columns.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function classListPts(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n === 0) return "0";
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+}
+
 function studentTeamColor(studentId) {
   const nTeams = currentTeamCount();
   if (nTeams < 2) return "";
@@ -1847,7 +1952,18 @@ function appendAttendanceStudentRow(list, student, checked) {
     row.classList.add("has-team-color");
     row.style.setProperty("--team", teamColor);
   }
-  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-mood" aria-hidden="true">${face}</span>`;
+  const course = classListPts(
+    student.career_total ?? sessionCareerTotals[String(student.id)] ?? 0
+  );
+  const game = classListPts(
+    student.game_points ??
+      student.session_points ??
+      sessionGamePoints[String(student.id)] ??
+      0
+  );
+  const team = studentTeamLabel(student.id);
+  const showTeam = currentTeamCount() > 1;
+  row.innerHTML = `<span class="ap-att-check" aria-hidden="true">${mark}</span><span class="ap-att-name">${escapeHtml(displayName(student))}</span><span class="ap-att-course" title="Course">${escapeHtml(course)}</span><span class="ap-att-game" title="Game">${escapeHtml(game)}</span>${showTeam ? `<span class="ap-att-team" title="Team">${escapeHtml(team)}</span>` : ""}<span class="ap-att-mood" aria-hidden="true">${face}</span>`;
   list.appendChild(row);
 }
 
@@ -1871,6 +1987,12 @@ function renderAttendanceList() {
   const teamsPresentOnly = String(teacherState.stage || "").toLowerCase() === "teams";
   list.dataset.grouped = grouped ? "1" : "0";
   list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
+  list.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+  const cols = $("ap-att-cols");
+  if (cols) {
+    cols.hidden = false;
+    cols.dataset.showTeam = currentTeamCount() > 1 ? "1" : "0";
+  }
   for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
     if (grouped && group.name) {
       const sep = document.createElement("div");
@@ -2392,36 +2514,43 @@ function paintTeamsStripEnabled() {
 }
 
 /**
- * Beat 18: ROUND OptionsStrip is three facet checkboxes + SET when teams > 1.
- * Teams = 1 hides the multi-pick chrome. SET is the only write.
+ * Beat 33: ROUND OptionsStrip is a type dropdown + SET, always visible.
+ * Teams = 1 no longer blanks the strip. SET is the only write.
  */
 function paintRoundStrip() {
-  const team = currentTeamCount() > 1;
   const picks = $("live-round-picks");
   if (picks) {
-    picks.hidden = !team;
-    if (team) picks.removeAttribute("hidden");
-    else picks.setAttribute("hidden", "");
+    picks.hidden = false;
+    picks.removeAttribute("hidden");
   }
-  const flags = teacherState.round_flags || {};
-  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
-    if (!(box instanceof HTMLInputElement)) return;
-    const key = box.getAttribute("data-round") || "";
-    box.checked = Boolean(flags[key]);
-  });
+  const select = $("live-round-type");
+  if (select instanceof HTMLSelectElement) {
+    select.value = readRoundTypeFromState();
+  }
 }
 
 /**
- * Read the local ROUND facet checkboxes for a SET commit.
+ * Selected pedagogical round from persisted flags (one type).
+ * @returns {"minds_on"|"action"|"consolidation"}
+ */
+function readRoundTypeFromState() {
+  const flags = teacherState.round_flags || {};
+  if (flags.consolidation) return "consolidation";
+  if (flags.action) return "action";
+  return "minds_on";
+}
+
+/**
+ * Read the ROUND type dropdown for a SET commit.
  * @returns {{minds_on: boolean, action: boolean, consolidation: boolean}}
  */
 function readRoundFlags() {
   const flags = { minds_on: false, action: false, consolidation: false };
-  document.querySelectorAll("#live-round-picks [data-round]").forEach((box) => {
-    if (!(box instanceof HTMLInputElement)) return;
-    const key = box.getAttribute("data-round") || "";
-    if (key in flags) flags[key] = box.checked;
-  });
+  const select = $("live-round-type");
+  const value =
+    select instanceof HTMLSelectElement ? select.value : readRoundTypeFromState();
+  if (value in flags) flags[value] = true;
+  else flags.minds_on = true;
   return flags;
 }
 
@@ -2957,6 +3086,11 @@ async function advanceTeamsToMeet() {
   hideTeamsAssignError();
   closeTeamsPops();
   renderAttendanceList();
+  pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
+  localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
+  if (pendingScoreboard) {
+    openScoreboardOverlay();
+  }
 }
 
 $("ap-teams-next")?.addEventListener("click", () => {
@@ -3247,9 +3381,7 @@ $("ap-rounds-list")?.addEventListener("input", (event) => {
 
 $("ap-rounds-start")?.addEventListener("click", async () => {
   const hasLiveOverlay = Boolean(liveSessionId || readLiveSessionId());
-  // Live-overlay is primary for Track Live Class — skip separate ESPN window.
-  // Individual tracking never uses the team scoreboard overlay.
-  const wantEspn = trackMode === "team" && pendingScoreboard && !hasLiveOverlay;
+  const wantEspn = pendingScoreboard && Boolean($("ap-scoreboard-toggle")?.checked);
   const overlay = wantEspn ? reserveScoreboardOverlay() : null;
   try {
     if (trackMode === "individual" && !["open", "challenge"].includes(draftRound.kind)) {
@@ -4091,22 +4223,56 @@ document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
 });
 
 $("live-round-set")?.addEventListener("click", () => {
-  if (currentTeamCount() <= 1) return;
-  patchTeacherState({ round_flags: readRoundFlags() });
+  const flags = readRoundFlags();
+  const selected = Object.keys(flags).find((key) => flags[key]) || "minds_on";
+  patchTeacherState({ round: selected, round_flags: flags });
 });
+
+/**
+ * Persist Module + Live class and remount the waiting-room pack.
+ * @param {string} moduleId
+ * @param {string} slot
+ */
+function applyLivePackChoice(moduleId, slot) {
+  const module = String(moduleId || "M1").toUpperCase();
+  const liveSlot = String(slot || "C1").toUpperCase();
+  teacherState.live_module = module;
+  teacherState.live_slot = liveSlot;
+  textOnlyChallenge = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
+  const sessionId = liveSessionId || readLiveSessionId();
+  const write = sessionId
+    ? patchTeacherState({ live_module: module, live_slot: liveSlot }).then(() =>
+        postActiveMedia({ challenge: liveSlot })
+      )
+    : Promise.resolve();
+  write
+    .then(() => {
+      if (liveSlot === "C1" && sessionId) return ensureC1MediaSeeded();
+      paintLiveSlotPicks();
+      return null;
+    })
+    .catch((err) => showError("#ap-overlay-error", err));
+}
 
 document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const slot = btn.getAttribute("data-live-slot") || "C1";
-    textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
-    postActiveMedia({ challenge: slot })
-      .then(() => {
-        if (slot === "C1") return ensureC1MediaSeeded();
-        paintLiveSlotPicks();
-        return null;
-      })
-      .catch((err) => showError("#ap-overlay-error", err));
+    applyLivePackChoice(teacherState.live_module || "M1", slot);
   });
+});
+
+$("live-module-select")?.addEventListener("change", () => {
+  const module = $("live-module-select")?.value || "M1";
+  paintLiveClassOptions(module);
+  const slot = $("live-class-select")?.value || "C1";
+  applyLivePackChoice(module, slot);
+});
+
+$("live-class-select")?.addEventListener("change", () => {
+  applyLivePackChoice(
+    $("live-module-select")?.value || teacherState.live_module || "M1",
+    $("live-class-select")?.value || "C1"
+  );
 });
 
 $("text-ride-freeze")?.addEventListener("click", () => {

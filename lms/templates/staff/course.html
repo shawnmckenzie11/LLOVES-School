@@ -154,6 +154,28 @@
         </div>
       </header>
 
+      {% set packs = live_packs if live_packs is defined else {} %}
+      <div class="live-pack-strip" id="live-pack-strip"
+           data-course="{{ packs.course or 'MCF3M' }}"
+           data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3"]}) | tojson }}'>
+        <label class="live-pack-field" for="live-module-select">
+          <span>Module</span>
+          <select id="live-module-select" aria-label="Module">
+            {% for mod in packs.modules or ['M1'] %}
+            <option value="{{ mod }}"{% if mod == 'M1' %} selected{% endif %}>{{ mod }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="live-pack-field" for="live-class-select">
+          <span>Live class</span>
+          <select id="live-class-select" aria-label="Live class">
+            {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3']) %}
+            <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
         <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
           <label class="live-unlock-toggle" for="live-unlock-media">
@@ -246,20 +268,13 @@
         </div>
         <div id="meet-option-card" class="live-option-card-body" hidden></div>
         <div id="round-option-card" class="live-option-card-body live-round-strip" hidden>
-          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round facets" hidden>
-            <label class="live-unlock-toggle" for="live-round-minds-on">
-              <input type="checkbox" id="live-round-minds-on" data-round="minds_on">
-              <span>Minds-On</span>
-            </label>
-            <span class="live-round-dot" aria-hidden="true">·</span>
-            <label class="live-unlock-toggle" for="live-round-action">
-              <input type="checkbox" id="live-round-action" data-round="action">
-              <span>Action</span>
-            </label>
-            <span class="live-round-dot" aria-hidden="true">·</span>
-            <label class="live-unlock-toggle" for="live-round-consolidation">
-              <input type="checkbox" id="live-round-consolidation" data-round="consolidation">
-              <span>Consolidation</span>
+          <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round type">
+            <label class="live-pack-field live-round-type-field" for="live-round-type">
+              <select id="live-round-type" aria-label="Round type">
+                <option value="minds_on">Minds-On</option>
+                <option value="action">Action</option>
+                <option value="consolidation">Consolidation</option>
+              </select>
             </label>
             <button type="button" class="live-round-pick" id="live-round-set">SET</button>
           </div>
@@ -329,6 +344,13 @@
               </label>
               <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
               <input type="hidden" id="ap-meeting-date" value="">
+              <div class="ap-att-cols" id="ap-att-cols" hidden data-show-team="0">
+                <span class="ap-att-col-mark"></span>
+                <span class="ap-att-col-name"></span>
+                <span class="ap-att-col-course" title="Prior course points">Course</span>
+                <span class="ap-att-col-game" title="This session">Game</span>
+                <span class="ap-att-col-team" title="Team">Team</span>
+              </div>
               <div id="ap-att-list" class="check-list ap-att-readonly"></div>
               <div class="live-pane-footer live-legacy-control">
                 <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
@@ -517,6 +539,8 @@
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='participation') }}"
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
+           class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
       </nav>
 
       {% if ap_view == 'attendance' %}
@@ -564,6 +588,43 @@
       </div>
       <script type="module" src="/static/staff_attendance.js"></script>
       <script type="module" src="/static/staff_attendance_take.js"></script>
+      {% elif ap_view == 'feedback' %}
+      <div id="feedback-root" data-class-id="{{ cls.id }}">
+        <h2 class="track-step-title">How was class?</h2>
+        <p class="hint">Student faces and comments from Quit or Save and End Class.</p>
+        <div class="sheet-wrap">
+          <table class="sheet" id="feedback-sheet">
+            <thead>
+              <tr>
+                <th class="name">Student</th>
+                <th>Face</th>
+                <th>Comment</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in exit_feedback %}
+              <tr>
+                <td class="name">{{ row.codename or 'Student' }}</td>
+                <td class="feedback-mood">
+                  {% if row.mood %}
+                  <img class="mood-face" src="/static/mood/{{ row.mood }}.svg" alt="{{ row.mood }}" width="40" height="40">
+                  {% else %}
+                  —
+                  {% endif %}
+                </td>
+                <td>{{ row.comment or '' }}</td>
+                <td>{{ (row.submitted_at or '')[:16] }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="hint">No student feedback yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">

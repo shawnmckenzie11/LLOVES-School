@@ -1151,6 +1151,49 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn('event.key === "Escape"', js)
         self.assertNotIn("innerHTML = feedback", js)
 
+    def test_beat32_save_work_sits_under_name_row(self) -> None:
+        """Beat 32: Save Work is under the name row, not timer or Question."""
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertLess(html.index('id="me-display-time"'), html.index('id="me-board"'))
+        self.assertLess(html.index('id="me-name-row"'), html.index('id="me-save-slot"'))
+        self.assertLess(html.index('id="me-save-slot"'), html.index('id="save-work"'))
+        self.assertLess(html.index('id="save-work"'), html.index('id="me-stats"'))
+        self.assertLess(html.index('id="me-stats"'), html.index('id="student-round-banner"'))
+        self.assertGreater(html.index('id="save-work"'), html.index('id="me-board"'))
+        self.assertLess(html.index('id="save-work"'), html.index('id="question-frame"'))
+        self.assertLess(html.index('id="save-work"'), html.index('id="media-pane"'))
+        self.assertLess(html.index('id="save-work"'), html.index('id="class-board"'))
+        self.assertNotIn('id="me-card-footer"', html)
+        self.assertIn(">Save Work<", html)
+        self.assertNotIn("Saved to your downloads.", html)
+        chrome = html[html.index('id="me-board"') : html.index('id="student-round-banner"')]
+        self.assertIn('id="save-work"', chrome)
+        self.assertNotIn('id="save-work"', html[html.index("student-chrome-bottom") :])
+        self.assertNotIn('id="save-work"', html[html.index('id="me-display-time"') : html.index('id="me-board"')])
+        for name in ("join.html", "mood.html", "character.html", "pick.html", "waiting.html"):
+            page = (LMS_DIR / "templates" / "student" / name).read_text(
+                encoding="utf-8"
+            )
+            self.assertNotIn("save-work", page)
+            self.assertNotIn("Save Work", page)
+        paint = js.split("function paintMe(")[1].split("function showSaveWorkToast(")[0]
+        self.assertNotIn("innerHTML", paint)
+        self.assertNotIn("save-work", paint)
+        self.assertIn("meNameEl.textContent", paint)
+        self.assertIn("function saveStudentWork()", js)
+        self.assertIn("Saved to your downloads.", js)
+        self.assertIn("Nothing to save yet.", js)
+        self.assertIn("paneIsMounted(canvasPane)", js)
+        self.assertIn("paneIsMounted(mediaPane)", js)
+        self.assertIn("live-class-work.png", js)
+        self.assertNotIn("JSZip", js)
+        self.assertIn(".student-me .me-save-slot {", css)
+        self.assertIn(".student-me .save-work {", css)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

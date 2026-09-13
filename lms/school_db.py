@@ -19,6 +19,7 @@ try:
         challenge_clears_active_media,
         cons_unlock_toast,
         TOAST_FREEZE,
+        cons_catalog,
         get_cons_item,
         is_c1_real_slice,
         is_cons_payload,
@@ -39,6 +40,7 @@ try:
         bind_meet_student_projection,
         default_text_ride,
         mc_poll_closed,
+        normalize_live_module,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
@@ -89,6 +91,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         challenge_clears_active_media,
         cons_unlock_toast,
         TOAST_FREEZE,
+        cons_catalog,
         get_cons_item,
         is_c1_real_slice,
         is_cons_payload,
@@ -109,6 +112,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         bind_meet_student_projection,
         default_text_ride,
         mc_poll_closed,
+        normalize_live_module,
         normalize_live_slot,
         public_teacher_state,
         public_text_ride,
@@ -373,6 +377,24 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
+
+CREATE TABLE IF NOT EXISTS live_class_feedback (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    offering_id INTEGER,
+    student_id INTEGER,
+    participant_uuid TEXT,
+    codename TEXT NOT NULL DEFAULT '',
+    meeting_date TEXT,
+    token TEXT NOT NULL UNIQUE,
+    mood TEXT,
+    comment TEXT,
+    submitted_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_class_feedback_class
+    ON live_class_feedback(class_id, submitted_at);
 
 CREATE TABLE IF NOT EXISTS google_api_tokens (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -5859,17 +5881,27 @@ class SchoolDB(LovesDB):
             raise ValueError(f"unsupported prompt kind: {kind}")
         if is_cons_payload(payload):
             slot = self.session_live_slot(session_id)
+            flags = (
+                self.live_session_teacher_state_payload(session_id).get(
+                    "round_flags"
+                )
+                or {}
+            )
+            allow_round_set = bool(flags.get("consolidation"))
             if slot == "C1":
                 media = self.live_session_active_media_payload(session_id)
-                if not media or not media.get("frozen"):
-                    raise ValueError("Consolidation is available only after freeze.")
-                if not is_c1_real_slice(media):
-                    raise ValueError(
-                        "C1 consolidation is only for the Real-slice channel."
-                    )
+                if not allow_round_set:
+                    if not media or not media.get("frozen"):
+                        raise ValueError(
+                            "Consolidation is available only after freeze."
+                        )
+                    if not is_c1_real_slice(media):
+                        raise ValueError(
+                            "C1 consolidation is only for the Real-slice channel."
+                        )
             else:
                 ride = self.session_text_ride(session_id)
-                if not ride.get("frozen"):
+                if not allow_round_set and not ride.get("frozen"):
                     raise ValueError("Consolidation is available only after freeze.")
         body = json.dumps(payload or {})
         now = _now()
@@ -6032,6 +6064,18 @@ class SchoolDB(LovesDB):
             return "C1"
         return normalize_live_slot(teacher.get("live_slot"))
 
+    def session_live_module(self, session_id: int) -> str:
+        """Return the session catalogue module ``M1`` / ``M2`` / …
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return "M1"
+        return normalize_live_module(teacher.get("live_module"))
+
     def session_text_ride(self, session_id: int) -> dict[str, Any]:
         """Return the C2/C3 text-only freeze + CONS ride.
 
@@ -6079,7 +6123,10 @@ class SchoolDB(LovesDB):
             return None
         if self._meet_team_row_exists(session_id):
             return None
-        desired = minds_on_prompt_payload(self.session_live_slot(session_id))
+        desired = minds_on_prompt_payload(
+            self.session_live_slot(session_id),
+            self.session_live_module(session_id),
+        )
         active = self.get_active_live_prompt(session_id)
         if active and is_minds_on_payload(active.get("payload")):
             current = active.get("payload") or {}
@@ -6088,6 +6135,8 @@ class SchoolDB(LovesDB):
                 and current.get("choices") == desired["choices"]
                 and current.get("key") == desired.get("key")
                 and current.get("items") == desired.get("items")
+                and current.get("live_slot") == desired.get("live_slot")
+                and current.get("live_module") == desired.get("live_module")
             ):
                 return None
             return self.set_live_session_prompt(
@@ -6128,7 +6177,10 @@ class SchoolDB(LovesDB):
             session_id,
             slide_index=MINDS_ON_SLIDE_INDEX,
             kind=MINDS_ON_KIND,
-            payload=minds_on_prompt_payload(self.session_live_slot(session_id)),
+            payload=minds_on_prompt_payload(
+                self.session_live_slot(session_id),
+                self.session_live_module(session_id),
+            ),
             activate=False,
         )
 
@@ -6545,6 +6597,17 @@ class SchoolDB(LovesDB):
         result = self.get_live_prompt_response(
             prompt_id, sid, participant_uuid=pid
         )
+        if sid is not None:
+            prompt_row = None
+            with self._lock:
+                prompt_row = self.conn.execute(
+                    "SELECT live_session_id FROM live_session_prompts WHERE id = ?",
+                    (int(prompt_id),),
+                ).fetchone()
+            if prompt_row is not None:
+                session_row = self.get_live_session(int(prompt_row["live_session_id"]))
+                if session_row is not None:
+                    self.sync_live_participation_scores(int(session_row["class_id"]))
         return result or {}
 
     def list_live_prompt_responses(self, prompt_id: int) -> list[dict[str, Any]]:
@@ -7481,6 +7544,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         posted_slot = kwargs.get("live_slot")
+        posted_module = kwargs.get("live_module")
         assign = kwargs.pop("assign", None)
         meet_action = kwargs.pop("meet_action", None)
         if meet_action is not None:
@@ -7535,13 +7599,19 @@ class SchoolDB(LovesDB):
                 session_id, payload, chain_state=state, fire_open=False
             )
         written = self._write_teacher_state(session_id, payload)
+        if "round_flags" in kwargs:
+            flags = written.get("round_flags") or {}
+            if flags.get("consolidation"):
+                self.mount_consolidation_pack(session_id)
         advance = str(kwargs.get("advance") or "").strip().lower()
         if advance == "next" and new_stage and new_stage != prev_stage:
             self.apply_session_timer_on_stage_advance(
                 int(session_row["class_id"]), new_stage
             )
-        if posted_slot is not None:
-            slot = normalize_live_slot(posted_slot)
+        if posted_slot is not None or posted_module is not None:
+            slot = normalize_live_slot(
+                posted_slot if posted_slot is not None else payload.get("live_slot")
+            )
             if slot in {"C2", "C3"}:
                 media = self.live_session_active_media_payload(session_id)
                 if media is not None:
@@ -7610,12 +7680,18 @@ class SchoolDB(LovesDB):
         raw_assignments = assign.get("assignments")
         if raw_assignments is not None and not isinstance(raw_assignments, list):
             raise ValueError("assignments must be a list")
-        return self.game.assign_teams(
+        state = self.game.assign_teams(
             class_id,
             n_teams,
             str(assign.get("mode") or "balanced"),
             assignments=raw_assignments,
         )
+        try:
+            state = self.game.start_meet_teams(class_id, 3)
+        except Exception:  # noqa: BLE001 — scoreboard still opens from JS
+            pass
+        self.sync_live_participation_scores(class_id)
+        return state
 
     def record_meet_chain_pick(
         self,
@@ -7682,10 +7758,11 @@ class SchoolDB(LovesDB):
     def _sync_cons_prompt(
         self, session_id: int, media: dict[str, Any] | None
     ) -> None:
-        """Push or clear the live-prompt row to match ``cons_item`` after freeze.
+        """Push or clear the live-prompt row to match CONS after freeze or SET.
 
         C1 reads ``cons_item`` from the Real-slice blob. C2/C3 read the
         text-only ``text_ride`` on teacher state (no ``active_media_json``).
+        ROUND SET with Consolidation keeps CONS-1 mounted without freeze.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7702,6 +7779,17 @@ class SchoolDB(LovesDB):
                 wanted = str(ride.get("cons_item") or "").strip()
         active = self.get_active_live_prompt(session_id)
         if not wanted:
+            flags = (
+                self.live_session_teacher_state_payload(session_id).get(
+                    "round_flags"
+                )
+                or {}
+            )
+            if flags.get("consolidation"):
+                catalog = cons_catalog(slot)
+                if catalog:
+                    wanted = str(catalog[0]["id"])
+        if not wanted:
             if active and is_cons_payload(active.get("payload")):
                 self.clear_active_live_prompt(session_id)
             return
@@ -7716,6 +7804,31 @@ class SchoolDB(LovesDB):
         if current_id == item["id"] and active and active.get("kind") == item["kind"]:
             return
         self.set_live_session_prompt(
+            session_id,
+            slide_index=int(item["slide_index"]),
+            kind=str(item["kind"]),
+            payload=staff_cons_prompt_payload(item),
+            activate=True,
+        )
+
+    def mount_consolidation_pack(self, session_id: int) -> dict[str, Any] | None:
+        """Mount CONS-1 for the session live slot without requiring freeze.
+
+        ROUND SET with Consolidation pops the first CONS item on the live
+        prompt channel so teacher and student Question frames show it.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The mounted prompt row, or ``None`` when the CONS catalog is empty.
+        """
+        slot = self.session_live_slot(session_id)
+        catalog = cons_catalog(slot)
+        if not catalog:
+            return None
+        item = catalog[0]
+        return self.set_live_session_prompt(
             session_id,
             slide_index=int(item["slide_index"]),
             kind=str(item["kind"]),
@@ -8031,26 +8144,32 @@ class SchoolDB(LovesDB):
             if row.get("present")
         ]
 
-    def _mc_round_key(self, payload: dict[str, Any], kind: str) -> str | None:
-        """Participation round bucket for one MC prompt. Meet taps return None.
+    def _qh_credit_key(self, payload: dict[str, Any], kind: str) -> str | None:
+        """Participation key for one answered question. Meet social is None.
+
+        Pure Meet A/B/C taps are excluded. Real QH (Minds-On, teams spark,
+        CONS items, other non-Meet MC) each keep their own ``item_id``.
 
         Args:
             payload: Prompt payload JSON.
             kind: ``live_session_prompts.kind``.
 
         Returns:
-            Round key, or ``None`` to exclude the prompt.
+            Question key, or ``None`` to exclude the prompt.
         """
         if is_meet_team_payload(payload):
             return None
         item = str(payload.get("item_id") or "").strip()
-        if item.startswith("meet") or "meet" in item.lower():
-            return None
-        if item == "minds_on" or kind == MINDS_ON_KIND:
-            return "minds_on"
-        parts = item.rsplit("-", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            return parts[0]
+        lowered = item.lower()
+        if lowered in {"meet-team", "meet-a", "meet-b", "meet-c"} or (
+            lowered.startswith("meet-") and not is_teams_spark_payload(payload)
+        ):
+            if not is_minds_on_payload(payload) and not is_teams_spark_payload(
+                payload
+            ):
+                return None
+        if is_teams_spark_payload(payload):
+            return item or "teams-spark"
         if item:
             return item
         token = str(kind or "").strip().lower()
@@ -8058,16 +8177,20 @@ class SchoolDB(LovesDB):
             return token
         return None
 
-    def participation_round_credits_for_class(
+    def _mc_round_key(self, payload: dict[str, Any], kind: str) -> str | None:
+        """Backward-compatible alias for ``_qh_credit_key``."""
+        return self._qh_credit_key(payload, kind)
+
+    def participation_question_credits_for_class(
         self, class_id: int
-    ) -> dict[int, set[str]]:
-        """Map student id → MC round keys they answered (Meet excluded).
+    ) -> dict[int, int]:
+        """Map student id → distinct QH answers this live class (Meet excluded).
 
         Args:
             class_id: Game-show ``classes.id``.
 
         Returns:
-            One set of round keys per student who answered any non-Meet MC.
+            One count per student who answered any real QH.
         """
         sessions = self.list_live_sessions_for_class(class_id)
         session_ids = [int(row["id"]) for row in sessions]
@@ -8077,7 +8200,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT r.student_id, p.kind, p.payload
+                SELECT r.student_id, r.prompt_id, p.kind, p.payload
                 FROM live_session_responses r
                 JOIN live_session_prompts p ON p.id = r.prompt_id
                 WHERE p.live_session_id IN ({placeholders})
@@ -8085,7 +8208,7 @@ class SchoolDB(LovesDB):
                 """,
                 session_ids,
             ).fetchall()
-        credits: dict[int, set[str]] = {}
+        keys: dict[int, set[str]] = {}
         for row in rows:
             try:
                 payload = json.loads(row["payload"] or "{}")
@@ -8093,20 +8216,227 @@ class SchoolDB(LovesDB):
                 payload = {}
             if not isinstance(payload, dict):
                 payload = {}
-            key = self._mc_round_key(payload, str(row["kind"] or ""))
+            key = self._qh_credit_key(payload, str(row["kind"] or ""))
             if key is None:
                 continue
             sid = int(row["student_id"])
-            credits.setdefault(sid, set()).add(key)
-        return credits
+            keys.setdefault(sid, set()).add(f"{int(row['prompt_id'])}:{key}")
+        return {sid: len(seen) for sid, seen in keys.items()}
+
+    def participation_round_credits_for_class(
+        self, class_id: int
+    ) -> dict[int, int]:
+        """Map student id → QH counts (alias used by Save and End Class)."""
+        return self.participation_question_credits_for_class(class_id)
+
+    def sync_live_participation_scores(self, class_id: int) -> dict[str, Any] | None:
+        """Push live QH counts onto the open game so the scoreboard updates.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        credits = self.participation_question_credits_for_class(int(class_id))
+        try:
+            return self.game.write_live_participation(int(class_id), credits)
+        except Exception:  # noqa: BLE001 — live paint must not fail the answer
+            return None
+
+    EXIT_FEEDBACK_MOODS = ("good", "ok", "low")
+
+    def open_exit_feedback_for_class(self, class_id: int) -> int:
+        """Mint pending How-was-class rows for current live attendees.
+
+        Must run before the SID wipe so student identity still exists.
+        Tokens survive both Save and End Class and Quit.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Number of new pending rows inserted.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return 0
+        session_id = int(live["id"])
+        offering_id = live.get("offering_id")
+        meeting_date = str(live.get("meeting_date") or "")[:10] or None
+        attendees = self.list_live_session_attendees(session_id)
+        now = _now()
+        inserted = 0
+        with self._lock:
+            for row in attendees:
+                student_id = row.get("student_id")
+                participant_uuid = str(row.get("participant_uuid") or "").strip()
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM live_class_feedback
+                    WHERE class_id = ?
+                      AND COALESCE(student_id, 0) = COALESCE(?, 0)
+                      AND COALESCE(participant_uuid, '') = COALESCE(?, '')
+                      AND submitted_at IS NULL
+                    LIMIT 1
+                    """,
+                    (int(class_id), student_id, participant_uuid),
+                ).fetchone()
+                if existing is not None:
+                    continue
+                token = secrets.token_urlsafe(18)
+                self.conn.execute(
+                    """
+                    INSERT INTO live_class_feedback (
+                        class_id, offering_id, student_id, participant_uuid,
+                        codename, meeting_date, token, mood, comment,
+                        submitted_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+                    """,
+                    (
+                        int(class_id),
+                        int(offering_id) if offering_id not in (None, "") else None,
+                        int(student_id) if student_id not in (None, "") else None,
+                        participant_uuid or None,
+                        str(row.get("codename") or ""),
+                        meeting_date,
+                        token,
+                        now,
+                    ),
+                )
+                inserted += 1
+            if inserted:
+                self.conn.commit()
+        return inserted
+
+    def pending_exit_feedback(
+        self,
+        *,
+        class_id: int | None = None,
+        student_id: int | None = None,
+        participant_uuid: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the latest unsubmitted exit-feedback row for this student.
+
+        Args:
+            class_id: Optional game-show ``classes.id``.
+            student_id: Roster id when the student is matched.
+            participant_uuid: Live-session person key for guests.
+        """
+        clauses = ["submitted_at IS NULL"]
+        args: list[Any] = []
+        if class_id not in (None, ""):
+            clauses.append("class_id = ?")
+            args.append(int(class_id))
+        if student_id not in (None, ""):
+            clauses.append("student_id = ?")
+            args.append(int(student_id))
+        elif str(participant_uuid or "").strip():
+            clauses.append("participant_uuid = ?")
+            args.append(str(participant_uuid).strip())
+        else:
+            return None
+        sql = f"""
+            SELECT * FROM live_class_feedback
+            WHERE {' AND '.join(clauses)}
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        with self._lock:
+            row = self.conn.execute(sql, args).fetchone()
+        return dict(row) if row else None
+
+    def get_exit_feedback_by_token(self, token: str) -> dict[str, Any] | None:
+        """Return one exit-feedback row by opaque token.
+
+        Args:
+            token: ``live_class_feedback.token``.
+        """
+        cleaned = str(token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_class_feedback WHERE token = ? LIMIT 1",
+                (cleaned,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def submit_exit_feedback(
+        self,
+        token: str,
+        *,
+        mood: str | None = None,
+        comment: str = "",
+        skip: bool = False,
+    ) -> dict[str, Any]:
+        """Persist How-was-class mood and optional comment.
+
+        Skip records ``submitted_at`` without a mood so the student is
+        not prompted again. Quit and Save and End Class both keep these
+        rows (they live outside the wiped live SID).
+
+        Args:
+            token: Opaque row token from the student session.
+            mood: ``good`` / ``ok`` / ``low`` when not skipping.
+            comment: Optional free text.
+            skip: True when the student declines to rate.
+
+        Returns:
+            The updated row.
+
+        Raises:
+            KeyError: Unknown token.
+            ValueError: Mood missing or not a check-in face.
+        """
+        row = self.get_exit_feedback_by_token(token)
+        if row is None:
+            raise KeyError("unknown exit feedback token")
+        if row.get("submitted_at"):
+            return row
+        cleaned_mood = None
+        if not skip:
+            cleaned_mood = str(mood or "").strip().lower()
+            if cleaned_mood not in self.EXIT_FEEDBACK_MOODS:
+                raise ValueError("Choose a face or skip.")
+        note = str(comment or "").strip()[:2000]
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_feedback
+                SET mood = ?, comment = ?, submitted_at = ?
+                WHERE token = ?
+                """,
+                (cleaned_mood, note, now, str(token).strip()),
+            )
+            self.conn.commit()
+        updated = self.get_exit_feedback_by_token(token)
+        assert updated is not None
+        return updated
+
+    def list_exit_feedback_for_class(self, class_id: int) -> list[dict[str, Any]]:
+        """Submitted How-was-class rows for the staff Feedback tab.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_class_feedback
+                WHERE class_id = ? AND submitted_at IS NOT NULL
+                ORDER BY submitted_at DESC, id DESC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def finish_live_class(self, class_id: int, *, persist: bool) -> dict[str, Any]:
         """Save and End Class or Quit, then wipe the live SID.
 
         Attendance always persists (including Quit). Save and End Class
-        also writes +1 participation per MC round answered (Meet taps
-        excluded). Quit zeros participation and discards ephemeral meet
-        taps / live QH with the SID wipe.
+        also writes +1 participation per question answered (Meet social
+        taps excluded). Quit zeros participation and discards ephemeral
+        meet taps / live QH with the SID wipe. Exit-feedback tokens are
+        minted before the wipe so students can still rate the class.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -8116,6 +8446,7 @@ class SchoolDB(LovesDB):
         Returns:
             Wipe payload from ``wipe_live_sessions_for_class``.
         """
+        self.open_exit_feedback_for_class(int(class_id))
         present_ids = self.present_student_ids_for_live_class(class_id)
         credits = (
             self.participation_round_credits_for_class(class_id) if persist else {}
@@ -8183,7 +8514,12 @@ class SchoolDB(LovesDB):
         return ended
 
     def start_live_class_session(
-        self, class_id: int, teacher_user_id: int
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        live_module: Any = None,
+        live_slot: Any = None,
     ) -> dict[str, Any]:
         """Mint a new active live session for this teacher.
 
@@ -8194,6 +8530,8 @@ class SchoolDB(LovesDB):
         Args:
             class_id: Game-show ``classes.id``.
             teacher_user_id: Staff user starting the meeting.
+            live_module: Optional catalogue module (``M1``).
+            live_slot: Optional live class (``C1`` / ``C2`` / ``C3``).
 
         Returns:
             The newly created active session row.
@@ -8209,6 +8547,14 @@ class SchoolDB(LovesDB):
         existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
         if existing is not None:
             if int(existing["class_id"]) == int(class_id):
+                if live_module is not None or live_slot is not None:
+                    self.set_live_session_teacher_state(
+                        int(existing["id"]),
+                        live_module=live_module,
+                        live_slot=live_slot,
+                    )
+                    refreshed = self.get_live_session(int(existing["id"]))
+                    return refreshed or existing
                 return existing
             raise ValueError(
                 "You already have a live class running. "
@@ -8238,7 +8584,14 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
-        self.ensure_waiting_room_minds_on(session_id)
+        if live_module is not None or live_slot is not None:
+            self.set_live_session_teacher_state(
+                session_id,
+                live_module=live_module,
+                live_slot=live_slot,
+            )
+        else:
+            self.ensure_waiting_room_minds_on(session_id)
         return session_row
 
 
@@ -8326,6 +8679,18 @@ class SchoolDB(LovesDB):
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),
+            "game_points": {
+                str(sid): int(n)
+                for sid, n in self.participation_question_credits_for_class(
+                    int(session_row["class_id"])
+                ).items()
+            },
+            "career_totals": {
+                str(sid): float(n)
+                for sid, n in (
+                    self.game.career_totals(int(session_row["class_id"])) or {}
+                ).items()
+            },
         }
 
     def has_active_live_sessions(self) -> bool:

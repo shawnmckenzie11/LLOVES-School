@@ -31,6 +31,9 @@ CHARACTER_AVATARS = {
     "owl": {"label": "Owl", "emoji": "🦉"},
 }
 
+EXIT_FEEDBACK_SESSION_KEY = "student_exit_feedback_token"
+HOW_WAS_CLASS = "How was class?"
+
 # Flask session keys owned by the student-code join path.
 STUDENT_SESSION_KEYS = (
     "student_offering_id",

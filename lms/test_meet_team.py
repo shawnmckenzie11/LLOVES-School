@@ -541,6 +541,10 @@ class MeetTeamLivePromptTests(unittest.TestCase):
         self.assertEqual(teacher["state_seq"], seq + 1)
         self.assertEqual(teacher["teams_mode"], "teams")
         assigned = body.get("game") or self.school.game.game_state(self.class_id)
+        self.assertEqual(
+            str((assigned.get("game") or assigned).get("overlay_phase") or ""),
+            "meet_teams",
+        )
         teams = [team for team in assigned.get("teams") or [] if team.get("name") != "Class"]
         self.assertGreaterEqual(len(teams), 2)
         members = [member for team in teams for member in team.get("members") or []]

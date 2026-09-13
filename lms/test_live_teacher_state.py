@@ -69,6 +69,8 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertIsNone(state["active_media_ref"])
         self.assertIsNone(state["meet_chain"])
         self.assertIsNone(state["cue_id"])
+        self.assertEqual(state["live_slot"], "C1")
+        self.assertEqual(state["live_module"], "M1")
         self.assertFalse(student_should_mount_media(state))
         self.assertFalse(student_should_mount_canvas(state))
         self.assertNotIn("url", state)
@@ -88,11 +90,11 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(play["state_seq"], 2)
         self.assertEqual(
             play["student_frames"],
-            {"questions": True, "media": True, "canvas": True},
+            {"questions": True, "media": False, "canvas": False},
         )
         self.assertEqual(play["unlocks"], {"media": False, "canvas": False})
-        self.assertTrue(student_should_mount_media(play))
-        self.assertTrue(student_should_mount_canvas(play))
+        self.assertFalse(student_should_mount_media(play))
+        self.assertFalse(student_should_mount_canvas(play))
         still = apply_teacher_state_update(play, advance="next")
         self.assertEqual(still["stage"], "play")
         self.assertEqual(still["state_seq"], 3)
@@ -205,6 +207,35 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(aligned["canvas_align"], "team")
         frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
         self.assertEqual(frozen["canvas_align"], "teacher")
+
+    def test_uncheck_collapses_media_and_canvas_frames(self) -> None:
+        """Beat 29: uncheck removes the student frame; PLAY has no locked pane."""
+        play = apply_teacher_state_update(None, stage="play")
+        self.assertFalse(student_should_mount_media(play))
+        self.assertFalse(student_should_mount_canvas(play))
+        opened = apply_teacher_state_update(
+            play, unlocks={"media": True, "canvas": True}
+        )
+        self.assertTrue(opened["student_frames"]["media"])
+        self.assertTrue(opened["student_frames"]["canvas"])
+        closed = apply_teacher_state_update(
+            opened, unlocks={"media": False, "canvas": False}
+        )
+        self.assertFalse(closed["unlocks"]["media"])
+        self.assertFalse(closed["unlocks"]["canvas"])
+        self.assertFalse(closed["student_frames"]["media"])
+        self.assertFalse(closed["student_frames"]["canvas"])
+        self.assertFalse(student_should_mount_media(closed))
+        self.assertFalse(student_should_mount_canvas(closed))
+        stored = public_teacher_state(
+            {
+                "stage": "play",
+                "student_frames": {"questions": True, "media": True, "canvas": True},
+                "unlocks": {"media": False, "canvas": False},
+            }
+        )
+        self.assertFalse(stored["student_frames"]["media"])
+        self.assertFalse(stored["student_frames"]["canvas"])
 
     def test_preset_and_frames_are_content_ids(self) -> None:
         """Presets fill A/B/C; invalid frames raise."""
@@ -441,8 +472,8 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(state.get("teacher_state", {}).get("stage"), "play", state)
         self.assertEqual(state["teacher_state"]["layout_preset"], "three_up")
         self.assertTrue(state["teacher_state"]["canvas_ephemeral"])
-        self.assertTrue(state["teacher_state"]["student_frames"]["media"])
-        self.assertTrue(state["teacher_state"]["student_frames"]["canvas"])
+        self.assertFalse(state["teacher_state"]["student_frames"]["media"])
+        self.assertFalse(state["teacher_state"]["student_frames"]["canvas"])
         self.assertFalse(state["teacher_state"]["unlocks"]["media"])
         self.assertGreaterEqual(state["teacher_state"]["state_seq"], 1)
         self.assertEqual(state["active_media"]["url"], DEFAULT_LIVE_MEDIA_URL)
@@ -679,6 +710,88 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(body["round_flags"]["action"])
         self.assertTrue(body["round_flags"]["consolidation"])
         self.assertIsNone(body.get("cue_id"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "C1-CONS-1")
+
+    def test_beat33_consolidation_set_mounts_cons_without_freeze(self) -> None:
+        """Beat 33: Consolidation SET pops CONS-1 without a freeze."""
+        from live_media import is_cons_payload
+
+        idle = self.school.get_active_live_prompt(self.session_id)
+        if idle is not None:
+            self.assertFalse(is_cons_payload(idle.get("payload")))
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "consolidation",
+                "round_flags": {
+                    "minds_on": False,
+                    "action": False,
+                    "consolidation": True,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        body = posted.get_json()["teacher_state"]
+        self.assertEqual(body["round"], "consolidation")
+        self.assertTrue(body["round_flags"]["consolidation"])
+        ride = body.get("text_ride") or {}
+        self.assertFalse(ride.get("frozen"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertTrue(is_cons_payload(payload))
+        self.assertEqual(payload.get("item_id"), "C1-CONS-1")
+        self.assertIn("what must be true about a", str(payload.get("prompt") or ""))
+
+    def test_beat33_minds_on_set_does_not_mount_cons(self) -> None:
+        """Minds-On SET does not pop the CONS pack."""
+        from live_media import is_cons_payload
+
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "minds_on",
+                "round_flags": {
+                    "minds_on": True,
+                    "action": False,
+                    "consolidation": False,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        if prompt is not None:
+            self.assertFalse(is_cons_payload(prompt.get("payload")))
+
+    def test_beat33_c2_consolidation_set_mounts_c2_cons(self) -> None:
+        """Beat 33: Consolidation SET uses the session live-slot CONS pack."""
+        from live_media import is_cons_payload
+
+        slot = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"live_slot": "C2"},
+        )
+        self.assertEqual(slot.status_code, 200, slot.get_json())
+        posted = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "round": "consolidation",
+                "round_flags": {
+                    "minds_on": False,
+                    "action": False,
+                    "consolidation": True,
+                },
+            },
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertIsNotNone(prompt)
+        payload = prompt.get("payload") or {}
+        self.assertTrue(is_cons_payload(payload))
+        self.assertEqual(payload.get("item_id"), "C2-CONS-1")
 
     def test_canvas_presence_follows_alignment(self) -> None:
         """Frozen-to-teacher publishes teacher strokes; unique stays empty."""

@@ -13,7 +13,21 @@
       data-codename="{{ codename or '' }}">
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
     <p class="me-display-time" id="me-display-time" aria-live="polite" data-state="idle">—</p>
-    <div id="me-board" class="student-me"></div>
+    <div id="me-board" class="student-me">
+      <div class="me-name-row" id="me-name-row">
+        <p class="me-name" id="me-name">Student</p>
+        <p class="me-meet-chip" id="me-meet-chip" hidden></p>
+      </div>
+      <div class="me-save-slot" id="me-save-slot">
+        <button type="button" class="save-work" id="save-work">Save Work</button>
+        <p class="save-work-toast" id="save-work-toast" hidden role="status"></p>
+      </div>
+      <div class="me-stats" id="me-stats">
+        <p class="me-stat"><span class="me-stat-label">My points</span><strong id="me-points">0</strong></p>
+        <p class="me-stat"><span class="me-stat-label" id="me-team-label">Team</span><strong id="me-team-points">0</strong></p>
+        <p class="me-stat me-rank" id="me-rank" hidden><span class="me-stat-label">Rank</span><strong id="me-rank-value"></strong> <span class="me-stat-of" id="me-rank-of" hidden></span></p>
+      </div>
+    </div>
     <p class="student-round-banner" id="student-round-banner" hidden></p>
   </header>
   <main class="student-live-response" id="live-response" aria-live="polite">

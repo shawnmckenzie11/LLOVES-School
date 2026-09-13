@@ -44,6 +44,7 @@ UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
 MINDS_ON_PROMPT_REF = "minds_on"
 LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3")
 DEFAULT_LIVE_SLOT = "C1"
+DEFAULT_LIVE_MODULE = "M1"
 CUE_FREEZE = "cue.freeze"
 CUE_CONS_UNLOCK = "cue.cons_unlock"
 TEXT_RIDE_CUES: tuple[str, ...] = (CUE_FREEZE, CUE_CONS_UNLOCK)
@@ -68,9 +69,9 @@ def _now_iso() -> str:
 def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     """Student frame visibility for one pedagogical stage.
 
-    JOIN / TEAMS / MEET / ROUND project Question only. PLAY shows all
-    three frames; media and canvas stay locked until ``unlocks``.
-    Unlocks may still flag media/canvas onto students on any stage.
+    JOIN / TEAMS / MEET / ROUND / PLAY project Question. Media and
+    canvas appear only while the matching unlock checkbox is on
+    (collapse when unchecked — no empty locked pane).
 
     Args:
         stage: Stage id, or None for JOIN defaults.
@@ -78,9 +79,7 @@ def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     Returns:
         ``{questions, media, canvas}`` booleans.
     """
-    name = stage if stage in STAGES else "join"
-    if name == "play":
-        return {"questions": True, "media": True, "canvas": True}
+    _ = stage
     return {"questions": True, "media": False, "canvas": False}
 
 
@@ -131,6 +130,7 @@ def default_teacher_state() -> dict[str, Any]:
         "unlocks": default_unlocks(),
         "canvas_align": DEFAULT_CANVAS_ALIGN,
         "live_slot": DEFAULT_LIVE_SLOT,
+        "live_module": DEFAULT_LIVE_MODULE,
         "text_ride": default_text_ride(),
     }
 
@@ -207,10 +207,10 @@ def normalize_canvas_align(raw: Any) -> str:
 
 
 def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
-    """OR unlock flags onto student frames for any stage.
+    """Project media/canvas only while the teacher unlock checkbox is on.
 
-    Default stage layouts may omit media/canvas. A teacher unlock still
-    projects that frame. Mutates ``state``.
+    Unchecked flags collapse the student frame (no empty locked pane).
+    PLAY no longer keeps a locked placeholder. Mutates ``state``.
 
     Args:
         state: In-progress public teacher state.
@@ -218,10 +218,8 @@ def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
     stage = str(state.get("stage") or "join")
     frames = dict(state.get("student_frames") or default_student_frames(stage))
     unlocks = state.get("unlocks") or default_unlocks()
-    if unlocks.get("media"):
-        frames["media"] = True
-    if unlocks.get("canvas"):
-        frames["canvas"] = True
+    frames["media"] = bool(unlocks.get("media"))
+    frames["canvas"] = bool(unlocks.get("canvas"))
     state["student_frames"] = frames
     return state
 
@@ -261,6 +259,18 @@ def normalize_live_slot(raw: Any) -> str:
     if text in LIVE_SLOTS:
         return text
     return DEFAULT_LIVE_SLOT
+
+
+def normalize_live_module(raw: Any) -> str:
+    """Return ``M1``, ``M2``, … Unknown values fall back to M1.
+
+    Args:
+        raw: Posted or stored module id.
+    """
+    text = str(raw or "").strip().upper()
+    if len(text) >= 2 and text[0] == "M" and text[1:].isdigit():
+        return text
+    return DEFAULT_LIVE_MODULE
 
 
 def public_text_ride(raw: Any) -> dict[str, Any]:
@@ -480,7 +490,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """Fill student frames / JOIN focus for a newly entered stage.
 
     Teacher Active Content stays mounted; this only swaps thin refs and
-    the student projection map. PLAY reveals all three frames locked.
+    the student projection map. PLAY still needs Media/Canvas unlocks.
     TEAMS binds the shared-spark ``prompt_ref`` (Question stays
     visible; JOIN Minds-On ``mc_ui`` is dropped). MEET binds
     ``prompt_ref`` + Question-only frames so the chain is not
@@ -512,8 +522,8 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
 def student_should_mount_media(state: dict[str, Any] | None) -> bool:
     """True when the student Real-slice iframe may be mounted.
 
-    JOIN / TEAMS / MEET / ROUND hide media unless the teacher unlocks
-    it. PLAY mounts the frame; ``unlocks.media`` also unlocks controls.
+    The Media checkbox is the only mount switch. Unchecked collapses
+    the student frame instead of leaving an empty locked pane.
 
     Args:
         state: Public teacher state.
@@ -522,9 +532,8 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
         Whether the student media iframe should have a ``src``.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
     unlocks = public.get("unlocks") or default_unlocks()
-    return bool(frames.get("media") or unlocks.get("media"))
+    return bool(unlocks.get("media"))
 
 
 def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
@@ -537,9 +546,8 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
         Whether the student canvas pane is visible.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    frames = public.get("student_frames") or default_student_frames(public.get("stage"))
     unlocks = public.get("unlocks") or default_unlocks()
-    return bool(frames.get("canvas") or unlocks.get("canvas"))
+    return bool(unlocks.get("canvas"))
 
 
 def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
@@ -624,6 +632,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             bind_join_share_on_reveal(base)
     if "live_slot" in stored:
         base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
+    if "live_module" in stored:
+        base["live_module"] = normalize_live_module(stored.get("live_module"))
     if "text_ride" in stored:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
@@ -671,6 +681,7 @@ def apply_teacher_state_update(
     canvas_align: Any = None,
     mc_ui: Any = None,
     live_slot: Any = None,
+    live_module: Any = None,
     text_ride: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
@@ -704,6 +715,7 @@ def apply_teacher_state_update(
             Reveal commits ``reveal_to_students`` and closes the poll.
             Empty clears the blob.
         live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
+        live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
 
@@ -798,6 +810,8 @@ def apply_teacher_state_update(
         base["canvas_align"] = normalize_canvas_align(canvas_align)
     if live_slot is not None:
         base["live_slot"] = normalize_live_slot(live_slot)
+    if live_module is not None:
+        base["live_module"] = normalize_live_module(live_module)
     if text_ride is not None:
         if text_ride in (None, "", {}, False):
             base["text_ride"] = default_text_ride()

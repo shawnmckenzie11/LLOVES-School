@@ -67,6 +67,24 @@ body.student-portal .sub {
   margin-top: 1rem;
 }
 
+.exit-comment-field {
+  display: block;
+  margin-top: 1rem;
+}
+
+.exit-comment {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 5.5rem;
+  padding: 0.7rem 0.75rem;
+  border: 2px solid #1e3348;
+  border-radius: 12px;
+  background: #122033;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
 .mood-face {
   display: block;
   width: 3.12rem;
@@ -145,6 +163,8 @@ body.student-home .student-chrome {
 }
 
 body.student-home .student-chrome-top {
+  display: flex;
+  flex-direction: column;
   border-bottom: 1px solid #1e3348;
 }
 
@@ -311,6 +331,10 @@ body.student-home.has-media .student-live-response {
 
 .canvas-pane[hidden] {
   display: none !important;
+}
+
+.canvas-pane.is-readonly .student-canvas {
+  pointer-events: none;
 }
 
 .canvas-pane-copy {
@@ -698,6 +722,13 @@ body.student-home.is-live .student-live-response {
   padding: 0.7rem 0.8rem;
 }
 
+.student-me {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .student-me .me-kicker,
 .student-scoreboard .sb-kicker {
   margin: 0 0 0.35rem;
@@ -707,12 +738,51 @@ body.student-home.is-live .student-live-response {
   color: #9aa6c3;
 }
 
+.student-me .me-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.5rem;
+  margin: 0 0 0.4rem;
+}
+
 .student-me .me-name {
   font-weight: 700;
-  margin: 0 0 0.55rem;
+  margin: 0;
   font-size: 1.05rem;
   letter-spacing: 0.02em;
   text-align: center;
+}
+
+.student-me .me-save-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+  margin: 0 0 0.45rem;
+}
+
+.student-me .save-work {
+  display: block;
+  margin: 0 auto;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: #16324a;
+  color: #f4f6fb;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.student-me .save-work-toast {
+  margin: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #99f6e4;
 }
 
 .student-me .me-stats {

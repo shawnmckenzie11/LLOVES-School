@@ -20,6 +20,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from meet_team import meet_team_prompt_payload  # noqa: E402
 from minds_on import MINDS_ON_CHOICES  # noqa: E402
+from teams_spark import teams_spark_prompt_payload  # noqa: E402
 
 
 class LiveShellTests(unittest.TestCase):
@@ -204,20 +205,27 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("--live-left-min: 140px", css)
         self.assertNotIn("minmax(var(--live-left-min), 15%)", css)
         self.assertNotIn("body.staff-shell #team-assign-pane {\n  grid-column: 1 / -1;", css)
-        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
+        self.assertIn(
+            "grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto",
+            css,
+        )
 
     def test_beat1_geometry_locks_three_rows_and_stretch(self) -> None:
         """Beat 1: header / height-capped OptionsStrip / Left|Right stretch."""
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("--live-options-max-h: calc(var(--live-options-row-h) * 2 + 1.1rem)", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
-        self.assertIn("grid-template-rows: auto auto auto minmax(12rem, 1fr)", css)
+        self.assertIn("grid-template-rows: auto auto auto auto minmax(12rem, 1fr)", css)
         self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
         self.assertIn(
-            "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 2;",
+            "body.staff-shell .live-shell-ia-v2 > .live-pack-strip {\n  grid-row: 2;",
             css,
         )
-        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-shell-body {\n  grid-row: 4;", css)
+        self.assertIn(
+            "body.staff-shell .live-shell-ia-v2 > .live-options-strip {\n  grid-row: 3;",
+            css,
+        )
+        self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-shell-body {\n  grid-row: 5;", css)
         self.assertIn("body.staff-shell .live-shell-body {\n  display: grid;", css)
         self.assertIn("align-items: stretch", css)
         self.assertIn("body.staff-shell .live-active-content {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
@@ -450,7 +458,10 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("flex-wrap: nowrap", teams_css)
         self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
-        self.assertIn("grid-template-columns: 1.25rem minmax(6rem, 1fr) auto", css)
+        self.assertIn(
+            "grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto",
+            css,
+        )
         pop_css = css.split("body.staff-shell .live-options-strip #team-assign-pane {")[1].split(
             "body.staff-shell #team-assign-pane[hidden]"
         )[0]
@@ -587,9 +598,28 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function paintStudentCanvas(", student_js)
         self.assertIn("/api/student/canvas-presence", student_js)
         self.assertIn("canvasAlign", student_js)
+        self.assertIn("media: Boolean(unlocks.media)", student_js)
+        self.assertIn("canvas: Boolean(unlocks.canvas)", student_js)
+        self.assertIn('canvasPane.classList.toggle("is-readonly"', student_js)
+        self.assertIn('if (lastAlign === "teacher") return;', student_js)
         self.assertIn('id="student-canvas"', 
             (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         )
+        home_html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="media-pane"', home_html)
+        self.assertIn('id="canvas-pane"', home_html)
+
+    def test_beat29_uncheck_collapses_student_frames(self) -> None:
+        """Beat 29: student JS hides Media/Canvas when unlocks are off."""
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn("media: Boolean(unlocks.media)", js)
+        self.assertIn("canvas: Boolean(unlocks.canvas)", js)
+        self.assertIn('canvasPane.classList.toggle("is-readonly"', js)
+        self.assertIn(".canvas-pane[hidden]", css)
+        self.assertIn(".media-pane[hidden]", css)
 
     def test_beat22_presence_updates_team_max_live(self) -> None:
         """Beat 22: ClassList join/leave clamps team max and refreshes the meter."""
@@ -1034,29 +1064,29 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function applySessionTimerUi(", js)
         self.assertIn("async function advanceTeamsToMeet()", js)
 
-    def test_beat18_round_strip_is_three_checkboxes_and_set(self) -> None:
-        """Beat 18: ROUND OptionsStrip is Minds-On / Action / Consolidation + SET."""
+    def test_beat33_round_type_dropdown_always_visible(self) -> None:
+        """Beat 33: ROUND OptionsStrip is a type dropdown + SET, even at teams=1."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         strip_html = html.split('id="round-option-card"')[1].split('id="play-option-card"')[0]
         self.assertIn('id="live-round-picks"', strip_html)
-        self.assertIn('id="live-round-minds-on"', strip_html)
-        self.assertIn('id="live-round-action"', strip_html)
-        self.assertIn('id="live-round-consolidation"', strip_html)
+        self.assertIn('id="live-round-type"', strip_html)
         self.assertIn('id="live-round-set"', strip_html)
         self.assertIn(">Minds-On<", strip_html)
         self.assertIn(">Action<", strip_html)
         self.assertIn(">Consolidation<", strip_html)
         self.assertIn(">SET<", strip_html)
-        self.assertEqual(strip_html.count('type="checkbox"'), 3)
-        self.assertEqual(strip_html.count('data-round="'), 3)
-        self.assertLess(strip_html.find('id="live-round-minds-on"'), strip_html.find('id="live-round-action"'))
-        self.assertLess(strip_html.find('id="live-round-action"'), strip_html.find('id="live-round-consolidation"'))
-        self.assertLess(strip_html.find('id="live-round-consolidation"'), strip_html.find('id="live-round-set"'))
+        self.assertIn('value="minds_on"', strip_html)
+        self.assertIn('value="action"', strip_html)
+        self.assertIn('value="consolidation"', strip_html)
+        self.assertNotIn('type="checkbox"', strip_html)
+        self.assertNotIn("data-round=", strip_html)
+        self.assertNotIn('id="live-round-minds-on"', strip_html)
+        self.assertLess(strip_html.find('id="live-round-type"'), strip_html.find('id="live-round-set"'))
         self.assertIn('id="live-round-picks"', html)
-        self.assertRegex(
+        self.assertNotRegex(
             html,
             r'<div class="live-round-picks"[^>]*id="live-round-picks"[^>]*\bhidden\b',
         )
@@ -1076,17 +1106,20 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('id="live-round-set"', left_html)
         self.assertIn("function paintRoundStrip()", js)
         self.assertIn("function readRoundFlags()", js)
-        self.assertIn("currentTeamCount() > 1", js.split("function paintRoundStrip()")[1].split("function ")[0])
-        self.assertIn("picks.hidden = !team", js)
+        self.assertIn("function readRoundTypeFromState()", js)
+        paint = js.split("function paintRoundStrip()")[1].split("function ")[0]
+        self.assertIn("picks.hidden = false", paint)
+        self.assertNotIn("currentTeamCount()", paint)
+        self.assertNotIn("picks.hidden = !team", js)
         self.assertIn('$("live-round-set")?.addEventListener("click"', js)
         set_click = js.split('$("live-round-set")?.addEventListener("click"')[1].split(
             '$("text-ride-freeze")'
         )[0]
-        self.assertIn("currentTeamCount() <= 1", set_click)
-        self.assertIn("round_flags: readRoundFlags()", set_click)
-        self.assertIn("patchTeacherState({ round_flags:", set_click)
+        self.assertNotIn("currentTeamCount() <= 1", set_click)
+        self.assertIn("round_flags: flags", set_click)
+        self.assertIn("round: selected", set_click)
+        self.assertIn("patchTeacherState({ round:", set_click)
         self.assertNotIn("cue_id", set_click)
-        self.assertNotIn('patchTeacherState({ round,', js)
         option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
         self.assertIn("paintRoundStrip();", option)
         self.assertIn("rounds.hidden = true", option)
@@ -1098,6 +1131,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("max-height: var(--live-options-row-h)", strip_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("body.staff-shell .live-round-picks[hidden] {", css)
+        self.assertIn("body.staff-shell .live-round-strip #live-round-type", css)
         self.assertIn(
             "grid-template-columns: var(--live-left-width) minmax(0, 1fr)",
             css,
@@ -1162,6 +1196,23 @@ class LiveShellTests(unittest.TestCase):
         self.assertFalse(paused["running"])
         self.assertIsNone(paused["ends_at_ms"])
         self.assertGreater(paused["remaining_sec"], 0)
+
+    def test_beat32_save_work_under_name_not_timer(self) -> None:
+        """Beat 32: Save Work is under the name row, not the timer."""
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertLess(home.index('id="me-display-time"'), home.index('id="me-name"'))
+        self.assertLess(home.index('id="me-name-row"'), home.index('id="me-save-slot"'))
+        self.assertLess(home.index('id="me-save-slot"'), home.index('id="save-work"'))
+        self.assertLess(home.index('id="save-work"'), home.index('id="me-stats"'))
+        self.assertNotIn('id="me-card-footer"', home)
+        self.assertIn(">Save Work<", home)
+        self.assertIn("Saved to your downloads.", js)
+        self.assertIn("Nothing to save yet.", js)
+        self.assertIn("function saveStudentWork()", js)
+        self.assertNotIn("meEl.innerHTML", js)
 
     def test_beat21_next_stops_timer_and_applies_stage_preset(self) -> None:
         """Beat 21: Next stops a running timer; MEET/PLAY presets; else idle."""
@@ -1341,6 +1392,215 @@ class LiveShellTests(unittest.TestCase):
         self.assertIsNotNone(after_quit)
         self.assertEqual(int(after_quit["present"]), 1)
         self.assertEqual(int(after_quit["points"]), 0)
+
+    def test_beat26_teams_to_meet_starts_scoreboard(self) -> None:
+        """Beat 26: TEAMS→MEET opens the ESPN popup and meet_teams overlay."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        advance = js.split("async function advanceTeamsToMeet()")[1].split(
+            '$("ap-teams-next")'
+        )[0]
+        self.assertIn("openScoreboardOverlay()", advance)
+        self.assertIn("pendingScoreboard", advance)
+        self.assertIn("ap-scoreboard-toggle", advance)
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="ap-scoreboard-toggle"', html)
+
+    def test_beat27_classlist_course_game_team_cols(self) -> None:
+        """Beat 27: ClassList shows compact Course / Game / Team headers."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn('id="ap-att-cols"', html)
+        self.assertIn(">Course<", html)
+        self.assertIn(">Game<", html)
+        self.assertIn(">Team<", html)
+        self.assertIn("ap-att-course", js)
+        self.assertIn("ap-att-game", js)
+        self.assertIn("function studentTeamLabel(", js)
+        self.assertIn("body.staff-shell #class-list-pane .ap-att-cols", css)
+        self.assertIn('classListVisibleStudents', js)
+        self.assertIn('=== "teams"', js)
+
+    def test_beat31_participation_is_per_question(self) -> None:
+        """Beat 31: +1 per real QH; Meet social taps do not count."""
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        student_id = self._aspen_id()
+        self.school.join_live_class_session(sid, student_id, codename="Aspen")
+        self.school.ensure_waiting_room_minds_on(sid)
+        minds = self.school.get_active_live_prompt(sid)
+        assert minds is not None
+        self.school.submit_live_prompt_response(
+            int(minds["id"]), student_id, {"choice": MINDS_ON_CHOICES[0]}
+        )
+        spark = self.school.set_live_session_prompt(
+            sid,
+            slide_index=850,
+            kind="mc",
+            payload=teams_spark_prompt_payload(),
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(spark["id"]), student_id, {"choice": "9"}
+        )
+        extra = self.school.set_live_session_prompt(
+            sid,
+            slide_index=860,
+            kind="mc",
+            payload={
+                "item_id": "C1-QH-2",
+                "kind": "mc",
+                "prompt": "Second live QH",
+                "choices": ["A", "B"],
+            },
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(extra["id"]), student_id, {"choice": "A"}
+        )
+        meet_prompt = self.school.set_live_session_prompt(
+            sid,
+            slide_index=901,
+            kind="mc",
+            payload=meet_team_prompt_payload(),
+            activate=False,
+        )
+        self.school.submit_live_prompt_response(
+            int(meet_prompt["id"]),
+            student_id,
+            {"choice": "This sparks something"},
+        )
+        credits = self.school.participation_question_credits_for_class(
+            self.class_id
+        )
+        self.assertEqual(credits.get(student_id), 3)
+        state = self.school.get_live_session_state(sid)
+        self.assertEqual(int(state["game_points"][str(student_id)]), 3)
+
+    def _bind_aspen_live_session(self, sid: int, student_id: int) -> None:
+        """Attach Aspen's live keys to the staff test client session."""
+        attendees = self.school.list_live_session_attendees(sid)
+        uuid = str(attendees[0]["participant_uuid"]) if attendees else ""
+        with self.client.session_transaction() as sess:
+            sess["student_offering_id"] = int(self.offering["id"])
+            sess["student_class_id"] = int(self.class_id)
+            sess["student_id"] = int(student_id)
+            sess["student_codename"] = "Aspen"
+            sess["student_live_session_id"] = int(sid)
+            sess["student_participant_uuid"] = uuid
+
+    def test_beat28_exit_feedback_on_quit_and_save(self) -> None:
+        """Beat 28: students rate class after Quit or Save; staff sees Feedback."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=attendance"
+        ).get_data(as_text=True)
+        self.assertIn("view=feedback", html)
+        self.assertIn(">Feedback<", html)
+        sid, student_id = self._open_live_with_aspen_answers()
+        self._bind_aspen_live_session(sid, student_id)
+        quit = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(quit.status_code, 302)
+        pending = self.school.pending_exit_feedback(
+            class_id=self.class_id, student_id=student_id
+        )
+        self.assertIsNotNone(pending)
+        ended = self.client.get("/api/student/state")
+        self.assertEqual(ended.status_code, 200)
+        body = ended.get_json()
+        self.assertEqual(body.get("status"), "ended")
+        self.assertTrue(body.get("feedback"))
+        self.assertIn("/student/exit", body.get("redirect") or "")
+        page = self.client.get("/student/exit")
+        self.assertEqual(page.status_code, 200)
+        exit_html = page.get_data(as_text=True)
+        self.assertIn("How was class?", exit_html)
+        self.assertIn("/static/mood/good.svg", exit_html)
+        self.assertIn('name="comment"', exit_html)
+        sent = self.client.post(
+            "/student/exit",
+            data={"mood": "ok", "comment": "Clear lesson"},
+            follow_redirects=False,
+        )
+        self.assertEqual(sent.status_code, 302)
+        self.assertIsNone(
+            self.school.pending_exit_feedback(
+                class_id=self.class_id, student_id=student_id
+            )
+        )
+        rows = self.school.list_exit_feedback_for_class(self.class_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mood"], "ok")
+        self.assertEqual(rows[0]["comment"], "Clear lesson")
+        tab = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=feedback"
+        )
+        self.assertEqual(tab.status_code, 200)
+        tab_html = tab.get_data(as_text=True)
+        self.assertIn("How was class?", tab_html)
+        self.assertIn("Clear lesson", tab_html)
+        self.assertIn("/static/mood/ok.svg", tab_html)
+        sid2, student_id2 = self._open_live_with_aspen_answers()
+        self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        pending_save = self.school.pending_exit_feedback(
+            class_id=self.class_id, student_id=student_id2
+        )
+        self.assertIsNotNone(pending_save)
+
+    def test_beat30_module_and_live_class_dropdown(self) -> None:
+        """Beat 30 interim: Module + Live class picks load the C-slot pack."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="live-pack-strip"', html)
+        self.assertIn('id="live-module-select"', html)
+        self.assertIn('id="live-class-select"', html)
+        self.assertIn(">Module<", html)
+        self.assertIn(">Live class<", html)
+        self.assertIn('value="M1"', html)
+        self.assertIn('value="C1"', html)
+        self.assertIn('value="C2"', html)
+        self.assertIn('value="C3"', html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("applyLivePackChoice", js)
+        self.assertIn("live_module", js)
+        start = self.school.start_live_class_session(
+            self.class_id,
+            int(self.teacher["id"]),
+            live_module="M1",
+            live_slot="C2",
+        )
+        sid = int(start["id"])
+        state = self.school.live_session_teacher_state_payload(sid)
+        self.assertEqual(state["live_module"], "M1")
+        self.assertEqual(state["live_slot"], "C2")
+        prompt = self.school.get_active_live_prompt(sid)
+        assert prompt is not None
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("live_slot"), "C2")
+        self.assertEqual(payload.get("live_module"), "M1")
+        self.assertEqual(payload.get("item_id"), "minds_on")
+        patched = self.client.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"live_module": "M1", "live_slot": "C3"},
+        )
+        self.assertEqual(patched.status_code, 200)
+        body = patched.get_json()["teacher_state"]
+        self.assertEqual(body["live_slot"], "C3")
+        again = self.school.get_active_live_prompt(sid)
+        assert again is not None
+        self.assertEqual((again.get("payload") or {}).get("live_slot"), "C3")
 
 
 if __name__ == "__main__":
