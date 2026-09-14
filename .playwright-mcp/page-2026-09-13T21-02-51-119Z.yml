@@ -1,0 +1,15 @@
+- generic [ref=f9e2]:
+  - paragraph [ref=f9e3]: Local login · staff portal
+  - heading "Staff login" [level=1] [ref=f9e4]
+  - paragraph [ref=f9e5]:
+    - text: Offline account picker (
+    - code [ref=f9e6]: LOCAL_DEV_LOGIN=1
+    - text: ). Click an account below — no live Google OAuth. Staff are seeded at boot; do not invent an email here.
+  - paragraph [ref=f9e7]: "Staff / IT accounts on this local database:"
+  - generic [ref=f9e8]:
+    - link "Shawn (IT)" [ref=f9e9] [cursor=pointer]:
+      - /url: /auth/google/callback?portal=staff&email=solutions@mckenzian.com&name=Shawn
+    - link "Robyn" [ref=f9e10] [cursor=pointer]:
+      - /url: /auth/google/callback?portal=staff&email=rspercival10@gmail.com&name=Robyn
+    - link "Shawn McKenzie" [ref=f9e11] [cursor=pointer]:
+      - /url: /auth/google/callback?portal=staff&email=shawnmckenzie11.sm@gmail.com&name=Shawn+McKenzie

@@ -1,0 +1,2 @@
+[      28ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://127.0.0.1:8787/static/live-media/m1c1-c1-real-slice.html?role=teacher:0
+[   37411ms] [ERROR] Failed to load resource: the server responded with a status of 404 (NOT FOUND) @ http://127.0.0.1:8787/api/classes/5/game/score:0

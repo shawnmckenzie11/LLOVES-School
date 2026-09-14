@@ -1,0 +1,121 @@
+- generic [ref=f12e2]:
+  - navigation "Staff navigation" [ref=f12e3]:
+    - link "Dashboard" [ref=f12e4] [cursor=pointer]:
+      - /url: /staff
+    - link "MCF3M" [ref=f12e5] [cursor=pointer]:
+      - /url: /staff/class/5
+    - link "MCR3U" [ref=f12e6] [cursor=pointer]:
+      - /url: /staff/class/6
+    - link "Log out" [ref=f12e7] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCR3U" [level=1] [ref=f12e10]
+  - navigation "Course sections" [ref=f12e11]:
+    - generic [ref=f12e12]:
+      - link "Run Live Class" [ref=f12e13] [cursor=pointer]:
+        - /url: /staff/class/6?tab=live
+      - link "Lesson Slides" [ref=f12e14] [cursor=pointer]:
+        - /url: /staff/class/6?tab=lesson-slides
+      - link "Modules" [ref=f12e15] [cursor=pointer]:
+        - /url: /staff/class/6?tab=modules
+      - link "Attendance & Participation" [ref=f12e16] [cursor=pointer]:
+        - /url: /staff/class/6?tab=ap&view=attendance
+      - link "Grades" [ref=f12e17] [cursor=pointer]:
+        - /url: /staff/class/6?tab=gradebook
+      - link "Pages" [ref=f12e18] [cursor=pointer]:
+        - /url: /staff/class/6?tab=pages
+      - link "Assignments" [ref=f12e19] [cursor=pointer]:
+        - /url: /staff/class/6?tab=assignments
+      - link "Quizzes" [ref=f12e20] [cursor=pointer]:
+        - /url: /staff/class/6?tab=quizzes
+      - link "Question banks" [ref=f12e21] [cursor=pointer]:
+        - /url: /staff/class/6?tab=question-banks
+      - link "Syllabus" [ref=f12e22] [cursor=pointer]:
+        - /url: /staff/class/6?tab=syllabus
+      - link "Expectations" [ref=f12e23] [cursor=pointer]:
+        - /url: /staff/class/6?tab=expectations
+      - link "Profiles" [ref=f12e24] [cursor=pointer]:
+        - /url: /staff/class/6?tab=profiles
+      - link "Portfolio" [ref=f12e25] [cursor=pointer]:
+        - /url: /staff/class/6?tab=portfolio
+  - generic [ref=f12e26]:
+    - banner [ref=f12e27]:
+      - generic [ref=f12e29]:
+        - paragraph [ref=f12e30]: JOIN CODE
+        - generic [ref=f12e31]:
+          - button "Open join strip" [ref=f12e32] [cursor=pointer]: V64WW2TH
+          - button "Copy" [ref=f12e33] [cursor=pointer]
+      - generic [ref=f12e34]: "Attendance: 0"
+      - navigation "Live class stages" [ref=f12e35]:
+        - button "Prev" [disabled] [ref=f12e36]
+        - generic: JOIN
+        - generic: TEAMS
+        - generic: MEET
+        - generic: ROUND
+        - generic: PLAY
+        - button "Next" [ref=f12e37] [cursor=pointer]
+      - generic [ref=f12e38]:
+        - button "End Live Class" [ref=f12e40] [cursor=pointer]
+        - button "Quit" [ref=f12e42] [cursor=pointer]
+        - button "Start" [ref=f12e43] [cursor=pointer]
+        - button "Advance" [ref=f12e44] [cursor=pointer]
+      - generic [ref=f12e45]:
+        - generic [ref=f12e46]: MCR3U
+        - generic [ref=f12e47]: Date —
+        - generic [ref=f12e48]: Present 0
+    - region "Stage options" [ref=f12e49]:
+      - generic [ref=f12e50]:
+        - generic [ref=f12e51]:
+          - checkbox "Media" [ref=f12e52]
+          - generic [ref=f12e53]: Media
+        - generic [ref=f12e54]:
+          - checkbox "Canvas" [ref=f12e55]
+          - generic [ref=f12e56]: Canvas
+        - combobox "Canvas alignment" [ref=f12e58]:
+          - option "Frozen to teacher"
+          - option "Unique per student" [selected]
+          - option "Shared within group"
+    - generic [ref=f12e59]:
+      - complementary [ref=f12e60]:
+        - region "Session timer" [ref=f12e61]:
+          - group "Session timer minutes" [ref=f12e62]:
+            - button "Shorter session timer" [ref=f12e63] [cursor=pointer]: −
+            - spinbutton "Session timer minutes" [ref=f12e64]: "3"
+            - button "Longer session timer" [ref=f12e65] [cursor=pointer]: +
+          - generic [ref=f12e66]: 3:00
+          - button "Start" [ref=f12e67] [cursor=pointer]
+        - generic [ref=f12e69]:
+          - heading "Class list" [level=2] [ref=f12e70]
+          - generic [ref=f12e71] [cursor=pointer]:
+            - checkbox "Guests" [ref=f12e72]
+            - generic [ref=f12e73]: Guests
+          - generic [ref=f12e74]:
+            - generic "Prior course points" [ref=f12e75]: Course
+            - generic "This session" [ref=f12e76]: Game
+          - generic [ref=f12e77]:
+            - button "← Prev" [disabled] [ref=f12e78]
+            - button "Quit" [ref=f12e79] [cursor=pointer]
+            - button "Next →" [ref=f12e80] [cursor=pointer]
+      - main [ref=f12e81]:
+        - generic [ref=f12e82]:
+          - navigation "Active Content" [ref=f12e84]:
+            - button "Active Media" [ref=f12e85] [cursor=pointer]
+            - button "Question(s)" [ref=f12e86] [cursor=pointer]
+            - button "Canvas/Slides" [ref=f12e87] [cursor=pointer]
+          - generic [ref=f12e88]:
+            - heading "Active Media" [level=2] [ref=f12e91]
+            - generic [ref=f12e92]:
+              - heading "Question" [level=2] [ref=f12e93]
+              - group "Live slot" [ref=f12e94]:
+                - button "C1" [ref=f12e95] [cursor=pointer]
+                - button "C2" [ref=f12e96] [cursor=pointer]
+                - button "C3" [ref=f12e97] [cursor=pointer]
+              - paragraph [ref=f12e98]: No live prompt. Meet QH chain and CONS/QH use the existing session channels.
+            - generic:
+              - heading "Canvas / Slides" [level=2]
+              - paragraph: Ephemeral whiteboard. Nothing is saved.
+              - toolbar "Whiteboard tools":
+                - button "Undo" [disabled]
+                - button "Redo" [disabled]
+                - button "Erase" [disabled]
+              - generic "Ephemeral whiteboard"
+              - paragraph: "canvas_ephemeral: true"

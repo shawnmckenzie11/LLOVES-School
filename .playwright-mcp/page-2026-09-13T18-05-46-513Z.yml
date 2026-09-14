@@ -1,0 +1,118 @@
+- generic [ref=f1e2]:
+  - navigation "Staff navigation" [ref=f1e3]:
+    - link "Dashboard" [ref=f1e4] [cursor=pointer]:
+      - /url: /staff
+    - link "Bots" [ref=f1e5] [cursor=pointer]:
+      - /url: /staff/bots
+    - link "MCF3M" [ref=f1e6] [cursor=pointer]:
+      - /url: /staff/class/5
+    - link "Log out" [ref=f1e7] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCF3M" [level=1] [ref=f1e10]
+  - navigation "Course sections" [ref=f1e11]:
+    - generic [ref=f1e12]:
+      - link "Run Live Class" [ref=f1e13] [cursor=pointer]:
+        - /url: /staff/class/5?tab=live
+      - link "Lesson Slides" [ref=f1e14] [cursor=pointer]:
+        - /url: /staff/class/5?tab=lesson-slides
+      - link "Modules" [ref=f1e15] [cursor=pointer]:
+        - /url: /staff/class/5?tab=modules
+      - link "Attendance & Participation" [ref=f1e16] [cursor=pointer]:
+        - /url: /staff/class/5?tab=ap&view=attendance
+      - link "Grades" [ref=f1e17] [cursor=pointer]:
+        - /url: /staff/class/5?tab=gradebook
+      - link "Pages" [ref=f1e18] [cursor=pointer]:
+        - /url: /staff/class/5?tab=pages
+      - link "Assignments" [ref=f1e19] [cursor=pointer]:
+        - /url: /staff/class/5?tab=assignments
+      - link "Quizzes" [ref=f1e20] [cursor=pointer]:
+        - /url: /staff/class/5?tab=quizzes
+      - link "Question banks" [ref=f1e21] [cursor=pointer]:
+        - /url: /staff/class/5?tab=question-banks
+      - link "Syllabus" [ref=f1e22] [cursor=pointer]:
+        - /url: /staff/class/5?tab=syllabus
+      - link "Expectations" [ref=f1e23] [cursor=pointer]:
+        - /url: /staff/class/5?tab=expectations
+      - link "Profiles" [ref=f1e24] [cursor=pointer]:
+        - /url: /staff/class/5?tab=profiles
+      - link "Portfolio" [ref=f1e25] [cursor=pointer]:
+        - /url: /staff/class/5?tab=portfolio
+  - generic [ref=f1e26]:
+    - banner [ref=f1e27]:
+      - generic [ref=f1e28]: "Attendance: 0"
+      - navigation "Live class stages" [ref=f1e29]:
+        - button "Prev" [disabled] [ref=f1e30]
+        - generic: SET CLASS
+        - generic: JOIN
+        - generic: TEAMS
+        - generic: MEET
+        - generic: ROUND
+        - generic: PLAY
+        - button "Next" [ref=f1e31] [cursor=pointer]
+      - generic [ref=f1e32]:
+        - button "Save and End Class" [ref=f1e34] [cursor=pointer]
+        - button "Quit" [ref=f1e36] [cursor=pointer]
+        - button "Start" [ref=f1e37] [cursor=pointer]
+        - button "Advance" [ref=f1e38] [cursor=pointer]
+      - generic [ref=f1e39]:
+        - generic [ref=f1e40]: MCF3M
+        - generic [ref=f1e41]: 2026-09-14
+        - generic [ref=f1e42]: Present 0
+    - generic [ref=f1e43]:
+      - heading "Set Class" [level=2] [ref=f1e44]
+      - generic [ref=f1e45]:
+        - generic [ref=f1e46]:
+          - generic [ref=f1e47]: Module
+          - combobox "Module" [ref=f1e48]:
+            - option "M1" [selected]
+        - generic [ref=f1e49]:
+          - generic [ref=f1e50]: Live class
+          - combobox "Live class" [ref=f1e51]:
+            - option "C1" [selected]
+            - option "C2"
+            - option "C3"
+      - paragraph [ref=f1e52]: This date is not a secondary school day. Pick a date in the semester.
+      - generic [ref=f1e55]:
+        - generic [ref=f1e56]:
+          - button "Previous month" [disabled] [ref=f1e57]: <
+          - heading "September 2026" [level=3] [ref=f1e58]
+          - button "Next month" [ref=f1e59] [cursor=pointer]: ">"
+        - generic [ref=f1e60]:
+          - generic [ref=f1e61]: Su
+          - generic [ref=f1e62]: Mo
+          - generic [ref=f1e63]: Tu
+          - generic [ref=f1e64]: We
+          - generic [ref=f1e65]: Th
+          - generic [ref=f1e66]: Fr
+          - generic [ref=f1e67]: Sa
+        - generic [ref=f1e68]:
+          - button "1" [disabled] [ref=f1e71]
+          - button "2" [disabled] [ref=f1e72]
+          - button "3" [disabled] [ref=f1e73]
+          - button "4" [disabled] [ref=f1e74]
+          - button "5" [disabled] [ref=f1e75]
+          - button "6" [disabled] [ref=f1e76]
+          - button "7" [disabled] [ref=f1e77]
+          - button "8" [disabled] [ref=f1e78]
+          - button "9" [disabled] [ref=f1e79]
+          - button "10 (logged)" [disabled] [ref=f1e80]
+          - button "11" [disabled] [ref=f1e81]
+          - button "12" [disabled] [ref=f1e82]
+          - button "13" [disabled] [ref=f1e83]
+          - button "14" [active] [pressed] [ref=f1e84] [cursor=pointer]
+          - button "15" [ref=f1e85] [cursor=pointer]
+          - button "16" [ref=f1e86] [cursor=pointer]
+          - button "17" [ref=f1e87] [cursor=pointer]
+          - button "18" [ref=f1e88] [cursor=pointer]
+          - button "19" [disabled] [ref=f1e89]
+          - button "20" [disabled] [ref=f1e90]
+          - button "21" [ref=f1e91] [cursor=pointer]
+          - button "22" [ref=f1e92] [cursor=pointer]
+          - button "23" [ref=f1e93] [cursor=pointer]
+          - button "24" [ref=f1e94] [cursor=pointer]
+          - button "25" [ref=f1e95] [cursor=pointer]
+          - button "26" [disabled] [ref=f1e96]
+          - button "27" [disabled] [ref=f1e97]
+          - button "28" [ref=f1e98] [cursor=pointer]
+          - button "29" [ref=f1e99] [cursor=pointer]
+          - button "30" [ref=f1e100] [cursor=pointer]

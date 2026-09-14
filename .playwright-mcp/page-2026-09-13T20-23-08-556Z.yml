@@ -1,0 +1,86 @@
+- generic [active] [ref=f22e1]:
+  - generic "Account" [ref=f22e2]:
+    - link "Bots" [ref=f22e3] [cursor=pointer]:
+      - /url: /staff/bots
+    - link "Log out" [ref=f22e4] [cursor=pointer]:
+      - /url: /logout
+  - generic [ref=f22e5]:
+    - article [ref=f22e7]:
+      - heading "MCF3M" [level=2] [ref=f22e8]
+      - paragraph [ref=f22e9]: M | W | F | 2:00 PM
+      - generic [ref=f22e10]:
+        - link "Run Live Class" [ref=f22e12] [cursor=pointer]:
+          - /url: /staff/class/5?tab=live&run=1
+        - link "Take Attendance" [ref=f22e17] [cursor=pointer]:
+          - /url: /staff/class/5?tab=ap&view=attendance&take=1
+        - link "Explore Course" [ref=f22e22] [cursor=pointer]:
+          - /url: /staff/class/5
+        - button "Edit Roster" [ref=f22e27] [cursor=pointer]
+    - generic [ref=f22e31]:
+      - paragraph [ref=f22e32]: alc.mckenzian.com#celebrations
+      - heading "Celebrate a student" [level=2] [ref=f22e33]
+      - paragraph [ref=f22e34]: "Posts the Awards card on the public #celebrations board. Codenames only."
+      - generic [ref=f22e35]:
+        - generic [ref=f22e36]: Codename
+        - combobox "Codename" [ref=f22e37]:
+          - option "Select a Codename" [selected]
+          - option "Aamenah · MCF3M"
+          - option "Abdikhaliq · MCF3M"
+          - option "Aisha · MCF3M"
+          - option "Ameena · MCF3M"
+          - option "Anita · MCF3M"
+          - option "Anna · MCF3M"
+          - option "Hanan · MCF3M"
+          - option "Hayat · MCF3M"
+          - option "Husna · MCF3M"
+          - option "Jaden · MCF3M"
+          - option "Leah · MCF3M"
+          - option "Madeline · MCF3M"
+          - option "Mariyka · MCF3M"
+          - option "Marwaan · MCF3M"
+          - option "Maryam · MCF3M"
+          - option "Mishkatul · MCF3M"
+          - option "Muhammad · MCF3M"
+          - option "Natalie · MCF3M"
+          - option "Nathan · MCF3M"
+          - option "Nathaniel · MCF3M"
+          - option "Ziyad · MCF3M"
+          - option "Evan H · MCR3U"
+          - option "Hanna D · MCR3U"
+          - option "Harry H · MCR3U"
+          - option "Jplly U · MCR3U"
+          - option "Lise S · MCR3U"
+          - option "Manny P · MCR3U"
+          - option "Mary H · MCR3U"
+          - option "Shawn M · MCR3U"
+          - option "xavier T · MCR3U"
+          - option "Yanda P · MCR3U"
+          - option "Aamenah · MCR3U-2"
+          - option "Abdikhaliq · MCR3U-2"
+          - option "Aisha · MCR3U-2"
+          - option "Ameena · MCR3U-2"
+          - option "Anita · MCR3U-2"
+          - option "Anna · MCR3U-2"
+          - option "Hanan · MCR3U-2"
+          - option "Hayat · MCR3U-2"
+          - option "Husna · MCR3U-2"
+          - option "Jaden · MCR3U-2"
+          - option "Leah · MCR3U-2"
+          - option "Madeline · MCR3U-2"
+          - option "Mariyka · MCR3U-2"
+          - option "Marwaan · MCR3U-2"
+          - option "Maryam · MCR3U-2"
+          - option "Mishkatul · MCR3U-2"
+          - option "Muhammad · MCR3U-2"
+          - option "Natalie · MCR3U-2"
+          - option "Nathan · MCR3U-2"
+          - option "Nathaniel · MCR3U-2"
+          - option "Ziyad · MCR3U-2"
+        - generic [ref=f22e38]: Why they are being celebrated
+        - textbox "Why they are being celebrated" [ref=f22e39]:
+          - /placeholder: Optional one-liner
+        - generic [ref=f22e40]:
+          - button "Post to Awards" [ref=f22e41] [cursor=pointer]
+          - button "Clear Awards card" [ref=f22e42] [cursor=pointer]
+          - link "View public page" [ref=f22e43] [cursor=pointer]:
+            - /url: /#celebrations

@@ -1461,6 +1461,11 @@ def generate_lesson_slides(
             "mock": False,
             "request_count": int(created.get("request_count") or 0),
         }
+    fill_meta["team_challenge"] = {
+        "context": context_text,
+        "question": question_text,
+        "speaker_notes": notes_text,
+    }
     stored = school.upsert_lesson_slide_deck(
         class_id,
         int(preview["module_number"]),
