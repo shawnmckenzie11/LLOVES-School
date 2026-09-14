@@ -1641,7 +1641,11 @@ class HttpApiTests(unittest.TestCase):
         self.assertTrue(any(c["id"] == class_id for c in listed["classes"]))
         dash = _http_json(self.base, f"/api/classes/{class_id}/dashboard")
         self.assertEqual(len(dash["students"]), 17)
-        self.assertEqual(dash["sessions"][0]["header_label"], "Tue 9/8 2:00pm")
+        expected_header = format_header_label(
+            next_meeting_datetime("T/Th/F", "2:00pm"),
+            "2:00pm",
+        )
+        self.assertEqual(dash["sessions"][0]["header_label"], expected_header)
         begin = _http_json(self.base, f"/api/classes/{class_id}/begin", {})
         present = [s["id"] for s in begin["students"][:4]]
         moved = _http_json(
