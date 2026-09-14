@@ -25,6 +25,7 @@ from schedule import (  # noqa: E402
     next_meeting_datetime,
     parse_semester_field,
     picker_year_semester,
+    store_days,
     unique_header_label,
     wizard_defaults,
 )
@@ -1642,7 +1643,7 @@ class HttpApiTests(unittest.TestCase):
         dash = _http_json(self.base, f"/api/classes/{class_id}/dashboard")
         self.assertEqual(len(dash["students"]), 17)
         expected_header = format_header_label(
-            next_meeting_datetime("T/Th/F", "2:00pm"),
+            next_meeting_datetime(store_days("T/Th/F"), "2:00pm"),
             "2:00pm",
         )
         self.assertEqual(dash["sessions"][0]["header_label"], expected_header)
