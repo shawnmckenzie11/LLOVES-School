@@ -673,16 +673,35 @@ function paintStudentSlides(payload) {
 }
 
 /**
- * Make one projected pane draggable and natively resizable inside the workspace.
+ * Float a projected pane at its current position inside the student workspace.
+ * @param {HTMLElement} pane
+ * @param {HTMLElement} host
+ * @returns {{hostRect: DOMRect, paneRect: DOMRect}}
+ */
+function floatPaneAtCurrentPosition(pane, host) {
+  const hostRect = host.getBoundingClientRect();
+  const paneRect = pane.getBoundingClientRect();
+  pane.classList.add("is-floating");
+  pane.style.left = `${paneRect.left - hostRect.left}px`;
+  pane.style.top = `${paneRect.top - hostRect.top}px`;
+  pane.style.width = `${paneRect.width}px`;
+  pane.style.height = `${paneRect.height}px`;
+  return { hostRect, paneRect };
+}
+
+/**
+ * Make one projected pane draggable and visibly resizable inside the workspace.
  * @param {HTMLElement | null} pane
  */
 function bindFloatingPane(pane) {
   if (!(pane instanceof HTMLElement)) return;
   const host = document.getElementById("live-response");
   const handle = pane.querySelector("[data-pane-drag]");
+  const resizeHandle = pane.querySelector("[data-pane-resize]");
   const reset = pane.querySelector("[data-pane-reset]");
   if (!(host instanceof HTMLElement) || !(handle instanceof HTMLElement)) return;
   let drag = null;
+  let resizeDrag = null;
   const resetPane = () => {
     pane.classList.remove("is-floating");
     for (const prop of ["left", "top", "width", "height"]) {
@@ -695,13 +714,7 @@ function bindFloatingPane(pane) {
   });
   handle.addEventListener("pointerdown", (event) => {
     if (window.innerWidth < 720 || event.target.closest("button")) return;
-    const hostRect = host.getBoundingClientRect();
-    const paneRect = pane.getBoundingClientRect();
-    pane.classList.add("is-floating");
-    pane.style.left = `${paneRect.left - hostRect.left}px`;
-    pane.style.top = `${paneRect.top - hostRect.top}px`;
-    pane.style.width = `${paneRect.width}px`;
-    pane.style.height = `${paneRect.height}px`;
+    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
     drag = {
       x: event.clientX,
       y: event.clientY,
@@ -735,6 +748,49 @@ function bindFloatingPane(pane) {
   };
   handle.addEventListener("pointerup", endDrag);
   handle.addEventListener("pointercancel", endDrag);
+  resizeHandle?.addEventListener("pointerdown", (event) => {
+    if (window.innerWidth < 720) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+    resizeDrag = {
+      x: event.clientX,
+      y: event.clientY,
+      width: paneRect.width,
+      height: paneRect.height,
+      left: paneRect.left - hostRect.left,
+      top: paneRect.top - hostRect.top,
+    };
+    resizeHandle.setPointerCapture(event.pointerId);
+  });
+  resizeHandle?.addEventListener("pointermove", (event) => {
+    if (!resizeDrag) return;
+    const hostRect = host.getBoundingClientRect();
+    const maxWidth = Math.max(1, hostRect.width - resizeDrag.left);
+    const maxHeight = Math.max(1, hostRect.height - resizeDrag.top);
+    const minWidth = Math.min(288, maxWidth);
+    const minHeight = Math.min(192, maxHeight);
+    const width = Math.max(
+      minWidth,
+      Math.min(maxWidth, resizeDrag.width + event.clientX - resizeDrag.x)
+    );
+    const height = Math.max(
+      minHeight,
+      Math.min(maxHeight, resizeDrag.height + event.clientY - resizeDrag.y)
+    );
+    pane.style.width = `${width}px`;
+    pane.style.height = `${height}px`;
+  });
+  /** End a pointer resize and release its capture. */
+  const endResize = (event) => {
+    if (!resizeDrag) return;
+    resizeDrag = null;
+    if (resizeHandle?.hasPointerCapture(event.pointerId)) {
+      resizeHandle.releasePointerCapture(event.pointerId);
+    }
+  };
+  resizeHandle?.addEventListener("pointerup", endResize);
+  resizeHandle?.addEventListener("pointercancel", endResize);
   window.addEventListener("resize", () => {
     if (window.innerWidth < 720) resetPane();
   });

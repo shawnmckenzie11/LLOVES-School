@@ -42,6 +42,7 @@
         <span>Media</span>
         <button type="button" data-pane-reset="media">Reset</button>
       </div>
+      <button type="button" class="student-pane-resize" data-pane-resize="media" aria-label="Resize media"></button>
       <div id="media-lock" class="student-frame-lock" hidden>Media locked</div>
       <iframe id="media-frame" title="Live class media" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
@@ -50,6 +51,7 @@
         <span>Canvas</span>
         <button type="button" data-pane-reset="canvas">Reset</button>
       </div>
+      <button type="button" class="student-pane-resize" data-pane-resize="canvas" aria-label="Resize canvas"></button>
       <div id="canvas-lock" class="student-frame-lock">Canvas locked</div>
       <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
         <button type="button" id="student-canvas-undo">Undo</button>
@@ -64,6 +66,7 @@
         <span>Slides</span>
         <button type="button" data-pane-reset="slides">Reset</button>
       </div>
+      <button type="button" class="student-pane-resize" data-pane-resize="slides" aria-label="Resize slides"></button>
       <iframe id="slides-frame" title="Live class slides" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       <p id="slides-empty" class="slides-empty">No slides are connected yet.</p>
     </div>

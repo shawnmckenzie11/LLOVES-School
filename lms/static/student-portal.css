@@ -394,6 +394,11 @@ body.student-home.has-media .student-live-response {
   font-size: 0.68rem;
   cursor: pointer;
 }
+
+.student-pane-resize {
+  display: none;
+}
+
 .canvas-pane .live-canvas-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1195,7 +1200,7 @@ body.student-home.is-waiting-room .student-wait {
   }
 
   .student-floating-pane {
-    resize: both;
+    resize: none;
     max-width: 100%;
     max-height: 100%;
     min-width: 18rem;
@@ -1208,6 +1213,29 @@ body.student-home.is-waiting-room .student-wait {
     margin: 0;
     flex: none;
     box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.35);
+  }
+
+  .student-pane-resize {
+    position: absolute;
+    right: 0.15rem;
+    bottom: 0.15rem;
+    z-index: 8;
+    display: block;
+    width: 1.35rem;
+    min-height: 1.35rem;
+    padding: 0;
+    border: 0;
+    border-right: 3px solid #f5c518;
+    border-bottom: 3px solid #f5c518;
+    border-radius: 0 0 7px;
+    background: transparent;
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+
+  .student-pane-resize:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
   }
 }
 
