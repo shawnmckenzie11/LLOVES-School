@@ -4083,6 +4083,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Session is not active"}), 409
         body = request.get_json(silent=True) or {}
         try:
             result = school.set_live_question_visibility(
@@ -4107,6 +4109,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Responses are active-session only"}), 409
         try:
             if request.method == "GET":
                 responses = school.live_prompt_response_roster(

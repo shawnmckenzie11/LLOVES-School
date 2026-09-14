@@ -125,14 +125,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         revealed = apply_teacher_state_update(
             default_teacher_state(),
             mc_ui={"prompt_ref": MINDS_ON_PROMPT_REF, "reveal": True},
+            question_views={"minds_on": "student"},
         )
         self.assertEqual(revealed["prompt_ref"], MINDS_ON_PROMPT_REF)
         self.assertTrue(revealed["mc_ui"]["reveal"])
+        self.assertEqual(revealed["question_views"], {"minds_on": "student"})
         nxt = apply_teacher_state_update(revealed, advance="next")
         self.assertEqual(nxt["stage"], "teams")
         self.assertEqual(nxt["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         self.assertEqual(nxt["mc_ui"]["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         self.assertFalse(nxt["mc_ui"]["reveal"])
+        self.assertEqual(nxt["question_views"], {})
         self.assertEqual(nxt["state_seq"], revealed["state_seq"] + 1)
         self.assertTrue(nxt["student_frames"]["questions"])
         self.assertFalse(nxt["student_frames"]["media"])
@@ -525,6 +528,21 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(
             body["teacher_state"]["student_view"]["questions"], "student"
         )
+        prompt_id = next(
+            row["prompt_id"]
+            for row in body["question_cards"]
+            if row["id"] == "teams-spark"
+        )
+        self.school.end_live_class_session(self.session_id, clear_moods=False)
+        responses = self.client.get(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/responses"
+        )
+        self.assertEqual(responses.status_code, 409, responses.get_json())
+        visibility = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/teams-spark/visibility",
+            json={"mode": "none"},
+        )
+        self.assertEqual(visibility.status_code, 409, visibility.get_json())
 
     def test_student_state_projects_teacher_state(self) -> None:
         """Student poll includes teacher_state beside active_media."""

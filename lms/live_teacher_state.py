@@ -673,6 +673,7 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
     """
     name = stage if stage in STAGES else "join"
     state["student_view"] = default_student_view(name)
+    state["question_views"] = default_question_views()
     apply_unlock_frames(state)
     if name in QUESTION_ONLY_STAGES:
         state["active_tab"] = "questions"

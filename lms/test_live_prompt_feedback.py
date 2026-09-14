@@ -139,6 +139,23 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             )
         )
 
+    def test_generic_keyed_mc_always_returns_compact_feedback(self) -> None:
+        """Any keyed MC gets feedback even without authored choice copy."""
+        payload = {
+            "item_id": "metadata-mc",
+            "choices": ["First answer", "Second answer"],
+            "correct_answer": "B",
+        }
+        hit = public_feedback_fragment(payload, {"choice": "Second answer"})
+        miss = public_feedback_fragment(payload, {"choice": "A"})
+        self.assertEqual(hit["source"], "answer_key")
+        self.assertEqual(hit["lead"], LEAD_MATCH)
+        self.assertTrue(hit["match"])
+        self.assertEqual(miss["source"], "answer_key")
+        self.assertEqual(miss["lead"], LEAD_MISS)
+        self.assertFalse(miss["match"])
+        self.assertIn("B: Second answer", miss["text"])
+
     def test_strip_teacher_fields(self) -> None:
         """Student GET must not see keys, cement, or the feedback map."""
         cleaned = strip_teacher_prompt_fields(

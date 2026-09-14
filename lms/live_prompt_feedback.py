@@ -280,24 +280,24 @@ def choice_letter(response: Any, choices: Any) -> str | None:
 def resolve_live_prompt_feedback(
     payload: Any, response: Any
 ) -> dict[str, Any] | None:
-    """Return lead + why for a Minds-On / CONS submit, or None.
+    """Return compact feedback for a keyed MC or authored quick-hitter.
 
-    ``source`` is ``by_choice``, ``on_submit``, or ``on_weak``. Team Challenge
-    and unknown prompts return None. Meet A/B/C is not a keyed item.
+    Authored ``by_choice`` / ``on_submit`` / ``on_weak`` copy wins. Any other
+    MC payload with a correct-answer key receives a minimal generic result so
+    keyed questions never fall through to poll-result behavior.
 
     Args:
         payload: Live-prompt payload (may include teacher-only fields).
         response: Student answer JSON.
     """
-    item_id = canonical_feedback_item_id(payload)
-    if not item_id:
-        return None
-    entry = payload_feedback_entry(payload, item_id)
+    body = payload if isinstance(payload, dict) else {}
+    item_id = canonical_feedback_item_id(body)
+    entry = payload_feedback_entry(body, item_id) if item_id else {}
     by_choice = entry.get("by_choice") or {}
     on_submit = str(entry.get("on_submit") or "").strip()
     on_weak = str(entry.get("on_weak") or "").strip()
     letter = choice_letter(
-        response, (payload or {}).get("choices") if isinstance(payload, dict) else []
+        response, body.get("choices") or []
     )
     if by_choice and letter:
         text = str(by_choice.get(letter) or "").strip()
@@ -325,6 +325,27 @@ def resolve_live_prompt_feedback(
             "source": "on_submit",
             "lead": LEAD_WEAK if weak else LEAD_MATCH,
             "match": not weak,
+        }
+    choices = [str(choice).strip() for choice in body.get("choices") or []]
+    raw_key = (
+        body.get("key")
+        or body.get("correct_answer")
+        or ((body.get("correct_ids") or [""])[0])
+    )
+    key_letter = choice_letter({"choice": raw_key}, choices)
+    if key_letter and letter:
+        match = letter == key_letter
+        answer_index = CHOICE_LETTERS.index(key_letter)
+        answer = choices[answer_index] if answer_index < len(choices) else key_letter
+        return {
+            "text": (
+                "That answer matches the key."
+                if match
+                else f"The keyed answer is {key_letter}: {answer}."
+            ),
+            "source": "answer_key",
+            "lead": LEAD_MATCH if match else LEAD_MISS,
+            "match": match,
         }
     return None
 
