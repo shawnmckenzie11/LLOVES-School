@@ -56,9 +56,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(state["state_seq"], 0)
         self.assertEqual(
             state["student_frames"],
-            {"questions": True, "media": False, "canvas": False},
+            {
+                "questions": True,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
-        self.assertEqual(state["unlocks"], {"media": False, "canvas": False})
+        self.assertEqual(
+            state["unlocks"],
+            {"media": False, "canvas": False, "slides": False},
+        )
         self.assertEqual(state["canvas_align"], "teacher")
         self.assertTrue(state["canvas_ephemeral"])
         self.assertEqual(
@@ -90,9 +98,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(play["state_seq"], 2)
         self.assertEqual(
             play["student_frames"],
-            {"questions": False, "media": False, "canvas": False},
+            {
+                "questions": False,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
-        self.assertEqual(play["unlocks"], {"media": False, "canvas": False})
+        self.assertEqual(
+            play["unlocks"],
+            {"media": False, "canvas": False, "slides": False},
+        )
         self.assertFalse(student_should_mount_media(play))
         self.assertFalse(student_should_mount_canvas(play))
         still = apply_teacher_state_update(play, advance="next")
@@ -142,7 +158,12 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(meet["prompt_ref"], "meet-team")
         self.assertEqual(
             meet["student_frames"],
-            {"questions": True, "media": False, "canvas": False},
+            {
+                "questions": True,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
         self.assertEqual(meet["active_tab"], "questions")
         self.assertEqual(meet["layout_preset"], "questions_full")
@@ -378,6 +399,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             apply_teacher_state_update(None, round_flags="minds_on")
 
+    def test_question_view_is_individual_only_and_slides_can_be_shared(self) -> None:
+        """Questions reject team sharing while the Slides surface keeps it."""
+
+        state = apply_teacher_state_update(
+            None,
+            student_view={"questions": "team", "slides": "team"},
+        )
+        self.assertEqual(state["student_view"]["questions"], "none")
+        self.assertEqual(state["student_view"]["slides"], "team")
+        self.assertTrue(state["student_frames"]["slides"])
+
 
 class LiveTeacherStateApiTests(unittest.TestCase):
     """Staff API + student projection for the thin channel."""
@@ -468,6 +500,31 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         ).get_json()
         self.assertEqual(session_state["teacher_state"]["stage"], "teams")
         self.assertIn("active_media", session_state)
+
+    def test_question_cards_and_visibility_api(self) -> None:
+        """Staff state stacks metadata questions and can activate one for students."""
+
+        state = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state"
+        ).get_json()
+        cards = state["question_cards"]
+        self.assertEqual([row["id"] for row in cards[:2]], ["minds_on", "teams-spark"])
+        self.assertEqual(cards[0]["type"], "mc")
+        self.assertEqual(cards[1]["type"], "numeric")
+        shown = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/teams-spark/visibility",
+            json={"mode": "student"},
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        body = shown.get_json()
+        visible = {
+            row["id"]: row["student_view"] for row in body["question_cards"]
+        }
+        self.assertEqual(visible["minds_on"], "none")
+        self.assertEqual(visible["teams-spark"], "student")
+        self.assertEqual(
+            body["teacher_state"]["student_view"]["questions"], "student"
+        )
 
     def test_student_state_projects_teacher_state(self) -> None:
         """Student poll includes teacher_state beside active_media."""

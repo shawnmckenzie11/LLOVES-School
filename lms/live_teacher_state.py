@@ -57,6 +57,9 @@ LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "questions_full": {"A": "questions"},
     "canvas_full": {"A": "canvas"},
     "slides_full": {"A": "slides"},
+    "media_questions": {"A": "media", "B": "questions"},
+    "three_up": {"A": "media", "B": "questions", "C": "canvas"},
+    "canvas_media": {"A": "canvas", "B": "media"},
 }
 
 DEFAULT_LAYOUT_PRESET = "questions_full"

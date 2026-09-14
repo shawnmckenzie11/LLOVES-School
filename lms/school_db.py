@@ -7505,6 +7505,30 @@ class SchoolDB(LovesDB):
             participant_uuid: Live-session person key.
         """
         stage = str((teacher or {}).get("stage") or "")
+        question_views = (teacher or {}).get("question_views")
+        if isinstance(question_views, dict):
+            wanted = next(
+                (
+                    str(key)
+                    for key, value in question_views.items()
+                    if value == "student"
+                ),
+                "",
+            )
+            if wanted:
+                for row in self._list_live_session_prompts(session_id):
+                    payload = (
+                        row.get("payload")
+                        if isinstance(row.get("payload"), dict)
+                        else {}
+                    )
+                    item_id = str(
+                        payload.get("item_id")
+                        or payload.get("pack")
+                        or f"prompt-{row.get('id')}"
+                    ).strip()
+                    if item_id == wanted:
+                        return row
         if stage == "meet":
             return self.get_active_live_prompt(session_id)
         minds = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))

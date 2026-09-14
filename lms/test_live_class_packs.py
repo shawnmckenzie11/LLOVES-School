@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interim Module + Live class catalogue registry."""
+"""File-backed Module + Live class metadata registry."""
 
 from __future__ import annotations
 
@@ -23,15 +23,23 @@ from live_class_packs import (  # noqa: E402
 
 
 class LiveClassPacksTests(unittest.TestCase):
-    """Catalogue scan finds the wired MCF3M M1 C1/C2/C3 packs."""
+    """Metadata scan finds four live classes in every MCF3M module."""
 
-    def test_mcf3m_m1_c1_c2_c3(self) -> None:
-        """Beat 30 interim: MCF3M exposes Module 1 live classes C1–C3."""
+    def test_mcf3m_has_four_live_classes_per_module(self) -> None:
+        """MCF3M exposes C1–C4 from each of its eight metadata modules."""
         registry = live_class_registry("MCF3M")
         self.assertEqual(registry["course"], "MCF3M")
-        self.assertTrue(registry["interim"])
-        self.assertIn("M1", registry["modules"])
-        self.assertEqual(registry["slots_by_module"]["M1"], ["C1", "C2", "C3"])
+        self.assertFalse(registry["interim"])
+        self.assertEqual(registry["modules"], [f"M{i}" for i in range(1, 9)])
+        self.assertEqual(
+            registry["slots_by_module"]["M1"], ["C1", "C2", "C3", "C4"]
+        )
+        self.assertTrue(
+            all(
+                slots == ["C1", "C2", "C3", "C4"]
+                for slots in registry["slots_by_module"].values()
+            )
+        )
         self.assertEqual(normalize_live_module("m2"), "M2")
         self.assertEqual(normalize_live_module("nope"), "M1")
         self.assertIn(
