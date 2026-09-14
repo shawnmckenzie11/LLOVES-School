@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>y = √x</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --panel: rgba(10, 18, 32, 0.86);
+      --line: rgba(245, 197, 24, 0.35);
+      --grid: rgba(143, 163, 187, 0.18);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .eq {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.85rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.4rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(1rem, 2.8vw, 1.35rem);
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .hint {
+      position: absolute;
+      bottom: 0.75rem;
+      left: 0.85rem;
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      letter-spacing: 0.02em;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="plot" aria-label="Graph of y equals square root of x"></canvas>
+  <p class="eq"><strong>y = √x</strong></p>
+  <p class="hint">Defined for x ≥ 0</p>
+  <script>
+    const canvas = document.getElementById("plot");
+    const ctx = canvas.getContext("2d");
+    const X_MIN = -2;
+    const X_MAX = 9;
+    const Y_MIN = -1;
+    const Y_MAX = 4;
+
+    /**
+     * Map a math x to canvas pixels.
+     * @param {number} x
+     * @param {number} width
+     * @returns {number}
+     */
+    function toX(x, width) {
+      return ((x - X_MIN) / (X_MAX - X_MIN)) * width;
+    }
+
+    /**
+     * Map a math y to canvas pixels (y-up).
+     * @param {number} y
+     * @param {number} height
+     * @returns {number}
+     */
+    function toY(y, height) {
+      return height - ((y - Y_MIN) / (Y_MAX - Y_MIN)) * height;
+    }
+
+    /**
+     * Draw axes, grid, and y = sqrt(x).
+     */
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      ctx.strokeStyle = "var(--grid)";
+      ctx.strokeStyle = "rgba(143, 163, 187, 0.18)";
+      ctx.lineWidth = 1;
+      for (let x = Math.ceil(X_MIN); x <= X_MAX; x += 1) {
+        ctx.beginPath();
+        ctx.moveTo(toX(x, width), toY(Y_MIN, height));
+        ctx.lineTo(toX(x, width), toY(Y_MAX, height));
+        ctx.stroke();
+      }
+      for (let y = Math.ceil(Y_MIN); y <= Y_MAX; y += 1) {
+        ctx.beginPath();
+        ctx.moveTo(toX(X_MIN, width), toY(y, height));
+        ctx.lineTo(toX(X_MAX, width), toY(y, height));
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "rgba(245, 197, 24, 0.07)";
+      ctx.fillRect(toX(X_MIN, width), toY(Y_MAX, height), toX(0, width) - toX(X_MIN, width), height);
+
+      ctx.strokeStyle = "#d6deef";
+      ctx.lineWidth = 1.6;
+      const ox = toX(0, width);
+      const oy = toY(0, height);
+      ctx.beginPath();
+      ctx.moveTo(toX(X_MIN, width), oy);
+      ctx.lineTo(toX(X_MAX, width) - 8, oy);
+      ctx.moveTo(ox, toY(Y_MIN, height));
+      ctx.lineTo(ox, toY(Y_MAX, height) + 8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(toX(X_MAX, width), oy);
+      ctx.lineTo(toX(X_MAX, width) - 10, oy - 5);
+      ctx.lineTo(toX(X_MAX, width) - 10, oy + 5);
+      ctx.closePath();
+      ctx.moveTo(ox, toY(Y_MAX, height));
+      ctx.lineTo(ox - 5, toY(Y_MAX, height) + 10);
+      ctx.lineTo(ox + 5, toY(Y_MAX, height) + 10);
+      ctx.closePath();
+      ctx.fillStyle = "#d6deef";
+      ctx.fill();
+
+      ctx.fillStyle = "#8fa3bb";
+      ctx.font = "12px 'IBM Plex Sans', sans-serif";
+      ctx.fillText("x", toX(X_MAX, width) - 18, oy - 10);
+      ctx.fillText("y", ox + 10, toY(Y_MAX, height) + 16);
+
+      ctx.beginPath();
+      let started = false;
+      for (let px = toX(0, width); px <= toX(X_MAX, width); px += 1) {
+        const x = X_MIN + (px / width) * (X_MAX - X_MIN);
+        if (x < 0) continue;
+        const y = Math.sqrt(x);
+        const py = toY(y, height);
+        if (!started) {
+          ctx.moveTo(px, py);
+          started = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.strokeStyle = "#f5c518";
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(toX(0, width), toY(0, height), 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = "#f5c518";
+      ctx.fill();
+    }
+
+    draw();
+    window.addEventListener("resize", draw);
+  </script>
+</body>
+</html>

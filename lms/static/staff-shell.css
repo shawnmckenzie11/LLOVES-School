@@ -1589,7 +1589,7 @@ body.staff-shell .live-student-view-field {
   font-weight: 600;
 }
 body.staff-shell .live-student-view-field select {
-  max-width: 12.5rem;
+  max-width: 16.5rem;
   min-height: 1.75rem;
   padding: 0 0.35rem;
   font: inherit;

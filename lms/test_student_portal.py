@@ -342,7 +342,11 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(submit.get_json().get("ack"))
 
         again = self.student.get("/api/student/live-prompt").get_json()
-        self.assertEqual((again.get("prompt") or {}).get("payload", {}).get("item_id"), "teams-spark")
+        spark = (again.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(spark.get("item_id"), "teams-spark")
+        self.assertTrue(spark.get("integer_only"))
+        self.assertIn("Enter an integer", str(spark.get("prompt") or ""))
+        self.assertEqual(spark.get("placeholder"), "Enter an integer")
 
     def test_pick_preserves_live_session_id(self) -> None:
         """student_pick rebind keeps the live session + visit token keys."""
@@ -1003,6 +1007,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("meet-math", js)
         self.assertIn('["cue.meet_open", "cue.meet_clear"]', js)
         self.assertIn("cue.teams_spark", js)
+        self.assertIn("Enter an integer…", js)
         self.assertNotIn("cue.meet_a", js)
         self.assertNotIn("cue.meet_b", js)
         self.assertNotIn("carousel", js.lower())

@@ -1237,12 +1237,15 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
         : prior && prior.choice != null
           ? String(prior.choice)
           : "";
+    const numericPlaceholder = escapeText(
+      data.placeholder || (integerOnly ? "Enter an integer…" : "Enter a number")
+    );
     controls = `
       <label class="prompt-numeric">
-        <span>Your answer</span>
+        <span>${integerOnly ? "Enter an integer…" : "Your answer"}</span>
         <input type="number" inputmode="${integerOnly ? "numeric" : "decimal"}" step="${
           integerOnly ? "1" : "any"
-        }" id="prompt-numeric-input" ${lockChoices ? "disabled" : ""} value="${escapeText(priorValue)}" />
+        }" id="prompt-numeric-input" placeholder="${numericPlaceholder}" ${lockChoices ? "disabled" : ""} value="${escapeText(priorValue)}" />
       </label>
       <button type="button" class="prompt-submit" id="prompt-numeric-submit"${
         lockChoices ? " disabled" : ""

@@ -689,6 +689,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("ap-media-preview", html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, js)
+        self.assertIn("/static/live-media/mcr3u-m1c1-sqrt.html", js)
+        self.assertIn("function liveClassSeedMedia()", js)
         self.assertIn("role=teacher", js)
         self.assertNotIn("Show Real-slice", html)
         self.assertNotIn("Unlock a, b, c sliders", html)

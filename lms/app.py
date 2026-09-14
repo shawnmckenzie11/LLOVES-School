@@ -3846,6 +3846,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         if request.method == "GET":
             live_slot = school.session_live_slot(session_id)
+            if live_slot == "C1":
+                school.ensure_live_class_media(session_id)
             pack = cons_catalog(live_slot)
             return jsonify(
                 {

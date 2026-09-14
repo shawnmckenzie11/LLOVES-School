@@ -96,6 +96,10 @@ const SEED_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html";
 const SEED_MEDIA_TITLE =
   "Consider the parabola represented by y = ax^2 + bx + c. What do you know about a, b, and c?";
 const SEED_MEDIA_STEM = SEED_MEDIA_TITLE;
+const MCR3U_M1C1_MEDIA_URL = "/static/live-media/mcr3u-m1c1-sqrt.html";
+const MCR3U_M1C1_MEDIA_TITLE = "Nested Square-Root Range";
+const MCR3U_M1C1_MEDIA_STEM =
+  "Which inputs are allowed? What outputs can you actually get?";
 let mediaSeedInFlight = false;
 
 const ROUND_KIND_OPTIONS = [
@@ -369,15 +373,6 @@ function paintOptionCard() {
 }
 
 /**
- * True when Shared-within-Group may appear (Meet+ and more than one team).
- * @returns {boolean}
- */
-function teamShareAvailable() {
-  const stage = String(teacherState.stage || "");
-  return ["meet", "round", "play"].includes(stage) && currentTeamCount() > 1;
-}
-
-/**
  * Current student-view modes, falling back to stage defaults.
  * @returns {{media: string, canvas: string, questions: string}}
  */
@@ -395,20 +390,14 @@ function currentStudentView() {
 }
 
 /**
- * Sync Media / Canvas / Questions dropdowns and hide Shared when teams < 2.
+ * Sync Media / Canvas / Questions dropdowns. Shared-within-Group stays listed.
  */
 function paintStudentViewControls() {
-  const share = teamShareAvailable();
   const view = currentStudentView();
   for (const key of ["media", "canvas", "questions"]) {
     const el = $(`live-view-${key}`);
     if (!(el instanceof HTMLSelectElement)) continue;
-    [...el.options].forEach((opt) => {
-      if (opt.value === "team") opt.hidden = !share;
-    });
-    let mode = view[key];
-    if (mode === "team" && !share) mode = "student";
-    el.value = mode;
+    el.value = view[key];
   }
 }
 
@@ -685,11 +674,11 @@ function paintLiveSlotPicks() {
   if (rideBox) rideBox.hidden = !textOnly;
   const preview = $("ap-media-preview");
   if (preview) {
-    const hideMedia = textOnly || (!usesC1RealSlice() && !lastTeacherMediaSrc);
+    const hideMedia = textOnly || (!liveClassSeedMedia() && !lastTeacherMediaSrc);
     preview.hidden = hideMedia;
     if (hideMedia) {
       preview.setAttribute("hidden", "");
-      if (!usesC1RealSlice() && !lastTeacherMediaSrc) {
+      if (!liveClassSeedMedia() && !lastTeacherMediaSrc) {
         preview.removeAttribute("src");
       }
     } else {
@@ -1415,8 +1404,9 @@ function paintActiveMediaStatus(media) {
   if (!preview) return;
   const rawUrl = String((media && media.url) || "").trim();
   const realSlice = rawUrl.includes("m1c1-c1-real-slice.html");
-  const fallbackUrl = usesC1RealSlice() ? SEED_MEDIA_URL : "";
-  const mediaUrl = usesC1RealSlice()
+  const seed = liveClassSeedMedia();
+  const fallbackUrl = seed ? seed.url : "";
+  const mediaUrl = seed
     ? (rawUrl || fallbackUrl)
     : realSlice
       ? ""
@@ -1467,10 +1457,40 @@ function usesC1RealSlice() {
 }
 
 /**
+ * True when MCR3U M1C1 should mount the nested square-root graph.
+ * @returns {boolean}
+ */
+function usesMcr3uM1C1Media() {
+  const ontario = String(root?.dataset.ontarioCode || "").toUpperCase();
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  return ontario === "MCR3U" && module === "M1" && slot === "C1";
+}
+
+/**
+ * Course-specific Join/Play seed media, or null when this slot is text-only.
+ * @returns {{url: string, title: string, stem: string} | null}
+ */
+function liveClassSeedMedia() {
+  if (usesC1RealSlice()) {
+    return { url: SEED_MEDIA_URL, title: SEED_MEDIA_TITLE, stem: SEED_MEDIA_STEM };
+  }
+  if (usesMcr3uM1C1Media()) {
+    return {
+      url: MCR3U_M1C1_MEDIA_URL,
+      title: MCR3U_M1C1_MEDIA_TITLE,
+      stem: MCR3U_M1C1_MEDIA_STEM,
+    };
+  }
+  return null;
+}
+
+/**
  * Seed C1 Real-slice onto the live session when the blob is empty.
  */
 async function ensureC1MediaSeeded() {
-  if (!usesC1RealSlice()) {
+  const seed = liveClassSeedMedia();
+  if (!seed) {
     const sessionId = liveSessionId || readLiveSessionId();
     if (sessionId && !mediaSeedInFlight) {
       mediaSeedInFlight = true;
@@ -1495,33 +1515,37 @@ async function ensureC1MediaSeeded() {
   mediaSeedInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/active-media`);
-    if (res.active_media && res.active_media.url) {
+    const currentUrl = String(res.active_media?.url || "");
+    if (currentUrl === seed.url) {
       paintActiveMediaStatus(res.active_media);
       return;
     }
-    await postActiveMedia({
-      url: SEED_MEDIA_URL,
-      title: SEED_MEDIA_TITLE,
-      stem: SEED_MEDIA_STEM,
+    const body = {
+      url: seed.url,
+      title: seed.title,
+      stem: seed.stem,
       caption: "",
       entry_chip: "",
       student_controls_unlocked: false,
-      param_push: { a: false, b: false, c: false },
-      param_frozen: { a: true, b: true, c: true },
-      reveal_axes: false,
-      reveal_lateral: false,
-      allow_3d_limited: false,
       frozen: false,
-      challenge: "C1",
       cons_item: "",
       toast: "",
       toast_key: "",
-      unlock_flags: { L0: true, L1: false, L2: false, L3: false, L4: false },
       answers: [],
-      params: { a: 1, b: 0, c: 0 },
-      show_z_axis: false,
-      surface_transparency: 0.75,
-    });
+    };
+    if (usesC1RealSlice()) {
+      body.param_push = { a: false, b: false, c: false };
+      body.param_frozen = { a: true, b: true, c: true };
+      body.reveal_axes = false;
+      body.reveal_lateral = false;
+      body.allow_3d_limited = false;
+      body.challenge = "C1";
+      body.unlock_flags = { L0: true, L1: false, L2: false, L3: false, L4: false };
+      body.params = { a: 1, b: 0, c: 0 };
+      body.show_z_axis = false;
+      body.surface_transparency = 0.75;
+    }
+    await postActiveMedia(body);
   } catch (_err) {
     paintActiveMediaStatus(null);
   } finally {
@@ -4491,7 +4515,7 @@ function applyLivePackChoice(moduleId, slot) {
     : Promise.resolve();
   write
     .then(() => {
-      if (liveSlot === "C1" && sessionId && usesC1RealSlice()) return ensureC1MediaSeeded();
+      if (liveSlot === "C1" && sessionId && liveClassSeedMedia()) return ensureC1MediaSeeded();
       paintLiveSlotPicks();
       return null;
     })
@@ -4544,8 +4568,7 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
 function patchStudentViewFromControl(surface) {
   const el = $(`live-view-${surface}`);
   if (!(el instanceof HTMLSelectElement)) return;
-  let mode = el.value === "student" || el.value === "team" ? el.value : "none";
-  if (mode === "team" && !teamShareAvailable()) mode = "student";
+  const mode = el.value === "student" || el.value === "team" ? el.value : "none";
   const next = { ...(teacherState.student_view || {}), [surface]: mode };
   teacherState.student_view = next;
   patchTeacherState({ student_view: next });

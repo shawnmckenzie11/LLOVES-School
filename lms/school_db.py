@@ -39,6 +39,7 @@ try:
         CUE_FREEZE,
         apply_teacher_state_update,
         bind_meet_student_projection,
+        default_student_view,
         default_text_ride,
         mc_poll_closed,
         normalize_live_module,
@@ -46,6 +47,7 @@ try:
         public_teacher_state,
         public_text_ride,
         student_mc_summary_visible,
+        unlocks_from_student_view,
     )
     from live_prompt_feedback import (
         public_feedback_fragment,
@@ -91,6 +93,7 @@ try:
         is_team_challenge_payload,
         resolve_team_challenge,
         staff_team_challenge_prompt_payload,
+        live_class_seed_media,
         uses_c1_real_slice,
     )
     from paths import GAME_SHOW, SEMESTER_JSON
@@ -120,6 +123,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         CUE_FREEZE,
         apply_teacher_state_update,
         bind_meet_student_projection,
+        default_student_view,
         default_text_ride,
         mc_poll_closed,
         normalize_live_module,
@@ -127,6 +131,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         public_teacher_state,
         public_text_ride,
         student_mc_summary_visible,
+        unlocks_from_student_view,
     )
     from lms.live_prompt_feedback import (
         public_feedback_fragment,
@@ -172,6 +177,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         is_team_challenge_payload,
         resolve_team_challenge,
         staff_team_challenge_prompt_payload,
+        live_class_seed_media,
         uses_c1_real_slice,
     )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
@@ -6121,6 +6127,54 @@ class SchoolDB(LovesDB):
             return "M1"
         return normalize_live_module(teacher.get("live_module"))
 
+    def session_ontario_code(self, session_id: int) -> str:
+        """Return the offering course code for one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return ""
+        offering_id = session_row.get("offering_id")
+        if offering_id in (None, ""):
+            return ""
+        offering = self.get_offering(int(offering_id))
+        return str((offering or {}).get("ontario_code") or "").strip().upper()
+
+    def ensure_live_class_media(self, session_id: int) -> dict[str, Any] | None:
+        """Seed course-specific Join/Play media when this live class has one.
+
+        MCF3M M1C1 keeps the parabola Real-slice. MCR3U M1C1 mounts the
+        nested square-root graph. Wrong-course leftovers are replaced.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        seed = live_class_seed_media(
+            self.session_ontario_code(session_id),
+            self.session_live_module(session_id),
+            self.session_live_slot(session_id),
+        )
+        if seed is None:
+            return self.live_session_active_media_payload(session_id)
+        current = self.live_session_active_media_payload(session_id)
+        current_url = str((current or {}).get("url") or "")
+        if current_url == seed["url"]:
+            return current
+        kwargs: dict[str, Any] = {
+            "url": seed["url"],
+            "title": seed.get("title") or "",
+            "stem": seed.get("stem") or "",
+        }
+        if uses_c1_real_slice(
+            self.session_ontario_code(session_id),
+            self.session_live_module(session_id),
+            self.session_live_slot(session_id),
+        ):
+            kwargs["challenge"] = "C1"
+        return self.set_live_session_active_media(session_id, **kwargs)
+
     def session_text_ride(self, session_id: int) -> dict[str, Any]:
         """Return the C2/C3 text-only freeze + CONS ride.
 
@@ -6267,7 +6321,36 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             activate: When True, make C2 the session-active prompt.
         """
+        return self._write_welcome_c2(session_id, activate=activate)
+
+    def _welcome_c2_is_current(self, payload: Any) -> bool:
+        """True when stored C2 matches the locked integer-poll copy.
+
+        Args:
+            payload: Stored live-prompt payload.
+        """
         desired = teams_spark_prompt_payload()
+        current = payload if isinstance(payload, dict) else {}
+        return (
+            current.get("prompt") == desired["prompt"]
+            and current.get("kind") == desired.get("kind")
+            and bool(current.get("integer_only")) == bool(desired.get("integer_only"))
+        )
+
+    def _write_welcome_c2(
+        self, session_id: int, *, activate: bool
+    ) -> dict[str, Any] | None:
+        """Insert or refresh the Join/Welcome C2 integer poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            activate: When True, make C2 the session-active prompt.
+        """
+        desired = teams_spark_prompt_payload()
+        existing = self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
+        if existing and self._welcome_c2_is_current(existing.get("payload")):
+            if not activate:
+                return existing
         return self.set_live_session_prompt(
             session_id,
             slide_index=TEAMS_SPARK_SLIDE_INDEX,
@@ -6306,23 +6389,10 @@ class SchoolDB(LovesDB):
             return None
         if str(teacher.get("stage") or "") != "teams":
             return None
-        desired = teams_spark_prompt_payload()
         active = self.get_active_live_prompt(session_id)
-        if active and is_teams_spark_payload(active.get("payload")):
-            current = active.get("payload") or {}
-            if (
-                current.get("prompt") == desired["prompt"]
-                and current.get("kind") == desired.get("kind")
-                and bool(current.get("integer_only")) == bool(desired.get("integer_only"))
-            ):
-                return None
-        return self.set_live_session_prompt(
-            session_id,
-            slide_index=TEAMS_SPARK_SLIDE_INDEX,
-            kind=TEAMS_SPARK_KIND,
-            payload=desired,
-            activate=True,
-        )
+        if active and self._welcome_c2_is_current(active.get("payload")):
+            return None
+        return self._write_welcome_c2(session_id, activate=True)
 
     def clear_teams_spark(self, session_id: int) -> None:
         """Deactivate the TEAMS shared spark when leaving TEAMS.
@@ -6949,8 +7019,7 @@ class SchoolDB(LovesDB):
         slot = str((teacher or {}).get("live_slot") or "C1").upper()
         if stage == "join":
             if slot == "C1" and answered_c1:
-                if spark is None:
-                    spark = self.activate_welcome_c2(session_id)
+                spark = self.activate_welcome_c2(session_id)
                 return spark or minds
             return minds or active
         if stage == "teams":
@@ -8345,9 +8414,11 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
         """
         current = self.live_session_teacher_state_payload(session_id)
-        unlocks = dict(current.get("unlocks") or {})
-        unlocks["media"] = True
-        current["unlocks"] = unlocks
+        view = dict(current.get("student_view") or default_student_view("play"))
+        view["media"] = "student"
+        view["questions"] = "student"
+        current["student_view"] = view
+        current["unlocks"] = unlocks_from_student_view(view)
         student_frames = dict(current.get("student_frames") or {})
         student_frames["questions"] = True
         student_frames["media"] = True

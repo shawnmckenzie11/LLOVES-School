@@ -20,7 +20,9 @@ TEAMS_SPARK_KIND = "numeric"
 TEAMS_SPARK_LABEL = "C2"
 CUE_TEAMS_SPARK = "cue.teams_spark"
 
-TEAMS_SPARK_PROMPT = "What integer will most students enter into this box?"
+TEAMS_SPARK_PROMPT = (
+    "Enter an integer… What integer will most students enter into this box?"
+)
 TEAMS_SPARK_INTEGER_ONLY = True
 
 _LEGACY_ITEM_IDS = frozenset({TEAMS_SPARK_ITEM_ID, "teams_spark"})
