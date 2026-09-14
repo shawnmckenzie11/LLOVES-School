@@ -20,6 +20,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
 from app import create_app  # noqa: E402
+from auth import STUDENT_JOIN_WRONG_CODE_LIMIT  # noqa: E402
 
 
 class AuthTests(unittest.TestCase):
@@ -387,10 +388,49 @@ class AuthTests(unittest.TestCase):
 
         self.assertTrue(self.client.get_cookie(REJOIN_COOKIE_NAME))
 
+    def _boot_live_class(self, codenames: list[str]) -> dict:
+        """Start one staff live session and return its row.
+
+        Args:
+            codenames: Roster names to create on the class.
+        """
+        self.school.activate_from_semester_json()
+        teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": codenames,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        class_id = int(created.get_json()["class"]["id"])
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        self.client.get("/logout")
+        return live
+
     def test_student_code_rate_limit(self) -> None:
-        """More than 5 *failed* joins per IP in 10 minutes is 429."""
+        """Wrong codes lock an IP only after the classroom-sized budget."""
+        self._boot_live_class(["Maple"])
         last = None
-        for _ in range(5):
+        for _ in range(STUDENT_JOIN_WRONG_CODE_LIMIT):
             last = self.client.post(
                 "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
             )
@@ -399,6 +439,51 @@ class AuthTests(unittest.TestCase):
             "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
         )
         self.assertEqual(last.status_code, 429)
+
+    def test_idle_joins_do_not_lock_shared_ip(self) -> None:
+        """Kids mashing Join before class starts must not lock the school IP."""
+        last = None
+        for _ in range(8):
+            last = self.client.post(
+                "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
+            )
+            self.assertEqual(last.status_code, 401)
+        self.assertNotEqual(last.status_code, 429)
+
+    def test_name_typos_on_valid_code_do_not_lock(self) -> None:
+        """Shared-IP name typos and empty submits stay under the lockout."""
+        live = self._boot_live_class(["Maple"])
+        for _ in range(8):
+            rv = self.client.post(
+                "/auth/student-code",
+                data={"code": live["session_code"], "name": "Nobody"},
+            )
+            self.assertEqual(rv.status_code, 401)
+            self.assertNotIn("Too many attempts", rv.get_data(as_text=True))
+        ok = self.client.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(ok.status_code, 302)
+
+    def test_valid_code_bypasses_wrong_code_lockout(self) -> None:
+        """A real class code still admits students after guessed-code lockout."""
+        live = self._boot_live_class(["Maple"])
+        for _ in range(STUDENT_JOIN_WRONG_CODE_LIMIT):
+            self.client.post(
+                "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
+            )
+        locked = self.client.post(
+            "/auth/student-code", data={"code": "ZZZZZZZZ", "name": "X"}
+        )
+        self.assertEqual(locked.status_code, 429)
+        ok = self.client.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(ok.status_code, 302)
 
     def test_successful_joins_do_not_trip_rate_limit(self) -> None:
         """Valid joins must not consume the failure budget (shared IP testing)."""

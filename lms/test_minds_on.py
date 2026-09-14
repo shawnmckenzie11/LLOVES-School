@@ -71,10 +71,10 @@ class MindsOnHelperTests(unittest.TestCase):
                 "Every equal step across adds the same amount up (or down)",
                 "The graph curves",
                 "Second differences in a table are constant",
-                "Not sure",
             ],
         )
         self.assertEqual(payload["choices"], list(MINDS_ON_CHOICES))
+        self.assertNotIn("Not sure", payload["choices"])
         self.assertEqual(payload["key"], MINDS_ON_KEY)
         self.assertEqual(payload["key"], "A")
         self.assertEqual(
@@ -149,6 +149,7 @@ class MindsOnHelperTests(unittest.TestCase):
         self.assertEqual(c2["feedback_id"], "C2-minds_on")
         self.assertEqual(c2["prompt"], MINDS_ON_C2_PROMPT)
         self.assertEqual(c2["choices"], list(MINDS_ON_C2_CHOICES))
+        self.assertNotIn("Not sure", c2["choices"])
         self.assertEqual(c2["key"], MINDS_ON_C2_KEY)
         self.assertEqual(len(c2["items"]), 1)
         self.assertTrue(c2["ephemeral"])
@@ -162,6 +163,7 @@ class MindsOnHelperTests(unittest.TestCase):
         self.assertEqual(c3["feedback_id"], "C3-minds_on")
         self.assertEqual(c3["prompt"], MINDS_ON_C3_PROMPT)
         self.assertEqual(c3["choices"], list(MINDS_ON_C3_CHOICES))
+        self.assertNotIn("Not sure", c3["choices"])
         self.assertEqual(c3["key"], MINDS_ON_C3_KEY)
         self.assertEqual(len(c3["items"]), 1)
         c3_brief = REPO_ROOT / "content-builder" / MINDS_ON_C3_BRIEF_PATH

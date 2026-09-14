@@ -68,6 +68,8 @@ let lastMeetSig = "";
 let lastFeedbackKey = "";
 /** @type {boolean} */
 let feedbackDismissed = false;
+/** True after a keyed waiting-room submit until the student hits Close. */
+let holdJoinFeedback = false;
 /** @type {number} */
 let lastStateSeq = -1;
 /** @type {any} */
@@ -1079,6 +1081,30 @@ function isTeamsSparkPrompt(payload) {
  * JOIN→TEAMS unbinds Minds-On and binds the shared spark instead.
  * @param {any} payload
  */
+/**
+ * Hide the submitted question stem and controls.
+ */
+function hideQuestionBody() {
+  if (!promptShell) return;
+  promptShell.hidden = true;
+  promptShell.innerHTML = "";
+}
+
+/**
+ * Show class poll totals only when the teacher Questions dropdown is on.
+ * @param {any} payload
+ */
+function paintPollIfQuestionsVisible(payload) {
+  if (studentProjection(payload).questions) {
+    paintPollTotalsBelowFeedback(payload);
+    return;
+  }
+  if (promptPollTotals) {
+    promptPollTotals.hidden = true;
+    promptPollTotals.innerHTML = "";
+  }
+}
+
 function paintPrompt(payload) {
   if (!promptShell) return;
   const welcomeOnly =
@@ -1092,6 +1118,7 @@ function paintPrompt(payload) {
     lastFeedbackKey = "";
     lastSummarySig = "";
     feedbackDismissed = false;
+    holdJoinFeedback = false;
     hideFeedbackPanel();
     if (promptPollTotals) {
       promptPollTotals.hidden = true;
@@ -1105,6 +1132,9 @@ function paintPrompt(payload) {
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
   const isSpark = isTeamsSparkPrompt(payload);
   const answered = Boolean(payload.my_response);
+  if (holdJoinFeedback && !isJoinMindsOnPrompt(payload)) {
+    return;
+  }
   const summary = studentMcSummary(payload);
   if (summary && prompt && prompt.kind && prompt.kind !== "idle" && !answered) {
     hideFeedbackPanel();
@@ -1125,6 +1155,7 @@ function paintPrompt(payload) {
     lastFeedbackKey = "";
     lastSummarySig = "";
     feedbackDismissed = false;
+    holdJoinFeedback = false;
     hideFeedbackPanel();
     if (promptPollTotals) {
       promptPollTotals.hidden = true;
@@ -1136,50 +1167,36 @@ function paintPrompt(payload) {
     }
     return;
   }
-  if (answered && !isMeet && !isSpark) {
-    const fb = feedbackObject(payload.my_response);
+  if (answered) {
+    const fb = !isMeet && !isSpark ? feedbackObject(payload.my_response) : null;
     const key = `${prompt.id}:${(fb && fb.lead) || ""}:${(fb && fb.text) || ""}`;
-    if (key === lastFeedbackKey && (feedbackDismissed || (promptFeedback && !promptFeedback.hidden))) {
-      lastPromptId = Number(prompt.id);
-      paintPollTotalsBelowFeedback(payload);
-      return;
-    }
-    if (fb) {
-      renderPromptBody(prompt, data, payload, true);
-      if (key !== lastFeedbackKey || !feedbackDismissed) {
+    hideQuestionBody();
+    hidePromptAck();
+    lastPromptId = Number(prompt.id);
+    lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
+    lastSummarySig = studentSummarySig(payload);
+    if (fb && !feedbackDismissed) {
+      if (key !== lastFeedbackKey || (promptFeedback && promptFeedback.hidden)) {
         showFeedbackPanel(fb);
         lastFeedbackKey = key;
       }
-      paintPollTotalsBelowFeedback(payload);
-      lastPromptId = Number(prompt.id);
-      lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
+      paintPollIfQuestionsVisible(payload);
       return;
     }
     hideFeedbackPanel();
-    renderPromptBody(prompt, data, payload, true);
-    paintPollTotalsBelowFeedback(payload);
-    lastPromptId = Number(prompt.id);
     lastFeedbackKey = key;
+    paintPollIfQuestionsVisible(payload);
     return;
   }
   hideFeedbackPanel();
   lastFeedbackKey = "";
   feedbackDismissed = false;
-  if (promptAck) {
-    promptAck.hidden = true;
-    promptAck.classList.remove("is-feedback");
-  }
-  const picked = String(
-    (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
-      ""
-  ).trim();
-  renderPromptBody(prompt, data, payload, Boolean(picked));
-  if (isMeet && answered) paintPollTotalsBelowFeedback(payload);
-  else if (!answered) {
-    if (promptPollTotals) {
-      promptPollTotals.hidden = true;
-      promptPollTotals.innerHTML = "";
-    }
+  holdJoinFeedback = false;
+  hidePromptAck();
+  renderPromptBody(prompt, data, payload, false);
+  if (promptPollTotals) {
+    promptPollTotals.hidden = true;
+    promptPollTotals.innerHTML = "";
   }
 }
 
@@ -1516,10 +1533,6 @@ function showFeedbackPanel(fragment) {
   hidePromptAck();
   if (promptFeedbackLead) promptFeedbackLead.textContent = lead || "Good work.";
   if (promptFeedbackWhy) promptFeedbackWhy.textContent = why;
-  if (promptFeedbackHelper) {
-    const dense = why.length > 180;
-    promptFeedbackHelper.hidden = dense;
-  }
   promptFeedback.hidden = false;
   if (questionFrame) questionFrame.classList.add("is-feedback");
   feedbackDismissed = false;
@@ -1540,11 +1553,13 @@ function hidePromptAck() {
 }
 
 /**
- * Dismiss the feedback overlay; keep the Question frame mounted.
+ * Close keyed waiting-room feedback, then paint the next student prompt.
  */
 function dismissFeedbackPanel() {
   hideFeedbackPanel();
+  holdJoinFeedback = false;
   feedbackDismissed = true;
+  tick();
 }
 
 /**
@@ -1584,37 +1599,17 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
       return;
     }
     if (data.ok && data.ack) {
-      const meetRide = promptShell && promptShell.querySelector(".meet-progress-dots");
-      if (meetRide) {
-        const choice = String((response && response.choice) || "").trim();
-        promptShell.querySelectorAll(".prompt-choice").forEach((btn) => {
-          const on = btn.getAttribute("data-choice") === choice;
-          btn.classList.toggle("is-selected", on);
-          btn.disabled = true;
-        });
-        tick();
-        return;
-      }
+      hideQuestionBody();
+      hidePromptAck();
       const fb = feedbackObject(data);
-      if (fb && promptShell) {
-        promptShell.querySelectorAll(".prompt-choice, .prompt-submit").forEach((btn) => {
-          btn.disabled = true;
-        });
-        promptShell.querySelectorAll("input, textarea").forEach((field) => {
-          field.disabled = true;
-        });
-        if (response && response.choice) {
-          promptShell.querySelectorAll(".prompt-choice").forEach((btn) => {
-            btn.classList.toggle(
-              "is-selected",
-              btn.getAttribute("data-choice") === String(response.choice)
-            );
-          });
-        }
+      if (fb) {
         const key = `${promptId}:${fb.lead}:${fb.text}`;
         lastFeedbackKey = key;
+        if (isJoinMindsOnPrompt(lastStudentPayload)) {
+          holdJoinFeedback = true;
+        }
         showFeedbackPanel(fb);
-        paintPollTotalsBelowFeedback({
+        paintPollIfQuestionsVisible({
           ...data,
           my_response: data.my_response,
           mc_tally: data.mc_tally,
@@ -1623,7 +1618,6 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
         return;
       }
       hideFeedbackPanel();
-      showPromptAck(feedbackLine(data));
       await tick();
     }
   } catch (_err) {

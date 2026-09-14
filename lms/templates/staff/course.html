@@ -280,19 +280,11 @@
         <div id="play-option-card" class="live-option-card-body" hidden>
           <button type="button" class="secondary" id="live-edit-layout" aria-expanded="false">Edit Layout</button>
           <div class="live-layout-presets" id="live-layout-presets" hidden>
-            <p class="live-option-card-label">Presets</p>
+            <p class="live-option-card-label">One pane at a time</p>
             <div class="live-preset-row" id="live-preset-row">
               <button type="button" class="live-preset-btn" data-preset="media_full">Media</button>
               <button type="button" class="live-preset-btn is-active" data-preset="questions_full">Questions</button>
-              <button type="button" class="live-preset-btn" data-preset="media_questions">Media + Q</button>
-              <button type="button" class="live-preset-btn" data-preset="three_up">A / B / C</button>
-              <button type="button" class="live-preset-btn" data-preset="canvas_media">Canvas + Media</button>
-            </div>
-            <p class="live-option-card-label">Drag into frames</p>
-            <div class="live-content-palette" id="live-content-palette">
-              <span class="live-content-chip" draggable="true" data-content-id="media">media</span>
-              <span class="live-content-chip" draggable="true" data-content-id="questions">questions</span>
-              <span class="live-content-chip" draggable="true" data-content-id="canvas_slides">canvas_slides</span>
+              <button type="button" class="live-preset-btn" data-preset="canvas_full">Canvas</button>
             </div>
           </div>
         </div>
@@ -339,11 +331,13 @@
           </section>
           <section id="class-list-pane" class="live-pane">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
-              <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
-              <label class="ap-guest-toggle" id="ap-guest-toggle">
-                <input type="checkbox" id="ap-allow-guests">
-                <span>Guests</span>
-              </label>
+              <div class="class-list-head">
+                <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
+                <label class="ap-guest-toggle" id="ap-guest-toggle">
+                  <input type="checkbox" id="ap-allow-guests">
+                  <span>Guests</span>
+                </label>
+              </div>
               <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
               <input type="hidden" id="ap-meeting-date" value="">
               <div class="ap-att-cols" id="ap-att-cols" hidden data-show-team="0">

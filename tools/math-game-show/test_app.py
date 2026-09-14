@@ -430,6 +430,23 @@ class GamePersistTests(unittest.TestCase):
         self.assertFalse(resumed["game"].get("timer_paused"))
         self.assertIsInstance(resumed["game"]["round_ends_at_ms"], int)
 
+    def test_paused_timer_stepper_sets_integer_minutes(self) -> None:
+        """Paused SessionTimer −/+ writes remaining as integer minutes."""
+        class_id = self.cls["id"]
+        self.db.begin_game(class_id, today=date(2026, 8, 31))
+        started = self.db.start_session_timer(class_id, minutes=5)
+        self.assertFalse(started["game"].get("timer_paused"))
+        paused = self.db.pause_round_timer(class_id)
+        self.assertTrue(paused["game"]["timer_paused"])
+        updated = self.db.set_paused_timer_minutes(class_id, 2)
+        self.assertEqual(updated["game"]["round_remaining_sec"], 120)
+        self.assertTrue(updated["game"]["timer_paused"])
+        resumed = self.db.resume_round_timer(class_id)
+        self.assertFalse(resumed["game"].get("timer_paused"))
+        remaining = resumed["game"]["round_remaining_sec"]
+        self.assertGreaterEqual(remaining, 119)
+        self.assertLessEqual(remaining, 120)
+
     def test_game_scoring_end_log_and_colors(self) -> None:
         """4 present, 2 random teams, individual+team awards, End Game persist."""
         class_id = self.cls["id"]

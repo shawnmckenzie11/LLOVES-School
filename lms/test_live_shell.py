@@ -135,8 +135,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('id="track-accordion"', html)
         self.assertNotIn("data-accordion-toggle", html)
         self.assertEqual(html.count('id="ap-media-preview"'), 1)
+        self.assertNotIn("Media + Q", html)
+        self.assertNotIn("A / B / C", html)
         js_shell = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("/static/live-media/m1c1-c1-real-slice.html", js_shell)
+        self.assertIn("function teacherPaneContent(", js_shell)
+        self.assertIn("Show one teacher pane", js_shell)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertNotIn('patchTeacherState({ stage })', js)
         self.assertIn("Stage pills are display-only", js)
@@ -233,7 +237,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("is-set-class", css)
         self.assertIn("body.staff-shell .live-shell-body {\n  display: grid;", css)
         self.assertIn("align-items: stretch", css)
-        self.assertIn("body.staff-shell .live-active-content {\n  flex: 1 1 auto;\n  min-height: 100%;", css)
+        self.assertIn(
+            "body.staff-shell .live-active-content {\n"
+            "  flex: 1 1 auto;\n"
+            "  display: flex;\n"
+            "  flex-direction: column;\n"
+            "  min-height: 100%;",
+            css,
+        )
         self.assertIn("body.staff-shell #class-list-pane {\n  flex: 1 1 auto;\n  min-height: 0;", css)
         self.assertIn("body.staff-shell #session-timer {", css)
         self.assertNotIn("align-items: start;", css.split("body.staff-shell .live-shell-body")[1][:240])
@@ -790,6 +801,7 @@ class LiveShellTests(unittest.TestCase):
         )
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function applySessionTimerUi(", js)
+        self.assertIn("function persistPausedTimerMinutes(", js)
         self.assertIn("function startSessionTimer(", js)
         self.assertIn("function sessionTimerDefaultMinutes(", js)
         apply = js.split("function applySessionTimerUi(")[1].split(
@@ -801,6 +813,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('btn.textContent = "Resume"', apply)
         self.assertIn("clock.textContent = formatCountdown", apply)
         self.assertIn("Boolean(game.round_ends_at_ms)", apply)
+        self.assertIn("const freeze = running", apply)
+        self.assertNotIn("running || paused", apply)
         self.assertNotIn('phase === "meet_teams"', apply)
         self.assertNotIn("stepper.hidden = running", apply)
         self.assertNotIn("clock.hidden = !(running", apply)
@@ -870,6 +884,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="teams-spark-card"', q_html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function paintTeamsSparkCard(", js)
+        self.assertIn('teacherState.stage === "join"', js)
+        self.assertIn("Waiting room · 1", js)
+        self.assertIn("Waiting room · 2", js)
+        self.assertIn("keepQuestionBody", js)
         self.assertIn('teacherState.stage === "teams"', js)
         self.assertIn("lastTeamsSpark", js)
         self.assertIn("payload?.teams_spark", js)

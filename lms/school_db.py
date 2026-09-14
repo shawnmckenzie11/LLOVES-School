@@ -8,6 +8,7 @@ import secrets
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -581,6 +582,53 @@ def _now() -> str:
 # ~10s client beat; 90s survives Chrome background timer throttling.
 LIVE_HEARTBEAT_INTERVAL_SECONDS = 10
 LIVE_HEARTBEAT_STALE_SECONDS = 90
+# Skip a write when the last beat is newer than this (class-size sqlite load).
+LIVE_HEARTBEAT_WRITE_SECONDS = 20
+LIVE_SWEEP_MIN_INTERVAL_SECONDS = 20
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
+
+def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """Wait on writers instead of failing immediately under class load.
+
+    Args:
+        conn: Open sqlite connection.
+
+    Returns:
+        The same connection after busy-timeout and WAL are set.
+    """
+    conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
+def retry_if_db_locked(fn, *, attempts: int = 4, delay_s: float = 0.4):
+    """Retry a sqlite write when the class-size poll storm holds the lock.
+
+    Args:
+        fn: Zero-arg callable.
+        attempts: Including the first try.
+        delay_s: Base sleep, multiplied by the attempt index.
+
+    Returns:
+        ``fn()`` result.
+
+    Raises:
+        sqlite3.OperationalError: Re-raised after the last attempt.
+    """
+    last_exc: sqlite3.OperationalError | None = None
+    for index in range(max(1, int(attempts))):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if "locked" not in str(exc).lower() or index == attempts - 1:
+                raise
+            time.sleep(delay_s * (index + 1))
+    assert last_exc is not None
+    raise last_exc
 
 # Never serialize these attendee columns to overlay / staff state APIs.
 LIVE_ATTENDEE_SECRET_KEYS = ("visit_token",)
@@ -735,11 +783,12 @@ class LovesDB:
         self.db_path = db_path
         self.it_email = it_email.lower().strip()
         self._lock = threading.RLock()
+        self._sweep_at: dict[int, float] = {}
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode = WAL")
+        self.conn = sqlite3.connect(
+            str(db_path), check_same_thread=False, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000
+        )
+        configure_sqlite_connection(self.conn)
         self.conn.executescript(SCHEMA)
         self._ensure_tenant_and_audit_schema()
         self._ensure_offering_columns()
@@ -2989,7 +3038,7 @@ class LovesDB:
         return [dict(row) for row in rows]
 
     def count_recent_code_attempts(self, ip: str, seconds: int = 600) -> int:
-        """Count failed Student Code joins from an IP in the last ``seconds``."""
+        """Count wrong-session-code joins from an IP in the last ``seconds``."""
         cutoff = datetime.now().timestamp() - seconds
         with self._lock:
             rows = self.conn.execute(
@@ -3008,8 +3057,9 @@ class LovesDB:
     def record_code_attempt(self, ip: str) -> int:
         """Log a failed Student Code join and return the recent-window count.
 
-        Only failed joins should call this — successful joins must not consume
-        the failure budget.
+        Only a submitted code that matched no active session should call
+        this. Name typos, the roster picker, and idle-class submits must
+        not consume the shared-IP budget.
         """
         with self._lock:
             self.conn.execute(
@@ -4972,7 +5022,7 @@ class SchoolDB(LovesDB):
         return self.get_offering(offering_id)
 
     def record_code_attempt(self, ip: str) -> int:
-        """Log a failed join and return the failure count in the last 10 minutes."""
+        """Log a wrong session code and return the recent-window count."""
         return super().record_code_attempt(ip)
 
     def list_offerings(
@@ -5474,42 +5524,49 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return 0
+        last_sweep = self._sweep_at.get(int(session_id), 0.0)
+        if time.monotonic() - last_sweep < LIVE_SWEEP_MIN_INTERVAL_SECONDS:
+            return 0
+        self._sweep_at[int(session_id)] = time.monotonic()
         now = datetime.now().replace(microsecond=0)
         skip = (except_token or "").strip()
         marked = 0
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT id, visit_token, left_at, last_heartbeat_at, joined_at
-                FROM live_session_attendees
-                WHERE live_session_id = ? AND left_at IS NULL
-                """,
-                (int(session_id),),
-            ).fetchall()
-            stamp = _now()
-            for row in rows:
-                token = str(row["visit_token"] or "")
-                if skip and token == skip:
-                    continue
-                last = _parse_iso_datetime(
-                    row["last_heartbeat_at"] or row["joined_at"]
-                )
-                if last is None:
-                    continue
-                age = (now - last).total_seconds()
-                if age < LIVE_HEARTBEAT_STALE_SECONDS:
-                    continue
-                self.conn.execute(
+        try:
+            with self._lock:
+                rows = self.conn.execute(
                     """
-                    UPDATE live_session_attendees
-                    SET left_at = ?
-                    WHERE id = ? AND left_at IS NULL
+                    SELECT id, visit_token, left_at, last_heartbeat_at, joined_at
+                    FROM live_session_attendees
+                    WHERE live_session_id = ? AND left_at IS NULL
                     """,
-                    (stamp, int(row["id"])),
-                )
-                marked += 1
-            if marked:
-                self.conn.commit()
+                    (int(session_id),),
+                ).fetchall()
+                stamp = _now()
+                for row in rows:
+                    token = str(row["visit_token"] or "")
+                    if skip and token == skip:
+                        continue
+                    last = _parse_iso_datetime(
+                        row["last_heartbeat_at"] or row["joined_at"]
+                    )
+                    if last is None:
+                        continue
+                    age = (now - last).total_seconds()
+                    if age < LIVE_HEARTBEAT_STALE_SECONDS:
+                        continue
+                    self.conn.execute(
+                        """
+                        UPDATE live_session_attendees
+                        SET left_at = ?
+                        WHERE id = ? AND left_at IS NULL
+                        """,
+                        (stamp, int(row["id"])),
+                    )
+                    marked += 1
+                if marked:
+                    self.conn.commit()
+        except sqlite3.OperationalError:
+            return 0
         return marked
 
     def set_live_session_allow_unmatched_guests(
@@ -5817,10 +5874,18 @@ class SchoolDB(LovesDB):
         if not self._session_open_for_student(session_row):
             return None
         if session_row.get("status") == "active":
-            self.sweep_stale_live_attendees(
-                int(attendee["live_session_id"]), except_token=str(token)
+            last = _parse_iso_datetime(attendee.get("last_heartbeat_at"))
+            fresh = (
+                last is not None
+                and not attendee.get("left_at")
+                and (datetime.now() - last).total_seconds()
+                < LIVE_HEARTBEAT_WRITE_SECONDS
             )
-            return self._resume_live_attendee(attendee)
+            if not fresh:
+                self.sweep_stale_live_attendees(
+                    int(attendee["live_session_id"]), except_token=str(token)
+                )
+                return self._resume_live_attendee(attendee)
         return dict(attendee)
 
     def resolve_student_visit_token(
@@ -6311,10 +6376,11 @@ class SchoolDB(LovesDB):
     def activate_welcome_c2(
         self, session_id: int, *, activate: bool = False
     ) -> dict[str, Any] | None:
-        """Seed the Welcome C2 integer poll after a student submits Join C1.
+        """Seed the integer poll after a student submits the Join minds-on.
 
-        Leaves C1 as the class-active prompt unless ``activate`` is true
-        so classmates still on C1 can answer. Welcome (TEAMS) activates
+        Runs for any slot/module/course, not only C1. Leaves the waiting-room
+        MC as the class-active prompt unless ``activate`` is true so
+        classmates still on minds-on can answer. Welcome (TEAMS) activates
         C2 for everyone via ``ensure_teams_spark``.
 
         Args:
@@ -6405,7 +6471,7 @@ class SchoolDB(LovesDB):
             self.clear_active_live_prompt(session_id)
 
     def staff_teams_spark_payload(self, session_id: int) -> dict[str, Any] | None:
-        """Teacher-only spark card for the staff Question frame.
+        """Teacher-only integer-poll card for Join and TEAMS Question frames.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6414,7 +6480,7 @@ class SchoolDB(LovesDB):
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
             return None
-        if str(teacher.get("stage") or "") != "teams":
+        if str(teacher.get("stage") or "") not in {"join", "teams"}:
             return None
         ui = teacher.get("mc_ui") if isinstance(teacher.get("mc_ui"), dict) else {}
         revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))
@@ -6996,8 +7062,9 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any] | None:
         """Pick the student-facing prompt for the current teacher stage.
 
-        Join shows C1 until it is submitted, then C2. Welcome shows C2.
-        Meet keeps the visible chain step.
+        Join shows the waiting-room minds-on until it is submitted, then
+        Welcome C2 (integer poll). Welcome shows C2. Meet keeps the
+        visible chain step.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7016,9 +7083,8 @@ class SchoolDB(LovesDB):
         active = self.get_active_live_prompt(session_id)
         if active and is_cons_payload(active.get("payload")):
             return active
-        slot = str((teacher or {}).get("live_slot") or "C1").upper()
         if stage == "join":
-            if slot == "C1" and answered_c1:
+            if answered_c1:
                 spark = self.activate_welcome_c2(session_id)
                 return spark or minds
             return minds or active
@@ -8077,8 +8143,8 @@ class SchoolDB(LovesDB):
         meet_action = kwargs.pop("meet_action", None)
         if meet_action is not None:
             token = str(meet_action).strip().lower()
-            if token not in {"next", "skip_c", "clear"}:
-                raise ValueError("meet_action must be next, skip_c, or clear")
+            if token not in {"next", "skip_c", "clear", "reset_a"}:
+                raise ValueError("meet_action must be next, skip_c, clear, or reset_a")
             meet_action = token
         current = self.live_session_teacher_state_payload(session_id)
         prev_stage = str(current.get("stage") or "")
@@ -8116,6 +8182,13 @@ class SchoolDB(LovesDB):
                 session_id,
                 payload,
                 fire_clear="cue_id" not in kwargs,
+            )
+        elif new_stage == "meet" and meet_action == "reset_a":
+            self._mount_meet_chain(
+                session_id,
+                payload,
+                chain_state=new_meet_chain_state(),
+                fire_open=False,
             )
         elif new_stage == "meet" and meet_action in {"next", "skip_c"}:
             state = public_meet_chain(payload.get("meet_chain"))
@@ -9503,8 +9576,14 @@ class SchoolDB(LovesDB):
             except Exception:  # noqa: BLE001 — no open game is fine
                 pass
         if celebrate:
-            return self.close_live_class_for_celebration(int(class_id), winner=winner)
-        return self.wipe_live_sessions_for_class(int(class_id))
+            return retry_if_db_locked(
+                lambda: self.close_live_class_for_celebration(
+                    int(class_id), winner=winner
+                )
+            )
+        return retry_if_db_locked(
+            lambda: self.wipe_live_sessions_for_class(int(class_id))
+        )
 
     def get_active_live_session_for_teacher(
         self, teacher_user_id: int

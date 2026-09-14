@@ -48,6 +48,12 @@ from student_portal import (
     visit_token_from_request,
 )
 
+# Shared school NATs put a whole live class on one IP. Only guessed /
+# mistyped session codes count; name typos and the roster picker do not.
+# A valid live-session code always bypasses the lockout.
+STUDENT_JOIN_WRONG_CODE_LIMIT = 80
+STUDENT_JOIN_WRONG_CODE_WINDOW_S = 600
+
 VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
 
@@ -1054,15 +1060,6 @@ def register_auth_routes(app: Flask) -> None:
         db = school_db()
         ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
         ip = ip.split(",")[0].strip()
-        # Rate-limit failed joins only — successes must not burn the budget
-        # (shared localhost IPs hit this quickly during teacher testing).
-        if db.count_recent_code_attempts(ip, seconds=600) >= 5:
-            body = {"ok": False, "error": "Too many attempts. Try again in a few minutes."}
-            if request.is_json:
-                return jsonify(body), 429
-            return render_template(
-                "landing.html", **landing_kwargs(student_error=body["error"])
-            ), 429
 
         payload = request.get_json(silent=True) or {}
         raw = request.form.get("code") or payload.get("code") or ""
@@ -1072,6 +1069,22 @@ def register_auth_routes(app: Flask) -> None:
         )
         code = str(raw).strip().upper()
         resume_token = visit_token_from_request() or rejoin_token_from_cookie()
+        known_session = db.get_active_live_session_by_code(code) if code else None
+        # Lock guessed codes only. A real class code must still admit the
+        # 20–30 students who share one school IP after a few typos.
+        if (
+            known_session is None
+            and db.count_recent_code_attempts(
+                ip, seconds=STUDENT_JOIN_WRONG_CODE_WINDOW_S
+            )
+            >= STUDENT_JOIN_WRONG_CODE_LIMIT
+        ):
+            body = {"ok": False, "error": "Too many attempts. Try again in a few minutes."}
+            if request.is_json:
+                return jsonify(body), 429
+            return render_template(
+                "landing.html", **landing_kwargs(student_error=body["error"])
+            ), 429
 
         no_session_msg = (
             "No live class is running right now. Ask your teacher to start "
@@ -1088,9 +1101,19 @@ def register_auth_routes(app: Flask) -> None:
             status: int = 401,
             *,
             candidates: list[dict[str, Any]] | None = None,
+            count_attempt: bool = False,
         ):
-            """Record a failed join toward the IP rate limit, then return error."""
-            db.record_code_attempt(ip)
+            """Return a join error.
+
+            Args:
+                msg: Student-facing error.
+                status: HTTP status.
+                candidates: Roster picker rows, if any.
+                count_attempt: True only for a submitted code that matched
+                    no active session. Name/picker/idle errors stay free.
+            """
+            if count_attempt:
+                db.record_code_attempt(ip)
             extra: dict[str, Any] = {}
             if candidates:
                 extra["candidates"] = candidates
@@ -1136,7 +1159,10 @@ def register_auth_routes(app: Flask) -> None:
                         str(resolved["attendee"].get("codename") or "")
                     )
         if live_session is None:
-            return _fail(mismatch_msg if name else no_session_msg)
+            return _fail(
+                mismatch_msg if name else no_session_msg,
+                count_attempt=bool(code),
+            )
 
         class_id = int(live_session["class_id"])
         try:

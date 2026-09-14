@@ -448,6 +448,10 @@ body.student-home.is-live .student-live-response {
   min-height: 0;
 }
 
+.question-frame.is-feedback {
+  min-height: 12rem;
+}
+
 .prompt-shell {
   background: #122033;
   border: 1px solid #1e3348;

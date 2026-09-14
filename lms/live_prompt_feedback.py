@@ -31,7 +31,6 @@ LEAD_MATCH = "Good work."
 LEAD_MISS = "Not quite. Check your choice against the graph or table."
 LEAD_WEAK = "Write what you can say for sure from what you see."
 CLOSE_LABEL = "Close"
-HELPER_LINE = "You can Close whenever you’re ready."
 
 # Waiting-room item ids (current main + PR #42 rename).
 _MINDS_ON_ITEM_IDS = frozenset({"minds_on", "minds-on", "meet-math"})

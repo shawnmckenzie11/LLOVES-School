@@ -17,7 +17,6 @@ A straight-line graph has a **constant rate of change**. Which statement best ma
 A) Every equal step across adds the same amount up (or down)  
 B) The graph curves  
 C) Second differences in a table are constant  
-D) Not sure  
 
 ---
 
@@ -26,4 +25,4 @@ D) Not sure
 - Soft key: **A**
 - Prior-module linear-rate check-in (first live of M1).
 - Never the Team Challenge stem.
-- One stem, four choices. Do not add a second Minds-On item.
+- One stem, three choices. No "Not sure". Do not add a second Minds-On item.

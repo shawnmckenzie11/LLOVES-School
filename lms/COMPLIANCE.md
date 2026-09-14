@@ -18,7 +18,7 @@ Ontario curriculum libraries (IMSCC templates) are still **shared by course code
 | Staff isolation | Teacher A cannot open teacher B’s class, gradebook, or live session |
 | Tenant seam | `tenants` + `users.tenant_id` + `course_offerings.tenant_id`; IT/staff lists and class access are filtered |
 | MFA (privileged) | Email 6-digit 2SV on **every** staff/IT production login (`FLASK_ENV=production`) |
-| Student auth | Ephemeral live-session code + roster name; rate-limited failed joins; visit tokens scope tabs |
+| Student auth | Ephemeral live-session code + roster name; rate-limited wrong session codes (valid codes never lock a shared school IP); visit tokens scope tabs |
 | In transit | Fly `force_https`, `alc.mckenzian.com` TLS, `SESSION_COOKIE_SECURE` in production |
 | At rest | Fly volume `lloves_data` is encrypted by default (sqlite is not SQLCipher) |
 | Secrets | OAuth/email keys are env/Fly secrets; not referenced from `lms/static/` |

@@ -1075,6 +1075,25 @@ body.staff-shell .ap-media-preview {
   border-radius: 8px;
   background: #070b14;
 }
+body.staff-shell .live-content-slot[data-content-id="media"]:not(.is-parked) {
+  display: flex;
+  flex-direction: column;
+  min-height: min(72vh, 48rem);
+}
+body.staff-shell .live-content-slot[data-content-id="media"]:not(.is-parked) .ap-active-media {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+body.staff-shell .live-content-slot[data-content-id="media"]:not(.is-parked) .ap-media-preview {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: min(70vh, 46rem);
+  height: min(70vh, 46rem);
+  visibility: visible;
+  pointer-events: auto;
+}
 body.staff-shell .ap-media-preview[hidden] {
   display: none !important;
 }
@@ -2131,13 +2150,13 @@ body.staff-shell #class-list-pane .ap-att-team-sep {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-  margin: 0.45rem 0 0.15rem;
-  padding: 0 0.15rem 0.18rem;
+  margin: 0.28rem 0 0.02rem;
+  padding: 0.02rem 0.15rem 0.08rem;
   border: 0;
   border-bottom: 1px solid var(--team, #94a3b8);
   background: transparent;
   color: var(--team, #334155);
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1.2;
@@ -2226,6 +2245,8 @@ body.staff-shell .mc-reveal-actions {
 }
 body.staff-shell .live-active-content {
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   min-height: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -2259,10 +2280,14 @@ body.staff-shell .live-layout-presets[hidden] {
 body.staff-shell .live-frames {
   position: relative;
   display: grid;
+  flex: 1 1 auto;
   gap: 0.55rem;
-  min-height: 22rem;
+  min-height: 36rem;
   grid-template-columns: 1fr;
   grid-template-areas: "A";
+}
+body.staff-shell .live-frames[data-pane="media"] {
+  min-height: min(72vh, 48rem);
 }
 body.staff-shell .live-frames[data-slots="A"] {
   grid-template-columns: 1fr;
@@ -3090,6 +3115,87 @@ body.staff-shell #class-list-pane .ap-att-team {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+body.staff-shell #class-list-pane {
+  padding: 0.4rem 0.5rem 0.45rem;
+}
+body.staff-shell #class-list-pane .class-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin: 0 0 0.15rem;
+}
+body.staff-shell #class-list-pane .live-pane-title {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+body.staff-shell #class-list-pane .live-pane-meta {
+  font-size: 0.72rem;
+}
+body.staff-shell #class-list-pane .ap-guest-toggle {
+  margin: 0;
+  gap: 0.28rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+body.staff-shell #class-list-pane .ap-guest-toggle input {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+body.staff-shell #class-list-pane .ap-guest-on-chip {
+  margin: 0 0 0.15rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.65rem;
+}
+body.staff-shell #class-list-pane #ap-att-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+body.staff-shell #class-list-pane .ap-att-readonly .ap-att-row,
+body.staff-shell #class-list-pane .ap-att-row {
+  min-height: 1.35rem;
+  margin: 0;
+  padding: 0.05rem 0.2rem;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: transparent;
+  align-items: center;
+}
+body.staff-shell #class-list-pane .ap-att-row.is-present,
+body.staff-shell #class-list-pane .ap-att-row.is-guest {
+  background: transparent;
+}
+body.staff-shell #class-list-pane .ap-att-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.staff-shell #class-list-pane .ap-att-course,
+body.staff-shell #class-list-pane .ap-att-game,
+body.staff-shell #class-list-pane .ap-att-team {
+  font-size: 0.72rem;
+}
+body.staff-shell #class-list-pane .ap-att-plus {
+  min-width: 1.55rem;
+  min-height: 1.15rem;
+  padding: 0 0.15rem;
+  font-size: 0.68rem;
+}
+body.staff-shell #class-list-pane .ap-att-check {
+  font-size: 0.72rem;
+  line-height: 1;
+}
+body.staff-shell #class-list-pane .ap-att-cols {
+  padding: 0 0.2rem 0.08rem;
+  font-size: 0.62rem;
 }
 body.staff-shell .ap-choice-stack {
   display: flex;

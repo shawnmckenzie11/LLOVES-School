@@ -25,6 +25,7 @@ from meet_team import (  # noqa: E402
     is_meet_team_payload,
 )
 from minds_on import (  # noqa: E402
+    MINDS_ON_C2_CHOICES,
     MINDS_ON_CHOICES,
     MINDS_ON_PROMPT,
     MINDS_ON_SLIDE_INDEX,
@@ -32,6 +33,7 @@ from minds_on import (  # noqa: E402
     minds_on_prompt_payload,
 )
 from live_prompt_feedback import LEAD_MISS  # noqa: E402
+from teams_spark import TEAMS_SPARK_PROMPT  # noqa: E402
 
 
 class StudentPortalTests(unittest.TestCase):
@@ -345,7 +347,7 @@ class StudentPortalTests(unittest.TestCase):
         spark = (again.get("prompt") or {}).get("payload") or {}
         self.assertEqual(spark.get("item_id"), "teams-spark")
         self.assertTrue(spark.get("integer_only"))
-        self.assertIn("Enter an integer", str(spark.get("prompt") or ""))
+        self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
         self.assertEqual(spark.get("placeholder"), "Enter an integer")
 
     def test_pick_preserves_live_session_id(self) -> None:
@@ -641,6 +643,7 @@ class StudentPortalTests(unittest.TestCase):
                 (self.live_session_id,),
             )
             self.school.conn.commit()
+            self.school._sweep_at.pop(self.live_session_id, None)
         state = self.staff.get(f"/api/live-sessions/{self.live_session_id}/state")
         self.assertEqual(state.status_code, 200)
         payload = state.get_json()
@@ -805,6 +808,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(prompt["kind"], "mc")
         self.assertEqual(prompt["payload"]["prompt"], MINDS_ON_PROMPT)
         self.assertEqual(prompt["payload"]["choices"], list(MINDS_ON_CHOICES))
+        self.assertNotIn("Not sure", prompt["payload"]["choices"])
         self.assertNotIn("key", prompt["payload"])
         self.assertNotIn("cement", prompt["payload"])
         self.assertEqual(len(prompt["payload"]["items"]), 1)
@@ -817,6 +821,17 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(staff_active["prompt"]["payload"]["key"], "A")
         self.assertEqual(len(staff_active["prompt"]["payload"]["items"]), 1)
         self.assertEqual(staff_active["prompt"]["payload"]["items"][0]["key"], "A")
+        staff_live = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/state"
+        ).get_json()
+        self.assertEqual(
+            (staff_live.get("join_prompt") or {}).get("payload", {}).get("prompt"),
+            MINDS_ON_PROMPT,
+        )
+        self.assertEqual(
+            (staff_live.get("teams_spark") or {}).get("prompt"),
+            TEAMS_SPARK_PROMPT,
+        )
 
         live_prompt = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(live_prompt["ok"])
@@ -859,7 +874,74 @@ class StudentPortalTests(unittest.TestCase):
             (again.get("prompt") or {}).get("payload", {}).get("item_id"),
             "teams-spark",
         )
+        self.assertEqual(
+            (again.get("prompt") or {}).get("payload", {}).get("prompt"),
+            TEAMS_SPARK_PROMPT,
+        )
         self.assertIsNone(again.get("my_response"))
+        spark_submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": again["prompt"]["id"],
+                "response": {"value": 7},
+            },
+        )
+        self.assertEqual(spark_submit.status_code, 200, spark_submit.get_json())
+        spark_body = spark_submit.get_json()
+        self.assertTrue(spark_body.get("ack"))
+        self.assertEqual(
+            (spark_body.get("my_response") or {}).get("response", {}).get("value"),
+            7,
+        )
+        spark_fb = spark_body.get("feedback")
+        self.assertTrue(spark_fb in (None, {}, "") or "feedback" not in spark_body)
+        self.assertNotIn("feedback", spark_body.get("my_response") or {})
+        after_spark = self.student.get("/api/student/live-prompt").get_json()
+        self.assertIsNotNone(after_spark.get("my_response"), after_spark)
+        self.assertNotIn("feedback", after_spark.get("my_response") or {})
+        tally = after_spark.get("mc_tally")
+        self.assertIsNotNone(tally, after_spark)
+        tally_choices = tally.get("choices") or []
+        self.assertTrue(tally_choices, tally)
+        labels = [
+            str(row.get("label") or row.get("id") or "")
+            for row in tally_choices
+            if isinstance(row, dict)
+        ]
+        self.assertIn("7", labels, tally)
+        self.assertGreater(
+            int(tally.get("response_count") or tally.get("responded") or 0),
+            0,
+            tally,
+        )
+
+    def test_waiting_room_integer_poll_after_c2_slot(self) -> None:
+        """Any Join slot, including C2, mounts Welcome C2 after minds-on."""
+        self._join_maple_home()
+        slotted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"live_slot": "C2"},
+        )
+        self.assertEqual(slotted.status_code, 200, slotted.get_json())
+        self.assertEqual(slotted.get_json()["teacher_state"]["live_slot"], "C2")
+        state = self.student.get("/api/student/state").get_json()
+        prompt = state.get("prompt") or {}
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "minds_on")
+        self.assertEqual(payload.get("live_slot"), "C2")
+        self.assertEqual(payload.get("choices"), list(MINDS_ON_C2_CHOICES))
+        submit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "prompt_id": prompt["id"],
+                "response": {"choice": MINDS_ON_C2_CHOICES[0]},
+            },
+        )
+        self.assertEqual(submit.status_code, 200, submit.get_json())
+        again = self.student.get("/api/student/live-prompt").get_json()
+        spark = (again.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(spark.get("item_id"), "teams-spark", again)
+        self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
 
     def test_waiting_room_refreshes_authoritative_stem(self) -> None:
         """Active waiting-room Minds-On updates when the copywriter stem lands."""
@@ -1177,7 +1259,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertLess(panel_i, close_i)
         self.assertLess(close_i, board_i)
         self.assertIn(">Close<", html)
-        self.assertIn("You can Close whenever you’re ready.", html)
+        self.assertNotIn("You can Close whenever you’re ready.", html)
+        self.assertNotIn('id="prompt-feedback-helper"', html)
         self.assertNotIn("Wrong.", html)
         self.assertNotIn('id="results-strip"', html)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
@@ -1186,6 +1269,15 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
         self.assertIn("function showFeedbackPanel(", js)
         self.assertIn("function dismissFeedbackPanel()", js)
+        dismiss = js.split("function dismissFeedbackPanel()")[1].split(
+            "function hideFeedbackPanel()"
+        )[0]
+        self.assertIn("holdJoinFeedback = false", dismiss)
+        self.assertIn("tick()", dismiss)
+        self.assertIn("holdJoinFeedback = true", js)
+        self.assertIn("holdJoinFeedback && !isJoinMindsOnPrompt(payload)", js)
+        self.assertIn("if (answered) {", js)
+        self.assertIn("paintPollIfQuestionsVisible(payload)", js)
         self.assertIn('event.key === "Escape"', js)
         self.assertNotIn("innerHTML = feedback", js)
 

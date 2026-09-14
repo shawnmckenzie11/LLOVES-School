@@ -637,8 +637,9 @@ class GameShowDB:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
@@ -3672,6 +3673,42 @@ class GameShowDB:
                 WHERE id = ?
                 """,
                 (self._now(), int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def set_paused_timer_minutes(self, class_id: int, minutes: int) -> dict[str, Any]:
+        """Set remaining session/Meet countdown to N integer minutes while paused.
+
+        Stores ``minutes * 60`` in ``round_duration_sec`` without starting
+        the clock. The timer must already be paused with remaining time.
+
+        Args:
+            class_id: Classes primary key.
+            minutes: Remaining whole minutes (clamped 1–30).
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When the timer is running, or there is no paused
+                remaining time to update.
+        """
+        minutes_i = max(1, min(30, int(minutes)))
+        with self._lock:
+            game = dict(self._game_row(class_id))
+            if game.get("round_started_at"):
+                raise ValueError("Pause the timer before changing remaining time")
+            duration = game.get("round_duration_sec")
+            if not duration or int(duration) <= 0:
+                raise ValueError("No paused timer to update")
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_duration_sec = ?
+                WHERE id = ?
+                """,
+                (minutes_i * 60, int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)

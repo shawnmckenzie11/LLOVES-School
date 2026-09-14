@@ -62,7 +62,6 @@ MINDS_ON_CHOICES: tuple[str, ...] = (
     "Every equal step across adds the same amount up (or down)",
     "The graph curves",
     "Second differences in a table are constant",
-    "Not sure",
 )
 # Soft key is teacher-only; student_live_prompt_payload must strip it.
 MINDS_ON_KEY = "A"
@@ -71,13 +70,12 @@ MINDS_ON_C2_BRIEF_PATH = (
     "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C2-minds-on-student.md"
 )
 MINDS_ON_C2_PROMPT = (
-    "Looking at y = x^2, which claim is **forced** by the picture?"
+    "Looking at y = x^2, which claim must be true from the graph?"
 )
 MINDS_ON_C2_CHOICES: tuple[str, ...] = (
     "a > 0 (it opens upward)",
     "a < 0 (it opens downward)",
     "The graph is a straight line",
-    "Not sure",
 )
 MINDS_ON_C2_KEY = "A"
 
@@ -89,10 +87,9 @@ MINDS_ON_C3_PROMPT = (
     "point. Which claim is safest?"
 )
 MINDS_ON_C3_CHOICES: tuple[str, ...] = (
-    "Every parameter a, h, and k is frozen by the point alone",
+    "Every parameter a, h, and k is locked by the point alone",
     "The point links the parameters — some stay free",
     "Domain and range are always all real numbers",
-    "Not sure",
 )
 MINDS_ON_C3_KEY = "B"
 
@@ -227,7 +224,7 @@ def parse_minds_on_student_md(text: str) -> dict[str, Any]:
         text: Markdown from ``minds-on/MCF3M-M1-C*-minds-on-student.md``.
 
     Returns:
-        ``prompt``, ``choices`` (A–D texts without the letter prefix), and
+        ``prompt``, ``choices`` (A–C texts without the letter prefix), and
         ``key``.
     """
     stem_match = re.search(
@@ -239,7 +236,7 @@ def parse_minds_on_student_md(text: str) -> dict[str, Any]:
         raise ValueError("Minds-On student brief is missing a Stem section.")
     prompt = " ".join(stem_match.group(1).split())
     choices: list[str] = []
-    for letter in "ABCD":
+    for letter in "ABC":
         row = re.search(
             rf"^{letter}\) (.+)$",
             text,

@@ -154,6 +154,7 @@ let setupPhase = false;
 const LAYOUT_PRESETS = {
   media_full: { A: "media" },
   questions_full: { A: "questions" },
+  canvas_full: { A: "canvas_slides" },
   media_questions: { A: "media", B: "questions" },
   three_up: { A: "media", B: "questions", C: "canvas_slides" },
   canvas_media: { A: "canvas_slides", B: "media" },
@@ -402,24 +403,50 @@ function paintStudentViewControls() {
 }
 
 /**
- * Place content ids into CSS frame slots. Never recreates the media iframe.
+ * Map a teacher content tab to the single pane it owns.
+ * @param {string} [tab]
+ * @returns {"media"|"questions"|"canvas_slides"}
+ */
+function teacherPaneContent(tab) {
+  const name = String(tab || teacherState.active_tab || "questions");
+  if (name === "questions") return "questions";
+  if (name === "canvas_slides") return "canvas_slides";
+  return "media";
+}
+
+/**
+ * Named single-pane preset the teacher-state API already accepts.
+ * Canvas has no backend preset; the tab still owns the whole pane.
+ * @param {"media"|"questions"|"canvas_slides"} content
+ * @returns {string}
+ */
+function teacherPanePreset(content) {
+  if (content === "questions") return "questions_full";
+  if (content === "canvas_slides") return "";
+  return "media_full";
+}
+
+/**
+ * Show one teacher pane (media, questions, or canvas). Never split the body.
+ * The media iframe stays mounted so the 3D slice is not recreated.
  */
 function paintFrames() {
-  const frames = teacherState.frames || LAYOUT_PRESETS[teacherState.layout_preset] || { A: "media" };
-  const used = Object.keys(frames).filter((key) => frames[key]).sort().join("");
+  const content = teacherPaneContent();
+  const preset = teacherPanePreset(content) || "canvas_full";
   const host = $("live-frames");
   if (host) {
-    host.dataset.preset = teacherState.layout_preset || "media_full";
-    host.dataset.slots = used || "A";
+    host.dataset.preset = preset;
+    host.dataset.slots = "A";
+    host.dataset.pane = content;
   }
   document.querySelectorAll(".live-content-slot").forEach((el) => {
     const id = el.getAttribute("data-content-id") || "";
-    const slot = Object.keys(frames).find((key) => frames[key] === id) || "";
-    el.setAttribute("data-slot", slot);
-    el.classList.toggle("is-parked", !slot);
+    const on = id === content;
+    el.setAttribute("data-slot", on ? "A" : "");
+    el.classList.toggle("is-parked", !on);
   });
   document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.getAttribute("data-preset") === teacherState.layout_preset);
+    btn.classList.toggle("is-active", btn.getAttribute("data-preset") === preset);
   });
   document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
     const on = btn.getAttribute("data-tab") === teacherState.active_tab;
@@ -685,8 +712,6 @@ function paintLiveSlotPicks() {
       preview.removeAttribute("hidden");
     }
   }
-  const mediaZone = $("media-artifact-zone");
-  if (mediaZone) mediaZone.classList.toggle("is-parked", textOnly);
   const ride = teacherState.text_ride || {};
   const frozen = Boolean(ride.frozen);
   const freezeBtn = $("text-ride-freeze");
@@ -705,22 +730,29 @@ function paintLiveSlotPicks() {
 }
 
 /**
- * Paint the TEAMS shared spark on the Question frame (teacher + soft key).
+ * Paint the integer warm-up on the Question frame.
  * @param {any} [card]
+ * @param {{keepQuestionBody?: boolean}} [opts] When true, leave Q1 stem in place (Join).
  */
-function paintTeamsSparkCard(card) {
+function paintTeamsSparkCard(card, opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const keepQuestionBody = Boolean(options.keepQuestionBody);
   const root = $("teams-spark-card");
   const promptEl = $("teams-spark-prompt");
   const keyEl = $("teams-spark-key");
   const choicesEl = $("teams-spark-choices");
+  const labelEl = root && root.querySelector(".teams-spark-label");
   const revealBtn = $("teams-spark-reveal");
   const status = $("question-artifact-status");
   const flag = $("question-artifact-flag");
   if (!root || !promptEl) return;
   const row = card && typeof card === "object" ? card : lastTeamsSpark || {};
   const stem =
-    row.prompt || "What integer will most students enter into this box?";
+    row.prompt || "Type the integer you think most students will answer";
   promptEl.textContent = String(stem);
+  if (labelEl) {
+    labelEl.textContent = keepQuestionBody ? "Waiting room · 2" : "Shared spark";
+  }
   if (choicesEl) {
     choicesEl.hidden = true;
     choicesEl.textContent = "";
@@ -734,11 +766,13 @@ function paintTeamsSparkCard(card) {
     status.hidden = true;
     status.textContent = "";
   }
-  if (flag) {
+  if (flag && !keepQuestionBody) {
     flag.hidden = false;
     flag.textContent = "Welcome · C2";
   }
-  paintLiveQuestionBody(stem, []);
+  if (!keepQuestionBody) {
+    paintLiveQuestionBody(stem, []);
+  }
   if (revealBtn) revealBtn.hidden = true;
 }
 
@@ -787,28 +821,36 @@ function paintQuestionArtifact(media) {
   const cons = String(row.cons_item || ride.cons_item || "").trim();
   const toast = String(row.toast || row.caption || ride.toast || "").trim();
   const chain = teacherState.meet_chain;
-  const meetOn =
-    teacherState.stage === "meet" ||
-    String(overlayState?.game?.overlay_phase || "") === "meet_teams";
+  const meetOn = teacherState.stage === "meet";
   if (meetOn && chain && Array.isArray(chain.chain) && chain.chain.length) {
     hideTeamsSparkCard();
     const step = String(chain.chain[chain.index] || "A");
     const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
     const meetPayload = lastActivePrompt && lastActivePrompt.payload;
+    const meetRide =
+      meetPayload &&
+      (meetPayload.ride === "meet_team" || meetPayload.pack === "meet-team");
+    const slot = String(teacherState.live_slot || "C1").toUpperCase();
+    const showA = slot === "C1" || step === "A";
+    const stem = showA
+      ? "Today I’m the teammate who…"
+      : (meetRide && (meetPayload.prompt || meetPayload.question)) || labels[step] || "";
+    const choices = showA
+      ? (meetRide && meetPayload.step === "A" && meetPayload.choices) || []
+      : (meetRide && meetPayload.choices) || [];
     if (status) {
       status.hidden = true;
       status.textContent = "";
     }
     flag.hidden = false;
-    flag.textContent = `Meet · ${step} · ${labels[step] || step}`;
-    paintLiveQuestionBody(
-      (meetPayload && (meetPayload.prompt || meetPayload.question)) || labels[step] || "",
-      (meetPayload && meetPayload.choices) || []
-    );
+    flag.textContent = showA
+      ? "Meet · C1 · Today I’m the teammate who…"
+      : `Meet · ${step} · ${labels[step] || step}`;
+    paintLiveQuestionBody(stem, choices);
     paintMeetChainChrome();
     return;
   }
-  if (cons) {
+  if (cons && teacherState.stage !== "join") {
     hideTeamsSparkCard();
     if (status) {
       status.hidden = true;
@@ -817,6 +859,29 @@ function paintQuestionArtifact(media) {
     flag.hidden = false;
     flag.textContent = toast ? `${cons} · ${toast}` : cons;
     paintLiveQuestionBody(toast || cons, []);
+    paintMeetChainChrome();
+    return;
+  }
+  if (teacherState.stage === "join") {
+    const joinRow = lastJoinPrompt || lastActivePrompt;
+    const action = joinRow && joinRow.payload;
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
+    if (action && (action.prompt || action.question)) {
+      flag.hidden = false;
+      flag.textContent = "Waiting room · 1";
+      paintLiveQuestionBody(
+        String(action.prompt || action.question || "").trim(),
+        action.choices || []
+      );
+    } else {
+      flag.hidden = true;
+      flag.textContent = "";
+      hideLiveQuestionBody();
+    }
+    paintTeamsSparkCard(lastTeamsSpark, { keepQuestionBody: true });
     paintMeetChainChrome();
     return;
   }
@@ -3077,8 +3142,30 @@ function setSessionTimerMinutes(value) {
   if (el) el.value = String(n);
   const clock = $("ap-meet-live-clock");
   const btn = $("ap-meet-start");
-  if (clock && (btn?.dataset.meetState || "idle") === "idle") {
+  const state = btn?.dataset.meetState || "idle";
+  if (clock && (state === "idle" || state === "paused")) {
     clock.textContent = formatCountdown(n * 60);
+  }
+  if (state === "paused") {
+    persistPausedTimerMinutes(n);
+  }
+}
+
+/**
+ * Persist remaining session/Meet countdown as N integer minutes while paused.
+ * @param {number} minutes
+ * @returns {Promise<void>}
+ */
+async function persistPausedTimerMinutes(minutes) {
+  const n = Math.max(1, Math.min(30, Math.round(Number(minutes) || 1)));
+  try {
+    overlayState = await api(`/api/classes/${classId}/game/timer/remaining`, {
+      method: "POST",
+      body: JSON.stringify({ minutes: n }),
+    });
+    applySessionTimerUi(overlayState);
+  } catch (err) {
+    showError("#ap-overlay-error", err);
   }
 }
 
@@ -3140,7 +3227,7 @@ function applySessionTimerUi(state = overlayState) {
   if (stepper) {
     stepper.hidden = false;
     stepper.removeAttribute("hidden");
-    const freeze = running || paused;
+    const freeze = running;
     stepper.setAttribute("aria-disabled", freeze ? "true" : "false");
     for (const el of stepper.querySelectorAll("button, input")) {
       if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) {
@@ -4440,22 +4527,15 @@ $("meet-chain-next")?.addEventListener("click", () => {
 document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tab = btn.getAttribute("data-tab") || "media";
-    const content =
-      tab === "questions" ? "questions" : tab === "canvas_slides" ? "canvas_slides" : "media";
-    const frames = { ...(teacherState.frames || {}) };
-    const visible = Object.values(frames);
-    const body = { active_tab: tab };
-    if (!visible.includes(content)) {
-      if (visible.length <= 1) {
-        if (content === "questions") body.layout_preset = "questions_full";
-        else if (content === "media") body.layout_preset = "media_full";
-        else body.frames = { A: "canvas_slides" };
-      } else {
-        frames.A = content;
-        body.frames = frames;
-      }
-    }
+    const content = teacherPaneContent(tab);
+    const body = {
+      active_tab: tab,
+      frames: { A: content },
+    };
+    const preset = teacherPanePreset(content);
+    if (preset) body.layout_preset = preset;
     patchTeacherState(body);
+    if (content === "media") ensureC1MediaSeeded();
   });
 });
 
@@ -4472,7 +4552,18 @@ $("live-edit-layout")?.addEventListener("click", () => {
 document.querySelectorAll("#live-preset-row [data-preset]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const preset = btn.getAttribute("data-preset") || "media_full";
-    patchTeacherState({ layout_preset: preset });
+    const tab =
+      preset === "questions_full"
+        ? "questions"
+        : preset === "canvas_full"
+          ? "canvas_slides"
+          : "media";
+    const content = teacherPaneContent(tab);
+    const body = { active_tab: tab, frames: { A: content } };
+    const nextPreset = teacherPanePreset(content);
+    if (nextPreset) body.layout_preset = nextPreset;
+    patchTeacherState(body);
+    if (content === "media") ensureC1MediaSeeded();
   });
 });
 
@@ -4508,6 +4599,13 @@ function applyLivePackChoice(moduleId, slot) {
   teacherState.live_slot = liveSlot;
   textOnlyChallenge = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
   const sessionId = liveSessionId || readLiveSessionId();
+  if (teacherState.stage === "meet" && sessionId) {
+    const body = { live_module: module, live_slot: liveSlot };
+    if (liveSlot === "C1") body.meet_action = "reset_a";
+    return patchTeacherState(body)
+      .then(() => paintLiveSlotPicks())
+      .catch((err) => showError("#ap-overlay-error", err));
+  }
   const write = sessionId
     ? patchTeacherState({ live_module: module, live_slot: liveSlot }).then(() =>
         postActiveMedia({ challenge: liveSlot })

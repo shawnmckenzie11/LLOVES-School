@@ -1,7 +1,8 @@
 """Welcome-stage C2: one ephemeral integer poll, not a chain.
 
-Shown after students submit Join C1, and on Welcome (TEAMS). Same stem
-for MCF3M and MCR3U M1C1. Class-wide integer histogram after submit.
+Shown after students submit the Join minds-on (any slot), and on
+Welcome (TEAMS). Same stem for MCF3M and MCR3U M1C1. Class-wide integer
+histogram after submit.
 No gradebook. No curriculum chips.
 
 Clears on TEAMS→MEET. Wonder fires ``cue.teams_spark`` on enter only;
@@ -20,9 +21,7 @@ TEAMS_SPARK_KIND = "numeric"
 TEAMS_SPARK_LABEL = "C2"
 CUE_TEAMS_SPARK = "cue.teams_spark"
 
-TEAMS_SPARK_PROMPT = (
-    "Enter an integer… What integer will most students enter into this box?"
-)
+TEAMS_SPARK_PROMPT = "Type the integer you think most students will answer"
 TEAMS_SPARK_INTEGER_ONLY = True
 
 _LEGACY_ITEM_IDS = frozenset({TEAMS_SPARK_ITEM_ID, "teams_spark"})
