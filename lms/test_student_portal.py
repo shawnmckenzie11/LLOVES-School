@@ -31,6 +31,7 @@ from minds_on import (  # noqa: E402
     is_minds_on_payload,
     minds_on_prompt_payload,
 )
+from live_prompt_feedback import LEAD_MISS  # noqa: E402
 
 
 class StudentPortalTests(unittest.TestCase):
@@ -330,18 +331,18 @@ class StudentPortalTests(unittest.TestCase):
 
         state = self.student.get("/api/student/state").get_json()
         self.assertIsNotNone(state.get("prompt"))
-        self.assertEqual(state["prompt"]["id"], prompt["id"])
+        self.assertEqual(state["prompt"]["payload"]["item_id"], "minds_on")
         self.assertIsNone(state.get("my_response"))
 
         submit = self.student.post(
             "/api/student/live-prompt/response",
-            json={"prompt_id": prompt["id"], "response": {"choice": "B"}},
+            json={"prompt_id": state["prompt"]["id"], "response": {"choice": "B"}},
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
         self.assertTrue(submit.get_json().get("ack"))
 
         again = self.student.get("/api/student/live-prompt").get_json()
-        self.assertEqual(again["my_response"]["response"]["choice"], "B")
+        self.assertEqual((again.get("prompt") or {}).get("payload", {}).get("item_id"), "teams-spark")
 
     def test_pick_preserves_live_session_id(self) -> None:
         """student_pick rebind keeps the live session + visit token keys."""
@@ -851,15 +852,10 @@ class StudentPortalTests(unittest.TestCase):
         self.assertEqual(body["my_response"]["feedback"]["lead"], "Good work.")
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
-            again["my_response"]["response"]["choice"],
-            MINDS_ON_CHOICES[0],
+            (again.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
         )
-        self.assertEqual(
-            again["my_response"]["feedback"]["text"],
-            body["feedback"]["text"],
-        )
-        for field in ("key", "cement", "soft_key", "by_choice", "on_submit", "on_weak"):
-            self.assertNotIn(field, again["prompt"]["payload"])
+        self.assertIsNone(again.get("my_response"))
 
     def test_waiting_room_refreshes_authoritative_stem(self) -> None:
         """Active waiting-room Minds-On updates when the copywriter stem lands."""
@@ -907,6 +903,29 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIsNotNone(prompt)
         self.assertTrue(is_minds_on_payload((prompt or {}).get("payload")))
 
+    def test_assigned_team_list_is_names_and_avatars_only(self) -> None:
+        """After Generate teams, state.my_team is names + avatars, no scores or moods."""
+        self._join_maple_home()
+        before = self.student.get("/api/student/state").get_json()
+        self.assertIsNone(before.get("my_team"))
+        self._staff_assign_two_teams()
+        after = self.student.get("/api/student/state").get_json()
+        mine = after.get("my_team")
+        self.assertIsInstance(mine, dict)
+        self.assertTrue(str(mine.get("name") or "").strip())
+        self.assertNotEqual(str(mine.get("name") or "").strip(), "Class")
+        members = mine.get("members") or []
+        self.assertGreaterEqual(len(members), 1)
+        names = {str(row.get("codename") or "") for row in members}
+        self.assertIn("Maple", names)
+        for row in members:
+            self.assertEqual(set(row), {"id", "codename", "character"})
+            self.assertNotIn("mood", row)
+            self.assertNotIn("points", row)
+            self.assertNotIn("session_points", row)
+        maple = next(row for row in members if row["codename"] == "Maple")
+        self.assertEqual(maple["character"], "fox")
+
     def test_assign_and_meet_teams_swap_minds_on_for_teammate_warmup(self) -> None:
         """SID=18: Generate teams + Meet Teams leave waiting-room Minds-On."""
         self._join_maple_home()
@@ -942,7 +961,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertFalse(is_minds_on_payload(payload))
 
     def test_minds_on_clears_when_scoring_starts(self) -> None:
-        """Start-rounds (live scoring) drops waiting-room Minds-On."""
+        """Start-rounds (live scoring) keeps Join C1 until the student answers."""
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
@@ -968,9 +987,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(state.get("scoring"))
         self.assertFalse(state.get("waiting_room"))
         prompt = state.get("prompt")
-        if prompt is not None:
-            self.assertFalse(is_minds_on_payload(prompt.get("payload")))
-            self.assertFalse(is_meet_team_payload(prompt.get("payload")))
+        self.assertTrue(is_minds_on_payload((prompt or {}).get("payload")))
 
     def test_waiting_room_js_has_no_start_scoring_copy(self) -> None:
         """Student portal JS must not use the scoring-phase wait line in waiting-room."""
@@ -1046,8 +1063,11 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIsNotNone(submitted.get("mc_tally"), submitted)
         self.assertIsNotNone((submitted.get("feedback") or submitted.get("my_response") or {}).get("text") or (submitted.get("my_response") or {}).get("feedback"), submitted)
         after_answer = self.student.get("/api/student/state").get_json()
-        self.assertIsNotNone(after_answer.get("mc_tally"), after_answer)
-        self.assertIsNotNone(after_answer.get("my_response"), after_answer)
+        self.assertEqual(
+            (after_answer.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
+            after_answer,
+        )
         unanswered_before_reveal = aspen.get("/api/student/state").get_json()
         self.assertNotIn("mc_tally", unanswered_before_reveal)
         shown = self.staff.post(
@@ -1066,16 +1086,11 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(ui["poll_closed"])
         self.assertIsNone(shown.get_json()["teacher_state"].get("cue_id"))
         shared = self.student.get("/api/student/state").get_json()
-        tally = shared.get("mc_tally")
-        self.assertIsNotNone(tally)
-        self.assertEqual(tally["prompt_ref"], "minds_on")
-        self.assertEqual(tally["kind"], "mc")
-        self.assertEqual(tally["responded"], 1)
-        self.assertEqual(tally["choices"][0]["id"], "A")
-        self.assertEqual(tally["choices"][0]["count"], 1)
-        self.assertEqual(tally["choices"][0]["pct"], 100)
-        self.assertTrue(shared.get("poll_closed"))
-        self.assertEqual(shared["prompt"]["payload"]["item_id"], "minds_on")
+        self.assertEqual(
+            (shared.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
+        )
+        self.assertFalse(shared.get("poll_closed"))
         unanswered = aspen.get("/api/student/state").get_json()
         self.assertTrue(unanswered.get("poll_closed"))
         self.assertIsNotNone(unanswered.get("mc_tally"))
@@ -1134,7 +1149,7 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
         body = submit.get_json()
-        self.assertEqual(body["feedback"]["lead"], "Not that one — stay with the picture.")
+        self.assertEqual(body["feedback"]["lead"], LEAD_MISS)
         self.assertEqual(
             body["feedback"]["text"],
             "A curve changes steepness as you go. Constant rate stays even.",
@@ -1162,7 +1177,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn('id="results-strip"', html)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('getElementById("question-frame")', js)
-        self.assertIn("questionFrame.hidden = welcomeOn || !proj.questions", js)
+        self.assertIn("questionFrame.hidden = !proj.questions", js)
         self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
         self.assertIn("function showFeedbackPanel(", js)
         self.assertIn("function dismissFeedbackPanel()", js)
@@ -1181,6 +1196,9 @@ class StudentPortalTests(unittest.TestCase):
         self.assertLess(html.index('id="me-avatar"'), html.index('id="me-name"'))
         self.assertLess(html.index('id="me-save-slot"'), html.index('id="save-work"'))
         self.assertLess(html.index('id="save-work"'), html.index('id="me-stats"'))
+        self.assertLess(html.index('id="me-stats"'), html.index('id="me-team-list"'))
+        self.assertLess(html.index('id="me-board"'), html.index('id="me-team-list"'))
+        self.assertLess(html.index('id="me-team-list"'), html.index('id="student-round-banner"'))
         self.assertLess(html.index('id="me-stats"'), html.index('id="student-round-banner"'))
         self.assertGreater(html.index('id="save-work"'), html.index('id="me-board"'))
         self.assertLess(html.index('id="save-work"'), html.index('id="question-frame"'))
@@ -1200,7 +1218,7 @@ class StudentPortalTests(unittest.TestCase):
             self.assertNotIn("save-work", page)
             self.assertNotIn("Save Work", page)
             self.assertNotIn("Save View", page)
-        paint = js.split("function paintMe(")[1].split("function showSaveWorkToast(")[0]
+        paint = js.split("function paintMe(")[1].split("function paintMyTeam(")[0]
         self.assertNotIn("innerHTML", paint)
         self.assertNotIn("save-work", paint)
         self.assertIn("meAvatarEl.textContent", paint)
@@ -1221,6 +1239,14 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("JSZip", js)
         self.assertIn(".student-me .me-save-slot {", css)
         self.assertIn(".student-me .save-work {", css)
+        self.assertIn(".me-team-list {", css)
+        self.assertIn("function paintMyTeam(", js)
+        self.assertIn("paintMyTeam(data)", js)
+        paint_team = js.split("function paintMyTeam(")[1].split("function showSaveWorkToast(")[0]
+        self.assertIn("nameWithAvatar", paint_team)
+        self.assertNotIn("mood", paint_team)
+        self.assertNotIn("points", paint_team)
+        self.assertNotIn("score", paint_team)
         self.assertIn('id="student-winner-name"', html)
         self.assertIn("payload.celebrate", js)
         self.assertIn("Waiting for the next question…", js)

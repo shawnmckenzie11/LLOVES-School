@@ -100,7 +100,8 @@
          data-live-code="{{ live_session_code or '' }}"
          data-live-step="{{ live_step or '' }}"
          data-run="{{ '1' if run_live else '0' }}"
-         data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}">
+         data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}"
+         data-ontario-code="{{ cls.ontario_code or cls.course_code or '' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
 
       <header class="live-header" id="live-header">
@@ -128,7 +129,7 @@
           <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
           <span class="live-stage-pill is-active" data-stage="set_class" aria-current="step">SET CLASS</span>
           <span class="live-stage-pill" data-stage="join">JOIN</span>
-          <span class="live-stage-pill" data-stage="teams">TEAMS</span>
+          <span class="live-stage-pill" data-stage="teams">Welcome</span>
           <span class="live-stage-pill" data-stage="meet">MEET</span>
           <span class="live-stage-pill" data-stage="round">ROUND</span>
           <span class="live-stage-pill" data-stage="play">PLAY</span>
@@ -139,7 +140,7 @@
             <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
           </div>
           <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
-                data-confirm="Save attendance and end without participation?"
+                data-confirm="Quit without saving attendance or participation?"
                 onsubmit="return confirm(this.dataset.confirm);">
             <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
           </form>
@@ -155,23 +156,38 @@
 
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
         <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
-          <label class="live-unlock-toggle" for="live-unlock-media">
-            <input type="checkbox" id="live-unlock-media">
+          <span class="live-student-view-label">Student View:</span>
+          <label class="live-student-view-field" for="live-view-media">
             <span>Media</span>
-          </label>
-          <label class="live-unlock-toggle" for="live-unlock-canvas">
-            <input type="checkbox" id="live-unlock-canvas">
-            <span>Canvas</span>
-          </label>
-          <label class="live-canvas-align" for="live-canvas-align">
-            <select id="live-canvas-align" aria-label="Canvas alignment">
-              <option value="teacher">Frozen to teacher</option>
-              <option value="student" selected>Unique per student</option>
-              <option value="team">Shared within group</option>
+            <select id="live-view-media" aria-label="Media student view">
+              <option value="none">None: teacher-view only</option>
+              <option value="student">Student: Individual</option>
+              <option value="team">Student: Shared within Group</option>
             </select>
+          </label>
+          <label class="live-student-view-field" for="live-view-canvas">
+            <span>Canvas</span>
+            <select id="live-view-canvas" aria-label="Canvas student view">
+              <option value="none">None: teacher-view only</option>
+              <option value="student">Student: Individual</option>
+              <option value="team">Student: Shared within Group</option>
+            </select>
+          </label>
+          <label class="live-student-view-field" for="live-view-questions">
+            <span>Questions</span>
+            <select id="live-view-questions" aria-label="Questions student view">
+              <option value="none">None: teacher-view only</option>
+              <option value="student">Student: Individual</option>
+              <option value="team">Student: Shared within Group</option>
+            </select>
+          </label>
+          <label class="live-unlock-toggle" id="join-scoreboard-wrap" for="ap-scoreboard-toggle" hidden>
+            <input type="checkbox" id="ap-scoreboard-toggle">
+            <span>Scoreboard</span>
           </label>
         </div>
         <div id="teams-option-card" class="live-option-card-body live-teams-strip" hidden>
+          <span class="live-teams-settings-label">Team Game Settings:</span>
           <div class="stepper ap-teams-stepper live-teams-count" role="group" aria-label="Team count">
             <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
             <input id="ap-n-teams" type="number" min="1" value="1" inputmode="numeric" aria-label="Team count">
@@ -197,14 +213,6 @@
             <button type="button" class="live-round-pick" id="ap-assign-manual" aria-pressed="false">Manual</button>
           </div>
           <div class="live-teams-track" id="ap-track-game-opts" aria-disabled="true">
-            <label class="live-unlock-toggle" for="ap-scoreboard-toggle">
-              <input type="checkbox" id="ap-scoreboard-toggle">
-              <span>Scoreboard</span>
-            </label>
-            <label class="live-unlock-toggle" for="ap-rank-toggle">
-              <input type="checkbox" id="ap-rank-toggle">
-              <span>Rank</span>
-            </label>
           </div>
           <p id="live-teams-assign-error" class="live-strip-error error" hidden role="alert"></p>
           <span id="ap-gamify-summary" class="live-legacy-control"></span>
@@ -370,7 +378,7 @@
               <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-parked" data-content-id="media" data-flag="media" data-slot="">
                 <section class="ap-active-media" id="ap-active-media">
                   <h2>Active Media</h2>
-                  <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher Real-slice preview" sandbox="allow-scripts allow-same-origin" src="/static/live-media/m1c1-c1-real-slice.html?role=teacher"></iframe>
+                  <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
                 </section>
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
@@ -388,7 +396,11 @@
                     <button type="button" class="live-round-pick" data-cons-item="CONS-3" disabled>CONS 3</button>
                   </div>
                 </div>
-                <p class="hint compact" id="question-artifact-status">No live prompt. Meet QH chain and CONS/QH use the existing session channels.</p>
+                <p class="hint compact" id="question-artifact-status" hidden></p>
+                <div id="live-question-body" class="live-question-body" hidden>
+                  <p class="live-question-stem" id="live-question-stem"></p>
+                  <p class="live-question-choices" id="live-question-choices"></p>
+                </div>
                 <p class="live-question-flag" id="question-artifact-flag" hidden></p>
                 <div id="teams-spark-card" class="teams-spark-card" hidden>
                   <p class="teams-spark-label">Shared spark</p>
@@ -399,7 +411,6 @@
                 </div>
                 <div id="meet-chain-chrome" class="meet-chain-chrome" hidden>
                   <p class="meet-progress-dots" id="meet-chain-dots" aria-label="Meet chain progress"></p>
-                  <p class="hint compact" id="meet-soft-counts"></p>
                   <div id="meet-poll-totals" class="meet-poll-totals" hidden>
                     <p class="meet-poll-class" id="meet-poll-class"></p>
                     <div class="meet-poll-teams" id="meet-poll-teams"></div>
@@ -411,7 +422,6 @@
                 <section id="results-strip" class="live-flag-panel" data-flag="score" hidden>
                   <div id="mc-results-slot" class="mc-results-slot" data-mode="live" hidden>
                     <p id="mc-live-progress" class="mc-live-progress">0/0 responded</p>
-                    <div id="mc-live-soft" class="mc-live-soft" hidden></div>
                     <div id="mc-reveal-bars" class="mc-reveal-bars"></div>
                     <div class="mc-reveal-actions" hidden>
                       <button type="button" id="mc-reveal-btn" hidden>Reveal results</button>
@@ -592,17 +602,25 @@
       <script type="module" src="/static/staff_attendance_take.js"></script>
       {% elif ap_view == 'feedback' %}
       <div id="feedback-root" data-class-id="{{ cls.id }}">
+        <div class="topbar">
+          <div class="row-actions ap-toolbar">
+            <button type="button" class="secondary" id="fb-clear">Clear</button>
+          </div>
+        </div>
+        <div id="fb-error" class="error" hidden></div>
         <h2 class="track-step-title">How was class?</h2>
         <p class="hint">Before and after mood for each live class. Score is +1 for each step up, −1 for each step down.</p>
+        <p class="hint" id="fb-clear-hint" hidden>Clear mode: click a live class label (e.g. M1C1) to remove that class&apos;s feedback.</p>
         {% set grid = feedback_grid if feedback_grid is defined else {} %}
         {% set columns = grid.columns if grid.columns is defined else [] %}
+        <script type="application/json" id="feedback-grid-data">{{ grid | tojson }}</script>
         <div class="sheet-wrap">
           <table class="sheet attendance-grid" id="feedback-sheet">
             <thead>
               <tr>
                 <th class="name"{% if columns %} rowspan="2"{% endif %}>Student</th>
                 {% for col in columns %}
-                <th colspan="4" class="feedback-live-group">{{ col.key }}</th>
+                <th colspan="4" class="feedback-live-group" data-live-key="{{ col.key }}">{{ col.key }}</th>
                 {% endfor %}
                 <th class="total"{% if columns %} rowspan="2"{% endif %}>Total</th>
               </tr>
@@ -670,20 +688,7 @@
           </form>
         </dialog>
       </div>
-      <script>
-        (function () {
-          const dialog = document.getElementById("feedback-comment-dialog");
-          const title = document.getElementById("feedback-comment-title");
-          const body = document.getElementById("feedback-comment-body");
-          document.getElementById("feedback-root")?.addEventListener("click", (event) => {
-            const btn = event.target.closest(".feedback-note-link");
-            if (!btn || !dialog) return;
-            if (title) title.textContent = btn.dataset.name || "Comment";
-            if (body) body.textContent = btn.dataset.comment || "";
-            dialog.showModal();
-          });
-        })();
-      </script>
+      <script type="module" src="/static/staff_feedback.js"></script>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">

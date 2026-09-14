@@ -270,6 +270,8 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             self.assertNotIn("by_choice", fragment)
             self.assertNotIn("key", fragment)
             self.assertNotEqual(fragment["lead"], "Wrong.")
+        self.assertNotIn("stay with the picture", LEAD_MISS)
+        self.assertNotIn("picture forced", LEAD_WEAK)
 
 
 if __name__ == "__main__":

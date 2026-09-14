@@ -685,6 +685,17 @@ body.student-home.is-live .student-live-response {
   opacity: 0.85;
 }
 
+.prompt-group-note {
+  margin: 0 0 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #2a4660;
+  background: #102536;
+  color: #d6e4ef;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
 .meet-progress-dots {
   display: flex;
   gap: 0.35rem;
@@ -880,6 +891,53 @@ body.student-home.is-live .student-live-response {
   font-variant-numeric: tabular-nums;
   font-size: 1.15rem;
   font-weight: 700;
+}
+
+.me-team-list {
+  margin: 0.45rem 0 0;
+  padding: 0.45rem 0.35rem 0.15rem;
+  border-top: 1px solid #1e3348;
+}
+
+.me-team-list[hidden] {
+  display: none !important;
+}
+
+.me-team-list .me-team-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9aa6c3;
+  text-align: center;
+}
+
+.me-team-list .me-team-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.me-team-list .me-team-people li {
+  margin: 0;
+  text-align: center;
+}
+
+.me-team-list .name-with-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #f4f6fb;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.me-team-list .student-avatar {
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .student-me .me-stat-of {

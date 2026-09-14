@@ -26,10 +26,10 @@ TEACHER_ONLY_FIELDS = (
     "expectation_codes",
 )
 
-# Wonder one-beat leads. Never “Wrong.”
+# Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.
 LEAD_MATCH = "Good work."
-LEAD_MISS = "Not that one — stay with the picture."
-LEAD_WEAK = "Almost — name what the picture forced."
+LEAD_MISS = "Not quite. Check your choice against the graph or table."
+LEAD_WEAK = "Write what you can say for sure from what you see."
 CLOSE_LABEL = "Close"
 HELPER_LINE = "You can Close whenever you’re ready."
 
@@ -57,10 +57,10 @@ M1C1_FEEDBACK: dict[str, dict[str, Any]] = {
     "C1-CONS-1": {
         "soft_key": "B",
         "by_choice": {
-            "A": "This picture opens upward, so a is positive.",
-            "B": "Opens upward → a > 0.",
-            "C": "If a were 0, this wouldn’t be a parabola.",
-            "D": "The opening is on this picture — a must be positive.",
+            "A": "The graph opens upward, so a is positive.",
+            "B": "The graph opens upward, so a is greater than 0.",
+            "C": "If a were 0, this would not be a parabola.",
+            "D": "You can see the opening on the graph — a must be positive.",
         },
     },
     "C1-CONS-2": {
@@ -68,24 +68,24 @@ M1C1_FEEDBACK: dict[str, dict[str, Any]] = {
         "by_choice": {
             "A": "The intercept is the origin, so c is 0 — not positive.",
             "B": "The intercept is the origin, so c is 0 — not negative.",
-            "C": "Y-intercept at the origin → c = 0.",
-            "D": "This picture pins the intercept at the origin, so c is 0.",
+            "C": "The y-intercept is at the origin, so c = 0.",
+            "D": "The graph crosses the y-axis at the origin, so c is 0.",
         },
     },
     "C1-CONS-3": {
         "soft_key": "C",
         "by_choice": {
-            "A": "No sideways lean on this picture — b is 0, not positive.",
-            "B": "No sideways lean on this picture — b is 0, not negative.",
-            "C": "Vertex at the origin and y-axis symmetry → b = 0.",
-            "D": "For this picture, y-axis symmetry forces b = 0.",
+            "A": "The graph has no sideways lean, so b is 0, not positive.",
+            "B": "The graph has no sideways lean, so b is 0, not negative.",
+            "C": "The vertex is at the origin and the graph is symmetric about the y-axis, so b = 0.",
+            "D": "Y-axis symmetry on this graph means b = 0.",
         },
     },
     "C1-CONS-4": {
-        "on_submit": "Feature → claim. That’s the whole move.",
+        "on_submit": "Name one feature you marked and the claim it supports.",
     },
     "C1-CONS-5": {
-        "on_submit": "Leave the blank honest — what’s still free here?",
+        "on_submit": "What is still unknown from this graph alone?",
     },
 }
 
@@ -95,7 +95,7 @@ M1C2_FEEDBACK: dict[str, dict[str, Any]] = {
         "by_choice": {
             "A": "Good work. The U opens up — so a > 0.",
             "B": "Not that one — look which way the arms open.",
-            "C": "Curves wait. This picture is still a parabola.",
+            "C": "This graph is still a parabola, not a different curve.",
             "D": "Hint: which way do the arms open?",
         },
     },
@@ -104,15 +104,15 @@ M1C2_FEEDBACK: dict[str, dict[str, Any]] = {
         "by_choice": {
             "A": "One special case isn’t a law. Must the vertex sit on (2,5)?",
             "B": (
-                "Good work. The point ties parameters — "
-                "it doesn’t freeze h alone."
+                "Good work. The point links the parameters — "
+                "it does not lock h by itself."
             ),
             "C": "Hint: can you hit (2,5) with a vertex somewhere else?",
         },
     },
     "C2-CONS-2": {
         "on_submit": (
-            "The point ties a, h, and k — it doesn’t freeze one parameter."
+            "The point links a, h, and k — it does not lock one parameter."
         ),
     },
     "C2-CONS-3": {
@@ -128,7 +128,7 @@ M1C3_FEEDBACK: dict[str, dict[str, Any]] = {
         "soft_key": "B",
         "by_choice": {
             "A": (
-                "Not that one — one point doesn’t freeze a, h, and k "
+                "Not that one — one point does not lock a, h, and k "
                 "all at once."
             ),
             "B": "Good work. The point links the parameters — some stay free.",
@@ -156,7 +156,7 @@ M1C3_FEEDBACK: dict[str, dict[str, Any]] = {
     "C3-CONS-3": {
         "on_submit": (
             "Shade the x-values that stay above ground — "
-            "then defend from the picture."
+            "then explain using the graph."
         ),
     },
 }

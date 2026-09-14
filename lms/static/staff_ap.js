@@ -33,7 +33,6 @@ import { bindWhiteboard } from "/static/live_whiteboard.js";
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
 const scoreboardKey = `lloves-scoreboard-${classId}`;
-const rankKey = `lloves-rank-${classId}`;
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
@@ -194,6 +193,9 @@ let teacherState = {
 
 /** @type {any} */
 let lastTeamsSpark = null;
+let lastActivePrompt = null;
+/** @type {any} */
+let lastJoinPrompt = null;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
@@ -245,11 +247,6 @@ function adoptTeacherState(next) {
     teacherState.mc_ui = { ...next.mc_ui };
   } else {
     delete teacherState.mc_ui;
-  }
-  const joinTally = lastMcTally && String(lastMcTally.prompt_ref || "") === "minds_on";
-  if (teacherState.stage === "teams" || (joinTally && teacherState.prompt_ref !== "minds_on")) {
-    lastMcTally = null;
-    lastMcBindKey = "";
   }
   if (next.text_ride && typeof next.text_ride === "object") {
     teacherState.text_ride = { ...next.text_ride };
@@ -366,15 +363,52 @@ function paintOptionCard() {
     rounds.setAttribute("hidden", "");
   }
   paintRoundStrip();
-  const unlockMedia = $("live-unlock-media");
-  const unlockCanvas = $("live-unlock-canvas");
-  const unlocks = teacherState.unlocks || {};
-  if (unlockMedia instanceof HTMLInputElement) unlockMedia.checked = Boolean(unlocks.media);
-  if (unlockCanvas instanceof HTMLInputElement) unlockCanvas.checked = Boolean(unlocks.canvas);
-  const align = $("live-canvas-align");
-  if (align instanceof HTMLSelectElement) {
-    const mode = String(teacherState.canvas_align || "student");
-    align.value = mode === "teacher" || mode === "team" ? mode : "student";
+  paintStudentViewControls();
+  const scoreWrap = $("join-scoreboard-wrap");
+  if (scoreWrap) scoreWrap.hidden = stage !== "join";
+}
+
+/**
+ * True when Shared-within-Group may appear (Meet+ and more than one team).
+ * @returns {boolean}
+ */
+function teamShareAvailable() {
+  const stage = String(teacherState.stage || "");
+  return ["meet", "round", "play"].includes(stage) && currentTeamCount() > 1;
+}
+
+/**
+ * Current student-view modes, falling back to stage defaults.
+ * @returns {{media: string, canvas: string, questions: string}}
+ */
+function currentStudentView() {
+  const view = teacherState.student_view || {};
+  const asMode = (raw, fallback) =>
+    raw === "student" || raw === "team" || raw === "none" ? raw : fallback;
+  const stage = String(teacherState.stage || "join");
+  const questionsDefault = stage === "join" || stage === "meet" ? "student" : "none";
+  return {
+    media: asMode(view.media, "none"),
+    canvas: asMode(view.canvas, "none"),
+    questions: asMode(view.questions, questionsDefault),
+  };
+}
+
+/**
+ * Sync Media / Canvas / Questions dropdowns and hide Shared when teams < 2.
+ */
+function paintStudentViewControls() {
+  const share = teamShareAvailable();
+  const view = currentStudentView();
+  for (const key of ["media", "canvas", "questions"]) {
+    const el = $(`live-view-${key}`);
+    if (!(el instanceof HTMLSelectElement)) continue;
+    [...el.options].forEach((opt) => {
+      if (opt.value === "team") opt.hidden = !share;
+    });
+    let mode = view[key];
+    if (mode === "team" && !share) mode = "student";
+    el.value = mode;
   }
 }
 
@@ -476,7 +510,6 @@ function mcRevealOn(tally = lastMcTally) {
 function paintMcResultsSlot() {
   const slot = $("mc-results-slot");
   const progress = $("mc-live-progress");
-  const soft = $("mc-live-soft");
   const bars = $("mc-reveal-bars");
   const revealBtn = $("mc-reveal-btn");
   const hideBtn = $("mc-hide-reveal-btn");
@@ -498,11 +531,6 @@ function paintMcResultsSlot() {
   const responded = Number(tally.responded || 0);
   const present = Math.max(Number(tally.present || 0), responded);
   if (progress) progress.textContent = `${responded}/${present} responded`;
-  const softParts = (tally.choices || []).map((row) => `${row.id} · ${row.count}`);
-  if (soft) {
-    soft.hidden = !softParts.length;
-    soft.textContent = softParts.length ? `Soft counts · ${softParts.join(" · ")}` : "";
-  }
   if (bars) {
     bars.hidden = false;
     bars.innerHTML = (tally.choices || [])
@@ -522,11 +550,12 @@ function paintMcResultsSlot() {
  * @param {any} tally
  */
 function applyMcTally(tally) {
-  const unbound = !teacherState.prompt_ref || teacherState.stage === "teams";
   const ref = tally && typeof tally === "object" ? String(tally.prompt_ref || "") : "";
-  if (unbound && (!ref || ref === "minds_on")) {
-    lastMcTally = null;
-    lastMcBindKey = "";
+  if (!ref) {
+    if (teacherState.stage !== "join" && teacherState.stage !== "teams") {
+      lastMcTally = null;
+      lastMcBindKey = "";
+    }
     paintResultsStrip();
     syncLiveSessionPolling();
     return;
@@ -656,9 +685,16 @@ function paintLiveSlotPicks() {
   if (rideBox) rideBox.hidden = !textOnly;
   const preview = $("ap-media-preview");
   if (preview) {
-    preview.hidden = textOnly;
-    if (textOnly) preview.setAttribute("hidden", "");
-    else preview.removeAttribute("hidden");
+    const hideMedia = textOnly || (!usesC1RealSlice() && !lastTeacherMediaSrc);
+    preview.hidden = hideMedia;
+    if (hideMedia) {
+      preview.setAttribute("hidden", "");
+      if (!usesC1RealSlice() && !lastTeacherMediaSrc) {
+        preview.removeAttribute("src");
+      }
+    } else {
+      preview.removeAttribute("hidden");
+    }
   }
   const mediaZone = $("media-artifact-zone");
   if (mediaZone) mediaZone.classList.toggle("is-parked", textOnly);
@@ -693,26 +729,28 @@ function paintTeamsSparkCard(card) {
   const flag = $("question-artifact-flag");
   if (!root || !promptEl) return;
   const row = card && typeof card === "object" ? card : lastTeamsSpark || {};
-  promptEl.textContent = String(
-    row.prompt || "A farmer has 17 sheep. All but 9 run away. How many are left?"
-  );
-  const choices = Array.isArray(row.choices) && row.choices.length ? row.choices : ["8", "9", "17", "0"];
-  if (choicesEl) choicesEl.textContent = choices.join(" · ");
+  const stem =
+    row.prompt || "What integer will most students enter into this box?";
+  promptEl.textContent = String(stem);
+  if (choicesEl) {
+    choicesEl.hidden = true;
+    choicesEl.textContent = "";
+  }
   if (keyEl) {
-    keyEl.hidden = false;
-    keyEl.textContent = `Soft key · ${row.teacher_key || "9 — “all but 9” means 9 remain."}`;
+    keyEl.hidden = true;
+    keyEl.textContent = "";
   }
   root.hidden = false;
-  if (status) status.textContent = "Shared spark — talk, no gradebook.";
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
   if (flag) {
     flag.hidden = false;
-    flag.textContent = "TEAMS · Shared spark";
+    flag.textContent = "Welcome · C2";
   }
-  const revealed = Boolean(row.reveal);
-  if (revealBtn) {
-    revealBtn.hidden = revealed;
-    revealBtn.textContent = "Share the stay-line";
-  }
+  paintLiveQuestionBody(stem, []);
+  if (revealBtn) revealBtn.hidden = true;
 }
 
 /**
@@ -721,6 +759,33 @@ function paintTeamsSparkCard(card) {
 function hideTeamsSparkCard() {
   const root = $("teams-spark-card");
   if (root) root.hidden = true;
+}
+
+/**
+ * Paint stem + choices into the teacher Question tab body.
+ * @param {string} stem
+ * @param {string[]} [choices]
+ */
+function paintLiveQuestionBody(stem, choices) {
+  const body = $("live-question-body");
+  const stemEl = $("live-question-stem");
+  const choicesEl = $("live-question-choices");
+  const text = String(stem || "").trim();
+  if (stemEl) stemEl.innerHTML = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  if (choicesEl) {
+    const labels = Array.isArray(choices) ? choices.filter(Boolean) : [];
+    choicesEl.textContent = labels.length ? labels.join(" · ") : "";
+    choicesEl.hidden = !labels.length;
+  }
+  if (body) body.hidden = !text;
+}
+
+/**
+ * Hide the teacher Question-tab stem block.
+ */
+function hideLiveQuestionBody() {
+  const body = $("live-question-body");
+  if (body) body.hidden = true;
 }
 
 function paintQuestionArtifact(media) {
@@ -740,17 +805,29 @@ function paintQuestionArtifact(media) {
     hideTeamsSparkCard();
     const step = String(chain.chain[chain.index] || "A");
     const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
-    status.textContent = "Meet QH chain is live on the existing prompt channel. Questions tab only.";
+    const meetPayload = lastActivePrompt && lastActivePrompt.payload;
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
     flag.hidden = false;
     flag.textContent = `Meet · ${step} · ${labels[step] || step}`;
+    paintLiveQuestionBody(
+      (meetPayload && (meetPayload.prompt || meetPayload.question)) || labels[step] || "",
+      (meetPayload && meetPayload.choices) || []
+    );
     paintMeetChainChrome();
     return;
   }
   if (cons) {
     hideTeamsSparkCard();
-    status.textContent = "CONS / QH ride uses the existing active-media + prompt channel.";
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
     flag.hidden = false;
     flag.textContent = toast ? `${cons} · ${toast}` : cons;
+    paintLiveQuestionBody(toast || cons, []);
     paintMeetChainChrome();
     return;
   }
@@ -759,10 +836,47 @@ function paintQuestionArtifact(media) {
     paintMeetChainChrome();
     return;
   }
+  const joinRow =
+    teacherState.stage === "join" ? lastJoinPrompt || lastActivePrompt : lastActivePrompt;
+  const action = joinRow && joinRow.payload;
+  if (
+    action &&
+    (action.ride === "action" || action.item_id === "team-challenge") &&
+    (teacherState.stage === "play" || teacherState.round === "action")
+  ) {
+    hideTeamsSparkCard();
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
+    flag.hidden = false;
+    flag.textContent = String(action.title || "Team Challenge");
+    paintLiveQuestionBody(String(action.prompt || action.question || "").trim(), action.choices || []);
+    paintMeetChainChrome();
+    return;
+  }
   hideTeamsSparkCard();
-  status.textContent = "No live prompt. Meet QH chain and CONS/QH use the existing session channels.";
+  if (action && (action.prompt || action.question || lastMcTally?.prompt)) {
+    if (status) {
+      status.hidden = true;
+      status.textContent = "";
+    }
+    flag.hidden = false;
+    flag.textContent = String(action.label || action.title || "Minds-On");
+    paintLiveQuestionBody(
+      String(action.prompt || action.question || lastMcTally.prompt || "").trim(),
+      action.choices || lastMcTally?.choices?.map((row) => row.label) || []
+    );
+    paintMeetChainChrome();
+    return;
+  }
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
   flag.hidden = true;
   flag.textContent = "";
+  hideLiveQuestionBody();
   paintMeetChainChrome();
 }
 
@@ -772,7 +886,6 @@ function paintQuestionArtifact(media) {
 function paintMeetChainChrome() {
   const chrome = $("meet-chain-chrome");
   const dots = $("meet-chain-dots");
-  const countsEl = $("meet-soft-counts");
   const next = $("meet-chain-next");
   const chain = teacherState.meet_chain;
   const on = teacherState.stage === "meet" && chain && Array.isArray(chain.chain);
@@ -789,26 +902,36 @@ function paintMeetChainChrome() {
       })
       .join("");
   }
-  if (countsEl) {
-    const bag = step === "B" ? chain.b_picks || {} : chain.a_picks || {};
-    const counts = {};
-    Object.values(bag).forEach((choice) => {
-      const key = String(choice || "").trim();
-      if (!key) return;
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    const parts = Object.keys(counts).map((key) => `${key} · ${counts[key]}`);
-    countsEl.textContent =
-      step === "C"
-        ? "Soft react only — no leaderboard."
-        : parts.length
-          ? `Class · ${parts.join(" · ")}`
-          : "Class · waiting for taps";
-    paintMeetPollTotals(step, bag, counts);
-  }
+  const bag = step === "B" ? chain.b_picks || {} : chain.a_picks || {};
+  const counts = {};
+  Object.values(bag).forEach((choice) => {
+    const key = String(choice || "").trim();
+    if (!key) return;
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  paintMeetPollTotals(step, bag, counts);
   if (next instanceof HTMLButtonElement) {
     next.disabled = index >= letters.length - 1;
   }
+}
+
+/**
+ * Compact poll bars from a label→count map (no soft-count line).
+ * @param {Record<string, number>} counts
+ * @returns {string}
+ */
+function countsToBarHtml(counts) {
+  const keys = Object.keys(counts || {});
+  const total = keys.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
+  if (!keys.length) return `<span class="mc-reveal-meta">waiting</span>`;
+  return keys
+    .map((label) => {
+      const count = Number((counts || {})[label] || 0);
+      const pct = total ? Math.round((100 * count) / total) : 0;
+      const safe = String(label || "").replace(/</g, "&lt;");
+      return `<div class="mc-reveal-row"><p class="mc-reveal-label">${safe}</p><span class="mc-reveal-meta">${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
+    })
+    .join("");
 }
 
 /**
@@ -827,13 +950,10 @@ function paintMeetPollTotals(step, bag, classCounts) {
     return;
   }
   host.hidden = false;
-  const classParts = Object.keys(classCounts).map((key) => `${key} · ${classCounts[key]}`);
   if (classEl) {
-    classEl.innerHTML = `<span class="meet-poll-kicker">Class-wide</span>${
-      classParts.length
-        ? escapeHtml(classParts.join(" · "))
-        : "waiting for taps"
-    }`;
+    classEl.innerHTML = `<span class="meet-poll-kicker">Class-wide</span>${countsToBarHtml(
+      classCounts
+    )}`;
   }
   if (!teamsEl) return;
   const teams = assignedRosterTeams();
@@ -852,11 +972,10 @@ function paintMeetPollTotals(step, bag, classCounts) {
         if (!label) return;
         counts[label] = (counts[label] || 0) + 1;
       });
-      const parts = Object.keys(counts).map((key) => `${key} · ${counts[key]}`);
       const name = String(team.name || "Team").trim() || "Team";
       return `<p class="meet-poll-team"><span class="meet-poll-kicker">Team · ${escapeHtml(
         name
-      )}</span>${parts.length ? escapeHtml(parts.join(" · ")) : "waiting"}</p>`;
+      )}</span>${countsToBarHtml(counts)}</p>`;
     })
     .join("");
 }
@@ -1234,6 +1353,8 @@ async function pollLiveSessionAttendees() {
       present
     );
     lastTeamsSpark = payload?.teams_spark || null;
+    lastJoinPrompt = payload?.join_prompt || null;
+    lastActivePrompt = payload?.active_prompt || null;
     const media = payload?.active_media || payload?.session?.active_media;
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
@@ -1292,7 +1413,21 @@ function staffLiveMediaState(media, params) {
 function paintActiveMediaStatus(media) {
   const preview = $("ap-media-preview");
   if (!preview) return;
-  const mediaUrl = String((media && media.url) || SEED_MEDIA_URL).trim();
+  const rawUrl = String((media && media.url) || "").trim();
+  const realSlice = rawUrl.includes("m1c1-c1-real-slice.html");
+  const fallbackUrl = usesC1RealSlice() ? SEED_MEDIA_URL : "";
+  const mediaUrl = usesC1RealSlice()
+    ? (rawUrl || fallbackUrl)
+    : realSlice
+      ? ""
+      : rawUrl;
+  if (!mediaUrl) {
+    preview.hidden = true;
+    preview.removeAttribute("src");
+    lastTeacherMediaSrc = "";
+    paintQuestionArtifact(media);
+    return;
+  }
   const teacherSrc = mediaUrl.includes("?")
     ? `${mediaUrl}&role=teacher`
     : `${mediaUrl}?role=teacher`;
@@ -1321,9 +1456,40 @@ function paintActiveMediaStatus(media) {
 }
 
 /**
+ * True when this course/module/slot is the MCF3M M1C1 parabola ride.
+ * @returns {boolean}
+ */
+function usesC1RealSlice() {
+  const ontario = String(root?.dataset.ontarioCode || "").toUpperCase();
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  return ontario === "MCF3M" && module === "M1" && slot === "C1";
+}
+
+/**
  * Seed C1 Real-slice onto the live session when the blob is empty.
  */
 async function ensureC1MediaSeeded() {
+  if (!usesC1RealSlice()) {
+    const sessionId = liveSessionId || readLiveSessionId();
+    if (sessionId && !mediaSeedInFlight) {
+      mediaSeedInFlight = true;
+      try {
+        const res = await api(`/api/live-sessions/${sessionId}/active-media`);
+        const url = String(res.active_media?.url || "");
+        if (url.includes("m1c1-c1-real-slice.html")) {
+          await postActiveMedia({ clear: true });
+        } else {
+          paintActiveMediaStatus(res.active_media || null);
+        }
+      } catch (_) {
+        paintActiveMediaStatus(null);
+      } finally {
+        mediaSeedInFlight = false;
+      }
+    }
+    return;
+  }
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || mediaSeedInFlight || textOnlyChallenge) return;
   mediaSeedInFlight = true;
@@ -2765,6 +2931,7 @@ function setNTeams(value) {
     selectTrackMode("individual");
   }
   paintTeamsStripEnabled();
+  paintStudentViewControls();
   renderAttendanceList();
 }
 
@@ -2779,13 +2946,6 @@ function renderTeamsPanel() {
     localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
   }
   syncScoreboardPreview();
-  const rankBox = $("ap-rank-toggle");
-  if (rankBox) {
-    const fromState = overlayState && typeof overlayState.show_rank === "boolean";
-    rankBox.checked = fromState
-      ? Boolean(overlayState.show_rank)
-      : localStorage.getItem(rankKey) === "1";
-  }
   setNTeams(Number($("ap-n-teams")?.value) || 1);
   if (currentTeamCount() > 1) selectAssignMode(lastAssignMode || "balanced");
 }
@@ -2826,15 +2986,6 @@ $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
     localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
     syncScoreboardPreview();
   }
-});
-$("ap-rank-toggle")?.addEventListener("change", (event) => {
-  const box = event.target;
-  if (!(box instanceof HTMLInputElement)) return;
-  localStorage.setItem(rankKey, box.checked ? "1" : "0");
-  api(`/api/classes/${classId}/show-rank`, {
-    method: "POST",
-    body: JSON.stringify({ enabled: box.checked }),
-  }).catch((err) => showError("#ap-overlay-error", err));
 });
 
 /**
@@ -4340,7 +4491,7 @@ function applyLivePackChoice(moduleId, slot) {
     : Promise.resolve();
   write
     .then(() => {
-      if (liveSlot === "C1" && sessionId) return ensureC1MediaSeeded();
+      if (liveSlot === "C1" && sessionId && usesC1RealSlice()) return ensureC1MediaSeeded();
       paintLiveSlotPicks();
       return null;
     })
@@ -4386,22 +4537,25 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
   });
 });
 
-$("live-unlock-media")?.addEventListener("change", () => {
-  const box = $("live-unlock-media");
-  if (!(box instanceof HTMLInputElement)) return;
-  patchTeacherState({ unlocks: { media: box.checked } });
-});
-$("live-unlock-canvas")?.addEventListener("change", () => {
-  const box = $("live-unlock-canvas");
-  if (!(box instanceof HTMLInputElement)) return;
-  patchTeacherState({ unlocks: { canvas: box.checked } });
-});
-$("live-canvas-align")?.addEventListener("change", () => {
-  const el = $("live-canvas-align");
+/**
+ * PATCH one Student View dropdown onto teacher state.
+ * @param {"media"|"canvas"|"questions"} surface
+ */
+function patchStudentViewFromControl(surface) {
+  const el = $(`live-view-${surface}`);
   if (!(el instanceof HTMLSelectElement)) return;
-  const mode = el.value === "teacher" || el.value === "team" ? el.value : "student";
-  patchTeacherState({ canvas_align: mode });
-});
+  let mode = el.value === "student" || el.value === "team" ? el.value : "none";
+  if (mode === "team" && !teamShareAvailable()) mode = "student";
+  const next = { ...(teacherState.student_view || {}), [surface]: mode };
+  teacherState.student_view = next;
+  patchTeacherState({ student_view: next });
+}
+
+$("live-view-media")?.addEventListener("change", () => patchStudentViewFromControl("media"));
+$("live-view-canvas")?.addEventListener("change", () => patchStudentViewFromControl("canvas"));
+$("live-view-questions")?.addEventListener("change", () =>
+  patchStudentViewFromControl("questions")
+);
 
 document.querySelectorAll("input[name='live-team-keep']").forEach((input) => {
   input.addEventListener("change", () => {

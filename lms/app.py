@@ -88,6 +88,7 @@ from live_class_packs import live_class_registry  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
+from minds_on import is_minds_on_payload  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -2422,10 +2423,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required
     def staff_quit_live_class(class_id: int):
-        """Quit: keep attendance, discard participation, wipe the SID.
+        """Quit: discard attendance and participation, wipe the SID.
 
-        Same ownership rules as End Live Class. Attendance always
-        persists. Participation, meet taps, and live QH are discarded.
+        Same ownership rules as End Live Class. Nothing is written to
+        the attendance column. Meet taps and live QH are discarded.
         """
         user = current_user()
         assert user is not None
@@ -3541,21 +3542,53 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
+        facing_payload = school.student_live_prompt_payload(
+            live_session_id,
+            int(student_id) if student_id not in (None, "") else None,
+            participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+        )
+        facing = facing_payload.get("prompt") if isinstance(facing_payload, dict) else None
         active = school.get_active_live_prompt(live_session_id)
-        if active is None or active.get("kind") == "idle":
+        allowed_ids: set[int] = set()
+        if isinstance(facing, dict) and facing.get("id") not in (None, ""):
+            allowed_ids.add(int(facing["id"]))
+        if active is not None and active.get("id") not in (None, ""):
+            allowed_ids.add(int(active["id"]))
+        if not allowed_ids:
             return jsonify({"ok": False, "error": "No active prompt."}), 409
-        if school.live_session_mc_poll_closed(live_session_id):
-            return jsonify(
-                {"ok": False, "error": "Poll is closed.", "poll_closed": True}
-            ), 409
         body = request.get_json(silent=True) or {}
         response = body.get("response")
         if not isinstance(response, dict):
             response = {k: body[k] for k in body if k != "prompt_id"}
-        prompt_id = int(body.get("prompt_id") or active["id"])
-        if prompt_id != int(active["id"]):
+        prompt_id = int(body.get("prompt_id") or next(iter(allowed_ids)))
+        if prompt_id not in allowed_ids:
             return jsonify({"ok": False, "error": "Prompt is no longer active."}), 409
-        meet_payload = active.get("payload") or {}
+        target = (
+            facing
+            if isinstance(facing, dict) and int(facing.get("id") or 0) == prompt_id
+            else active
+        )
+        target_payload = (target or {}).get("payload") or {}
+        if school.live_session_mc_poll_closed(live_session_id) and is_minds_on_payload(
+            target_payload
+        ):
+            return jsonify(
+                {"ok": False, "error": "Poll is closed.", "poll_closed": True}
+            ), 409
+        if bool(body.get("draft")):
+            choice = ""
+            if isinstance(response, dict):
+                choice = str(
+                    response.get("choice") or response.get("text") or ""
+                ).strip()
+            draft = school.set_group_question_draft(
+                live_session_id,
+                prompt_id=prompt_id,
+                student_id=int(student_id) if student_id not in (None, "") else None,
+                choice=choice,
+            )
+            return jsonify({"ok": True, "draft": True, "group_draft": draft})
+        meet_payload = (target or {}).get("payload") or {}
         if is_meet_team_payload(meet_payload):
             choice = ""
             if isinstance(response, dict):
@@ -3605,7 +3638,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 int(student_id),
                 0.0,
                 prompt_id=prompt_id,
-                label=str(active.get("kind") or "prompt"),
+                label=str((target or {}).get("kind") or "prompt"),
             )
         my_response = {
             "response": saved.get("response") or {},
@@ -3613,7 +3646,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "updated_at": saved.get("updated_at"),
         }
         fragment = public_feedback_fragment(
-            active.get("payload") or {}, my_response["response"]
+            (target or {}).get("payload") or {}, my_response["response"]
         )
         if fragment:
             my_response["feedback"] = fragment
@@ -4006,6 +4039,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "meet_action",
             "assign",
             "student_frames",
+            "student_view",
             "unlocks",
             "canvas_align",
             "mc_ui",
@@ -4730,6 +4764,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 raise ValueError("date is required (YYYY-MM-DD)")
             sort = str(body.get("sort") or "az")
             return school.clear_attendance_day(class_id, chosen, sort=sort)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/feedback-live/clear", methods=["POST"])
+    @login_required
+    def api_clear_live_class_feedback(class_id: int):
+        """Delete How-was-class rows for one live class column (e.g. M1C1)."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            key = str(body.get("key") or body.get("live_key") or "").strip()
+            return school.clear_live_class_feedback(class_id, key)
 
         return _staff_post(class_id, run)
 

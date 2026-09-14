@@ -197,3 +197,116 @@ def build_mc_tally(
         "response_count": responded,
         "response_seq": _fingerprint(count_list, responded),
     }
+
+
+def build_numeric_tally(
+    prompt: Any,
+    *,
+    responses: list[dict[str, Any]] | None = None,
+    present: int = 0,
+    teacher_state: Any = None,
+) -> dict[str, Any] | None:
+    """Build a class-wide histogram of integer answers.
+
+    Args:
+        prompt: Active live-prompt row (``kind=numeric``).
+        responses: Parsed response rows with a ``response`` object.
+        present: Students currently in the session.
+        teacher_state: Optional public LiveTeacherState.
+
+    Returns:
+        Tally dict, or ``None`` when the prompt is not numeric.
+    """
+    if not isinstance(prompt, dict):
+        return None
+    kind = str(prompt.get("kind") or "").strip().lower()
+    payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+    item_kind = str(payload.get("kind") or "").strip().lower()
+    if kind != "numeric" and item_kind != "numeric":
+        return None
+    counts: dict[str, int] = {}
+    values: list[int] = []
+    for row in responses or []:
+        if not isinstance(row, dict):
+            continue
+        answer = row.get("response") if isinstance(row.get("response"), dict) else {}
+        raw = answer.get("value")
+        if raw is None:
+            raw = answer.get("choice")
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not number.is_integer():
+            continue
+        key = str(int(number))
+        counts[key] = counts.get(key, 0) + 1
+        values.append(int(number))
+    labels = sorted(counts.keys(), key=lambda token: int(token))
+    responded = len(values)
+    present_n = max(0, int(present), responded)
+    denom = responded if responded > 0 else 0
+    choices_out: list[dict[str, Any]] = []
+    count_list: list[int] = []
+    for label in labels:
+        count = counts[label]
+        count_list.append(count)
+        pct = int(round(100.0 * count / denom)) if denom else 0
+        choices_out.append(
+            {
+                "id": label,
+                "label": label,
+                "count": count,
+                "pct": pct,
+                "correct": False,
+            }
+        )
+    ref = prompt_ref_for(prompt, teacher_state)
+    prompt_id = prompt.get("id")
+    return {
+        "prompt_ref": ref,
+        "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
+        "kind": "numeric",
+        "item_id": str(payload.get("item_id") or ref),
+        "prompt": str(payload.get("prompt") or "").strip(),
+        "source": "live_prompt",
+        "choices": choices_out,
+        "responded": responded,
+        "present": present_n,
+        "response_count": responded,
+        "response_seq": _fingerprint(count_list, responded),
+    }
+
+
+def build_live_tally(
+    prompt: Any,
+    *,
+    responses: list[dict[str, Any]] | None = None,
+    meet_chain: Any = None,
+    present: int = 0,
+    teacher_state: Any = None,
+) -> dict[str, Any] | None:
+    """Build an MC or numeric tally for the staff/student results graph.
+
+    Args:
+        prompt: Active live-prompt row.
+        responses: Parsed response rows.
+        meet_chain: Optional MeetChainState.
+        present: Students currently in the session.
+        teacher_state: Optional public LiveTeacherState.
+    """
+    numeric = build_numeric_tally(
+        prompt,
+        responses=responses,
+        present=present,
+        teacher_state=teacher_state,
+    )
+    if numeric is not None:
+        return numeric
+    return build_mc_tally(
+        prompt,
+        responses=responses,
+        meet_chain=meet_chain,
+        present=present,
+        teacher_state=teacher_state,
+    )

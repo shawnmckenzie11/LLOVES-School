@@ -449,7 +449,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("ax²", body.replace("ax^2", "ax²"))
         self.assertIn("consider the parabola", body)
         self.assertNotIn("from this view only", body)
-        self.assertIn("this picture was always a slice", body)
+        self.assertIn("this graph was always a slice", body)
         self.assertIn("teacher-table", body)
         self.assertIn("push to student view", body)
         self.assertIn("push all to view", body)
@@ -687,8 +687,9 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("ap-active-media", html)
         self.assertIn("Active Media", html)
         self.assertIn("ap-media-preview", html)
-        self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
-        self.assertIn("role=teacher", html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn(DEFAULT_LIVE_MEDIA_URL, js)
+        self.assertIn("role=teacher", js)
         self.assertNotIn("Show Real-slice", html)
         self.assertNotIn("Unlock a, b, c sliders", html)
         self.assertNotIn("Reveal axes on student view", html)
@@ -753,7 +754,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             "quick-hitter-question-chain",
         )
         self.assertEqual(state["prompt"]["payload"]["ride"], "cons")
-        self.assertIn("this picture", state["prompt"]["payload"]["prompt"].lower())
+        self.assertIn("this graph", state["prompt"]["payload"]["prompt"].lower())
         self.assertNotIn("key", state["prompt"]["payload"])
         self.assertNotIn("cement", state["prompt"]["payload"])
         self.assertNotIn("by_choice", state["prompt"]["payload"])
@@ -768,7 +769,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons1_submit.status_code, 200, cons1_submit.get_json())
         cons1_body = cons1_submit.get_json()
         self.assertEqual(cons1_body["feedback"]["source"], "by_choice")
-        self.assertEqual(cons1_body["feedback"]["text"], "Opens upward → a > 0.")
+        self.assertEqual(
+            cons1_body["feedback"]["text"],
+            "The graph opens upward, so a is greater than 0.",
+        )
         self.assertEqual(cons1_body["feedback"]["lead"], "Good work.")
         self.assertTrue(cons1_body["feedback"]["match"])
         self.assertEqual(state["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
@@ -797,7 +801,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons4_submit.get_json()["feedback"]["source"], "on_submit")
         self.assertEqual(
             cons4_submit.get_json()["feedback"]["text"],
-            "Feature → claim. That’s the whole move.",
+            "Name one feature you marked and the claim it supports.",
         )
         self.assertEqual(cons4_submit.get_json()["feedback"]["lead"], "Good work.")
 
@@ -818,7 +822,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         hidden = self.student.get("/api/student/state").get_json()
         self.assertFalse(hidden["active_media"]["frozen"])
         self.assertEqual(hidden["active_media"]["cons_item"], "")
-        self.assertIsNone(hidden.get("prompt"))
+        self.assertEqual(
+            (hidden.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "minds_on",
+        )
 
     def test_c2_c3_api_does_not_seed_active_media(self) -> None:
         """C2/C3 POST clears the blob; GET defaults say they do not seed."""

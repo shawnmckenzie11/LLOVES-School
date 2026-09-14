@@ -11,7 +11,6 @@
   <div class="student-wrap">
     <p class="kicker">{{ offering.ontario_code if offering else 'Course' }}</p>
     <h1>Choose your Avatar</h1>
-    <p class="sub">Pick one, then join class. You can wait here until scoring starts.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" id="character-form">
       <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">

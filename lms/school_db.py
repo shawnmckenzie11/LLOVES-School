@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import shutil
 import sqlite3
@@ -32,7 +33,7 @@ try:
         cursor_color_for,
         public_canvas_sync,
     )
-    from live_mc import build_mc_tally
+    from live_mc import build_live_tally, build_mc_tally
     from live_teacher_state import (
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
@@ -84,6 +85,14 @@ try:
         teams_spark_prompt_payload,
     )
     from game_show_welcome import game_show_welcome_payload
+    from team_challenge import (
+        TEAM_CHALLENGE_KIND,
+        TEAM_CHALLENGE_SLIDE_INDEX,
+        is_team_challenge_payload,
+        resolve_team_challenge,
+        staff_team_challenge_prompt_payload,
+        uses_c1_real_slice,
+    )
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
@@ -105,7 +114,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         cursor_color_for,
         public_canvas_sync,
     )
-    from lms.live_mc import build_mc_tally
+    from lms.live_mc import build_live_tally, build_mc_tally
     from lms.live_teacher_state import (
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
@@ -157,6 +166,14 @@ except ImportError:  # ``python3 lms/app.py`` package import
         teams_spark_prompt_payload,
     )
     from lms.game_show_welcome import game_show_welcome_payload
+    from lms.team_challenge import (
+        TEAM_CHALLENGE_KIND,
+        TEAM_CHALLENGE_SLIDE_INDEX,
+        is_team_challenge_payload,
+        resolve_team_challenge,
+        staff_team_challenge_prompt_payload,
+        uses_c1_real_slice,
+    )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
 IT_EMAIL_DEFAULT = "solutions@mckenzian.com"
@@ -6212,6 +6229,53 @@ class SchoolDB(LovesDB):
             activate=False,
         )
 
+    def activate_join_minds_on(self, session_id: int) -> dict[str, Any] | None:
+        """Remount the Join C1 prompt when the teacher is on JOIN.
+
+        Used when navigating back to Join so the Question tab and student
+        face keep the Minds-On row instead of a leftover Welcome/Meet
+        prompt.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        desired = minds_on_prompt_payload(
+            self.session_live_slot(session_id),
+            self.session_live_module(session_id),
+        )
+        existing = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=MINDS_ON_SLIDE_INDEX,
+            kind=MINDS_ON_KIND,
+            payload=desired
+            if existing is None
+            else (existing.get("payload") or desired),
+            activate=True,
+        )
+
+    def activate_welcome_c2(
+        self, session_id: int, *, activate: bool = False
+    ) -> dict[str, Any] | None:
+        """Seed the Welcome C2 integer poll after a student submits Join C1.
+
+        Leaves C1 as the class-active prompt unless ``activate`` is true
+        so classmates still on C1 can answer. Welcome (TEAMS) activates
+        C2 for everyone via ``ensure_teams_spark``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            activate: When True, make C2 the session-active prompt.
+        """
+        desired = teams_spark_prompt_payload()
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=TEAMS_SPARK_SLIDE_INDEX,
+            kind=TEAMS_SPARK_KIND,
+            payload=desired,
+            activate=activate,
+        )
+
     def clear_waiting_room_minds_on_for_class(self, class_id: int) -> None:
         """Deactivate Minds-On on the class's active live session, if any.
 
@@ -6248,9 +6312,8 @@ class SchoolDB(LovesDB):
             current = active.get("payload") or {}
             if (
                 current.get("prompt") == desired["prompt"]
-                and current.get("choices") == desired["choices"]
-                and current.get("key") == desired.get("key")
-                and current.get("teacher_key") == desired.get("teacher_key")
+                and current.get("kind") == desired.get("kind")
+                and bool(current.get("integer_only")) == bool(desired.get("integer_only"))
             ):
                 return None
         return self.set_live_session_prompt(
@@ -6571,11 +6634,29 @@ class SchoolDB(LovesDB):
             raise ValueError("participant_uuid or student_id is required")
         with self._lock:
             prompt = self.conn.execute(
-                "SELECT id FROM live_session_prompts WHERE id = ?",
+                "SELECT * FROM live_session_prompts WHERE id = ?",
                 (int(prompt_id),),
             ).fetchone()
         if prompt is None:
             raise KeyError(f"prompt {prompt_id}")
+        prompt_row = self._prompt_row_to_dict(prompt)
+        payload = prompt_row.get("payload") or {}
+        if is_teams_spark_payload(payload) or payload.get("integer_only"):
+            raw_value = (response or {}).get("value")
+            if raw_value is None:
+                raw_value = (response or {}).get("choice")
+            try:
+                number = float(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Enter an integer.") from exc
+            if not number.is_integer():
+                raise ValueError("Enter an integer.")
+            response = dict(response or {})
+            response["value"] = int(number)
+        session_id = int(prompt_row["live_session_id"])
+        questions_mode = self._questions_view_mode(session_id)
+        response = dict(response or {})
+        response["question_view"] = questions_mode
         now = _now()
         body = json.dumps(response or {})
         with self._lock:
@@ -6622,16 +6703,17 @@ class SchoolDB(LovesDB):
             prompt_id, sid, participant_uuid=pid
         )
         if sid is not None:
-            prompt_row = None
-            with self._lock:
-                prompt_row = self.conn.execute(
-                    "SELECT live_session_id FROM live_session_prompts WHERE id = ?",
-                    (int(prompt_id),),
-                ).fetchone()
-            if prompt_row is not None:
-                session_row = self.get_live_session(int(prompt_row["live_session_id"]))
-                if session_row is not None:
-                    self.sync_live_participation_scores(int(session_row["class_id"]))
+            session_row = self.get_live_session(session_id)
+            if session_row is not None:
+                self.sync_live_participation_scores(int(session_row["class_id"]))
+            if is_minds_on_payload(payload):
+                self.activate_welcome_c2(session_id)
+            self._copy_group_question_response(
+                session_id,
+                prompt_id=int(prompt_id),
+                student_id=sid,
+                response=response or {},
+            )
         return result or {}
 
     def list_live_prompt_responses(self, prompt_id: int) -> list[dict[str, Any]]:
@@ -6674,20 +6756,26 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
         """
         self.ensure_waiting_room_minds_on(session_id)
-        prompt = self.get_active_live_prompt(session_id)
-        if prompt is None:
-            return None
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
             teacher = None
         stage = str((teacher or {}).get("stage") or "")
+        prompt = self.get_active_live_prompt(session_id)
+        if stage == "join":
+            join_row = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+            if join_row is not None:
+                prompt = join_row
+        elif stage == "teams":
+            spark = self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
+            if spark is not None:
+                prompt = spark
+        if prompt is None:
+            return None
         if is_minds_on_payload(prompt.get("payload")) and stage not in {
             "join",
             "teams",
         }:
-            return None
-        if is_teams_spark_payload(prompt.get("payload")):
             return None
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
@@ -6697,7 +6785,7 @@ class SchoolDB(LovesDB):
             if prompt_id not in (None, "")
             else []
         )
-        return build_mc_tally(
+        return build_live_tally(
             prompt,
             responses=responses,
             meet_chain=(teacher or {}).get("meet_chain"),
@@ -6806,6 +6894,278 @@ class SchoolDB(LovesDB):
             participants=participants,
         )
 
+    def _student_answered_prompt(
+        self,
+        prompt: dict[str, Any] | None,
+        student_id: int | None,
+        participant_uuid: str,
+    ) -> bool:
+        """True when this student already has a response on ``prompt``.
+
+        Args:
+            prompt: Live-prompt row.
+            student_id: Roster id, if any.
+            participant_uuid: Live-session person key.
+        """
+        if not prompt or prompt.get("id") in (None, ""):
+            return False
+        return (
+            self.get_live_prompt_response(
+                int(prompt["id"]), student_id, participant_uuid=participant_uuid
+            )
+            is not None
+        )
+
+    def _student_stage_prompt(
+        self,
+        session_id: int,
+        *,
+        teacher: dict[str, Any] | None,
+        student_id: int | None,
+        participant_uuid: str,
+    ) -> dict[str, Any] | None:
+        """Pick the student-facing prompt for the current teacher stage.
+
+        Join shows C1 until it is submitted, then C2. Welcome shows C2.
+        Meet keeps the visible chain step.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            teacher: Public teacher state.
+            student_id: Roster id, if any.
+            participant_uuid: Live-session person key.
+        """
+        stage = str((teacher or {}).get("stage") or "")
+        if stage == "meet":
+            return self.get_active_live_prompt(session_id)
+        minds = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+        spark = self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
+        answered_c1 = self._student_answered_prompt(
+            minds, student_id, participant_uuid
+        )
+        active = self.get_active_live_prompt(session_id)
+        if active and is_cons_payload(active.get("payload")):
+            return active
+        slot = str((teacher or {}).get("live_slot") or "C1").upper()
+        if stage == "join":
+            if slot == "C1" and answered_c1:
+                if spark is None:
+                    spark = self.activate_welcome_c2(session_id)
+                return spark or minds
+            return minds or active
+        if stage == "teams":
+            self.ensure_teams_spark(session_id)
+            return (
+                self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
+                or spark
+            )
+        return active
+
+    def _tally_for_prompt(
+        self,
+        session_id: int,
+        prompt: dict[str, Any] | None,
+        teacher: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Tally one prompt row for staff/student graphs.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Prompt row to tally.
+            teacher: Public teacher state.
+        """
+        if not prompt or prompt.get("id") in (None, ""):
+            return None
+        attendees = self.list_live_session_attendees(session_id)
+        present = sum(1 for row in attendees if not row.get("left_at"))
+        return build_live_tally(
+            prompt,
+            responses=self.list_live_prompt_responses(int(prompt["id"])),
+            meet_chain=(teacher or {}).get("meet_chain"),
+            present=present,
+            teacher_state=teacher,
+        )
+
+    def _questions_view_mode(self, session_id: int) -> str:
+        """Return the Questions student-view mode for one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return "student"
+        view = teacher.get("student_view")
+        token = ""
+        if isinstance(view, dict):
+            token = str(view.get("questions") or "").strip().lower()
+        return token if token in {"none", "student", "team"} else "student"
+
+    def _teammate_ids_for_class(self, class_id: int, team_id: int) -> list[int]:
+        """Roster ids on one team, excluding the Class bucket.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            team_id: Assigned team id.
+        """
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001
+            return []
+        out: list[int] = []
+        for team in state.get("teams") or []:
+            try:
+                if int(team.get("id") or 0) != int(team_id):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if str(team.get("name") or "") == "Class":
+                continue
+            for member in team.get("members") or []:
+                try:
+                    out.append(int(member.get("id")))
+                except (TypeError, ValueError):
+                    continue
+        return out
+
+    def _copy_group_question_response(
+        self,
+        session_id: int,
+        *,
+        prompt_id: int,
+        student_id: int,
+        response: dict[str, Any],
+    ) -> None:
+        """Mirror a Shared-within-Group answer onto every teammate.
+
+        Team-shared copies are stamped ``question_view=team`` so they
+        never auto-score participation game points.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id of the student who submitted.
+            response: Submitted answer JSON.
+        """
+        if self._questions_view_mode(session_id) != "team":
+            return
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            return
+        stamped = dict(response or {})
+        stamped["question_view"] = "team"
+        now = _now()
+        body = json.dumps(stamped)
+        for tid in self._teammate_ids_for_class(
+            int(session_row["class_id"]), team_id
+        ):
+            if tid == int(student_id):
+                continue
+            with self._lock:
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM live_session_responses
+                    WHERE prompt_id = ? AND student_id = ?
+                    """,
+                    (int(prompt_id), tid),
+                ).fetchone()
+                if existing is not None:
+                    self.conn.execute(
+                        """
+                        UPDATE live_session_responses
+                        SET response_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (body, now, int(existing["id"])),
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        INSERT INTO live_session_responses (
+                            prompt_id, student_id, participant_uuid,
+                            response_json, awarded_points, created_at, updated_at
+                        ) VALUES (?, ?, NULL, ?, NULL, ?, ?)
+                        """,
+                        (int(prompt_id), tid, body, now, now),
+                    )
+                self.conn.commit()
+
+    def group_question_draft(
+        self,
+        session_id: int,
+        *,
+        prompt_id: int,
+        student_id: int | None,
+    ) -> dict[str, Any] | None:
+        """Return the shared group draft for this student's team, if any.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id.
+        """
+        if student_id in (None, ""):
+            return None
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return None
+        drafts = teacher.get("group_drafts")
+        if not isinstance(drafts, dict):
+            return None
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return None
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            return None
+        row = drafts.get(f"{int(prompt_id)}:{int(team_id)}")
+        return row if isinstance(row, dict) else None
+
+    def set_group_question_draft(
+        self,
+        session_id: int,
+        *,
+        prompt_id: int,
+        student_id: int | None,
+        choice: str,
+    ) -> dict[str, Any] | None:
+        """Store a one-response-per-group draft selection.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            student_id: Roster id of the student who clicked.
+            choice: Selected option text.
+        """
+        if student_id in (None, ""):
+            return None
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return None
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            return None
+        current = self.live_session_teacher_state_payload(session_id)
+        drafts = dict(current.get("group_drafts") or {})
+        drafts[f"{int(prompt_id)}:{int(team_id)}"] = {
+            "choice": str(choice or "").strip(),
+            "by": int(student_id),
+        }
+        current["group_drafts"] = drafts
+        self._write_teacher_state(session_id, current)
+        return drafts[f"{int(prompt_id)}:{int(team_id)}"]
+
     def student_live_prompt_payload(
         self,
         session_id: int,
@@ -6839,28 +7199,33 @@ class SchoolDB(LovesDB):
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
         )
-        prompt = self.get_active_live_prompt(session_id)
-        poll_closed = mc_poll_closed(teacher)
-        shared_tally = self.live_session_mc_tally(session_id)
+        prompt = self._student_stage_prompt(
+            session_id,
+            teacher=teacher,
+            student_id=student_id,
+            participant_uuid=participant_uuid,
+        )
+        poll_closed = False
+        view = (teacher or {}).get("student_view") or {}
+        questions_mode = str(view.get("questions") or "none")
         empty = {
             "prompt": None,
             "my_response": None,
             "waiting_room": waiting_room,
             "poll_closed": poll_closed,
+            "question_view": questions_mode,
         }
-        if shared_tally is not None and student_mc_summary_visible(teacher):
-            empty["mc_tally"] = shared_tally
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
+        if questions_mode == "none":
             return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
-        if is_minds_on_payload(raw_payload) and (
-            not waiting_room or stage not in {"join", "teams"}
-        ):
+        poll_closed = mc_poll_closed(teacher) and is_minds_on_payload(raw_payload)
+        if is_minds_on_payload(raw_payload) and stage not in {"join", "teams"}:
             return empty
-        if is_teams_spark_payload(raw_payload) and stage != "teams":
+        if is_teams_spark_payload(raw_payload) and stage not in {"join", "teams"}:
             return empty
         if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
@@ -6924,6 +7289,7 @@ class SchoolDB(LovesDB):
             "my_response": my_response,
             "waiting_room": waiting_room,
             "poll_closed": poll_closed,
+            "question_view": questions_mode,
             "meet_chip": meet_chip_for(
                 meet_state,
                 meet_participant_key(
@@ -6933,10 +7299,20 @@ class SchoolDB(LovesDB):
             if meet_state is not None
             else None,
         }
+        if stage == "teams":
+            out["game_show_welcome"] = self.student_game_show_welcome(session_id)
+        shared_tally = self._tally_for_prompt(session_id, prompt, teacher)
         if shared_tally is not None and (
             my_response is not None or student_mc_summary_visible(teacher)
         ):
             out["mc_tally"] = shared_tally
+        draft = self.group_question_draft(
+            session_id,
+            prompt_id=int(prompt["id"]),
+            student_id=student_id,
+        )
+        if draft:
+            out["group_draft"] = draft
         return out
 
     def live_session_active_media_payload(
@@ -6951,9 +7327,19 @@ class SchoolDB(LovesDB):
         if session_row is None:
             return None
         stored = session_row.get("active_media")
-        if isinstance(stored, dict):
-            return public_active_media_payload(stored)
-        return None
+        if not isinstance(stored, dict):
+            return None
+        public = public_active_media_payload(stored)
+        if public and is_c1_real_slice(public):
+            cls = self.enrich_class(self.game.get_class(int(session_row["class_id"])))
+            ontario = str(cls.get("ontario_code") or cls.get("course_code") or "")
+            if not uses_c1_real_slice(
+                ontario,
+                self.session_live_module(session_id),
+                self.session_live_slot(session_id),
+            ):
+                return None
+        return public
 
     def set_live_session_active_media(
         self,
@@ -7635,9 +8021,12 @@ class SchoolDB(LovesDB):
         if entering_teams:
             if "cue_id" not in kwargs:
                 payload["cue_id"] = CUE_TEAMS_SPARK
-        if leaving_teams:
-            self.clear_waiting_room_minds_on(session_id)
+        if new_stage == "join" and prev_stage != "join":
+            self.activate_join_minds_on(session_id)
+        if leaving_teams and new_stage != "join":
             self.clear_teams_spark(session_id)
+        if leaving_teams and new_stage not in {"join", "teams"}:
+            self.clear_waiting_room_minds_on(session_id)
         if assign is not None and entering:
             self._assign_teams_for_meet_advance(session_id, assign)
         leaving = prev_stage == "meet" and new_stage != "meet"
@@ -7672,8 +8061,14 @@ class SchoolDB(LovesDB):
             )
         written = self._write_teacher_state(session_id, payload)
         flags = written.get("round_flags") or {}
-        if new_stage == "play" and flags.get("consolidation"):
-            self.mount_consolidation_pack(session_id)
+        posted_round = "round_flags" in kwargs or "round" in kwargs
+        if written.get("stage") == "play" and (
+            new_stage == "play" or posted_round
+        ):
+            if flags.get("consolidation"):
+                self.mount_consolidation_pack(session_id)
+            elif flags.get("action"):
+                self.mount_action_pack(session_id)
         advance = str(kwargs.get("advance") or "").strip().lower()
         if advance == "next" and new_stage and new_stage != prev_stage:
             self.apply_session_timer_on_stage_advance(
@@ -7881,6 +8276,87 @@ class SchoolDB(LovesDB):
             payload=staff_cons_prompt_payload(item),
             activate=True,
         )
+
+    def mount_action_pack(self, session_id: int) -> dict[str, Any] | None:
+        """Mount the course/slot team-challenge on the live prompt channel.
+
+        Play + Action uses the MCF3M M1C1 Real-slice stem, or the Lesson
+        Slides / live-problem contest for every other course and class.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The mounted prompt row, or ``None`` when no stem is resolved.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return None
+        class_id = int(session_row["class_id"])
+        cls = self.enrich_class(self.game.get_class(class_id))
+        ontario = str(cls.get("ontario_code") or cls.get("course_code") or "MCF3M")
+        row = resolve_team_challenge(
+            self,
+            class_id=class_id,
+            ontario_code=ontario,
+            live_module=self.session_live_module(session_id),
+            live_slot=self.session_live_slot(session_id),
+        )
+        prompt_body = staff_team_challenge_prompt_payload(row)
+        if not str(prompt_body.get("prompt") or "").strip():
+            return None
+        media_url = str(row.get("media_url") or "").strip()
+        if media_url:
+            media = self.live_session_active_media_payload(session_id)
+            if not media or str(media.get("url") or "") != media_url:
+                kwargs = {
+                    "url": media_url,
+                    "title": str(row.get("title") or row.get("question") or ""),
+                    "stem": str(row.get("question") or ""),
+                }
+                if row.get("use_real_slice"):
+                    kwargs["challenge"] = "C1"
+                self.set_live_session_active_media(session_id, **kwargs)
+            self._project_action_media(session_id)
+        else:
+            media = self.live_session_active_media_payload(session_id)
+            if media and is_c1_real_slice(media):
+                self.set_live_session_active_media(session_id, clear=True)
+        active = self.get_active_live_prompt(session_id)
+        if (
+            active
+            and is_team_challenge_payload(active.get("payload"))
+            and (active.get("payload") or {}).get("prompt") == prompt_body["prompt"]
+            and (active.get("payload") or {}).get("label") == prompt_body.get("label")
+        ):
+            return active
+        return self.set_live_session_prompt(
+            session_id,
+            slide_index=TEAM_CHALLENGE_SLIDE_INDEX,
+            kind=TEAM_CHALLENGE_KIND,
+            payload=prompt_body,
+            activate=True,
+        )
+
+    def _project_action_media(self, session_id: int) -> None:
+        """Show the team-challenge graph on Play without remounting Action.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        current = self.live_session_teacher_state_payload(session_id)
+        unlocks = dict(current.get("unlocks") or {})
+        unlocks["media"] = True
+        current["unlocks"] = unlocks
+        student_frames = dict(current.get("student_frames") or {})
+        student_frames["questions"] = True
+        student_frames["media"] = True
+        current["student_frames"] = student_frames
+        current["layout_preset"] = "media_questions"
+        current["frames"] = {"A": "media", "B": "questions"}
+        current["active_tab"] = "media"
+        current["state_seq"] = int(current.get("state_seq") or 0) + 1
+        self._write_teacher_state(session_id, current)
 
     def mount_consolidation_pack(self, session_id: int) -> dict[str, Any] | None:
         """Mount CONS-1 for the session live slot without requiring freeze.
@@ -8236,6 +8712,8 @@ class SchoolDB(LovesDB):
 
         Pure Meet A/B/C taps are excluded. Real QH (Minds-On, teams spark,
         CONS items, other non-Meet MC) each keep their own ``item_id``.
+        Team-shared questions are filtered later — this key is only for
+        Student: Individual answers.
 
         Args:
             payload: Prompt payload JSON.
@@ -8271,13 +8749,16 @@ class SchoolDB(LovesDB):
     def participation_question_credits_for_class(
         self, class_id: int
     ) -> dict[int, int]:
-        """Map student id → distinct QH answers this live class (Meet excluded).
+        """Map student id → distinct individual QH answers this live class.
+
+        Meet taps are excluded. Shared-within-Group answers do not
+        auto-score participation game points — only Student: Individual.
 
         Args:
             class_id: Game-show ``classes.id``.
 
         Returns:
-            One count per student who answered any real QH.
+            One count per student who answered a student-individual QH.
         """
         sessions = self.list_live_sessions_for_class(class_id)
         session_ids = [int(row["id"]) for row in sessions]
@@ -8287,7 +8768,8 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 f"""
-                SELECT r.student_id, r.prompt_id, p.kind, p.payload
+                SELECT r.student_id, r.prompt_id, r.response_json,
+                       p.kind, p.payload, p.live_session_id
                 FROM live_session_responses r
                 JOIN live_session_prompts p ON p.id = r.prompt_id
                 WHERE p.live_session_id IN ({placeholders})
@@ -8295,6 +8777,7 @@ class SchoolDB(LovesDB):
                 """,
                 session_ids,
             ).fetchall()
+        session_modes: dict[int, str] = {}
         keys: dict[int, set[str]] = {}
         for row in rows:
             try:
@@ -8303,6 +8786,20 @@ class SchoolDB(LovesDB):
                 payload = {}
             if not isinstance(payload, dict):
                 payload = {}
+            try:
+                answer = json.loads(row["response_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                answer = {}
+            if not isinstance(answer, dict):
+                answer = {}
+            view = str(answer.get("question_view") or "").strip().lower()
+            if view not in {"none", "student", "team"}:
+                live_id = int(row["live_session_id"])
+                if live_id not in session_modes:
+                    session_modes[live_id] = self._questions_view_mode(live_id)
+                view = session_modes[live_id]
+            if view != "student":
+                continue
             key = self._qh_credit_key(payload, str(row["kind"] or ""))
             if key is None:
                 continue
@@ -8638,6 +9135,55 @@ class SchoolDB(LovesDB):
             "grand_total": sum(totals.values()),
         }
 
+    def parse_live_class_feedback_key(self, raw: Any) -> tuple[str, str]:
+        """Split a Feedback column key such as ``M1C1`` into module and slot.
+
+        Args:
+            raw: ``M1C1`` / ``m12c3`` style key.
+
+        Returns:
+            Uppercased ``(module, slot)``.
+
+        Raises:
+            ValueError: Missing or malformed key.
+        """
+        key = str(raw or "").strip().upper()
+        match = re.fullmatch(r"(M\d+)(C\d+)", key)
+        if match is None:
+            raise ValueError("live class is required (e.g. M1C1)")
+        return match.group(1), match.group(2)
+
+    def clear_live_class_feedback(self, class_id: int, live_key: str) -> dict[str, Any]:
+        """Delete How-was-class rows for one live class column.
+
+        Removes submitted and pending rows for that module + slot so the
+        Feedback sheet no longer shows the column.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            live_key: Column key such as ``M1C1``.
+
+        Returns:
+            Updated ``feedback_grid_for_class`` payload plus ``deleted``.
+        """
+        module, slot = self.parse_live_class_feedback_key(live_key)
+        with self._lock:
+            cursor = self.conn.execute(
+                """
+                DELETE FROM live_class_feedback
+                WHERE class_id = ?
+                  AND UPPER(COALESCE(NULLIF(TRIM(live_module), ''), 'M1')) = ?
+                  AND UPPER(COALESCE(NULLIF(TRIM(live_slot), ''), 'C1')) = ?
+                """,
+                (int(class_id), module, slot),
+            )
+            deleted = int(cursor.rowcount or 0)
+            self.conn.commit()
+        grid = self.feedback_grid_for_class(int(class_id))
+        grid["deleted"] = deleted
+        grid["cleared_key"] = f"{module}{slot}"
+        return grid
+
     def session_is_celebrating(self, session_id: int) -> bool:
         """True when End Live Class left the SID up for student celebration."""
         try:
@@ -8841,8 +9387,8 @@ class SchoolDB(LovesDB):
 
         Args:
             class_id: Game-show ``classes.id``.
-            persist: Legacy Quit/Save flag. When set, attendance always
-                saves and participation follows this value.
+            persist: Legacy Quit/Save flag. When set, both attendance
+                and participation follow this value (Quit is ``False``).
             save_attendance: Write the attendance column.
             save_participation: Write +1/question participation.
             celebrate: True for End Live Class; False for Quit. Default
@@ -8852,7 +9398,7 @@ class SchoolDB(LovesDB):
             Celebration payload or wipe payload.
         """
         if persist is not None:
-            save_attendance = True
+            save_attendance = bool(persist)
             save_participation = bool(persist)
         if celebrate is None:
             celebrate = persist is not False
@@ -9107,6 +9653,10 @@ class SchoolDB(LovesDB):
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
             "teams_spark": self.staff_teams_spark_payload(session_id),
+            "join_prompt": self._prompt_at_slide(
+                session_id, int(MINDS_ON_SLIDE_INDEX)
+            ),
+            "active_prompt": self.get_active_live_prompt(session_id),
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),
@@ -9275,6 +9825,7 @@ class SchoolDB(LovesDB):
                 "team_name": None,
                 "team_points": 0,
             },
+            "my_team": None,
             "scoreboard": scoreboard,
         }
 

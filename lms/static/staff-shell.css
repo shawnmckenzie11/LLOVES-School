@@ -738,7 +738,8 @@ body.staff-shell .attendance-grid th.clear-target {
   outline-offset: -2px;
 }
 body.staff-shell #att-clear.on,
-body.staff-shell #part-clear.on {
+body.staff-shell #part-clear.on,
+body.staff-shell #fb-clear.on {
   background: #0f766e;
   color: #ecfeff;
 }
@@ -1571,6 +1572,46 @@ body.staff-shell .live-unlocks-strip {
   gap: 0.4rem 0.65rem;
   min-height: 0;
   max-height: var(--live-options-row-h);
+}
+body.staff-shell .live-student-view-label,
+body.staff-shell .live-teams-settings-label {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--live-ink, #12202e);
+}
+body.staff-shell .live-student-view-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+body.staff-shell .live-student-view-field select {
+  max-width: 12.5rem;
+  min-height: 1.75rem;
+  padding: 0 0.35rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--live-border);
+  border-radius: 6px;
+  background: #fff;
+}
+body.staff-shell .live-question-body {
+  margin: 0.35rem 0 0.6rem;
+}
+body.staff-shell .live-question-stem {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+body.staff-shell .live-question-choices {
+  margin: 0;
+  color: var(--muted, #5b6570);
+  font-size: 0.88rem;
 }
 body.staff-shell .live-canvas-align {
   display: inline-flex;

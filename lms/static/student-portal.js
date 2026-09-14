@@ -70,6 +70,8 @@ let lastFeedbackKey = "";
 let feedbackDismissed = false;
 /** @type {number} */
 let lastStateSeq = -1;
+/** @type {any} */
+let lastStudentPayload = null;
 /** @type {string} */
 let lastSummarySig = "";
 /** @type {number} */
@@ -85,8 +87,8 @@ const TEAMS_SPARK_CUE_COPY = {
 };
 const TEXT_RIDE_CUES = new Set(["cue.freeze", "cue.cons_unlock"]);
 const TEXT_RIDE_CUE_COPY = {
-  "cue.freeze": "Park the wonderings. Leave the blank honest.",
-  "cue.cons_unlock": "Argue’s parked. Time to name what this picture forced.",
+  "cue.freeze": "Pause exploring. Answer from what you already see.",
+  "cue.cons_unlock": "Now say what this graph shows must be true.",
 };
 
 /** Open Question waiting copy shown on the Phone during that round. */
@@ -210,15 +212,33 @@ function paintMe(payload) {
   if (mePointsEl) mePointsEl.textContent = pts(me.points);
   if (meTeamLabelEl) meTeamLabelEl.textContent = String(me.team_name || "Team");
   if (meTeamPointsEl) meTeamPointsEl.textContent = pts(me.team_points);
-  const showRank = Boolean(payload.show_rank && me.rank);
-  if (meRankEl) meRankEl.hidden = !showRank;
-  if (meRankValueEl) meRankValueEl.textContent = showRank ? String(me.rank) : "";
-  if (meRankOfEl) {
-    const of = showRank && me.rank_of ? `/ ${me.rank_of}` : "";
-    meRankOfEl.textContent = of;
-    meRankOfEl.hidden = !of;
-  }
+  if (meRankEl) meRankEl.hidden = true;
   setTabTitle(String(me.codename || ""));
+}
+
+/**
+ * Paint this student's team under the name/points/Save View card.
+ * Names and avatars only — never scores or moods.
+ * @param {any} payload
+ */
+function paintMyTeam(payload) {
+  const list = document.getElementById("me-team-list");
+  if (!list) return;
+  const team = payload && payload.my_team;
+  const members = team && Array.isArray(team.members) ? team.members : [];
+  if (!members.length) {
+    list.innerHTML = "";
+    list.hidden = true;
+    return;
+  }
+  const title = escapeText(team.name || "Your team");
+  list.hidden = false;
+  list.innerHTML = `<p class="me-team-kicker">${title}</p><ul class="me-team-people">${members
+    .map((row) => {
+      const name = row.codename || row.first_name || "Student";
+      return `<li>${nameWithAvatar(name, row.character)}</li>`;
+    })
+    .join("")}</ul>`;
 }
 
 /**
@@ -494,20 +514,30 @@ const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
  */
 function studentProjection(payload) {
   const ts = (payload && payload.teacher_state) || {};
+  const view = ts.student_view || {};
   const frames = ts.student_frames || {};
   const unlocks = ts.unlocks || {};
   const stage = String(ts.stage || "join");
   const seq = Number(ts.state_seq);
-  const liveUnlocks = stage === "round" ? { media: false, canvas: false } : unlocks;
+  const questionsMode = String(
+    view.questions || payload.question_view || (frames.questions === false ? "none" : "student")
+  );
+  const mediaMode = String(view.media || (unlocks.media ? "student" : "none"));
+  const canvasMode = String(view.canvas || (unlocks.canvas ? "student" : "none"));
+  const canvasAlign =
+    canvasMode === "team" ? "team" : canvasMode === "student" ? "student" : "teacher";
   return {
     stage,
     seq: Number.isFinite(seq) ? seq : 0,
-    questions: frames.questions !== false,
-    media: Boolean(liveUnlocks.media),
-    canvas: Boolean(liveUnlocks.canvas),
-    unlockMedia: Boolean(liveUnlocks.media),
-    unlockCanvas: Boolean(liveUnlocks.canvas),
-    canvasAlign: String(ts.canvas_align || "student"),
+    questions: questionsMode !== "none",
+    media: mediaMode !== "none" && stage !== "round",
+    canvas: canvasMode !== "none" && stage !== "round",
+    unlockMedia: mediaMode !== "none",
+    unlockCanvas: canvasMode !== "none",
+    canvasAlign,
+    questionsMode,
+    mediaMode,
+    canvasMode,
   };
 }
 
@@ -620,7 +650,7 @@ function applyTeacherProjection(payload) {
     lastStateSeq = proj.seq;
   }
   if (questionFrame) {
-    questionFrame.hidden = welcomeOn || !proj.questions;
+    questionFrame.hidden = !proj.questions;
   }
   if (welcomeOn) {
     if (mediaPane) {
@@ -691,7 +721,6 @@ function applyLayout(payload) {
   body.classList.toggle("is-waiting-room", waitingRoom && !welcomeOn);
   body.classList.toggle("is-game-show-welcome", welcomeOn);
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
-  if (welcomeOn && questionFrame) questionFrame.hidden = true;
   if (waitEl) {
     // Waiting-room keeps Wonder's line even when the Minds-On question is showing.
     // MEET hides leftover scoring-wait chrome — the Question frame holds the chain.
@@ -1052,7 +1081,10 @@ function isTeamsSparkPrompt(payload) {
  */
 function paintPrompt(payload) {
   if (!promptShell) return;
-  if (payload.game_show_welcome) {
+  const welcomeOnly =
+    Boolean(payload.game_show_welcome) &&
+    !(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
+  if (welcomeOnly) {
     promptShell.hidden = true;
     promptShell.innerHTML = "";
     lastPromptId = null;
@@ -1163,16 +1195,19 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   const title = formatPromptHtml(data.prompt || data.question || "Live response");
   const picked = String(
     (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
+      (payload.group_draft && payload.group_draft.choice) ||
       ""
   ).trim();
   let controls = "";
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
+  const groupQuestion = String(payload.question_view || "") === "team";
+  const groupNote = groupQuestion
+    ? `<p class="prompt-group-note">Note: This is a one-response-per-group question. Make sure you discuss before clicking Submit Answer.</p>`
+    : "";
   if (kind === "mc") {
     const summary = studentMcSummary(payload);
     const closed = studentPollClosed(payload) || lockChoices;
-    if ((isMeet || isJoinMindsOnPrompt({ prompt })) && (picked || lockChoices)) {
-      controls = "";
-    } else if (summary && !picked) {
+    if (summary && !picked && lockChoices) {
       controls = mcRevealBarsHtml(summary);
     } else {
       const choices = Array.isArray(data.choices) ? data.choices : ["A", "B", "C", "D"];
@@ -1181,28 +1216,44 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
           const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
           const on = picked && label === picked ? " is-selected" : "";
           return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
-            picked || closed ? " disabled" : ""
+            picked && lockChoices ? " disabled" : ""
           }>${escapeText(label)}</button>`;
         })
         .join("");
+      if (!lockChoices && !closed) {
+        controls += `<button type="button" class="prompt-submit" id="prompt-mc-submit">Submit Answer</button>`;
+      }
     }
     const sparkLine = String(data.student_feedback_after_reveal || "").trim();
     if (sparkLine && isTeamsSparkPrompt({ prompt })) {
       controls += `<p class="prompt-spark-feedback">${escapeText(sparkLine)}</p>`;
     }
   } else if (kind === "numeric") {
+    const integerOnly = Boolean(data.integer_only) || isTeamsSparkPrompt({ prompt });
+    const prior = payload.my_response && payload.my_response.response;
+    const priorValue =
+      prior && prior.value != null
+        ? String(prior.value)
+        : prior && prior.choice != null
+          ? String(prior.choice)
+          : "";
     controls = `
       <label class="prompt-numeric">
         <span>Your answer</span>
-        <input type="number" inputmode="decimal" id="prompt-numeric-input" ${
-          lockChoices ? "disabled" : ""
-        } />
+        <input type="number" inputmode="${integerOnly ? "numeric" : "decimal"}" step="${
+          integerOnly ? "1" : "any"
+        }" id="prompt-numeric-input" ${lockChoices ? "disabled" : ""} value="${escapeText(priorValue)}" />
       </label>
       <button type="button" class="prompt-submit" id="prompt-numeric-submit"${
         lockChoices ? " disabled" : ""
-      }>Submit</button>
+      }>Submit Answer</button>
     `;
   } else if (kind === "share" || kind === "draw") {
+    const isTeamChallenge =
+      data.ride === "action" || data.item_id === "team-challenge" || data.pack === "team-challenge";
+    if (isTeamChallenge) {
+      controls = "";
+    } else {
     const placeholder = escapeText(data.placeholder || "Type a short note…");
     const shared = escapeText(
       (payload.my_response && payload.my_response.response && payload.my_response.response.text) ||
@@ -1217,13 +1268,15 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
       </label>
       <button type="button" class="prompt-submit" id="prompt-share-submit"${
         lockChoices ? " disabled" : ""
-      }>Share</button>
+      }>Submit Answer</button>
     `;
+    }
   } else {
     controls = `<p class="prompt-idle">Unsupported prompt kind.</p>`;
   }
+  controls = groupNote + controls;
   const itemId = String(data.item_id || "").trim();
-  const label = String(data.label || "").trim();
+  const label = String(data.label || data.title || "").trim();
   const kindLine = label
     ? label
     : itemId
@@ -1249,7 +1302,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   lastPromptId = Number(prompt.id);
   lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
   lastSummarySig = studentSummarySig(payload);
-  if (!picked && !lockChoices && !studentMcSummary(payload) && !studentPollClosed(payload)) {
+  if (!lockChoices && !studentPollClosed(payload)) {
     wirePromptControls(prompt);
   }
 }
@@ -1261,17 +1314,40 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
 function wirePromptControls(prompt) {
   const root = promptShell && promptShell.querySelector(".prompt-controls");
   if (!root) return;
+  const payload = lastStudentPayload || {};
+  const groupQuestion = String(payload.question_view || "") === "team";
+  const data = (prompt && prompt.payload) || {};
+  const integerOnly = Boolean(data.integer_only) || isTeamsSparkPrompt({ prompt });
   root.querySelectorAll(".prompt-choice").forEach((btn) => {
     btn.addEventListener("click", () => {
-      submitResponse(prompt.id, { choice: btn.getAttribute("data-choice") });
+      root.querySelectorAll(".prompt-choice").forEach((other) => {
+        other.classList.toggle("is-selected", other === btn);
+      });
+      const choice = btn.getAttribute("data-choice") || "";
+      if (groupQuestion && choice) {
+        submitResponse(prompt.id, { choice }, { draft: true });
+      }
     });
   });
+  const mcSubmit = root.querySelector("#prompt-mc-submit");
+  if (mcSubmit) {
+    mcSubmit.addEventListener("click", () => {
+      const selected = root.querySelector(".prompt-choice.is-selected");
+      const choice = selected && selected.getAttribute("data-choice");
+      if (!choice) return;
+      submitResponse(prompt.id, { choice });
+    });
+  }
   const numSubmit = root.querySelector("#prompt-numeric-submit");
   if (numSubmit) {
     numSubmit.addEventListener("click", () => {
       const input = root.querySelector("#prompt-numeric-input");
-      const raw = input && "value" in input ? String(input.value) : "";
-      submitResponse(prompt.id, { value: raw === "" ? null : Number(raw) });
+      const raw = input && "value" in input ? String(input.value).trim() : "";
+      if (raw === "") return;
+      const number = Number(raw);
+      if (!Number.isFinite(number)) return;
+      if (integerOnly && !Number.isInteger(number)) return;
+      submitResponse(prompt.id, { value: integerOnly ? Math.trunc(number) : number });
     });
   }
   const shareSubmit = root.querySelector("#prompt-share-submit");
@@ -1485,7 +1561,7 @@ function hideFeedbackPanel() {
  * @param {number} promptId
  * @param {Record<string, unknown>} response
  */
-async function submitResponse(promptId, response) {
+async function submitResponse(promptId, response, { draft = false } = {}) {
   try {
     const res = await fetch(
       "/api/student/live-prompt/response",
@@ -1493,12 +1569,15 @@ async function submitResponse(promptId, response) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ prompt_id: promptId, response }),
+        body: JSON.stringify({ prompt_id: promptId, response, draft }),
       })
     );
     const data = await res.json();
     if (data.redirect) {
       location.href = data.redirect;
+      return;
+    }
+    if (data.ok && data.draft) {
       return;
     }
     if (data.ok && data.ack) {
@@ -1541,11 +1620,8 @@ async function submitResponse(promptId, response) {
         return;
       }
       hideFeedbackPanel();
-      if (promptShell) {
-        promptShell.hidden = true;
-        promptShell.innerHTML = "";
-      }
       showPromptAck(feedbackLine(data));
+      await tick();
     }
   } catch (_err) {
     /* keep UI; next poll retries */
@@ -1750,7 +1826,7 @@ function paintGameShowWelcome(payload) {
     .join("");
   gameShowWelcomeEl.innerHTML = `
     <div class="gs-banner" role="heading" aria-level="1">
-      <p class="gs-kicker">Welcome to</p>
+      <p class="gs-kicker">Welcome to the</p>
       <h2 class="gs-title">${title}</h2>
     </div>
     <p class="gs-subtitle">
@@ -1783,12 +1859,14 @@ async function tick() {
       return;
     }
     const prevSeq = lastStateSeq;
+    lastStudentPayload = data;
     applyTeacherProjection(data);
     applyLayout(data);
     paintGameShowWelcome(data);
     paintStudentCanvas(data);
     paintDisplayTime(data);
     paintMe(data);
+    paintMyTeam(data);
     paintBoard(data);
     maybeScorePops(data);
     paintCelebrate(data);

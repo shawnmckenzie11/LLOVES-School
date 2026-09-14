@@ -38,7 +38,7 @@ DEFAULT_LIVE_MEDIA_TITLE = DEFAULT_LIVE_MEDIA_STEM
 DEFAULT_LIVE_MEDIA_CAPTION = ""
 # Entry chip is on in the iframe (stem text). Do not restore "From this view only".
 DEFAULT_LIVE_MEDIA_CHIP = ""
-DEFAULT_LIVE_MEDIA_LATERAL_CHIP = "This picture was always a slice"
+DEFAULT_LIVE_MEDIA_LATERAL_CHIP = "This graph was always a slice."
 DEFAULT_LIVE_MEDIA_PARAMS: dict[str, float] = {"a": 1.0, "b": 0.0, "c": 0.0}
 PARAM_KEYS: tuple[str, ...] = ("a", "b", "c")
 LAYER_KEYS: tuple[str, ...] = ("L0", "L1", "L2", "L3", "L4")
@@ -60,21 +60,17 @@ ENCORE_LABEL = (
     "Optional encore — Welch Labs · scrub to the out-of-page / lateral beat"
 )
 # Wonder delight toasts (ephemeral student chrome; peels stay in this blob).
-TOAST_REVEAL_AXES = "Same question. New reference."
+TOAST_REVEAL_AXES = "The axes are on. Same question as before."
 TOAST_STUDENT_UNLOCK = (
     "New control — same question. What changes? What doesn’t?"
 )
-TOAST_FREEZE = "Park the wonderings. Leave the blank honest."
-TOAST_CONS_UNLOCK = (
-    "Argue’s parked. Time to name what this picture forced."
-)
-TOAST_CONS_4 = "Feature → claim. That’s the whole move."
+TOAST_FREEZE = "Pause exploring. Answer from what you already see."
+TOAST_CONS_UNLOCK = "Now say what this graph shows must be true."
+TOAST_CONS_4 = "Mark one feature and say what it tells you about a, b, or c."
 TOAST_C2_CONS_UNLOCK = (
-    "Argue’s parked. Name what the point forced — and what’s still free."
+    "Now say what the point tells you — and what you still don’t know."
 )
-TOAST_C3_CONS_UNLOCK = (
-    "Argue’s parked. Defend domain and range from the picture."
-)
+TOAST_C3_CONS_UNLOCK = "Now use the graph to defend the domain and range."
 C1_CONS_PACK_ID = "C1-CONS"
 C2_CONS_PACK_ID = "C2-CONS"
 C3_CONS_PACK_ID = "C3-CONS"
@@ -277,14 +273,14 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
             "kind": "mc",
             "slide_index": C1_CONS_SLIDE_BASE + 1,
             "prompt": (
-                "For this picture, what must be true about a in "
+                "For this graph, what must be true about a in "
                 "y = ax² + bx + c?"
             ),
             "choices": [
                 "a < 0",
                 "a > 0",
                 "a = 0",
-                "Can’t tell from this picture",
+                "Can’t tell from this graph",
             ],
             "key": "B",
             "cement": "opens upward → a > 0",
@@ -296,7 +292,7 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
             "slide_index": C1_CONS_SLIDE_BASE + 2,
             "prompt": (
                 "This parabola meets the y-axis at the origin. "
-                "What does that force about c?"
+                "What must be true about c?"
             ),
             "choices": ["c > 0", "c < 0", "c = 0", "c could be anything"],
             "key": "C",
@@ -309,7 +305,7 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
             "slide_index": C1_CONS_SLIDE_BASE + 3,
             "prompt": (
                 "The vertex sits on the origin and the graph is symmetric "
-                "about the y-axis. What must be true about b for this picture?"
+                "about the y-axis. What must be true about b for this graph?"
             ),
             "choices": [
                 "b > 0",
@@ -326,11 +322,11 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
             "kind": "draw",
             "slide_index": C1_CONS_SLIDE_BASE + 4,
             "prompt": (
-                "Mark one feature on the picture and name the coefficient "
-                "claim it forces."
+                "Mark one feature on the graph and say what it tells you "
+                "about a, b, or c."
             ),
             "share_alt": (
-                "From this picture I know ___ about a / b / c because ___."
+                "From this graph I know ___ about a / b / c because ___."
             ),
             "key": "",
             "cement": "graph feature → coefficient language",
@@ -342,7 +338,7 @@ def c1_cons_catalog() -> list[dict[str, Any]]:
             "slide_index": C1_CONS_SLIDE_BASE + 5,
             "prompt": (
                 "What about a, b, or c (or the quadratic family) do you "
-                "still not know without changing this picture?"
+                "still not know with this graph alone?"
             ),
             "key": "",
             "cement": "still free / unknown without opening C2",
@@ -365,7 +361,7 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             "index": 1,
             "kind": "mc",
             "slide_index": C2_CONS_SLIDE_BASE + 1,
-            "prompt": "Is h forced to be 2?",
+            "prompt": "Must h equal 2?",
             "choices": ["Yes", "No", "Not sure"],
             "key": "B",
             "cement": "point ties parameters — h is not frozen alone",
@@ -376,7 +372,7 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             "index": 2,
             "kind": "share",
             "slide_index": C2_CONS_SLIDE_BASE + 2,
-            "prompt": "In one sentence: what does (2,5) force?",
+            "prompt": "What does the point (2,5) tell you must be true?",
             "key": "",
             "cement": "relation among a, h, k — not one frozen parameter",
             "chips": ["A2.5"],
@@ -387,7 +383,7 @@ def c2_cons_catalog() -> list[dict[str, Any]]:
             "kind": "share",
             "slide_index": C2_CONS_SLIDE_BASE + 3,
             "prompt": (
-                "Give one more equation through (2,5) not on your freeze list."
+                "Give one more equation through (2,5) different from the ones you already have."
             ),
             "key": "",
             "cement": "family awareness — another writing through the point",

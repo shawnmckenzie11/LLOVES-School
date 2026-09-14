@@ -202,13 +202,11 @@ class LiveMcApiTests(unittest.TestCase):
         self.assertTrue(ui["poll_closed"])
         self.assertIsNone(shown.get_json()["teacher_state"].get("cue_id"))
         student_after = self.student.get("/api/student/state").get_json()
-        shared = student_after.get("mc_tally")
-        self.assertIsNotNone(shared)
-        self.assertEqual(shared["prompt_ref"], "minds_on")
-        self.assertEqual(shared["responded"], 1)
-        self.assertEqual(shared["choices"][0]["count"], 1)
-        self.assertEqual(shared["choices"][0]["pct"], 100)
-        self.assertTrue(student_after.get("poll_closed"))
+        self.assertEqual(
+            (student_after.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
+        )
+        self.assertFalse(student_after.get("poll_closed"))
         self.assertTrue(
             (student_after.get("teacher_state") or {})
             .get("mc_ui", {})
@@ -229,7 +227,7 @@ class LiveMcApiTests(unittest.TestCase):
         """CONS-1 (not Minds-On) fills the same staff mc_tally shape."""
         self.staff.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
-            json={"stage": "play"},
+            json={"stage": "play", "student_view": {"questions": "student"}},
         )
         self.staff.post(
             f"/api/live-sessions/{self.session_id}/active-media",
