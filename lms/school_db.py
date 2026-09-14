@@ -8289,15 +8289,15 @@ class SchoolDB(LovesDB):
             }
         return idle
 
-    SESSION_TIMER_STAGE_PRESETS = {"meet": 3, "play": 5}
+    SESSION_TIMER_STAGE_PRESETS: dict[str, int] = {}
 
     def apply_session_timer_on_stage_advance(
         self, class_id: int, new_stage: str
     ) -> dict[str, Any] | None:
-        """Stop the running SessionTimer, then start the destination preset.
+        """Stop the running SessionTimer when the teacher changes stage.
 
-        MEET presets 3 minutes and PLAY presets 5. JOIN, TEAMS, and
-        ROUND have no preset and stay idle after the stop.
+        Every stage now exposes the same opt-in Timer controls. No stage starts
+        a countdown until the teacher checks Timer and clicks Start.
 
         Args:
             class_id: Game-show ``classes.id``.

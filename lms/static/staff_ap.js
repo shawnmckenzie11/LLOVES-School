@@ -892,7 +892,7 @@ function paintLiveQuestionCards() {
               <option value="student" ${selected === "student" ? "selected" : ""}>Student: Individual</option>
             </select>
           </label>
-          <button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(card.text)}" ${promptId ? "" : "disabled"}>
+          <button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(card.text)}" data-question-type="${escapeHtml(card.type || "poll")}" ${promptId ? "" : "disabled"}>
             View responses <span>${Number(card.response_count) || 0}</span>
           </button>
         </div>
@@ -973,8 +973,9 @@ function paintQuestionResponses(responses) {
  * Fetch and open the ephemeral response viewer for one prompt.
  * @param {number} promptId
  * @param {string} title
+ * @param {string} questionType
  */
-async function openQuestionResponses(promptId, title) {
+async function openQuestionResponses(promptId, title, questionType) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !promptId) return;
   const result = await api(
@@ -985,6 +986,12 @@ async function openQuestionResponses(promptId, title) {
   if (heading) heading.textContent = title || "Responses";
   paintQuestionResponses(result.responses);
   const dialog = $("live-responses-dialog");
+  const correct = dialog?.querySelector('[data-response-award="correct"]');
+  if (correct instanceof HTMLButtonElement) {
+    correct.disabled = questionType !== "mc";
+    correct.title =
+      questionType === "mc" ? "" : "Polls and numeric questions have no answer key.";
+  }
   if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
 }
 
@@ -1728,6 +1735,22 @@ function usesMcr3uM1C1Media() {
  * @returns {{url: string, title: string, stem: string} | null}
  */
 function liveClassSeedMedia() {
+  const configured = lastLiveMetadata?.media;
+  const configuredUrl = String(configured?.file || "").trim();
+  if (configuredUrl) {
+    if (configuredUrl === SEED_MEDIA_URL) {
+      return { url: SEED_MEDIA_URL, title: SEED_MEDIA_TITLE, stem: SEED_MEDIA_STEM };
+    }
+    if (configuredUrl === MCR3U_M1C1_MEDIA_URL) {
+      return {
+        url: MCR3U_M1C1_MEDIA_URL,
+        title: MCR3U_M1C1_MEDIA_TITLE,
+        stem: MCR3U_M1C1_MEDIA_STEM,
+      };
+    }
+    const title = String(configured.title || "Live class media").trim();
+    return { url: configuredUrl, title, stem: title };
+  }
   if (usesC1RealSlice()) {
     return { url: SEED_MEDIA_URL, title: SEED_MEDIA_TITLE, stem: SEED_MEDIA_STEM };
   }
@@ -4942,7 +4965,8 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   try {
     await openQuestionResponses(
       Number(button.dataset.viewResponses) || 0,
-      button.dataset.questionTitle || "Responses"
+      button.dataset.questionTitle || "Responses",
+      button.dataset.questionType || "poll"
     );
   } catch (err) {
     showError("#ap-overlay-error", err);

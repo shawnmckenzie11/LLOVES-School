@@ -102,7 +102,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-view-media"', html)
         self.assertIn('id="live-view-canvas"', html)
         self.assertIn('id="live-view-slides"', html)
-        self.assertIn('data-question-view=', html)
+        self.assertIn('id="live-question-list"', html)
         self.assertIn("Minds-On", html)
         self.assertIn("Consolidation", html)
         self.assertIn(">SET<", html)
@@ -605,7 +605,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-view-canvas"', html)
         self.assertIn('id="live-view-slides"', html)
         self.assertNotIn('id="live-view-questions"', html)
-        self.assertIn('data-question-view=', html)
+        self.assertIn('id="live-question-list"', html)
+        self.assertIn("data-question-view", js)
         self.assertNotIn('id="live-canvas-align"', html)
         self.assertIn("None: Teacher View Only", html)
         self.assertIn("Student: Individual", html)
@@ -1252,8 +1253,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function saveStudentWork()", js)
         self.assertNotIn("meEl.innerHTML", js.replace("gameShowWelcomeEl.innerHTML", ""))
 
-    def test_beat21_next_stops_timer_and_applies_stage_preset(self) -> None:
-        """Beat 21: Next stops a running timer; MEET/PLAY presets; else idle."""
+    def test_beat21_next_stops_timer_without_auto_starting_next_stage(self) -> None:
+        """Beat 21: Next stops timers; every destination remains opt-in."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
@@ -1293,11 +1294,11 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(meet.get_json()["teacher_state"]["stage"], "meet")
         meet_game = (meet.get_json().get("game") or {}).get("game") or {}
-        self.assertTrue(meet_game.get("round_ends_at_ms"))
-        self.assertGreaterEqual(int(meet_game.get("round_remaining_sec") or 0), 170)
-        self.assertLessEqual(int(meet_game.get("round_remaining_sec") or 0), 180)
+        self.assertFalse(meet_game.get("round_ends_at_ms"))
+        self.assertFalse(meet_game.get("timer_paused"))
         display_meet = self.school.live_session_display_time(self.class_id)
-        self.assertTrue(display_meet["running"])
+        self.assertFalse(display_meet["running"])
+        self.assertFalse(display_meet["paused"])
         rnd = self.client.post(
             f"/api/live-sessions/{sid}/teacher-state",
             json={"advance": "next"},
@@ -1311,9 +1312,8 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(play.get_json()["teacher_state"]["stage"], "play")
         play_game = (play.get_json().get("game") or {}).get("game") or {}
-        self.assertTrue(play_game.get("round_ends_at_ms"))
-        self.assertGreaterEqual(int(play_game.get("round_remaining_sec") or 0), 290)
-        self.assertLessEqual(int(play_game.get("round_remaining_sec") or 0), 300)
+        self.assertFalse(play_game.get("round_ends_at_ms"))
+        self.assertFalse(play_game.get("timer_paused"))
 
     def _aspen_id(self) -> int:
         """Roster id for the seeded Aspen student."""
