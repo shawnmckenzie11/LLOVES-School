@@ -141,7 +141,11 @@ class LiveClassSlidesTests(unittest.TestCase):
 
         registry = live_class_registry("MCR3U")
         self.assertEqual(registry["slots_by_module"]["M1"], ["C1", "C2", "C3", "C4"])
-        packs = {row["slot"]: row for row in registry["packs"]}
+        packs = {
+            row["slot"]: row
+            for row in registry["packs"]
+            if row["module"] == "M1"
+        }
         self.assertTrue(packs["C1"]["metadata_path"].endswith("MCR3U/M1/C1.json"))
 
     def test_timeline_lesson_key_and_slide_bodies(self) -> None:
