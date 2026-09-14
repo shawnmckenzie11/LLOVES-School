@@ -12,6 +12,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from live_class_metadata import metadata_root
+except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.live_class_metadata import metadata_root
+
 DEFAULT_LIVE_MODULE = "M1"
 DEFAULT_COURSE = "MCF3M"
 MODULE_RE = re.compile(r"^M\d+$")
@@ -82,51 +87,39 @@ def minds_on_brief_relpath(course: str, module: str, slot: str) -> str:
 
 
 def live_class_registry(course: Any = None) -> dict[str, Any]:
-    """Discover modules and live-class slots from catalogue briefs.
+    """Discover modules and four live-class slots from LMS metadata files.
 
     Args:
         course: Ontario code to filter. Empty uses MCF3M.
 
     Returns:
-        ``{course, modules, slots_by_module, packs}``. Interim: MCF3M
-        lists M1 → C1/C2/C3 when those briefs exist.
+        ``{course, modules, slots_by_module, packs}``.
     """
     code = normalize_course_code(course)
-    root = briefs_root()
+    root = metadata_root() / code
     found: dict[tuple[str, str], dict[str, Any]] = {}
     if root.is_dir():
-        for path in root.rglob("*.md"):
-            match = STEM_NAME.fullmatch(path.name) or MINDS_ON_NAME.fullmatch(
-                path.name
-            )
-            if match is None:
+        for path in root.glob("M*/C*.json"):
+            module = path.parent.name
+            slot = path.stem
+            if not MODULE_RE.fullmatch(module) or not SLOT_RE.fullmatch(slot):
                 continue
-            if match.group("course") != code:
-                continue
-            module = match.group("module")
-            slot = match.group("slot")
             key = (module, slot)
-            row = found.setdefault(
-                key,
-                {
-                    "course": code,
-                    "module": module,
-                    "slot": slot,
-                    "stem_path": "",
-                    "minds_on_path": "",
-                },
-            )
-            rel = str(path.relative_to(_repo_root() / "content-builder"))
-            if STEM_NAME.fullmatch(path.name):
-                row["stem_path"] = rel
-            else:
-                row["minds_on_path"] = rel
+            found[key] = {
+                "course": code,
+                "module": module,
+                "slot": slot,
+                "metadata_path": str(path.relative_to(_repo_root())),
+                "stem_path": "",
+                "minds_on_path": minds_on_brief_relpath(code, module, slot),
+            }
     if not found and code == DEFAULT_COURSE:
-        for slot in ("C1", "C2", "C3"):
+        for slot in ("C1", "C2", "C3", "C4"):
             found[("M1", slot)] = {
                 "course": code,
                 "module": "M1",
                 "slot": slot,
+                "metadata_path": "",
                 "stem_path": "",
                 "minds_on_path": minds_on_brief_relpath(code, "M1", slot),
             }
@@ -139,7 +132,7 @@ def live_class_registry(course: Any = None) -> dict[str, Any]:
         "course": code,
         "modules": modules or [DEFAULT_LIVE_MODULE],
         "slots_by_module": slots_by_module
-        or {DEFAULT_LIVE_MODULE: ["C1", "C2", "C3"]},
+        or {DEFAULT_LIVE_MODULE: ["C1", "C2", "C3", "C4"]},
         "packs": packs,
-        "interim": True,
+        "interim": False,
     }

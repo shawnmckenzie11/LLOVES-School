@@ -36,16 +36,16 @@ MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
 MEET_WONDER_CUES: tuple[str, ...] = (CUE_MEET_OPEN, CUE_MEET_CLEAR)
 ROUNDS: tuple[str, ...] = ("minds_on", "action", "consolidation")
 TEAMS_MODES: tuple[str, ...] = ("teams", "individual")
-TABS: tuple[str, ...] = ("media", "questions", "canvas_slides")
-CONTENT_IDS: tuple[str, ...] = ("media", "questions", "canvas_slides")
+TABS: tuple[str, ...] = ("media", "questions", "canvas", "slides")
+CONTENT_IDS: tuple[str, ...] = ("media", "questions", "canvas", "slides")
 FRAME_KEYS: tuple[str, ...] = ("A", "B", "C")
-STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas")
-UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
-STUDENT_VIEW_KEYS: tuple[str, ...] = ("media", "canvas", "questions")
+STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas", "slides")
+UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas", "slides")
+STUDENT_VIEW_KEYS: tuple[str, ...] = ("media", "canvas", "slides", "questions")
 VIEW_MODES: tuple[str, ...] = ("none", "student", "team")
 QUESTION_STUDENT_STAGES: frozenset[str] = frozenset({"join", "teams", "meet"})
 MINDS_ON_PROMPT_REF = "minds_on"
-LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3")
+LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3", "C4")
 DEFAULT_LIVE_SLOT = "C1"
 DEFAULT_LIVE_MODULE = "M1"
 CUE_FREEZE = "cue.freeze"
@@ -55,9 +55,8 @@ TEXT_RIDE_CUES: tuple[str, ...] = (CUE_FREEZE, CUE_CONS_UNLOCK)
 LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "media_full": {"A": "media"},
     "questions_full": {"A": "questions"},
-    "media_questions": {"A": "media", "B": "questions"},
-    "three_up": {"A": "media", "B": "questions", "C": "canvas_slides"},
-    "canvas_media": {"A": "canvas_slides", "B": "media"},
+    "canvas_full": {"A": "canvas"},
+    "slides_full": {"A": "slides"},
 }
 
 DEFAULT_LAYOUT_PRESET = "questions_full"
@@ -84,7 +83,12 @@ def default_student_view(stage: str | None = None) -> dict[str, str]:
     """
     name = stage if stage in STAGES else "join"
     questions = "student" if name in QUESTION_STUDENT_STAGES else "none"
-    return {"media": "none", "canvas": "none", "questions": questions}
+    return {
+        "media": "none",
+        "canvas": "none",
+        "slides": "none",
+        "questions": questions,
+    }
 
 
 def normalize_view_mode(raw: Any, *, fallback: str = "none") -> str:
@@ -121,12 +125,13 @@ def default_student_frames(stage: str | None = None) -> dict[str, bool]:
         "questions": view["questions"] != "none",
         "media": view["media"] != "none",
         "canvas": view["canvas"] != "none",
+        "slides": view["slides"] != "none",
     }
 
 
 def default_unlocks() -> dict[str, bool]:
-    """Return locked media/canvas unlock flags."""
-    return {"media": False, "canvas": False}
+    """Return locked media/canvas/slides unlock flags."""
+    return {"media": False, "canvas": False, "slides": False}
 
 
 def unlocks_from_student_view(view: dict[str, str] | None) -> dict[str, bool]:
@@ -139,6 +144,7 @@ def unlocks_from_student_view(view: dict[str, str] | None) -> dict[str, bool]:
     return {
         "media": str(body.get("media") or "none") != "none",
         "canvas": str(body.get("canvas") or "none") != "none",
+        "slides": str(body.get("slides") or "none") != "none",
     }
 
 
@@ -169,6 +175,12 @@ def default_text_ride() -> dict[str, Any]:
         "toast": "",
         "toast_key": "",
     }
+
+
+def default_question_views() -> dict[str, str]:
+    """Return an empty per-question student-visibility map."""
+
+    return {}
 
 
 def default_teacher_state() -> dict[str, Any]:
@@ -205,6 +217,7 @@ def default_teacher_state() -> dict[str, Any]:
         "live_slot": DEFAULT_LIVE_SLOT,
         "live_module": DEFAULT_LIVE_MODULE,
         "text_ride": default_text_ride(),
+        "question_views": default_question_views(),
     }
 
 
@@ -280,7 +293,24 @@ def _clean_student_view(raw: Any, *, stage: str | None = None) -> dict[str, str]
     for key in STUDENT_VIEW_KEYS:
         if key in raw:
             base[key] = normalize_view_mode(raw.get(key), fallback=base[key])
+    base["questions"] = (
+        "student" if base.get("questions") == "student" else "none"
+    )
     return base
+
+
+def _clean_question_views(raw: Any) -> dict[str, str]:
+    """Keep short question ids mapped to teacher-only or individual view."""
+
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, str] = {}
+    for key, value in list(raw.items())[:100]:
+        question_id = str(key or "").strip()[:120]
+        if not question_id:
+            continue
+        cleaned[question_id] = "student" if value == "student" else "none"
+    return cleaned
 
 
 def student_view_from_legacy(
@@ -313,6 +343,8 @@ def student_view_from_legacy(
             view["canvas"] = "none"
         else:
             view["canvas"] = "student"
+    if "slides" in flags:
+        view["slides"] = "student" if flags.get("slides") else "none"
     if "questions" in frames:
         view["questions"] = "student" if frames.get("questions") else "none"
     return view
@@ -345,6 +377,7 @@ def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
     if stage == "round":
         view["media"] = "none"
         view["canvas"] = "none"
+        view["slides"] = "none"
     state["student_view"] = view
     state["unlocks"] = unlocks_from_student_view(view)
     state["canvas_align"] = canvas_align_from_view(view["canvas"])
@@ -352,6 +385,7 @@ def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
         "questions": view["questions"] != "none",
         "media": view["media"] != "none",
         "canvas": view["canvas"] != "none",
+        "slides": view["slides"] != "none",
     }
     return state
 
@@ -853,6 +887,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
         base["text_ride"] = default_text_ride()
+    if "question_views" in stored:
+        base["question_views"] = _clean_question_views(stored.get("question_views"))
     if base["stage"] == "meet":
         bind_meet_student_projection(base)
     drafts = _clean_group_drafts(stored.get("group_drafts"))
@@ -902,6 +938,7 @@ def apply_teacher_state_update(
     live_slot: Any = None,
     live_module: Any = None,
     text_ride: Any = None,
+    question_views: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -935,10 +972,11 @@ def apply_teacher_state_update(
             poll_closed}``. Reveal toggles bump ``state_seq``. JOIN
             Reveal commits ``reveal_to_students`` and closes the poll.
             Empty clears the blob.
-        live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
+        live_slot: ``C1`` / ``C2`` / ``C3`` / ``C4``.
         live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
+        question_views: Per-question ``none`` / ``student`` visibility map.
 
     Returns:
         Updated public state.
@@ -997,13 +1035,19 @@ def apply_teacher_state_update(
     if frames is not None and not preset_applied:
         cleaned = _clean_frames(frames)
         if not cleaned:
-            raise ValueError("frames must map A/B/C to media, questions, or canvas_slides")
+            raise ValueError(
+                "frames must map A/B/C to media, questions, canvas, or slides"
+            )
         base["frames"] = cleaned
     if active_tab is not None:
         tab = str(active_tab).strip()
         if tab not in TABS:
             raise ValueError(f"unknown active_tab: {tab}")
         base["active_tab"] = tab
+    if question_views is not None:
+        if not isinstance(question_views, dict):
+            raise ValueError("question_views must be an object")
+        base["question_views"] = _clean_question_views(question_views)
     if active_media_ref is not None:
         base["active_media_ref"] = _clean_ref(active_media_ref)
     if prompt_ref is not None:

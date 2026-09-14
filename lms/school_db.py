@@ -35,6 +35,10 @@ try:
         public_canvas_sync,
     )
     from live_mc import build_live_tally, build_mc_tally
+    from live_class_metadata import (
+        load_live_class_metadata,
+        questions_for_stage,
+    )
     from live_teacher_state import (
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
@@ -51,6 +55,7 @@ try:
         unlocks_from_student_view,
     )
     from live_prompt_feedback import (
+        choice_letter,
         public_feedback_fragment,
         strip_teacher_prompt_fields,
     )
@@ -119,6 +124,10 @@ except ImportError:  # ``python3 lms/app.py`` package import
         public_canvas_sync,
     )
     from lms.live_mc import build_live_tally, build_mc_tally
+    from lms.live_class_metadata import (
+        load_live_class_metadata,
+        questions_for_stage,
+    )
     from lms.live_teacher_state import (
         CUE_CONS_UNLOCK,
         CUE_FREEZE,
@@ -135,6 +144,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         unlocks_from_student_view,
     )
     from lms.live_prompt_feedback import (
+        choice_letter,
         public_feedback_fragment,
         strip_teacher_prompt_fields,
     )
@@ -6777,7 +6787,11 @@ class SchoolDB(LovesDB):
             raise KeyError(f"prompt {prompt_id}")
         prompt_row = self._prompt_row_to_dict(prompt)
         payload = prompt_row.get("payload") or {}
-        if is_teams_spark_payload(payload) or payload.get("integer_only"):
+        if (
+            str(prompt_row.get("kind") or "").strip().lower() == "numeric"
+            or is_teams_spark_payload(payload)
+            or payload.get("integer_only")
+        ):
             raw_value = (response or {}).get("value")
             if raw_value is None:
                 raw_value = (response or {}).get("choice")
@@ -6878,6 +6892,424 @@ class SchoolDB(LovesDB):
             payload["response"] = parsed if isinstance(parsed, dict) else {}
             out.append(payload)
         return out
+
+    def _list_live_session_prompts(self, session_id: int) -> list[dict[str, Any]]:
+        """Return every prompt row for one live session in slide order."""
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_session_prompts
+                WHERE live_session_id = ?
+                ORDER BY slide_index ASC, id ASC
+                """,
+                (int(session_id),),
+            ).fetchall()
+        return [self._prompt_row_to_dict(row) for row in rows]
+
+    @staticmethod
+    def _live_question_type(kind: Any, payload: Any) -> str:
+        """Classify a runtime prompt as poll, keyed MC, or numeric."""
+
+        body = payload if isinstance(payload, dict) else {}
+        token = str(kind or body.get("kind") or "").strip().lower()
+        if token == "numeric" or body.get("integer_only"):
+            return "numeric"
+        key = str(
+            body.get("key")
+            or body.get("correct_answer")
+            or ((body.get("correct_ids") or [""])[0])
+        ).strip()
+        return "mc" if key else "poll"
+
+    def live_class_metadata_for_session(self, session_id: int) -> dict[str, Any]:
+        """Return file-backed metadata selected by this live session."""
+
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        class_row = self.game.get_class(int(session_row["class_id"]))
+        teacher = self.live_session_teacher_state_payload(session_id)
+        return load_live_class_metadata(
+            class_row.get("course_code"),
+            teacher.get("live_module"),
+            teacher.get("live_slot"),
+        )
+
+    def student_live_class_metadata_for_session(
+        self, session_id: int
+    ) -> dict[str, Any]:
+        """Return live metadata with teacher-only answer keys removed."""
+
+        metadata = self.live_class_metadata_for_session(session_id)
+        questions = []
+        for row in metadata.get("questions") or []:
+            if not isinstance(row, dict):
+                continue
+            question = dict(row)
+            question.pop("correct_answer", None)
+            questions.append(question)
+        return {**metadata, "questions": questions}
+
+    def live_session_question_cards(self, session_id: int) -> list[dict[str, Any]]:
+        """Return ordered teacher cards for questions associated with the stage."""
+
+        teacher = self.live_session_teacher_state_payload(session_id)
+        stage = str(teacher.get("stage") or "join")
+        metadata = self.live_class_metadata_for_session(session_id)
+        prompt_rows = self._list_live_session_prompts(session_id)
+        by_item: dict[str, dict[str, Any]] = {}
+        for prompt in prompt_rows:
+            payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+            item_id = str(
+                payload.get("item_id")
+                or payload.get("pack")
+                or f"prompt-{prompt.get('id')}"
+            ).strip()
+            if item_id:
+                by_item[item_id] = prompt
+        question_views = (
+            teacher.get("question_views")
+            if isinstance(teacher.get("question_views"), dict)
+            else {}
+        )
+        cards: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for question in questions_for_stage(metadata, stage):
+            question_id = str(question.get("id") or "").strip()
+            prompt = by_item.get(question_id)
+            payload = prompt.get("payload") if isinstance(prompt, dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            options = payload.get("choices") or question.get("options") or []
+            key = str(
+                payload.get("key")
+                or payload.get("correct_answer")
+                or question.get("correct_answer")
+                or ""
+            ).strip()
+            kind = self._live_question_type(
+                (prompt or {}).get("kind") or question.get("type"),
+                {**question, **payload, "key": key},
+            )
+            visibility = question_views.get(question_id)
+            if visibility not in {"none", "student"}:
+                visibility = (
+                    "student" if question.get("default_visibility") else "none"
+                )
+            prompt_id = (prompt or {}).get("id")
+            responses = (
+                self.list_live_prompt_responses(int(prompt_id))
+                if prompt_id not in (None, "")
+                else []
+            )
+            cards.append(
+                {
+                    **question,
+                    "id": question_id,
+                    "type": kind,
+                    "text": str(
+                        payload.get("prompt")
+                        or payload.get("question")
+                        or question.get("text")
+                        or ""
+                    ).strip(),
+                    "options": [str(item) for item in options],
+                    "correct_answer": key or None,
+                    "prompt_id": int(prompt_id)
+                    if prompt_id not in (None, "")
+                    else None,
+                    "student_view": visibility,
+                    "active": bool((prompt or {}).get("active")),
+                    "response_count": len(responses),
+                }
+            )
+            seen.add(question_id)
+        for prompt in prompt_rows:
+            payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            prompt_stage = "meet" if is_meet_team_payload(payload) else stage
+            if stage == "join" and not (
+                is_minds_on_payload(payload) or is_teams_spark_payload(payload)
+            ):
+                continue
+            if stage == "teams" and not is_teams_spark_payload(payload):
+                continue
+            if stage == "meet" and prompt_stage != "meet":
+                continue
+            if stage in {"round", "play"} and not prompt.get("active"):
+                continue
+            question_id = str(
+                payload.get("item_id")
+                or payload.get("pack")
+                or f"prompt-{prompt.get('id')}"
+            ).strip()
+            if not question_id or question_id in seen:
+                continue
+            choices = payload.get("choices") or []
+            key = str(
+                payload.get("key")
+                or payload.get("correct_answer")
+                or ((payload.get("correct_ids") or [""])[0])
+            ).strip()
+            mode = question_views.get(question_id)
+            if mode not in {"none", "student"}:
+                mode = (
+                    "student"
+                    if prompt.get("active")
+                    and (teacher.get("student_view") or {}).get("questions")
+                    == "student"
+                    else "none"
+                )
+            responses = self.list_live_prompt_responses(int(prompt["id"]))
+            cards.append(
+                {
+                    "id": question_id,
+                    "stage": stage,
+                    "type": self._live_question_type(
+                        prompt.get("kind"), {**payload, "key": key}
+                    ),
+                    "text": str(
+                        payload.get("prompt") or payload.get("question") or ""
+                    ).strip(),
+                    "options": [str(item) for item in choices],
+                    "correct_answer": key or None,
+                    "page_number": payload.get("page_number"),
+                    "order": len(cards) + 1,
+                    "default_visibility": False,
+                    "prompt_id": int(prompt["id"]),
+                    "student_view": mode,
+                    "active": bool(prompt.get("active")),
+                    "response_count": len(responses),
+                }
+            )
+            seen.add(question_id)
+        cards.sort(key=lambda row: (int(row.get("order") or 0), str(row["id"])))
+        return cards
+
+    def set_live_question_visibility(
+        self,
+        session_id: int,
+        question_id: str,
+        mode: str,
+    ) -> dict[str, Any]:
+        """Set one question teacher-only or immediately activate it for students."""
+
+        wanted = "student" if str(mode or "").strip() == "student" else "none"
+        key = str(question_id or "").strip()
+        if not key:
+            raise ValueError("question_id is required")
+        cards = self.live_session_question_cards(session_id)
+        card = next((row for row in cards if row.get("id") == key), None)
+        if card is None:
+            raise KeyError(f"live question {key}")
+        prompt_id = card.get("prompt_id")
+        if wanted == "student":
+            if prompt_id not in (None, ""):
+                prompt = next(
+                    row
+                    for row in self._list_live_session_prompts(session_id)
+                    if int(row["id"]) == int(prompt_id)
+                )
+                self.set_live_session_prompt(
+                    session_id,
+                    slide_index=int(prompt["slide_index"]),
+                    kind=str(prompt.get("kind") or "mc"),
+                    payload=prompt.get("payload") or {},
+                    activate=True,
+                )
+            else:
+                payload = {
+                    "item_id": key,
+                    "pack": "live-metadata",
+                    "prompt": card.get("text"),
+                    "kind": "numeric"
+                    if card.get("type") == "numeric"
+                    else "mc",
+                    "choices": card.get("options") or [],
+                    "integer_only": card.get("type") == "numeric",
+                    "key": card.get("correct_answer"),
+                    "page_number": card.get("page_number"),
+                    "ephemeral": True,
+                }
+                stage_index = ("join", "teams", "meet", "round", "play").index(
+                    str(card.get("stage") or "round")
+                )
+                prompt = self.set_live_session_prompt(
+                    session_id,
+                    slide_index=9000
+                    + stage_index * 100
+                    + int(card.get("order") or 1),
+                    kind=str(payload["kind"]),
+                    payload=payload,
+                    activate=True,
+                )
+                prompt_id = prompt.get("id")
+        current = self.live_session_teacher_state_payload(session_id)
+        views = {
+            str(row.get("id")): "none"
+            for row in cards
+            if str(row.get("id") or "").strip()
+        }
+        views[key] = wanted
+        student_view = dict(current.get("student_view") or {})
+        student_view["questions"] = wanted
+        next_state = apply_teacher_state_update(
+            current,
+            question_views=views,
+            student_view=student_view,
+            prompt_ref=key,
+        )
+        written = self._write_teacher_state(session_id, next_state)
+        return {
+            "teacher_state": written,
+            "question_cards": self.live_session_question_cards(session_id),
+            "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
+        }
+
+    def live_prompt_response_roster(
+        self, session_id: int, prompt_id: int
+    ) -> list[dict[str, Any]]:
+        """Return ephemeral named responses for the active staff session."""
+
+        prompt = next(
+            (
+                row
+                for row in self._list_live_session_prompts(session_id)
+                if int(row["id"]) == int(prompt_id)
+            ),
+            None,
+        )
+        if prompt is None:
+            raise KeyError(f"prompt {prompt_id}")
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        class_id = int(session_row["class_id"])
+        with self.game._lock:
+            students = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    "SELECT * FROM students WHERE class_id = ?",
+                    (class_id,),
+                )
+            ]
+        student_map = {int(row["id"]): row for row in students}
+        attendees = self.list_live_session_attendees(session_id)
+        guest_map = {
+            str(row.get("participant_uuid") or ""): row
+            for row in attendees
+            if row.get("participant_uuid")
+        }
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        choices = [str(item) for item in payload.get("choices") or []]
+        key = str(
+            payload.get("key")
+            or payload.get("correct_answer")
+            or ((payload.get("correct_ids") or [""])[0])
+        ).strip().upper()
+        rows: list[dict[str, Any]] = []
+        for response_row in self.list_live_prompt_responses(prompt_id):
+            sid = response_row.get("student_id")
+            student = student_map.get(int(sid)) if sid not in (None, "") else None
+            guest = guest_map.get(str(response_row.get("participant_uuid") or ""))
+            answer = response_row.get("response") or {}
+            letter = choice_letter(answer, choices)
+            value = answer.get("value")
+            if value is None:
+                value = answer.get("text")
+            if value is None:
+                value = answer.get("share")
+            if value is None:
+                value = answer.get("choice")
+            label = (
+                choices[ord(letter) - ord("A")]
+                if letter and ord(letter) - ord("A") < len(choices)
+                else value
+            )
+            rows.append(
+                {
+                    "student_id": int(sid) if sid not in (None, "") else None,
+                    "name": str(
+                        (student or {}).get("codename")
+                        or (student or {}).get("first_name")
+                        or (guest or {}).get("display_name")
+                        or "Guest"
+                    ).strip(),
+                    "character": (student or {}).get("character_key"),
+                    "answer": str(label if label is not None else "").strip(),
+                    "choice": letter or None,
+                    "correct": (letter == key) if key and letter else None,
+                    "awarded_points": response_row.get("awarded_points"),
+                }
+            )
+        rows.sort(key=lambda row: str(row["name"]).casefold())
+        return rows
+
+    def award_live_prompt_points(
+        self,
+        session_id: int,
+        prompt_id: int,
+        *,
+        mode: str,
+        student_ids: list[Any] | None = None,
+        amount: int = 1,
+    ) -> dict[str, Any]:
+        """Award prompt points to respondents, correct respondents, or a manual set."""
+
+        token = str(mode or "").strip().lower()
+        if token not in {"answered", "correct", "manual"}:
+            raise ValueError("mode must be answered, correct, or manual")
+        points = int(amount)
+        if points == 0:
+            raise ValueError("amount cannot be 0")
+        rows = self.live_prompt_response_roster(session_id, prompt_id)
+        if token == "answered":
+            targets = [row["student_id"] for row in rows]
+        elif token == "correct":
+            if not any(row.get("correct") is not None for row in rows):
+                raise ValueError("This question has no correct answer.")
+            targets = [
+                row["student_id"] for row in rows if row.get("correct") is True
+            ]
+        else:
+            wanted = {
+                int(value)
+                for value in (student_ids or [])
+                if str(value or "").strip().isdigit()
+            }
+            targets = [
+                row["student_id"] for row in rows if row.get("student_id") in wanted
+            ]
+        targets = [int(value) for value in targets if value not in (None, "")]
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        game = None
+        for student_id in sorted(set(targets)):
+            game = self.game.award_points(
+                int(session_row["class_id"]),
+                kind="student",
+                target_id=student_id,
+                amount=points,
+                label="Live question",
+            )
+        if targets:
+            with self._lock:
+                placeholders = ",".join("?" for _ in set(targets))
+                self.conn.execute(
+                    f"""
+                    UPDATE live_session_responses
+                    SET awarded_points = COALESCE(awarded_points, 0) + ?
+                    WHERE prompt_id = ? AND student_id IN ({placeholders})
+                    """,
+                    (points, int(prompt_id), *sorted(set(targets))),
+                )
+                self.conn.commit()
+        return {
+            "awarded_student_ids": sorted(set(targets)),
+            "game": game,
+            "responses": self.live_prompt_response_roster(session_id, prompt_id),
+        }
 
     def live_session_mc_tally(self, session_id: int) -> dict[str, Any] | None:
         """Staff-only MC distribution for the current active prompt.
@@ -8162,7 +8594,7 @@ class SchoolDB(LovesDB):
             self.clear_teams_spark(session_id)
         if leaving_teams and new_stage not in {"join", "teams"}:
             self.clear_waiting_room_minds_on(session_id)
-        if assign is not None and entering:
+        if assign is not None:
             self._assign_teams_for_meet_advance(session_id, assign)
         leaving = prev_stage == "meet" and new_stage != "meet"
         if meet_action == "clear":
@@ -9807,6 +10239,8 @@ class SchoolDB(LovesDB):
                 session_id, int(MINDS_ON_SLIDE_INDEX)
             ),
             "active_prompt": self.get_active_live_prompt(session_id),
+            "live_metadata": self.live_class_metadata_for_session(session_id),
+            "question_cards": self.live_session_question_cards(session_id),
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),

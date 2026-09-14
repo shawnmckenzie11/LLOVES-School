@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "course": "MCF3M",
+  "module": "M7",
+  "live_class": "C1",
+  "media": null,
+  "slides": {
+    "deck_ref": null,
+    "page_numbers": []
+  },
+  "questions": [
+    {
+      "id": "teams-spark",
+      "stage": "join",
+      "type": "numeric",
+      "text": "Type the integer you think most students will answer",
+      "options": [],
+      "correct_answer": null,
+      "page_number": 2,
+      "order": 1,
+      "default_visibility": true
+    },
+    {
+      "id": "meet-team",
+      "stage": "meet",
+      "type": "poll",
+      "text": "Today I’m the teammate who…",
+      "options": [
+        "notices details",
+        "asks the good question",
+        "keeps us kind",
+        "wants to try being team leader",
+        "Not sure"
+      ],
+      "correct_answer": null,
+      "page_number": 1,
+      "order": 1,
+      "default_visibility": true
+    }
+  ],
+  "round_defaults": {
+    "join": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "teams": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "meet": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "round": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "play": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "course": "MCF3M",
+  "module": "M1",
+  "live_class": "C1",
+  "media": {
+    "file": "/static/live-media/m1c1-c1-real-slice.html",
+    "title": "Real Slice",
+    "shared_across_rounds": true
+  },
+  "slides": {
+    "deck_ref": null,
+    "page_numbers": []
+  },
+  "questions": [
+    {
+      "id": "minds_on",
+      "stage": "join",
+      "type": "mc",
+      "text": "A straight-line graph has a **constant rate of change**. Which statement best matches that?",
+      "options": [
+        "Every equal step across adds the same amount up (or down)",
+        "The graph curves",
+        "Second differences in a table are constant"
+      ],
+      "correct_answer": "A",
+      "page_number": 1,
+      "order": 1,
+      "default_visibility": true
+    },
+    {
+      "id": "teams-spark",
+      "stage": "join",
+      "type": "numeric",
+      "text": "Type the integer you think most students will answer",
+      "options": [],
+      "correct_answer": null,
+      "page_number": 2,
+      "order": 2,
+      "default_visibility": false
+    },
+    {
+      "id": "meet-team",
+      "stage": "meet",
+      "type": "poll",
+      "text": "Today I’m the teammate who…",
+      "options": [
+        "notices details",
+        "asks the good question",
+        "keeps us kind",
+        "wants to try being team leader",
+        "Not sure"
+      ],
+      "correct_answer": null,
+      "page_number": 1,
+      "order": 1,
+      "default_visibility": true
+    }
+  ],
+  "round_defaults": {
+    "join": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "teams": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "meet": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "round": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    },
+    "play": {
+      "timer": false,
+      "timer_minutes": 3,
+      "teams": false
+    }
+  }
+}

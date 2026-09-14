@@ -3337,6 +3337,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        payload["live_metadata"] = (
+            school.student_live_class_metadata_for_session(live_session_id)
+        )
         payload["canvas_sync"] = school.live_session_canvas_view(
             live_session_id,
             student_id=int(student_id) if student_id not in (None, "") else None,
@@ -3444,6 +3447,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
+        )
+        payload["live_metadata"] = (
+            school.student_live_class_metadata_for_session(live_session_id)
         )
         payload["canvas_sync"] = school.live_session_canvas_view(
             live_session_id,
@@ -4048,6 +4054,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "live_slot",
             "live_module",
             "text_ride",
+            "question_views",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
@@ -4062,6 +4069,63 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except Exception:
                 pass
         return jsonify(payload)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/questions/<question_id>/visibility",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_question_visibility(session_id: int, question_id: str):
+        """Set one question teacher-only or activate it for individual students."""
+
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.set_live_question_visibility(
+                session_id,
+                question_id,
+                str(body.get("mode") or "none"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
+        methods=["GET", "POST"],
+    )
+    @login_required
+    def api_live_question_responses(session_id: int, prompt_id: int):
+        """Read ephemeral response rows or award their live-game points."""
+
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            if request.method == "GET":
+                responses = school.live_prompt_response_roster(
+                    session_id, prompt_id
+                )
+                return jsonify({"ok": True, "responses": responses})
+            body = request.get_json(silent=True) or {}
+            result = school.award_live_prompt_points(
+                session_id,
+                prompt_id,
+                mode=str(body.get("mode") or ""),
+                student_ids=body.get("student_ids")
+                if isinstance(body.get("student_ids"), list)
+                else [],
+                amount=int(body.get("amount") or 1),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
 
     @app.route(
         "/api/live-sessions/<int:session_id>/canvas-presence",
