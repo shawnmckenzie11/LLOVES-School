@@ -1,0 +1,15 @@
+[      67ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
+[      87ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://127.0.0.1:8787/static/live-media/m1c1-c1-real-slice.html?role=teacher:0
+[  220783ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  221791ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  222794ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  223790ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  224792ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  225785ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  226792ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  227785ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  228792ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  229790ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  230786ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  231792ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
+[  232788ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0

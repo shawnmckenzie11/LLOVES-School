@@ -17,7 +17,7 @@ C) \(a = 0\)
 D) Can’t tell from this picture  
 
 **C1-CONS-2**  
-This parabola meets the y-axis at the origin. What does that force about \(c\)?
+This parabola meets the y-axis at the origin. What must be true about \(c\)?
 
 A) \(c > 0\)  
 B) \(c < 0\)  

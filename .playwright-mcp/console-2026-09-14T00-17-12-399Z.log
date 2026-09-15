@@ -1,0 +1,2 @@
+[   45156ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
+[   45188ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://127.0.0.1:8787/static/live-media/mcr3u-m1c1-sqrt.html:0

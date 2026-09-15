@@ -680,12 +680,13 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_staff_live_tab_has_media_controls(self) -> None:
-        """Run Live Class Active Media card is title + teacher iframe only."""
+        """Run Live Class Media page is title + teacher iframe only."""
         page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
         self.assertIn("ap-active-media", html)
-        self.assertIn("Active Media", html)
+        self.assertIn('<h2 class="live-content-heading">Content</h2>', html)
+        self.assertIn("<h2>Media</h2>", html)
         self.assertIn("ap-media-preview", html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn(DEFAULT_LIVE_MEDIA_URL, js)

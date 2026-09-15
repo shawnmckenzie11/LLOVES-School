@@ -18,6 +18,7 @@ const promptFeedbackLead = document.getElementById("prompt-feedback-lead");
 const promptFeedbackWhy = document.getElementById("prompt-feedback-why");
 const promptFeedbackHelper = document.getElementById("prompt-feedback-helper");
 const promptFeedbackClose = document.getElementById("prompt-feedback-close");
+const promptDismiss = document.getElementById("prompt-dismiss");
 const promptAck = document.getElementById("prompt-ack");
 const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
@@ -26,6 +27,9 @@ const canvasPane = document.getElementById("canvas-pane");
 const canvasLock = document.getElementById("canvas-lock");
 const studentCanvas = document.getElementById("student-canvas");
 const canvasCursors = document.getElementById("canvas-cursors");
+const slidesPane = document.getElementById("slides-pane");
+const slidesFrame = document.getElementById("slides-frame");
+const slidesEmpty = document.getElementById("slides-empty");
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
 const mediaCaption = document.getElementById("media-caption");
@@ -70,6 +74,8 @@ let lastFeedbackKey = "";
 let feedbackDismissed = false;
 /** True after a keyed waiting-room submit until the student hits Close. */
 let holdJoinFeedback = false;
+/** Prompt ids explicitly dismissed after submission. */
+const dismissedPromptIds = new Set();
 /** @type {number} */
 let lastStateSeq = -1;
 /** @type {any} */
@@ -512,7 +518,7 @@ const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
 /**
  * Student frame projection from LiveTeacherState.
  * @param {any} payload
- * @returns {{stage: string, seq: number, questions: boolean, media: boolean, canvas: boolean, unlockMedia: boolean, unlockCanvas: boolean}}
+ * @returns {{stage: string, seq: number, questions: boolean, media: boolean, canvas: boolean, slides: boolean, unlockMedia: boolean, unlockCanvas: boolean}}
  */
 function studentProjection(payload) {
   const ts = (payload && payload.teacher_state) || {};
@@ -526,6 +532,7 @@ function studentProjection(payload) {
   );
   const mediaMode = String(view.media || (unlocks.media ? "student" : "none"));
   const canvasMode = String(view.canvas || (unlocks.canvas ? "student" : "none"));
+  const slidesMode = String(view.slides || (unlocks.slides ? "student" : "none"));
   const canvasAlign =
     canvasMode === "team" ? "team" : canvasMode === "student" ? "student" : "teacher";
   return {
@@ -534,12 +541,14 @@ function studentProjection(payload) {
     questions: questionsMode !== "none",
     media: mediaMode !== "none" && stage !== "round",
     canvas: canvasMode !== "none" && stage !== "round",
+    slides: slidesMode !== "none" && stage !== "round",
     unlockMedia: mediaMode !== "none",
     unlockCanvas: canvasMode !== "none",
     canvasAlign,
     questionsMode,
     mediaMode,
     canvasMode,
+    slidesMode,
   };
 }
 
@@ -645,6 +654,148 @@ function paintStudentCanvas(payload) {
   paintRemoteCanvas(payload.canvas_sync || payload.canvas_view || {});
 }
 
+/**
+ * Paint the metadata-connected slide deck without exposing teacher fields.
+ * @param {any} payload
+ */
+function paintStudentSlides(payload) {
+  const deckRef = String(payload?.live_metadata?.slides?.deck_ref || "").trim();
+  const safe = /^https?:\/\//i.test(deckRef);
+  if (slidesEmpty) slidesEmpty.hidden = safe;
+  if (!(slidesFrame instanceof HTMLIFrameElement)) return;
+  if (!safe) {
+    slidesFrame.hidden = true;
+    slidesFrame.removeAttribute("src");
+    return;
+  }
+  if (slidesFrame.src !== deckRef) slidesFrame.src = deckRef;
+  slidesFrame.hidden = false;
+}
+
+/**
+ * Float a projected pane at its current position inside the student workspace.
+ * @param {HTMLElement} pane
+ * @param {HTMLElement} host
+ * @returns {{hostRect: DOMRect, paneRect: DOMRect}}
+ */
+function floatPaneAtCurrentPosition(pane, host) {
+  const hostRect = host.getBoundingClientRect();
+  const paneRect = pane.getBoundingClientRect();
+  pane.classList.add("is-floating");
+  pane.style.left = `${paneRect.left - hostRect.left}px`;
+  pane.style.top = `${paneRect.top - hostRect.top}px`;
+  pane.style.width = `${paneRect.width}px`;
+  pane.style.height = `${paneRect.height}px`;
+  return { hostRect, paneRect };
+}
+
+/**
+ * Make one projected pane draggable and visibly resizable inside the workspace.
+ * @param {HTMLElement | null} pane
+ */
+function bindFloatingPane(pane) {
+  if (!(pane instanceof HTMLElement)) return;
+  const host = document.getElementById("live-response");
+  const handle = pane.querySelector("[data-pane-drag]");
+  const resizeHandle = pane.querySelector("[data-pane-resize]");
+  const reset = pane.querySelector("[data-pane-reset]");
+  if (!(host instanceof HTMLElement) || !(handle instanceof HTMLElement)) return;
+  let drag = null;
+  let resizeDrag = null;
+  const resetPane = () => {
+    pane.classList.remove("is-floating");
+    for (const prop of ["left", "top", "width", "height"]) {
+      pane.style.removeProperty(prop);
+    }
+  };
+  reset?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    resetPane();
+  });
+  handle.addEventListener("pointerdown", (event) => {
+    if (window.innerWidth < 720 || event.target.closest("button")) return;
+    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+    drag = {
+      x: event.clientX,
+      y: event.clientY,
+      left: paneRect.left - hostRect.left,
+      top: paneRect.top - hostRect.top,
+    };
+    handle.setPointerCapture(event.pointerId);
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const hostRect = host.getBoundingClientRect();
+    const width = pane.offsetWidth;
+    const height = pane.offsetHeight;
+    const left = Math.max(
+      0,
+      Math.min(hostRect.width - Math.min(width, hostRect.width), drag.left + event.clientX - drag.x)
+    );
+    const top = Math.max(
+      0,
+      Math.min(hostRect.height - Math.min(height, hostRect.height), drag.top + event.clientY - drag.y)
+    );
+    pane.style.left = `${left}px`;
+    pane.style.top = `${top}px`;
+  });
+  const endDrag = (event) => {
+    if (!drag) return;
+    drag = null;
+    if (handle.hasPointerCapture(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+  };
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+  resizeHandle?.addEventListener("pointerdown", (event) => {
+    if (window.innerWidth < 720) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+    resizeDrag = {
+      x: event.clientX,
+      y: event.clientY,
+      width: paneRect.width,
+      height: paneRect.height,
+      left: paneRect.left - hostRect.left,
+      top: paneRect.top - hostRect.top,
+    };
+    resizeHandle.setPointerCapture(event.pointerId);
+  });
+  resizeHandle?.addEventListener("pointermove", (event) => {
+    if (!resizeDrag) return;
+    const hostRect = host.getBoundingClientRect();
+    const maxWidth = Math.max(1, hostRect.width - resizeDrag.left);
+    const maxHeight = Math.max(1, hostRect.height - resizeDrag.top);
+    const minWidth = Math.min(288, maxWidth);
+    const minHeight = Math.min(192, maxHeight);
+    const width = Math.max(
+      minWidth,
+      Math.min(maxWidth, resizeDrag.width + event.clientX - resizeDrag.x)
+    );
+    const height = Math.max(
+      minHeight,
+      Math.min(maxHeight, resizeDrag.height + event.clientY - resizeDrag.y)
+    );
+    pane.style.width = `${width}px`;
+    pane.style.height = `${height}px`;
+  });
+  /** End a pointer resize and release its capture. */
+  const endResize = (event) => {
+    if (!resizeDrag) return;
+    resizeDrag = null;
+    if (resizeHandle?.hasPointerCapture(event.pointerId)) {
+      resizeHandle.releasePointerCapture(event.pointerId);
+    }
+  };
+  resizeHandle?.addEventListener("pointerup", endResize);
+  resizeHandle?.addEventListener("pointercancel", endResize);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth < 720) resetPane();
+  });
+}
+
 function applyTeacherProjection(payload) {
   const proj = studentProjection(payload);
   const welcomeOn = hasGameShowWelcome(payload);
@@ -652,7 +803,10 @@ function applyTeacherProjection(payload) {
     lastStateSeq = proj.seq;
   }
   if (questionFrame) {
-    questionFrame.hidden = !proj.questions;
+    const promptId = Number(payload?.prompt?.id) || 0;
+    const dismissed =
+      Boolean(payload?.my_response) && dismissedPromptIds.has(promptId);
+    questionFrame.hidden = !proj.questions || dismissed;
   }
   if (welcomeOn) {
     if (mediaPane) {
@@ -660,6 +814,7 @@ function applyTeacherProjection(payload) {
       unmountStudentMedia();
     }
     if (canvasPane) canvasPane.hidden = true;
+    if (slidesPane) slidesPane.hidden = true;
   }
   if (canvasPane) {
     canvasPane.hidden = !proj.canvas;
@@ -673,6 +828,10 @@ function applyTeacherProjection(payload) {
       mediaPane.hidden = true;
       unmountStudentMedia();
     }
+  }
+  if (slidesPane) {
+    slidesPane.hidden = !proj.slides;
+    if (proj.slides) paintStudentSlides(payload);
   }
   return proj;
 }
@@ -1091,18 +1250,20 @@ function hideQuestionBody() {
 }
 
 /**
- * Show class poll totals only when the teacher Questions dropdown is on.
+ * Show class poll totals immediately after a student submits.
  * @param {any} payload
  */
 function paintPollIfQuestionsVisible(payload) {
-  if (studentProjection(payload).questions) {
-    paintPollTotalsBelowFeedback(payload);
-    return;
-  }
-  if (promptPollTotals) {
-    promptPollTotals.hidden = true;
-    promptPollTotals.innerHTML = "";
-  }
+  paintPollTotalsBelowFeedback(payload);
+}
+
+/**
+ * Hide class totals for keyed MC feedback.
+ */
+function hidePollTotals() {
+  if (!promptPollTotals) return;
+  promptPollTotals.hidden = true;
+  promptPollTotals.innerHTML = "";
 }
 
 function paintPrompt(payload) {
@@ -1125,6 +1286,7 @@ function paintPrompt(payload) {
       promptPollTotals.innerHTML = "";
     }
     hidePromptAck();
+    if (promptDismiss) promptDismiss.hidden = true;
     return;
   }
   const prompt = payload.prompt;
@@ -1132,6 +1294,16 @@ function paintPrompt(payload) {
   const isMeet = String(data.ride || "") === "meet_team" || String(data.pack || "") === "meet-team";
   const isSpark = isTeamsSparkPrompt(payload);
   const answered = Boolean(payload.my_response);
+  const promptId = Number(prompt?.id) || 0;
+  if (answered && promptId && dismissedPromptIds.has(promptId)) {
+    hideQuestionBody();
+    hideFeedbackPanel();
+    if (promptPollTotals) promptPollTotals.hidden = true;
+    if (promptDismiss) promptDismiss.hidden = true;
+    if (questionFrame) questionFrame.hidden = true;
+    lastPromptId = promptId;
+    return;
+  }
   if (holdJoinFeedback && !isJoinMindsOnPrompt(payload)) {
     return;
   }
@@ -1145,6 +1317,7 @@ function paintPrompt(payload) {
     renderPromptBody(prompt, data, payload, true);
     lastFeedbackKey = "";
     lastSummarySig = studentSummarySig(payload);
+    if (promptDismiss) promptDismiss.hidden = true;
     return;
   }
   if (!prompt || !prompt.kind || prompt.kind === "idle") {
@@ -1165,7 +1338,11 @@ function paintPrompt(payload) {
       promptAck.hidden = true;
       promptAck.classList.remove("is-feedback");
     }
+    if (promptDismiss) promptDismiss.hidden = true;
     return;
+  }
+  if (questionFrame) {
+    questionFrame.hidden = !studentProjection(payload).questions;
   }
   if (answered) {
     const fb = !isMeet && !isSpark ? feedbackObject(payload.my_response) : null;
@@ -1175,12 +1352,15 @@ function paintPrompt(payload) {
     lastPromptId = Number(prompt.id);
     lastMeetSig = `${prompt.id}:${data.step || ""}:${data.chain_index || ""}`;
     lastSummarySig = studentSummarySig(payload);
+    if (promptDismiss) {
+      promptDismiss.hidden = String(prompt.kind || "") !== "mc";
+    }
     if (fb && !feedbackDismissed) {
       if (key !== lastFeedbackKey || (promptFeedback && promptFeedback.hidden)) {
         showFeedbackPanel(fb);
         lastFeedbackKey = key;
       }
-      paintPollIfQuestionsVisible(payload);
+      hidePollTotals();
       return;
     }
     hideFeedbackPanel();
@@ -1193,6 +1373,7 @@ function paintPrompt(payload) {
   feedbackDismissed = false;
   holdJoinFeedback = false;
   hidePromptAck();
+  if (promptDismiss) promptDismiss.hidden = true;
   renderPromptBody(prompt, data, payload, false);
   if (promptPollTotals) {
     promptPollTotals.hidden = true;
@@ -1246,7 +1427,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
       controls += `<p class="prompt-spark-feedback">${escapeText(sparkLine)}</p>`;
     }
   } else if (kind === "numeric") {
-    const integerOnly = Boolean(data.integer_only) || isTeamsSparkPrompt({ prompt });
+    const integerOnly = true;
     const prior = payload.my_response && payload.my_response.response;
     const priorValue =
       prior && prior.value != null
@@ -1553,12 +1734,20 @@ function hidePromptAck() {
 }
 
 /**
- * Close keyed waiting-room feedback, then paint the next student prompt.
+ * Close a submitted MC/poll, including its compact feedback or result card.
  */
 function dismissFeedbackPanel() {
   hideFeedbackPanel();
   holdJoinFeedback = false;
   feedbackDismissed = true;
+  const promptId = Number(lastStudentPayload?.prompt?.id || lastPromptId) || 0;
+  if (promptId) dismissedPromptIds.add(promptId);
+  if (promptPollTotals) {
+    promptPollTotals.hidden = true;
+    promptPollTotals.innerHTML = "";
+  }
+  if (promptDismiss) promptDismiss.hidden = true;
+  if (questionFrame) questionFrame.hidden = true;
   tick();
 }
 
@@ -1609,11 +1798,7 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
           holdJoinFeedback = true;
         }
         showFeedbackPanel(fb);
-        paintPollIfQuestionsVisible({
-          ...data,
-          my_response: data.my_response,
-          mc_tally: data.mc_tally,
-        });
+        hidePollTotals();
         tick();
         return;
       }
@@ -1903,6 +2088,9 @@ async function tick() {
 if (promptFeedbackClose) {
   promptFeedbackClose.addEventListener("click", dismissFeedbackPanel);
 }
+if (promptDismiss) {
+  promptDismiss.addEventListener("click", dismissFeedbackPanel);
+}
 if (promptFeedback) {
   promptFeedback.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -1919,6 +2107,9 @@ if (saveWorkBtn) {
 }
 
 bindStudentCanvas();
+bindFloatingPane(mediaPane);
+bindFloatingPane(canvasPane);
+bindFloatingPane(slidesPane);
 tick();
 setInterval(tick, 4000);
 setInterval(tickDisplayTime, 250);

@@ -136,13 +136,17 @@ class LiveClassSlidesTests(unittest.TestCase):
         self.assertIn("A1.3", picked["contest"]["expectation_codes"])
 
     def test_mcr3u_registry_lists_m1_c1(self) -> None:
-        """Stem lock registers MCR3U Module 1 live class C1."""
+        """Metadata registry exposes all four MCR3U Module 1 live classes."""
         from live_class_packs import live_class_registry
 
         registry = live_class_registry("MCR3U")
-        self.assertEqual(registry["slots_by_module"]["M1"], ["C1"])
-        packs = {row["slot"]: row for row in registry["packs"]}
-        self.assertIn("MCR3U-M1-C1-stem-and-slide.md", packs["C1"]["stem_path"])
+        self.assertEqual(registry["slots_by_module"]["M1"], ["C1", "C2", "C3", "C4"])
+        packs = {
+            row["slot"]: row
+            for row in registry["packs"]
+            if row["module"] == "M1"
+        }
+        self.assertTrue(packs["C1"]["metadata_path"].endswith("MCR3U/M1/C1.json"))
 
     def test_timeline_lesson_key_and_slide_bodies(self) -> None:
         """M1C1 key from timeline; breakout is contest-only; consolidation lists standards."""

@@ -101,7 +101,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="play-option-card"', html)
         self.assertIn('id="live-view-media"', html)
         self.assertIn('id="live-view-canvas"', html)
-        self.assertIn('id="live-view-questions"', html)
+        self.assertIn('id="live-view-slides"', html)
+        self.assertIn('id="live-question-list"', html)
         self.assertIn("Minds-On", html)
         self.assertIn("Consolidation", html)
         self.assertIn(">SET<", html)
@@ -109,9 +110,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="team-assign-pane"', html)
         self.assertIn('id="live-active-content"', html)
         self.assertIn('id="live-content-tabs"', html)
-        self.assertIn("Active Media", html)
-        self.assertIn("Question(s)", html)
-        self.assertIn("Canvas/Slides", html)
+        self.assertIn(">Content<", html)
+        self.assertIn(">Media<", html)
+        self.assertIn(">Questions<", html)
+        self.assertIn(">Canvas<", html)
+        self.assertIn(">Slides<", html)
         self.assertIn('id="live-edit-layout"', html)
         self.assertIn('id="live-layout-presets"', html)
         self.assertIn('id="live-frames"', html)
@@ -159,7 +162,12 @@ class LiveShellTests(unittest.TestCase):
             "ap-assign-random",
             "ap-assign-manual",
             "ap-scoreboard-toggle",
-            "live-view-questions",
+            "live-view-slides",
+            "live-timer-toggle",
+            "live-timer-start",
+            "live-teams-toggle",
+            "live-teams-start",
+            "live-responses-dialog",
             "ap-teams-rename",
             "ap-teams-next",
             "ap-meet-start",
@@ -299,7 +307,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
         self.assertIn("card.hidden = false;", js)
         self.assertIn("live-view-canvas", js)
-        self.assertIn('if (teams) teams.hidden = stage !== "teams";', js)
+        self.assertIn("if (teams) teams.hidden = !teamsOpen;", js)
         self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
         self.assertIn('if (play) play.hidden = stage !== "play";', js)
@@ -595,9 +603,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-unlocks-strip"', html)
         self.assertIn('id="live-view-media"', html)
         self.assertIn('id="live-view-canvas"', html)
-        self.assertIn('id="live-view-questions"', html)
+        self.assertIn('id="live-view-slides"', html)
+        self.assertNotIn('id="live-view-questions"', html)
+        self.assertIn('id="live-question-list"', html)
+        self.assertIn("data-question-view", js)
         self.assertNotIn('id="live-canvas-align"', html)
-        self.assertIn("None: teacher-view only", html)
+        self.assertIn("None: Teacher View Only", html)
         self.assertIn("Student: Individual", html)
         self.assertIn("Student: Shared within Group", html)
         play_html = html.split('id="play-option-card"')[1].split("</section>")[0]
@@ -628,6 +639,7 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn('id="media-pane"', home_html)
         self.assertIn('id="canvas-pane"', home_html)
+        self.assertIn('id="slides-pane"', home_html)
 
     def test_beat29_uncheck_collapses_student_frames(self) -> None:
         """Beat 29: student JS hides Media/Canvas when unlocks are off."""
@@ -1241,8 +1253,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function saveStudentWork()", js)
         self.assertNotIn("meEl.innerHTML", js.replace("gameShowWelcomeEl.innerHTML", ""))
 
-    def test_beat21_next_stops_timer_and_applies_stage_preset(self) -> None:
-        """Beat 21: Next stops a running timer; MEET/PLAY presets; else idle."""
+    def test_beat21_next_stops_timer_without_auto_starting_next_stage(self) -> None:
+        """Beat 21: Next stops timers; every destination remains opt-in."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
@@ -1282,11 +1294,11 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(meet.get_json()["teacher_state"]["stage"], "meet")
         meet_game = (meet.get_json().get("game") or {}).get("game") or {}
-        self.assertTrue(meet_game.get("round_ends_at_ms"))
-        self.assertGreaterEqual(int(meet_game.get("round_remaining_sec") or 0), 170)
-        self.assertLessEqual(int(meet_game.get("round_remaining_sec") or 0), 180)
+        self.assertFalse(meet_game.get("round_ends_at_ms"))
+        self.assertFalse(meet_game.get("timer_paused"))
         display_meet = self.school.live_session_display_time(self.class_id)
-        self.assertTrue(display_meet["running"])
+        self.assertFalse(display_meet["running"])
+        self.assertFalse(display_meet["paused"])
         rnd = self.client.post(
             f"/api/live-sessions/{sid}/teacher-state",
             json={"advance": "next"},
@@ -1300,9 +1312,8 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(play.get_json()["teacher_state"]["stage"], "play")
         play_game = (play.get_json().get("game") or {}).get("game") or {}
-        self.assertTrue(play_game.get("round_ends_at_ms"))
-        self.assertGreaterEqual(int(play_game.get("round_remaining_sec") or 0), 290)
-        self.assertLessEqual(int(play_game.get("round_remaining_sec") or 0), 300)
+        self.assertFalse(play_game.get("round_ends_at_ms"))
+        self.assertFalse(play_game.get("timer_paused"))
 
     def _aspen_id(self) -> int:
         """Roster id for the seeded Aspen student."""

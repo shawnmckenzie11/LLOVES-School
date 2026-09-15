@@ -1,0 +1,334 @@
+- generic [ref=f22e2]:
+  - navigation "Staff navigation" [ref=f22e3]:
+    - link "Dashboard" [ref=f22e4] [cursor=pointer]:
+      - /url: /staff
+    - link "MCF3M" [ref=f22e5] [cursor=pointer]:
+      - /url: /staff/class/5
+    - link "MCR3U" [ref=f22e6] [cursor=pointer]:
+      - /url: /staff/class/6
+    - link "Log out" [ref=f22e7] [cursor=pointer]:
+      - /url: /logout
+  - heading "MCF3M" [level=1] [ref=f22e10]
+  - navigation "Course sections" [ref=f22e11]:
+    - generic [ref=f22e12]:
+      - link "Run Live Class" [ref=f22e13] [cursor=pointer]:
+        - /url: /staff/class/5?tab=live
+      - link "Lesson Slides" [ref=f22e14] [cursor=pointer]:
+        - /url: /staff/class/5?tab=lesson-slides
+      - link "Modules" [ref=f22e15] [cursor=pointer]:
+        - /url: /staff/class/5?tab=modules
+      - link "Attendance & Participation" [ref=f22e16] [cursor=pointer]:
+        - /url: /staff/class/5?tab=ap&view=attendance
+      - link "Grades" [ref=f22e17] [cursor=pointer]:
+        - /url: /staff/class/5?tab=gradebook
+      - link "Pages" [ref=f22e18] [cursor=pointer]:
+        - /url: /staff/class/5?tab=pages
+      - link "Assignments" [ref=f22e19] [cursor=pointer]:
+        - /url: /staff/class/5?tab=assignments
+      - link "Quizzes" [ref=f22e20] [cursor=pointer]:
+        - /url: /staff/class/5?tab=quizzes
+      - link "Question banks" [ref=f22e21] [cursor=pointer]:
+        - /url: /staff/class/5?tab=question-banks
+      - link "Syllabus" [ref=f22e22] [cursor=pointer]:
+        - /url: /staff/class/5?tab=syllabus
+      - link "Expectations" [ref=f22e23] [cursor=pointer]:
+        - /url: /staff/class/5?tab=expectations
+      - link "Profiles" [ref=f22e24] [cursor=pointer]:
+        - /url: /staff/class/5?tab=profiles
+      - link "Portfolio" [ref=f22e25] [cursor=pointer]:
+        - /url: /staff/class/5?tab=portfolio
+  - generic [ref=f22e26]:
+    - banner [ref=f22e27]:
+      - generic [ref=f22e102]:
+        - paragraph [ref=f22e103]: JOIN CODE
+        - generic [ref=f22e104]:
+          - button "Open join strip" [ref=f22e105] [cursor=pointer]: NYK4BZD2
+          - button "Copy" [ref=f22e106] [cursor=pointer]
+      - generic [ref=f22e28]: "Attendance: 0"
+      - navigation "Live class stages" [ref=f22e29]:
+        - button "Prev" [disabled] [ref=f22e30]
+        - generic: JOIN
+        - generic: Welcome
+        - generic: MEET
+        - generic: ROUND
+        - generic: PLAY
+        - button "Next" [ref=f22e31] [cursor=pointer]
+      - generic [ref=f22e32]:
+        - button "End Live Class" [ref=f22e34] [cursor=pointer]
+        - button "Quit" [ref=f22e36] [cursor=pointer]
+        - button "Start" [ref=f22e37] [cursor=pointer]
+        - button "Advance" [ref=f22e38] [cursor=pointer]
+      - generic [ref=f22e39]:
+        - generic [ref=f22e40]: MCF3M
+        - generic [ref=f22e41]: 2026-09-14
+        - generic [ref=f22e42]: Present 0
+    - region "Stage options" [ref=f22e107]:
+      - generic [ref=f22e108]:
+        - generic [ref=f22e109]: "Student View:"
+        - generic [ref=f22e110]:
+          - generic [ref=f22e111]: Media
+          - combobox "Media student view" [ref=f22e112]:
+            - 'option "None: teacher-view only" [selected]'
+            - 'option "Student: Individual"'
+            - 'option "Student: Shared within Group"'
+        - generic [ref=f22e113]:
+          - generic [ref=f22e114]: Canvas
+          - combobox "Canvas student view" [ref=f22e115]:
+            - 'option "None: teacher-view only" [selected]'
+            - 'option "Student: Individual"'
+            - 'option "Student: Shared within Group"'
+        - generic [ref=f22e116]:
+          - generic [ref=f22e117]: Questions
+          - combobox "Questions student view" [ref=f22e118]:
+            - 'option "None: teacher-view only"'
+            - 'option "Student: Individual" [selected]'
+            - 'option "Student: Shared within Group"'
+        - generic [ref=f22e119]:
+          - checkbox "Scoreboard" [ref=f22e120]
+          - generic [ref=f22e121]: Scoreboard
+    - generic [ref=f22e122]:
+      - complementary [ref=f22e123]:
+        - region "Session timer" [ref=f22e124]:
+          - group "Session timer minutes" [disabled] [ref=f22e125]:
+            - button "Shorter session timer" [disabled] [ref=f22e126]: −
+            - spinbutton "Session timer minutes" [disabled] [ref=f22e127]: "3"
+            - button "Longer session timer" [disabled] [ref=f22e128]: +
+          - generic [ref=f22e129]: 2:59
+          - button "Pause" [active] [ref=f22e209] [cursor=pointer]
+        - generic [ref=f22e132]:
+          - generic [ref=f22e133]:
+            - heading "Class list" [level=2] [ref=f22e134]
+            - generic [ref=f22e135] [cursor=pointer]:
+              - checkbox "Guests" [ref=f22e136]
+              - generic [ref=f22e137]: Guests
+          - generic [ref=f22e138]:
+            - generic "Prior course points" [ref=f22e139]: Course
+            - generic "This session" [ref=f22e140]: Game
+          - generic [ref=f22e141]:
+            - generic:
+              - generic: Aamenah
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e210] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Abdikhaliq
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e211] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Aisha
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e212] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Ameena
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e213] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Anita
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e214] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Anna
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e215] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Hanan
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e216] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Hayat
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e217] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Husna
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e218] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Jaden
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e219] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Leah
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e220] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Madeline
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e221] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Mariyka
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e222] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Marwaan
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e223] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Maryam
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e224] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Mishkatul
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e225] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Muhammad
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e226] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Natalie
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e227] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Nathan
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e228] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Nathaniel
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e229] [cursor=pointer]: "+1"
+            - generic:
+              - generic: Ziyad
+              - generic "Course": "0"
+              - generic "Game": "0"
+              - button "Add one point" [disabled] [ref=f22e230] [cursor=pointer]: "+1"
+          - generic [ref=f22e163]:
+            - button "← Prev" [disabled] [ref=f22e164]
+            - button "Quit" [ref=f22e165] [cursor=pointer]
+            - button "Next →" [ref=f22e166] [cursor=pointer]
+      - main [ref=f22e167]:
+        - generic [ref=f22e168]:
+          - navigation "Active Content" [ref=f22e170]:
+            - button "Active Media" [ref=f22e171] [cursor=pointer]
+            - button "Question(s)" [ref=f22e172] [cursor=pointer]
+            - button "Canvas/Slides" [ref=f22e173] [cursor=pointer]
+          - generic [ref=f22e174]:
+            - generic [ref=f22e176]:
+              - heading "Active Media" [level=2] [ref=f22e177]
+              - iframe [ref=f22e178]:
+                - generic [ref=f23e1]:
+                  - generic "Real-slice parabola in 3D space" [ref=f23e2]
+                  - generic:
+                    - generic:
+                      - paragraph:
+                        - text: y =
+                        - strong: x²
+                        - text: a=1.00 · b=0.00 · c=0.00
+                    - generic [ref=f23e3]:
+                      - heading "Teacher controls" [level=2] [ref=f23e4]
+                      - generic [ref=f23e5]:
+                        - generic [ref=f23e6]: Push to Student View
+                        - generic [ref=f23e7]: Frozen
+                        - generic [ref=f23e8]: Generate
+                        - generic [ref=f23e9]:
+                          - generic [ref=f23e10]: a
+                          - slider "a" [ref=f23e11]: "1"
+                          - status [ref=f23e12]: "1.00"
+                        - generic [ref=f23e13]:
+                          - checkbox "Push a" [ref=f23e14]
+                          - text: Push a
+                        - generic [ref=f23e15]:
+                          - checkbox "Frozen" [checked] [disabled] [ref=f23e16]
+                          - text: Frozen
+                        - generic [ref=f23e17]:
+                          - checkbox "Generate" [ref=f23e18]
+                          - text: Generate
+                        - generic [ref=f23e19]:
+                          - generic [ref=f23e20]: b
+                          - slider "b" [ref=f23e21]: "0"
+                          - status [ref=f23e22]: "0.00"
+                        - generic [ref=f23e23]:
+                          - checkbox "Push b" [ref=f23e24]
+                          - text: Push b
+                        - generic [ref=f23e25]:
+                          - checkbox "Frozen" [checked] [disabled] [ref=f23e26]
+                          - text: Frozen
+                        - generic [ref=f23e27]:
+                          - checkbox "Generate" [ref=f23e28]
+                          - text: Generate
+                        - generic [ref=f23e29]:
+                          - generic [ref=f23e30]: c
+                          - slider "c" [ref=f23e31]: "0"
+                          - status [ref=f23e32]: "0.00"
+                        - generic [ref=f23e33]:
+                          - checkbox "Push c" [ref=f23e34]
+                          - text: Push c
+                        - generic [ref=f23e35]:
+                          - checkbox "Frozen" [checked] [disabled] [ref=f23e36]
+                          - text: Frozen
+                        - generic [ref=f23e37]:
+                          - checkbox "Generate" [ref=f23e38]
+                          - text: Generate
+                        - generic [ref=f23e39]: All
+                        - generic [ref=f23e40]:
+                          - checkbox "Push All to View" [ref=f23e41]
+                          - text: Push All to View
+                        - generic [ref=f23e42]:
+                          - checkbox "Freeze All" [checked] [disabled] [ref=f23e43]
+                          - text: Freeze All
+                        - generic [ref=f23e44]:
+                          - checkbox "Generate All" [ref=f23e45]
+                          - text: Generate All
+                      - generic [ref=f23e46]:
+                        - generic [ref=f23e47]:
+                          - checkbox "Lateral axis" [ref=f23e48]
+                          - text: Lateral axis
+                        - generic [ref=f23e49]:
+                          - generic [ref=f23e50]: α
+                          - slider "α" [ref=f23e51]: "0.8"
+                          - status [ref=f23e52]: "0.8"
+            - generic [ref=f22e179]:
+              - heading "Question" [level=2] [ref=f22e180]
+              - group "Live slot" [ref=f22e181]:
+                - button "C1" [ref=f22e182] [cursor=pointer]
+                - button "C2" [ref=f22e183] [cursor=pointer]
+                - button "C3" [ref=f22e184] [cursor=pointer]
+              - generic [ref=f22e185]:
+                - paragraph [ref=f22e186]:
+                  - text: A straight-line graph has a
+                  - strong [ref=f22e231]: constant rate of change
+                  - text: . Which statement best matches that?
+                - paragraph [ref=f22e188]: Every equal step across adds the same amount up (or down) · The graph curves · Second differences in a table are constant
+              - paragraph [ref=f22e189]: Minds-On
+              - generic [ref=f22e191]:
+                - paragraph [ref=f22e192]: 0/0 responded
+                - generic [ref=f22e193]:
+                  - generic [ref=f22e194]:
+                    - generic [ref=f22e195]: A
+                    - paragraph [ref=f22e196]: Every equal step across adds the same amount up (or down)
+                    - generic [ref=f22e197]: 0 · 0%
+                  - generic [ref=f22e199]:
+                    - generic [ref=f22e200]: B
+                    - paragraph [ref=f22e201]: The graph curves
+                    - generic [ref=f22e202]: 0 · 0%
+                  - generic [ref=f22e204]:
+                    - generic [ref=f22e205]: C
+                    - paragraph [ref=f22e206]: Second differences in a table are constant
+                    - generic [ref=f22e207]: 0 · 0%
+            - generic:
+              - heading "Canvas / Slides" [level=2]
+              - paragraph: Ephemeral whiteboard. Nothing is saved.
+              - toolbar "Whiteboard tools":
+                - button "Undo" [disabled]
+                - button "Redo" [disabled]
+                - button "Erase" [disabled]
+              - generic "Ephemeral whiteboard"
+              - paragraph: "canvas_ephemeral: true"

@@ -56,7 +56,7 @@ D) Can’t tell from this picture
 
 ### C1-CONS-2 · `mc` · y-intercept → \(c\)
 **Fires:** after CONS-1  
-**Prompt:** This parabola meets the y-axis at the origin. What does that force about \(c\)?  
+**Prompt:** This parabola meets the y-axis at the origin. What must be true about \(c\)?  
 **Choices:**  
 A) \(c > 0\)  
 B) \(c < 0\)  

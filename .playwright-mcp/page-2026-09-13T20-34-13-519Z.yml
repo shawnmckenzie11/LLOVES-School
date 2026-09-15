@@ -1,0 +1,44 @@
+- generic [active] [ref=f3e1]:
+  - banner "Your stats" [ref=f3e2]:
+    - paragraph [ref=f3e3]: —
+    - generic [ref=f3e4]:
+      - generic [ref=f3e5]:
+        - paragraph [ref=f3e6]: Aamenah
+        - paragraph [ref=f3e7]
+      - button "Save Work" [ref=f3e9] [cursor=pointer]
+      - generic [ref=f3e10]:
+        - paragraph [ref=f3e11]:
+          - generic [ref=f3e12]: My points
+          - strong [ref=f3e13]: "0"
+        - paragraph [ref=f3e14]:
+          - generic [ref=f3e15]: Team
+          - strong [ref=f3e16]: "0"
+        - paragraph [ref=f3e17]:
+          - generic [ref=f3e18]: Rank
+          - strong
+  - main [ref=f3e21]:
+    - paragraph [ref=f3e22]: Waiting for the next question…
+  - contentinfo "Class scoreboard" [ref=f3e33]
+  - generic:
+    - generic [aria-hidden]:
+      - paragraph: Winner
+    - generic [ref=f3e140]:
+      - heading "How was class?" [level=2] [ref=f3e141]
+      - paragraph [ref=f3e142]: Pick a face. A short note is optional.
+      - radiogroup "How was class?" [ref=f3e143]:
+        - generic [ref=f3e144] [cursor=pointer]:
+          - radio "Good"
+          - img "Good" [ref=f3e145]
+        - generic [ref=f3e146] [cursor=pointer]:
+          - radio "Okay"
+          - img "Okay" [ref=f3e147]
+        - generic [ref=f3e148] [cursor=pointer]:
+          - radio "Low"
+          - img "Low" [ref=f3e149]
+      - generic [ref=f3e150]:
+        - generic [ref=f3e151]: Optional comment
+        - textbox "Optional comment" [ref=f3e152]:
+          - /placeholder: Anything we should know? (optional)
+      - generic [ref=f3e153]:
+        - button "Skip" [ref=f3e154] [cursor=pointer]
+        - button "Send" [ref=f3e155] [cursor=pointer]

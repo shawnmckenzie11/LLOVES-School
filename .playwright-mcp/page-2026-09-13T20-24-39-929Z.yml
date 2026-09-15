@@ -1,0 +1,33 @@
+- generic [active] [ref=f3e1]:
+  - banner "Your stats" [ref=f3e2]:
+    - paragraph [ref=f3e3]: —
+    - generic [ref=f3e4]:
+      - generic [ref=f3e5]:
+        - paragraph [ref=f3e6]: Aamenah
+        - paragraph [ref=f3e7]
+      - button "Save Work" [ref=f3e9] [cursor=pointer]
+      - generic [ref=f3e10]:
+        - paragraph [ref=f3e11]:
+          - generic [ref=f3e12]: My points
+          - strong [ref=f3e13]: "0"
+        - paragraph [ref=f3e14]:
+          - generic [ref=f3e15]: Team
+          - strong [ref=f3e16]: "0"
+        - paragraph [ref=f3e17]:
+          - generic [ref=f3e18]: Rank
+          - strong [ref=f3e19]: "1"
+          - generic [ref=f3e20]: / 1
+  - main [ref=f3e21]:
+    - paragraph [ref=f3e22]: Waiting room — class is about to begin.
+    - generic [ref=f3e24]:
+      - paragraph [ref=f3e25]: Minds-On
+      - heading [level=2] [ref=f3e26]:
+        - text: A straight-line graph has a
+        - strong [ref=f3e27]: constant rate of change
+        - text: . Which statement best matches that?
+      - generic [ref=f3e28]:
+        - button "Every equal step across adds the same amount up (or down)" [ref=f3e29] [cursor=pointer]
+        - button "The graph curves" [ref=f3e30] [cursor=pointer]
+        - button "Second differences in a table are constant" [ref=f3e31] [cursor=pointer]
+        - button "Not sure" [ref=f3e32] [cursor=pointer]
+  - contentinfo "Class scoreboard" [ref=f3e33]

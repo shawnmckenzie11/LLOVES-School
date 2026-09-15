@@ -30,10 +30,10 @@ Waiting-room check-in (prior-module main idea). Item ids: `minds_on` / `meet-mat
 
 | Choice | Line |
 |---|---|
-| A | This picture opens upward, so a is positive. |
-| **B** (key) | Opens upward → a > 0. |
-| C | If a were 0, this wouldn’t be a parabola. |
-| D | The opening is on this picture — a must be positive. |
+| A | The graph opens upward, so a is positive. |
+| **B** (key) | The graph opens upward, so a is greater than 0. |
+| C | If a were 0, this would not be a parabola. |
+| D | You can see the opening on the graph — a must be positive. |
 
 ---
 
@@ -43,8 +43,8 @@ Waiting-room check-in (prior-module main idea). Item ids: `minds_on` / `meet-mat
 |---|---|
 | A | The intercept is the origin, so c is 0 — not positive. |
 | B | The intercept is the origin, so c is 0 — not negative. |
-| **C** (key) | Y-intercept at the origin → c = 0. |
-| D | This picture pins the intercept at the origin, so c is 0. |
+| **C** (key) | The y-intercept is at the origin, so c = 0. |
+| D | The graph crosses the y-axis at the origin, so c is 0. |
 
 ---
 
@@ -52,22 +52,22 @@ Waiting-room check-in (prior-module main idea). Item ids: `minds_on` / `meet-mat
 
 | Choice | Line |
 |---|---|
-| A | No sideways lean on this picture — b is 0, not positive. |
-| B | No sideways lean on this picture — b is 0, not negative. |
-| **C** (key) | Vertex at the origin and y-axis symmetry → b = 0. |
-| D | For this picture, y-axis symmetry forces b = 0. |
+| A | The graph has no sideways lean, so b is 0, not positive. |
+| B | The graph has no sideways lean, so b is 0, not negative. |
+| **C** (key) | The vertex is at the origin and the graph is symmetric about the y-axis, so b = 0. |
+| D | Y-axis symmetry on this graph means b = 0. |
 
 ---
 
 ## CONS-4 · share / draw · soft share line (not a hard MC key)
 
-**on_submit:** Feature → claim. That’s the whole move.
+**on_submit:** Name one feature you marked and the claim it supports.
 
 ---
 
 ## CONS-5 · share · soft share line (not a hard MC key)
 
-**on_submit:** Leave the blank honest — what’s still free here?
+**on_submit:** What is still unknown from this graph alone?
 
 ---
 

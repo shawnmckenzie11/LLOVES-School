@@ -25,6 +25,7 @@ from schedule import (  # noqa: E402
     next_meeting_datetime,
     parse_semester_field,
     picker_year_semester,
+    store_days,
     unique_header_label,
     wizard_defaults,
 )
@@ -1067,6 +1068,29 @@ class GamePersistTests(unittest.TestCase):
                 class_id, kind="student", target_id=member["id"], amount=1
             )
 
+    def test_student_live_payload_my_team_is_names_and_avatars(self) -> None:
+        """Named-team membership is names + characters only; Class tracking hides."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:4]]
+        self.db.save_attendance(class_id, present)
+        self.db.assign_teams(class_id, 2, "random")
+        member = self.db.game_state(class_id)["teams"][0]["members"][0]
+        phone = self.db.student_live_payload(class_id, member["id"])
+        mine = phone["my_team"]
+        self.assertTrue(mine["name"])
+        self.assertNotEqual(mine["name"], "Class")
+        self.assertGreaterEqual(len(mine["members"]), 1)
+        for row in mine["members"]:
+            self.assertEqual(set(row), {"id", "codename", "character"})
+        solo = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present2 = [s["id"] for s in solo["students"][:3]]
+        self.db.save_attendance(class_id, present2)
+        self.db.start_ungamified_live(class_id, go_live=False)
+        class_member = self.db.game_state(class_id)["teams"][0]["members"][0]
+        hidden = self.db.student_live_payload(class_id, class_member["id"])
+        self.assertIsNone(hidden.get("my_team"))
+
     def test_individual_open_question_only_rounds(self) -> None:
         """Individual Class tracking allows Open Question and Team Challenge."""
         class_id = self.cls["id"]
@@ -1618,7 +1642,11 @@ class HttpApiTests(unittest.TestCase):
         self.assertTrue(any(c["id"] == class_id for c in listed["classes"]))
         dash = _http_json(self.base, f"/api/classes/{class_id}/dashboard")
         self.assertEqual(len(dash["students"]), 17)
-        self.assertEqual(dash["sessions"][0]["header_label"], "Tue 9/8 2:00pm")
+        expected_header = format_header_label(
+            next_meeting_datetime(store_days("T/Th/F"), "2:00pm"),
+            "2:00pm",
+        )
+        self.assertEqual(dash["sessions"][0]["header_label"], expected_header)
         begin = _http_json(self.base, f"/api/classes/{class_id}/begin", {})
         present = [s["id"] for s in begin["students"][:4]]
         moved = _http_json(

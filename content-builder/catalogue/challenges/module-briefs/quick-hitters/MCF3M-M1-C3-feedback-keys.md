@@ -20,7 +20,7 @@ Waiting-room check-in. Item ids: `minds_on` / `C3-minds_on`.
 
 | Choice | Line |
 |---|---|
-| A | Not that one — one point doesn’t freeze a, h, and k all at once. |
+| A | Not that one — one point does not lock a, h, and k all at once. |
 | **B** (key) | Good work. The point links the parameters — some stay free. |
 | C | Domain and range aren’t always all real numbers. Context can cut them. |
 | D | Hint: does one marked point lock every parameter? |
@@ -52,7 +52,7 @@ Light CONS after freeze (3 items, not a C1 5-pack). Courtyard lock.
 
 **Prompt:** Shade the x-values that make sense; one defence sentence.
 
-**on_submit:** Shade the x-values that stay above ground — then defend from the picture.
+**on_submit:** Shade the x-values that stay above ground — then explain using the graph.
 
 ---
 

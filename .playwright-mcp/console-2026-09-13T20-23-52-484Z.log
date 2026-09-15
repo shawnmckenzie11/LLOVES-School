@@ -1,0 +1,20 @@
+[   46904ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
+[  606924ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  616922ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  626928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  636925ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  646922ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  656928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  666921ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  676928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  686928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  696928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  706928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  716928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  726928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  736927ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  746920ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  756927ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0
+[  758929ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/student/state:0
+[  762926ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/student/state:0
+[  766928ms] [ERROR] Failed to load resource: the server responded with a status of 401 (UNAUTHORIZED) @ http://127.0.0.1:8787/api/student/heartbeat:0

@@ -1258,14 +1258,15 @@ class StudentPortalTests(unittest.TestCase):
         self.assertLess(shell_i, panel_i)
         self.assertLess(panel_i, close_i)
         self.assertLess(close_i, board_i)
-        self.assertIn(">Close<", html)
+        self.assertIn('aria-label="Close feedback">×<', html)
+        self.assertIn('id="prompt-dismiss"', html)
         self.assertNotIn("You can Close whenever you’re ready.", html)
         self.assertNotIn('id="prompt-feedback-helper"', html)
         self.assertNotIn("Wrong.", html)
         self.assertNotIn('id="results-strip"', html)
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('getElementById("question-frame")', js)
-        self.assertIn("questionFrame.hidden = !proj.questions", js)
+        self.assertIn("dismissedPromptIds.has(promptId)", js)
         self.assertIn('proj.stage === "meet" && Boolean(ts.meet_chain)', js)
         self.assertIn("function showFeedbackPanel(", js)
         self.assertIn("function dismissFeedbackPanel()", js)
@@ -1278,8 +1279,27 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("holdJoinFeedback && !isJoinMindsOnPrompt(payload)", js)
         self.assertIn("if (answered) {", js)
         self.assertIn("paintPollIfQuestionsVisible(payload)", js)
+        self.assertIn("bindFloatingPane(mediaPane)", js)
         self.assertIn('event.key === "Escape"', js)
         self.assertNotIn("innerHTML = feedback", js)
+
+    def test_projected_panes_have_visible_bounded_resize_handles(self) -> None:
+        """Media, Canvas, and Slides expose pointer resize controls."""
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(
+            encoding="utf-8"
+        )
+        for pane in ("media", "canvas", "slides"):
+            self.assertIn(f'data-pane-resize="{pane}"', html)
+            self.assertIn(f'aria-label="Resize {pane}"', html)
+        self.assertIn("function floatPaneAtCurrentPosition(", js)
+        self.assertIn('pane.querySelector("[data-pane-resize]")', js)
+        self.assertIn("hostRect.width - resizeDrag.left", js)
+        self.assertIn("hostRect.height - resizeDrag.top", js)
+        self.assertIn("cursor: nwse-resize;", css)
 
     def test_beat32_save_work_sits_under_name_row(self) -> None:
         """Beat 32: Save View is under the name row, not timer or Question."""

@@ -155,32 +155,18 @@
       </header>
 
       <section class="live-options-strip live-option-card" id="live-option-card" aria-label="Stage options" hidden>
-        <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip">
-          <span class="live-student-view-label">Student View:</span>
-          <label class="live-student-view-field" for="live-view-media">
-            <span>Media</span>
-            <select id="live-view-media" aria-label="Media student view">
-              <option value="none">None: teacher-view only</option>
-              <option value="student">Student: Individual</option>
-              <option value="team">Student: Shared within Group</option>
-            </select>
+        <div id="live-unlocks-strip" class="live-option-card-body live-unlocks-strip live-general-options">
+          <span class="live-option-card-label">Round options</span>
+          <label class="live-unlock-toggle" for="live-timer-toggle">
+            <input type="checkbox" id="live-timer-toggle">
+            <span>Timer</span>
           </label>
-          <label class="live-student-view-field" for="live-view-canvas">
-            <span>Canvas</span>
-            <select id="live-view-canvas" aria-label="Canvas student view">
-              <option value="none">None: teacher-view only</option>
-              <option value="student">Student: Individual</option>
-              <option value="team">Student: Shared within Group</option>
-            </select>
+          <button type="button" id="live-timer-start" class="live-option-start">Start</button>
+          <label class="live-unlock-toggle" for="live-teams-toggle">
+            <input type="checkbox" id="live-teams-toggle">
+            <span>Teams</span>
           </label>
-          <label class="live-student-view-field" for="live-view-questions">
-            <span>Questions</span>
-            <select id="live-view-questions" aria-label="Questions student view">
-              <option value="none">None: teacher-view only</option>
-              <option value="student">Student: Individual</option>
-              <option value="team">Student: Shared within Group</option>
-            </select>
-          </label>
+          <button type="button" id="live-teams-start" class="live-option-start">Start</button>
           <label class="live-unlock-toggle" id="join-scoreboard-wrap" for="ap-scoreboard-toggle" hidden>
             <input type="checkbox" id="ap-scoreboard-toggle">
             <span>Scoreboard</span>
@@ -285,6 +271,7 @@
               <button type="button" class="live-preset-btn" data-preset="media_full">Media</button>
               <button type="button" class="live-preset-btn is-active" data-preset="questions_full">Questions</button>
               <button type="button" class="live-preset-btn" data-preset="canvas_full">Canvas</button>
+              <button type="button" class="live-preset-btn" data-preset="slides_full">Slides</button>
             </div>
           </div>
         </div>
@@ -295,7 +282,7 @@
         {% set packs = live_packs if live_packs is defined else {} %}
         <div class="live-pack-strip" id="live-pack-strip"
              data-course="{{ packs.course or 'MCF3M' }}"
-             data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3"]}) | tojson }}'>
+             data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3", "C4"]}) | tojson }}'>
           <label class="live-pack-field" for="live-module-select">
             <span>Module</span>
             <select id="live-module-select" aria-label="Module">
@@ -307,7 +294,7 @@
           <label class="live-pack-field" for="live-class-select">
             <span>Live class</span>
             <select id="live-class-select" aria-label="Live class">
-              {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3']) %}
+              {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3', 'C4']) %}
               <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
               {% endfor %}
             </select>
@@ -320,7 +307,7 @@
 
       <div class="live-shell-body">
         <aside class="live-shell-left" id="live-shell-left">
-          <section id="session-timer" class="live-session-timer" aria-label="Session timer">
+          <section id="session-timer" class="live-session-timer" aria-label="Session timer" hidden>
             <div class="stepper ap-teams-stepper live-meet-count" id="ap-meet-stepper" role="group" aria-label="Session timer minutes">
               <button type="button" id="ap-meet-minutes-down" aria-label="Shorter session timer">−</button>
               <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric" aria-label="Session timer minutes">
@@ -359,10 +346,12 @@
         <main class="live-shell-right" id="live-shell-right">
           <section class="live-active-content" id="live-active-content">
             <div class="live-active-toolbar">
-              <nav class="live-content-tabs" id="live-content-tabs" aria-label="Active Content">
-                <button type="button" class="live-content-tab" data-tab="media">Active Media</button>
-                <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Question(s)</button>
-                <button type="button" class="live-content-tab" data-tab="canvas_slides">Canvas/Slides</button>
+              <h2 class="live-content-heading">Content</h2>
+              <nav class="live-content-tabs" id="live-content-tabs" aria-label="Content">
+                <button type="button" class="live-content-tab" data-tab="media">Media</button>
+                <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Questions</button>
+                <button type="button" class="live-content-tab" data-tab="canvas">Canvas</button>
+                <button type="button" class="live-content-tab" data-tab="slides">Slides</button>
               </nav>
             </div>
             <div class="live-frames" id="live-frames" data-preset="questions_full" data-slots="A">
@@ -371,17 +360,23 @@
               <div class="live-frame-slot" data-frame="C" data-drop-frame="C"><span class="live-frame-label">C</span></div>
               <section id="media-artifact-zone" class="live-content-slot live-flag-panel is-parked" data-content-id="media" data-flag="media" data-slot="">
                 <section class="ap-active-media" id="ap-active-media">
-                  <h2>Active Media</h2>
+                  <div class="live-content-pane-head">
+                    <h2>Media</h2>
+                    <label class="live-student-view-field" for="live-view-media">
+                      <span>Student View</span>
+                      <select id="live-view-media" aria-label="Media student view">
+                        <option value="none">None: Teacher View Only</option>
+                        <option value="student">Student: Individual</option>
+                        <option value="team">Student: Shared within Group</option>
+                      </select>
+                    </label>
+                  </div>
                   <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
                 </section>
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
-                <h2 class="live-pane-title">Question</h2>
-                <div class="live-slot-picks" id="live-slot-picks" role="group" aria-label="Live slot">
-                  <button type="button" class="live-round-pick is-active" data-live-slot="C1">C1</button>
-                  <button type="button" class="live-round-pick" data-live-slot="C2">C2</button>
-                  <button type="button" class="live-round-pick" data-live-slot="C3">C3</button>
-                </div>
+                <h2 class="live-pane-title">Questions</h2>
+                <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
                 <div id="text-ride-controls" class="live-text-ride" hidden>
                   <button type="button" id="text-ride-freeze" class="live-round-pick">Freeze</button>
                   <div class="live-slot-picks" id="text-ride-cons" role="group" aria-label="Light consolidation">
@@ -465,8 +460,18 @@
                   </section>
                 </section>
               </section>
-              <section id="canvas-slides-zone" class="live-content-slot" data-content-id="canvas_slides" data-slot="">
-                <h2 class="live-pane-title">Canvas / Slides</h2>
+              <section id="canvas-zone" class="live-content-slot" data-content-id="canvas" data-slot="">
+                <div class="live-content-pane-head">
+                  <h2 class="live-pane-title">Canvas</h2>
+                  <label class="live-student-view-field" for="live-view-canvas">
+                    <span>Student View</span>
+                    <select id="live-view-canvas" aria-label="Canvas student view">
+                      <option value="none">None: Teacher View Only</option>
+                      <option value="student">Student: Individual</option>
+                      <option value="team">Student: Shared within Group</option>
+                    </select>
+                  </label>
+                </div>
                 <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
                   <button type="button" id="live-canvas-undo">Undo</button>
@@ -476,11 +481,43 @@
                 <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
                 <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
               </section>
+              <section id="slides-zone" class="live-content-slot" data-content-id="slides" data-slot="">
+                <div class="live-content-pane-head">
+                  <h2 class="live-pane-title">Slides</h2>
+                  <label class="live-student-view-field" for="live-view-slides">
+                    <span>Student View</span>
+                    <select id="live-view-slides" aria-label="Slides student view">
+                      <option value="none">None: Teacher View Only</option>
+                      <option value="student">Student: Individual</option>
+                      <option value="team">Student: Shared within Group</option>
+                    </select>
+                  </label>
+                </div>
+                <p class="hint compact" id="live-slides-status">No slide deck is connected to this live-class metadata yet.</p>
+                <iframe id="live-slides-preview" class="live-slides-preview" title="Live class slides" hidden></iframe>
+              </section>
             </div>
           </section>
         </main>
       </div>
     </div>
+    <dialog id="live-responses-dialog" class="live-responses-dialog" aria-labelledby="live-responses-title">
+      <form method="dialog" class="live-responses-card">
+        <header class="live-responses-head">
+          <div>
+            <p class="hint compact">Active session only</p>
+            <h2 id="live-responses-title">Responses</h2>
+          </div>
+          <button type="submit" class="secondary" aria-label="Close responses">×</button>
+        </header>
+        <div id="live-responses-list" class="live-responses-list"></div>
+        <div class="live-responses-actions">
+          <button type="button" data-response-award="answered">+1 Everyone who answered</button>
+          <button type="button" data-response-award="correct">+1 Everyone correct</button>
+          <button type="button" data-response-award="manual">+1 Selected</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="ap-teams-rename-dialog" class="live-rename-dialog" aria-labelledby="ap-teams-rename-title">
       <div class="live-rename-dialog-card" id="ap-panel-names">
         <h2 class="live-pane-title" id="ap-teams-rename-title">Rename teams</h2>
