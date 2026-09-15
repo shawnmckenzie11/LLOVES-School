@@ -6231,6 +6231,22 @@ class SchoolDB(LovesDB):
         ]
         if not placements:
             placements = questions
+        have_types = {
+            str(row.get("item_type") or row.get("kind") or "").strip().lower()
+            for row in placements
+        }
+        if "whiteboard" not in have_types:
+            placements.append(
+                {
+                    "ref": "universal/whiteboard/live-workspace",
+                    "item_ref": "universal/whiteboard/live-workspace",
+                    "item_type": "whiteboard",
+                    "id": "whiteboard",
+                    "stage": "meet",
+                    "order": 90,
+                    "type": "whiteboard",
+                }
+            )
         prompts = self._list_live_session_prompts(session_id)
         prompt_by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompts:
@@ -6295,9 +6311,9 @@ class SchoolDB(LovesDB):
                     + order
                 )
                 kind = str(
-                    question.get("type")
+                    question.get("item_type")
+                    or question.get("type")
                     or question.get("kind")
-                    or question.get("item_type")
                     or "question"
                 ).strip().lower()
                 response_mode = self._question_response_mode(question)

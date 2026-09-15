@@ -273,7 +273,10 @@ class LiveBackendStateTests(unittest.TestCase):
         """Independent questions stay active, close locks, and end cleans data."""
 
         items = self.school.ensure_live_session_items(self.session_id)
-        self.assertEqual(len(items), 3)
+        self.assertGreaterEqual(len(items), 3)
+        self.assertTrue(
+            any(str(row.get("kind") or "") == "whiteboard" for row in items)
+        )
         self.assertTrue(all(row["status"] == "inactive" for row in items))
         self.assertTrue(all(row["show_live_results"] for row in items))
         q1 = next(row for row in items if row["item_id"] == "q-one")

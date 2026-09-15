@@ -538,12 +538,22 @@ const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
  * @param {string} itemType
  * @returns {any|null}
  */
+/**
+ * Return the public item type for one student live-item row.
+ * @param {any} row
+ * @returns {string}
+ */
+function publishedItemType(row) {
+  return String(
+    row?.content?.item_type || row?.kind || row?.item?.item_type || ""
+  ).toLowerCase();
+}
+
 function activePublishedItem(payload, itemType) {
+  const wanted = String(itemType || "").toLowerCase();
   return (
     (payload?.live_items || []).find(
-      (row) =>
-        row?.status === "active" &&
-        String(row?.content?.item_type || "") === itemType
+      (row) => row?.status === "active" && publishedItemType(row) === wanted
     ) || null
   );
 }
@@ -853,30 +863,23 @@ function applyTeacherProjection(payload) {
       Boolean(payload?.my_response) && dismissedPromptIds.has(promptId);
     questionFrame.hidden = !proj.questions || dismissed;
   }
-  if (welcomeOn) {
-    if (mediaPane) {
-      mediaPane.hidden = true;
-      unmountStudentMedia();
-    }
-    if (canvasPane) canvasPane.hidden = true;
-    if (slidesPane) slidesPane.hidden = true;
-  }
   if (canvasPane) {
-    canvasPane.hidden = !proj.canvas;
+    const docked = dockedLiveCardKeys.has("surface:canvas");
+    canvasPane.hidden = !proj.canvas || docked;
     canvasPane.classList.toggle("is-readonly", proj.canvas && proj.canvasAlign === "teacher");
     if (canvasLock) canvasLock.hidden = true;
   }
   if (mediaPane) {
     mediaPane.classList.remove("is-locked");
     if (mediaLock) mediaLock.hidden = true;
-    if (!proj.media) {
+    if (!proj.media || dockedLiveCardKeys.has("surface:media")) {
       mediaPane.hidden = true;
       unmountStudentMedia();
     }
   }
   if (slidesPane) {
-    slidesPane.hidden = !proj.slides;
-    if (proj.slides) paintStudentSlides(payload);
+    slidesPane.hidden = !proj.slides || dockedLiveCardKeys.has("surface:slides");
+    if (proj.slides && !dockedLiveCardKeys.has("surface:slides")) paintStudentSlides(payload);
   }
   return proj;
 }
@@ -1021,16 +1024,15 @@ function postMediaState(media) {
  * @param {any} payload
  */
 function paintMedia(payload) {
+  const proj = applyTeacherProjection(payload);
   if (payload.game_show_welcome) {
-    applyTeacherProjection(payload);
     if (mediaChip) mediaChip.hidden = true;
     if (mediaStem) mediaStem.hidden = true;
     if (mediaCaption) mediaCaption.hidden = true;
     if (mediaAnswers) mediaAnswers.hidden = true;
     if (mediaEncore) mediaEncore.hidden = true;
-    return;
+    if (!proj.media) return;
   }
-  const proj = applyTeacherProjection(payload);
   if (!proj.media) {
     if (mediaChip) mediaChip.hidden = true;
     if (mediaStem) mediaStem.hidden = true;
@@ -1099,8 +1101,11 @@ function paintMedia(payload) {
     }
   }
   if (!mediaPane || !mediaFrame) return;
-  if (!url) {
+  if (dockedLiveCardKeys.has("surface:media")) {
     mediaPane.hidden = true;
+    return;
+  }
+  if (!url) {
     mediaFrame.removeAttribute("src");
     lastMediaUrl = "";
     lastMediaSig = "";
@@ -1109,8 +1114,11 @@ function paintMedia(payload) {
       mediaToast.hidden = true;
       mediaToast.textContent = "";
     }
+    mediaPane.hidden = false;
+    mediaPane.classList.add("is-empty");
     return;
   }
+  mediaPane.classList.remove("is-empty");
   mediaPane.hidden = false;
   const sig = JSON.stringify({
     url,
@@ -1321,6 +1329,18 @@ function hideQuestionBody() {
  * @param {any} payload
  */
 function paintPollIfQuestionsVisible(payload) {
+  const item =
+    (payload?.active_questions || []).find(
+      (row) => Number(row?.prompt?.id) === Number(payload?.prompt?.id)
+    ) || null;
+  if (item && item.show_live_results === false) {
+    hidePollTotals();
+    return;
+  }
+  if (item && !item.show_live_results && !item.results) {
+    hidePollTotals();
+    return;
+  }
   paintPollTotalsBelowFeedback(payload);
 }
 
@@ -1530,18 +1550,37 @@ function lifecycleConsensusHtml(item) {
 function paintQuestionDock(items, payload) {
   if (!studentQuestionDock) return;
   const docked = (items || []).filter((item) => dockedLiveCardKeys.has(liveCardDockKey(item)));
-  studentQuestionDock.hidden = docked.length === 0;
-  studentQuestionDock.innerHTML = docked
-    .map((item) => {
+  const proj = studentProjection(payload);
+  const surfaces = [];
+  if (proj.media && dockedLiveCardKeys.has("surface:media")) {
+    surfaces.push({ key: "surface:media", kind: "media", label: "Media" });
+  }
+  if (proj.canvas && dockedLiveCardKeys.has("surface:canvas")) {
+    surfaces.push({ key: "surface:canvas", kind: "whiteboard", label: "Whiteboard" });
+  }
+  if (proj.slides && dockedLiveCardKeys.has("surface:slides")) {
+    surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides" });
+  }
+  const chips = [
+    ...surfaces.map(
+      (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}">
+        <span class="student-question-dock-kind">${escapeText(row.label)}</span>
+        <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(row.key)}" aria-label="Pop ${escapeText(row.label)} back out">↗</button>
+      </div>`
+    ),
+    ...docked.map((item) => {
       const key = liveCardDockKey(item);
       const stage = stageNumberForItem(item, payload);
       const mark = dockAnswerMark(item);
-      return `<div class="student-question-dock-chip" data-dock-key="${escapeText(key)}">
+      return `<div class="student-question-dock-chip is-question" data-dock-key="${escapeText(key)}">
+        <span class="student-question-dock-kind">Question</span>
         <span class="student-question-dock-label">${stage} | ${escapeText(mark)}</span>
         <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(key)}" aria-label="Pop question back out">↗</button>
       </div>`;
-    })
-    .join("");
+    }),
+  ];
+  studentQuestionDock.hidden = chips.length === 0;
+  studentQuestionDock.innerHTML = chips.join("");
 }
 
 /**
@@ -1553,6 +1592,9 @@ function promptAsLifecycleItem(payload) {
   const prompt = payload?.prompt;
   if (!prompt || !prompt.kind || prompt.kind === "idle") return null;
   const body = prompt.payload || {};
+  const published = (payload?.active_questions || []).find(
+    (row) => Number(row?.prompt?.id) === Number(prompt.id)
+  );
   return {
     id: Number(prompt.id) || 0,
     status: "active",
@@ -1565,7 +1607,8 @@ function promptAsLifecycleItem(payload) {
     can_submit: !payload.my_response,
     my_response: payload.my_response || null,
     response_mode: "individual",
-    results: null,
+    show_live_results: Boolean(published?.show_live_results),
+    results: published?.results || null,
   };
 }
 
@@ -1615,20 +1658,30 @@ function paintLifecycleQuestionStack(payload) {
               liveAnswerLabel(item.my_response.response)
             )}</p>`
           : "";
-      const results = groupMode
-        ? lifecycleClassConsensusHtml(item.results)
-        : lifecycleResultsHtml(item.results);
-      return `<article class="student-live-card is-${escapeText(status)}" data-live-card-id="${Number(
+      const showResults =
+        status === "closed" ||
+        (Boolean(item.show_live_results) && Boolean(item.my_response || item.group_consensus?.has_voted));
+      const results =
+        !showResults
+          ? ""
+          : groupMode
+            ? lifecycleClassConsensusHtml(item.results)
+            : lifecycleResultsHtml(item.results);
+      const dockKey = liveCardDockKey(item);
+      return `<article class="student-live-card student-floating-pane is-${escapeText(status)}" data-live-card-id="${Number(
         item.id
-      )}" data-live-card-status="${escapeText(status)}">
-        <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(
-          liveCardDockKey(item)
-        )}" aria-label="Dock question">×</button>
+      )}" data-live-card-status="${escapeText(status)}" data-live-card-key="${escapeText(dockKey)}">
+        <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
+          <span>Question</span>
+          <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
+          <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
+          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dock question">×</button>
+        </div>
+        <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         <div class="student-live-card-head">
           <span class="student-live-card-kicker">${escapeText(
             String(content.type || item.prompt?.kind || "Question").toUpperCase()
           )}</span>
-          <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
         </div>
         <h2>${formatPromptHtml(content.text || content.prompt || content.question || "Live question")}</h2>
         ${
@@ -1640,6 +1693,15 @@ function paintLifecycleQuestionStack(payload) {
       </article>`;
     })
     .join("");
+  visible.forEach((item, index) => {
+    const card = liveQuestionStackBody.querySelector(
+      `[data-live-card-key="${CSS.escape(liveCardDockKey(item))}"]`
+    );
+    if (card instanceof HTMLElement) {
+      card.style.setProperty("--live-card-offset", String(index));
+      bindFloatingPane(card);
+    }
+  });
   liveQuestionStack.hidden = visible.length === 0;
   liveQuestionStack.dataset.hasLifecycle = all.length ? "1" : "0";
   const legacyPromptId = Number(payload?.prompt?.id) || 0;
@@ -1678,11 +1740,21 @@ function lifecycleAnswerFromCard(card) {
  */
 async function submitLifecycleAnswer(card, action) {
   const itemId = Number(card.dataset.liveCardId) || 0;
-  const item = (lastStudentPayload?.active_questions || []).find(
-    (row) => Number(row.id) === itemId
-  );
+  const item =
+    (lastStudentPayload?.active_questions || []).find(
+      (row) => Number(row.id) === itemId
+    ) ||
+    (Number(lastStudentPayload?.prompt?.id) === itemId
+      ? promptAsLifecycleItem(lastStudentPayload)
+      : null);
   const response = lifecycleAnswerFromCard(card);
-  if (!item || !response) return;
+  if (!response) return;
+  if (!item) {
+    const promptId = Number(lastStudentPayload?.prompt?.id) || itemId;
+    if (!promptId) return;
+    await submitResponse(promptId, response);
+    return;
+  }
   let url = "/api/student/live-prompt/response";
   let body = { prompt_id: Number(item.prompt?.id) || 0, response };
   if (action === "vote") {
@@ -1926,19 +1998,8 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     : itemId
     ? itemId
     : `${kind.toUpperCase()} · slide ${escapeText(prompt.slide_index)}`;
-  const chain = Array.isArray(data.chain) ? data.chain : [];
-  const step = String(data.step || "");
-  const dots = chain.length
-    ? `<p class="meet-progress-dots" aria-label="Meet progress">${chain
-        .map((letter) => {
-          const cls = letter === step ? "is-current" : "";
-          return `<span class="meet-dot ${cls}">${escapeText(letter)}</span>`;
-        })
-        .join("")}</p>`
-    : "";
   promptShell.hidden = false;
   promptShell.innerHTML = `
-    ${dots}
     <p class="prompt-kind">${escapeText(kindLine)}</p>
     <h2 class="prompt-title">${title}</h2>
     <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
@@ -2057,6 +2118,15 @@ function showPromptAck(line) {
  */
 function paintPollTotalsBelowFeedback(payload) {
   if (!promptPollTotals) return;
+  const item =
+    (payload?.active_questions || []).find(
+      (row) => Number(row?.prompt?.id) === Number(payload?.prompt?.id)
+    ) || null;
+  if (item && item.show_live_results === false) {
+    promptPollTotals.hidden = true;
+    promptPollTotals.innerHTML = "";
+    return;
+  }
   const meet = studentMeetPollsHtml(payload);
   const tally = studentMcSummary(payload);
   if (!meet && !tally) {
@@ -2065,7 +2135,7 @@ function paintPollTotalsBelowFeedback(payload) {
     return;
   }
   promptPollTotals.hidden = false;
-  promptPollTotals.innerHTML = meet || `<section class="prompt-poll-card"><p class="meet-poll-kicker">Class-wide</p>${mcRevealBarsHtml(tally)}</section>`;
+  promptPollTotals.innerHTML = meet || `<section class="prompt-poll-card"><p class="meet-poll-kicker">Class results</p>${mcRevealBarsHtml(tally)}</section>`;
 }
 
 /**
@@ -2097,6 +2167,11 @@ function countsToTallyHtml(counts, labels) {
  * @returns {string}
  */
 function studentMeetPollsHtml(payload) {
+  const item =
+    (payload?.active_questions || []).find(
+      (row) => Number(row?.prompt?.id) === Number(payload?.prompt?.id)
+    ) || null;
+  if (!item || !item.show_live_results) return "";
   const ts = (payload && payload.teacher_state) || {};
   if (String(ts.stage || "") !== "meet") return "";
   const chain = ts.meet_chain || {};
@@ -2529,12 +2604,28 @@ async function tick() {
   }
 }
 
+document.getElementById("live-response")?.addEventListener("click", (event) => {
+  const dismiss = event.target.closest("[data-dismiss-surface]");
+  if (!(dismiss instanceof HTMLButtonElement)) return;
+  event.preventDefault();
+  dockedLiveCardKeys.add(`surface:${dismiss.dataset.dismissSurface || ""}`);
+  if (lastStudentPayload) {
+    applyTeacherProjection(lastStudentPayload);
+    paintMedia(lastStudentPayload);
+    paintLifecycleQuestionStack(lastStudentPayload);
+  }
+});
+
 if (studentQuestionDock) {
   studentQuestionDock.addEventListener("click", (event) => {
     const undock = event.target.closest("[data-undock-live-card]");
     if (!(undock instanceof HTMLButtonElement)) return;
     dockedLiveCardKeys.delete(undock.dataset.undockLiveCard || "");
-    paintLifecycleQuestionStack(lastStudentPayload || {});
+    if (lastStudentPayload) {
+      applyTeacherProjection(lastStudentPayload);
+      paintMedia(lastStudentPayload);
+      paintLifecycleQuestionStack(lastStudentPayload);
+    }
   });
 }
 if (liveQuestionStack) {
@@ -2617,7 +2708,6 @@ bindStudentCanvas();
 bindFloatingPane(mediaPane);
 bindFloatingPane(canvasPane);
 bindFloatingPane(slidesPane);
-bindFloatingPane(liveQuestionStack);
 tick();
 setInterval(tick, 4000);
 setInterval(tickDisplayTime, 250);

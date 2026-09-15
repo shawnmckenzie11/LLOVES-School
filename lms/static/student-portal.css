@@ -316,6 +316,16 @@ body.student-home.has-media .student-live-response {
 .media-pane[hidden] {
   display: none !important;
 }
+.media-pane.is-empty iframe {
+  display: none;
+}
+.media-pane.is-empty::after {
+  content: "Media is published.";
+  display: block;
+  padding: 2rem 1rem;
+  color: #9fb3c8;
+  text-align: center;
+}
 
 .media-pane.is-locked iframe {
   pointer-events: none;
@@ -524,58 +534,59 @@ body.student-home.is-live .student-live-response {
 }
 
 .live-question-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: block;
   width: min(22rem, calc(100% - 1.4rem));
-  max-height: min(70dvh, 36rem);
-  overflow: auto;
   position: absolute;
   top: 0.7rem;
   right: 0.7rem;
   z-index: 8;
+  pointer-events: none;
 }
 
 .live-question-stack[hidden] {
   display: none !important;
 }
 
-.live-question-stack .student-pane-bar {
-  display: none;
-}
-
-.live-question-stack .student-pane-resize {
-  display: none;
-}
-
 .live-question-stack-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-@media (min-width: 48rem) {
-  .live-question-stack .student-pane-bar {
-    display: flex;
-  }
-
-  .live-question-stack .student-pane-resize {
-    display: block;
-  }
-
-  .live-question-stack {
-    min-width: 18rem;
-    min-height: 10rem;
-  }
+  display: block;
+  position: relative;
+  min-height: 0;
 }
 
 .student-live-card {
   position: relative;
-  padding: 0.9rem 2.8rem 1rem 1rem;
+  pointer-events: auto;
+  padding: 0 0 1rem;
   border: 1px solid #2a4660;
   border-left: 4px solid #2dd4bf;
   border-radius: 12px;
   background: #122033;
+  margin: 0 0 0.75rem;
+}
+
+.student-live-card.student-floating-pane {
+  width: min(22rem, calc(100% - 1.4rem));
+  max-height: min(70dvh, 36rem);
+  overflow: auto;
+}
+
+.student-live-card .student-pane-bar {
+  display: flex;
+}
+
+.student-live-card .student-pane-resize {
+  display: none;
+}
+
+@media (min-width: 48rem) {
+  .student-live-card .student-pane-resize {
+    display: block;
+  }
+
+  .student-live-card.student-floating-pane {
+    min-width: 18rem;
+    min-height: 10rem;
+  }
 }
 
 .student-live-card.is-closed {
@@ -613,12 +624,10 @@ body.student-home.is-live .student-live-response {
   color: #f5c518;
 }
 
-.student-live-dismiss {
-  position: absolute;
-  top: 0.45rem;
-  right: 0.45rem;
+.student-live-dismiss,
+.student-pane-bar [data-dismiss-surface] {
   width: 1.8rem;
-  height: 1.8rem;
+  height: 1.6rem;
   padding: 0;
   border: 1px solid #45617a;
   border-radius: 999px;
@@ -627,6 +636,19 @@ body.student-home.is-live .student-live-response {
   font: inherit;
   font-size: 1.1rem;
   cursor: pointer;
+}
+
+.student-live-card-head {
+  padding: 0.65rem 1rem 0;
+}
+
+.student-live-card h2,
+.student-live-card .student-live-answer-controls,
+.student-live-card .student-live-note,
+.student-live-card .student-live-feedback,
+.student-live-card .student-live-results {
+  margin-left: 1rem;
+  margin-right: 1rem;
 }
 
 .student-live-answer-controls {
@@ -1222,6 +1244,24 @@ body.student-home.is-live .student-live-response {
   border-radius: 7px;
   background: #102536;
   font-size: 0.78rem;
+}
+.student-question-dock-chip.is-question {
+  border-left: 4px solid #2dd4bf;
+}
+.student-question-dock-chip.is-media {
+  border-left: 4px solid #60a5fa;
+}
+.student-question-dock-chip.is-whiteboard {
+  border-left: 4px solid #f5c518;
+}
+.student-question-dock-chip.is-slides {
+  border-left: 4px solid #c084fc;
+}
+.student-question-dock-kind {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
 }
 .student-question-dock-label {
   min-width: 0;
@@ -1905,8 +1945,6 @@ body.student-home.is-game-show-welcome .live-question-stack {
 
 body.student-home.is-game-show-welcome .student-wait,
 body.student-home.is-game-show-welcome .question-frame,
-body.student-home.is-game-show-welcome .media-pane,
-body.student-home.is-game-show-welcome .canvas-pane,
 body.student-home.is-game-show-welcome .media-chip,
 body.student-home.is-game-show-welcome .media-stem,
 body.student-home.is-game-show-welcome .media-caption,

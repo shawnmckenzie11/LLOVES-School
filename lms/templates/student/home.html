@@ -28,7 +28,7 @@
         <p class="me-stat"><span class="me-stat-label" id="me-team-label">Team</span><strong id="me-team-points">0</strong></p>
       </div>
     </div>
-    <div id="student-question-dock" class="student-question-dock" hidden aria-label="Docked questions"></div>
+    <div id="student-question-dock" class="student-question-dock" hidden aria-label="Docked questions, media, and whiteboards"></div>
     <div id="me-team-list" class="me-team-list" hidden aria-label="Your team"></div>
     <p class="student-round-banner" id="student-round-banner" hidden></p>
   </header>
@@ -42,6 +42,7 @@
       <div class="student-pane-bar" data-pane-drag="media">
         <span>Media</span>
         <button type="button" data-pane-reset="media">Reset</button>
+        <button type="button" data-dismiss-surface="media" aria-label="Dock media">×</button>
       </div>
       <button type="button" class="student-pane-resize" data-pane-resize="media" aria-label="Resize media"></button>
       <div id="media-lock" class="student-frame-lock" hidden>Media locked</div>
@@ -51,6 +52,7 @@
       <div class="student-pane-bar" data-pane-drag="canvas">
         <span>Whiteboard</span>
         <button type="button" data-pane-reset="canvas">Reset</button>
+        <button type="button" data-dismiss-surface="canvas" aria-label="Dock whiteboard">×</button>
       </div>
       <button type="button" class="student-pane-resize" data-pane-resize="canvas" aria-label="Resize whiteboard"></button>
       <div id="canvas-lock" class="student-frame-lock">Whiteboard locked</div>
@@ -66,6 +68,7 @@
       <div class="student-pane-bar" data-pane-drag="slides">
         <span>Slides</span>
         <button type="button" data-pane-reset="slides">Reset</button>
+        <button type="button" data-dismiss-surface="slides" aria-label="Dock slides">×</button>
       </div>
       <button type="button" class="student-pane-resize" data-pane-resize="slides" aria-label="Resize slides"></button>
       <iframe id="slides-frame" title="Live class slides" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
@@ -76,12 +79,7 @@
     </p>
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting room — class is about to begin.{% endif %}</p>
     <section id="game-show-welcome" class="game-show-welcome" hidden aria-label="VLC Math Game Show"></section>
-    <section id="live-question-stack" class="live-question-stack student-floating-pane" aria-label="Active questions and results">
-      <div class="student-pane-bar" data-pane-drag="questions">
-        <span>Questions</span>
-        <button type="button" data-pane-reset="questions">Reset</button>
-      </div>
-      <button type="button" class="student-pane-resize" data-pane-resize="questions" aria-label="Resize questions"></button>
+    <section id="live-question-stack" class="live-question-stack" aria-label="Active questions and results">
       <div id="live-question-stack-body" class="live-question-stack-body"></div>
     </section>
     <div id="question-frame" class="question-frame">

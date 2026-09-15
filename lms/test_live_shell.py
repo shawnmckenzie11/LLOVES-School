@@ -1245,6 +1245,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("rounds.hidden = true", option)
         self.assertNotIn("innerHTML", option)
         self.assertIn("paintRoundStrip();", js.split("function paintTeamsStripEnabled()")[1].split("function paintRoundStrip()")[0])
+        strip_enabled = js.split("function paintTeamsStripEnabled()")[1].split("function paintRoundStrip()")[0]
+        self.assertIn("closeTeamsPops({ keepRename: true })", strip_enabled)
+        self.assertIn("const pointsButton =", js)
+        self.assertIn("closed", js.split("const pointsButton =")[1].split("function individualLifecycleResultsHtml")[0])
         self.assertIn("body.staff-shell .live-round-strip {", css)
         strip_css = css.split("body.staff-shell .live-round-strip {")[1].split("}")[0]
         self.assertIn("flex-wrap: nowrap", strip_css)

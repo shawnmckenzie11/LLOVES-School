@@ -479,14 +479,13 @@ function paintStudentViewControls() {
  */
 function lifecycleItemForSurface(surface) {
   const itemType = surface === "canvas" ? "whiteboard" : surface;
+  const stage = String(teacherState.stage || "");
+  const matches = lastLiveItems.filter((row) => {
+    const item = row?.item || {};
+    return String(item.item_type || row.kind || "").toLowerCase() === itemType;
+  });
   return (
-    lastLiveItems.find((row) => {
-      const item = row?.item || {};
-      return (
-        String(item.item_type || row.kind || "").toLowerCase() === itemType &&
-        String(row.stage || "") === String(teacherState.stage || "")
-      );
-    }) || null
+    matches.find((row) => String(row.stage || "") === stage) || matches[0] || null
   );
 }
 
@@ -1135,6 +1134,14 @@ function paintLiveQuestionCards() {
                 : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
             }
           </div>`;
+      const pointsButton =
+        card.response_mode === "group_consensus"
+          ? ""
+          : `<button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(
+              item.text || card.text
+            )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" ${
+              promptId ? "" : "disabled"
+            }>Responses &amp; points</button>`;
       const activeActions = active
         ? `<label class="live-result-toggle">
             <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
@@ -1145,14 +1152,12 @@ function paintLiveQuestionCards() {
           ${
             card.response_mode === "group_consensus"
               ? `<button type="button" class="secondary" data-end-voting="${liveItemId}">End Voting</button>`
-              : `<button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(
-                  item.text || card.text
-                )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" ${
-                  promptId ? "" : "disabled"
-                }>Responses &amp; points</button>`
+              : pointsButton
           }
           <button type="button" class="secondary" data-close-live-item="${liveItemId}">Close</button>`
-        : "";
+        : closed
+          ? `${pointsButton}<span class="live-closed-copy">Final results</span>`
+          : "";
       return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
         item.id || card.item_id || card.id
       )}" data-live-item-id="${liveItemId}">
@@ -1172,7 +1177,6 @@ function paintLiveQuestionCards() {
         </div>
         <div class="live-question-card-actions">
           ${status === "inactive" ? publish : activeActions}
-          ${closed ? `<span class="live-closed-copy">Final results</span>` : ""}
         </div>
       </article>`;
     })
@@ -3687,7 +3691,7 @@ function paintTeamsStripEnabled() {
     rename.disabled = !configured;
     rename.setAttribute("aria-disabled", configured ? "false" : "true");
   }
-  if (!team || configured) closeTeamsPops();
+  if (!team || configured) closeTeamsPops({ keepRename: true });
   paintDivisionMeter();
   paintRoundStrip();
 }

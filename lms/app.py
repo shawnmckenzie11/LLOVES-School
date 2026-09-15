@@ -3605,7 +3605,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
             return jsonify({"ok": True, "draft": True, "group_draft": draft})
         meet_payload = (target or {}).get("payload") or {}
-        if is_meet_team_payload(meet_payload):
+        lifecycle_owns_prompt = any(
+            isinstance(item, dict)
+            and isinstance(item.get("prompt"), dict)
+            and int(item["prompt"].get("id") or 0) == prompt_id
+            for item in facing_payload.get("active_questions") or []
+        )
+        if is_meet_team_payload(meet_payload) and not lifecycle_owns_prompt:
             choice = ""
             if isinstance(response, dict):
                 choice = str(
