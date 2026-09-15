@@ -113,7 +113,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(">Content<", html)
         self.assertIn(">Media<", html)
         self.assertIn(">Questions<", html)
-        self.assertIn(">Canvas<", html)
+        self.assertIn(">Whiteboard<", html)
         self.assertIn(">Slides<", html)
         self.assertIn('id="live-edit-layout"', html)
         self.assertIn('id="live-layout-presets"', html)
@@ -164,9 +164,9 @@ class LiveShellTests(unittest.TestCase):
             "ap-scoreboard-toggle",
             "live-view-slides",
             "live-timer-toggle",
-            "live-timer-start",
-            "live-teams-toggle",
             "live-teams-start",
+            "live-run-as-group",
+            "live-hide-absent",
             "live-responses-dialog",
             "ap-teams-rename",
             "ap-teams-next",
@@ -188,6 +188,74 @@ class LiveShellTests(unittest.TestCase):
             "ap-score-list",
         ):
             self.assertIn(f'id="{control_id}"', html)
+
+    def test_global_round_options_and_lifecycle_actions_are_wired(self) -> None:
+        """Global controls and item actions use the phase-one API contract."""
+
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn("Round options", html)
+        self.assertIn(">Hide Absent<", html)
+        self.assertIn(">Run as Group<", html)
+        self.assertIn(">Rename Teams<", html)
+        self.assertIn(">Set Up<", html)
+        self.assertIn(">Publish<", html)
+        self.assertIn(">Close<", html)
+        self.assertIn(">Whiteboard<", html)
+        self.assertNotIn(">Canvas<", html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        for field in (
+            "groups_configured",
+            "run_as_group",
+            "scoreboard_visible",
+            "hide_absent",
+            "class_list",
+            "live_items",
+            "active_questions",
+        ):
+            self.assertIn(field, js)
+        self.assertIn("/items/${liveItemId}/publish", js)
+        self.assertIn("/items/${liveItemId}/close", js)
+        self.assertIn("/items/${liveItemId}/settings", js)
+        self.assertIn("/items/${liveItemId}/end-voting", js)
+        self.assertIn("Show Live Results", js)
+        self.assertIn("function groupConsensusResultsHtml(", js)
+        self.assertNotIn("lloves-scoreboard-", js)
+
+    def test_group_setup_does_not_start_timer_or_change_stage(self) -> None:
+        """Set Up fixes memberships while leaving stage and timer untouched."""
+
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        session_id = int(live["id"])
+        self.school.game.begin_game(self.class_id)
+        students = self.school.game.dashboard(self.class_id)["students"]
+        ids = [int(row["id"]) for row in students]
+        for row in students:
+            self.school.join_live_class_session(
+                session_id, int(row["id"]), codename=str(row["codename"])
+            )
+        response = self.client.post(
+            f"/api/live-sessions/{session_id}/teacher-state",
+            json={
+                "assign": {
+                    "n_teams": 2,
+                    "mode": "balanced",
+                    "present_ids": ids,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        state = response.get_json()["teacher_state"]
+        self.assertEqual(state["stage"], "join")
+        self.assertTrue(state["groups_configured"])
+        self.assertTrue(state["run_as_group"])
+        self.assertTrue(state["scoreboard_visible"])
+        game = response.get_json().get("game") or {}
+        self.assertFalse((game.get("game") or {}).get("round_ends_at_ms"))
+        self.assertFalse((game.get("game") or {}).get("timer_paused"))
 
     def test_live_tab_end_class_is_placement_only(self) -> None:
         """Header Save and End Class and Quit are distinct finish routes."""
@@ -278,10 +346,11 @@ class LiveShellTests(unittest.TestCase):
         team_pane_i = html.index('id="team-assign-pane"')
         results_i = html.index('id="results-strip"')
         self.assertLess(header_i, strip_i)
+        self.assertLess(strip_i, timer_i)
+        self.assertLess(timer_i, body_i)
         self.assertLess(strip_i, body_i)
         self.assertLess(body_i, left_i)
-        self.assertLess(left_i, timer_i)
-        self.assertLess(timer_i, list_i)
+        self.assertLess(left_i, list_i)
         self.assertLess(list_i, right_i)
         self.assertLess(right_i, active_i)
         self.assertLess(strip_i, teams_i)
@@ -294,6 +363,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertLess(active_i, results_i)
         self.assertGreater(html.find("</section>", results_i), results_i)
         self.assertEqual(html.count('id="class-list-pane"'), 1)
+        self.assertEqual(html.count('id="session-timer"'), 1)
         self.assertEqual(html.count('id="live-shell-left"'), 1)
 
     def test_beat1_stage_swaps_keep_class_list_mounted(self) -> None:
@@ -306,9 +376,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("lockClassListPane();", js)
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
         self.assertIn("card.hidden = false;", js)
-        self.assertIn("live-view-canvas", js)
-        self.assertIn("if (teams) teams.hidden = !teamsOpen;", js)
-        self.assertIn('if (meet) meet.hidden = stage !== "meet";', js)
+        self.assertIn("paintSurfacePublishing();", js)
+        self.assertIn("teams.hidden = false;", js)
+        self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
         self.assertIn('if (play) play.hidden = stage !== "play";', js)
         self.assertIn('patchTeacherState({ advance: "prev" })', js)
@@ -430,86 +500,75 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("mc_ui:", reveal)
         self.assertNotIn("innerHTML", js.split("function paintTeacherShell()")[1].split("function paintHeaderDate()")[0])
 
+    def test_lifecycle_cards_suppress_legacy_mc_results_slot(self) -> None:
+        """Lifecycle question cards own results while scoring stays separate."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        helper = js.split(
+            "function currentStageHasLifecycleQuestionCards()"
+        )[1].split("function paintMcResultsSlot()")[0]
+        self.assertIn("lastQuestionCards.some", helper)
+        self.assertIn("teacherState.stage", helper)
+        self.assertIn("live_item_id", helper)
+        paint = js.split("function paintMcResultsSlot()")[1].split(
+            "function applyMcTally("
+        )[0]
+        self.assertIn("!currentStageHasLifecycleQuestionCards()", paint)
+        self.assertIn("slot.hidden = !hasMc", paint)
+        results = js.split("function paintResultsStrip()")[1].split(
+            "function mcBindKey("
+        )[0]
+        self.assertIn("const showScore =", results)
+        self.assertIn("scorePanel.hidden = !showScore", results)
+
     def test_beat3_teams_strip_is_one_condensed_row(self) -> None:
-        """Beat 3: TEAMS OptionsStrip is count / assign / track / rename only."""
+        """Round Options swaps setup controls for persisted group toggles."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn('id="teams-option-card"', html)
         self.assertIn("live-teams-strip", html)
+        self.assertIn('id="live-groups-setup"', html)
+        self.assertIn('id="live-groups-configured"', html)
         self.assertIn('id="ap-n-teams"', html)
-        self.assertIn('min="1"', html)
+        self.assertIn('min="2"', html)
         self.assertIn('id="ap-n-teams-down"', html)
         self.assertIn('id="ap-n-teams-up"', html)
         self.assertIn('id="live-teams-assign"', html)
         self.assertIn(">Balanced<", html)
         self.assertIn(">Random<", html)
         self.assertIn(">Manual<", html)
+        self.assertIn(">Set Up<", html)
+        self.assertIn('id="live-run-as-group"', html)
         self.assertIn('id="ap-scoreboard-toggle"', html)
-        self.assertNotIn('id="ap-rank-toggle"', html)
         self.assertIn(">Scoreboard<", html)
-        self.assertNotIn(">Rank<", html)
         self.assertIn('id="ap-teams-rename"', html)
-        self.assertIn(">Rename teams<", html)
+        self.assertIn(">Rename Teams<", html)
         self.assertIn('id="ap-manual-assign"', html)
         self.assertIn('id="ap-panel-names"', html)
         self.assertIn('id="team-assign-pane"', html)
-        self.assertNotIn("Individual (1) vs teams", html)
-        self.assertNotIn('id="ap-gamify-no"', html)
-        self.assertNotIn('id="ap-gamify-yes"', html)
-        self.assertNotIn("Team assign unlocks when Tracking is Team", html)
-        self.assertNotIn("Number of teams", html)
-        self.assertNotIn("Assign Balanced", html)
-        self.assertNotIn("Assign Randomly", html)
-        self.assertNotIn("Assign Manually", html)
-        self.assertNotIn("Run as Game", html)
         strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
         self.assertIn('id="ap-n-teams"', strip_html)
         self.assertIn('id="ap-assign-balanced"', strip_html)
-        self.assertNotIn('id="ap-scoreboard-toggle"', strip_html)
-        self.assertIn('id="join-scoreboard-wrap"', html)
-        self.assertNotIn('id="ap-rank-toggle"', strip_html)
-        self.assertNotIn('id="ap-teams-rename"', strip_html)
+        self.assertIn('id="ap-scoreboard-toggle"', strip_html)
+        self.assertIn('id="live-run-as-group"', strip_html)
+        self.assertIn('id="ap-teams-rename"', strip_html)
         self.assertLess(strip_html.find('id="ap-n-teams"'), strip_html.find('id="live-teams-assign"'))
-        self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="ap-track-game-opts"'))
-        meet_html = html.split('id="meet-option-card"')[1].split('id="round-option-card"')[0]
-        self.assertIn('id="ap-teams-rename"', meet_html)
+        self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="live-teams-start"'))
         body_i = html.index('class="live-shell-body"')
         self.assertLess(html.index('id="team-assign-pane"'), body_i)
         self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .live-teams-strip {", css)
-        teams_css = css.split("body.staff-shell .live-teams-strip {")[1].split(
-            "body.staff-shell .live-teams-strip .live-teams-count {"
-        )[0]
-        self.assertIn("flex-wrap: nowrap", teams_css)
-        self.assertIn("--live-left-width: clamp(220px, 24%, 320px)", css)
-        self.assertIn(
-            "grid-template-columns: 1.25rem minmax(4.5rem, 1fr) 2.4rem 2.2rem auto",
-            css,
-        )
-        pop_css = css.split("body.staff-shell .live-options-strip #team-assign-pane {")[1].split(
-            "body.staff-shell #team-assign-pane[hidden]"
-        )[0]
-        self.assertIn("position: fixed", pop_css)
-        self.assertNotIn("flex: 1 1 auto", pop_css)
-        self.assertIn("#class-list-pane .ap-att-row.has-team-color .ap-att-name", css)
+        self.assertIn("body.staff-shell .live-groups-setup", css)
+        self.assertIn("body.staff-shell .live-groups-configured", css)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function currentTeamCount()", js)
+        self.assertIn("function paintGlobalGroupControls()", js)
         self.assertIn("function paintTeamsStripEnabled()", js)
         self.assertIn("function openTeamsPop(", js)
-        self.assertIn("getBoundingClientRect()", js)
-        self.assertIn("function studentTeamColor(", js)
-        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
-        self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
-        self.assertIn("has-team-color", js)
-        self.assertNotIn('id="ap-gamify-no"', js)
-        self.assertNotIn("$(\"ap-gamify-yes\")", js)
-        self.assertNotIn("Team assign unlocks when Tracking is Team", js)
-        self.assertIn("function lockClassListPane()", js)
-        self.assertIn("lockClassListPane();", js)
-        self.assertNotIn("Waiting for students to join.", html)
-        self.assertNotIn("join-options-hint", html)
-        self.assertNotIn("live-options-hint", css)
+        self.assertIn("groups_configured", js)
+        self.assertIn("run_as_group", js)
+        self.assertIn("scoreboard_visible", js)
+        self.assertNotIn("lloves-scoreboard-", js)
         self.assertIn("card.hidden = false;", js)
         self.assertIn('id="live-unlocks-strip"', html)
         self.assertRegex(
@@ -543,8 +602,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function nTeamsBounds()", js)
         self.assertIn("function divisionStrength(presentCount, teamCount)", js)
         self.assertIn("function paintDivisionMeter()", js)
-        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
-        self.assertNotIn("return { min: 1, max: Math.max(2, present) }", js)
+        self.assertIn("return { min: 2, max: Math.max(2, present) }", js)
         bounds = js.split("function nTeamsBounds()")[1].split("function divisionStrength(")[0]
         self.assertIn("presentCountForTeams()", bounds)
         present_fn = js.split("function presentCountForTeams()")[1].split(
@@ -608,9 +666,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-question-list"', html)
         self.assertIn("data-question-view", js)
         self.assertNotIn('id="live-canvas-align"', html)
-        self.assertIn("None: Teacher View Only", html)
-        self.assertIn("Student: Individual", html)
-        self.assertIn("Student: Shared within Group", html)
+        self.assertNotIn("Student View", html)
+        self.assertIn("Publish mode", html)
+        self.assertIn(">Individual<", html)
+        self.assertIn(">Shared within Group<", html)
         play_html = html.split('id="play-option-card"')[1].split("</section>")[0]
         self.assertNotIn('id="live-view-media"', play_html)
         self.assertIn("card.hidden = false;", js)
@@ -620,15 +679,16 @@ class LiveShellTests(unittest.TestCase):
         unlocks_css = css.split("body.staff-shell .live-unlocks-strip {")[1].split(
             "body.staff-shell .live-canvas-align {"
         )[0]
-        self.assertIn("flex-wrap: nowrap", unlocks_css)
-        self.assertIn("max-height: var(--live-options-row-h)", unlocks_css)
+        # Layout is flex-wrap: wrap to keep Round options controls on one row
+        self.assertIn("flex-wrap: wrap", unlocks_css)
+        self.assertIn("max-height: none", unlocks_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("function paintStudentCanvas(", student_js)
         self.assertIn("/api/student/canvas-presence", student_js)
         self.assertIn("canvasAlign", student_js)
         self.assertIn("student_view", student_js)
         self.assertIn("questionsMode", student_js)
-        self.assertIn('stage !== "round"', student_js)
+        self.assertNotIn('mediaMode !== "none" && stage !== "round"', student_js)
         self.assertIn('canvasPane.classList.toggle("is-readonly"', student_js)
         self.assertIn('lastAlign !== "teacher"', student_js)
         self.assertIn('id="student-canvas"', 
@@ -666,7 +726,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("TEAMS max (= presentCount)", js)
         bounds = js.split("function nTeamsBounds()")[1].split("function divisionStrength(")[0]
         self.assertIn("presentCountForTeams()", bounds)
-        self.assertIn("return { min: 1, max: Math.max(1, present) }", js)
+        self.assertIn("return { min: 2, max: Math.max(2, present) }", js)
         paint = js.split("function paintDivisionMeter()")[1].split(
             "function paintTeamsStripEnabled()"
         )[0]
@@ -680,25 +740,31 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("setInterval", ticks)
 
     def test_beat22b_teams_classlist_present_only(self) -> None:
-        """Beat 22b: TEAMS ClassList is present-only; joiners appear via the same poll."""
+        """Class List stays full until durable Hide Absent is checked."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         visible = js.split("function classListVisibleStudents(")[1].split(
-            "function classListRosterOrder("
+            "function projectedClassListStudents("
         )[0]
-        self.assertIn('stage === "join"', visible)
-        self.assertIn("sessionPresentIds.has(Number(stu.id))", visible)
-        self.assertIn("stu.guest", visible)
+        self.assertIn("Array.isArray(students)", visible)
+        self.assertNotIn("sessionPresentIds", visible)
+        self.assertIn("function projectedClassListStudents()", js)
         render = js.split("function renderAttendanceList()")[1].split(
             "function updateAttCount()"
         )[0]
         self.assertIn("classListVisibleStudents(", render)
         self.assertIn('dataset.presentOnly', render)
         self.assertIn("classListRosterOrder(classListVisibleStudents(", render)
+        self.assertIn("teacherState.hide_absent", render)
         ticks = js.split("async function applySessionPresentTicks(")[1].split(
             "async function pollLiveSessionAttendees("
         )[0]
         self.assertIn("renderAttendanceList()", ticks)
         self.assertIn("setNTeams(currentTeamCount())", ticks)
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="live-hide-absent"', html)
+        self.assertIn(">Hide Absent<", html)
         shell = js.split("function paintTeacherShell()")[1].split(
             "function paintHeaderDate()"
         )[0]
@@ -762,7 +828,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("lockClassListPane();", js)
 
     def test_beat14_session_timer_sits_above_class_list(self) -> None:
-        """Beat 14: one SessionTimer above ClassList; no Skip / End Meet."""
+        """One stateful SessionTimer lives inside Round Options."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn('id="session-timer"', html)
@@ -779,18 +845,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("Meet timer (min)", html)
         self.assertNotIn("Start Meet", html)
         left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
-        self.assertIn('id="session-timer"', left_html)
-        self.assertIn('id="ap-meet-start"', left_html)
-        self.assertIn('id="ap-meet-live-clock"', left_html)
-        self.assertLess(left_html.index('id="session-timer"'), left_html.index('id="class-list-pane"'))
-        self.assertLess(html.index('id="ap-meet-start"'), html.index('id="class-list-pane"'))
-        strip_html = html.split('id="meet-option-card"')[1].split(
-            'id="round-option-card"'
+        self.assertNotIn('id="session-timer"', left_html)
+        options_html = html.split('id="live-option-card"')[1].split(
+            'class="live-shell-body"'
         )[0]
-        self.assertNotIn('id="ap-meet-start"', strip_html)
-        self.assertNotIn('id="ap-meet-live-clock"', strip_html)
-        self.assertNotIn("Skip C", strip_html)
-        self.assertNotIn("End Meet", strip_html)
+        self.assertIn('id="session-timer"', options_html)
+        self.assertIn('id="ap-meet-start"', options_html)
+        self.assertNotIn('id="live-timer-start"', html)
+        self.assertEqual(html.count('id="ap-meet-start"'), 1)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("body.staff-shell #session-timer {", css)
         timer_css = css.split("body.staff-shell #session-timer {")[1].split(
@@ -914,49 +976,22 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("body.staff-shell .teams-spark-card {", css)
 
     def test_beat13_teams_next_assigns_without_breaking_pane(self) -> None:
-        """Beat 13: TEAMS→Meet Next is assign+stage; errors stay in the strip."""
+        """Stage navigation never creates or resets session groups."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn('id="live-teams-assign-error"', html)
         strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
         self.assertIn('id="live-teams-assign-error"', strip_html)
-        self.assertLess(html.index('id="live-teams-assign-error"'), html.index('class="live-shell-body"'))
-        self.assertGreater(html.index('id="live-active-content"'), html.index('id="class-list-pane"'))
-        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .live-teams-strip .live-strip-error {", css)
-        overlay_css = css.split("body.staff-shell .live-shell-ia-v2 > #ap-overlay-error {")[1].split("}")[0]
-        self.assertIn("position: absolute", overlay_css)
-        self.assertNotIn("grid-row: 1", overlay_css)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn("async function advanceTeamsToMeet()", js)
-        self.assertIn("function showTeamsAssignError(", js)
-        self.assertIn('showError("#live-teams-assign-error"', js)
-        self.assertIn('errorSelector: "#live-teams-assign-error"', js)
-        self.assertIn('if (teacherState.stage === "teams")', js)
-        self.assertIn("advanceTeamsToMeet()", js)
         next_click = js.split('$("live-stage-next")?.addEventListener("click"')[1].split(
             '$("meet-chain-next")'
         )[0]
-        self.assertIn("advanceTeamsToMeet()", next_click)
-        self.assertIn('teacherState.stage === "teams"', next_click)
-        teams_next = js.split('$("ap-teams-next")?.addEventListener("click"')[1].split(
-            '$("ap-manual-list")'
+        self.assertIn('patchTeacherState({ advance: "next" })', next_click)
+        self.assertNotIn("advanceTeamsToMeet()", next_click)
+        setup = js.split('$("live-teams-start")?.addEventListener("click"')[1].split(
+            '$("live-run-as-group")'
         )[0]
-        self.assertIn("advanceTeamsToMeet()", teams_next)
-        self.assertNotIn('showError("#ap-overlay-error"', teams_next)
-        advance = js.split("async function advanceTeamsToMeet()")[1].split(
-            '$("ap-teams-next")'
-        )[0]
-        self.assertIn("body.assign", advance)
-        self.assertIn("n_teams: nTeams", advance)
-        self.assertIn('body.teams_mode = "individual"', advance)
-        self.assertIn("showTeamsAssignError", advance)
-        self.assertNotIn("innerHTML", advance)
-        self.assertNotIn("replaceChildren", advance)
-        self.assertNotIn("paintTeacherShell", advance)
-        self.assertNotIn('showError("#ap-overlay-error"', advance)
-        self.assertIn("function lockClassListPane()", js)
-        self.assertIn("lockClassListPane();", js)
+        self.assertIn("startTeamsForCurrentStage()", setup)
 
     def test_beat6_student_feedback_stays_off_staff_chrome(self) -> None:
         """Beat 6: Good-work panel is student Question-frame only; Reveal stays."""
@@ -1037,8 +1072,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function classListRosterOrder(", js)
         self.assertIn("function appendAttendanceStudentRow(", js)
         gate = js.split("function classListGroupsByTeam()")[1].split("function ")[0]
-        self.assertIn("currentTeamCount() > 1", gate)
-        self.assertIn("assignedRosterTeams().length >= 2", gate)
+        self.assertIn("teacherState.run_as_group", gate)
+        self.assertIn("assignedRosterTeams().length >= 1", gate)
         order = js.split("function classListRosterOrder(")[1].split(
             "function appendAttendanceStudentRow("
         )[0]
@@ -1096,7 +1131,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function lockClassListPane()", js)
         self.assertIn("lockClassListPane();", js)
         left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
-        self.assertLess(left_html.index('id="session-timer"'), left_html.index('id="class-list-pane"'))
+        self.assertNotIn('id="session-timer"', left_html)
         self.assertIn("function applySessionTimerUi(", js)
         self.assertIn("async function advanceTeamsToMeet()", js)
 

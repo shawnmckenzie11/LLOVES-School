@@ -36,6 +36,7 @@ try:
     )
     from live_mc import build_live_tally, build_mc_tally
     from live_class_metadata import (
+        SCHEMA_V2,
         load_live_class_metadata,
         questions_for_stage,
     )
@@ -125,6 +126,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.live_mc import build_live_tally, build_mc_tally
     from lms.live_class_metadata import (
+        SCHEMA_V2,
         load_live_class_metadata,
         questions_for_stage,
     )
@@ -413,6 +415,78 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
+
+CREATE TABLE IF NOT EXISTS live_session_items (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL
+        REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+    placement_key TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    page_number INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'poll',
+    item_json TEXT NOT NULL DEFAULT '{}',
+    prompt_id INTEGER
+        REFERENCES live_session_prompts(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'inactive',
+    publish_mode TEXT NOT NULL DEFAULT 'individual',
+    response_mode TEXT NOT NULL DEFAULT 'individual',
+    show_live_results INTEGER NOT NULL DEFAULT 1,
+    published_at TEXT,
+    closed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(live_session_id, placement_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_session_items_status
+    ON live_session_items(live_session_id, status, sort_order, id);
+
+CREATE TABLE IF NOT EXISTS live_group_members (
+    live_item_id INTEGER NOT NULL
+        REFERENCES live_session_items(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY(live_item_id, team_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS live_group_votes (
+    id INTEGER PRIMARY KEY,
+    live_item_id INTEGER NOT NULL
+        REFERENCES live_session_items(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    response_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(live_item_id, team_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_group_votes_team
+    ON live_group_votes(live_item_id, team_id);
+
+CREATE TABLE IF NOT EXISTS live_group_responses (
+    id INTEGER PRIMARY KEY,
+    live_item_id INTEGER NOT NULL
+        REFERENCES live_session_items(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'collecting_votes',
+    vote_summary_json TEXT NOT NULL DEFAULT '[]',
+    proposed_answer_json TEXT,
+    final_answer_json TEXT,
+    finalizer_student_id INTEGER,
+    awarded_points REAL,
+    voting_ended_at TEXT,
+    finalized_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(live_item_id, team_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_group_responses_item
+    ON live_group_responses(live_item_id, status, team_id);
 
 CREATE TABLE IF NOT EXISTS live_class_feedback (
     id INTEGER PRIMARY KEY,
@@ -813,6 +887,7 @@ class LovesDB:
         self._ensure_gradebook_schema()
         self._ensure_live_session_schema()
         self._ensure_live_session_identity_schema()
+        self._ensure_live_item_schema()
         self._ensure_live_class_feature_schema()
         self._ensure_access_request_schema()
         self._seed()
@@ -1520,6 +1595,82 @@ class LovesDB:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_live_responses_prompt_uuid
             ON live_session_responses(prompt_id, participant_uuid)
             WHERE participant_uuid IS NOT NULL AND TRIM(participant_uuid) != ''
+            """
+        )
+        self.conn.commit()
+
+    def _ensure_live_item_schema(self) -> None:
+        """Create idempotent publish and group-consensus session tables."""
+
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS live_session_items (
+                id INTEGER PRIMARY KEY,
+                live_session_id INTEGER NOT NULL
+                    REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+                placement_key TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                page_number INTEGER,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'poll',
+                item_json TEXT NOT NULL DEFAULT '{}',
+                prompt_id INTEGER
+                    REFERENCES live_session_prompts(id) ON DELETE SET NULL,
+                status TEXT NOT NULL DEFAULT 'inactive',
+                publish_mode TEXT NOT NULL DEFAULT 'individual',
+                response_mode TEXT NOT NULL DEFAULT 'individual',
+                show_live_results INTEGER NOT NULL DEFAULT 1,
+                published_at TEXT,
+                closed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(live_session_id, placement_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_session_items_status
+                ON live_session_items(
+                    live_session_id, status, sort_order, id
+                );
+            CREATE TABLE IF NOT EXISTS live_group_members (
+                live_item_id INTEGER NOT NULL
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY(live_item_id, team_id, student_id)
+            );
+            CREATE TABLE IF NOT EXISTS live_group_votes (
+                id INTEGER PRIMARY KEY,
+                live_item_id INTEGER NOT NULL
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                response_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(live_item_id, team_id, student_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_group_votes_team
+                ON live_group_votes(live_item_id, team_id);
+            CREATE TABLE IF NOT EXISTS live_group_responses (
+                id INTEGER PRIMARY KEY,
+                live_item_id INTEGER NOT NULL
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'collecting_votes',
+                vote_summary_json TEXT NOT NULL DEFAULT '[]',
+                proposed_answer_json TEXT,
+                final_answer_json TEXT,
+                finalizer_student_id INTEGER,
+                awarded_points REAL,
+                voting_ended_at TEXT,
+                finalized_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(live_item_id, team_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_live_group_responses_item
+                ON live_group_responses(live_item_id, status, team_id);
             """
         )
         self.conn.commit()
@@ -5952,6 +6103,1344 @@ class SchoolDB(LovesDB):
         payload["slide_index"] = int(payload.get("slide_index") or 0)
         return payload
 
+    def _require_active_live_session(self, session_id: int) -> dict[str, Any]:
+        """Return an active session row or raise a lifecycle-safe error.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Raises:
+            KeyError: If the session does not exist.
+            ValueError: If the session has ended.
+        """
+        row = self.get_live_session(session_id)
+        if row is None:
+            raise KeyError(f"live session {session_id}")
+        if str(row.get("status") or "") != "active":
+            raise ValueError("Session is not active.")
+        return row
+
+    @staticmethod
+    def _live_item_row_to_dict(row: Any) -> dict[str, Any]:
+        """Normalize a publish-lifecycle sqlite row for JSON APIs."""
+
+        item = dict(row)
+        raw = item.get("item_json") or "{}"
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except json.JSONDecodeError:
+            parsed = {}
+        item["item"] = parsed if isinstance(parsed, dict) else {}
+        item.pop("item_json", None)
+        item["show_live_results"] = bool(item.get("show_live_results"))
+        item["sort_order"] = int(item.get("sort_order") or 0)
+        item["page_number"] = (
+            int(item["page_number"])
+            if item.get("page_number") not in (None, "")
+            else None
+        )
+        item["prompt_id"] = (
+            int(item["prompt_id"])
+            if item.get("prompt_id") not in (None, "")
+            else None
+        )
+        return item
+
+    @staticmethod
+    def _question_placement_key(question: dict[str, Any], index: int) -> str:
+        """Return a stable placement key without metadata-worker coupling.
+
+        Args:
+            question: Resolved metadata question/placement.
+            index: Stable zero-based fallback position.
+        """
+        explicit = str(
+            question.get("placement_key")
+            or question.get("placement_id")
+            or ""
+        ).strip()
+        if explicit:
+            return explicit
+        item_id = str(
+            question.get("id")
+            or question.get("item_id")
+            or question.get("ref")
+            or f"question-{index + 1}"
+        ).strip()
+        stage = str(question.get("stage") or "round").strip().lower()
+        page = question.get("page_number")
+        order = question.get("order") or index + 1
+        return f"{stage}:{page if page not in (None, '') else 0}:{order}:{item_id}"
+
+    @staticmethod
+    def _question_publish_modes(question: dict[str, Any]) -> list[str]:
+        """Return normalized supported publish modes for one question."""
+
+        raw = question.get("publish_modes")
+        modes = [
+            str(value).strip().lower()
+            for value in (raw if isinstance(raw, list) else [])
+            if str(value).strip()
+        ]
+        if not modes:
+            response_mode = str(
+                question.get("response_mode") or "individual"
+            ).strip().lower()
+            modes = ["individual"]
+            if response_mode == "group_consensus":
+                modes.append("group_consensus")
+        return list(dict.fromkeys(modes))
+
+    @staticmethod
+    def _question_response_mode(question: dict[str, Any]) -> str:
+        """Return ``individual`` or ``group_consensus`` metadata mode."""
+
+        token = str(question.get("response_mode") or "individual").strip().lower()
+        return "group_consensus" if token == "group_consensus" else "individual"
+
+    def ensure_live_session_items(self, session_id: int) -> list[dict[str, Any]]:
+        """Seed inactive lifecycle rows for every resolved question placement.
+
+        The method consumes only the resolver's existing ``questions`` list and
+        optional fields on each row, so schema-v1 metadata and the metadata
+        worker's additive schema-v2 fields are both supported.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        self._require_active_live_session(session_id)
+        metadata = self.live_class_metadata_for_session(session_id)
+        questions = [
+            dict(row)
+            for row in metadata.get("questions") or []
+            if isinstance(row, dict)
+        ]
+        question_by_ref = {
+            str(
+                row.get("ref")
+                or row.get("item_ref")
+                or row.get("id")
+                or ""
+            ): row
+            for row in questions
+        }
+        placements = [
+            dict(row)
+            for row in metadata.get("items") or []
+            if isinstance(row, dict)
+        ]
+        if not placements:
+            placements = questions
+        prompts = self._list_live_session_prompts(session_id)
+        prompt_by_item: dict[str, dict[str, Any]] = {}
+        for prompt in prompts:
+            payload = (
+                prompt.get("payload")
+                if isinstance(prompt.get("payload"), dict)
+                else {}
+            )
+            item_id = str(
+                payload.get("item_id")
+                or payload.get("pack")
+                or ""
+            ).strip()
+            if item_id and item_id not in prompt_by_item:
+                prompt_by_item[item_id] = prompt
+        now = _now()
+        stage_order = {
+            "join": 0,
+            "teams": 1,
+            "meet": 2,
+            "round": 3,
+            "play": 4,
+        }
+        with self._lock:
+            for index, placement in enumerate(placements):
+                lookup = str(
+                    placement.get("ref")
+                    or placement.get("item_ref")
+                    or placement.get("id")
+                    or ""
+                )
+                question = {
+                    **placement,
+                    **(
+                        question_by_ref.get(lookup) or {}
+                        if placement.get("item_type") == "question"
+                        else {}
+                    ),
+                }
+                placement_key = self._question_placement_key(question, index)
+                item_id = str(
+                    question.get("id")
+                    or question.get("item_id")
+                    or question.get("ref")
+                    or placement_key
+                ).strip()
+                stage = str(question.get("stage") or "round").strip().lower()
+                page_raw = question.get("page_number")
+                try:
+                    page_number = (
+                        int(page_raw) if page_raw not in (None, "") else None
+                    )
+                except (TypeError, ValueError):
+                    page_number = None
+                try:
+                    order = max(1, int(question.get("order") or index + 1))
+                except (TypeError, ValueError):
+                    order = index + 1
+                sort_order = (
+                    stage_order.get(stage, 9) * 100000
+                    + (page_number or 0) * 1000
+                    + order
+                )
+                kind = str(
+                    question.get("type")
+                    or question.get("kind")
+                    or question.get("item_type")
+                    or "question"
+                ).strip().lower()
+                response_mode = self._question_response_mode(question)
+                default_publish = (
+                    "group_consensus"
+                    if response_mode == "group_consensus"
+                    and "group_consensus"
+                    in self._question_publish_modes(question)
+                    else "individual"
+                )
+                prompt = prompt_by_item.get(item_id)
+                prompt_id = int(prompt["id"]) if prompt else None
+                self.conn.execute(
+                    """
+                    INSERT INTO live_session_items (
+                        live_session_id, placement_key, item_id, stage,
+                        page_number, sort_order, kind, item_json, prompt_id,
+                        status, publish_mode, response_mode, show_live_results,
+                        published_at, closed_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, 1,
+                              NULL, NULL, ?, ?)
+                    ON CONFLICT(live_session_id, placement_key) DO UPDATE SET
+                        item_id = excluded.item_id,
+                        stage = excluded.stage,
+                        page_number = excluded.page_number,
+                        sort_order = excluded.sort_order,
+                        kind = excluded.kind,
+                        item_json = excluded.item_json,
+                        prompt_id = COALESCE(
+                            live_session_items.prompt_id, excluded.prompt_id
+                        ),
+                        response_mode = CASE
+                            WHEN live_session_items.status = 'inactive'
+                            THEN excluded.response_mode
+                            ELSE live_session_items.response_mode
+                        END,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        int(session_id),
+                        placement_key,
+                        item_id,
+                        stage,
+                        page_number,
+                        sort_order,
+                        kind,
+                        json.dumps(question),
+                        prompt_id,
+                        default_publish,
+                        response_mode,
+                        now,
+                        now,
+                    ),
+                )
+            self.conn.commit()
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_session_items
+                WHERE live_session_id = ?
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (int(session_id),),
+            ).fetchall()
+        return [self._live_item_row_to_dict(row) for row in rows]
+
+    def get_live_session_item(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Resolve one lifecycle row by id, placement key, or unique item id.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Row id, placement key, or metadata item id.
+        """
+        self.ensure_live_session_items(session_id)
+        token = str(placement_or_item or "").strip()
+        if not token:
+            raise ValueError("placement_key is required")
+        with self._lock:
+            row = None
+            if token.isdigit():
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_items
+                    WHERE live_session_id = ? AND id = ?
+                    """,
+                    (int(session_id), int(token)),
+                ).fetchone()
+            if row is None:
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_items
+                    WHERE live_session_id = ? AND placement_key = ?
+                    """,
+                    (int(session_id), token),
+                ).fetchone()
+            if row is None:
+                matches = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_items
+                    WHERE live_session_id = ? AND item_id = ?
+                    ORDER BY sort_order ASC, id ASC
+                    """,
+                    (int(session_id), token),
+                ).fetchall()
+                if len(matches) > 1:
+                    raise ValueError(
+                        "item_id has multiple placements; use placement_key"
+                    )
+                row = matches[0] if matches else None
+        if row is None:
+            raise KeyError(f"live item {token}")
+        return self._live_item_row_to_dict(row)
+
+    def _prompt_for_live_item(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Return the linked prompt row for a lifecycle item."""
+
+        prompt_id = item.get("prompt_id")
+        if prompt_id in (None, ""):
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_session_prompts WHERE id = ?",
+                (int(prompt_id),),
+            ).fetchone()
+        return self._prompt_row_to_dict(row) if row else None
+
+    def _ensure_prompt_for_live_item(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Create and link a compatibility prompt for a question item."""
+
+        prompt = self._prompt_for_live_item(item)
+        if prompt is not None:
+            return prompt
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        item_type = str(
+            question.get("item_type")
+            or ("question" if item.get("kind") in {"poll", "mc", "numeric"} else "")
+        )
+        if item_type != "question":
+            return None
+        item_id = str(item.get("item_id") or item.get("placement_key") or "")
+        kind = str(item.get("kind") or "poll").strip().lower()
+        prompt_kind = "numeric" if kind == "numeric" else "mc"
+        payload = {
+            **question,
+            "item_id": item_id,
+            "prompt": str(
+                question.get("text")
+                or question.get("prompt")
+                or question.get("question")
+                or ""
+            ).strip(),
+            "choices": list(
+                question.get("options") or question.get("choices") or []
+            ),
+            "kind": prompt_kind,
+            "key": question.get("correct_answer") or question.get("key"),
+            "page_number": item.get("page_number"),
+        }
+        prompt = self.set_live_session_prompt(
+            int(item["live_session_id"]),
+            slide_index=20000 + int(item["id"]),
+            kind=prompt_kind,
+            payload=payload,
+            activate=False,
+        )
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET prompt_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (int(prompt["id"]), _now(), int(item["id"])),
+            )
+            self.conn.commit()
+        return prompt
+
+    def publish_live_session_item(
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        publish_mode: str = "individual",
+    ) -> dict[str, Any]:
+        """Publish one inactive placement without closing other items.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, unique item id, or lifecycle id.
+            publish_mode: ``individual`` or an explicitly supported group mode.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if item["status"] == "closed":
+            raise ValueError("Closed items cannot be republished.")
+        mode = str(publish_mode or "individual").strip().lower()
+        supported = self._question_publish_modes(item.get("item") or {})
+        if mode not in supported:
+            raise ValueError(f"publish mode is not supported: {mode}")
+        response_mode = (
+            "group_consensus" if mode == "group_consensus" else "individual"
+        )
+        if response_mode == "group_consensus":
+            teacher = self.live_session_teacher_state_payload(session_id)
+            if not (
+                teacher.get("groups_configured")
+                and teacher.get("run_as_group")
+            ):
+                raise ValueError(
+                    "Set up groups and enable Run as Group before publishing."
+                )
+        prompt = self._ensure_prompt_for_live_item(item)
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET prompt_id = COALESCE(?, prompt_id),
+                    status = 'active', publish_mode = ?,
+                    response_mode = ?, published_at = COALESCE(published_at, ?),
+                    closed_at = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    int(prompt["id"]) if prompt is not None else None,
+                    mode,
+                    response_mode,
+                    now,
+                    now,
+                    int(item["id"]),
+                ),
+            )
+            self.conn.commit()
+        published = self.get_live_session_item(session_id, int(item["id"]))
+        if response_mode == "group_consensus":
+            self._initialize_group_consensus(published)
+        return self.get_live_session_item(session_id, int(item["id"]))
+
+    def close_live_session_item(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Close one active item, locking submissions and freezing results."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if item["status"] != "active":
+            raise ValueError("Only an active item can be closed.")
+        if item.get("response_mode") == "group_consensus":
+            self.end_group_consensus_voting(session_id, int(item["id"]))
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET status = 'closed', closed_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (now, now, int(item["id"])),
+            )
+            self.conn.commit()
+        return self.get_live_session_item(session_id, int(item["id"]))
+
+    def update_live_session_item_settings(
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        show_live_results: Any,
+    ) -> dict[str, Any]:
+        """Update governed result visibility for one session item."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if isinstance(show_live_results, str):
+            token = show_live_results.strip().lower()
+            if token not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
+                raise ValueError("show_live_results must be a boolean")
+            visible = token in {"1", "true", "yes", "on"}
+        elif isinstance(show_live_results, (bool, int)):
+            visible = bool(show_live_results)
+        else:
+            raise ValueError("show_live_results must be a boolean")
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET show_live_results = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (1 if visible else 0, _now(), int(item["id"])),
+            )
+            self.conn.commit()
+        return self.get_live_session_item(session_id, int(item["id"]))
+
+    def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
+        """Return independently active question prompts in placement order."""
+
+        self.ensure_live_session_items(session_id)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT p.*
+                FROM live_session_items i
+                JOIN live_session_prompts p ON p.id = i.prompt_id
+                WHERE i.live_session_id = ? AND i.status = 'active'
+                ORDER BY i.sort_order ASC, i.id ASC
+                """,
+                (int(session_id),),
+            ).fetchall()
+        return [self._prompt_row_to_dict(row) for row in rows]
+
+    def _named_teams_for_live_session(
+        self, session_id: int
+    ) -> list[dict[str, Any]]:
+        """Return current non-Class teams for a live session."""
+
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return []
+        try:
+            state = self.game.game_state(int(session_row["class_id"]))
+        except Exception:  # noqa: BLE001 - group setup may not exist yet
+            return []
+        teams = [
+            dict(team)
+            for team in state.get("teams") or []
+            if str(team.get("name") or "") != "Class"
+        ]
+        teams.sort(
+            key=lambda team: (
+                int(team.get("sort_order") or 0),
+                int(team.get("id") or 0),
+            )
+        )
+        return teams
+
+    def _active_team_member_ids(
+        self, session_id: int, team_id: int
+    ) -> list[int]:
+        """Return currently joined roster ids assigned to one team."""
+
+        active = {
+            int(row["student_id"])
+            for row in self.list_live_session_attendees(
+                session_id, present_only=True
+            )
+            if row.get("student_id") not in (None, "")
+        }
+        members: list[int] = []
+        for team in self._named_teams_for_live_session(session_id):
+            if int(team.get("id") or 0) != int(team_id):
+                continue
+            for member in team.get("members") or []:
+                try:
+                    student_id = int(member["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if student_id in active:
+                    members.append(student_id)
+        return sorted(set(members))
+
+    def _initialize_group_consensus(self, item: dict[str, Any]) -> None:
+        """Snapshot active team members when group voting is published."""
+
+        live_item_id = int(item["id"])
+        session_id = int(item["live_session_id"])
+        now = _now()
+        with self._lock:
+            for team in self._named_teams_for_live_session(session_id):
+                team_id = int(team["id"])
+                self.conn.execute(
+                    """
+                    INSERT INTO live_group_responses (
+                        live_item_id, team_id, status, vote_summary_json,
+                        proposed_answer_json, final_answer_json,
+                        finalizer_student_id, awarded_points, voting_ended_at,
+                        finalized_at, created_at, updated_at
+                    ) VALUES (?, ?, 'collecting_votes', '[]', NULL, NULL,
+                              NULL, NULL, NULL, NULL, ?, ?)
+                    ON CONFLICT(live_item_id, team_id) DO NOTHING
+                    """,
+                    (live_item_id, team_id, now, now),
+                )
+                for student_id in self._active_team_member_ids(
+                    session_id, team_id
+                ):
+                    self.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO live_group_members (
+                            live_item_id, team_id, student_id, joined_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (live_item_id, team_id, student_id, now),
+                    )
+            self.conn.commit()
+
+    @staticmethod
+    def _normalize_group_answer(response: Any) -> dict[str, Any]:
+        """Normalize a private vote or final team answer.
+
+        Args:
+            response: JSON answer object containing choice, value, or text.
+
+        Raises:
+            ValueError: If no supported non-empty answer is present.
+        """
+        body = response if isinstance(response, dict) else {}
+        if body.get("choice") not in (None, ""):
+            return {
+                "kind": "choice",
+                "value": str(body["choice"]).strip()[:500],
+            }
+        if body.get("value") not in (None, ""):
+            raw = body["value"]
+            try:
+                number = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("value must be numeric") from exc
+            return {
+                "kind": "value",
+                "value": int(number) if number.is_integer() else number,
+            }
+        text = str(body.get("text") or body.get("share") or "").strip()
+        if text:
+            return {"kind": "text", "value": text[:2000]}
+        raise ValueError("An answer is required.")
+
+    def _group_response_row(
+        self, live_item_id: int, team_id: int
+    ) -> dict[str, Any] | None:
+        """Return one normalized canonical team-response row."""
+
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(live_item_id), int(team_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        for source, target, fallback in (
+            ("vote_summary_json", "vote_summary", []),
+            ("proposed_answer_json", "proposed_answer", None),
+            ("final_answer_json", "final_answer", None),
+        ):
+            raw = result.pop(source, None)
+            try:
+                parsed = json.loads(raw) if raw else fallback
+            except (TypeError, json.JSONDecodeError):
+                parsed = fallback
+            result[target] = parsed
+        return result
+
+    def _group_vote_rows(
+        self, live_item_id: int, team_id: int
+    ) -> list[dict[str, Any]]:
+        """Return normalized private vote rows for internal/teacher use."""
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_group_votes
+                WHERE live_item_id = ? AND team_id = ?
+                ORDER BY id ASC
+                """,
+                (int(live_item_id), int(team_id)),
+            ).fetchall()
+        votes: list[dict[str, Any]] = []
+        for row in rows:
+            vote = dict(row)
+            try:
+                answer = json.loads(vote.pop("response_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                answer = {}
+            vote["answer"] = answer if isinstance(answer, dict) else {}
+            votes.append(vote)
+        return votes
+
+    def _transition_group_team_to_discussion(
+        self, live_item_id: int, team_id: int
+    ) -> dict[str, Any]:
+        """Freeze private votes and reveal a team-only distribution."""
+
+        votes = self._group_vote_rows(live_item_id, team_id)
+        counts: dict[str, dict[str, Any]] = {}
+        for vote in votes:
+            answer = vote.get("answer") or {}
+            key = json.dumps(answer, sort_keys=True, separators=(",", ":"))
+            if key not in counts:
+                counts[key] = {"answer": answer, "count": 0}
+            counts[key]["count"] += 1
+        summary = sorted(
+            counts.values(),
+            key=lambda row: (
+                -int(row["count"]),
+                json.dumps(row["answer"], sort_keys=True),
+            ),
+        )
+        proposal = None
+        if summary and (
+            len(summary) == 1
+            or int(summary[0]["count"]) > int(summary[1]["count"])
+        ):
+            proposal = summary[0]["answer"]
+        status = "awaiting_team_answer" if proposal is not None else "discussion"
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = ?, vote_summary_json = ?,
+                    proposed_answer_json = ?, voting_ended_at = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND status = 'collecting_votes'
+                """,
+                (
+                    status,
+                    json.dumps(summary),
+                    json.dumps(proposal) if proposal is not None else None,
+                    now,
+                    now,
+                    int(live_item_id),
+                    int(team_id),
+                ),
+            )
+            self.conn.commit()
+        result = self._group_response_row(live_item_id, team_id)
+        if result is None:
+            raise KeyError(f"group response {live_item_id}:{team_id}")
+        return result
+
+    def _advance_group_team_if_ready(
+        self, item: dict[str, Any], team_id: int
+    ) -> dict[str, Any]:
+        """Advance automatically when every currently active member voted."""
+
+        state = self._group_response_row(int(item["id"]), int(team_id))
+        if state is None:
+            raise KeyError(f"group response {item['id']}:{team_id}")
+        if state["status"] != "collecting_votes":
+            return state
+        active_ids = self._active_team_member_ids(
+            int(item["live_session_id"]), int(team_id)
+        )
+        if not active_ids:
+            return state
+        voted = {
+            int(row["student_id"])
+            for row in self._group_vote_rows(int(item["id"]), int(team_id))
+        }
+        if set(active_ids).issubset(voted):
+            return self._transition_group_team_to_discussion(
+                int(item["id"]), int(team_id)
+            )
+        return state
+
+    def submit_group_consensus_vote(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store one private member vote and auto-advance a complete team."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if (
+            item["status"] != "active"
+            or item["response_mode"] != "group_consensus"
+        ):
+            raise ValueError("Group voting is not active for this item.")
+        if not self.student_is_active_live_attendee(session_id, student_id):
+            raise ValueError("Student is not active in this session.")
+        session_row = self.get_live_session(session_id)
+        assert session_row is not None
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            raise ValueError("Student is not assigned to a group.")
+        state = self._group_response_row(int(item["id"]), team_id)
+        if state is None or state["status"] != "collecting_votes":
+            raise ValueError("Voting has ended for this group.")
+        answer = self._normalize_group_answer(response)
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO live_group_members (
+                    live_item_id, team_id, student_id, joined_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (int(item["id"]), team_id, int(student_id), now),
+            )
+            self.conn.execute(
+                """
+                INSERT INTO live_group_votes (
+                    live_item_id, team_id, student_id, response_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(live_item_id, team_id, student_id) DO UPDATE SET
+                    response_json = excluded.response_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(item["id"]),
+                    team_id,
+                    int(student_id),
+                    json.dumps(answer),
+                    now,
+                    now,
+                ),
+            )
+            self.conn.commit()
+        team_state = self._advance_group_team_if_ready(item, team_id)
+        return {
+            "live_item_id": int(item["id"]),
+            "team_id": team_id,
+            "my_vote": answer,
+            "team": self._public_student_group_state(
+                item, team_id, int(student_id), team_state=team_state
+            ),
+        }
+
+    def end_group_consensus_voting(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Teacher fallback: advance every unfinished team to discussion."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if (
+            item["status"] != "active"
+            or item["response_mode"] != "group_consensus"
+        ):
+            raise ValueError("Group voting is not active for this item.")
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT team_id FROM live_group_responses
+                WHERE live_item_id = ? AND status = 'collecting_votes'
+                ORDER BY team_id ASC
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+        for row in rows:
+            self._transition_group_team_to_discussion(
+                int(item["id"]), int(row["team_id"])
+            )
+        return self.teacher_group_consensus_summary(
+            session_id, int(item["id"])
+        )
+
+    def finalize_group_consensus_answer(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically record the one canonical answer for a student's team."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if (
+            item["status"] != "active"
+            or item["response_mode"] != "group_consensus"
+        ):
+            raise ValueError("Group consensus is not active for this item.")
+        session_row = self.get_live_session(session_id)
+        assert session_row is not None
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            raise ValueError("Student is not assigned to a group.")
+        with self._lock:
+            member = self.conn.execute(
+                """
+                SELECT 1 FROM live_group_members
+                WHERE live_item_id = ? AND team_id = ? AND student_id = ?
+                """,
+                (int(item["id"]), int(team_id), int(student_id)),
+            ).fetchone()
+        if member is None:
+            raise ValueError("Student is not a member of this group.")
+        answer = self._normalize_group_answer(response)
+        now = _now()
+        with self._lock:
+            cursor = self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'finalized', final_answer_json = ?,
+                    finalizer_student_id = ?, finalized_at = ?, updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND status IN ('discussion', 'awaiting_team_answer')
+                  AND final_answer_json IS NULL
+                """,
+                (
+                    json.dumps(answer),
+                    int(student_id),
+                    now,
+                    now,
+                    int(item["id"]),
+                    int(team_id),
+                ),
+            )
+            self.conn.commit()
+        if cursor.rowcount != 1:
+            raise ValueError("Team answer is already finalized or voting is open.")
+        return self._public_student_group_state(item, team_id, int(student_id))
+
+    def _public_student_group_state(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        student_id: int,
+        *,
+        team_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return only this student's team consensus state."""
+
+        state = team_state or self._group_response_row(int(item["id"]), team_id)
+        if state is None:
+            return {}
+        votes = self._group_vote_rows(int(item["id"]), team_id)
+        my_vote = next(
+            (
+                row.get("answer")
+                for row in votes
+                if int(row["student_id"]) == int(student_id)
+            ),
+            None,
+        )
+        with self._lock:
+            eligible = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM live_group_members
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            member = self.conn.execute(
+                """
+                SELECT 1 FROM live_group_members
+                WHERE live_item_id = ? AND team_id = ? AND student_id = ?
+                """,
+                (int(item["id"]), int(team_id), int(student_id)),
+            ).fetchone()
+        is_member = member is not None
+        public = {
+            "team_id": int(team_id),
+            "status": str(state["status"]),
+            "has_voted": my_vote is not None,
+            "my_vote": my_vote,
+            "vote_count": len(votes),
+            "eligible_count": int((eligible or {"n": 0})["n"] or 0),
+            "eligible": is_member,
+            "can_vote": is_member and state["status"] == "collecting_votes",
+            "can_finalize": is_member
+            and state["status"]
+            in {"discussion", "awaiting_team_answer"},
+        }
+        if state["status"] != "collecting_votes":
+            public["vote_summary"] = state.get("vote_summary") or []
+            public["proposed_answer"] = state.get("proposed_answer")
+        if state["status"] == "finalized":
+            public["final_answer"] = state.get("final_answer")
+            public["finalizer_student_id"] = state.get("finalizer_student_id")
+            public["finalized_at"] = state.get("finalized_at")
+        return public
+
+    def student_group_consensus_state(
+        self, item: dict[str, Any], student_id: int | None
+    ) -> dict[str, Any] | None:
+        """Return team-only consensus data for one roster student."""
+
+        if student_id in (None, ""):
+            return None
+        session_row = self.get_live_session(int(item["live_session_id"]))
+        if session_row is None:
+            return None
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            return None
+        state = self._group_response_row(int(item["id"]), int(team_id))
+        if state is None:
+            return None
+        if state.get("status") == "collecting_votes":
+            state = self._advance_group_team_if_ready(item, int(team_id))
+        return self._public_student_group_state(
+            item, int(team_id), int(student_id), team_state=state
+        )
+
+    def teacher_group_consensus_summary(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Return compact teacher summaries for every team on one item."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        teams = {
+            int(team["id"]): team
+            for team in self._named_teams_for_live_session(session_id)
+        }
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT team_id FROM live_group_responses
+                WHERE live_item_id = ?
+                ORDER BY team_id ASC
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+        summaries = []
+        for row in rows:
+            team_id = int(row["team_id"])
+            state = self._group_response_row(int(item["id"]), team_id) or {}
+            if state.get("status") == "collecting_votes":
+                state = self._advance_group_team_if_ready(item, team_id)
+            votes = self._group_vote_rows(int(item["id"]), team_id)
+            vote_summary = state.get("vote_summary") or []
+            if state.get("status") == "collecting_votes":
+                counts: dict[str, dict[str, Any]] = {}
+                for vote in votes:
+                    answer = vote.get("answer") or {}
+                    key = json.dumps(
+                        answer, sort_keys=True, separators=(",", ":")
+                    )
+                    if key not in counts:
+                        counts[key] = {"answer": answer, "count": 0}
+                    counts[key]["count"] += 1
+                vote_summary = sorted(
+                    counts.values(),
+                    key=lambda value: (
+                        -int(value["count"]),
+                        json.dumps(value["answer"], sort_keys=True),
+                    ),
+                )
+            finalizer_id = state.get("finalizer_student_id")
+            finalizer_name = None
+            if finalizer_id not in (None, ""):
+                try:
+                    finalizer = self.game.get_student(
+                        int(self.get_live_session(session_id)["class_id"]),
+                        int(finalizer_id),
+                    )
+                    finalizer_name = str(
+                        finalizer.get("codename")
+                        or finalizer.get("first_name")
+                        or ""
+                    )
+                except Exception:  # noqa: BLE001 - summary remains useful
+                    finalizer_name = None
+            summaries.append(
+                {
+                    "team_id": team_id,
+                    "team_name": str(
+                        (teams.get(team_id) or {}).get("name")
+                        or f"Team {team_id}"
+                    ),
+                    "status": state.get("status"),
+                    "vote_count": len(votes),
+                    "vote_summary": vote_summary,
+                    "proposed_answer": state.get("proposed_answer"),
+                    "final_answer": state.get("final_answer"),
+                    "changed_from_proposal": bool(
+                        state.get("final_answer") is not None
+                        and state.get("proposed_answer") is not None
+                        and state.get("final_answer")
+                        != state.get("proposed_answer")
+                    ),
+                    "finalizer_student_id": finalizer_id,
+                    "finalizer_name": finalizer_name,
+                    "finalized_at": state.get("finalized_at"),
+                    "awarded_points": state.get("awarded_points"),
+                }
+            )
+        return {"item": item, "teams": summaries}
+
+    def award_group_consensus_points(
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        team_id: int,
+        amount: int = 1,
+    ) -> dict[str, Any]:
+        """Award equal points to all current members of a finalized team."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        state = self._group_response_row(int(item["id"]), int(team_id))
+        if state is None or state["status"] != "finalized":
+            raise ValueError("Finalize the team answer before awarding points.")
+        points = int(amount)
+        if points == 0:
+            raise ValueError("amount cannot be 0")
+        session_row = self.get_live_session(session_id)
+        assert session_row is not None
+        student_ids = self._teammate_ids_for_class(
+            int(session_row["class_id"]), int(team_id)
+        )
+        game = None
+        for student_id in student_ids:
+            game = self.game.award_points(
+                int(session_row["class_id"]),
+                kind="student",
+                target_id=int(student_id),
+                amount=points,
+                label="Group consensus",
+            )
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET awarded_points = COALESCE(awarded_points, 0) + ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (points, _now(), int(item["id"]), int(team_id)),
+            )
+            self.conn.commit()
+        return {
+            "awarded_student_ids": sorted(student_ids),
+            "team_id": int(team_id),
+            "amount": points,
+            "game": game,
+        }
+
+    def live_session_item_results(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Return teacher results for one active-session lifecycle item."""
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if item["response_mode"] == "group_consensus":
+            summary = self.teacher_group_consensus_summary(
+                session_id, int(item["id"])
+            )
+            return {
+                "item": item,
+                "response_mode": "group_consensus",
+                "teams": summary["teams"],
+            }
+        prompt = self._prompt_for_live_item(item)
+        responses = (
+            self.list_live_prompt_responses(int(prompt["id"])) if prompt else []
+        )
+        teacher = self.live_session_teacher_state_payload(session_id)
+        tally = self._tally_for_prompt(session_id, prompt, teacher)
+        eligible = len(
+            self.list_live_session_attendees(session_id, present_only=True)
+        )
+        return {
+            "item": item,
+            "response_mode": "individual",
+            "response_count": len(responses),
+            "eligible_count": eligible,
+            "tally": tally,
+        }
+
+    def student_live_items_payload(
+        self,
+        session_id: int,
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+    ) -> dict[str, Any]:
+        """Return ordered active questions and closed final-result cards.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Optional roster id.
+            participant_uuid: Stable live-session participant key.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None or session_row.get("status") != "active":
+            return {
+                "active_questions": [],
+                "closed_results": [],
+                "live_items": [],
+            }
+        teacher = self.live_session_teacher_state_payload(session_id)
+        items = [
+            row
+            for row in self.ensure_live_session_items(session_id)
+            if row.get("status") in {"active", "closed"}
+        ]
+        public_items: list[dict[str, Any]] = []
+        for item in items:
+            prompt = self._prompt_for_live_item(item)
+            raw_payload = (
+                prompt.get("payload")
+                if prompt is not None
+                and isinstance(prompt.get("payload"), dict)
+                else item.get("item")
+                if isinstance(item.get("item"), dict)
+                else {}
+            )
+            prior = None
+            my_response = None
+            group_state = None
+            if item["response_mode"] == "group_consensus":
+                group_state = self.student_group_consensus_state(
+                    item, student_id
+                )
+            elif prompt is not None:
+                prior = self.get_live_prompt_response(
+                    int(prompt["id"]),
+                    student_id,
+                    participant_uuid=participant_uuid,
+                )
+                if prior is not None:
+                    my_response = {
+                        "response": prior.get("response") or {},
+                        "awarded_points": prior.get("awarded_points"),
+                        "updated_at": prior.get("updated_at"),
+                    }
+                    feedback = public_feedback_fragment(
+                        raw_payload, my_response["response"]
+                    )
+                    if feedback:
+                        my_response["feedback"] = feedback
+            status = str(item["status"])
+            include_results = status == "closed" or (
+                bool(item["show_live_results"])
+                and (
+                    my_response is not None
+                    or bool(group_state and group_state.get("has_voted"))
+                )
+            )
+            results = None
+            if (
+                include_results
+                and item["response_mode"] == "individual"
+                and prompt is not None
+            ):
+                results = self._tally_for_prompt(session_id, prompt, teacher)
+            elif include_results and group_state is not None:
+                team_summaries = self.teacher_group_consensus_summary(
+                    session_id, int(item["id"])
+                )["teams"]
+                class_counts: dict[str, dict[str, Any]] = {}
+                team_answers: list[dict[str, Any]] = []
+                for team in team_summaries:
+                    final_answer = team.get("final_answer")
+                    team_answers.append(
+                        {
+                            "team_id": int(team["team_id"]),
+                            "team_name": str(team.get("team_name") or ""),
+                            "status": str(team.get("status") or ""),
+                            "final_answer": final_answer,
+                        }
+                    )
+                    if not isinstance(final_answer, dict):
+                        continue
+                    key = json.dumps(
+                        final_answer, sort_keys=True, separators=(",", ":")
+                    )
+                    if key not in class_counts:
+                        class_counts[key] = {
+                            "answer": final_answer,
+                            "count": 0,
+                        }
+                    class_counts[key]["count"] += 1
+                results = {
+                    "team_id": group_state.get("team_id"),
+                    "vote_summary": group_state.get("vote_summary") or [],
+                    "final_answer": group_state.get("final_answer"),
+                    "team_answers": team_answers,
+                    "class_distribution": sorted(
+                        class_counts.values(),
+                        key=lambda row: (
+                            -int(row["count"]),
+                            json.dumps(row["answer"], sort_keys=True),
+                        ),
+                    ),
+                    "phase": "final" if status == "closed" else "live",
+                }
+            public_items.append(
+                {
+                    "id": int(item["id"]),
+                    "placement_key": item["placement_key"],
+                    "item_id": item["item_id"],
+                    "stage": item["stage"],
+                    "page_number": item["page_number"],
+                    "order": item["sort_order"],
+                    "status": status,
+                    "publish_mode": item["publish_mode"],
+                    "response_mode": item["response_mode"],
+                    "show_live_results": bool(item["show_live_results"]),
+                    "published_at": item.get("published_at"),
+                    "closed_at": item.get("closed_at"),
+                    "content": strip_teacher_prompt_fields(raw_payload),
+                    "prompt": (
+                        {
+                            "id": int(prompt["id"]),
+                            "slide_index": int(prompt["slide_index"]),
+                            "kind": str(prompt["kind"]),
+                            "payload": strip_teacher_prompt_fields(raw_payload),
+                        }
+                        if prompt is not None
+                        else None
+                    ),
+                    "my_response": my_response,
+                    "group_consensus": group_state,
+                    "can_submit": prompt is not None
+                    and status == "active"
+                    and item["response_mode"] == "individual",
+                    "results": results,
+                    "results_phase": (
+                        "final" if status == "closed" else "live"
+                    )
+                    if results is not None
+                    else None,
+                }
+            )
+        return {
+            "active_questions": [
+                row
+                for row in public_items
+                if row["status"] == "active" and row.get("prompt") is not None
+            ],
+            "closed_results": [
+                row for row in public_items if row["status"] == "closed"
+            ],
+            "live_items": public_items,
+        }
+
     def get_active_live_prompt(
         self, session_id: int
     ) -> dict[str, Any] | None:
@@ -6786,6 +8275,23 @@ class SchoolDB(LovesDB):
         if prompt is None:
             raise KeyError(f"prompt {prompt_id}")
         prompt_row = self._prompt_row_to_dict(prompt)
+        with self._lock:
+            lifecycle = self.conn.execute(
+                """
+                SELECT status, response_mode
+                FROM live_session_items
+                WHERE prompt_id = ?
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (int(prompt_id),),
+            ).fetchone()
+        if lifecycle is not None:
+            status = str(lifecycle["status"] or "")
+            if status == "closed":
+                raise ValueError("This item is not accepting responses.")
+            if str(lifecycle["response_mode"] or "") == "group_consensus":
+                raise ValueError("Use the private group-vote endpoint.")
         payload = prompt_row.get("payload") or {}
         if (
             str(prompt_row.get("kind") or "").strip().lower() == "numeric"
@@ -6936,20 +8442,49 @@ class SchoolDB(LovesDB):
             teacher.get("live_slot"),
         )
 
+    def schema_v2_owns_live_stage_questions(
+        self, session_id: int, stage: str | None = None
+    ) -> bool:
+        """Return whether schema-v2 lifecycle metadata owns stage questions.
+
+        Schema-v1 and ad-hoc sessions continue to use the singleton prompt
+        compatibility path. A schema-v2 stage with no question placements also
+        falls back so partially authored playlists remain usable.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stage: Optional stage override; defaults to the teacher's stage.
+        """
+
+        metadata = self.live_class_metadata_for_session(session_id)
+        if metadata.get("schema_version") != SCHEMA_V2:
+            return False
+        current_stage = str(stage or "").strip().lower()
+        if not current_stage:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            current_stage = str(teacher.get("stage") or "").strip().lower()
+        return bool(questions_for_stage(metadata, current_stage))
+
     def student_live_class_metadata_for_session(
         self, session_id: int
     ) -> dict[str, Any]:
         """Return live metadata with teacher-only answer keys removed."""
 
         metadata = self.live_class_metadata_for_session(session_id)
-        questions = []
-        for row in metadata.get("questions") or []:
-            if not isinstance(row, dict):
-                continue
-            question = dict(row)
-            question.pop("correct_answer", None)
-            questions.append(question)
-        return {**metadata, "questions": questions}
+        public = dict(metadata)
+        for key in ("questions", "items"):
+            cleaned_rows = []
+            for row in metadata.get(key) or []:
+                if not isinstance(row, dict):
+                    continue
+                cleaned = strip_teacher_prompt_fields(row)
+                cleaned.pop("correct_answer", None)
+                for nested in cleaned.get("items") or []:
+                    if isinstance(nested, dict):
+                        nested.pop("correct_answer", None)
+                cleaned_rows.append(cleaned)
+            public[key] = cleaned_rows
+        return public
 
     def live_session_question_cards(self, session_id: int) -> list[dict[str, Any]]:
         """Return ordered teacher cards for questions associated with the stage."""
@@ -6957,6 +8492,12 @@ class SchoolDB(LovesDB):
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "join")
         metadata = self.live_class_metadata_for_session(session_id)
+        lifecycle_rows = self.ensure_live_session_items(session_id)
+        lifecycle_by_item: dict[str, list[dict[str, Any]]] = {}
+        for lifecycle in lifecycle_rows:
+            lifecycle_by_item.setdefault(
+                str(lifecycle.get("item_id") or ""), []
+            ).append(lifecycle)
         prompt_rows = self._list_live_session_prompts(session_id)
         by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompt_rows:
@@ -6977,7 +8518,12 @@ class SchoolDB(LovesDB):
         seen: set[str] = set()
         for question in questions_for_stage(metadata, stage):
             question_id = str(question.get("id") or "").strip()
+            lifecycle = next(
+                iter(lifecycle_by_item.get(question_id) or []), None
+            )
             prompt = by_item.get(question_id)
+            if prompt is None and lifecycle is not None:
+                prompt = self._prompt_for_live_item(lifecycle)
             payload = prompt.get("payload") if isinstance(prompt, dict) else {}
             payload = payload if isinstance(payload, dict) else {}
             options = payload.get("choices") or question.get("options") or []
@@ -7018,8 +8564,32 @@ class SchoolDB(LovesDB):
                     "prompt_id": int(prompt_id)
                     if prompt_id not in (None, "")
                     else None,
+                    "live_item_id": int(lifecycle["id"])
+                    if lifecycle is not None
+                    else None,
+                    "placement_key": lifecycle.get("placement_key")
+                    if lifecycle is not None
+                    else None,
+                    "status": lifecycle.get("status")
+                    if lifecycle is not None
+                    else ("active" if (prompt or {}).get("active") else "inactive"),
+                    "publish_mode": lifecycle.get("publish_mode")
+                    if lifecycle is not None
+                    else "individual",
+                    "response_mode": lifecycle.get("response_mode")
+                    if lifecycle is not None
+                    else "individual",
+                    "show_live_results": bool(
+                        lifecycle.get("show_live_results")
+                    )
+                    if lifecycle is not None
+                    else True,
                     "student_view": visibility,
-                    "active": bool((prompt or {}).get("active")),
+                    "active": (
+                        lifecycle.get("status") == "active"
+                        if lifecycle is not None
+                        else bool((prompt or {}).get("active"))
+                    ),
                     "response_count": len(responses),
                 }
             )
@@ -7028,14 +8598,16 @@ class SchoolDB(LovesDB):
             payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
             payload = payload if isinstance(payload, dict) else {}
             prompt_stage = "meet" if is_meet_team_payload(payload) else stage
-            if stage == "join" and not (
-                is_minds_on_payload(payload) or is_teams_spark_payload(payload)
-            ):
+            if stage == "join" and not is_minds_on_payload(payload):
                 continue
             if stage == "teams" and not is_teams_spark_payload(payload):
                 continue
-            if stage == "meet" and prompt_stage != "meet":
-                continue
+            # Exclude minds-on and teams-spark from Meet stage (stage-specific)
+            if stage == "meet":
+                if is_minds_on_payload(payload) or is_teams_spark_payload(payload):
+                    continue
+                if prompt_stage != "meet":
+                    continue
             if stage in {"round", "play"} and not prompt.get("active"):
                 continue
             question_id = str(
@@ -7077,6 +8649,12 @@ class SchoolDB(LovesDB):
                     "order": len(cards) + 1,
                     "default_visibility": False,
                     "prompt_id": int(prompt["id"]),
+                    "live_item_id": None,
+                    "placement_key": None,
+                    "status": "active" if prompt.get("active") else "inactive",
+                    "publish_mode": "individual",
+                    "response_mode": "individual",
+                    "show_live_results": True,
                     "student_view": mode,
                     "active": bool(prompt.get("active")),
                     "response_count": len(responses),
@@ -7783,18 +9361,39 @@ class SchoolDB(LovesDB):
         stage = str((teacher or {}).get("stage") or "")
         meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
         meet_live = stage == "meet" and meet_state is not None
+        lifecycle_owned = self.schema_v2_owns_live_stage_questions(
+            session_id, stage
+        )
+        # Meet prompts are handled separately from lifecycle items
         if meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
+            prompt = self._student_stage_prompt(
+                session_id,
+                teacher=teacher,
+                student_id=student_id,
+                participant_uuid=participant_uuid,
+            )
+        elif stage in {"join", "teams"}:
+            # Join/Teams always use legacy prompt (minds-on persists through teams)
+            self.ensure_waiting_room_minds_on(session_id)
+            prompt = self._student_stage_prompt(
+                session_id,
+                teacher=teacher,
+                student_id=student_id,
+                participant_uuid=participant_uuid,
+            )
+        elif lifecycle_owned:
+            prompt = None
         else:
             self.ensure_waiting_room_minds_on(session_id)
+            prompt = self._student_stage_prompt(
+                session_id,
+                teacher=teacher,
+                student_id=student_id,
+                participant_uuid=participant_uuid,
+            )
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
-        )
-        prompt = self._student_stage_prompt(
-            session_id,
-            teacher=teacher,
-            student_id=student_id,
-            participant_uuid=participant_uuid,
         )
         poll_closed = False
         view = (teacher or {}).get("student_view") or {}
@@ -7806,9 +9405,20 @@ class SchoolDB(LovesDB):
             "poll_closed": poll_closed,
             "question_view": questions_mode,
         }
+        empty.update(
+            self.student_live_items_payload(
+                session_id,
+                student_id,
+                participant_uuid=participant_uuid,
+            )
+        )
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
-        if questions_mode == "none":
+        # Allow legacy prompts on join/teams/meet stages even when lifecycle owns them
+        legacy_prompt_stages = {"join", "teams", "meet"}
+        if lifecycle_owned and stage not in legacy_prompt_stages:
+            return empty
+        if questions_mode == "none" and stage not in legacy_prompt_stages:
             return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
@@ -7904,6 +9514,13 @@ class SchoolDB(LovesDB):
         )
         if draft:
             out["group_draft"] = draft
+        out.update(
+            self.student_live_items_payload(
+                session_id,
+                student_id,
+                participant_uuid=participant_uuid,
+            )
+        )
         return out
 
     def live_session_active_media_payload(
@@ -8335,11 +9952,169 @@ class SchoolDB(LovesDB):
         Raises:
             KeyError: If the live session is missing.
         """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT teacher_state_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"live session {session_id}")
+        stored: dict[str, Any] = {}
+        raw = row["teacher_state_json"]
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                stored = parsed
+        state = public_teacher_state(stored)
+        teams_exist = bool(self._named_teams_for_live_session(session_id))
+        if teams_exist and (
+            "groups_configured" not in stored
+            or bool(stored.get("groups_configured"))
+        ):
+            state["groups_configured"] = True
+            if "run_as_group" not in stored:
+                state["run_as_group"] = True
+            if "scoreboard_visible" not in stored:
+                state["scoreboard_visible"] = True
+        if not state.get("groups_configured"):
+            state["run_as_group"] = False
+            state["scoreboard_visible"] = False
+        state["teams_mode"] = (
+            "teams" if state.get("run_as_group") else "individual"
+        )
+        return state
+
+    def live_class_roster_projection(
+        self, session_id: int
+    ) -> list[dict[str, Any]]:
+        """Return the full roster or the session's Hide Absent subset."""
+
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
-        stored = session_row.get("teacher_state")
-        return public_teacher_state(stored if isinstance(stored, dict) else None)
+        class_id = int(session_row["class_id"])
+        teacher = self.live_session_teacher_state_payload(session_id)
+        with self.game._lock:
+            students = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ?
+                    ORDER BY lower(codename), id
+                    """,
+                    (class_id,),
+                ).fetchall()
+            ]
+        attendees = {
+            int(row["student_id"]): row
+            for row in self.list_live_session_attendees(session_id)
+            if row.get("student_id") not in (None, "")
+        }
+        team_by_student: dict[int, dict[str, Any]] = {}
+        if teacher.get("run_as_group"):
+            for team in self._named_teams_for_live_session(session_id):
+                team_public = {
+                    "id": int(team["id"]),
+                    "name": str(team.get("name") or ""),
+                    "color": str(team.get("color") or ""),
+                    "sort_order": int(team.get("sort_order") or 0),
+                }
+                for member in team.get("members") or []:
+                    try:
+                        team_by_student[int(member["id"])] = team_public
+                    except (KeyError, TypeError, ValueError):
+                        continue
+        rows: list[dict[str, Any]] = []
+        for student in students:
+            student_id = int(student["id"])
+            attendee = attendees.get(student_id)
+            present = bool(attendee and not attendee.get("left_at"))
+            if teacher.get("hide_absent") and not present:
+                continue
+            rows.append(
+                {
+                    "student_id": student_id,
+                    "codename": str(
+                        student.get("codename")
+                        or student.get("first_name")
+                        or ""
+                    ),
+                    "present": present,
+                    "joined": attendee is not None,
+                    "left_at": attendee.get("left_at") if attendee else None,
+                    "mood": student.get("mood"),
+                    "character": student.get("character_key"),
+                    "team": team_by_student.get(student_id),
+                }
+            )
+        if teacher.get("run_as_group"):
+            rows.sort(
+                key=lambda item: (
+                    int((item.get("team") or {}).get("sort_order") or 99999),
+                    str(item.get("codename") or "").casefold(),
+                    int(item["student_id"]),
+                )
+            )
+        return rows
+
+    def live_group_projection(self, session_id: int) -> list[dict[str, Any]]:
+        """Return named groups only while Run as Group is enabled."""
+
+        teacher = self.live_session_teacher_state_payload(session_id)
+        if not teacher.get("run_as_group"):
+            return []
+        return self._named_teams_for_live_session(session_id)
+
+    def live_scoreboard_projection(
+        self, session_id: int
+    ) -> dict[str, Any] | None:
+        """Return the scoreboard only when both global group flags permit it."""
+
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        teacher = self.live_session_teacher_state_payload(session_id)
+        if not (
+            teacher.get("run_as_group")
+            and teacher.get("scoreboard_visible")
+        ):
+            return None
+        try:
+            return self.game.scoreboard(int(session_row["class_id"]))
+        except Exception:  # noqa: BLE001 - setup may not have a live board yet
+            return None
+
+    def apply_student_live_group_projection(
+        self, payload: dict[str, Any], session_id: int
+    ) -> dict[str, Any]:
+        """Gate teammate and scoreboard payloads by session-global flags."""
+
+        teacher = self.live_session_teacher_state_payload(session_id)
+        if not teacher.get("run_as_group"):
+            payload["my_team"] = None
+            me = payload.get("me")
+            if isinstance(me, dict):
+                me["team_name"] = None
+                me["team_points"] = 0
+        if not (
+            teacher.get("run_as_group")
+            and teacher.get("scoreboard_visible")
+        ):
+            payload["scoreboard"] = None
+        payload["group_controls"] = {
+            "groups_configured": bool(teacher.get("groups_configured")),
+            "run_as_group": bool(teacher.get("run_as_group")),
+            "scoreboard_visible": bool(teacher.get("scoreboard_visible")),
+        }
+        return payload
 
     def _write_teacher_state(
         self, session_id: int, payload: dict[str, Any]
@@ -8593,6 +10368,8 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
+        if session_row.get("status") != "active":
+            raise ValueError("Session is not active.")
         posted_slot = kwargs.get("live_slot")
         posted_module = kwargs.get("live_module")
         assign = kwargs.pop("assign", None)
@@ -8619,7 +10396,12 @@ class SchoolDB(LovesDB):
         if leaving_teams and new_stage not in {"join", "teams"}:
             self.clear_waiting_room_minds_on(session_id)
         if assign is not None:
-            self._assign_teams_for_meet_advance(session_id, assign)
+            assigned = self._assign_teams_for_meet_advance(session_id, assign)
+            if assigned is not None:
+                payload["groups_configured"] = True
+                payload["run_as_group"] = True
+                payload["scoreboard_visible"] = True
+                payload["teams_mode"] = "teams"
         leaving = prev_stage == "meet" and new_stage != "meet"
         if meet_action == "clear":
             payload["stage"] = "round"
@@ -8697,11 +10479,11 @@ class SchoolDB(LovesDB):
     def _assign_teams_for_meet_advance(
         self, session_id: int, assign: Any
     ) -> dict[str, Any] | None:
-        """Commit Balanced/Random/Manual assignment before MEET.
+        """Commit a one-time Balanced/Random/Manual group assignment.
 
-        Count ``< 2`` is the individual path: skip team buckets so MEET
-        can still mount. Assign runs before the teacher-state write so a
-        failed Generate cannot leave the shell on a broken MEET pane.
+        Count ``< 2`` is the individual path. Assignment is independent
+        from stage navigation and the session timer; callers may set up
+        groups from any stage without implicitly starting MEET.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -8740,22 +10522,64 @@ class SchoolDB(LovesDB):
                 "No students have joined yet. Share the live session code, "
                 "then continue when someone is present."
             )
-        self.game.save_attendance(class_id, present_ids)
         raw_assignments = assign.get("assignments")
         if raw_assignments is not None and not isinstance(raw_assignments, list):
             raise ValueError("assignments must be a list")
-        state = self.game.assign_teams(
-            class_id,
-            n_teams,
-            str(assign.get("mode") or "balanced"),
+        setup = self.setup_live_session_groups(
+            session_id,
+            n_teams=n_teams,
+            mode=str(assign.get("mode") or "balanced"),
+            present_ids=present_ids,
             assignments=raw_assignments,
         )
-        try:
-            state = self.game.start_meet_teams(class_id, 3)
-        except Exception:  # noqa: BLE001 — scoreboard still opens from JS
-            pass
+        state = setup["game"]
         self.sync_live_participation_scores(class_id)
         return state
+
+    def setup_live_session_groups(
+        self,
+        session_id: int,
+        *,
+        n_teams: int,
+        mode: str,
+        present_ids: list[int],
+        assignments: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Create fixed memberships once and enable group projections.
+
+        Args:
+            session_id: Active ``live_class_sessions.id``.
+            n_teams: Number of named teams.
+            mode: ``balanced``, ``random``, or ``manual``.
+            present_ids: Roster ids included in initial setup.
+            assignments: Manual assignment rows when ``mode=manual``.
+        """
+        session_row = self._require_active_live_session(session_id)
+        current = self.live_session_teacher_state_payload(session_id)
+        if current.get("groups_configured") or self._named_teams_for_live_session(
+            session_id
+        ):
+            raise ValueError(
+                "Groups are already set up for this session; memberships are fixed."
+            )
+        ids = sorted({int(value) for value in present_ids})
+        if not ids:
+            raise ValueError("Mark at least one student present.")
+        self.game.save_attendance(int(session_row["class_id"]), ids)
+        game = self.game.assign_teams(
+            int(session_row["class_id"]),
+            int(n_teams),
+            str(mode or "balanced"),
+            assignments=assignments,
+        )
+        teacher = apply_teacher_state_update(
+            current,
+            groups_configured=True,
+            run_as_group=True,
+            scoreboard_visible=True,
+        )
+        teacher = self._write_teacher_state(session_id, teacher)
+        return {"game": game, "teacher_state": teacher}
 
     def record_meet_chain_pick(
         self,
@@ -9058,6 +10882,53 @@ class SchoolDB(LovesDB):
         self.game.clear_students_live_presence(class_id, student_ids)
         return len(student_ids)
 
+    def cleanup_live_session_response_data(self, session_id: int) -> None:
+        """Delete ephemeral individual votes and group response artifacts."""
+
+        with self._lock:
+            item_rows = self.conn.execute(
+                """
+                SELECT id FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+            item_ids = [int(row["id"]) for row in item_rows]
+            if item_ids:
+                placeholders = ",".join("?" for _ in item_ids)
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_group_votes
+                    WHERE live_item_id IN ({placeholders})
+                    """,
+                    item_ids,
+                )
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_group_members
+                    WHERE live_item_id IN ({placeholders})
+                    """,
+                    item_ids,
+                )
+                self.conn.execute(
+                    f"""
+                    DELETE FROM live_group_responses
+                    WHERE live_item_id IN ({placeholders})
+                    """,
+                    item_ids,
+                )
+            self.conn.execute(
+                """
+                DELETE FROM live_session_responses
+                WHERE prompt_id IN (
+                    SELECT id FROM live_session_prompts
+                    WHERE live_session_id = ?
+                )
+                """,
+                (int(session_id),),
+            )
+            self.conn.commit()
+
     def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
         """Mark a session ended so its code is no longer joinable.
 
@@ -9070,7 +10941,9 @@ class SchoolDB(LovesDB):
         if session_row is None:
             return None
         if session_row.get("status") == "ended":
-            return session_row
+            self.cleanup_live_session_response_data(session_id)
+            return self.get_live_session(session_id)
+        self.cleanup_live_session_response_data(session_id)
         now = _now()
         with self._lock:
             self.conn.execute(
@@ -9872,6 +11745,7 @@ class SchoolDB(LovesDB):
         name = str((snap or {}).get("name") or "").strip() or "Class"
         payload["winner"] = {"name": name[:80], "score": (snap or {}).get("score")}
         self._write_teacher_state(session_id, payload)
+        self.cleanup_live_session_response_data(session_id)
         now = _now()
         with self._lock:
             self.conn.execute(
@@ -10164,6 +12038,7 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
+        self._write_teacher_state(session_id, public_teacher_state(None))
         if live_module is not None or live_slot is not None:
             self.set_live_session_teacher_state(
                 session_id,
@@ -10248,6 +12123,11 @@ class SchoolDB(LovesDB):
         session_public["allow_unmatched_guests"] = bool(
             int(session_public.get("allow_unmatched_guests") or 0)
         )
+        is_active = session_row.get("status") == "active"
+        lifecycle_items = (
+            self.ensure_live_session_items(session_id) if is_active else []
+        )
+        teacher_state = self.live_session_teacher_state_payload(session_id)
         return {
             "session": session_public,
             "code": session_row.get("session_code"),
@@ -10255,7 +12135,7 @@ class SchoolDB(LovesDB):
             "attendees": public_rows,
             "phase": phase,
             "active_media": self.live_session_active_media_payload(session_id),
-            "teacher_state": self.live_session_teacher_state_payload(session_id),
+            "teacher_state": teacher_state,
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
             "teams_spark": self.staff_teams_spark_payload(session_id),
@@ -10263,8 +12143,17 @@ class SchoolDB(LovesDB):
                 session_id, int(MINDS_ON_SLIDE_INDEX)
             ),
             "active_prompt": self.get_active_live_prompt(session_id),
+            "active_questions": (
+                self.list_active_live_questions(session_id) if is_active else []
+            ),
+            "live_items": lifecycle_items,
             "live_metadata": self.live_class_metadata_for_session(session_id),
-            "question_cards": self.live_session_question_cards(session_id),
+            "question_cards": (
+                self.live_session_question_cards(session_id) if is_active else []
+            ),
+            "class_list": self.live_class_roster_projection(session_id),
+            "groups": self.live_group_projection(session_id),
+            "scoreboard": self.live_scoreboard_projection(session_id),
             "canvas_sync": self.live_session_canvas_view(
                 session_id, as_teacher=True
             ),
@@ -10482,11 +12371,58 @@ class SchoolDB(LovesDB):
             marked = self.game.mark_student_present_on_open_session(
                 int(session_row["class_id"]), int(sid)
             )
+            self._include_late_joiner_in_group_votes(
+                session_id, int(sid)
+            )
         return {
             "attendee": attendee,
             "session": session_row,
             "attendance_marked": marked,
         }
+
+    def _include_late_joiner_in_group_votes(
+        self, session_id: int, student_id: int
+    ) -> None:
+        """Add a late joiner only to teams still collecting private votes."""
+
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            return
+        now = _now()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT r.live_item_id
+                FROM live_group_responses r
+                JOIN live_session_items i ON i.id = r.live_item_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND r.team_id = ?
+                  AND r.status = 'collecting_votes'
+                """,
+                (int(session_id), int(team_id)),
+            ).fetchall()
+            for row in rows:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO live_group_members (
+                        live_item_id, team_id, student_id, joined_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        int(row["live_item_id"]),
+                        int(team_id),
+                        int(student_id),
+                        now,
+                    ),
+                )
+            if rows:
+                self.conn.commit()
 
     def disconnect_live_session_student(
         self,
