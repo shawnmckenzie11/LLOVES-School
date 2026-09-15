@@ -8371,9 +8371,6 @@ class SchoolDB(LovesDB):
             prompt_id, sid, participant_uuid=pid
         )
         if sid is not None:
-            session_row = self.get_live_session(session_id)
-            if session_row is not None:
-                self.sync_live_participation_scores(int(session_row["class_id"]))
             if is_minds_on_payload(payload):
                 self.activate_welcome_c2(session_id)
             self._copy_group_question_response(
@@ -8856,8 +8853,18 @@ class SchoolDB(LovesDB):
         mode: str,
         student_ids: list[Any] | None = None,
         amount: int = 1,
+        replace: bool = True,
     ) -> dict[str, Any]:
-        """Award prompt points to respondents, correct respondents, or a manual set."""
+        """Award prompt points to a selected set, replacing a prior assignment.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt_id: ``live_session_prompts.id``.
+            mode: ``answered``, ``correct``, or ``manual``.
+            student_ids: Roster ids when ``mode`` is ``manual``.
+            amount: Points each selected student should hold after commit.
+            replace: When true, unchecked respondents lose any prior award.
+        """
 
         token = str(mode or "").strip().lower()
         if token not in {"answered", "correct", "manual"}:
@@ -8883,33 +8890,47 @@ class SchoolDB(LovesDB):
             targets = [
                 row["student_id"] for row in rows if row.get("student_id") in wanted
             ]
-        targets = [int(value) for value in targets if value not in (None, "")]
+        selected = {int(value) for value in targets if value not in (None, "")}
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
+        plan: list[tuple[int, int, int]] = []
+        for row in rows:
+            sid = row.get("student_id")
+            if sid in (None, ""):
+                continue
+            student_id = int(sid)
+            current = int(row.get("awarded_points") or 0)
+            if replace:
+                desired = points if student_id in selected else 0
+            else:
+                desired = current + (points if student_id in selected else 0)
+            plan.append((student_id, current, int(desired)))
         game = None
-        for student_id in sorted(set(targets)):
-            game = self.game.award_points(
-                int(session_row["class_id"]),
-                kind="student",
-                target_id=student_id,
-                amount=points,
-                label="Live question",
-            )
-        if targets:
-            with self._lock:
-                placeholders = ",".join("?" for _ in set(targets))
-                self.conn.execute(
-                    f"""
-                    UPDATE live_session_responses
-                    SET awarded_points = COALESCE(awarded_points, 0) + ?
-                    WHERE prompt_id = ? AND student_id IN ({placeholders})
-                    """,
-                    (points, int(prompt_id), *sorted(set(targets))),
+        for student_id, current, desired in plan:
+            delta = desired - current
+            if delta:
+                game = self.game.award_points(
+                    int(session_row["class_id"]),
+                    kind="student",
+                    target_id=student_id,
+                    amount=delta,
+                    label="Live question",
                 )
-                self.conn.commit()
+        with self._lock:
+            for student_id, current, desired in plan:
+                if desired != current:
+                    self.conn.execute(
+                        """
+                        UPDATE live_session_responses
+                        SET awarded_points = ?
+                        WHERE prompt_id = ? AND student_id = ?
+                        """,
+                        (desired, int(prompt_id), student_id),
+                    )
+            self.conn.commit()
         return {
-            "awarded_student_ids": sorted(set(targets)),
+            "awarded_student_ids": sorted(selected),
             "game": game,
             "responses": self.live_prompt_response_roster(session_id, prompt_id),
         }
@@ -10113,21 +10134,47 @@ class SchoolDB(LovesDB):
         """Gate teammate and scoreboard payloads by session-global flags."""
 
         teacher = self.live_session_teacher_state_payload(session_id)
-        if not teacher.get("run_as_group"):
+        run = bool(teacher.get("run_as_group"))
+        board_on = bool(teacher.get("scoreboard_visible"))
+        groups = self._named_teams_for_live_session(session_id) if run else []
+        payload["groups"] = groups
+        if not run:
             payload["my_team"] = None
             me = payload.get("me")
             if isinstance(me, dict):
                 me["team_name"] = None
                 me["team_points"] = 0
-        if not (
-            teacher.get("run_as_group")
-            and teacher.get("scoreboard_visible")
-        ):
+        if not (run and board_on):
             payload["scoreboard"] = None
+        else:
+            current = payload.get("scoreboard")
+            named = []
+            if isinstance(current, dict):
+                named = [
+                    team
+                    for team in (current.get("teams") or [])
+                    if str(team.get("name") or "") != "Class"
+                ]
+            if not named:
+                projected = self.live_scoreboard_projection(session_id)
+                if isinstance(projected, dict) and projected.get("teams"):
+                    payload["scoreboard"] = projected
+                elif groups:
+                    payload["scoreboard"] = {
+                        "teams": [
+                            {
+                                "id": team.get("id"),
+                                "name": team.get("name"),
+                                "color": team.get("color"),
+                                "score": team.get("score") or 0,
+                            }
+                            for team in groups
+                        ]
+                    }
         payload["group_controls"] = {
             "groups_configured": bool(teacher.get("groups_configured")),
-            "run_as_group": bool(teacher.get("run_as_group")),
-            "scoreboard_visible": bool(teacher.get("scoreboard_visible")),
+            "run_as_group": run,
+            "scoreboard_visible": board_on,
         }
         return payload
 
@@ -10547,9 +10594,7 @@ class SchoolDB(LovesDB):
             present_ids=present_ids,
             assignments=raw_assignments,
         )
-        state = setup["game"]
-        self.sync_live_participation_scores(class_id)
-        return state
+        return setup["game"]
 
     def setup_live_session_groups(
         self,
@@ -11300,6 +11345,32 @@ class SchoolDB(LovesDB):
     ) -> dict[int, int]:
         """Map student id → QH counts (alias used by Save and End Class)."""
         return self.participation_question_credits_for_class(class_id)
+
+    def live_awarded_session_points(self, class_id: int) -> dict[int, int]:
+        """Map student id → live game points from teacher awards only.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001 — no open game yet
+            return {}
+        out: dict[int, int] = {}
+        for row in state.get("students") or []:
+            sid = row.get("id")
+            if sid in (None, ""):
+                continue
+            raw = row.get("session_points")
+            if raw in (None, ""):
+                raw = row.get("points")
+            try:
+                points = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if points:
+                out[int(sid)] = points
+        return out
 
     def sync_live_participation_scores(self, class_id: int) -> dict[str, Any] | None:
         """Push live QH counts onto the open game so the scoreboard updates.
@@ -12175,7 +12246,7 @@ class SchoolDB(LovesDB):
             ),
             "game_points": {
                 str(sid): int(n)
-                for sid, n in self.participation_question_credits_for_class(
+                for sid, n in self.live_awarded_session_points(
                     int(session_row["class_id"])
                 ).items()
             },

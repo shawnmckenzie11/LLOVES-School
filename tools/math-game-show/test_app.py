@@ -1961,18 +1961,25 @@ class LlovesCodenameRosterTests(unittest.TestCase):
         self.assertEqual([s["codename"] for s in za["students"]], ["Maple", "Cedar", "Birch"])
 
 
-    def test_pick_late_team_prefers_fewest_then_lowest_score(self) -> None:
-        """Late join never opens a size gap of 2 when a smaller team exists."""
+    def test_pick_late_team_prefers_size_then_course_total_then_id(self) -> None:
+        """Late join uses size, summed course score, then stable team id."""
         from teams import pick_late_team
 
         chosen = pick_late_team(
             [
-                {"id": 1, "size": 3, "score": 0},
-                {"id": 2, "size": 2, "score": 10},
-                {"id": 3, "size": 2, "score": 4},
+                {"id": 1, "size": 3, "course_total": 0},
+                {"id": 2, "size": 2, "course_total": 10},
+                {"id": 3, "size": 2, "course_total": 4},
             ]
         )
         self.assertEqual(chosen, 3)
+        stable = pick_late_team(
+            [
+                {"id": 9, "size": 2, "course_total": 4},
+                {"id": 7, "size": 2, "course_total": 4},
+            ]
+        )
+        self.assertEqual(stable, 7)
 
 
 if __name__ == "__main__":

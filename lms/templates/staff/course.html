@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
 </head>
-<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% endif %}">
+<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}">
   <div class="wrap course-shell">
     <nav class="staff-top-menu" aria-label="Staff navigation">
       <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
@@ -161,44 +161,57 @@
             <input type="checkbox" id="live-timer-toggle">
             <span>Timer</span>
           </label>
-          <button type="button" id="live-timer-start" class="live-option-start">Start</button>
-          <label class="live-unlock-toggle" for="live-teams-toggle">
-            <input type="checkbox" id="live-teams-toggle">
-            <span>Teams</span>
-          </label>
-          <button type="button" id="live-teams-start" class="live-option-start">Start</button>
-          <label class="live-unlock-toggle" id="join-scoreboard-wrap" for="ap-scoreboard-toggle" hidden>
-            <input type="checkbox" id="ap-scoreboard-toggle">
-            <span>Scoreboard</span>
-          </label>
+          <section id="session-timer" class="live-session-timer" aria-label="Session timer" hidden>
+            <div class="stepper ap-teams-stepper live-meet-count" id="ap-meet-stepper" role="group" aria-label="Session timer minutes">
+              <button type="button" id="ap-meet-minutes-down" aria-label="Shorter session timer">−</button>
+              <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric" aria-label="Session timer minutes">
+              <button type="button" id="ap-meet-minutes-up" aria-label="Longer session timer">+</button>
+            </div>
+            <span class="ap-meet-live-clock" id="ap-meet-live-clock" aria-live="polite">3:00</span>
+            <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
+          </section>
+          <div id="live-groups-configured" class="live-groups-configured" hidden>
+            <label class="live-unlock-toggle" for="live-run-as-group">
+              <input type="checkbox" id="live-run-as-group">
+              <span>Run as Group</span>
+            </label>
+            <label class="live-unlock-toggle" id="join-scoreboard-wrap" for="ap-scoreboard-toggle">
+              <input type="checkbox" id="ap-scoreboard-toggle">
+              <span>Scoreboard</span>
+            </label>
+            <button type="button" class="live-round-pick" id="ap-teams-rename">Rename Teams</button>
+          </div>
         </div>
         <div id="teams-option-card" class="live-option-card-body live-teams-strip" hidden>
-          <span class="live-teams-settings-label">Team Game Settings:</span>
-          <div class="stepper ap-teams-stepper live-teams-count" role="group" aria-label="Team count">
-            <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
-            <input id="ap-n-teams" type="number" min="1" value="1" inputmode="numeric" aria-label="Team count">
-            <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
-            <div id="ap-division-meter"
-                 class="live-division-meter"
-                 hidden
-                 role="meter"
-                 aria-label="Division strength"
-                 aria-valuemin="0"
-                 aria-valuemax="2">
-              <span class="live-division-bars" aria-hidden="true">
-                <span class="live-division-bar"></span>
-                <span class="live-division-bar"></span>
-                <span class="live-division-bar"></span>
-              </span>
-              <span id="ap-division-meter-label" class="live-division-label"></span>
+          <div id="live-groups-setup" class="live-groups-setup">
+            <span class="live-teams-settings-label">Groups</span>
+            <div class="stepper ap-teams-stepper live-teams-count" role="group" aria-label="Team count">
+              <button type="button" id="ap-n-teams-down" aria-label="Fewer teams">−</button>
+              <input id="ap-n-teams" type="number" min="2" value="2" inputmode="numeric" aria-label="Team count">
+              <button type="button" id="ap-n-teams-up" aria-label="More teams">+</button>
+              <div id="ap-division-meter"
+                   class="live-division-meter"
+                   hidden
+                   role="meter"
+                   aria-label="Division strength"
+                   aria-valuemin="0"
+                   aria-valuemax="2">
+                <span class="live-division-bars" aria-hidden="true">
+                  <span class="live-division-bar"></span>
+                  <span class="live-division-bar"></span>
+                  <span class="live-division-bar"></span>
+                </span>
+                <span id="ap-division-meter-label" class="live-division-label"></span>
+              </div>
             </div>
+            <div class="live-teams-assign" id="live-teams-assign" role="group" aria-label="Assign groups">
+              <button type="button" class="live-round-pick" id="ap-assign-balanced" aria-pressed="false">Balanced</button>
+              <button type="button" class="live-round-pick" id="ap-assign-random" aria-pressed="false">Random</button>
+              <button type="button" class="live-round-pick" id="ap-assign-manual" aria-pressed="false">Manual</button>
+            </div>
+            <button type="button" id="live-teams-start" class="live-option-start" disabled>Set Up</button>
           </div>
-          <div class="live-teams-assign" id="live-teams-assign" role="group" aria-label="Assign" aria-disabled="true">
-            <button type="button" class="live-round-pick is-selected" id="ap-assign-balanced" aria-pressed="true">Balanced</button>
-            <button type="button" class="live-round-pick" id="ap-assign-random" aria-pressed="false">Random</button>
-            <button type="button" class="live-round-pick" id="ap-assign-manual" aria-pressed="false">Manual</button>
-          </div>
-          <div class="live-teams-track" id="ap-track-game-opts" aria-disabled="true">
+          <div class="live-teams-track live-legacy-control" id="ap-track-game-opts">
           </div>
           <p id="live-teams-assign-error" class="live-strip-error error" hidden role="alert"></p>
           <span id="ap-gamify-summary" class="live-legacy-control"></span>
@@ -236,9 +249,7 @@
             </div>
           </section>
         </div>
-        <div id="meet-option-card" class="live-option-card-body live-meet-strip" hidden>
-          <button type="button" class="live-round-pick" id="ap-teams-rename" disabled aria-disabled="true">Rename teams</button>
-        </div>
+        <div id="meet-option-card" class="live-option-card-body live-meet-strip" hidden></div>
         <div id="round-option-card" class="live-option-card-body live-round-strip" hidden>
           <div class="live-round-picks" id="live-round-picks" role="group" aria-label="Round type">
             <label class="live-pack-field live-round-type-field" for="live-round-type">
@@ -270,7 +281,7 @@
             <div class="live-preset-row" id="live-preset-row">
               <button type="button" class="live-preset-btn" data-preset="media_full">Media</button>
               <button type="button" class="live-preset-btn is-active" data-preset="questions_full">Questions</button>
-              <button type="button" class="live-preset-btn" data-preset="canvas_full">Canvas</button>
+              <button type="button" class="live-preset-btn" data-preset="canvas_full">Whiteboard</button>
               <button type="button" class="live-preset-btn" data-preset="slides_full">Slides</button>
             </div>
           </div>
@@ -307,23 +318,20 @@
 
       <div class="live-shell-body">
         <aside class="live-shell-left" id="live-shell-left">
-          <section id="session-timer" class="live-session-timer" aria-label="Session timer" hidden>
-            <div class="stepper ap-teams-stepper live-meet-count" id="ap-meet-stepper" role="group" aria-label="Session timer minutes">
-              <button type="button" id="ap-meet-minutes-down" aria-label="Shorter session timer">−</button>
-              <input id="ap-meet-minutes" type="number" min="1" max="30" value="3" inputmode="numeric" aria-label="Session timer minutes">
-              <button type="button" id="ap-meet-minutes-up" aria-label="Longer session timer">+</button>
-            </div>
-            <span class="ap-meet-live-clock" id="ap-meet-live-clock" aria-live="polite">3:00</span>
-            <button type="button" id="ap-meet-start" class="ap-meet-start" data-meet-state="idle">Start</button>
-          </section>
           <section id="class-list-pane" class="live-pane">
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <div class="class-list-head">
-                <h2 class="live-pane-title">Class list <span id="ap-att-summary" class="live-pane-meta"></span></h2>
-                <label class="ap-guest-toggle" id="ap-guest-toggle">
-                  <input type="checkbox" id="ap-allow-guests">
-                  <span>Guests</span>
-                </label>
+                <h2 class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
+                <div class="class-list-toggles">
+                  <label class="ap-guest-toggle" for="live-hide-absent">
+                    <input type="checkbox" id="live-hide-absent">
+                    <span>Hide Absent</span>
+                  </label>
+                  <label class="ap-guest-toggle" id="ap-guest-toggle">
+                    <input type="checkbox" id="ap-allow-guests">
+                    <span>Guests</span>
+                  </label>
+                </div>
               </div>
               <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
               <input type="hidden" id="ap-meeting-date" value="">
@@ -350,7 +358,7 @@
               <nav class="live-content-tabs" id="live-content-tabs" aria-label="Content">
                 <button type="button" class="live-content-tab" data-tab="media">Media</button>
                 <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Questions</button>
-                <button type="button" class="live-content-tab" data-tab="canvas">Canvas</button>
+                <button type="button" class="live-content-tab" data-tab="canvas">Whiteboard</button>
                 <button type="button" class="live-content-tab" data-tab="slides">Slides</button>
               </nav>
             </div>
@@ -363,13 +371,17 @@
                   <div class="live-content-pane-head">
                     <h2>Media</h2>
                     <label class="live-student-view-field" for="live-view-media">
-                      <span>Student View</span>
+                      <span>Publish mode</span>
                       <select id="live-view-media" aria-label="Media student view">
-                        <option value="none">None: Teacher View Only</option>
-                        <option value="student">Student: Individual</option>
-                        <option value="team">Student: Shared within Group</option>
+                        <option value="student">Individual</option>
+                        <option value="team">Shared within Group</option>
                       </select>
                     </label>
+                  </div>
+                  <div class="live-surface-publish" data-surface-controls="media">
+                    <span class="live-status-badge" data-surface-status="media">Inactive</span>
+                    <button type="button" data-surface-publish="media">Publish</button>
+                    <button type="button" class="secondary" data-surface-close="media" disabled>Close</button>
                   </div>
                   <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
                 </section>
@@ -462,15 +474,19 @@
               </section>
               <section id="canvas-zone" class="live-content-slot" data-content-id="canvas" data-slot="">
                 <div class="live-content-pane-head">
-                  <h2 class="live-pane-title">Canvas</h2>
+                  <h2 class="live-pane-title">Whiteboard</h2>
                   <label class="live-student-view-field" for="live-view-canvas">
-                    <span>Student View</span>
-                    <select id="live-view-canvas" aria-label="Canvas student view">
-                      <option value="none">None: Teacher View Only</option>
-                      <option value="student">Student: Individual</option>
-                      <option value="team">Student: Shared within Group</option>
+                    <span>Publish mode</span>
+                    <select id="live-view-canvas" aria-label="Whiteboard student view">
+                      <option value="student">Individual</option>
+                      <option value="team">Shared within Group</option>
                     </select>
                   </label>
+                </div>
+                <div class="live-surface-publish" data-surface-controls="canvas">
+                  <span class="live-status-badge" data-surface-status="canvas">Inactive</span>
+                  <button type="button" data-surface-publish="canvas">Publish</button>
+                  <button type="button" class="secondary" data-surface-close="canvas" disabled>Close</button>
                 </div>
                 <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
@@ -485,13 +501,16 @@
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Slides</h2>
                   <label class="live-student-view-field" for="live-view-slides">
-                    <span>Student View</span>
+                    <span>Publish mode</span>
                     <select id="live-view-slides" aria-label="Slides student view">
-                      <option value="none">None: Teacher View Only</option>
-                      <option value="student">Student: Individual</option>
-                      <option value="team">Student: Shared within Group</option>
+                      <option value="student">Individual</option>
                     </select>
                   </label>
+                </div>
+                <div class="live-surface-publish" data-surface-controls="slides">
+                  <span class="live-status-badge" data-surface-status="slides">Inactive</span>
+                  <button type="button" data-surface-publish="slides">Publish</button>
+                  <button type="button" class="secondary" data-surface-close="slides" disabled>Close</button>
                 </div>
                 <p class="hint compact" id="live-slides-status">No slide deck is connected to this live-class metadata yet.</p>
                 <iframe id="live-slides-preview" class="live-slides-preview" title="Live class slides" hidden></iframe>
@@ -512,9 +531,10 @@
         </header>
         <div id="live-responses-list" class="live-responses-list"></div>
         <div class="live-responses-actions">
-          <button type="button" data-response-award="answered">+1 Everyone who answered</button>
-          <button type="button" data-response-award="correct">+1 Everyone correct</button>
-          <button type="button" data-response-award="manual">+1 Selected</button>
+          <button type="button" data-response-select="answered">+1 Everyone who answered</button>
+          <button type="button" data-response-select="correct">+1 Everyone correct</button>
+          <button type="button" data-response-select="manual">+1 Selected</button>
+          <button type="button" data-response-commit>Award Points</button>
         </div>
       </form>
     </dialog>

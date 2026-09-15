@@ -2963,19 +2963,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
 
     def _ended_student_response(*, as_json: bool = False):
-        """Clear student keys + rejoin cookie; send How-was-class when pending."""
-        pending = school.pending_exit_feedback(
-            class_id=session.get("student_class_id"),
-            student_id=session.get("student_id"),
-            participant_uuid=session.get("student_participant_uuid"),
-        )
-        if pending:
-            session[EXIT_FEEDBACK_SESSION_KEY] = pending["token"]
-        dest = (
-            url_for("student_exit_feedback")
-            if pending
-            else url_for("landing")
-        )
+        """Clear student keys + rejoin cookie and return to the landing page."""
+        dest = url_for("landing")
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
         clear_student_session_keys(session)
         if as_json:
             resp = jsonify(
@@ -2983,7 +2973,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "ok": True,
                     "status": "ended",
                     "celebrate": False,
-                    "feedback": bool(pending),
+                    "feedback": False,
                     "redirect": dest,
                 }
             )
@@ -3337,6 +3327,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        school.apply_student_live_group_projection(payload, live_session_id)
         payload["live_metadata"] = (
             school.student_live_class_metadata_for_session(live_session_id)
         )
@@ -3448,6 +3439,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        school.apply_student_live_group_projection(payload, live_session_id)
         payload["live_metadata"] = (
             school.student_live_class_metadata_for_session(live_session_id)
         )
@@ -3560,6 +3552,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             allowed_ids.add(int(facing["id"]))
         if active is not None and active.get("id") not in (None, ""):
             allowed_ids.add(int(active["id"]))
+        for item in facing_payload.get("active_questions") or []:
+            item_prompt = item.get("prompt") if isinstance(item, dict) else None
+            if isinstance(item_prompt, dict) and item_prompt.get("id") not in (
+                None,
+                "",
+            ):
+                allowed_ids.add(int(item_prompt["id"]))
         if not allowed_ids:
             return jsonify({"ok": False, "error": "No active prompt."}), 409
         body = request.get_json(silent=True) or {}
@@ -3574,6 +3573,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if isinstance(facing, dict) and int(facing.get("id") or 0) == prompt_id
             else active
         )
+        if target is None or int(target.get("id") or 0) != prompt_id:
+            target = next(
+                (
+                    item.get("prompt")
+                    for item in facing_payload.get("active_questions") or []
+                    if isinstance(item, dict)
+                    and isinstance(item.get("prompt"), dict)
+                    and int(item["prompt"].get("id") or 0) == prompt_id
+                ),
+                None,
+            )
         target_payload = (target or {}).get("payload") or {}
         if school.live_session_mc_poll_closed(live_session_id) and is_minds_on_payload(
             target_payload
@@ -3637,15 +3647,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        # Gradebook auto-insert stays stubbed for the slides-plugin branch.
-        if student_id not in (None, ""):
-            school.apply_prompt_score_to_participation(
-                class_id,
-                int(student_id),
-                0.0,
-                prompt_id=prompt_id,
-                label=str((target or {}).get("kind") or "prompt"),
-            )
         my_response = {
             "response": saved.get("response") or {},
             "awarded_points": saved.get("awarded_points"),
@@ -3667,6 +3668,74 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if tally is not None:
             body["mc_tally"] = tally
         return jsonify(body)
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/vote",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_vote(live_item_id: int):
+        """Submit a private vote for the student's active consensus item."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        response = body.get("response")
+        if not isinstance(response, dict):
+            response = {
+                key: body[key]
+                for key in ("choice", "value", "text", "share")
+                if key in body
+            }
+        try:
+            result = school.submit_group_consensus_vote(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                response,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/team-answer",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_team_answer(live_item_id: int):
+        """Atomically finalize the student's one canonical team answer."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        response = body.get("response")
+        if not isinstance(response, dict):
+            response = {
+                key: body[key]
+                for key in ("choice", "value", "text", "share")
+                if key in body
+            }
+        try:
+            team = school.finalize_group_consensus_answer(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                response,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "group_consensus": team})
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
@@ -3692,6 +3761,29 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return school.teacher_owns_class(
             int(user["id"]), int(session_row["class_id"])
         )
+
+    def _active_owned_live_session(
+        session_id: int,
+    ) -> tuple[dict[str, Any] | None, Any | None]:
+        """Resolve an active teacher-owned session for mutation APIs."""
+
+        row = school.get_live_session(session_id)
+        if row is None:
+            return None, (
+                jsonify({"ok": False, "error": "Session not found"}),
+                404,
+            )
+        if not _can_view_live_session(row):
+            return None, (
+                jsonify({"ok": False, "error": "Forbidden"}),
+                403,
+            )
+        if row.get("status") != "active":
+            return None, (
+                jsonify({"ok": False, "error": "Session is not active"}),
+                409,
+            )
+        return row, None
 
     @app.route("/api/live-sessions/active")
     @login_required
@@ -4037,6 +4129,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "round",
             "round_flags",
             "teams_mode",
+            "groups_configured",
+            "run_as_group",
+            "scoreboard_visible",
+            "hide_absent",
             "layout_preset",
             "frames",
             "active_tab",
@@ -4097,6 +4193,142 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, **result})
 
     @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/publish",
+        methods=["POST"],
+    )
+    @login_required
+    def api_publish_live_item(session_id: int, live_item_id: int):
+        """Publish one lifecycle item without deactivating other items."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            item = school.publish_live_session_item(
+                session_id,
+                live_item_id,
+                publish_mode=str(body.get("publish_mode") or "individual"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(
+            {
+                "ok": True,
+                "item": item,
+                "active_questions": school.list_active_live_questions(
+                    session_id
+                ),
+            }
+        )
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/close",
+        methods=["POST"],
+    )
+    @login_required
+    def api_close_live_item(session_id: int, live_item_id: int):
+        """Close one published item and lock its result set."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            item = school.close_live_session_item(session_id, live_item_id)
+            results = school.live_session_item_results(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "item": item, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/settings",
+        methods=["PATCH", "POST"],
+    )
+    @login_required
+    def api_live_item_settings(session_id: int, live_item_id: int):
+        """Update one item's Show Live Results setting."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        if "show_live_results" not in body:
+            return jsonify(
+                {"ok": False, "error": "show_live_results is required"}
+            ), 400
+        try:
+            item = school.update_live_session_item_settings(
+                session_id,
+                live_item_id,
+                show_live_results=body.get("show_live_results"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "item": item})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/results"
+    )
+    @login_required
+    def api_live_item_results(session_id: int, live_item_id: int):
+        """Return teacher-only live or final results for one item."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            results = school.live_session_item_results(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/end-voting",
+        methods=["POST"],
+    )
+    @login_required
+    def api_end_group_voting(session_id: int, live_item_id: int):
+        """Advance every unfinished group from voting to discussion."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            summary = school.end_group_consensus_voting(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **summary})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/points",
+        methods=["POST"],
+    )
+    @login_required
+    def api_award_group_item_points(session_id: int, live_item_id: int):
+        """Award a finalized group response to every current team member."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.award_group_consensus_points(
+                session_id,
+                live_item_id,
+                team_id=int(body.get("team_id")),
+                amount=int(body.get("amount") or 1),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
         "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
         methods=["GET", "POST"],
     )
@@ -4126,6 +4358,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 if isinstance(body.get("student_ids"), list)
                 else [],
                 amount=int(body.get("amount") or 1),
+                replace=bool(body.get("replace", True)),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return _json_error(exc)
@@ -4249,6 +4482,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         scoped = class_id
         if session.get("student_class_id") and current_user() is None:
             scoped = int(session["student_class_id"])
+            live_session_id = session.get("student_live_session_id")
+            if live_session_id not in (None, ""):
+                try:
+                    projected = school.live_scoreboard_projection(
+                        int(live_session_id)
+                    )
+                except (KeyError, ValueError):
+                    projected = None
+                if projected is None:
+                    return jsonify(
+                        {
+                            "ok": True,
+                            "teams": [],
+                            "live": False,
+                            "hidden": True,
+                        }
+                    )
+                return jsonify(projected)
         try:
             return jsonify(school.game.scoreboard(scoped))
         except Exception as exc:  # noqa: BLE001
@@ -5252,6 +5503,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             raw_assignments = body.get("assignments")
             if raw_assignments is not None and not isinstance(raw_assignments, list):
                 raise ValueError("assignments must be a list")
+            live = school.get_active_live_session_for_class(class_id)
+            if live is not None:
+                raw_present = body.get("present_ids")
+                if raw_present is None:
+                    raw_present = school.game.game_state(class_id).get(
+                        "present_ids"
+                    ) or []
+                setup = school.setup_live_session_groups(
+                    int(live["id"]),
+                    n_teams=int(body.get("n_teams") or 0),
+                    mode=str(body.get("mode") or ""),
+                    present_ids=[int(value) for value in raw_present],
+                    assignments=raw_assignments,
+                )
+                return setup
             return school.game.assign_teams(
                 class_id,
                 int(body.get("n_teams") or 0),

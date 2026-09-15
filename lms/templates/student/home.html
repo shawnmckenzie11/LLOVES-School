@@ -28,6 +28,7 @@
         <p class="me-stat"><span class="me-stat-label" id="me-team-label">Team</span><strong id="me-team-points">0</strong></p>
       </div>
     </div>
+    <div id="student-question-dock" class="student-question-dock" hidden aria-label="Docked questions"></div>
     <div id="me-team-list" class="me-team-list" hidden aria-label="Your team"></div>
     <p class="student-round-banner" id="student-round-banner" hidden></p>
   </header>
@@ -48,17 +49,17 @@
     </div>
     <div id="canvas-pane" class="canvas-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="canvas">
-        <span>Canvas</span>
+        <span>Whiteboard</span>
         <button type="button" data-pane-reset="canvas">Reset</button>
       </div>
-      <button type="button" class="student-pane-resize" data-pane-resize="canvas" aria-label="Resize canvas"></button>
-      <div id="canvas-lock" class="student-frame-lock">Canvas locked</div>
+      <button type="button" class="student-pane-resize" data-pane-resize="canvas" aria-label="Resize whiteboard"></button>
+      <div id="canvas-lock" class="student-frame-lock">Whiteboard locked</div>
       <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
         <button type="button" id="student-canvas-undo">Undo</button>
         <button type="button" id="student-canvas-redo">Redo</button>
         <button type="button" id="student-canvas-erase">Erase</button>
       </div>
-      <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live canvas"></canvas>
+      <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live whiteboard"></canvas>
       <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
     </div>
     <div id="slides-pane" class="slides-pane student-floating-pane" hidden>
@@ -75,6 +76,14 @@
     </p>
     <p class="student-wait" id="student-wait">{% if payload.scoring %}{% else %}Waiting room — class is about to begin.{% endif %}</p>
     <section id="game-show-welcome" class="game-show-welcome" hidden aria-label="VLC Math Game Show"></section>
+    <section id="live-question-stack" class="live-question-stack student-floating-pane" aria-label="Active questions and results">
+      <div class="student-pane-bar" data-pane-drag="questions">
+        <span>Questions</span>
+        <button type="button" data-pane-reset="questions">Reset</button>
+      </div>
+      <button type="button" class="student-pane-resize" data-pane-resize="questions" aria-label="Resize questions"></button>
+      <div id="live-question-stack-body" class="live-question-stack-body"></div>
+    </section>
     <div id="question-frame" class="question-frame">
       <button type="button" id="prompt-dismiss" class="prompt-dismiss" aria-label="Close submitted question" hidden>×</button>
       <div id="prompt-shell" class="prompt-shell" hidden></div>

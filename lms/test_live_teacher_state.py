@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_metadata import empty_live_class_metadata  # noqa: E402
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import (  # noqa: E402
     LAYOUT_PRESETS,
@@ -463,6 +464,18 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
+    def _use_legacy_live_metadata(self) -> None:
+        """Route this test through the schema-v1 singleton compatibility path."""
+
+        self.school.live_class_metadata_for_session = (
+            self._legacy_live_metadata_for_session
+        )
+
+    def _legacy_live_metadata_for_session(self, _session_id: int) -> dict:
+        """Return empty schema-v1 metadata for legacy prompt tests."""
+
+        return empty_live_class_metadata("MCF3M", "M1", "C1")
+
     def test_get_defaults_then_advance_and_preset(self) -> None:
         """GET seeds join; POST advance/preset/tab stay thin."""
         got = self.client.get(f"/api/live-sessions/{self.session_id}/teacher-state")
@@ -511,11 +524,10 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             f"/api/live-sessions/{self.session_id}/state"
         ).get_json()
         cards = state["question_cards"]
-        self.assertEqual([row["id"] for row in cards[:2]], ["minds_on", "teams-spark"])
+        self.assertEqual([row["id"] for row in cards], ["minds_on"])
         self.assertEqual(cards[0]["type"], "mc")
-        self.assertEqual(cards[1]["type"], "numeric")
         shown = self.client.post(
-            f"/api/live-sessions/{self.session_id}/questions/teams-spark/visibility",
+            f"/api/live-sessions/{self.session_id}/questions/minds_on/visibility",
             json={"mode": "student"},
         )
         self.assertEqual(shown.status_code, 200, shown.get_json())
@@ -523,15 +535,14 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         visible = {
             row["id"]: row["student_view"] for row in body["question_cards"]
         }
-        self.assertEqual(visible["minds_on"], "none")
-        self.assertEqual(visible["teams-spark"], "student")
+        self.assertEqual(visible["minds_on"], "student")
         self.assertEqual(
             body["teacher_state"]["student_view"]["questions"], "student"
         )
         prompt_id = next(
             row["prompt_id"]
             for row in body["question_cards"]
-            if row["id"] == "teams-spark"
+            if row["id"] == "minds_on"
         )
         self.school.end_live_class_session(self.session_id, clear_moods=False)
         responses = self.client.get(
@@ -539,7 +550,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         )
         self.assertEqual(responses.status_code, 409, responses.get_json())
         visibility = self.client.post(
-            f"/api/live-sessions/{self.session_id}/questions/teams-spark/visibility",
+            f"/api/live-sessions/{self.session_id}/questions/minds_on/visibility",
             json={"mode": "none"},
         )
         self.assertEqual(visibility.status_code, 409, visibility.get_json())
@@ -573,6 +584,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
 
     def test_join_to_teams_clears_teacher_and_student_questions(self) -> None:
         """Beat 12 + 25: JOIN→TEAMS closes Minds-On and binds the shared spark."""
+        self._use_legacy_live_metadata()
         live = self.school.get_live_session(self.session_id)
         student = self.app.test_client()
         student.post(
@@ -668,6 +680,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
 
     def test_beat25_teams_spark_reveals_then_clears_on_meet(self) -> None:
         """Beat 25: spark stay-line is teacher-gated; TEAMS→MEET clears it."""
+        self._use_legacy_live_metadata()
         live = self.school.get_live_session(self.session_id)
         student = self.app.test_client()
         student.post(
@@ -732,6 +745,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
 
     def test_join_does_not_project_teacher_preview_media(self) -> None:
         """JOIN keeps Question-only frames after a teacher Real-slice seed."""
+        self._use_legacy_live_metadata()
         self.school.set_live_session_active_media(
             self.session_id, url=DEFAULT_LIVE_MEDIA_URL
         )

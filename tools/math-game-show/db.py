@@ -1381,7 +1381,7 @@ class GameShowDB:
     def _assign_joiner_if_teams_locked(
         self, game_id: int, session_id: int, student_id: int
     ) -> None:
-        """Put a mid-class joiner on the smallest / lowest-score team."""
+        """Put a mid-class joiner on the smallest / weakest-career team."""
         already = self.conn.execute(
             """
             SELECT student_id FROM game_memberships
@@ -1403,14 +1403,13 @@ class GameShowDB:
                            FROM game_memberships m
                            JOIN session_scores s
                              ON s.student_id = m.student_id
-                            AND s.session_id = ?
                            WHERE m.team_id = t.id
-                       ), 0) AS score
+                       ), 0) AS course_total
                 FROM game_teams t
                 WHERE t.game_id = ? AND t.name != 'Class'
                 ORDER BY t.sort_order, t.id
                 """,
-                (int(session_id), int(game_id)),
+                (int(game_id),),
             )
         ]
         if not teams:
@@ -1434,7 +1433,7 @@ class GameShowDB:
         """Admit a rostered student who joins after live scoring started.
 
         Marks attendance Late (``present=1``, ``late=1``), assigns them to a
-        balanced existing team (fewest players, then lowest score),
+        balanced existing team (fewest players, then lowest summed course score),
         and is race-safe under the DB lock (idempotent if already a member).
 
         Args:
@@ -1495,14 +1494,13 @@ class GameShowDB:
                                FROM game_memberships m
                                JOIN session_scores s
                                  ON s.student_id = m.student_id
-                                AND s.session_id = ?
                                WHERE m.team_id = t.id
-                           ), 0) AS score
+                           ), 0) AS course_total
                     FROM game_teams t
                     WHERE t.game_id = ?
                     ORDER BY t.sort_order, t.id
                     """,
-                    (session_id, game_id),
+                    (game_id,),
                 )
             ]
             if not teams:
@@ -3105,7 +3103,10 @@ class GameShowDB:
             if not present_set:
                 raise ValueError("Mark at least one student present")
             self._write_attendance_unlocked(game, present_set)
-            # Drop any teams from a previous pass through this setup.
+            if self._named_teams_exist_locked(int(game["id"])):
+                self.conn.commit()
+                return self.game_state(class_id)
+            # No fixed setup exists yet, so stale partial buckets may be reset.
             self.conn.execute(
                 "DELETE FROM game_memberships WHERE game_id = ?", (game["id"],)
             )
@@ -3474,6 +3475,10 @@ class GameShowDB:
                     (int(game["id"]),),
                 )
                 game = self._game_row(class_id)
+            if self._named_teams_exist_locked(int(game["id"])):
+                raise ValueError(
+                    "Groups are already set up for this session; rename or toggle them instead."
+                )
             session_id = int(game["session_id"])
             present_rows = self.conn.execute(
                 """

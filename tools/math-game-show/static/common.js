@@ -275,3 +275,17 @@ export function openLiveSessionOverlay(sessionId, existing, opts = {}) {
     LIVE_SESSION_OVERLAY_NAME
   );
 }
+
+/**
+ * Close the named live-session overlay popup if it is still open.
+ */
+export function closeLiveSessionOverlay() {
+  const existing = window.open("", LIVE_SESSION_OVERLAY_NAME);
+  if (existing && !existing.closed) {
+    try {
+      existing.close();
+    } catch {
+      /* ignore cross-origin close failures */
+    }
+  }
+}

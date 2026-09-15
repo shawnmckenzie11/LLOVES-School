@@ -1587,10 +1587,12 @@ body.staff-shell .live-unlock-toggle {
   font-weight: 600;
 }
 body.staff-shell .live-unlocks-strip {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 0.35rem 0.55rem;
   min-height: 0;
   max-height: none;
+  overflow-x: auto;
 }
 body.staff-shell .live-unlocks-strip > .live-option-card-label {
   flex: 0 0 auto;
@@ -1604,9 +1606,15 @@ body.staff-shell .live-unlocks-strip > .live-groups-configured {
 body.staff-shell .live-groups-setup,
 body.staff-shell .live-groups-configured {
   display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem 0.55rem;
   min-width: 0;
+  white-space: nowrap;
+}
+body.staff-shell .live-unlocks-strip .live-unlock-toggle span,
+body.staff-shell .live-groups-configured .live-unlock-toggle span {
+  white-space: nowrap;
 }
 body.staff-shell .live-groups-setup[hidden],
 body.staff-shell .live-groups-configured[hidden] {
@@ -1866,6 +1874,8 @@ body.staff-shell .live-content-tab {
   cursor: pointer;
 }
 body.staff-shell .live-round-pick.is-active,
+body.staff-shell .live-round-pick.is-selected,
+body.staff-shell .live-round-pick[aria-pressed="true"],
 body.staff-shell .live-preset-btn.is-active,
 body.staff-shell .live-content-tab.is-active {
   border-color: var(--live-rail-active);
@@ -2034,8 +2044,10 @@ body.staff-shell .live-shell-right {
 body.staff-shell #class-list-pane {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   height: auto;
-  overflow: auto;
+  overflow: hidden;
 }
 body.staff-shell .live-options-strip #round-slide-settings {
   position: absolute;
@@ -2653,6 +2665,14 @@ body.staff-shell .live-responses-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
+}
+body.staff-shell .live-responses-actions [data-response-commit] {
+  margin-left: auto;
+  background: #0b5f59;
+  color: #fff;
+  border: 1px solid #0b5f59;
+  font-weight: 700;
 }
 @media (max-width: 780px) {
   body.staff-shell .live-question-card {
@@ -3191,16 +3211,73 @@ body.staff-shell .pack-progress-detail {
   font-size: 0.88rem;
   color: #3d4f63;
 }
-body.staff-shell.course-modules {
+body.staff-shell.course-modules,
+body.staff-shell.course-live {
   height: 100vh;
   overflow: hidden;
 }
-body.staff-shell.course-modules .wrap.course-shell {
+body.staff-shell.course-modules .wrap.course-shell,
+body.staff-shell.course-live .wrap.course-shell {
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   padding-bottom: 0.75rem;
+}
+body.staff-shell.course-live .wrap.course-shell {
+  padding: 0.35rem 0.65rem 0.4rem;
+}
+body.staff-shell.course-live .staff-top-menu,
+body.staff-shell.course-live .topbar,
+body.staff-shell.course-live .tabs.course-tabs {
+  display: none !important;
+}
+body.staff-shell.course-live .track-live-root.live-shell-root {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+body.staff-shell.course-live .live-shell-left,
+body.staff-shell.course-live .live-shell-body,
+body.staff-shell.course-live .live-shell-right {
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+body.staff-shell.course-live #class-list-pane,
+body.staff-shell.course-live #live-active-content {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+body.staff-shell.course-live #live-active-content .live-active-toolbar,
+body.staff-shell.course-live #live-active-content .live-content-tabs {
+  flex: 0 0 auto;
+}
+body.staff-shell.course-live #live-frames,
+body.staff-shell.course-live #live-frames[data-pane="media"] {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+body.staff-shell.course-live .live-content-slot:not(.is-parked) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+body.staff-shell.course-live .live-question-list,
+body.staff-shell.course-live .ap-active-media,
+body.staff-shell.course-live .live-slides-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+body.staff-shell.course-live .live-slides-preview {
+  height: 100%;
 }
 body.staff-shell.course-modules .tabs {
   flex-shrink: 0;
@@ -3447,6 +3524,12 @@ body.staff-shell #class-list-pane .ap-att-team {
 body.staff-shell #class-list-pane {
   padding: 0.4rem 0.5rem 0.45rem;
 }
+body.staff-shell #class-list-pane #ap-panel-att {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 body.staff-shell #class-list-pane .class-list-head {
   display: flex;
   align-items: center;
@@ -3487,6 +3570,9 @@ body.staff-shell #class-list-pane .ap-guest-on-chip {
 body.staff-shell #class-list-pane #ap-att-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   gap: 0;
 }
 body.staff-shell #class-list-pane .ap-att-readonly .ap-att-row,

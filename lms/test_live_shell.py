@@ -114,6 +114,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Consolidation", html)
         self.assertIn(">SET<", html)
         self.assertIn('id="class-list-pane"', html)
+        self.assertIn("course-live", html)
         self.assertIn('id="team-assign-pane"', html)
         self.assertIn('id="live-active-content"', html)
         self.assertIn('id="live-content-tabs"', html)
@@ -207,11 +208,22 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(">Run as Group<", html)
         self.assertIn(">Rename Teams<", html)
         self.assertIn(">Set Up<", html)
+        self.assertIn('id="live-teams-start"', html)
+        start_snip = html[html.index('id="live-teams-start"'): html.index('id="live-teams-start"') + 90]
+        self.assertIn("disabled", start_snip)
         self.assertIn(">Publish<", html)
         self.assertIn(">Close<", html)
         self.assertIn(">Whiteboard<", html)
         self.assertNotIn(">Canvas<", html)
+        self.assertIn('data-response-select="answered"', html)
+        self.assertIn('data-response-select="correct"', html)
+        self.assertIn("data-response-commit", html)
+        self.assertIn(">Award Points<", html)
+        self.assertNotIn("data-response-award", html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function applyQuestionResponseSelection(", js)
+        self.assertIn("button[data-response-commit]", js)
+        self.assertIn("replace: true", js)
         for field in (
             "groups_configured",
             "run_as_group",
@@ -311,6 +323,18 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("--live-options-max-h: calc(var(--live-options-row-h) * 2 + 1.1rem)", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("grid-template-rows: auto auto minmax(12rem, 1fr)", css)
+        self.assertIn("grid-template-rows: auto auto minmax(0, 1fr)", css)
+        self.assertIn("body.staff-shell.course-live #class-list-pane,", css)
+        self.assertIn("body.staff-shell.course-live #live-frames,", css)
+        self.assertIn("body.staff-shell.course-live .staff-top-menu,", css)
+        self.assertIn("body.staff-shell.course-live .tabs.course-tabs {", css)
+        self.assertIn(
+            "body.staff-shell.course-live .staff-top-menu,\n"
+            "body.staff-shell.course-live .topbar,\n"
+            "body.staff-shell.course-live .tabs.course-tabs {\n"
+            "  display: none !important;",
+            css,
+        )
         self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
         self.assertIn(
             "body.staff-shell .live-shell-ia-v2 > .live-options-strip,\nbody.staff-shell .live-shell-ia-v2 > .live-date-panel {\n  grid-row: 2;",
@@ -384,7 +408,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev", js)
         self.assertIn("card.hidden = false;", js)
         self.assertIn("paintSurfacePublishing();", js)
-        self.assertIn("teams.hidden = false;", js)
+        self.assertIn("teams.hidden = configured;", js)
         self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
         self.assertIn('if (play) play.hidden = stage !== "play";', js)
@@ -553,12 +577,19 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="ap-manual-assign"', html)
         self.assertIn('id="ap-panel-names"', html)
         self.assertIn('id="team-assign-pane"', html)
+        unlocks_html = html.split('id="live-unlocks-strip"')[1].split('id="teams-option-card"')[0]
+        self.assertIn('id="session-timer"', unlocks_html)
+        self.assertIn('id="live-run-as-group"', unlocks_html)
+        self.assertIn('id="ap-scoreboard-toggle"', unlocks_html)
+        self.assertIn('id="ap-teams-rename"', unlocks_html)
+        self.assertLess(unlocks_html.find('id="session-timer"'), unlocks_html.find('id="live-groups-configured"'))
+        self.assertLess(unlocks_html.find('id="live-run-as-group"'), unlocks_html.find('id="ap-scoreboard-toggle"'))
+        self.assertLess(unlocks_html.find('id="ap-scoreboard-toggle"'), unlocks_html.find('id="ap-teams-rename"'))
         strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
         self.assertIn('id="ap-n-teams"', strip_html)
         self.assertIn('id="ap-assign-balanced"', strip_html)
-        self.assertIn('id="ap-scoreboard-toggle"', strip_html)
-        self.assertIn('id="live-run-as-group"', strip_html)
-        self.assertIn('id="ap-teams-rename"', strip_html)
+        self.assertNotIn('id="ap-scoreboard-toggle"', strip_html)
+        self.assertNotIn('id="live-run-as-group"', strip_html)
         self.assertLess(strip_html.find('id="ap-n-teams"'), strip_html.find('id="live-teams-assign"'))
         self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="live-teams-start"'))
         body_i = html.index('class="live-shell-body"')
@@ -571,6 +602,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function currentTeamCount()", js)
         self.assertIn("function paintGlobalGroupControls()", js)
         self.assertIn("function paintTeamsStripEnabled()", js)
+        self.assertIn("teams.hidden = configured;", js)
         self.assertIn("function openTeamsPop(", js)
         self.assertIn("groups_configured", js)
         self.assertIn("run_as_group", js)
@@ -638,8 +670,15 @@ class LiveShellTests(unittest.TestCase):
             "paintDivisionMeter();",
             js.split("function renderAttendanceList()")[1].split("function updateAttCount()")[0],
         )
-        self.assertIn('selectAssignMode(lastAssignMode || "balanced")', js)
+        self.assertIn("syncSetupEnabled", js)
+        self.assertIn("previewRosterTeams", js)
+        self.assertIn("function previewRosterPool(", js)
+        self.assertIn("classList.toggle(\"is-selected\", on)", js)
+        self.assertIn("classList.toggle(\"is-active\", on)", js)
+        self.assertIn("closeLiveSessionOverlay", js)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn(".live-round-pick.is-selected", css)
+        self.assertIn('.live-round-pick[aria-pressed="true"]', css)
         self.assertIn("body.staff-shell .live-teams-strip .live-division-meter {", css)
         meter_css = css.split("body.staff-shell .live-teams-strip .live-division-meter {")[1].split(
             "body.staff-shell .live-teams-strip .live-division-meter[hidden] {"
@@ -686,8 +725,8 @@ class LiveShellTests(unittest.TestCase):
         unlocks_css = css.split("body.staff-shell .live-unlocks-strip {")[1].split(
             "body.staff-shell .live-canvas-align {"
         )[0]
-        # Layout is flex-wrap: wrap to keep Round options controls on one row
-        self.assertIn("flex-wrap: wrap", unlocks_css)
+        # Timer, Run as Group, Scoreboard, and Rename stay on one row after Set Up
+        self.assertIn("flex-wrap: nowrap", unlocks_css)
         self.assertIn("max-height: none", unlocks_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("function paintStudentCanvas(", student_js)
@@ -1509,7 +1548,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('=== "teams"', js)
 
     def test_beat31_participation_is_per_question(self) -> None:
-        """Beat 31: +1 per real QH; Meet social taps do not count."""
+        """Beat 31: QH credits still count; submit does not award game points."""
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"])
         )
@@ -1564,9 +1603,79 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(credits.get(student_id), 3)
         state = self.school.get_live_session_state(sid)
-        self.assertEqual(int(state["game_points"][str(student_id)]), 3)
+        self.assertEqual(
+            int((state.get("game_points") or {}).get(str(student_id), 0)), 0
+        )
         join_prompt = state.get("join_prompt") or {}
         self.assertTrue(join_prompt.get("id"), state)
+
+    def test_teacher_award_points_replaces_saved_assignment(self) -> None:
+        """Responses and Points commits a replaceable assignment, not submit."""
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        self.school.game.begin_game(self.class_id)
+        aspen = self._aspen_id()
+        birch = int(
+            self.school.game.find_student_by_codename(self.class_id, "Birch")["id"]
+        )
+        self.school.join_live_class_session(sid, aspen, codename="Aspen")
+        self.school.join_live_class_session(sid, birch, codename="Birch")
+        self.school.setup_live_session_groups(
+            sid,
+            n_teams=2,
+            mode="balanced",
+            present_ids=[aspen, birch],
+        )
+        extra = self.school.set_live_session_prompt(
+            sid,
+            slide_index=880,
+            kind="mc",
+            payload={
+                "item_id": "C1-QH-AWARD",
+                "kind": "mc",
+                "prompt": "Award later",
+                "choices": ["A", "B"],
+                "key": "A",
+            },
+            activate=True,
+        )
+        prompt_id = int(extra["id"])
+        self.school.submit_live_prompt_response(
+            prompt_id, aspen, {"choice": "A"}
+        )
+        self.school.submit_live_prompt_response(
+            prompt_id, birch, {"choice": "B"}
+        )
+        state = self.school.get_live_session_state(sid)
+        self.assertEqual(int((state.get("game_points") or {}).get(str(aspen), 0)), 0)
+        first = self.school.award_live_prompt_points(
+            sid, prompt_id, mode="manual", student_ids=[aspen], amount=1
+        )
+        self.assertEqual(first["awarded_student_ids"], [aspen])
+        awarded = {
+            int(row["student_id"]): int(row.get("awarded_points") or 0)
+            for row in first["responses"]
+            if row.get("student_id") not in (None, "")
+        }
+        self.assertEqual(awarded.get(aspen), 1)
+        self.assertEqual(awarded.get(birch), 0)
+        state = self.school.get_live_session_state(sid)
+        self.assertEqual(int((state.get("game_points") or {}).get(str(aspen), 0)), 1)
+        second = self.school.award_live_prompt_points(
+            sid, prompt_id, mode="manual", student_ids=[birch], amount=1
+        )
+        awarded = {
+            int(row["student_id"]): int(row.get("awarded_points") or 0)
+            for row in second["responses"]
+            if row.get("student_id") not in (None, "")
+        }
+        self.assertEqual(awarded.get(aspen), 0)
+        self.assertEqual(awarded.get(birch), 1)
+        state = self.school.get_live_session_state(sid)
+        self.assertEqual(int((state.get("game_points") or {}).get(str(aspen), 0)), 0)
+        self.assertEqual(int((state.get("game_points") or {}).get(str(birch), 0)), 1)
 
     def test_team_shared_questions_do_not_auto_score(self) -> None:
         """Shared-within-Group answers never add participation game points."""

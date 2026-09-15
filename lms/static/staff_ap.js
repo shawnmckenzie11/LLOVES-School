@@ -9,6 +9,7 @@ import {
   formatPoints,
   hideError,
   lockRoundDeadline,
+  closeLiveSessionOverlay,
   openLiveSessionOverlay,
   openScoreboardOverlay,
   remainingUntilMs,
@@ -32,7 +33,6 @@ import { bindWhiteboard } from "/static/live_whiteboard.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
-const scoreboardKey = `lloves-scoreboard-${classId}`;
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
@@ -59,7 +59,9 @@ let openProfilesLoadPromise = null;
 let overlayState = null;
 let pendingAction = null;
 let logContext = null;
-let lastAssignMode = "balanced";
+let lastAssignMode = "";
+/** @type {number[]} */
+let lastRandomPreviewIds = [];
 let pendingTeam = null;
 let roundEndsAtMs = 0;
 let liveStamp = "";
@@ -170,12 +172,16 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
-/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
+/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, groups_configured: boolean, run_as_group: boolean, scoreboard_visible: boolean, hide_absent: boolean, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
 let teacherState = {
   stage: "join",
   round: null,
   round_flags: { minds_on: false, action: false, consolidation: false },
   teams_mode: "individual",
+  groups_configured: false,
+  run_as_group: false,
+  scoreboard_visible: false,
+  hide_absent: false,
   layout_preset: "questions_full",
   frames: { A: "questions" },
   active_tab: "questions",
@@ -205,6 +211,18 @@ let lastJoinPrompt = null;
 let lastQuestionCards = [];
 /** @type {any} */
 let lastLiveMetadata = null;
+/** @type {any[]} */
+let lastLiveItems = [];
+/** @type {any[]} */
+let lastActiveQuestions = [];
+/** @type {any[]} */
+let lastClassList = [];
+/** @type {any[]} */
+let lastGroups = [];
+/** @type {any} */
+let lastScoreboard = null;
+/** @type {Map<number, any>} */
+const lifecycleResults = new Map();
 let openResponsePromptId = 0;
 
 let teacherStateInFlight = false;
@@ -270,6 +288,7 @@ function adoptTeacherState(next) {
     next.live_module || teacherState.live_module || "M1"
   ).toUpperCase();
   textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
+  trackMode = teacherState.run_as_group ? "team" : "individual";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
@@ -357,11 +376,13 @@ function paintOptionCard() {
     card.hidden = false;
     card.removeAttribute("hidden");
   }
-  const teamsToggle = $("live-teams-toggle");
-  const teamsOpen = stage === "teams" || Boolean(teamsToggle?.checked);
-  if (teams) teams.hidden = !teamsOpen;
-  if (!teamsOpen) hideTeamsAssignError();
-  if (meet) meet.hidden = stage !== "meet";
+  if (teams) {
+    const configured = Boolean(teacherState.groups_configured);
+    teams.hidden = configured;
+    if (configured) teams.setAttribute("hidden", "");
+    else teams.removeAttribute("hidden");
+  }
+  if (meet) meet.hidden = true;
   applySessionTimerStageDefaults();
   applySessionTimerUi();
   const timer = $("session-timer");
@@ -372,9 +393,7 @@ function paintOptionCard() {
   if (timer) timer.hidden = !timerRunning && !Boolean(timerToggle?.checked);
   if (round) round.hidden = stage !== "round";
   if (play) play.hidden = stage !== "play";
-  if (teamPane && stage !== "teams") {
-    closeTeamsPops();
-  }
+  paintGlobalGroupControls();
   paintTeamsStripEnabled();
   if (rounds) {
     rounds.hidden = true;
@@ -382,8 +401,35 @@ function paintOptionCard() {
   }
   paintRoundStrip();
   paintStudentViewControls();
-  const scoreWrap = $("join-scoreboard-wrap");
-  if (scoreWrap) scoreWrap.hidden = stage !== "join";
+  paintSurfacePublishing();
+}
+
+/**
+ * Paint one-time setup controls or the persisted group toggles.
+ */
+function paintGlobalGroupControls() {
+  const configured = Boolean(teacherState.groups_configured);
+  const setup = $("live-groups-setup");
+  const active = $("live-groups-configured");
+  if (setup) setup.hidden = configured;
+  if (active) active.hidden = !configured;
+  const run = $("live-run-as-group");
+  if (run instanceof HTMLInputElement) run.checked = Boolean(teacherState.run_as_group);
+  const hideAbsent = $("live-hide-absent");
+  if (hideAbsent instanceof HTMLInputElement) {
+    hideAbsent.checked = Boolean(teacherState.hide_absent);
+  }
+  const scoreboard = $("ap-scoreboard-toggle");
+  if (scoreboard instanceof HTMLInputElement) {
+    scoreboard.checked = Boolean(teacherState.scoreboard_visible);
+    scoreboard.disabled = !Boolean(teacherState.run_as_group);
+  }
+  const rename = $("ap-teams-rename");
+  if (rename instanceof HTMLButtonElement) {
+    rename.hidden = !configured;
+    rename.disabled = !configured;
+    rename.setAttribute("aria-disabled", configured ? "false" : "true");
+  }
 }
 
 /**
@@ -412,8 +458,139 @@ function paintStudentViewControls() {
   for (const key of ["media", "canvas", "slides"]) {
     const el = $(`live-view-${key}`);
     if (!(el instanceof HTMLSelectElement)) continue;
-    el.value = view[key];
+    const wanted = view[key] === "team" ? "team" : "student";
+    if ([...el.options].some((option) => option.value === wanted)) {
+      el.value = wanted;
+    }
+    const team = [...el.options].find((option) => option.value === "team");
+    if (team) {
+      team.disabled =
+        !Boolean(teacherState.run_as_group) || !surfaceSupportsGroup(key);
+      if (team.disabled && el.value === "team") el.value = "student";
+    }
   }
+}
+
+/**
+ * Return the lifecycle row for one content surface on the current stage.
+ * Canvas remains the compatibility API id for visible Whiteboard controls.
+ * @param {"media"|"canvas"|"slides"} surface
+ * @returns {any|null}
+ */
+function lifecycleItemForSurface(surface) {
+  const itemType = surface === "canvas" ? "whiteboard" : surface;
+  return (
+    lastLiveItems.find((row) => {
+      const item = row?.item || {};
+      return (
+        String(item.item_type || row.kind || "").toLowerCase() === itemType &&
+        String(row.stage || "") === String(teacherState.stage || "")
+      );
+    }) || null
+  );
+}
+
+/**
+ * True when metadata explicitly allows shared group publication.
+ * Whiteboard keeps its catalogue-level compatibility capability when it has
+ * no placement row in an older playlist.
+ * @param {"media"|"canvas"|"slides"} surface
+ * @returns {boolean}
+ */
+function surfaceSupportsGroup(surface) {
+  const item = lifecycleItemForSurface(surface);
+  if (!item) return surface === "canvas";
+  const modes = item.item?.publish_modes || item.item?.capabilities?.publish_modes || [];
+  return Array.isArray(modes) && modes.includes("group_shared");
+}
+
+/**
+ * Paint Active/Inactive/Closed language for Media, Whiteboard, and Slides.
+ */
+function paintSurfacePublishing() {
+  const view = currentStudentView();
+  for (const surface of ["media", "canvas", "slides"]) {
+    const item = lifecycleItemForSurface(surface);
+    const fallbackActive = view[surface] !== "none";
+    const status = String(item?.status || (fallbackActive ? "active" : "inactive"));
+    const label = document.querySelector(`[data-surface-status="${surface}"]`);
+    if (label) {
+      label.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      label.className = `live-status-badge is-${status}`;
+    }
+    const publish = document.querySelector(`[data-surface-publish="${surface}"]`);
+    const close = document.querySelector(`[data-surface-close="${surface}"]`);
+    if (publish instanceof HTMLButtonElement) publish.disabled = status !== "inactive";
+    if (close instanceof HTMLButtonElement) close.disabled = status !== "active";
+  }
+}
+
+/**
+ * Publish one content surface and project it to students.
+ * @param {"media"|"canvas"|"slides"} surface
+ */
+async function publishSurface(surface) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  const select = $(`live-view-${surface}`);
+  const selected =
+    select instanceof HTMLSelectElement &&
+    select.value === "team" &&
+    teacherState.run_as_group &&
+    surfaceSupportsGroup(surface)
+      ? "team"
+      : "student";
+  const item = lifecycleItemForSurface(surface);
+  if (item && item.status === "inactive") {
+    const publishMode =
+      surface === "canvas" && selected === "team" ? "group_shared" : "individual";
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${Number(item.id)}/publish`,
+      {
+        method: "POST",
+        body: JSON.stringify({ publish_mode: publishMode }),
+      }
+    );
+    if (result?.item) {
+      lastLiveItems = lastLiveItems.map((row) =>
+        Number(row.id) === Number(result.item.id) ? result.item : row
+      );
+    }
+  }
+  if (surface === "media") {
+    const file = String(item?.item?.file || "").trim();
+    if (file) await postActiveMedia({ url: file });
+  }
+  const next = { ...(teacherState.student_view || {}), [surface]: selected };
+  teacherState.student_view = next;
+  await patchTeacherState({ student_view: next });
+  paintSurfacePublishing();
+}
+
+/**
+ * Close one content surface and remove its student projection.
+ * @param {"media"|"canvas"|"slides"} surface
+ */
+async function closeSurface(surface) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  const item = lifecycleItemForSurface(surface);
+  if (item && item.status === "active") {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${Number(item.id)}/close`,
+      { method: "POST", body: "{}" }
+    );
+    if (result?.item) {
+      lastLiveItems = lastLiveItems.map((row) =>
+        Number(row.id) === Number(result.item.id) ? result.item : row
+      );
+    }
+  }
+  if (surface === "media") await postActiveMedia({ clear: true });
+  const next = { ...(teacherState.student_view || {}), [surface]: "none" };
+  teacherState.student_view = next;
+  await patchTeacherState({ student_view: next });
+  paintSurfacePublishing();
 }
 
 /**
@@ -558,6 +735,19 @@ function mcRevealOn(tally = lastMcTally) {
 }
 
 /**
+ * True when lifecycle metadata supplies question cards for the current stage.
+ * @returns {boolean}
+ */
+function currentStageHasLifecycleQuestionCards() {
+  const stage = String(teacherState.stage || "");
+  return lastQuestionCards.some(
+    (card) =>
+      String(card?.stage || "") === stage &&
+      Number(card?.live_item_id || 0) > 0
+  );
+}
+
+/**
  * Paint LIVE / REVEAL inside the Questions ResultsStrip slot only.
  */
 function paintMcResultsSlot() {
@@ -568,7 +758,12 @@ function paintMcResultsSlot() {
   const hideBtn = $("mc-hide-reveal-btn");
   if (!slot) return;
   const tally = lastMcTally;
-  const hasMc = Boolean(tally && Array.isArray(tally.choices) && tally.choices.length);
+  const hasMc = Boolean(
+    !currentStageHasLifecycleQuestionCards() &&
+    tally &&
+    Array.isArray(tally.choices) &&
+    tally.choices.length
+  );
   slot.hidden = !hasMc;
   if (!hasMc) {
     lastMcBindKey = "";
@@ -854,51 +1049,208 @@ function hideLiveQuestionBody() {
 function paintLiveQuestionCards() {
   const host = $("live-question-list");
   if (!host) return;
-  const cards = Array.isArray(lastQuestionCards) ? lastQuestionCards : [];
+  const lifecycleById = new Map(
+    lastLiveItems.map((row) => [Number(row.id), row])
+  );
+  const activeByItem = new Map(
+    lastActiveQuestions.map((row) => [
+      String(row?.payload?.item_id || ""),
+      row,
+    ])
+  );
+  const cards = (Array.isArray(lastQuestionCards) ? lastQuestionCards : [])
+    .filter((card) => String(card.stage || "") === String(teacherState.stage || ""))
+    .map((card) => {
+      const lifecycle = lifecycleById.get(Number(card.live_item_id));
+      const prompt = activeByItem.get(String(card.id || ""));
+      return {
+        ...card,
+        ...(lifecycle || {}),
+        item: lifecycle?.item || card,
+        prompt_id: Number(prompt?.id || lifecycle?.prompt_id || card.prompt_id) || 0,
+      };
+    });
   if (!cards.length) {
     host.innerHTML = `<p class="hint compact">No questions are connected to this stage.</p>`;
     return;
   }
   host.innerHTML = cards
     .map((card, index) => {
-      const options = Array.isArray(card.options) ? card.options : [];
+      const item = card.item || card;
+      const options = Array.isArray(item.options)
+        ? item.options
+        : Array.isArray(card.options)
+          ? card.options
+          : [];
       const optionHtml = options.length
         ? `<ol class="live-question-card-options" type="A">${options
             .map((option) => `<li>${escapeHtml(option)}</li>`)
             .join("")}</ol>`
         : "";
-      const key = card.correct_answer
-        ? `<span class="live-question-key">Answer ${escapeHtml(card.correct_answer)}</span>`
+      const answerKey = item.correct_answer ?? card.correct_answer;
+      const key = answerKey != null && String(answerKey) !== ""
+        ? `<span class="live-question-key">Answer ${escapeHtml(answerKey)}</span>`
         : "";
       const page =
         card.page_number == null
           ? ""
           : `<span>Page ${escapeHtml(card.page_number)}</span>`;
       const promptId = Number(card.prompt_id) || 0;
-      const selected = card.student_view === "student" ? "student" : "none";
-      return `<article class="live-question-card${card.active ? " is-active" : ""}" data-question-id="${escapeHtml(card.id)}">
+      const liveItemId = Number(card.live_item_id || card.id) || 0;
+      const status = String(card.status || "inactive").toLowerCase();
+      const active = status === "active";
+      const closed = status === "closed";
+      const publishModes = Array.isArray(item.publish_modes)
+        ? item.publish_modes
+        : Array.isArray(item.capabilities?.publish_modes)
+          ? item.capabilities.publish_modes
+          : ["individual"];
+      const canGroup =
+        Boolean(teacherState.groups_configured) &&
+        Boolean(teacherState.run_as_group) &&
+        publishModes.includes("group_consensus");
+      const result = lifecycleResults.get(liveItemId);
+      const resultHtml =
+        card.response_mode === "group_consensus"
+          ? groupConsensusResultsHtml(result)
+          : individualLifecycleResultsHtml(result?.tally);
+      const answered = Number(result?.response_count ?? result?.tally?.responded ?? 0);
+      const eligible = Number(result?.eligible_count ?? result?.tally?.present ?? 0);
+      const progress =
+        active || closed
+          ? `<p class="live-question-progress">${answered} / ${Math.max(eligible, answered)} answered</p>`
+          : "";
+      const publish = !liveItemId
+        ? ""
+        : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
+            <button type="button" data-publish-live-item="${liveItemId}">Publish</button>
+            ${
+              canGroup
+                ? `<select data-publish-live-mode="${liveItemId}" aria-label="Publish mode">
+                    <option value="individual">Individual</option>
+                    <option value="group_consensus"${
+                      card.response_mode === "group_consensus" ? " selected" : ""
+                    }>Group consensus</option>
+                  </select>`
+                : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
+            }
+          </div>`;
+      const activeActions = active
+        ? `<label class="live-result-toggle">
+            <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
+              card.show_live_results ? "checked" : ""
+            }>
+            <span>Show Live Results</span>
+          </label>
+          ${
+            card.response_mode === "group_consensus"
+              ? `<button type="button" class="secondary" data-end-voting="${liveItemId}">End Voting</button>`
+              : `<button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(
+                  item.text || card.text
+                )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" ${
+                  promptId ? "" : "disabled"
+                }>Responses &amp; points</button>`
+          }
+          <button type="button" class="secondary" data-close-live-item="${liveItemId}">Close</button>`
+        : "";
+      return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
+        item.id || card.item_id || card.id
+      )}" data-live-item-id="${liveItemId}">
         <div class="live-question-card-main">
           <div class="live-question-card-meta">
-            <span>${escapeHtml(String(card.type || "poll").toUpperCase())}</span>${page}${key}
+            <span>${escapeHtml(String(item.type || card.type || "poll").toUpperCase())}</span>${key}${page}
+            <span class="live-status-badge is-${status}">${escapeHtml(
+              status.charAt(0).toUpperCase() + status.slice(1)
+            )}</span>
           </div>
-          <p class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${escapeHtml(card.text)}</p>
+          <p class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${escapeHtml(
+            item.text || item.prompt || card.text || ""
+          )}</p>
           ${optionHtml}
+          ${resultHtml}
+          ${progress}
         </div>
         <div class="live-question-card-actions">
-          <label class="live-student-view-field">
-            <span>Student View</span>
-            <select data-question-view="${escapeHtml(card.id)}" aria-label="Student view for question ${index + 1}">
-              <option value="none" ${selected === "none" ? "selected" : ""}>None: Teacher View Only</option>
-              <option value="student" ${selected === "student" ? "selected" : ""}>Student: Individual</option>
-            </select>
-          </label>
-          <button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(card.text)}" data-question-type="${escapeHtml(card.type || "poll")}" ${promptId ? "" : "disabled"}>
-            View responses <span>${Number(card.response_count) || 0}</span>
-          </button>
+          ${status === "inactive" ? publish : activeActions}
+          ${closed ? `<span class="live-closed-copy">Final results</span>` : ""}
         </div>
       </article>`;
     })
     .join("");
+}
+
+/**
+ * Render a bar chart or numeric histogram from a lifecycle tally.
+ * @param {any} tally
+ * @returns {string}
+ */
+function individualLifecycleResultsHtml(tally) {
+  if (!tally || !Array.isArray(tally.choices)) return "";
+  const numeric = String(tally.kind || "") === "numeric";
+  return `<div class="live-item-chart${numeric ? " is-histogram" : ""}" aria-label="${
+    numeric ? "Numeric answer histogram" : "Live answer distribution"
+  }">${tally.choices
+    .map((row) => {
+      const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
+      return `<div class="live-item-chart-row">
+        <span class="live-item-chart-label">${escapeHtml(row.label ?? row.id ?? "")}</span>
+        <span class="live-item-chart-track"><span style="width:${pct}%"></span></span>
+        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%</span>
+      </div>`;
+    })
+    .join("")}</div>`;
+}
+
+/**
+ * Format a normalized group answer for compact result cards.
+ * @param {any} answer
+ * @returns {string}
+ */
+function groupAnswerLabel(answer) {
+  if (!answer || typeof answer !== "object") return "—";
+  return String(answer.value ?? "—");
+}
+
+/**
+ * Render expandable teacher-only group consensus summaries.
+ * @param {any} result
+ * @returns {string}
+ */
+function groupConsensusResultsHtml(result) {
+  const teams = Array.isArray(result?.teams) ? result.teams : [];
+  if (!teams.length) return "";
+  return `<div class="live-consensus-teams">${teams
+    .map((team) => {
+      const final = groupAnswerLabel(team.final_answer);
+      const proposal = groupAnswerLabel(team.proposed_answer);
+      const distribution = (team.vote_summary || [])
+        .map(
+          (row) =>
+            `<li>${escapeHtml(groupAnswerLabel(row.answer))}: ${Number(row.count) || 0}</li>`
+        )
+        .join("");
+      return `<details class="live-consensus-team">
+        <summary><span>${escapeHtml(team.team_name || "Team")}</span><span>${escapeHtml(
+          team.status || "collecting_votes"
+        )} · ${Number(team.vote_count) || 0} votes</span></summary>
+        <dl>
+          <div><dt>Distribution</dt><dd><ul>${distribution || "<li>Waiting</li>"}</ul></dd></div>
+          <div><dt>Proposal</dt><dd>${escapeHtml(proposal)}</dd></div>
+          <div><dt>Team Answer</dt><dd>${escapeHtml(final)}</dd></div>
+          <div><dt>Changed</dt><dd>${team.changed_from_proposal ? "Yes" : "No"}</dd></div>
+          <div><dt>Finalized by</dt><dd>${escapeHtml(team.finalizer_name || "—")}</dd></div>
+          <div><dt>Time</dt><dd>${escapeHtml(team.finalized_at || "—")}</dd></div>
+        </dl>
+        ${
+          team.status === "finalized"
+            ? `<button type="button" data-award-consensus="${Number(
+                result?.item?.id || 0
+              )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
+            : ""
+        }
+      </details>`;
+    })
+    .join("")}</div>`;
 }
 
 /**
@@ -924,6 +1276,158 @@ async function setQuestionStudentView(questionId, mode) {
 }
 
 /**
+ * Replace one cached lifecycle row from an item-mutation response.
+ * @param {any} item
+ */
+function adoptLiveItem(item) {
+  if (!item || !Number(item.id)) return;
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === Number(item.id));
+  if (index >= 0) lastLiveItems[index] = item;
+  else lastLiveItems.push(item);
+}
+
+/**
+ * Publish one inactive question using its selected supported mode.
+ * @param {number} liveItemId
+ */
+async function publishLifecycleItem(liveItemId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const control = document.querySelector(`[data-publish-live-mode="${liveItemId}"]`);
+  const publishMode =
+    control instanceof HTMLSelectElement || control instanceof HTMLInputElement
+      ? control.value
+      : "individual";
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/publish`,
+    {
+      method: "POST",
+      body: JSON.stringify({ publish_mode: publishMode }),
+    }
+  );
+  adoptLiveItem(result?.item);
+  lastActiveQuestions = Array.isArray(result?.active_questions)
+    ? result.active_questions
+    : lastActiveQuestions;
+  await refreshLifecycleResults();
+  paintLiveQuestionCards();
+}
+
+/**
+ * Close one active question and freeze its final results.
+ * @param {number} liveItemId
+ */
+async function closeLifecycleItem(liveItemId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/close`,
+    { method: "POST", body: "{}" }
+  );
+  adoptLiveItem(result?.item);
+  if (result?.results) lifecycleResults.set(liveItemId, result.results);
+  paintLiveQuestionCards();
+}
+
+/**
+ * Persist one question's governed live-results setting.
+ * @param {number} liveItemId
+ * @param {boolean} visible
+ */
+async function setLifecycleResultsVisible(liveItemId, visible) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ show_live_results: Boolean(visible) }),
+    }
+  );
+  adoptLiveItem(result?.item);
+  paintLiveQuestionCards();
+}
+
+/**
+ * Advance every unfinished team from private voting to discussion.
+ * @param {number} liveItemId
+ */
+async function endLifecycleVoting(liveItemId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/end-voting`,
+    { method: "POST", body: "{}" }
+  );
+  lifecycleResults.set(liveItemId, result);
+  paintLiveQuestionCards();
+}
+
+/**
+ * Award one point to every current member of a finalized team.
+ * @param {number} liveItemId
+ * @param {number} teamId
+ */
+async function awardLifecycleTeam(liveItemId, teamId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId || !teamId) return;
+  await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/points`, {
+    method: "POST",
+    body: JSON.stringify({ team_id: teamId, amount: 1 }),
+  });
+  await refreshLifecycleResults();
+  renderAttendanceList();
+}
+
+/**
+ * Refresh result summaries for current-stage active and closed questions.
+ */
+async function refreshLifecycleResults() {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  const ids = lastLiveItems
+    .filter((row) => {
+      const type = String(row?.item?.item_type || "");
+      return (
+        type === "question" &&
+        String(row.stage || "") === String(teacherState.stage || "") &&
+        ["active", "closed"].includes(String(row.status || ""))
+      );
+    })
+    .map((row) => Number(row.id))
+    .filter(Boolean);
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const payload = await api(
+          `/api/live-sessions/${sessionId}/items/${id}/results`
+        );
+        if (payload?.results) lifecycleResults.set(id, payload.results);
+      } catch (_) {
+        /* next state poll retries */
+      }
+    })
+  );
+  paintLiveQuestionCards();
+}
+
+/**
+ * Check response rows to match a teacher selection helper.
+ * @param {"answered"|"correct"|"manual"} mode
+ */
+function applyQuestionResponseSelection(mode) {
+  const token = String(mode || "");
+  document.querySelectorAll("#live-responses-list [data-response-student]").forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    if (token === "manual") return;
+    const mark =
+      input.closest(".live-response-row")?.querySelector(".live-response-mark")
+        ?.textContent || "";
+    input.checked = token === "answered" || (token === "correct" && mark === "Correct");
+  });
+}
+
+/**
  * Render response rows in the same alphabetical/team order as Class list.
  * @param {any[]} responses
  */
@@ -936,7 +1440,7 @@ function paintQuestionResponses(responses) {
       .filter((row) => row.student_id != null)
       .map((row) => [Number(row.student_id), row])
   );
-  const groups = classListRosterOrder(overlayState?.students || []);
+  const groups = classListRosterOrder(projectedClassListStudents());
   const chunks = [];
   for (const group of groups) {
     const groupRows = group.students
@@ -951,7 +1455,9 @@ function paintQuestionResponses(responses) {
     chunks.push(
       ...groupRows.map(
         (row) => `<label class="live-response-row">
-          <input type="checkbox" data-response-student="${Number(row.student_id)}">
+          <input type="checkbox" data-response-student="${Number(row.student_id)}"${
+            Number(row.awarded_points || 0) ? " checked" : ""
+          }>
           <span class="live-response-name">${escapeHtml(row.name)}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
           <span class="live-response-mark">${row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"}</span>
@@ -986,7 +1492,7 @@ async function openQuestionResponses(promptId, title, questionType) {
   if (heading) heading.textContent = title || "Responses";
   paintQuestionResponses(result.responses);
   const dialog = $("live-responses-dialog");
-  const correct = dialog?.querySelector('[data-response-award="correct"]');
+  const correct = dialog?.querySelector('[data-response-select="correct"]');
   if (correct instanceof HTMLButtonElement) {
     correct.disabled = questionType !== "mc";
     correct.title =
@@ -1577,6 +2083,24 @@ async function pollLiveSessionAttendees() {
       return;
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
+    if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
+    lastClassList = Array.isArray(payload?.class_list) ? payload.class_list : [];
+    lastGroups = Array.isArray(payload?.groups) ? payload.groups : [];
+    lastScoreboard = payload?.scoreboard || null;
+    if (overlayState && typeof overlayState === "object") {
+      overlayState.scoreboard = lastScoreboard;
+    }
+    lastLiveItems = Array.isArray(payload?.live_items) ? payload.live_items : [];
+    lastActiveQuestions = Array.isArray(payload?.active_questions)
+      ? payload.active_questions
+      : [];
+    lastTeamsSpark = payload?.teams_spark || null;
+    lastJoinPrompt = payload?.join_prompt || null;
+    lastActivePrompt = payload?.active_prompt || null;
+    lastQuestionCards = Array.isArray(payload?.question_cards)
+      ? payload.question_cards
+      : [];
+    lastLiveMetadata = payload?.live_metadata || null;
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
     const guests = present.filter((row) => Boolean(row.unmatched) || row.student_id == null);
@@ -1599,19 +2123,12 @@ async function pollLiveSessionAttendees() {
       present.map((row) => Number(row.student_id)),
       present
     );
-    lastTeamsSpark = payload?.teams_spark || null;
-    lastJoinPrompt = payload?.join_prompt || null;
-    lastActivePrompt = payload?.active_prompt || null;
-    lastQuestionCards = Array.isArray(payload?.question_cards)
-      ? payload.question_cards
-      : [];
-    lastLiveMetadata = payload?.live_metadata || null;
     paintSlidesMetadata();
     const media = payload?.active_media || payload?.session?.active_media;
     paintActiveMediaStatus(media);
     paintQuestionArtifact(media);
-    if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
     applyMcTally(payload?.mc_tally);
+    refreshLifecycleResults();
     ensureC1MediaSeeded();
   } catch (_) {
     /* keep polling */
@@ -2333,7 +2850,16 @@ function selectedPresent() {
  * @returns {string}
  */
 function studentTeamLabel(studentId) {
-  if (currentTeamCount() < 2) return "";
+  for (const team of previewRosterTeams()) {
+    if ((team.members || []).some((member) => Number(member.id) === Number(studentId))) {
+      return String(team.name || "").trim();
+    }
+  }
+  if (!teacherState.run_as_group) return "";
+  const projected = lastClassList.find(
+    (row) => Number(row.student_id) === Number(studentId)
+  );
+  if (projected?.team?.name) return String(projected.team.name);
   for (const team of assignedRosterTeams()) {
     for (const member of team.members || []) {
       if (Number(member.id) === Number(studentId)) {
@@ -2355,11 +2881,25 @@ function classListPts(value) {
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
 }
 
+/**
+ * Team color for a roster id from preview assignment or committed teams.
+ * @param {number} studentId
+ * @returns {string}
+ */
 function studentTeamColor(studentId) {
+  for (const team of previewRosterTeams()) {
+    if ((team.members || []).some((member) => Number(member.id) === Number(studentId))) {
+      return team.color || teamColorByIndex(Number(team.sort_order) || 0);
+    }
+  }
   const nTeams = currentTeamCount();
-  if (nTeams < 2) return "";
-  const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
-  if (assigned.length >= 2) {
+  if (!teacherState.run_as_group || nTeams < 2) return "";
+  const projected = lastClassList.find(
+    (row) => Number(row.student_id) === Number(studentId)
+  );
+  if (projected?.team?.color) return String(projected.team.color);
+  const assigned = assignedRosterTeams();
+  if (assigned.length) {
     for (const team of assigned) {
       for (const member of team.members || []) {
         if (Number(member.id) === Number(studentId)) {
@@ -2396,11 +2936,92 @@ function studentTeamColor(studentId) {
 }
 
 /**
- * Assigned game teams (excludes the individual ``Class`` bucket).
+ * Students used for a tentative Balanced / Random / Manual class-list preview.
+ * Prefers students who have already joined; otherwise the visible roster.
  * @returns {any[]}
  */
+function previewRosterPool() {
+  const visible = classListVisibleStudents(projectedClassListStudents());
+  const presentIds = new Set(selectedPresent());
+  if (presentIds.size) {
+    const joined = visible.filter((row) => presentIds.has(Number(row.id)));
+    if (joined.length) return joined;
+  }
+  return visible;
+}
+
+/**
+ * Preview team buckets for the selected assign mode without committing.
+ * @returns {any[]}
+ */
+function previewRosterTeams() {
+  if (teacherState.groups_configured && assignedRosterTeamsCommitted().length) {
+    return [];
+  }
+  if (!lastAssignMode || currentTeamCount() < 2) return [];
+  const nTeams = currentTeamCount();
+  const students = previewRosterPool();
+  const buckets = Array.from({ length: nTeams }, (_, index) => ({
+    id: -(index + 1),
+    name: `Team ${index + 1}`,
+    color: teamColorByIndex(index),
+    sort_order: index,
+    members: [],
+  }));
+  if (lastAssignMode === "manual") {
+    const steps = [...document.querySelectorAll("#ap-manual-list .team-step")];
+    if (steps.length) {
+      for (const el of steps) {
+        const sid = Number(el.dataset.studentId);
+        const idx = Math.max(0, Math.min(nTeams - 1, Number(el.dataset.teamIndex) || 0));
+        const student = students.find((row) => Number(row.id) === sid);
+        if (student) buckets[idx].members.push(student);
+      }
+      return buckets;
+    }
+  }
+  const ordered = students.slice().sort((a, b) => {
+    const score = (Number(b.career_total) || 0) - (Number(a.career_total) || 0);
+    if (score) return score;
+    return String(a.codename || "").localeCompare(String(b.codename || ""));
+  });
+  if (lastAssignMode === "random") {
+    const same = lastRandomPreviewIds.length === ordered.length &&
+      ordered.every((row) => lastRandomPreviewIds.includes(Number(row.id)));
+    if (same) {
+      ordered.sort(
+        (a, b) => lastRandomPreviewIds.indexOf(Number(a.id)) - lastRandomPreviewIds.indexOf(Number(b.id))
+      );
+    } else {
+      for (let i = ordered.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+      }
+      lastRandomPreviewIds = ordered.map((row) => Number(row.id));
+    }
+  } else {
+    lastRandomPreviewIds = [];
+  }
+  ordered.forEach((student, index) => {
+    const snake = Math.floor(index / nTeams) % 2 === 1;
+    const slot = index % nTeams;
+    const teamIndex = lastAssignMode === "balanced" && snake ? nTeams - 1 - slot : slot;
+    buckets[teamIndex].members.push(student);
+  });
+  return buckets;
+}
+
+function assignedRosterTeamsCommitted() {
+  const source = lastGroups.length ? lastGroups : overlayState?.teams || [];
+  return source
+    .filter((team) => team && team.name !== "Class")
+    .slice()
+    .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
+}
+
 function assignedRosterTeams() {
-  return (overlayState?.teams || [])
+  const source = lastGroups.length ? lastGroups : overlayState?.teams || [];
+  return source
     .filter((team) => team && team.name !== "Class")
     .slice()
     .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0));
@@ -2412,23 +3033,36 @@ function assignedRosterTeams() {
  * @returns {boolean}
  */
 function classListGroupsByTeam() {
-  return currentTeamCount() > 1 && assignedRosterTeams().length >= 2;
+  if (previewRosterTeams().length >= 1) return true;
+  return Boolean(teacherState.run_as_group) && assignedRosterTeams().length >= 1;
 }
 
 /**
- * ClassList rows for the current stage.
- * TEAMS is present-only (live heartbeat / sessionPresentIds). JOIN keeps
- * the full roster. Guests stay visible because they are already present.
+ * ClassList rows from the server's durable Hide Absent projection.
  * @param {any[]} students
  * @returns {any[]}
  */
 function classListVisibleStudents(students) {
-  const rows = Array.isArray(students) ? students : [];
-  const stage = String(teacherState.stage || "").toLowerCase();
-  if (setupPhase || stage === "join") return rows;
-  return rows.filter((stu) => {
-    if (stu && stu.guest) return true;
-    return sessionPresentIds.has(Number(stu.id));
+  return Array.isArray(students) ? students : [];
+}
+
+/**
+ * Normalize the server class_list projection for existing roster renderers.
+ * @returns {any[]}
+ */
+function projectedClassListStudents() {
+  if (!lastClassList.length) return overlayState?.students || [];
+  const existing = new Map(
+    (overlayState?.students || []).map((row) => [Number(row.id), row])
+  );
+  return lastClassList.map((row) => {
+    const id = Number(row.student_id ?? row.id);
+    return {
+      ...(existing.get(id) || {}),
+      ...row,
+      id,
+      codename: row.codename || existing.get(id)?.codename || "",
+    };
   });
 }
 
@@ -2444,7 +3078,7 @@ function classListRosterOrder(students) {
   }
   const seen = new Set();
   const groups = [];
-  for (const team of assignedRosterTeams()) {
+  for (const team of previewRosterTeams().length ? previewRosterTeams() : assignedRosterTeams()) {
     const memberIds = new Set((team.members || []).map((row) => Number(row.id)));
     const members = roster.filter((row) => memberIds.has(Number(row.id)));
     for (const row of members) seen.add(Number(row.id));
@@ -2471,7 +3105,10 @@ function classListRosterOrder(students) {
  * @param {Set<any>} checked
  */
 function appendAttendanceStudentRow(list, student, checked) {
-  const present = checked.has(student.id);
+  const present =
+    typeof student.present === "boolean"
+      ? student.present
+      : checked.has(student.id);
   const late = sessionLateIds.has(student.id) || Boolean(student.late);
   const row = document.createElement("div");
   row.className = `ap-att-row${present ? " is-present" : ""}${late ? " is-late" : ""}`;
@@ -2514,7 +3151,7 @@ function renderAttendanceList() {
   if (!list) return;
   list.innerHTML = "";
   const grouped = classListGroupsByTeam();
-  const teamsPresentOnly = !setupPhase && String(teacherState.stage || "").toLowerCase() !== "join";
+  const teamsPresentOnly = Boolean(teacherState.hide_absent);
   list.dataset.grouped = grouped ? "1" : "0";
   list.dataset.presentOnly = teamsPresentOnly ? "1" : "0";
   list.dataset.showTeam = "0";
@@ -2523,7 +3160,7 @@ function renderAttendanceList() {
     cols.hidden = false;
     cols.dataset.showTeam = "0";
   }
-  for (const group of classListRosterOrder(classListVisibleStudents(overlayState?.students || []))) {
+  for (const group of classListRosterOrder(classListVisibleStudents(projectedClassListStudents()))) {
     if (grouped && group.name) {
       const sep = document.createElement("div");
       sep.className = "ap-att-team-sep";
@@ -2558,6 +3195,10 @@ function updateAttCount() {
   const n = selectedPresent().length + sessionGuests.length;
   const el = $("ap-att-count");
   if (el) el.textContent = `Attendance: ${n}`;
+  const summary = $("ap-att-summary");
+  if (summary) {
+    summary.textContent = `(${projectedClassListStudents().length + sessionGuests.length})`;
+  }
   const present = $("live-header-present");
   if (present) present.textContent = `Present ${n}`;
 }
@@ -2791,7 +3432,7 @@ function selectTrackMode(mode) {
   if (currentStep === "rounds") renderRoundsPanel();
   updateStepSummaries();
   const nextMode = mode === "team" ? "teams" : "individual";
-  if (teacherState.teams_mode !== nextMode) {
+  if (teacherState.groups_configured && teacherState.teams_mode !== nextMode) {
     teacherState.teams_mode = nextMode;
     patchTeacherState({ teams_mode: nextMode }, { silent: true });
   }
@@ -2803,6 +3444,7 @@ for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
       if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+      closeLiveSessionOverlay();
       form.submit();
       return;
     }
@@ -2819,6 +3461,7 @@ document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
       if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+      closeLiveSessionOverlay();
       form.submit();
       return;
     }
@@ -2931,9 +3574,12 @@ function teamColorByIndex(sortOrder) {
  * @returns {number}
  */
 function currentTeamCount() {
+  if (teacherState.groups_configured && lastGroups.length) {
+    return Math.max(2, lastGroups.length);
+  }
   const raw = Number($("ap-n-teams")?.value);
-  if (!Number.isFinite(raw)) return 1;
-  return Math.max(1, Math.round(raw));
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(2, Math.round(raw));
 }
 
 /**
@@ -2956,7 +3602,7 @@ function presentCountForTeams() {
  */
 function nTeamsBounds() {
   const present = presentCountForTeams();
-  return { min: 1, max: Math.max(1, present) };
+  return { min: 2, max: Math.max(2, present) };
 }
 
 /**
@@ -2989,7 +3635,7 @@ function paintDivisionMeter() {
   const present = presentCountForTeams();
   const band = divisionStrength(present, teamCount);
   const labelEl = $("ap-division-meter-label");
-  if (band === "individuals") {
+  if (band === "individuals" || teacherState.groups_configured) {
     meter.hidden = true;
     meter.removeAttribute("data-band");
     meter.removeAttribute("aria-valuenow");
@@ -3021,10 +3667,11 @@ function paintDivisionMeter() {
  */
 function paintTeamsStripEnabled() {
   const team = currentTeamCount() > 1;
+  const configured = Boolean(teacherState.groups_configured);
   const assign = $("live-teams-assign");
   if (assign) {
-    assign.hidden = false;
-    assign.setAttribute("aria-disabled", team ? "false" : "true");
+    assign.hidden = configured;
+    assign.setAttribute("aria-disabled", !configured && team ? "false" : "true");
   }
   const opts = $("ap-track-game-opts");
   if (opts) {
@@ -3036,12 +3683,11 @@ function paintTeamsStripEnabled() {
   }
   const rename = $("ap-teams-rename");
   if (rename instanceof HTMLButtonElement) {
-    const onMeet = teacherState.stage === "meet";
-    rename.hidden = !onMeet;
-    rename.disabled = !onMeet || !team;
-    rename.setAttribute("aria-disabled", onMeet && team ? "false" : "true");
+    rename.hidden = !configured;
+    rename.disabled = !configured;
+    rename.setAttribute("aria-disabled", configured ? "false" : "true");
   }
-  if (!team) closeTeamsPops();
+  if (!team || configured) closeTeamsPops();
   paintDivisionMeter();
   paintRoundStrip();
 }
@@ -3226,12 +3872,19 @@ function setNTeams(value) {
     el.min = String(min);
     el.max = String(max);
   }
+  if (teacherState.groups_configured) {
+    paintTeamsStripEnabled();
+    paintStudentViewControls();
+    renderAttendanceList();
+    return;
+  }
   if (n > 1) {
-    if (trackMode !== "team") lastAssignMode = "balanced";
-    selectAssignMode(lastAssignMode || "balanced");
     selectTrackMode("team");
+    if (lastAssignMode) selectAssignMode(lastAssignMode);
+    else syncSetupEnabled();
   } else {
     selectTrackMode("individual");
+    syncSetupEnabled();
   }
   paintTeamsStripEnabled();
   paintStudentViewControls();
@@ -3243,14 +3896,15 @@ function setNTeams(value) {
  */
 function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
-  if (box) {
-    const stored = localStorage.getItem(scoreboardKey);
-    box.checked = stored === "1";
-    localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
-  }
+  if (box) box.checked = Boolean(teacherState.scoreboard_visible);
   syncScoreboardPreview();
   setNTeams(Number($("ap-n-teams")?.value) || 1);
-  if (currentTeamCount() > 1) selectAssignMode(lastAssignMode || "balanced");
+  syncSetupEnabled();
+  if (lastAssignMode) {
+    selectAssignMode(lastAssignMode);
+  } else {
+    renderAttendanceList();
+  }
 }
 
 /**
@@ -3276,8 +3930,20 @@ function selectAssignMode(mode) {
     if (!(btn instanceof HTMLElement)) continue;
     const on = key === mode;
     btn.classList.toggle("is-selected", on);
+    btn.classList.toggle("is-active", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
+  syncSetupEnabled();
+  renderAttendanceList();
+}
+
+/**
+ * Set Up stays disabled until Balanced / Random / Manual is chosen.
+ */
+function syncSetupEnabled() {
+  const btn = $("live-teams-start");
+  if (!(btn instanceof HTMLButtonElement)) return;
+  btn.disabled = !lastAssignMode || currentTeamCount() < 2;
 }
 
 $("ap-n-teams-down")?.addEventListener("click", () => setNTeams(Number($("ap-n-teams").value) - 1));
@@ -3286,7 +3952,7 @@ $("ap-n-teams")?.addEventListener("change", () => setNTeams(Number($("ap-n-teams
 $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
   const box = event.target;
   if (box instanceof HTMLInputElement) {
-    localStorage.setItem(scoreboardKey, box.checked ? "1" : "0");
+    patchTeacherState({ scoreboard_visible: box.checked });
     syncScoreboardPreview();
   }
 });
@@ -3398,25 +4064,11 @@ function applySessionTimerStageDefaults() {
 }
 
 /**
- * Start the session countdown. MEET with teams still uses meet-teams so
- * the overlay clock stays; every other stage uses the generic timer.
+ * Start the stage-independent session countdown.
  * @returns {Promise<void>}
  */
 async function startSessionTimer() {
   const minutes = sessionTimerMinutes();
-  const stage = teacherState.stage || "join";
-  if (stage === "meet") {
-    try {
-      overlayState = await api(`/api/classes/${classId}/game/meet-teams`, {
-        method: "POST",
-        body: JSON.stringify({ minutes }),
-      });
-      applySessionTimerUi(overlayState);
-      return;
-    } catch (_err) {
-      /* Individual / no teams — fall through to the generic timer. */
-    }
-  }
   overlayState = await api(`/api/classes/${classId}/game/timer/start`, {
     method: "POST",
     body: JSON.stringify({ minutes }),
@@ -3583,7 +4235,11 @@ async function advanceTeamsToMeet() {
   const nTeams = currentTeamCount();
   const body = { advance: "next" };
   if (nTeams >= 2) {
-    const mode = lastAssignMode || "balanced";
+    const mode = lastAssignMode;
+    if (!mode) {
+      showTeamsAssignError(new Error("Choose Balanced, Random, or Manual first."));
+      return;
+    }
     if (mode === "manual") {
       const open = $("ap-manual-assign");
       if (!open || open.hidden) {
@@ -3627,7 +4283,6 @@ async function advanceTeamsToMeet() {
   closeTeamsPops();
   renderAttendanceList();
   pendingScoreboard = false;
-  localStorage.setItem(scoreboardKey, "0");
 }
 
 /**
@@ -3648,7 +4303,11 @@ async function startTeamsForCurrentStage() {
     await patchTeacherState({ teams_mode: "individual" });
     return;
   }
-  const mode = lastAssignMode || "balanced";
+  const mode = lastAssignMode;
+  if (!mode) {
+    showTeamsAssignError(new Error("Choose Balanced, Random, or Manual first."));
+    return;
+  }
   if (mode === "manual" && !manualTeamsBalanced()) {
     showTeamsAssignError(
       new Error("Set each student's team, then start Teams again.")
@@ -3665,6 +4324,7 @@ async function startTeamsForCurrentStage() {
     }));
   }
   await patchTeacherState({ teams_mode: "teams", assign });
+  await pollLiveSessionAttendees();
   renderAttendanceList();
 }
 
@@ -3692,7 +4352,7 @@ function renderNamesPanel() {
   const box = $("ap-name-list");
   if (!box) return;
   box.innerHTML = "";
-  for (const team of overlayState.teams || []) {
+  for (const team of assignedRosterTeams()) {
     const members = sortStudents(team.members || [], nameSort);
     const strength = members.reduce((sum, row) => sum + (Number(row.career_total) || 0), 0);
     const wrap = document.createElement("div");
@@ -3765,9 +4425,9 @@ function renderDraftNamesPanel() {
 }
 
 $("ap-teams-rename")?.addEventListener("click", async () => {
-  if (teacherState.stage !== "meet" || currentTeamCount() < 2) return;
+  if (!teacherState.groups_configured) return;
   try {
-    const assigned = (overlayState?.teams || []).filter((team) => team.name !== "Class");
+    const assigned = assignedRosterTeams();
     if (assigned.length >= 2) {
       renderNamesPanel();
     } else {
@@ -3785,7 +4445,6 @@ $("ap-teams-rename-done")?.addEventListener("click", () => {
 
 $("ap-start-game")?.addEventListener("click", async () => {
   pendingScoreboard = Boolean($("ap-scoreboard-toggle")?.checked);
-  localStorage.setItem(scoreboardKey, pendingScoreboard ? "1" : "0");
   const teams = [...document.querySelectorAll("#ap-name-list input")].map((el) => ({
     id: Number(el.dataset.teamId),
     name: el.value,
@@ -3842,22 +4501,26 @@ $("ap-meet-start")?.addEventListener("click", async () => {
 });
 
 $("live-timer-toggle")?.addEventListener("change", () => paintOptionCard());
-$("live-teams-toggle")?.addEventListener("change", () => paintOptionCard());
-$("live-timer-start")?.addEventListener("click", () => {
-  const toggle = $("live-timer-toggle");
-  if (toggle instanceof HTMLInputElement) toggle.checked = true;
-  paintOptionCard();
-  $("ap-meet-start")?.click();
-});
 $("live-teams-start")?.addEventListener("click", async () => {
-  const toggle = $("live-teams-toggle");
-  if (toggle instanceof HTMLInputElement) toggle.checked = true;
-  paintOptionCard();
   try {
     await startTeamsForCurrentStage();
   } catch (err) {
     showTeamsAssignError(err);
   }
+});
+$("live-run-as-group")?.addEventListener("change", (event) => {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement)) return;
+  patchTeacherState({ run_as_group: input.checked }).then(() =>
+    pollLiveSessionAttendees()
+  );
+});
+$("live-hide-absent")?.addEventListener("change", (event) => {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement)) return;
+  patchTeacherState({ hide_absent: input.checked }).then(() =>
+    pollLiveSessionAttendees()
+  );
 });
 
 /**
@@ -4785,10 +5448,6 @@ $("live-stage-next")?.addEventListener("click", () => {
     applyValidateDateChoice();
     return;
   }
-  if (teacherState.stage === "teams") {
-    advanceTeamsToMeet();
-    return;
-  }
   patchTeacherState({ advance: "next" });
 });
 $("meet-chain-next")?.addEventListener("click", () => {
@@ -4945,11 +5604,32 @@ function patchStudentViewFromControl(surface) {
   patchTeacherState({ student_view: next });
 }
 
-$("live-view-media")?.addEventListener("change", () => patchStudentViewFromControl("media"));
-$("live-view-canvas")?.addEventListener("change", () => patchStudentViewFromControl("canvas"));
-$("live-view-slides")?.addEventListener("change", () => patchStudentViewFromControl("slides"));
+document.querySelectorAll("[data-surface-publish]").forEach((button) => {
+  button.addEventListener("click", () => {
+    publishSurface(button.getAttribute("data-surface-publish"))
+      .catch((err) => showError("#ap-overlay-error", err));
+  });
+});
+document.querySelectorAll("[data-surface-close]").forEach((button) => {
+  button.addEventListener("click", () => {
+    closeSurface(button.getAttribute("data-surface-close"))
+      .catch((err) => showError("#ap-overlay-error", err));
+  });
+});
 
 $("live-question-list")?.addEventListener("change", async (event) => {
+  const resultToggle = event.target.closest("[data-live-results-toggle]");
+  if (resultToggle instanceof HTMLInputElement) {
+    try {
+      await setLifecycleResultsVisible(
+        Number(resultToggle.dataset.liveResultsToggle) || 0,
+        resultToggle.checked
+      );
+    } catch (err) {
+      showError("#ap-overlay-error", err);
+    }
+    return;
+  }
   const select = event.target.closest("select[data-question-view]");
   if (!(select instanceof HTMLSelectElement)) return;
   try {
@@ -4960,9 +5640,32 @@ $("live-question-list")?.addEventListener("change", async (event) => {
 });
 
 $("live-question-list")?.addEventListener("click", async (event) => {
+  const publish = event.target.closest("button[data-publish-live-item]");
+  const close = event.target.closest("button[data-close-live-item]");
+  const endVoting = event.target.closest("button[data-end-voting]");
+  const award = event.target.closest("button[data-award-consensus]");
   const button = event.target.closest("button[data-view-responses]");
-  if (!(button instanceof HTMLButtonElement)) return;
   try {
+    if (publish instanceof HTMLButtonElement) {
+      await publishLifecycleItem(Number(publish.dataset.publishLiveItem) || 0);
+      return;
+    }
+    if (close instanceof HTMLButtonElement) {
+      await closeLifecycleItem(Number(close.dataset.closeLiveItem) || 0);
+      return;
+    }
+    if (endVoting instanceof HTMLButtonElement) {
+      await endLifecycleVoting(Number(endVoting.dataset.endVoting) || 0);
+      return;
+    }
+    if (award instanceof HTMLButtonElement) {
+      await awardLifecycleTeam(
+        Number(award.dataset.awardConsensus) || 0,
+        Number(award.dataset.teamId) || 0
+      );
+      return;
+    }
+    if (!(button instanceof HTMLButtonElement)) return;
     await openQuestionResponses(
       Number(button.dataset.viewResponses) || 0,
       button.dataset.questionTitle || "Responses",
@@ -4974,24 +5677,30 @@ $("live-question-list")?.addEventListener("click", async (event) => {
 });
 
 $("live-responses-dialog")?.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-response-award]");
-  if (!(button instanceof HTMLButtonElement) || !openResponsePromptId) return;
-  const mode = button.dataset.responseAward || "";
-  const studentIds =
-    mode === "manual"
-      ? [
-          ...document.querySelectorAll(
-            "#live-responses-list [data-response-student]:checked"
-          ),
-        ].map((input) => Number(input.dataset.responseStudent))
-      : [];
+  const select = event.target.closest("button[data-response-select]");
+  if (select instanceof HTMLButtonElement) {
+    applyQuestionResponseSelection(select.dataset.responseSelect || "");
+    return;
+  }
+  const commit = event.target.closest("button[data-response-commit]");
+  if (!(commit instanceof HTMLButtonElement) || !openResponsePromptId) return;
+  const studentIds = [
+    ...document.querySelectorAll(
+      "#live-responses-list [data-response-student]:checked"
+    ),
+  ].map((input) => Number(input.dataset.responseStudent));
   const sessionId = liveSessionId || readLiveSessionId();
   try {
     const result = await api(
       `/api/live-sessions/${sessionId}/questions/${openResponsePromptId}/responses`,
       {
         method: "POST",
-        body: JSON.stringify({ mode, student_ids: studentIds, amount: 1 }),
+        body: JSON.stringify({
+          mode: "manual",
+          student_ids: studentIds,
+          amount: 1,
+          replace: true,
+        }),
       }
     );
     if (result?.game) overlayState = result.game;
@@ -5072,9 +5781,6 @@ function bindEphemeralCanvas() {
 }
 
 selectTrackMode("individual");
-if (localStorage.getItem(scoreboardKey) === null) {
-  localStorage.setItem(scoreboardKey, "0");
-}
 setSessionTimerMinutes(3);
 
 if (root?.dataset.apView === "live") {

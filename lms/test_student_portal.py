@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_metadata import empty_live_class_metadata  # noqa: E402
 from meet_team import (  # noqa: E402
     MEET_TEAM_FIXED_CHOICES,
     MEET_TEAM_PROMPT,
@@ -103,8 +104,21 @@ class StudentPortalTests(unittest.TestCase):
         """POST the character pick step."""
         self.student.post("/student/character", data={"character": key})
 
+    def _use_legacy_live_metadata(self) -> None:
+        """Route this test through the schema-v1 singleton compatibility path."""
+
+        self.school.live_class_metadata_for_session = (
+            self._legacy_live_metadata_for_session
+        )
+
+    def _legacy_live_metadata_for_session(self, _session_id: int) -> dict:
+        """Return empty schema-v1 metadata for legacy prompt tests."""
+
+        return empty_live_class_metadata("MCF3M", "M1", "C1")
+
     def test_join_mood_character_home_and_show_rank(self) -> None:
         """Join → mood → character → home; rank hidden until enabled."""
+        self._use_legacy_live_metadata()
         join = self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
@@ -310,6 +324,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_prompt_stub_round_trip(self) -> None:
         """Staff sets MC prompt; student polls and submits a response."""
+        self._use_legacy_live_metadata()
         self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},
@@ -787,6 +802,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_waiting_room_minds_on_and_wait_copy(self) -> None:
         """Join with no challenge media: Wonder wait line + M1C1 Minds-On MC."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         home = self.student.get("/student/home")
         html = home.get_data(as_text=True)
@@ -917,6 +933,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_waiting_room_integer_poll_after_c2_slot(self) -> None:
         """Any Join slot, including C2, mounts Welcome C2 after minds-on."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         slotted = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/teacher-state",
@@ -971,6 +988,7 @@ class StudentPortalTests(unittest.TestCase):
         """Teacher Real-slice seed on JOIN does not project media or drop Minds-On."""
         from live_media import DEFAULT_LIVE_MEDIA_URL
 
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
@@ -1014,6 +1032,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_assign_and_meet_teams_swap_minds_on_for_teammate_warmup(self) -> None:
         """SID=18: Generate teams + Meet Teams leave waiting-room Minds-On."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         idle = self.student.get("/api/student/live-prompt").get_json()
         self.assertTrue(idle["waiting_room"])
@@ -1048,6 +1067,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_minds_on_clears_when_scoring_starts(self) -> None:
         """Start-rounds (live scoring) keeps Join C1 until the student answers."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
         self.assertEqual(idle["prompt"]["payload"]["item_id"], "minds_on")
@@ -1123,6 +1143,7 @@ class StudentPortalTests(unittest.TestCase):
         """Beat 10: JOIN Reveal closes submits and binds the class MC tally."""
         from live_teacher_state import MINDS_ON_PROMPT_REF
 
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         aspen = self.app.test_client()
         live = self.school.get_live_session(self.live_session_id)
@@ -1202,6 +1223,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_generic_mc_submit_has_no_feedback(self) -> None:
         """A staff MC that is not Minds-On / CONS returns ack only."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         set_prompt = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/prompts",
@@ -1225,6 +1247,7 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_minds_on_miss_uses_soft_lead(self) -> None:
         """Incorrect Minds-On choice returns the Wonder miss lead, never Wrong."""
+        self._use_legacy_live_metadata()
         self._join_maple_home()
         prompt = self.student.get("/api/student/state").get_json()["prompt"]
         submit = self.student.post(
@@ -1294,12 +1317,61 @@ class StudentPortalTests(unittest.TestCase):
         )
         for pane in ("media", "canvas", "slides"):
             self.assertIn(f'data-pane-resize="{pane}"', html)
-            self.assertIn(f'aria-label="Resize {pane}"', html)
+        self.assertIn('aria-label="Resize media"', html)
+        self.assertIn('aria-label="Resize whiteboard"', html)
+        self.assertIn('aria-label="Resize slides"', html)
         self.assertIn("function floatPaneAtCurrentPosition(", js)
         self.assertIn('pane.querySelector("[data-pane-resize]")', js)
         self.assertIn("hostRect.width - resizeDrag.left", js)
         self.assertIn("hostRect.height - resizeDrag.top", js)
         self.assertIn("cursor: nwse-resize;", css)
+
+    def test_ordered_lifecycle_cards_and_consensus_controls_are_wired(self) -> None:
+        """Students get dismissible multi-question and private team flows."""
+
+        html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="live-question-stack"', html)
+        self.assertIn('id="student-question-dock"', html)
+        self.assertIn(">Whiteboard<", html)
+        self.assertNotIn(">Canvas<", html)
+        self.assertIn("payload?.active_questions", js)
+        self.assertIn("payload?.closed_results", js)
+        self.assertIn("dockedLiveCardKeys", js)
+        self.assertIn("student-question-dock", js)
+        self.assertIn("paintQuestionDock", js)
+        self.assertIn("Submit private vote", js)
+        self.assertIn("Team Answer", js)
+        self.assertIn("/api/student/live-items/${itemId}/vote", js)
+        self.assertIn("/api/student/live-items/${itemId}/team-answer", js)
+        self.assertIn("Your choice stays private", js)
+        self.assertIn("Class team answers", js)
+        self.assertIn(".live-question-stack", css)
+        self.assertIn("position: absolute", css.split(".live-question-stack {")[1].split("}")[0])
+        self.assertIn("right: 0.7rem", css.split(".live-question-stack {")[1].split("}")[0])
+        self.assertIn("function namedScoreboardTeams(", js)
+        self.assertIn("function promptAsLifecycleItem(", js)
+        self.assertIn(".student-team-distribution", css)
+
+    def test_student_metadata_strips_answer_keys_from_items(self) -> None:
+        """Student metadata never leaks catalogue keys before a team vote."""
+
+        self._join_maple_home()
+        payload = self.student.get("/api/student/state").get_json()
+        metadata = payload.get("live_metadata") or {}
+        for collection in ("questions", "items"):
+            for item in metadata.get(collection) or []:
+                self.assertNotIn("correct_answer", item)
+                self.assertNotIn("key", item)
+                self.assertNotIn("soft_key", item)
+                self.assertNotIn("by_choice", item)
 
     def test_beat32_save_work_sits_under_name_row(self) -> None:
         """Beat 32: Save View is under the name row, not timer or Question."""
@@ -1386,6 +1458,11 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("nameWithAvatar", js)
         self.assertIn(".game-show-welcome", css)
         self.assertIn("gs-orbit", css)
+        self.assertIn("body.student-home.is-game-show-welcome .live-question-stack", css)
+        self.assertNotIn(
+            "body.student-home.is-game-show-welcome .live-question-stack,",
+            css,
+        )
 
     def test_overlay_and_student_names_use_avatars_not_moods(self) -> None:
         """Live overlay + student home paint avatars left of names, never mood glyphs."""
@@ -1395,6 +1472,9 @@ class StudentPortalTests(unittest.TestCase):
         avatars = (LMS_DIR / "static" / "student_avatars.js").read_text(encoding="utf-8")
         portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn("nameWithAvatar", overlay_js)
+        self.assertIn("function rosterStudentId(", overlay_js)
+        self.assertIn("row?.student_id ?? row?.id", overlay_js)
+        self.assertIn("namedGroups.length ? namedGroups : boardTeams", overlay_js)
         self.assertIn("student_avatars.js", overlay_js)
         self.assertNotIn("moodGlyph", overlay_js)
         self.assertNotIn("mood_faces.js", overlay_js)

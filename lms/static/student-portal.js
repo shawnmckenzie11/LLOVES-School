@@ -13,6 +13,9 @@ const boardEl = document.getElementById("class-board");
 const roundBannerEl = document.getElementById("student-round-banner");
 const promptShell = document.getElementById("prompt-shell");
 const questionFrame = document.getElementById("question-frame");
+const liveQuestionStack = document.getElementById("live-question-stack");
+const liveQuestionStackBody = document.getElementById("live-question-stack-body");
+const studentQuestionDock = document.getElementById("student-question-dock");
 const promptFeedback = document.getElementById("prompt-feedback");
 const promptFeedbackLead = document.getElementById("prompt-feedback-lead");
 const promptFeedbackWhy = document.getElementById("prompt-feedback-why");
@@ -76,6 +79,10 @@ let feedbackDismissed = false;
 let holdJoinFeedback = false;
 /** Prompt ids explicitly dismissed after submission. */
 const dismissedPromptIds = new Set();
+/** Lifecycle Active/Closed cards explicitly dismissed in this tab. */
+const dockedLiveCardKeys = new Set();
+/** Unsaved per-card answers preserved across state polls. */
+const liveCardDrafts = new Map();
 /** @type {number} */
 let lastStateSeq = -1;
 /** @type {any} */
@@ -445,17 +452,32 @@ async function saveStudentWork() {
 }
 
 /**
+ * Named teams for the student scoreboard, from the board or group snapshot.
+ * @param {any} payload
+ * @returns {Array<{name:string,color?:string,score?:number}>}
+ */
+function namedScoreboardTeams(payload) {
+  const fromBoard = ((payload?.scoreboard || {}).teams || []).filter(
+    (team) => team && team.name !== "Class"
+  );
+  if (fromBoard.length) return fromBoard;
+  return ((payload?.groups || []).filter((team) => team && team.name !== "Class"));
+}
+
+/**
  * Paint the public team scoreboard strip.
  * @param {any} payload
  */
 function paintBoard(payload) {
   if (!boardEl) return;
-  const sb = payload.scoreboard || {};
-  const teams = sb.teams || [];
+  const visible = Boolean((payload?.teacher_state || {}).scoreboard_visible);
+  const teams = visible ? namedScoreboardTeams(payload) : [];
   if (!teams.length) {
     boardEl.innerHTML = "";
+    boardEl.hidden = true;
     return;
   }
+  boardEl.hidden = false;
   boardEl.innerHTML = `
     <p class="sb-kicker">Scores</p>
     <div class="sb-espn-board">
@@ -511,10 +533,21 @@ function formatPromptHtml(value) {
 const WAITING_ROOM_WAIT_LINE = "Waiting room — class is about to begin.";
 
 /**
- * True when the session is still waiting-room (no scoring, no challenge media).
+ * Return one active published non-question lifecycle item.
  * @param {any} payload
- * @returns {boolean}
+ * @param {string} itemType
+ * @returns {any|null}
  */
+function activePublishedItem(payload, itemType) {
+  return (
+    (payload?.live_items || []).find(
+      (row) =>
+        row?.status === "active" &&
+        String(row?.content?.item_type || "") === itemType
+    ) || null
+  );
+}
+
 /**
  * Student frame projection from LiveTeacherState.
  * @param {any} payload
@@ -530,18 +563,27 @@ function studentProjection(payload) {
   const questionsMode = String(
     view.questions || payload.question_view || (frames.questions === false ? "none" : "student")
   );
-  const mediaMode = String(view.media || (unlocks.media ? "student" : "none"));
-  const canvasMode = String(view.canvas || (unlocks.canvas ? "student" : "none"));
-  const slidesMode = String(view.slides || (unlocks.slides ? "student" : "none"));
+  const mediaItem = activePublishedItem(payload, "media");
+  const whiteboardItem = activePublishedItem(payload, "whiteboard");
+  const slidesItem = activePublishedItem(payload, "slides");
+  const mediaMode = mediaItem
+    ? mediaItem.publish_mode === "group_shared" ? "team" : "student"
+    : String(view.media || (unlocks.media ? "student" : "none"));
+  const canvasMode = whiteboardItem
+    ? whiteboardItem.publish_mode === "group_shared" ? "team" : "student"
+    : String(view.canvas || (unlocks.canvas ? "student" : "none"));
+  const slidesMode = slidesItem
+    ? "student"
+    : String(view.slides || (unlocks.slides ? "student" : "none"));
   const canvasAlign =
     canvasMode === "team" ? "team" : canvasMode === "student" ? "student" : "teacher";
   return {
     stage,
     seq: Number.isFinite(seq) ? seq : 0,
     questions: questionsMode !== "none",
-    media: mediaMode !== "none" && stage !== "round",
-    canvas: canvasMode !== "none" && stage !== "round",
-    slides: slidesMode !== "none" && stage !== "round",
+    media: mediaMode !== "none",
+    canvas: canvasMode !== "none",
+    slides: slidesMode !== "none",
     unlockMedia: mediaMode !== "none",
     unlockCanvas: canvasMode !== "none",
     canvasAlign,
@@ -659,7 +701,10 @@ function paintStudentCanvas(payload) {
  * @param {any} payload
  */
 function paintStudentSlides(payload) {
-  const deckRef = String(payload?.live_metadata?.slides?.deck_ref || "").trim();
+  const published = activePublishedItem(payload, "slides");
+  const deckRef = String(
+    published?.content?.deck_ref || payload?.live_metadata?.slides?.deck_ref || ""
+  ).trim();
   const safe = /^https?:\/\//i.test(deckRef);
   if (slidesEmpty) slidesEmpty.hidden = safe;
   if (!(slidesFrame instanceof HTMLIFrameElement)) return;
@@ -841,7 +886,14 @@ function isWaitingRoom(payload) {
     return payload.waiting_room;
   }
   const proj = studentProjection(payload);
-  const hasMedia = proj.media && Boolean(payload.active_media && payload.active_media.url);
+  const publishedMedia = activePublishedItem(payload, "media");
+  const hasMedia =
+    proj.media &&
+    Boolean(
+      payload.active_media?.url ||
+      publishedMedia?.content?.file ||
+      publishedMedia?.content?.url
+    );
   return !payload.scoring && !hasMedia;
 }
 
@@ -871,7 +923,14 @@ function waitCopyFor(payload) {
 function applyLayout(payload) {
   const live = Boolean(payload.scoring) && !payload.celebrate;
   const proj = studentProjection(payload);
-  const hasMedia = proj.media && Boolean(payload.active_media && payload.active_media.url);
+  const publishedMedia = activePublishedItem(payload, "media");
+  const hasMedia =
+    proj.media &&
+    Boolean(
+      payload.active_media?.url ||
+      publishedMedia?.content?.file ||
+      publishedMedia?.content?.url
+    );
   const waitingRoom = isWaitingRoom(payload);
   const welcomeOn = Boolean(payload.game_show_welcome);
   const celebrating = Boolean(payload.celebrate);
@@ -980,7 +1039,15 @@ function paintMedia(payload) {
     if (mediaEncore) mediaEncore.hidden = true;
     return;
   }
-  const media = payload.active_media;
+  const published = activePublishedItem(payload, "media");
+  const media =
+    payload.active_media ||
+    (published
+      ? {
+          ...published.content,
+          url: published.content?.file || published.content?.url || "",
+        }
+      : null);
   const url = media ? safeMediaUrl(media.url) : "";
   if (mediaChip) {
     const chip = String(
@@ -1264,6 +1331,382 @@ function hidePollTotals() {
   if (!promptPollTotals) return;
   promptPollTotals.hidden = true;
   promptPollTotals.innerHTML = "";
+}
+
+/**
+ * Local dismissal key for one lifecycle card phase.
+ * @param {any} item
+ * @returns {string}
+ */
+function liveCardKey(item) {
+  return `${Number(item?.id) || 0}:${String(item?.status || "active")}`;
+}
+
+function liveCardDockKey(item) {
+  return String(item?.id || item?.item_id || liveCardKey(item));
+}
+
+function stageNumberForItem(item, payload) {
+  const stage = String(
+    item?.stage || item?.content?.stage || payload?.teacher_state?.stage || ""
+  ).toLowerCase();
+  return { join: 1, teams: 2, meet: 3, round: 4, play: 5 }[stage] || 1;
+}
+
+function dockAnswerMark(item) {
+  const content = item?.content || item?.prompt?.payload || {};
+  const submitted = Boolean(item?.my_response);
+  if (!submitted) return "—";
+  const isPoll = !content.key && !content.correct && String(content.type || content.kind || "").toLowerCase() !== "mc";
+  const feedback = item?.my_response?.feedback || {};
+  if (feedback.correct === true) return "✓";
+  if (feedback.correct === false) return "✕";
+  const lead = String(feedback.lead || "").toLowerCase();
+  if (lead.includes("correct") || lead.includes("yes")) return "✓";
+  if (lead.includes("miss") || lead.includes("wrong") || lead.includes("not quite")) return "✕";
+  if (isPoll || !content.key) return "S";
+  return "S";
+}
+
+/**
+ * Display a normalized individual/group answer.
+ * @param {any} answer
+ * @returns {string}
+ */
+function liveAnswerLabel(answer) {
+  if (!answer || typeof answer !== "object") return "—";
+  return String(answer.value ?? answer.choice ?? answer.text ?? "—");
+}
+
+/**
+ * Render governed answer distribution bars.
+ * @param {any} results
+ * @returns {string}
+ */
+function lifecycleResultsHtml(results) {
+  const choices = Array.isArray(results?.choices) ? results.choices : [];
+  if (!choices.length) return "";
+  return `<section class="student-live-results" aria-label="Class results">
+    <p class="student-live-card-kicker">${
+      results.kind === "numeric" ? "Class histogram" : "Class results"
+    }</p>
+    ${mcRevealBarsHtml({ choices })}
+  </section>`;
+}
+
+/**
+ * Render canonical team-answer distribution without exposing private votes.
+ * @param {any} results
+ * @returns {string}
+ */
+function lifecycleClassConsensusHtml(results) {
+  const rows = Array.isArray(results?.class_distribution)
+    ? results.class_distribution
+    : [];
+  if (!rows.length) return "";
+  const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+  return `<section class="student-live-results" aria-label="Class team answers">
+    <p class="student-live-card-kicker">Class team answers</p>
+    ${mcRevealBarsHtml({
+      choices: rows.map((row, index) => ({
+        id: String(index + 1),
+        label: liveAnswerLabel(row.answer),
+        count: Number(row.count) || 0,
+        pct: total ? Math.round((100 * Number(row.count || 0)) / total) : 0,
+      })),
+    })}
+  </section>`;
+}
+
+/**
+ * Return answer controls for a lifecycle question.
+ * @param {any} item
+ * @param {"individual"|"vote"|"team"} action
+ * @param {any} [initial]
+ * @returns {string}
+ */
+function lifecycleAnswerControls(item, action, initial = null) {
+  const prompt = item?.prompt || {};
+  const content = item?.content || prompt.payload || {};
+  const kind = String(prompt.kind || content.type || "mc").toLowerCase();
+  const current = liveAnswerLabel(initial);
+  const prefix = action === "vote" ? "Submit private vote" : action === "team" ? "Team Answer" : "Submit Answer";
+  if (kind === "mc" || kind === "poll") {
+    const choices = Array.isArray(content.options)
+      ? content.options
+      : Array.isArray(content.choices)
+        ? content.choices
+        : [];
+    return `<div class="student-live-answer-controls" data-live-action="${action}">
+      ${choices
+        .map(
+          (choice) =>
+            `<button type="button" class="prompt-choice${
+              String(choice) === current ? " is-selected" : ""
+            }" data-live-choice="${escapeText(choice)}">${escapeText(choice)}</button>`
+        )
+        .join("")}
+      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
+    </div>`;
+  }
+  if (kind === "numeric") {
+    const value = current === "—" ? "" : current;
+    return `<div class="student-live-answer-controls" data-live-action="${action}">
+      <label class="prompt-numeric"><span>Your answer</span>
+        <input type="number" step="any" data-live-value value="${escapeText(value)}">
+      </label>
+      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
+    </div>`;
+  }
+  const value = current === "—" ? "" : current;
+  return `<div class="student-live-answer-controls" data-live-action="${action}">
+    <label class="prompt-share"><span>Your answer</span>
+      <textarea rows="3" maxlength="2000" data-live-text>${escapeText(value)}</textarea>
+    </label>
+    <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
+  </div>`;
+}
+
+/**
+ * Render one student's private-vote and team-answer consensus state.
+ * @param {any} item
+ * @returns {string}
+ */
+function lifecycleConsensusHtml(item) {
+  const group = item?.group_consensus || {};
+  if (!group.eligible) {
+    return `<p class="student-live-note">You joined after voting closed for this question.</p>`;
+  }
+  const progress = `<p class="student-live-progress">${Number(group.vote_count) || 0} / ${
+    Number(group.eligible_count) || 0
+  } team members voted</p>`;
+  if (group.status === "collecting_votes") {
+    return `${progress}${
+      group.can_vote
+        ? lifecycleAnswerControls(
+            item,
+            "vote",
+            liveCardDrafts.get(`${Number(item.id)}:vote`) || group.my_vote
+          )
+        : `<p class="student-live-note">Your private vote is in. Your choice stays private while teammates vote.</p>`
+    }`;
+  }
+  const distribution = (group.vote_summary || [])
+    .map(
+      (row) =>
+        `<li>${escapeText(liveAnswerLabel(row.answer))}: ${Number(row.count) || 0}</li>`
+    )
+    .join("");
+  const proposal = group.proposed_answer
+    ? `<p class="student-live-proposal">Proposed answer: <strong>${escapeText(
+        liveAnswerLabel(group.proposed_answer)
+      )}</strong></p>`
+    : `<p class="student-live-proposal">The vote is tied. Choose the Team Answer together.</p>`;
+  const discussion = `<section class="student-team-distribution">
+    <p class="student-live-card-kicker">Your team only</p>
+    <ul>${distribution || "<li>No votes recorded</li>"}</ul>
+    ${proposal}
+  </section>`;
+  if (group.status === "finalized") {
+    return `${progress}${discussion}<p class="student-live-final">Team Answer: <strong>${escapeText(
+      liveAnswerLabel(group.final_answer)
+    )}</strong></p>`;
+  }
+  return `${progress}${discussion}${
+    group.can_finalize
+      ? lifecycleAnswerControls(
+          item,
+          "team",
+          liveCardDrafts.get(`${Number(item.id)}:team`) || group.proposed_answer
+        )
+      : `<p class="student-live-note">Waiting for a teammate to submit the Team Answer.</p>`
+  }`;
+}
+
+/**
+ * Render ordered active questions followed by closed final-result cards.
+ * @param {any} payload
+ */
+function paintQuestionDock(items, payload) {
+  if (!studentQuestionDock) return;
+  const docked = (items || []).filter((item) => dockedLiveCardKeys.has(liveCardDockKey(item)));
+  studentQuestionDock.hidden = docked.length === 0;
+  studentQuestionDock.innerHTML = docked
+    .map((item) => {
+      const key = liveCardDockKey(item);
+      const stage = stageNumberForItem(item, payload);
+      const mark = dockAnswerMark(item);
+      return `<div class="student-question-dock-chip" data-dock-key="${escapeText(key)}">
+        <span class="student-question-dock-label">${stage} | ${escapeText(mark)}</span>
+        <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(key)}" aria-label="Pop question back out">↗</button>
+      </div>`;
+    })
+    .join("");
+}
+
+/**
+ * Wrap the legacy published prompt as a lifecycle card when needed.
+ * @param {any} payload
+ * @returns {any|null}
+ */
+function promptAsLifecycleItem(payload) {
+  const prompt = payload?.prompt;
+  if (!prompt || !prompt.kind || prompt.kind === "idle") return null;
+  const body = prompt.payload || {};
+  return {
+    id: Number(prompt.id) || 0,
+    status: "active",
+    content: {
+      type: prompt.kind,
+      text: body.text || body.prompt || body.question || prompt.stem || "",
+      ...body,
+    },
+    prompt,
+    can_submit: !payload.my_response,
+    my_response: payload.my_response || null,
+    response_mode: "individual",
+    results: null,
+  };
+}
+
+function paintLifecycleQuestionStack(payload) {
+  if (!liveQuestionStack) return;
+  let active = Array.isArray(payload?.active_questions)
+    ? payload.active_questions
+    : [];
+  const closed = Array.isArray(payload?.closed_results)
+    ? payload.closed_results
+    : [];
+  const legacy = promptAsLifecycleItem(payload);
+  const welcomeOn = hasGameShowWelcome(payload);
+  if (
+    legacy &&
+    (welcomeOn || !active.length) &&
+    !active.some((item) => Number(item?.prompt?.id || item?.id) === Number(legacy.prompt.id))
+  ) {
+    active = [legacy, ...active];
+  }
+  const all = [...active, ...closed];
+  const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
+  paintQuestionDock(all, payload);
+  liveQuestionStackBody.innerHTML = visible
+    .map((item) => {
+      const content = item.content || item.prompt?.payload || {};
+      const status = String(item.status || "active");
+      const groupMode = item.response_mode === "group_consensus";
+      const feedback =
+        !groupMode && item.my_response?.feedback
+          ? `<section class="student-live-feedback">
+              <strong>${escapeText(item.my_response.feedback.lead || "Response received.")}</strong>
+              <p>${escapeText(item.my_response.feedback.text || "")}</p>
+            </section>`
+          : "";
+      const individualControls =
+        !groupMode && !item.my_response && item.can_submit
+          ? lifecycleAnswerControls(
+              item,
+              "individual",
+              liveCardDrafts.get(`${Number(item.id)}:individual`)
+            )
+          : "";
+      const ownResponse =
+        !groupMode && item.my_response
+          ? `<p class="student-live-note">Your answer: ${escapeText(
+              liveAnswerLabel(item.my_response.response)
+            )}</p>`
+          : "";
+      const results = groupMode
+        ? lifecycleClassConsensusHtml(item.results)
+        : lifecycleResultsHtml(item.results);
+      return `<article class="student-live-card is-${escapeText(status)}" data-live-card-id="${Number(
+        item.id
+      )}" data-live-card-status="${escapeText(status)}">
+        <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(
+          liveCardDockKey(item)
+        )}" aria-label="Dock question">×</button>
+        <div class="student-live-card-head">
+          <span class="student-live-card-kicker">${escapeText(
+            String(content.type || item.prompt?.kind || "Question").toUpperCase()
+          )}</span>
+          <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
+        </div>
+        <h2>${formatPromptHtml(content.text || content.prompt || content.question || "Live question")}</h2>
+        ${
+          groupMode
+            ? lifecycleConsensusHtml(item)
+            : `${individualControls}${ownResponse}${feedback}`
+        }
+        ${results}
+      </article>`;
+    })
+    .join("");
+  liveQuestionStack.hidden = visible.length === 0;
+  liveQuestionStack.dataset.hasLifecycle = all.length ? "1" : "0";
+  const legacyPromptId = Number(payload?.prompt?.id) || 0;
+  const lifecycleOwnsLegacy = all.some(
+    (item) => Number(item?.prompt?.id) === legacyPromptId
+  );
+  if (questionFrame && (lifecycleOwnsLegacy || (welcomeOn && visible.length))) {
+    questionFrame.hidden = true;
+  }
+}
+
+/**
+ * Read a selected/input answer from one lifecycle card.
+ * @param {HTMLElement} card
+ * @returns {Record<string, unknown>|null}
+ */
+function lifecycleAnswerFromCard(card) {
+  const selected = card.querySelector("[data-live-choice].is-selected");
+  if (selected) return { choice: selected.getAttribute("data-live-choice") || "" };
+  const numeric = card.querySelector("[data-live-value]");
+  if (numeric instanceof HTMLInputElement && numeric.value.trim() !== "") {
+    const value = Number(numeric.value);
+    if (Number.isFinite(value)) return { value };
+  }
+  const text = card.querySelector("[data-live-text]");
+  if (text instanceof HTMLTextAreaElement && text.value.trim()) {
+    return { text: text.value.trim() };
+  }
+  return null;
+}
+
+/**
+ * Submit an individual response, private vote, or canonical Team Answer.
+ * @param {HTMLElement} card
+ * @param {"individual"|"vote"|"team"} action
+ */
+async function submitLifecycleAnswer(card, action) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  const item = (lastStudentPayload?.active_questions || []).find(
+    (row) => Number(row.id) === itemId
+  );
+  const response = lifecycleAnswerFromCard(card);
+  if (!item || !response) return;
+  let url = "/api/student/live-prompt/response";
+  let body = { prompt_id: Number(item.prompt?.id) || 0, response };
+  if (action === "vote") {
+    url = `/api/student/live-items/${itemId}/vote`;
+    body = { response };
+  } else if (action === "team") {
+    url = `/api/student/live-items/${itemId}/team-answer`;
+    body = { response };
+  }
+  const res = await fetch(
+    url,
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    })
+  );
+  const data = await res.json();
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.error || "Could not submit that answer.");
+  }
+  liveCardDrafts.delete(`${itemId}:${action}`);
+  await tick();
 }
 
 function paintPrompt(payload) {
@@ -2080,9 +2523,73 @@ async function tick() {
     } else if (!data.prompt) {
       paintPrompt(data);
     }
+    paintLifecycleQuestionStack(data);
   } catch (_err) {
     /* keep last paint */
   }
+}
+
+if (studentQuestionDock) {
+  studentQuestionDock.addEventListener("click", (event) => {
+    const undock = event.target.closest("[data-undock-live-card]");
+    if (!(undock instanceof HTMLButtonElement)) return;
+    dockedLiveCardKeys.delete(undock.dataset.undockLiveCard || "");
+    paintLifecycleQuestionStack(lastStudentPayload || {});
+  });
+}
+if (liveQuestionStack) {
+  liveQuestionStack.addEventListener("click", (event) => {
+    const choice = event.target.closest("[data-live-choice]");
+    if (choice instanceof HTMLButtonElement) {
+      const controls = choice.closest(".student-live-answer-controls");
+      controls?.querySelectorAll("[data-live-choice]").forEach((button) => {
+        button.classList.toggle("is-selected", button === choice);
+      });
+      const card = choice.closest("[data-live-card-id]");
+      const action = controls?.getAttribute("data-live-action") || "individual";
+      if (card instanceof HTMLElement) {
+        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, {
+          choice: choice.getAttribute("data-live-choice") || "",
+        });
+      }
+      return;
+    }
+    const dismiss = event.target.closest("[data-dismiss-live-card]");
+    if (dismiss instanceof HTMLButtonElement) {
+      dockedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
+      paintLifecycleQuestionStack(lastStudentPayload || {});
+      return;
+    }
+    const submit = event.target.closest("[data-live-submit]");
+    const card = submit?.closest("[data-live-card-id]");
+    if (!(submit instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
+    submit.disabled = true;
+    submitLifecycleAnswer(card, submit.dataset.liveSubmit || "individual")
+      .catch((err) => {
+        let note = card.querySelector(".student-live-submit-error");
+        if (!note) {
+          note = document.createElement("p");
+          note.className = "student-live-submit-error";
+          card.appendChild(note);
+        }
+        note.textContent = err instanceof Error ? err.message : "Could not submit.";
+        submit.disabled = false;
+      });
+  });
+  liveQuestionStack.addEventListener("input", (event) => {
+    const field = event.target;
+    const card = field.closest?.("[data-live-card-id]");
+    const controls = field.closest?.("[data-live-action]");
+    if (!(card instanceof HTMLElement) || !(controls instanceof HTMLElement)) return;
+    const key = `${Number(card.dataset.liveCardId)}:${
+      controls.dataset.liveAction || "individual"
+    }`;
+    if (field instanceof HTMLInputElement) {
+      liveCardDrafts.set(key, { value: field.value });
+    } else if (field instanceof HTMLTextAreaElement) {
+      liveCardDrafts.set(key, { text: field.value });
+    }
+  });
 }
 
 if (promptFeedbackClose) {
@@ -2110,6 +2617,7 @@ bindStudentCanvas();
 bindFloatingPane(mediaPane);
 bindFloatingPane(canvasPane);
 bindFloatingPane(slidesPane);
+bindFloatingPane(liveQuestionStack);
 tick();
 setInterval(tick, 4000);
 setInterval(tickDisplayTime, 250);

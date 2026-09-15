@@ -105,6 +105,16 @@ function hasTeamScoreboard(board) {
 }
 
 /**
+ * Normalize a roster, player, or group-member id.
+ * @param {{student_id?: number, id?: number}|null|undefined} row
+ * @returns {number}
+ */
+function rosterStudentId(row) {
+  const sid = Number(row?.student_id ?? row?.id);
+  return Number.isFinite(sid) && sid > 0 ? sid : 0;
+}
+
+/**
  * Map student_id → team metadata from a live scoreboard payload.
  * @param {any} board
  * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
@@ -113,6 +123,7 @@ function teamByStudentId(board) {
   const map = new Map();
   const teams = Array.isArray(board?.teams) ? board.teams : [];
   teams.forEach((team, index) => {
+    if (team.name === "Class") return;
     const meta = {
       id: Number(team.id) || index,
       name: String(team.name || `Team ${index + 1}`),
@@ -120,8 +131,12 @@ function teamByStudentId(board) {
       sort: index,
     };
     for (const player of team.players || []) {
-      const sid = Number(player.student_id);
-      if (Number.isFinite(sid) && sid > 0) map.set(sid, meta);
+      const sid = rosterStudentId(player);
+      if (sid) map.set(sid, meta);
+    }
+    for (const member of team.members || []) {
+      const sid = rosterStudentId(member);
+      if (sid) map.set(sid, meta);
     }
   });
   return map;
@@ -129,6 +144,7 @@ function teamByStudentId(board) {
 
 /**
  * Map student_id → team metadata from session groups array.
+ * Game memberships use ``id``; scoreboard players use ``student_id``.
  * @param {any[]} groups
  * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
  */
@@ -143,11 +159,31 @@ function teamByStudentFromGroups(groups) {
       sort: Number(team.sort_order) || index,
     };
     for (const member of team.members || []) {
-      const sid = Number(member.student_id);
-      if (Number.isFinite(sid) && sid > 0) map.set(sid, meta);
+      const sid = rosterStudentId(member);
+      if (sid) map.set(sid, meta);
+    }
+    for (const player of team.players || []) {
+      const sid = rosterStudentId(player);
+      if (sid) map.set(sid, meta);
     }
   });
   return map;
+}
+
+/**
+ * Prefer first-seen team metadata when merging board and group maps.
+ * @param {...Map<number, {id:number,name:string,color:string,sort:number}>} maps
+ * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
+ */
+function mergeTeamMaps(...maps) {
+  const out = new Map();
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [sid, meta] of map.entries()) {
+      if (!out.has(sid)) out.set(sid, meta);
+    }
+  }
+  return out;
 }
 
 /**
@@ -167,13 +203,16 @@ function paintRoster() {
   if (!rosterBody) return;
   const present = lastPresent;
   const teamMode = hasTeamScoreboard(lastBoard) || hasGroupMode();
+  const namedGroups = (lastGroups || []).filter((team) => team && team.name !== "Class");
+  const boardTeams = (lastBoard?.teams || []).filter((team) => team && team.name !== "Class");
   const key = [
     teamMode ? "team" : "flat",
     present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.character || ""}:${row.unmatched ? "g" : ""}`).join("|"),
     teamMode
-      ? (lastBoard?.teams || [])
-          .map((t) => `${t.id}:${(t.players || []).map((p) => p.student_id).join(",")}`)
-          .join(";")
+      ? [
+          namedGroups.map((t) => `${t.id}:${(t.members || []).map((m) => rosterStudentId(m)).join(",")}`).join(";"),
+          boardTeams.map((t) => `${t.id}:${(t.players || t.members || []).map((p) => rosterStudentId(p)).join(",")}`).join(";"),
+        ].join("|")
       : "",
   ].join("::");
   if (key === lastRosterKey) {
@@ -187,9 +226,12 @@ function paintRoster() {
     const list = document.getElementById("live-roster");
     if (list) list.innerHTML = present.map(rosterItemHtml).join("");
   } else {
-    // Use lastGroups if available, fallback to board teams
-    const teamsSource = (lastBoard?.teams?.length ? lastBoard.teams : lastGroups) || [];
-    const byTeam = lastBoard?.teams?.length ? teamByStudentId(lastBoard) : teamByStudentFromGroups(teamsSource);
+    const teamsSource = namedGroups.length ? namedGroups : boardTeams;
+    const byTeam = mergeTeamMaps(
+      teamByStudentFromGroups(namedGroups),
+      teamByStudentId(lastBoard),
+      teamByStudentFromGroups(boardTeams)
+    );
     /** @type {Map<number|string, {name:string,color:string,sort:number,members:typeof present}>} */
     const groups = new Map();
     teamsSource.forEach((team, index) => {
@@ -204,7 +246,7 @@ function paintRoster() {
     });
     const unassigned = [];
     for (const row of present) {
-      const meta = byTeam.get(row.student_id);
+      const meta = byTeam.get(rosterStudentId(row));
       if (!meta) {
         unassigned.push(row);
         continue;
@@ -323,6 +365,11 @@ function paintSession(state) {
     const count = Number.isFinite(n) ? n : lastPresent.length;
     countEl.textContent = `(${count})`;
   }
+  lastTeacherState = state?.teacher_state || {};
+  lastGroups = Array.isArray(state?.groups) ? state.groups : [];
+  if (state?.scoreboard && Array.isArray(state.scoreboard.teams) && state.scoreboard.teams.length) {
+    lastBoard = state.scoreboard;
+  }
   paintRoster();
   const ended = state?.phase === "ended" || state?.session?.status === "ended";
   if (endedEl) {
@@ -331,13 +378,15 @@ function paintSession(state) {
   }
   if (ended) {
     document.body.classList.add("is-ended");
+    try {
+      window.close();
+    } catch {
+      /* popup close can fail if the window was not script-opened */
+    }
   }
   const sessionClass = Number(state?.session?.class_id || 0);
   if (sessionClass > 0) classId = sessionClass;
-  // Track teacher state and groups for group-mode roster display
-  lastTeacherState = state?.teacher_state || {};
-  lastGroups = Array.isArray(state?.groups) ? state.groups : [];
-  paintRoster();
+  paintTeamScores(lastBoard);
 }
 
 /**
@@ -347,14 +396,17 @@ function paintSession(state) {
 function paintTeamScores(board) {
   if (!teamsSection || !teamBoard) return;
   const phase = String(board?.overlay_phase || "");
-  if (phase === "anticipation" || !hasTeamScoreboard(board)) {
+  const wantBoard = Boolean(lastTeacherState?.scoreboard_visible);
+  const groupTeams = (lastGroups || []).filter((team) => team && team.name !== "Class");
+  const scoreTeams = Array.isArray(board?.teams) ? board.teams.filter((t) => t.name !== "Class") : [];
+  const teams = scoreTeams.length ? scoreTeams : groupTeams;
+  if (phase === "anticipation" || !wantBoard || teams.length < 1) {
     teamsSection.hidden = true;
     teamsSection.classList.add("hidden");
     teamBoard.innerHTML = "";
     lastTeamKey = "";
     return;
   }
-  const teams = board.teams || [];
   const key = teams.map((t) => `${t.id}:${t.score}:${t.name}`).join("|");
   teamsSection.hidden = false;
   teamsSection.classList.remove("hidden");

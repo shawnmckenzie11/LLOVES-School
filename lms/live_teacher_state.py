@@ -201,6 +201,10 @@ def default_teacher_state() -> dict[str, Any]:
         "round": None,
         "round_flags": default_round_flags(),
         "teams_mode": "individual",
+        "groups_configured": False,
+        "run_as_group": False,
+        "scoreboard_visible": False,
+        "hide_absent": False,
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
         "active_tab": "questions",
@@ -801,6 +805,19 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     mode = stored.get("teams_mode")
     if mode in TEAMS_MODES:
         base["teams_mode"] = mode
+    for key in (
+        "groups_configured",
+        "run_as_group",
+        "scoreboard_visible",
+        "hide_absent",
+    ):
+        parsed = _as_bool(stored.get(key))
+        if parsed is not None:
+            base[key] = parsed
+    if not base["groups_configured"]:
+        base["run_as_group"] = False
+        base["scoreboard_visible"] = False
+    base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
     preset = stored.get("layout_preset")
     if preset in LAYOUT_PRESETS:
         base["layout_preset"] = preset
@@ -926,6 +943,10 @@ def apply_teacher_state_update(
     round: Any = None,
     round_flags: Any = None,
     teams_mode: Any = None,
+    groups_configured: Any = None,
+    run_as_group: Any = None,
+    scoreboard_visible: Any = None,
+    hide_absent: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
     active_tab: Any = None,
@@ -957,6 +978,10 @@ def apply_teacher_state_update(
         round: Pedagogical round, or empty to clear.
         round_flags: ``{minds_on, action, consolidation}`` facet map.
         teams_mode: ``teams`` or ``individual``.
+        groups_configured: Whether fixed memberships have been created.
+        run_as_group: Session-global group presentation/tracking toggle.
+        scoreboard_visible: Session-global student scoreboard toggle.
+        hide_absent: Session-global class-list filter; defaults false.
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
         active_tab: Active Content tab.
@@ -1027,6 +1052,44 @@ def apply_teacher_state_update(
         if mode not in TEAMS_MODES:
             raise ValueError(f"unknown teams_mode: {mode}")
         base["teams_mode"] = mode
+        if base.get("groups_configured"):
+            base["run_as_group"] = mode == "teams"
+    configured_before = bool(base.get("groups_configured"))
+    if groups_configured is not None:
+        configured = _as_bool(groups_configured)
+        if configured is None:
+            raise ValueError("groups_configured must be a boolean")
+        if configured_before and not configured:
+            raise ValueError("groups cannot be unconfigured during a session")
+        base["groups_configured"] = configured
+        if configured and not configured_before:
+            if run_as_group is None:
+                base["run_as_group"] = True
+            if scoreboard_visible is None:
+                base["scoreboard_visible"] = True
+    if run_as_group is not None:
+        enabled = _as_bool(run_as_group)
+        if enabled is None:
+            raise ValueError("run_as_group must be a boolean")
+        if enabled and not base.get("groups_configured"):
+            raise ValueError("set up groups before enabling group mode")
+        base["run_as_group"] = enabled
+    if scoreboard_visible is not None:
+        visible = _as_bool(scoreboard_visible)
+        if visible is None:
+            raise ValueError("scoreboard_visible must be a boolean")
+        if visible and not base.get("groups_configured"):
+            raise ValueError("set up groups before showing the scoreboard")
+        base["scoreboard_visible"] = visible
+    if hide_absent is not None:
+        hidden = _as_bool(hide_absent)
+        if hidden is None:
+            raise ValueError("hide_absent must be a boolean")
+        base["hide_absent"] = hidden
+    if not base.get("groups_configured"):
+        base["run_as_group"] = False
+        base["scoreboard_visible"] = False
+    base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"
     preset_applied = False
     if layout_preset is not None:
         preset = str(layout_preset).strip()
