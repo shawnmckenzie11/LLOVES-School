@@ -7809,6 +7809,18 @@ class SchoolDB(LovesDB):
                 payload=desired,
                 activate=True,
             )
+        # Do not steal activation from a different active prompt
+        if active is not None:
+            # Seed the row but keep it inactive
+            if not self._minds_on_row_exists(session_id):
+                return self.set_live_session_prompt(
+                    session_id,
+                    slide_index=MINDS_ON_SLIDE_INDEX,
+                    kind=MINDS_ON_KIND,
+                    payload=desired,
+                    activate=False,
+                )
+            return None
         if self._minds_on_row_exists(session_id):
             return None
         return self.set_live_session_prompt(
@@ -8594,19 +8606,32 @@ class SchoolDB(LovesDB):
                 }
             )
             seen.add(question_id)
+        # Build a map from prompt_id to lifecycle stage for filtering
+        prompt_to_lifecycle_stage: dict[int, str] = {}
+        for lifecycle in lifecycle_rows:
+            prompt_id = lifecycle.get("prompt_id")
+            if prompt_id not in (None, ""):
+                prompt_to_lifecycle_stage[int(prompt_id)] = str(
+                    lifecycle.get("stage") or ""
+                )
         for prompt in prompt_rows:
             payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
             payload = payload if isinstance(payload, dict) else {}
-            prompt_stage = "meet" if is_meet_team_payload(payload) else stage
-            if stage == "join" and not is_minds_on_payload(payload):
-                continue
-            if stage == "teams" and not is_teams_spark_payload(payload):
-                continue
-            # Exclude minds-on and teams-spark from Meet stage (stage-specific)
-            if stage == "meet":
-                if is_minds_on_payload(payload) or is_teams_spark_payload(payload):
+            # Check lifecycle stage first - if prompt has a lifecycle item, use its stage
+            lifecycle_stage = prompt_to_lifecycle_stage.get(int(prompt["id"]))
+            if lifecycle_stage:
+                if lifecycle_stage != stage:
                     continue
-                if prompt_stage != "meet":
+            else:
+                # Fallback: infer stage from payload type
+                prompt_stage = "meet" if is_meet_team_payload(payload) else (
+                    "join" if is_minds_on_payload(payload) else (
+                    "teams" if is_teams_spark_payload(payload) else None))
+                if stage == "join" and not is_minds_on_payload(payload):
+                    continue
+                if stage == "teams" and not is_teams_spark_payload(payload):
+                    continue
+                if stage == "meet" and prompt_stage != "meet":
                     continue
             if stage in {"round", "play"} and not prompt.get("active"):
                 continue
@@ -8901,7 +8926,9 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        self.ensure_waiting_room_minds_on(session_id)
+        # Only seed legacy prompt when v2 lifecycle doesn't own the stage
+        if not self.schema_v2_owns_live_stage_questions(session_id):
+            self.ensure_waiting_room_minds_on(session_id)
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
@@ -9364,8 +9391,9 @@ class SchoolDB(LovesDB):
         lifecycle_owned = self.schema_v2_owns_live_stage_questions(
             session_id, stage
         )
-        # Meet prompts are handled separately from lifecycle items
-        if meet_live:
+        if lifecycle_owned:
+            prompt = None
+        elif meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
             prompt = self._student_stage_prompt(
                 session_id,
@@ -9373,17 +9401,6 @@ class SchoolDB(LovesDB):
                 student_id=student_id,
                 participant_uuid=participant_uuid,
             )
-        elif stage in {"join", "teams"}:
-            # Join/Teams always use legacy prompt (minds-on persists through teams)
-            self.ensure_waiting_room_minds_on(session_id)
-            prompt = self._student_stage_prompt(
-                session_id,
-                teacher=teacher,
-                student_id=student_id,
-                participant_uuid=participant_uuid,
-            )
-        elif lifecycle_owned:
-            prompt = None
         else:
             self.ensure_waiting_room_minds_on(session_id)
             prompt = self._student_stage_prompt(
@@ -9414,11 +9431,9 @@ class SchoolDB(LovesDB):
         )
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
-        # Allow legacy prompts on join/teams/meet stages even when lifecycle owns them
-        legacy_prompt_stages = {"join", "teams", "meet"}
-        if lifecycle_owned and stage not in legacy_prompt_stages:
+        if lifecycle_owned:
             return empty
-        if questions_mode == "none" and stage not in legacy_prompt_stages:
+        if questions_mode == "none":
             return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
@@ -9714,7 +9729,7 @@ class SchoolDB(LovesDB):
                     self.conn.commit()
             self._persist_live_slot(session_id, slot)
             waiting_room = not self._session_left_waiting_room(session_id)
-            if waiting_room:
+            if waiting_room and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
             elif challenge is not None:
                 teacher = self.live_session_teacher_state_payload(session_id)
@@ -9751,7 +9766,7 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         if challenge is not None:
             self._persist_live_slot(session_id, slot)
-            if not self._session_left_waiting_room(session_id):
+            if not self._session_left_waiting_room(session_id) and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
         if payload is not None:
             teacher = self.live_session_teacher_state_payload(session_id)
@@ -10472,7 +10487,7 @@ class SchoolDB(LovesDB):
                             (encoded, int(session_id)),
                         )
                         self.conn.commit()
-            if not self._session_left_waiting_room(session_id):
+            if not self._session_left_waiting_room(session_id) and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
         return written
 
@@ -12046,7 +12061,8 @@ class SchoolDB(LovesDB):
                 live_slot=live_slot,
             )
         else:
-            self.ensure_waiting_room_minds_on(session_id)
+            if not self.schema_v2_owns_live_stage_questions(session_id):
+                self.ensure_waiting_room_minds_on(session_id)
         return session_row
 
 

@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_metadata import empty_live_class_metadata  # noqa: E402
 from meet_team import meet_team_prompt_payload  # noqa: E402
 from minds_on import MINDS_ON_CHOICES  # noqa: E402
 from teams_spark import teams_spark_prompt_payload  # noqa: E402
@@ -67,6 +68,12 @@ class LiveShellTests(unittest.TestCase):
         """Close db and temp dir."""
         self.school.close()
         self.tmp.cleanup()
+
+    def _use_legacy_live_metadata(self) -> None:
+        """Route this test through the schema-v1 singleton compatibility path."""
+        self.school.live_class_metadata_for_session = (
+            lambda _sid: empty_live_class_metadata("MCF3M", "M1", "C1")
+        )
 
     def test_live_tab_shell_has_header_and_dual_panes(self) -> None:
         """IA v2 shell IDs are present; v1 full-bleed leftovers are gone."""
@@ -1698,6 +1705,7 @@ class LiveShellTests(unittest.TestCase):
 
     def test_beat30_module_and_live_class_dropdown(self) -> None:
         """Beat 30 interim: Module + Live class picks load the C-slot pack."""
+        self._use_legacy_live_metadata()
         html = self.client.get(
             f"/staff/class/{self.class_id}?tab=live"
         ).get_data(as_text=True)
