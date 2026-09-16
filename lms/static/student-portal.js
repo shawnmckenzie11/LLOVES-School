@@ -85,6 +85,7 @@ const dockedLiveCardKeys = new Set();
 const liveCardDrafts = new Map();
 /** @type {number} */
 let lastStateSeq = -1;
+let lastPollStamp = "";
 /** @type {any} */
 let lastStudentPayload = null;
 /** @type {string} */
@@ -1260,9 +1261,7 @@ function studentMcSummary(payload) {
  * @returns {boolean}
  */
 function studentPollClosed(payload) {
-  if (Boolean(payload && payload.poll_closed)) return true;
-  const ui = ((payload && payload.teacher_state) || {}).mc_ui || {};
-  return Boolean(ui.poll_closed);
+  return Boolean(payload && payload.poll_closed);
 }
 
 /**
@@ -1694,6 +1693,39 @@ function promptAsLifecycleItem(payload) {
   };
 }
 
+/**
+ * True when leftover waiting-room minds-on must not intercept a join MC.
+ * @param {any} item
+ * @param {string} stage
+ * @param {boolean} hasPublishedJoinCatalogue
+ * @returns {boolean}
+ */
+
+/**
+ * True when a published join-stage catalogue MC should supersede waiting-room minds-on.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function publishedJoinCatalogueActive(payload) {
+  const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
+  if (stage !== "join") return false;
+  return [...(payload?.active_questions || []), ...(payload?.closed_results || [])].some((item) => {
+    const itemId = String(item?.item_id || item?.content?.item_id || "")
+      .toLowerCase()
+      .replace(/_/g, "-");
+    const itemStage = String(item?.stage || item?.content?.stage || "").toLowerCase();
+    return itemId && itemId !== "minds-on" && (!itemStage || itemStage === "join");
+  });
+}
+
+function isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) {
+  const itemId = String(item?.item_id || item?.content?.item_id || "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (itemId !== "minds-on") return false;
+  return stage !== "join" || hasPublishedJoinCatalogue;
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   let active = Array.isArray(payload?.active_questions)
@@ -1712,14 +1744,29 @@ function paintLifecycleQuestionStack(payload) {
     active = [legacy, ...active];
   }
   const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
+  const hasPublishedJoinCatalogue = publishedJoinCatalogueActive(payload);
   const all = [...active, ...closed].filter((item) => {
     const kind = String(
       item?.content?.item_type || item?.item_type || item?.kind || ""
     ).toLowerCase();
     if (["media", "whiteboard", "slides"].includes(kind)) return false;
     const status = String(item?.status || "active").toLowerCase();
-    if (status === "active") return true;
     const itemStage = String(item?.stage || item?.content?.stage || "").toLowerCase();
+    const itemId = String(item?.item_id || item?.content?.item_id || "")
+      .toLowerCase()
+      .replace(/_/g, "-");
+    if (isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue)) {
+      return false;
+    }
+    if (
+      ["meet-team", "meet-a", "meet-b", "meet-c"].includes(itemId) &&
+      stage !== "meet"
+    ) {
+      return false;
+    }
+    if (status === "active") {
+      return !itemStage || !stage || itemStage === stage;
+    }
     return !itemStage || !stage || itemStage === stage;
   });
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
@@ -1770,7 +1817,7 @@ function paintLifecycleQuestionStack(payload) {
       const dockKey = liveCardDockKey(item);
       return `<article class="student-live-card student-floating-pane is-${escapeText(status)}" data-live-card-id="${Number(
         item.id
-      )}" data-live-card-status="${escapeText(status)}" data-live-card-key="${escapeText(dockKey)}">
+      )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(status)}" data-live-card-key="${escapeText(dockKey)}">
         <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
           <span>Question</span>
           <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
@@ -1840,9 +1887,13 @@ function lifecycleAnswerFromCard(card) {
  */
 async function submitLifecycleAnswer(card, action) {
   const itemId = Number(card.dataset.liveCardId) || 0;
+  const promptIdFromCard = Number(card.dataset.livePromptId) || 0;
   const item =
     (lastStudentPayload?.active_questions || []).find(
       (row) => Number(row.id) === itemId
+    ) ||
+    (lastStudentPayload?.active_questions || []).find(
+      (row) => Number(row?.prompt?.id) === promptIdFromCard
     ) ||
     (Number(lastStudentPayload?.prompt?.id) === itemId
       ? promptAsLifecycleItem(lastStudentPayload)
@@ -1850,13 +1901,13 @@ async function submitLifecycleAnswer(card, action) {
   const response = lifecycleAnswerFromCard(card);
   if (!response) return;
   if (!item) {
-    const promptId = Number(lastStudentPayload?.prompt?.id) || itemId;
+    const promptId = promptIdFromCard || Number(lastStudentPayload?.prompt?.id) || itemId;
     if (!promptId) return;
     await submitResponse(promptId, response);
     return;
   }
   let url = "/api/student/live-prompt/response";
-  let body = { prompt_id: Number(item.prompt?.id) || 0, response };
+  let body = { prompt_id: Number(item.prompt?.id) || promptIdFromCard || 0, response };
   if (action === "vote") {
     url = `/api/student/live-items/${itemId}/vote`;
     body = { response };
@@ -1922,8 +1973,25 @@ function paintPrompt(payload) {
   if (holdJoinFeedback && !isJoinMindsOnPrompt(payload)) {
     return;
   }
+  if (isJoinMindsOnPrompt(payload) && publishedJoinCatalogueActive(payload)) {
+    if (questionFrame) questionFrame.hidden = true;
+    if (promptShell) {
+      promptShell.hidden = true;
+      promptShell.innerHTML = "";
+    }
+    lastPromptId = null;
+    return;
+  }
   const summary = studentMcSummary(payload);
-  if (summary && prompt && prompt.kind && prompt.kind !== "idle" && !answered) {
+  const closedFacing = studentPollClosed(payload);
+  if (
+    closedFacing &&
+    summary &&
+    prompt &&
+    prompt.kind &&
+    prompt.kind !== "idle" &&
+    !answered
+  ) {
     hideFeedbackPanel();
     if (promptAck) {
       promptAck.hidden = true;
@@ -2628,8 +2696,18 @@ function paintGameShowWelcome(payload) {
  */
 async function tick() {
   try {
-    const res = await fetch("/api/student/state", visitFetchInit());
+    const params = new URLSearchParams();
+    if (lastStateSeq >= 0) params.set("seq", String(lastStateSeq));
+    if (lastPollStamp) params.set("stamp", lastPollStamp);
+    const qs = params.toString() ? `?${params}` : "";
+    const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
     const data = await res.json();
+    if (data.unchanged) {
+      if (data.stamp) lastPollStamp = String(data.stamp);
+      if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
+      return;
+    }
+    if (data.stamp) lastPollStamp = String(data.stamp);
     if (
       (data.status === "ended" || data.status === "waiting")
       && !data.celebrate

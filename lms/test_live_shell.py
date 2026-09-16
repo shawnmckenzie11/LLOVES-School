@@ -242,6 +242,28 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function groupConsensusResultsHtml(", js)
         self.assertNotIn("lloves-scoreboard-", js)
 
+    def test_keyed_numeric_enables_select_correct(self) -> None:
+        """Staff JS enables Select correct when a numeric card has a singular key."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function liveQuestionHasSingularKey(", js)
+        self.assertIn("data-has-answer-key", js)
+        self.assertIn("hasAnswerKey", js)
+        self.assertNotIn('correct.disabled = questionType !== "mc"', js)
+        open_fn = js.split("async function openQuestionResponses(")[1].split(
+            "function paintQuestionArtifact("
+        )[0]
+        self.assertIn("Boolean(hasAnswerKey)", open_fn)
+        self.assertIn("questionType === \"mc\"", open_fn)
+        self.assertIn("row.correct != null", open_fn)
+        helper = js.split("function liveQuestionHasSingularKey(")[0].rsplit(
+            "/**", 1
+        )[-1] + js.split("function liveQuestionHasSingularKey(")[1].split(
+            "async function openQuestionResponses("
+        )[0]
+        self.assertIn("correct_answer", helper)
+        self.assertIn("keyless numeric", helper)
+
     def test_group_setup_does_not_start_timer_or_change_stage(self) -> None:
         """Set Up fixes memberships while leaving stage and timer untouched."""
 
@@ -783,6 +805,9 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("applySessionPresentTicks(", poll)
         self.assertIn("!row?.left_at", poll)
+        self.assertIn("sessionPollInFlight", poll)
+        self.assertIn("?light=1", poll)
+        self.assertIn("paintLiveQuestionCards()", poll)
         self.assertNotIn("setInterval", ticks)
 
     def test_beat22b_teams_classlist_present_only(self) -> None:
@@ -792,7 +817,8 @@ class LiveShellTests(unittest.TestCase):
             "function projectedClassListStudents("
         )[0]
         self.assertIn("Array.isArray(students)", visible)
-        self.assertNotIn("sessionPresentIds", visible)
+        self.assertIn("teacherState.hide_absent", visible)
+        self.assertIn("sessionPresentIds", visible)
         self.assertIn("function projectedClassListStudents()", js)
         render = js.split("function renderAttendanceList()")[1].split(
             "function updateAttCount()"
@@ -1097,6 +1123,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('id="mc-results-card"', html)
         self.assertIn("function studentMcSummary(", student_js)
         self.assertIn("function studentPollClosed(", student_js)
+        closed = student_js.split("function studentPollClosed(")[1].split(
+            "function studentSummarySig("
+        )[0]
+        self.assertIn("payload.poll_closed", closed)
+        self.assertNotIn("ui.poll_closed", closed)
+        self.assertIn("function publishedJoinCatalogueActive(", student_js)
+        self.assertIn("function isLeftoverJoinMindsOnCard(", student_js)
+        leftover = student_js.split("function isLeftoverJoinMindsOnCard(")[1].split(
+            "function paintLifecycleQuestionStack("
+        )[0]
+        self.assertIn("hasPublishedJoinCatalogue", leftover)
         self.assertIn("function mcRevealBarsHtml(", student_js)
         self.assertIn("hideFeedbackPanel()", student_js)
         self.assertIn("student-mc-reveal-bars", student_js)
@@ -2030,6 +2067,26 @@ class LiveShellTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("ok", result.stdout)
 
+
+    def test_staff_poll_skips_when_in_flight_and_uses_light(self) -> None:
+        """Interval polls do not stack and default to the light /state query."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("sessionPollInFlight", js)
+        self.assertIn("staffStateNeedsFull", js)
+        self.assertIn("optimisticTeacherState(", js)
+        self.assertIn("?light=1", js)
+        self.assertIn("function teacherStateNeedsQuestionRefresh(", js)
+        self.assertNotIn("lastLiveItems = payload.live_metadata.items", js)
+        handler = js.split('$("live-run-as-group")')[1].split(
+            '$("live-hide-absent")'
+        )[0]
+        self.assertNotIn("pollLiveSessionAttendees()", handler)
+        patch = js.split("async function patchTeacherState(")[1].split(
+            '$("mc-reveal-btn")'
+        )[0]
+        self.assertIn("teacherStateNeedsQuestionRefresh(body)", patch)
+        self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", patch)
 
 if __name__ == "__main__":
     unittest.main()

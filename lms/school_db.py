@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -4488,6 +4489,7 @@ class SchoolDB(LovesDB):
         spec.loader.exec_module(mod)
         self.game = mod.GameShowDB(path, store)
         self.data_dir = store
+        self._live_metadata_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def close(self) -> None:
         """Close both sqlite connections."""
@@ -6223,10 +6225,55 @@ class SchoolDB(LovesDB):
             return "numeric"
         return "mc"
 
+    @staticmethod
+    def _singular_question_key(question: Any) -> str:
+        """Return one authored answer key, or empty when unkeyed or ambiguous.
+
+        Numeric and MC items may store the key as ``correct_answer`` or
+        ``key``. A list counts as singular only when it has exactly one
+        non-empty value. Polls and multi-key items stay unkeyed.
+
+        Args:
+            question: Catalogue item or prompt payload.
+        """
+        if not isinstance(question, dict):
+            return ""
+        raw = question.get("correct_answer")
+        if raw in (None, ""):
+            raw = question.get("key")
+        if isinstance(raw, list):
+            values = [str(item).strip() for item in raw if str(item).strip()]
+            return values[0] if len(values) == 1 else ""
+        return str(raw or "").strip()
+
+    def _attach_singular_answer_key(
+        self, payload: dict[str, Any], question: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Copy a singular authored key onto a live prompt payload.
+
+        Args:
+            payload: Mutable prompt payload.
+            question: Catalogue item that may hold ``correct_answer``.
+
+        Returns:
+            The same payload dict, with ``key`` / ``correct_answer`` set when
+            exactly one authored key exists.
+        """
+        key = self._singular_question_key(question) or self._singular_question_key(
+            payload
+        )
+        if key:
+            payload["key"] = key
+            payload["correct_answer"] = key
+        return payload
+
     def _repair_numeric_live_prompt(
         self, item: dict[str, Any], prompt: dict[str, Any]
     ) -> dict[str, Any]:
         """Rewrite a compatibility prompt that lost its numeric kind.
+
+        Also attaches a singular authored key when the catalogue item has
+        exactly one ``correct_answer``. Unkeyed numeric items stay unkeyed.
 
         Args:
             item: Lifecycle row that owns the prompt.
@@ -6242,12 +6289,18 @@ class SchoolDB(LovesDB):
             if isinstance(prompt.get("payload"), dict)
             else {}
         )
-        if (
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        before_key = str(
+            payload.get("key") or payload.get("correct_answer") or ""
+        ).strip()
+        self._attach_singular_answer_key(payload, question)
+        after_key = str(payload.get("key") or "").strip()
+        already_numeric = (
             str(prompt.get("kind") or "").strip().lower() == "numeric"
             and str(payload.get("kind") or "").strip().lower() == "numeric"
-        ):
+        )
+        if already_numeric and before_key == after_key:
             return prompt
-        question = item.get("item") if isinstance(item.get("item"), dict) else {}
         payload["kind"] = "numeric"
         payload["type"] = "numeric"
         payload["integer_only"] = bool(
@@ -6443,6 +6496,15 @@ class SchoolDB(LovesDB):
                     ),
                 )
             self.conn.commit()
+        return self.list_live_session_items(session_id)
+
+    def list_live_session_items(self, session_id: int) -> list[dict[str, Any]]:
+        """Return existing lifecycle rows without seeding new placements.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
             rows = self.conn.execute(
                 """
                 SELECT * FROM live_session_items
@@ -6452,6 +6514,82 @@ class SchoolDB(LovesDB):
                 (int(session_id),),
             ).fetchall()
         return [self._live_item_row_to_dict(row) for row in rows]
+
+    def _expected_live_item_placement_keys(self, session_id: int) -> set[str]:
+        """Return placement keys ``ensure_live_session_items`` would persist.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        metadata = self.live_class_metadata_for_session(session_id)
+        questions = [
+            dict(row)
+            for row in metadata.get("questions") or []
+            if isinstance(row, dict)
+        ]
+        question_by_ref = {
+            str(row.get("ref") or row.get("item_ref") or row.get("id") or ""): row
+            for row in questions
+        }
+        placements = [
+            dict(row)
+            for row in metadata.get("items") or []
+            if isinstance(row, dict)
+        ]
+        if not placements:
+            placements = questions
+        have_types = {
+            str(row.get("item_type") or row.get("kind") or "").strip().lower()
+            for row in placements
+        }
+        if "whiteboard" not in have_types:
+            placements.append(
+                {
+                    "ref": "universal/whiteboard/live-workspace",
+                    "item_ref": "universal/whiteboard/live-workspace",
+                    "item_type": "whiteboard",
+                    "id": "whiteboard",
+                    "stage": "meet",
+                    "order": 90,
+                    "type": "whiteboard",
+                }
+            )
+        keys: set[str] = set()
+        for index, placement in enumerate(placements):
+            lookup = str(
+                placement.get("ref")
+                or placement.get("item_ref")
+                or placement.get("id")
+                or ""
+            )
+            question = {
+                **placement,
+                **(
+                    question_by_ref.get(lookup) or {}
+                    if placement.get("item_type") == "question"
+                    else {}
+                ),
+            }
+            keys.add(self._question_placement_key(question, index))
+        return keys
+
+    def ensure_live_session_items_if_stale(
+        self, session_id: int
+    ) -> list[dict[str, Any]]:
+        """Seed missing placements once; skip the write when keys already match.
+
+        Staff publish cards need lifecycle row ids. Polls must not rewrite
+        every placement on every full snapshot.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        existing = self.list_live_session_items(session_id)
+        have = {str(row.get("placement_key") or "") for row in existing}
+        expected = self._expected_live_item_placement_keys(session_id)
+        if expected and expected <= have:
+            return existing
+        return self.ensure_live_session_items(session_id)
 
     def get_live_session_item(
         self, session_id: int, placement_or_item: str | int
@@ -6600,9 +6738,9 @@ class SchoolDB(LovesDB):
             ),
             "kind": prompt_kind,
             "type": question.get("type") or prompt_kind,
-            "key": question.get("correct_answer") or question.get("key"),
             "page_number": item.get("page_number"),
         }
+        self._attach_singular_answer_key(payload, question)
         if prompt_kind == "numeric":
             payload["integer_only"] = bool(question.get("integer_only", True))
             payload["options"] = []
@@ -6686,6 +6824,17 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         published = self.get_live_session_item(session_id, int(item["id"]))
+        published_id = str(published.get("item_id") or "").strip().lower().replace(
+            "-", "_"
+        )
+        if (
+            str(published.get("stage") or "").strip().lower() == "join"
+            and published_id not in {"minds_on"}
+        ):
+            self._inactivate_join_minds_on_items(session_id)
+            legacy = self.get_active_live_prompt(session_id)
+            if legacy and is_minds_on_payload(legacy.get("payload")):
+                self.clear_active_live_prompt(session_id)
         if response_mode == "group_consensus":
             self._initialize_group_consensus(published)
         return self.get_live_session_item(session_id, int(item["id"]))
@@ -6749,7 +6898,6 @@ class SchoolDB(LovesDB):
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
         """Return independently active question prompts in placement order."""
 
-        self.ensure_live_session_items(session_id)
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -7445,8 +7593,18 @@ class SchoolDB(LovesDB):
             }
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "").strip().lower()
+        listed = list(self.list_live_session_items(session_id))
+        has_published_join = any(
+            str(row.get("status") or "") == "active"
+            and str(row.get("stage") or "").strip().lower() == "join"
+            and str(row.get("item_id") or "").strip().lower().replace("-", "_")
+            not in {"minds_on"}
+            and str(row.get("kind") or "").strip().lower()
+            not in {"media", "whiteboard", "slides"}
+            for row in listed
+        )
         items = []
-        for row in self.ensure_live_session_items(session_id):
+        for row in listed:
             if row.get("status") not in {"active", "closed"}:
                 continue
             item_id = str(row.get("item_id") or "").strip().lower().replace("-", "_")
@@ -7454,7 +7612,11 @@ class SchoolDB(LovesDB):
             if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
                 if stage != "teams":
                     continue
-            if item_id in {"minds_on"} and stage != "join":
+            if item_id in {"minds_on"} and (
+                stage != "join" or has_published_join
+            ):
+                continue
+            if item_id in {"meet_team", "meet_a", "meet_b", "meet_c"} and stage != "meet":
                 continue
             items.append(row)
         public_items: list[dict[str, Any]] = []
@@ -7964,6 +8126,8 @@ class SchoolDB(LovesDB):
         """
         if self._session_left_waiting_room(session_id):
             return None
+        if self._published_stage_catalogue_prompt(session_id, "join") is not None:
+            return None
         if self._meet_team_row_exists(session_id):
             return None
         if self.schema_v2_owns_live_stage_questions(session_id, "join"):
@@ -8390,6 +8554,76 @@ class SchoolDB(LovesDB):
             return current
         return self.set_live_session_teacher_state(session_id, stage="meet")
 
+    def _inactivate_join_minds_on_items(self, session_id: int) -> None:
+        """Mark leftover waiting-room minds-on rows inactive after a join MC.
+
+        JOIN catalogue questions share the join stage with the waiting-room
+        minds-on card. Once staff publish ``function-notation`` (or another
+        join-page item), an active minds-on card intercepts student Submit.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        now = _now()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, item_id, status FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+            for row in rows:
+                item_id = str(row["item_id"] or "").strip().lower().replace("-", "_")
+                if item_id not in {"minds_on"}:
+                    continue
+                if str(row["status"] or "") != "active":
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET status = 'inactive', closed_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, int(row["id"])),
+                )
+            self.conn.commit()
+
+    def _inactivate_meet_team_items(self, session_id: int) -> None:
+        """Mark Meet lifecycle rows inactive so later pages can accept answers.
+
+        Leaving MEET deactivates the prompt but used to leave the published
+        Meet card ``active``. That stale card then appeared on Round pages
+        and intercepted student submits.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        now = _now()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, item_id, status FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+            for row in rows:
+                item_id = str(row["item_id"] or "").strip().lower().replace("_", "-")
+                if item_id not in {"meet-team", "meet-a", "meet-b", "meet-c"}:
+                    continue
+                if str(row["status"] or "") != "active":
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET status = 'inactive', closed_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, int(row["id"])),
+                )
+            self.conn.commit()
+
     def clear_meet_team_warmup(self, session_id: int) -> None:
         """Wipe the Meet chain when MEET ends or Team Challenge starts.
 
@@ -8403,6 +8637,7 @@ class SchoolDB(LovesDB):
         if active and is_meet_team_payload(active.get("payload")):
             self.clear_active_live_prompt(session_id)
         self._deactivate_meet_chain_prompts(session_id)
+        self._inactivate_meet_team_items(session_id)
         if self._meet_team_row_exists(session_id):
             return
         if self.get_live_session(session_id) is None:
@@ -8690,18 +8925,28 @@ class SchoolDB(LovesDB):
         return "mc" if key else "poll"
 
     def live_class_metadata_for_session(self, session_id: int) -> dict[str, Any]:
-        """Return file-backed metadata selected by this live session."""
+        """Return file-backed metadata selected by this live session.
+
+        Playlist JSON is cached in-process by course/module/slot so polls do
+        not re-parse the same file on every request.
+        """
 
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         class_row = self.game.get_class(int(session_row["class_id"]))
         teacher = self.live_session_teacher_state_payload(session_id)
-        return load_live_class_metadata(
-            class_row.get("course_code"),
-            teacher.get("live_module"),
-            teacher.get("live_slot"),
+        key = (
+            str(class_row.get("course_code") or "").upper(),
+            str(teacher.get("live_module") or "M1").upper(),
+            str(teacher.get("live_slot") or "C1").upper(),
         )
+        cached = self._live_metadata_cache.get(key)
+        if cached is not None:
+            return deepcopy(cached)
+        loaded = load_live_class_metadata(key[0], key[1], key[2])
+        self._live_metadata_cache[key] = loaded
+        return deepcopy(loaded)
 
     def schema_v2_owns_live_stage_questions(
         self, session_id: int, stage: str | None = None
@@ -8753,7 +8998,7 @@ class SchoolDB(LovesDB):
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "join")
         metadata = self.live_class_metadata_for_session(session_id)
-        lifecycle_rows = self.ensure_live_session_items(session_id)
+        lifecycle_rows = self.list_live_session_items(session_id)
         lifecycle_by_item: dict[str, list[dict[str, Any]]] = {}
         for lifecycle in lifecycle_rows:
             lifecycle_by_item.setdefault(
@@ -9034,13 +9279,15 @@ class SchoolDB(LovesDB):
             key: Uppercased letter key.
             raw_key: Original key string for numeric compare.
         """
+        if raw_key and value not in (None, ""):
+            try:
+                return float(str(value).strip()) == float(str(raw_key).strip())
+            except (TypeError, ValueError):
+                pass
         if key and letter:
             return letter == key
         if raw_key and value not in (None, ""):
-            try:
-                return float(value) == float(raw_key)
-            except (TypeError, ValueError):
-                return str(value).strip() == raw_key
+            return str(value).strip() == raw_key
         return None
 
     def live_prompt_response_roster(
@@ -9238,9 +9485,13 @@ class SchoolDB(LovesDB):
         stage = str((teacher or {}).get("stage") or "")
         prompt = self.get_active_live_prompt(session_id)
         if stage == "join":
-            join_row = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
-            if join_row is not None:
-                prompt = join_row
+            published = self._published_stage_catalogue_prompt(session_id, "join")
+            if published is not None:
+                prompt = published
+            else:
+                join_row = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+                if join_row is not None:
+                    prompt = join_row
         elif stage == "teams":
             spark = self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
             if spark is not None:
@@ -9257,7 +9508,7 @@ class SchoolDB(LovesDB):
             if meet_row is not None:
                 prompt = meet_row
         if prompt is None:
-            for item in self.ensure_live_session_items(session_id):
+            for item in self.list_live_session_items(session_id):
                 if str(item.get("status") or "") != "active":
                     continue
                 item_stage = str(item.get("stage") or "").strip().lower()
@@ -9413,6 +9664,41 @@ class SchoolDB(LovesDB):
             is not None
         )
 
+
+    def _published_stage_catalogue_prompt(
+        self, session_id: int, stage: str
+    ) -> dict[str, Any] | None:
+        """Return the first active catalogue prompt for a teacher stage.
+
+        Leftover waiting-room minds-on stays in the prompt table after staff
+        publish a join-page MC. Prefer that published item so student Submit
+        records the facing question, not the leftover card.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stage: Current teacher stage.
+        """
+        wanted = str(stage or "").strip().lower()
+        leftover = {"minds_on", "minds-on"} if wanted == "join" else set()
+        for item in self.list_live_session_items(session_id):
+            if str(item.get("status") or "") != "active":
+                continue
+            item_stage = str(item.get("stage") or "").strip().lower()
+            if item_stage and wanted and item_stage != wanted:
+                continue
+            item_id = str(item.get("item_id") or "").strip().lower().replace("_", "-")
+            if item_id in leftover or item_id.replace("-", "_") in {
+                token.replace("-", "_") for token in leftover
+            }:
+                continue
+            kind = str(item.get("kind") or "").strip().lower()
+            if kind in {"media", "whiteboard", "slides"}:
+                continue
+            prompt = self._prompt_for_live_item(item)
+            if prompt is not None:
+                return prompt
+        return None
+
     def _student_stage_prompt(
         self,
         session_id: int,
@@ -9469,6 +9755,9 @@ class SchoolDB(LovesDB):
         if active and is_cons_payload(active.get("payload")):
             return active
         if stage == "join":
+            published = self._published_stage_catalogue_prompt(session_id, "join")
+            if published is not None:
+                return published
             if (
                 mc_poll_closed(teacher)
                 and spark is not None
@@ -9724,7 +10013,8 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         else:
-            self.ensure_waiting_room_minds_on(session_id)
+            if self._published_stage_catalogue_prompt(session_id, "join") is None:
+                self.ensure_waiting_room_minds_on(session_id)
             prompt = self._student_stage_prompt(
                 session_id,
                 teacher=teacher,
@@ -12549,11 +12839,90 @@ class SchoolDB(LovesDB):
             payload.append(item)
         return payload
 
-    def get_live_session_state(self, session_id: int) -> dict[str, Any]:
-        """Return overlay/IT state for one live session.
+    def live_student_poll_stamp(self, session_id: int, class_id: int) -> str:
+        """Return a cheap revision token for student /state short-circuit.
 
         Args:
             session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id (accepted for call-site clarity).
+        """
+        del class_id
+        teacher = self.live_session_teacher_state_payload(session_id)
+        seq = int(teacher.get("state_seq") or 0)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT
+                  COALESCE((
+                    SELECT MAX(id) FROM live_session_prompts
+                    WHERE live_session_id = ?
+                  ), 0) AS prompt_max,
+                  COALESCE((
+                    SELECT COUNT(*) FROM live_session_items
+                    WHERE live_session_id = ? AND status = 'active'
+                  ), 0) AS active_n,
+                  COALESCE((
+                    SELECT MAX(id) FROM live_session_items
+                    WHERE live_session_id = ?
+                  ), 0) AS item_max
+                """,
+                (int(session_id), int(session_id), int(session_id)),
+            ).fetchone()
+        event_max = 0
+        try:
+            with self.game._lock:
+                ev = self.game.conn.execute(
+                    "SELECT MAX(id) AS n FROM point_events"
+                ).fetchone()
+            if ev is not None and ev["n"] is not None:
+                event_max = int(ev["n"])
+        except (TypeError, ValueError, sqlite3.Error):
+            event_max = 0
+        prompt_max = int(row["prompt_max"] if row is not None else 0)
+        active_n = int(row["active_n"] if row is not None else 0)
+        item_max = int(row["item_max"] if row is not None else 0)
+        return f"{seq}:{prompt_max}:{active_n}:{item_max}:{event_max}"
+
+    def student_live_poll_unchanged(
+        self, session_id: int, class_id: int, seq: Any, stamp: Any
+    ) -> dict[str, Any] | None:
+        """Return a tiny payload when the student's seq and stamp still match.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id.
+            seq: Client ``state_seq`` from the last full payload.
+            stamp: Client ``live_student_poll_stamp`` from the last full payload.
+        """
+        try:
+            requested = int(seq)
+        except (TypeError, ValueError):
+            return None
+        if stamp in (None, ""):
+            return None
+        teacher = self.live_session_teacher_state_payload(session_id)
+        current_seq = int(teacher.get("state_seq") or 0)
+        current_stamp = self.live_student_poll_stamp(session_id, class_id)
+        if requested != current_seq or str(stamp) != current_stamp:
+            return None
+        return {
+            "ok": True,
+            "unchanged": True,
+            "state_seq": current_seq,
+            "stamp": current_stamp,
+        }
+
+    def get_live_session_state(
+        self, session_id: int, *, light: bool = False
+    ) -> dict[str, Any]:
+        """Return overlay/IT state for one live session.
+
+        Light polls return attendees and teacher chrome only. Full snapshots
+        seed missing placements once, then list lifecycle rows.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            light: When True, skip cards, metadata, scoreboard, and points.
 
         Returns:
             Dict with ``session``, ``code``, ``count``, ``attendees``, ``phase``.
@@ -12585,53 +12954,63 @@ class SchoolDB(LovesDB):
         session_public["allow_unmatched_guests"] = bool(
             int(session_public.get("allow_unmatched_guests") or 0)
         )
-        is_active = session_row.get("status") == "active"
-        lifecycle_items = (
-            self.ensure_live_session_items(session_id) if is_active else []
-        )
         teacher_state = self.live_session_teacher_state_payload(session_id)
-        return {
+        payload = {
             "session": session_public,
             "code": session_row.get("session_code"),
             "count": len(present),
             "attendees": public_rows,
             "phase": phase,
-            "active_media": self.live_session_active_media_payload(session_id),
             "teacher_state": teacher_state,
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
-            "teams_spark": self.staff_teams_spark_payload(session_id),
-            "join_prompt": self._prompt_at_slide(
-                session_id, int(MINDS_ON_SLIDE_INDEX)
-            ),
-            "active_prompt": self.get_active_live_prompt(session_id),
-            "active_questions": (
-                self.list_active_live_questions(session_id) if is_active else []
-            ),
-            "live_items": lifecycle_items,
-            "live_metadata": self.live_class_metadata_for_session(session_id),
-            "question_cards": (
-                self.live_session_question_cards(session_id) if is_active else []
-            ),
-            "class_list": self.live_class_roster_projection(session_id),
-            "groups": self.live_group_projection(session_id),
-            "scoreboard": self.live_scoreboard_projection(session_id),
-            "canvas_sync": self.live_session_canvas_view(
-                session_id, as_teacher=True
-            ),
-            "game_points": {
-                str(sid): int(n)
-                for sid, n in self.live_awarded_session_points(
-                    int(session_row["class_id"])
-                ).items()
-            },
-            "career_totals": {
-                str(sid): float(n)
-                for sid, n in (
-                    self.game.career_totals(int(session_row["class_id"])) or {}
-                ).items()
-            },
+            "state_seq": int(teacher_state.get("state_seq") or 0),
+            "light": bool(light),
         }
+        if light:
+            return payload
+        is_active = session_row.get("status") == "active"
+        if is_active:
+            self.ensure_live_session_items_if_stale(session_id)
+        payload.update(
+            {
+                "active_media": self.live_session_active_media_payload(session_id),
+                "teams_spark": self.staff_teams_spark_payload(session_id),
+                "join_prompt": self._prompt_at_slide(
+                    session_id, int(MINDS_ON_SLIDE_INDEX)
+                ),
+                "active_prompt": self.get_active_live_prompt(session_id),
+                "active_questions": (
+                    self.list_active_live_questions(session_id) if is_active else []
+                ),
+                "live_items": (
+                    self.list_live_session_items(session_id) if is_active else []
+                ),
+                "live_metadata": self.live_class_metadata_for_session(session_id),
+                "question_cards": (
+                    self.live_session_question_cards(session_id) if is_active else []
+                ),
+                "class_list": self.live_class_roster_projection(session_id),
+                "groups": self.live_group_projection(session_id),
+                "scoreboard": self.live_scoreboard_projection(session_id),
+                "canvas_sync": self.live_session_canvas_view(
+                    session_id, as_teacher=True
+                ),
+                "game_points": {
+                    str(sid): int(n)
+                    for sid, n in self.live_awarded_session_points(
+                        int(session_row["class_id"])
+                    ).items()
+                },
+                "career_totals": {
+                    str(sid): float(n)
+                    for sid, n in (
+                        self.game.career_totals(int(session_row["class_id"])) or {}
+                    ).items()
+                },
+            }
+        )
+        return payload
 
     def has_active_live_sessions(self) -> bool:
         """True when at least one live class session is currently joinable."""

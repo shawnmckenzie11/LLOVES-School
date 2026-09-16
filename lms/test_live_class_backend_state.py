@@ -20,6 +20,8 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_metadata import load_live_class_metadata
+from minds_on import is_minds_on_payload  # noqa: E402
 
 
 def metadata_fixture() -> dict[str, Any]:
@@ -182,7 +184,6 @@ class LiveBackendStateTests(unittest.TestCase):
         before = self.school.student_live_prompt_payload(
             self.session_id, self.student_ids[0]
         )
-        self.assertIsNone(before["prompt"])
         self.assertEqual(before["active_questions"], [])
 
         item = next(
@@ -196,7 +197,6 @@ class LiveBackendStateTests(unittest.TestCase):
         after = self.school.student_live_prompt_payload(
             self.session_id, self.student_ids[0]
         )
-        self.assertIsNone(after["prompt"])
         self.assertEqual(len(after["active_questions"]), 1)
         self.assertEqual(after["active_questions"][0]["item_id"], "minds_on")
         active_cards = self.school.live_session_question_cards(self.session_id)
@@ -589,6 +589,494 @@ class LiveBackendStateTests(unittest.TestCase):
             ),
             int(weaker_team["id"]),
         )
+
+    def test_numeric_catalogue_item_keeps_answer_kind(self) -> None:
+        """Copied numeric questions publish a numeric prompt, not an empty MC."""
+
+        numeric = {
+            "id": "evaluate-f2",
+            "ref": "test/question/evaluate-f2",
+            "item_type": "question",
+            "stage": "join",
+            "page_number": 1,
+            "order": 1,
+            "type": "numeric",
+            "text": "Type the integer",
+            "options": [],
+            "correct_answer": "-2",
+            "integer_only": True,
+            "placeholder": "Enter a number",
+            "default_status": "inactive",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+        }
+        self.school.live_class_metadata_for_session = lambda _sid: {
+            **metadata_fixture(),
+            "questions": [numeric],
+            "items": [numeric],
+        }
+        items = self.school.ensure_live_session_items(self.session_id)
+        row = next(item for item in items if item["item_id"] == "evaluate-f2")
+        published = self.school.publish_live_session_item(
+            self.session_id, int(row["id"]), publish_mode="individual"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        self.assertIsNotNone(prompt)
+        self.assertEqual(prompt["kind"], "numeric")
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("kind"), "numeric")
+        self.assertTrue(payload.get("integer_only"))
+        self.assertEqual(payload.get("choices") or payload.get("options") or [], [])
+        self.assertEqual(payload.get("key"), "-2")
+        self.assertEqual(payload.get("correct_answer"), "-2")
+        cards = self.school.live_session_question_cards(self.session_id)
+        card = next(row for row in cards if row["id"] == "evaluate-f2")
+        self.assertEqual(card["type"], "numeric")
+        self.assertEqual(card["correct_answer"], "-2")
+
+    def test_keyed_numeric_marks_matches_and_awards_correct(self) -> None:
+        """A singular numeric key marks equivalents and awards only matches."""
+
+        numeric = {
+            "id": "evaluate-f2",
+            "ref": "test/question/evaluate-f2",
+            "item_type": "question",
+            "stage": "join",
+            "page_number": 1,
+            "order": 1,
+            "type": "numeric",
+            "text": "Type the integer",
+            "options": [],
+            "correct_answer": "-2",
+            "integer_only": True,
+            "placeholder": "Enter a number",
+            "default_status": "inactive",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+        }
+        self.school.live_class_metadata_for_session = lambda _sid: {
+            **metadata_fixture(),
+            "questions": [numeric],
+            "items": [numeric],
+        }
+        self.school.game.begin_game(self.class_id)
+        for student in self.students:
+            self.school.join_live_class_session(
+                self.session_id,
+                int(student["id"]),
+                codename=str(student["codename"]),
+            )
+        items = self.school.ensure_live_session_items(self.session_id)
+        row = next(item for item in items if item["item_id"] == "evaluate-f2")
+        published = self.school.publish_live_session_item(
+            self.session_id, int(row["id"]), publish_mode="individual"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        self.assertIsNotNone(prompt)
+        assert prompt is not None
+        prompt_id = int(prompt["id"])
+        payload = prompt.get("payload") or {}
+        self.assertEqual(payload.get("key"), "-2")
+        self.school.submit_live_prompt_response(
+            prompt_id, self.student_ids[0], {"value": -2}
+        )
+        self.school.submit_live_prompt_response(
+            prompt_id, self.student_ids[1], {"value": 3}
+        )
+        self.school.submit_live_prompt_response(
+            prompt_id, self.student_ids[2], {"value": " -2 "}
+        )
+        self.school.submit_live_prompt_response(
+            prompt_id, self.student_ids[3], {"value": -2.0}
+        )
+        roster = {
+            int(row["student_id"]): row
+            for row in self.school.live_prompt_response_roster(
+                self.session_id, prompt_id
+            )
+            if row.get("student_id") not in (None, "")
+        }
+        self.assertTrue(roster[self.student_ids[0]]["correct"])
+        self.assertFalse(roster[self.student_ids[1]]["correct"])
+        self.assertTrue(roster[self.student_ids[2]]["correct"])
+        self.assertTrue(roster[self.student_ids[3]]["correct"])
+        awarded = self.school.award_live_prompt_points(
+            self.session_id, prompt_id, mode="correct"
+        )
+        self.assertEqual(
+            awarded["awarded_student_ids"],
+            sorted(
+                [self.student_ids[0], self.student_ids[2], self.student_ids[3]]
+            ),
+        )
+        student_payload = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        for item in student_payload.get("active_questions") or []:
+            content = item.get("content") or {}
+            prompt_body = (item.get("prompt") or {}).get("payload") or {}
+            self.assertNotIn("correct_answer", content)
+            self.assertNotIn("key", content)
+            self.assertNotIn("correct_answer", prompt_body)
+            self.assertNotIn("key", prompt_body)
+
+
+    def test_light_state_skips_seed_and_heavy_fields(self) -> None:
+        """Light /state lists attendees without seeding lifecycle rows."""
+
+        calls = {"n": 0}
+        original = self.school.ensure_live_session_items
+
+        def wrapped(session_id: int):
+            calls["n"] += 1
+            return original(session_id)
+
+        self.school.ensure_live_session_items = wrapped  # type: ignore[method-assign]
+        light = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(calls["n"], 0)
+        self.assertTrue(light["light"])
+        self.assertIn("attendees", light)
+        self.assertIn("teacher_state", light)
+        self.assertIn("mc_tally", light)
+        self.assertIn("state_seq", light)
+        self.assertNotIn("question_cards", light)
+        self.assertNotIn("live_metadata", light)
+        self.assertNotIn("career_totals", light)
+        self.assertNotIn("class_list", light)
+        self.assertEqual(self.school.list_live_session_items(self.session_id), [])
+        full = self.school.get_live_session_state(self.session_id)
+        self.assertEqual(calls["n"], 1)
+        self.assertFalse(full["light"])
+        self.assertIn("question_cards", full)
+        self.assertIn("class_list", full)
+        second = self.school.get_live_session_state(self.session_id)
+        self.assertEqual(calls["n"], 1)
+        self.assertIn("question_cards", second)
+
+    def test_full_state_seeds_publishable_page_cards(self) -> None:
+        """First full snapshot gives Publish ids, options, and page numbers."""
+
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        self.assertEqual(self.school.list_live_session_items(self.session_id), [])
+        full = self.school.get_live_session_state(self.session_id)
+        cards = full["question_cards"]
+        self.assertEqual([row["id"] for row in cards], ["q-one", "q-two"])
+        for card in cards:
+            self.assertIsNotNone(card.get("live_item_id"), card)
+            self.assertEqual(card.get("page_number"), 1)
+            self.assertEqual(card.get("options"), ["A", "B"])
+            self.assertEqual(card.get("stage"), "round")
+        self.assertTrue(full["live_items"])
+
+    def test_round_question_submit_after_meet_is_not_meet_card(self) -> None:
+        """Page-4 MCs stay submittable after Meet; leftover Meet cards do not."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C2"
+        )
+        maple = self.student_ids[0]
+        self.school.join_live_class_session(
+            self.session_id, maple, codename="Aspen"
+        )
+        self.school.set_live_session_teacher_state(self.session_id, stage="meet")
+        self.school.activate_meet_team_question(self.session_id)
+        meet_state = self.school.student_live_items_payload(
+            self.session_id, maple
+        )
+        self.assertTrue(
+            any(
+                str(row.get("item_id") or "").replace("_", "-") == "meet-team"
+                for row in meet_state.get("active_questions") or []
+            ),
+            meet_state,
+        )
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        items = self.school.ensure_live_session_items(self.session_id)
+        parabola = next(
+            row for row in items if str(row.get("item_id") or "") == "parabola-a"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(parabola["id"]), publish_mode="individual"
+        )
+        payload = self.school.student_live_items_payload(self.session_id, maple)
+        active_ids = [
+            str(row.get("item_id") or "")
+            for row in payload.get("active_questions") or []
+        ]
+        self.assertNotIn("meet-team", active_ids)
+        self.assertNotIn("meet_team", active_ids)
+        self.assertIn("parabola-a", active_ids)
+        card = next(
+            row
+            for row in payload["active_questions"]
+            if row.get("item_id") == "parabola-a"
+        )
+        self.assertTrue(card.get("can_submit"), card)
+        prompt_id = int((card.get("prompt") or {})["id"])
+        saved = self.school.submit_live_prompt_response(
+            prompt_id, maple, {"choice": "It's positive"}
+        )
+        self.assertEqual((saved.get("response") or {}).get("choice"), "It's positive")
+        after = self.school.student_live_items_payload(self.session_id, maple)
+        answered = next(
+            row
+            for row in after.get("active_questions") or []
+            if row.get("item_id") == "parabola-a"
+        )
+        self.assertEqual(
+            (answered.get("my_response") or {}).get("response", {}).get("choice"),
+            "It's positive",
+        )
+
+    def test_join_question_submit_after_minds_on_is_not_minds_on_card(self) -> None:
+        """Page-1 MCs stay submittable after leftover waiting-room minds-on."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        maple = self.student_ids[0]
+        self.school.join_live_class_session(
+            self.session_id, maple, codename="Aspen"
+        )
+        idle = self.school.student_live_prompt_payload(self.session_id, maple)
+        self.assertEqual(
+            ((idle.get("prompt") or {}).get("payload") or {}).get("item_id"),
+            "minds_on",
+            idle,
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C2"
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        notation = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == "function-notation"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(notation["id"]), publish_mode="individual"
+        )
+        payload = self.school.student_live_items_payload(self.session_id, maple)
+        active_ids = [
+            str(row.get("item_id") or "")
+            for row in payload.get("active_questions") or []
+        ]
+        self.assertNotIn("minds_on", active_ids)
+        self.assertNotIn("minds-on", active_ids)
+        self.assertIn("function-notation", active_ids)
+        legacy = self.school.get_active_live_prompt(self.session_id)
+        self.assertTrue(
+            legacy is None
+            or not is_minds_on_payload(legacy.get("payload")),
+            legacy,
+        )
+        card = next(
+            row
+            for row in payload["active_questions"]
+            if row.get("item_id") == "function-notation"
+        )
+        self.assertTrue(card.get("can_submit"), card)
+        facing = self.school.student_live_prompt_payload(self.session_id, maple)
+        facing_id = str(
+            ((facing.get("prompt") or {}).get("payload") or {}).get("item_id") or ""
+        )
+        self.assertEqual(facing_id, "function-notation", facing)
+        prompt_id = int((card.get("prompt") or {})["id"])
+        choice = "the output of rule f when the input is x"
+        saved = self.school.submit_live_prompt_response(
+            prompt_id, maple, {"choice": choice}
+        )
+        self.assertEqual((saved.get("response") or {}).get("choice"), choice)
+        after = self.school.student_live_items_payload(self.session_id, maple)
+        answered = next(
+            row
+            for row in after.get("active_questions") or []
+            if row.get("item_id") == "function-notation"
+        )
+        self.assertEqual(
+            (answered.get("my_response") or {}).get("response", {}).get("choice"),
+            choice,
+        )
+        numeric = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == "evaluate-f2"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(numeric["id"]), publish_mode="individual"
+        )
+        numeric_payload = self.school.student_live_items_payload(
+            self.session_id, maple
+        )
+        numeric_card = next(
+            row
+            for row in numeric_payload["active_questions"]
+            if row.get("item_id") == "evaluate-f2"
+        )
+        self.assertTrue(numeric_card.get("can_submit"), numeric_card)
+        numeric_prompt_id = int((numeric_card.get("prompt") or {})["id"])
+        self.assertNotEqual(numeric_prompt_id, prompt_id)
+        saved_numeric = self.school.submit_live_prompt_response(
+            numeric_prompt_id, maple, {"value": -2}
+        )
+        self.assertEqual((saved_numeric.get("response") or {}).get("value"), -2)
+        after_numeric = self.school.student_live_items_payload(
+            self.session_id, maple
+        )
+        answered_numeric = next(
+            row
+            for row in after_numeric.get("active_questions") or []
+            if row.get("item_id") == "evaluate-f2"
+        )
+        self.assertEqual(
+            (answered_numeric.get("my_response") or {})
+            .get("response", {})
+            .get("value"),
+            -2,
+        )
+
+    def _sample_response_for_live_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Build a student-submittable payload for one playlist item."""
+
+        content = item.get("item") if isinstance(item.get("item"), dict) else {}
+        prompt = item.get("prompt") if isinstance(item.get("prompt"), dict) else {}
+        payload = (
+            prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        )
+        kind = str(
+            prompt.get("kind") or content.get("type") or payload.get("kind") or "mc"
+        ).lower()
+        options = (
+            payload.get("choices")
+            or payload.get("options")
+            or content.get("options")
+            or content.get("choices")
+            or []
+        )
+        if (
+            kind == "numeric"
+            or content.get("integer_only")
+            or payload.get("integer_only")
+        ):
+            return {"value": -2}
+        if options:
+            first = options[0]
+            if isinstance(first, str):
+                return {"choice": first}
+            if isinstance(first, dict):
+                return {
+                    "choice": str(
+                        first.get("label") or first.get("text") or first.get("choice") or ""
+                    )
+                }
+        return {"text": "sample"}
+
+    def _walk_playlist_submits(self, course: str, module: str, slot: str) -> None:
+        """Publish every student-answerable playlist item and record its prompt."""
+
+        maple = self.student_ids[0]
+        self.school.join_live_class_session(
+            self.session_id, maple, codename="Aspen"
+        )
+        self.school.student_live_prompt_payload(self.session_id, maple)
+        self.school.live_class_metadata_for_session = lambda _sid: (
+            load_live_class_metadata(course, module, slot)
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module=module, live_slot=slot
+        )
+        items = [
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if str(row.get("kind") or "").strip().lower()
+            not in {"media", "whiteboard", "slides"}
+            and str((row.get("item") or {}).get("item_type") or "").strip().lower()
+            not in {"media", "whiteboard", "slides"}
+        ]
+        self.assertTrue(items, f"{course} {module} {slot} has no answerable items")
+        leftover = {"minds_on", "minds-on", "meet_team", "meet-team"}
+        recorded: list[str] = []
+        for row in items:
+            item_id = str(row.get("item_id") or "")
+            stage = str(row.get("stage") or "join").strip().lower() or "join"
+            self.school.set_live_session_teacher_state(self.session_id, stage=stage)
+            published = self.school.publish_live_session_item(
+                self.session_id, int(row["id"]), publish_mode="individual"
+            )
+            payload = self.school.student_live_items_payload(self.session_id, maple)
+            card = next(
+                (
+                    item
+                    for item in payload.get("active_questions") or []
+                    if str(item.get("item_id") or "") == item_id
+                ),
+                None,
+            )
+            self.assertIsNotNone(card, f"{item_id} missing from {payload}")
+            assert card is not None
+            self.assertTrue(card.get("can_submit"), card)
+            prompt_id = int((card.get("prompt") or {})["id"])
+            facing = self.school.student_live_prompt_payload(self.session_id, maple)
+            facing_id = str(
+                ((facing.get("prompt") or {}).get("payload") or {}).get("item_id")
+                or ""
+            ).replace("-", "_")
+            if item_id.replace("-", "_") not in leftover:
+                self.assertNotEqual(facing_id, "minds_on", facing)
+            response = self._sample_response_for_live_item({**published, **card})
+            if item_id.replace("-", "_") in {"meet_team"}:
+                self.school.record_meet_chain_pick(
+                    self.session_id,
+                    student_id=maple,
+                    choice=str(response.get("choice") or ""),
+                )
+            saved = self.school.submit_live_prompt_response(
+                prompt_id, maple, response
+            )
+            after = self.school.student_live_items_payload(self.session_id, maple)
+            answered = next(
+                item
+                for item in after.get("active_questions") or []
+                if str(item.get("item_id") or "") == item_id
+            )
+            mine = (answered.get("my_response") or {}).get("response") or {}
+            if "value" in response:
+                self.assertEqual(mine.get("value"), response["value"], answered)
+                self.assertEqual((saved.get("response") or {}).get("value"), response["value"])
+            elif "choice" in response:
+                self.assertEqual(mine.get("choice"), response["choice"], answered)
+            recorded.append(item_id)
+        self.assertEqual(recorded, [str(row.get("item_id") or "") for row in items])
+
+    def test_playlist_submit_records_facing_item_mcf3m_m1_c2(self) -> None:
+        """Every MCF3M M1 C2 student-answerable item records its own prompt."""
+
+        self._walk_playlist_submits("MCF3M", "M1", "C2")
+
+    def test_playlist_submit_records_facing_item_mcr3u_m1_c2(self) -> None:
+        """Every MCR3U M1 C2 student-answerable item records its own prompt."""
+
+        self._walk_playlist_submits("MCR3U", "M1", "C2")
+
+    def test_student_poll_unchanged_when_seq_and_stamp_match(self) -> None:
+        """Matching seq/stamp skips the heavy student payload."""
+
+        stamp = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id
+        )
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        seq = int(teacher.get("state_seq") or 0)
+        hit = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, seq, stamp
+        )
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertTrue(hit["unchanged"])
+        self.assertEqual(hit["state_seq"], seq)
+        self.assertEqual(hit["stamp"], stamp)
+        missed = self.school.student_live_poll_unchanged(
+            self.session_id, self.class_id, seq + 1, stamp
+        )
+        self.assertIsNone(missed)
 
 
 class LiveBackendApiGuardTests(unittest.TestCase):
