@@ -74,6 +74,8 @@ let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
 let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
 let sessionPollMs = 0;
+let sessionPollInFlight = false;
+let staffStateNeedsFull = true;
 /** @type {any} */
 let lastMcTally = null;
 let lastMcBindKey = "";
@@ -234,6 +236,31 @@ let lastGroups = [];
 let lastScoreboard = null;
 /** @type {Map<number, any>} */
 const lifecycleResults = new Map();
+
+/**
+ * Merge server-side per-item response counts into lifecycleResults.
+ * @param {Record<string, number>|null|undefined} counts
+ */
+function adoptLifecycleResponseCounts(counts) {
+  if (!counts || typeof counts !== "object") return;
+  for (const [id, count] of Object.entries(counts)) {
+    const liveItemId = Number(id);
+    if (!liveItemId) continue;
+    const n = Number(count) || 0;
+    const prev = lifecycleResults.get(liveItemId) || {};
+    lifecycleResults.set(liveItemId, {
+      ...prev,
+      response_count: n,
+      tally: {
+        ...(prev.tally && typeof prev.tally === "object" ? prev.tally : {}),
+        responded: n,
+        response_count: n,
+      },
+    });
+  }
+}
+
+
 let openResponsePromptId = 0;
 
 let teacherStateInFlight = false;
@@ -1131,6 +1158,7 @@ function paintLiveQuestionCards() {
             .join("")}</ol>`
         : "";
       const answerKey = item.correct_answer ?? card.correct_answer;
+      const hasAnswerKey = liveQuestionHasSingularKey(card);
       const key = answerKey != null && String(answerKey) !== ""
         ? `<span class="live-question-key">Answer ${escapeHtml(answerKey)}</span>`
         : "";
@@ -1157,7 +1185,20 @@ function paintLiveQuestionCards() {
         card.response_mode === "group_consensus"
           ? groupConsensusResultsHtml(result)
           : individualLifecycleResultsHtml(result?.tally);
-      const answered = Number(result?.response_count ?? result?.tally?.responded ?? 0);
+      const tally = lastMcTally;
+      const cardRef = String(card.id || card.item_id || "").replace(/_/g, "-");
+      const tallyRef = String(tally?.item_id || tally?.prompt_ref || "").replace(/_/g, "-");
+      const tallyCount =
+        tallyRef && cardRef && tallyRef === cardRef
+          ? Number(tally?.response_count ?? tally?.responded ?? 0)
+          : 0;
+      const answered = Number(
+        result?.response_count ??
+          result?.tally?.responded ??
+          tallyCount ??
+          card.response_count ??
+          0
+      );
       const eligible = Number(result?.eligible_count ?? result?.tally?.present ?? 0);
       const progress =
         active || closed
@@ -1183,7 +1224,9 @@ function paintLiveQuestionCards() {
           ? ""
           : `<button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(
               item.text || card.text
-            )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" ${
+            )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" data-has-answer-key="${
+              hasAnswerKey ? "1" : ""
+            }" ${
               promptId ? "" : "disabled"
             }>Responses &amp; points</button>`;
       const activeActions = active
@@ -1526,12 +1569,32 @@ function paintQuestionResponses(responses) {
 }
 
 /**
+ * True when a teacher card has exactly one authored answer key.
+ * Keyed MC and keyed numeric qualify; polls and keyless numeric do not.
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveQuestionHasSingularKey(card) {
+  const item = card && typeof card === "object" ? card.item || card : {};
+  const raw =
+    item.correct_answer ??
+    card?.correct_answer ??
+    item.key ??
+    card?.key;
+  if (Array.isArray(raw)) {
+    return raw.filter((value) => String(value ?? "").trim() !== "").length === 1;
+  }
+  return raw != null && String(raw).trim() !== "";
+}
+
+/**
  * Fetch and open the ephemeral response viewer for one prompt.
  * @param {number} promptId
  * @param {string} title
  * @param {string} questionType
+ * @param {boolean} [hasAnswerKey]
  */
-async function openQuestionResponses(promptId, title, questionType) {
+async function openQuestionResponses(promptId, title, questionType, hasAnswerKey) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !promptId) return;
   const result = await api(
@@ -1543,10 +1606,16 @@ async function openQuestionResponses(promptId, title, questionType) {
   paintQuestionResponses(result.responses);
   const dialog = $("live-responses-dialog");
   const correct = dialog?.querySelector('[data-response-select="correct"]');
+  const keyed =
+    questionType === "mc" ||
+    Boolean(hasAnswerKey) ||
+    (Array.isArray(result.responses) &&
+      result.responses.some((row) => row && row.correct != null));
   if (correct instanceof HTMLButtonElement) {
-    correct.disabled = questionType !== "mc";
-    correct.title =
-      questionType === "mc" ? "" : "Polls and numeric questions have no answer key.";
+    correct.disabled = !keyed;
+    correct.title = keyed
+      ? ""
+      : "Polls and numeric questions have no answer key.";
   }
   if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
 }
@@ -2102,14 +2171,40 @@ async function applySessionPresentTicks(ids, attendees) {
 }
 
 /**
- * Fetch live-session state and auto-mark present attendees on the roster.
+ * Apply a teacher-state patch locally before the POST returns.
+ * @param {Record<string, unknown>} body
+ * @returns {typeof teacherState}
  */
-async function pollLiveSessionAttendees() {
+function optimisticTeacherState(body) {
+  if (body.advance) {
+    const delta = body.advance === "next" ? 1 : -1;
+    const idx = TEACHER_STAGES.indexOf(teacherState.stage);
+    const next =
+      TEACHER_STAGES[
+        Math.max(0, Math.min(TEACHER_STAGES.length - 1, idx + delta))
+      ];
+    return { ...teacherState, stage: next };
+  }
+  return { ...teacherState, ...body };
+}
+
+/**
+ * Fetch live-session state and auto-mark present attendees on the roster.
+ * Interval ticks skip when a poll is already in flight. Light polls omit
+ * cards and scoreboard until ``state_seq`` moves.
+ * @param {{full?: boolean, force?: boolean}} [opts]
+ */
+async function pollLiveSessionAttendees(opts = {}) {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
+  if (sessionPollInFlight && !opts.force) return;
   liveSessionId = id;
+  sessionPollInFlight = true;
+  const wantFull = Boolean(opts.full) || staffStateNeedsFull;
+  const prevSeq = Number(teacherState.state_seq);
   try {
-    const payload = await api(`/api/live-sessions/${id}/state`);
+    const qs = wantFull ? "" : "?light=1";
+    const payload = await api(`/api/live-sessions/${id}/state${qs}`);
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
@@ -2117,23 +2212,31 @@ async function pollLiveSessionAttendees() {
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
-    lastClassList = Array.isArray(payload?.class_list) ? payload.class_list : [];
-    lastGroups = Array.isArray(payload?.groups) ? payload.groups : [];
-    lastScoreboard = payload?.scoreboard || null;
-    if (overlayState && typeof overlayState === "object") {
-      overlayState.scoreboard = lastScoreboard;
+    if (Array.isArray(payload?.class_list)) lastClassList = payload.class_list;
+    if (Array.isArray(payload?.groups)) lastGroups = payload.groups;
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "scoreboard")) {
+      lastScoreboard = payload.scoreboard || null;
+      if (overlayState && typeof overlayState === "object") {
+        overlayState.scoreboard = lastScoreboard;
+      }
     }
-    lastLiveItems = Array.isArray(payload?.live_items) ? payload.live_items : [];
-    lastActiveQuestions = Array.isArray(payload?.active_questions)
-      ? payload.active_questions
-      : [];
-    lastTeamsSpark = payload?.teams_spark || null;
-    lastJoinPrompt = payload?.join_prompt || null;
-    lastActivePrompt = payload?.active_prompt || null;
-    lastQuestionCards = Array.isArray(payload?.question_cards)
-      ? payload.question_cards
-      : [];
-    lastLiveMetadata = payload?.live_metadata || null;
+    if (Array.isArray(payload?.live_items)) lastLiveItems = payload.live_items;
+    if (Array.isArray(payload?.active_questions)) {
+      lastActiveQuestions = payload.active_questions;
+    }
+    if (payload?.teams_spark !== undefined) {
+      lastTeamsSpark = payload.teams_spark || null;
+    }
+    if (payload?.join_prompt !== undefined) {
+      lastJoinPrompt = payload.join_prompt || null;
+    }
+    if (payload?.active_prompt !== undefined) {
+      lastActivePrompt = payload.active_prompt || null;
+    }
+    if (Array.isArray(payload?.question_cards)) {
+      lastQuestionCards = payload.question_cards;
+    }
+    if (payload?.live_metadata) lastLiveMetadata = payload.live_metadata;
     paintStageRail();
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
@@ -2146,26 +2249,43 @@ async function pollLiveSessionAttendees() {
     syncAllowGuestsCheckbox(
       payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
     );
-    sessionGamePoints = payload?.game_points && typeof payload.game_points === "object"
-      ? payload.game_points
-      : {};
-    sessionCareerTotals =
-      payload?.career_totals && typeof payload.career_totals === "object"
-        ? payload.career_totals
-        : {};
+    if (payload?.game_points && typeof payload.game_points === "object") {
+      sessionGamePoints = payload.game_points;
+    }
+    if (payload?.career_totals && typeof payload.career_totals === "object") {
+      sessionCareerTotals = payload.career_totals;
+    }
     await applySessionPresentTicks(
       present.map((row) => Number(row.student_id)),
       present
     );
     paintSlidesMetadata();
-    const media = payload?.active_media || payload?.session?.active_media;
-    paintActiveMediaStatus(media);
-    paintQuestionArtifact(media);
+    paintLiveQuestionCards();
+    if (payload?.active_media || payload?.session?.active_media) {
+      const media = payload?.active_media || payload?.session?.active_media;
+      paintActiveMediaStatus(media);
+      paintQuestionArtifact(media);
+    } else if (wantFull) {
+      paintQuestionArtifact(null);
+    }
+    adoptLifecycleResponseCounts(payload?.lifecycle_response_counts);
     applyMcTally(payload?.mc_tally);
-    refreshLifecycleResults();
-    ensureC1MediaSeeded();
+    if (wantFull) {
+      refreshLifecycleResults();
+      ensureC1MediaSeeded();
+    }
+    const nextSeq = Number(
+      payload?.state_seq ?? payload?.teacher_state?.state_seq
+    );
+    staffStateNeedsFull = false;
+    if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
+      sessionPollInFlight = false;
+      return pollLiveSessionAttendees({ full: true, force: true });
+    }
   } catch (_) {
     /* keep polling */
+  } finally {
+    sessionPollInFlight = false;
   }
 }
 
@@ -3072,12 +3192,18 @@ function classListGroupsByTeam() {
 }
 
 /**
- * ClassList rows from the server's durable Hide Absent projection.
+ * Class List rows. Hide Absent filters locally so the checkbox does not
+ * wait for a full `/state` rebuild.
  * @param {any[]} students
  * @returns {any[]}
  */
 function classListVisibleStudents(students) {
-  return Array.isArray(students) ? students : [];
+  const roster = Array.isArray(students) ? students : [];
+  if (!teacherState.hide_absent) return roster;
+  return roster.filter((row) => {
+    if (typeof row.present === "boolean") return row.present;
+    return sessionPresentIds.has(Number(row.id ?? row.student_id));
+  });
 }
 
 /**
@@ -4563,16 +4689,19 @@ $("live-teams-start")?.addEventListener("click", async () => {
 $("live-run-as-group")?.addEventListener("change", (event) => {
   const input = event.currentTarget;
   if (!(input instanceof HTMLInputElement)) return;
-  patchTeacherState({ run_as_group: input.checked }).then(() =>
-    pollLiveSessionAttendees()
-  );
+  teacherState.run_as_group = input.checked;
+  renderAttendanceList();
+  patchTeacherState({ run_as_group: input.checked }, { silent: true });
 });
 $("live-hide-absent")?.addEventListener("change", (event) => {
   const input = event.currentTarget;
   if (!(input instanceof HTMLInputElement)) return;
-  patchTeacherState({ hide_absent: input.checked }).then(() =>
-    pollLiveSessionAttendees()
-  );
+  teacherState.hide_absent = input.checked;
+  renderAttendanceList();
+  const needFullRoster = !input.checked;
+  patchTeacherState({ hide_absent: input.checked }, { silent: true }).then(() => {
+    if (needFullRoster) pollLiveSessionAttendees();
+  });
 });
 
 /**
@@ -5434,6 +5563,25 @@ $("live-start")?.addEventListener("click", () => {
  * @param {Record<string, unknown>} body
  * @param {{silent?: boolean}} [opts]
  */
+/**
+ * True when a teacher-state write changes the page, pack, or question set.
+ * Hide Absent and other chrome toggles stay on the light poll path.
+ * @param {Record<string, unknown>} body
+ * @returns {boolean}
+ */
+function teacherStateNeedsQuestionRefresh(body) {
+  if (!body || typeof body !== "object") return false;
+  return Boolean(
+    body.advance ||
+      body.stage ||
+      body.live_slot ||
+      body.live_module ||
+      body.round ||
+      body.round_flags ||
+      body.meet_action
+  );
+}
+
 async function patchTeacherState(body, opts = {}) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) {
@@ -5457,6 +5605,10 @@ async function patchTeacherState(body, opts = {}) {
     return teacherState;
   }
   if (teacherStateInFlight && opts.silent) return teacherState;
+  if (!body.assign) {
+    adoptTeacherState(optimisticTeacherState(body));
+    renderAttendanceList();
+  }
   teacherStateInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/teacher-state`, {
@@ -5468,6 +5620,10 @@ async function patchTeacherState(body, opts = {}) {
       overlayState = res.game;
       applySessionTimerUi(overlayState);
       renderAttendanceList();
+    }
+    if (teacherStateNeedsQuestionRefresh(body)) {
+      staffStateNeedsFull = true;
+      void pollLiveSessionAttendees({ full: true, force: true });
     }
     return teacherState;
   } catch (err) {
@@ -5623,10 +5779,9 @@ async function loadSavedLiveLesson(moduleId, slot) {
     const payload = await api(`/api/classes/${classId}/live-lessons/${module}/${liveSlot}`);
     if (payload?.live_metadata) {
       lastLiveMetadata = payload.live_metadata;
-      if (Array.isArray(payload.live_metadata.items)) {
-        lastLiveItems = payload.live_metadata.items;
-      }
       paintStageRail();
+      paintLiveQuestionCards();
+      staffStateNeedsFull = true;
       paintSlidesMetadata();
     }
     if (liveSessionId || readLiveSessionId()) {
@@ -5795,7 +5950,8 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     await openQuestionResponses(
       Number(button.dataset.viewResponses) || 0,
       button.dataset.questionTitle || "Responses",
-      button.dataset.questionType || "poll"
+      button.dataset.questionType || "poll",
+      button.dataset.hasAnswerKey === "1"
     );
   } catch (err) {
     showError("#ap-overlay-error", err);

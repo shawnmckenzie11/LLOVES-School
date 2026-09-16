@@ -1078,6 +1078,44 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         self.assertIsNone(missed)
 
+    def test_light_poll_reports_lifecycle_response_counts(self) -> None:
+        """Light staff polls expose per-item answer counts after student submit."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        maple = self.student_ids[0]
+        self.school.join_live_class_session(
+            self.session_id, maple, codename="Aspen"
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C2", stage="join"
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        notation = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == "function-notation"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(notation["id"]), publish_mode="individual"
+        )
+        before = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            before.get("lifecycle_response_counts", {}).get(int(notation["id"])),
+            0,
+        )
+        card = self.school.student_live_items_payload(self.session_id, maple)
+        prompt_id = int((card["active_questions"][0].get("prompt") or {})["id"])
+        self.school.submit_live_prompt_response(
+            prompt_id, maple, {"choice": "the output of rule f when the input is x"}
+        )
+        after = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            after.get("lifecycle_response_counts", {}).get(int(notation["id"])),
+            1,
+            after,
+        )
+
+
 
 class LiveBackendApiGuardTests(unittest.TestCase):
     """Verify ownership and active-session guards on new publish APIs."""
@@ -1213,6 +1251,7 @@ class LiveBackendSchemaTests(unittest.TestCase):
                 self.assertIn("live_group_members", names)
                 self.assertIn("live_group_responses", names)
                 school.close()
+
 
 
 if __name__ == "__main__":

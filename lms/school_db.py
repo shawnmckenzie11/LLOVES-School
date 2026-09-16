@@ -7537,6 +7537,49 @@ class SchoolDB(LovesDB):
             "game": game,
         }
 
+
+    def lifecycle_response_counts(self, session_id: int) -> dict[int, int]:
+        """Map lifecycle item ids to response counts for the current stage.
+
+        Light staff polls use this so ``Publish`` cards show live answer counts
+        without a full session snapshot on every student submit.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{live_session_items.id: response_count}`` for active/closed
+            question rows on the teacher's current stage.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return {}
+        stage = str(teacher.get("stage") or "").strip().lower()
+        counts: dict[int, int] = {}
+        for item in self.list_live_session_items(session_id):
+            if str(item.get("status") or "") not in {"active", "closed"}:
+                continue
+            item_stage = str(item.get("stage") or "").strip().lower()
+            if item_stage and stage and item_stage != stage:
+                continue
+            kind = str(item.get("kind") or "").strip().lower()
+            item_type = str((item.get("item") or {}).get("item_type") or "").strip().lower()
+            if kind in {"media", "whiteboard", "slides"} or item_type in {
+                "media",
+                "whiteboard",
+                "slides",
+            }:
+                continue
+            prompt = self._prompt_for_live_item(item)
+            if prompt is None or prompt.get("id") in (None, ""):
+                continue
+            counts[int(item["id"])] = len(
+                self.list_live_prompt_responses(int(prompt["id"]))
+            )
+        return counts
+
+
     def live_session_item_results(
         self, session_id: int, placement_or_item: str | int
     ) -> dict[str, Any]:
@@ -9477,7 +9520,8 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        self.ensure_waiting_room_minds_on(session_id)
+        if self._published_stage_catalogue_prompt(session_id, "join") is None:
+            self.ensure_waiting_room_minds_on(session_id)
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
@@ -12964,6 +13008,7 @@ class SchoolDB(LovesDB):
             "teacher_state": teacher_state,
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
             "mc_tally": self.live_session_mc_tally(session_id),
+            "lifecycle_response_counts": self.lifecycle_response_counts(session_id),
             "state_seq": int(teacher_state.get("state_seq") or 0),
             "light": bool(light),
         }
