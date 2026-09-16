@@ -12908,9 +12908,14 @@ class SchoolDB(LovesDB):
                   COALESCE((
                     SELECT MAX(id) FROM live_session_items
                     WHERE live_session_id = ?
-                  ), 0) AS item_max
+                  ), 0) AS item_max,
+                  COALESCE((
+                    SELECT MAX(r.id) FROM live_session_responses r
+                    INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                    WHERE p.live_session_id = ?
+                  ), 0) AS response_max
                 """,
-                (int(session_id), int(session_id), int(session_id)),
+                (int(session_id), int(session_id), int(session_id), int(session_id)),
             ).fetchone()
         event_max = 0
         try:
@@ -12925,7 +12930,8 @@ class SchoolDB(LovesDB):
         prompt_max = int(row["prompt_max"] if row is not None else 0)
         active_n = int(row["active_n"] if row is not None else 0)
         item_max = int(row["item_max"] if row is not None else 0)
-        return f"{seq}:{prompt_max}:{active_n}:{item_max}:{event_max}"
+        response_max = int(row["response_max"] if row is not None else 0)
+        return f"{seq}:{prompt_max}:{active_n}:{item_max}:{response_max}:{event_max}"
 
     def student_live_poll_unchanged(
         self, session_id: int, class_id: int, seq: Any, stamp: Any

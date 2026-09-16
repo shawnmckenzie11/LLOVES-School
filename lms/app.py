@@ -3417,6 +3417,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
+        unchanged = school.student_live_poll_unchanged(
+            live_session_id,
+            int(class_id),
+            request.args.get("seq"),
+            request.args.get("stamp"),
+        )
+        if unchanged is not None:
+            return jsonify(unchanged)
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
         if unmatched:
@@ -3457,6 +3465,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
+        payload["stamp"] = school.live_student_poll_stamp(
+            live_session_id, int(class_id)
+        )
+        payload["state_seq"] = int(
+            (payload.get("teacher_state") or {}).get("state_seq") or 0
+        )
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -3685,7 +3699,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }
         if fragment:
             body["feedback"] = fragment
-        tally = school.live_session_mc_tally(live_session_id)
+        try:
+            teacher = school.live_session_teacher_state_payload(live_session_id)
+        except KeyError:
+            teacher = None
+        tally = school._tally_for_prompt(live_session_id, target, teacher)
+        if tally is None:
+            tally = school.live_session_mc_tally(live_session_id)
         if tally is not None:
             body["mc_tally"] = tally
         return jsonify(body)
@@ -3823,14 +3843,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/live-sessions/<int:session_id>/state")
     @login_required
     def api_live_session_state(session_id: int):
-        """Return code, attendee count, roster, and phase for one live session."""
+        """Return code, attendee count, roster, and phase for one live session.
+
+        ``?light=1`` omits cards, metadata, and scoreboard for interval polls.
+        """
         session_row = school.get_live_session(session_id)
         if session_row is None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        light = str(request.args.get("light") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         try:
-            state = school.get_live_session_state(session_id)
+            state = school.get_live_session_state(session_id, light=light)
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         return jsonify({"ok": True, **state})

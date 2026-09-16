@@ -1115,6 +1115,52 @@ class LiveBackendStateTests(unittest.TestCase):
             after,
         )
 
+    def test_student_payload_includes_results_after_submit(self) -> None:
+        """Lifecycle cards receive class results once the student has answered."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        maple = self.student_ids[0]
+        self.school.join_live_class_session(
+            self.session_id, maple, codename="Aspen"
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C2", stage="join"
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        notation = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == "function-notation"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(notation["id"]), publish_mode="individual"
+        )
+        stamp_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id
+        )
+        card = self.school.student_live_items_payload(self.session_id, maple)
+        question = card["active_questions"][0]
+        self.assertIsNone(question.get("my_response"))
+        self.assertIsNone(question.get("results"))
+        prompt_id = int(question["prompt"]["id"])
+        self.school.submit_live_prompt_response(
+            prompt_id,
+            maple,
+            {"choice": "the output of rule f when the input is x"},
+        )
+        stamp_after = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id
+        )
+        self.assertNotEqual(stamp_before, stamp_after)
+        after = self.school.student_live_items_payload(self.session_id, maple)
+        row = after["active_questions"][0]
+        self.assertIsNotNone(row.get("my_response"))
+        results = row.get("results") or {}
+        choices = results.get("choices") or []
+        self.assertTrue(choices, results)
+        self.assertGreaterEqual(
+            sum(int(c.get("count") or 0) for c in choices), 1
+        )
 
 
 class LiveBackendApiGuardTests(unittest.TestCase):

@@ -1885,6 +1885,50 @@ function lifecycleAnswerFromCard(card) {
  * @param {HTMLElement} card
  * @param {"individual"|"vote"|"team"} action
  */
+
+/**
+ * Apply a successful lifecycle submit onto the cached student payload.
+ * @param {any} payload
+ * @param {any} item
+ * @param {any} data
+ * @returns {any}
+ */
+function mergeLifecycleSubmitResponse(payload, item, data) {
+  if (!payload || !item || !data) return payload;
+  const promptId = Number(item.prompt?.id) || 0;
+  const itemId = Number(item.id) || 0;
+  const myResponse = data.my_response || null;
+  const tally = data.mc_tally;
+  const active = Array.isArray(payload.active_questions)
+    ? payload.active_questions.slice()
+    : [];
+  let touched = false;
+  const activeQuestions = active.map((row) => {
+    const rowPromptId = Number(row?.prompt?.id) || 0;
+    const rowItemId = Number(row.id) || 0;
+    if (rowPromptId !== promptId && rowItemId !== itemId) return row;
+    touched = true;
+    const results =
+      tally && Array.isArray(tally.choices) && tally.choices.length
+        ? { kind: tally.kind || "mc", choices: tally.choices }
+        : row.results;
+    return {
+      ...row,
+      my_response: myResponse || row.my_response,
+      can_submit: false,
+      results: results || row.results,
+    };
+  });
+  if (!touched) return payload;
+  return {
+    ...payload,
+    my_response: myResponse || payload.my_response,
+    mc_tally: tally || payload.mc_tally,
+    active_questions: activeQuestions,
+  };
+}
+
+
 async function submitLifecycleAnswer(card, action) {
   const itemId = Number(card.dataset.liveCardId) || 0;
   const promptIdFromCard = Number(card.dataset.livePromptId) || 0;
@@ -1929,6 +1973,10 @@ async function submitLifecycleAnswer(card, action) {
     throw new Error(data.error || "Could not submit that answer.");
   }
   liveCardDrafts.delete(`${itemId}:${action}`);
+  if (lastStudentPayload) {
+    lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+    paintLifecycleQuestionStack(lastStudentPayload);
+  }
   await tick();
 }
 
