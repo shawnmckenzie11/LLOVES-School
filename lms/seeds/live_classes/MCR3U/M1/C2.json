@@ -72,10 +72,21 @@
       "response_mode": "individual"
     },
     {
-      "ref": "course/MCR3U/media/square-root-transformation",
+      "ref": "live-class/MCR3U/M1/C2/question/team-challenge",
       "stage": "play",
       "page_number": 5,
       "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
+    },
+    {
+      "ref": "live-class/MCR3U/M1/C2/media/parent-transformations",
+      "stage": "play",
+      "page_number": 5,
+      "order": 2,
       "default_status": "inactive",
       "publish_modes": [
         "individual"

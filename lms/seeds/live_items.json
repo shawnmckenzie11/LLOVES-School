@@ -570,6 +570,55 @@
         "live_results": true,
         "dismissible": true
       }
+    },
+    "live-class/MCR3U/M1/C2/question/team-challenge": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "team-challenge",
+      "type": "mc",
+      "text": "A rule subtracts one square root from another: f(x) = √(x − 5) − √(24 − 3x). Each square root only makes sense for some inputs. Which inputs are allowed?",
+      "options": [
+        "all real numbers",
+        "x ≥ 5",
+        "5 ≤ x ≤ 8",
+        "x ≤ 8"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+      "title": "Parent transformations",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
     }
   }
 }

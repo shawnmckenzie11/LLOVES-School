@@ -452,7 +452,7 @@ class LiveClassMetadataTests(unittest.TestCase):
         )
 
     def test_mcr3u_m1c2_uses_function_notation_and_parent_range(self) -> None:
-        """MCR3U M1C2 Join, Round 1 domain MCs, and Round 3 parent questions."""
+        """MCR3U M1C2 Join, Round 1 domain MCs, Round 2 team challenge, and Round 3 parent questions."""
 
         metadata = load_live_class_metadata("MCR3U", "M1", "C2")
         self.assertEqual([row["name"] for row in metadata["pages"]], [
@@ -467,9 +467,11 @@ class LiveClassMetadataTests(unittest.TestCase):
         questions = metadata["questions"]
         join_ids = [row["id"] for row in questions if row["stage"] == "join"]
         round1_ids = [row["id"] for row in questions if row["stage"] == "round"]
+        play_ids = [row["id"] for row in questions if row["stage"] == "play"]
         round_ids = [row["id"] for row in questions if row["stage"] == "round_3"]
         self.assertEqual(join_ids, ["function-notation", "evaluate-f2"])
         self.assertEqual(round1_ids, ["not-in-domain-sqrt", "not-in-domain-reciprocal"])
+        self.assertEqual(play_ids, ["team-challenge"])
         self.assertEqual(
             round_ids,
             [
@@ -477,6 +479,24 @@ class LiveClassMetadataTests(unittest.TestCase):
                 "parent-domain-sqrt",
                 "parent-domain-reciprocal",
             ],
+        )
+        challenge = next(row for row in questions if row["id"] == "team-challenge")
+        self.assertEqual(challenge["page_number"], 5)
+        self.assertEqual(challenge["type"], "mc")
+        self.assertEqual(challenge["correct_answer"], "C")
+        self.assertIn("√(x − 5)", challenge["text"])
+        self.assertIn("√(24 − 3x)", challenge["text"])
+        self.assertEqual(
+            challenge["options"],
+            ["all real numbers", "x ≥ 5", "5 ≤ x ≤ 8", "x ≤ 8"],
+        )
+        self.assertEqual(
+            metadata["media"]["ref"],
+            "live-class/MCR3U/M1/C2/media/parent-transformations",
+        )
+        self.assertEqual(
+            metadata["media"]["file"],
+            "/static/live-media/mcr3u-m1c2-parent-transformations.html",
         )
         sqrt_q = next(row for row in questions if row["id"] == "not-in-domain-sqrt")
         recip_q = next(row for row in questions if row["id"] == "not-in-domain-reciprocal")
@@ -495,7 +515,7 @@ class LiveClassMetadataTests(unittest.TestCase):
         self.assertEqual(numeric["type"], "numeric")
         self.assertEqual(numeric["correct_answer"], "-2")
         for row in questions:
-            if row["stage"] in {"join", "round", "round_3"}:
+            if row["stage"] in {"join", "round", "play", "round_3"}:
                 self.assertEqual(row["default_status"], "inactive")
                 self.assertEqual(row["response_mode"], "individual")
                 self.assertNotIn("feedback_id", row)
