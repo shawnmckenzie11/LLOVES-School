@@ -259,6 +259,8 @@ def choice_letter(response: Any, choices: Any) -> str | None:
         raw = response.get("choice")
         if raw is None:
             raw = response.get("value")
+        if raw is None:
+            raw = response.get("text")
     text = str(raw if raw is not None else "").strip()
     if not text:
         return None

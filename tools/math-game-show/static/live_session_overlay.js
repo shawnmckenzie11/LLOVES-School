@@ -36,6 +36,9 @@ const graffitiEl = document.getElementById("live-graffiti");
 
 let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
+let overlayDismissed = false;
+let tickTimer = 0;
+let clockTimer = 0;
 let lastRosterKey = "";
 let lastTeamKey = "";
 let lastRoundKey = "";
@@ -377,12 +380,7 @@ function paintSession(state) {
     endedEl.classList.toggle("hidden", !ended);
   }
   if (ended) {
-    document.body.classList.add("is-ended");
-    try {
-      window.close();
-    } catch {
-      /* popup close can fail if the window was not script-opened */
-    }
+    dismissOverlayWindow();
   }
   const sessionClass = Number(state?.session?.class_id || 0);
   if (sessionClass > 0) classId = sessionClass;
@@ -651,6 +649,49 @@ async function copyClassCode() {
 }
 
 /**
+ * Stop roster/scoreboard polling after this overlay has dismissed.
+ */
+function stopOverlayPolling() {
+  if (tickTimer) window.clearInterval(tickTimer);
+  if (clockTimer) window.clearInterval(clockTimer);
+  tickTimer = 0;
+  clockTimer = 0;
+}
+
+/**
+ * Show Session ended and close this Zoom-share popup.
+ *
+ * If the browser ignores ``window.close()`` (window was not script-opened),
+ * optionally blank the page so Zoom is not left on "Waiting for students…".
+ * End Live Class celebration still paints in the same tick when the session
+ * row remains; Quit wipe uses ``blankIfStillOpen``.
+ * @param {{blankIfStillOpen?: boolean}} [opts]
+ */
+function dismissOverlayWindow(opts = {}) {
+  overlayDismissed = true;
+  stopOverlayPolling();
+  if (endedEl) {
+    endedEl.hidden = false;
+    endedEl.classList.remove("hidden");
+  }
+  document.body.classList.add("is-ended");
+  try {
+    window.close();
+  } catch {
+    /* popup close can fail if the window was not script-opened */
+  }
+  if (opts.blankIfStillOpen) {
+    window.setTimeout(() => {
+      try {
+        if (!window.closed) location.replace("about:blank");
+      } catch {
+        /* ignore navigation failures in a closing popup */
+      }
+    }, 50);
+  }
+}
+
+/**
  * Fetch JSON from an API path; return null on auth/network failure.
  * @param {string} url
  * @returns {Promise<any|null>}
@@ -665,15 +706,34 @@ async function fetchJson(url) {
 }
 
 /**
+ * Load live-session state, treating a wiped SID as a close signal.
+ * @returns {Promise<{missing: boolean, payload?: any}>}
+ */
+async function fetchLiveSessionState() {
+  const response = await fetch(`/api/live-sessions/${sessionId}/state`, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (response.status === 404) return { missing: true };
+  if (!response.ok) return { missing: false };
+  const payload = await response.json();
+  if (payload?.ok === false) return { missing: true };
+  return { missing: false, payload };
+}
+
+/**
  * Poll session roster and optional class scoreboard once.
  */
 async function tick() {
-  if (!sessionId || tickBusy) return;
+  if (!sessionId || tickBusy || overlayDismissed) return;
   tickBusy = true;
   try {
-    const payload = await fetchJson(`/api/live-sessions/${sessionId}/state`);
-    if (payload?.ok === false) return;
-    if (payload) paintSession(payload);
+    const result = await fetchLiveSessionState();
+    if (result.missing) {
+      dismissOverlayWindow({ blankIfStillOpen: true });
+      return;
+    }
+    if (result.payload) paintSession(result.payload);
     if (classId > 0) {
       const board = await fetchJson(`/api/classes/${classId}/scoreboard`);
       if (board) paintTeams(board);
@@ -699,10 +759,11 @@ codeEl?.addEventListener("keydown", (event) => {
 if (!sessionId) {
   if (codeEl) codeEl.textContent = "—";
   if (countEl) countEl.textContent = "Missing session";
+  dismissOverlayWindow({ blankIfStillOpen: true });
 } else {
   tick();
-  setInterval(tick, 2000);
-  setInterval(() => {
+  tickTimer = window.setInterval(tick, 2000);
+  clockTimer = window.setInterval(() => {
     if (!lastBoard) return;
     const phase = String(lastBoard.overlay_phase || "");
     if (phase === "anticipation") paintAnticipationClock(lastBoard);

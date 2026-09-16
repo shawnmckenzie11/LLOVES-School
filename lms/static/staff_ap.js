@@ -149,7 +149,16 @@ const STAGE_BY_STEP = {
   score: "play",
 };
 
-const TEACHER_STAGES = ["join", "teams", "meet", "round", "play"];
+const TEACHER_STAGES = ["join", "teams", "meet", "round", "play", "round_3", "summary"];
+const DEFAULT_LIVE_PAGES = [
+  { id: "join", name: "Join", stage: "join" },
+  { id: "welcome", name: "Welcome", stage: "teams" },
+  { id: "meet", name: "Meet", stage: "meet" },
+  { id: "round_1", name: "Round 1", stage: "round" },
+  { id: "round_2", name: "Round 2", stage: "play" },
+  { id: "round_3", name: "Round 3", stage: "round_3" },
+  { id: "summary", name: "Summary", stage: "summary" },
+];
 const SETUP_STAGE = "set_class";
 /** True while Module + date are chosen, before Join mints the session. */
 let setupPhase = false;
@@ -166,6 +175,8 @@ const FLAG_BY_STAGE = {
   meet: "question",
   round: "question",
   play: "question",
+  round_3: "question",
+  summary: "question",
   challenge: "question",
   freeze: "score",
 };
@@ -301,23 +312,48 @@ function adoptTeacherState(next) {
 /**
  * Mark StageRail from thin JSON stage (not the wizard step).
  */
+/**
+ * Named pages for the current live-lesson file, or the math default.
+ * @returns {{id: string, name: string, stage: string}[]}
+ */
+function liveLessonPages() {
+  const rows = lastLiveMetadata?.pages;
+  if (Array.isArray(rows) && rows.length) {
+    return rows
+      .filter((row) => row && row.stage)
+      .map((row) => ({
+        id: String(row.id || row.stage),
+        name: String(row.name || row.stage),
+        stage: String(row.stage),
+      }));
+  }
+  return DEFAULT_LIVE_PAGES;
+}
+
+/**
+ * Mark the page counter from thin JSON stage (not the wizard step).
+ */
 function paintStageRail() {
   const stage = setupPhase ? SETUP_STAGE : teacherState.stage || stageForStep();
   if (!setupPhase) REACHED_STAGES.add(stage);
-  document.querySelectorAll("#live-stage-rail [data-stage]").forEach((btn) => {
-    const id = btn.getAttribute("data-stage") || "";
-    const on = id === stage;
-    btn.classList.toggle("is-active", on);
-    if (on) btn.setAttribute("aria-current", "step");
-    else btn.removeAttribute("aria-current");
-    btn.classList.toggle("is-reached", !setupPhase && REACHED_STAGES.has(id));
-  });
-  const index = TEACHER_STAGES.indexOf(stage);
+  const pages = liveLessonPages();
+  const index = pages.findIndex((row) => row.stage === stage);
+  const counter = $("live-page-counter");
+  const name = $("live-page-name");
+  if (setupPhase) {
+    if (counter) counter.textContent = "";
+    if (name) name.textContent = "Set Class";
+  } else {
+    if (counter) {
+      counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
+    }
+    if (name) name.textContent = index >= 0 ? pages[index].name : "";
+  }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
-  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || index <= 0;
+  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase;
   if (next instanceof HTMLButtonElement) {
-    next.disabled = setupPhase ? false : index < 0 || index >= TEACHER_STAGES.length - 1;
+    next.disabled = setupPhase ? false : index < 0 || index >= pages.length - 1;
   }
 }
 
@@ -392,7 +428,7 @@ function paintOptionCard() {
     Boolean(overlayState?.game?.timer_paused);
   if (timer) timer.hidden = !timerRunning && !Boolean(timerToggle?.checked);
   if (round) round.hidden = stage !== "round";
-  if (play) play.hidden = stage !== "play";
+  if (play) play.hidden = !["play", "round_3", "summary"].includes(stage);
   paintGlobalGroupControls();
   paintTeamsStripEnabled();
   if (rounds) {
@@ -561,6 +597,14 @@ async function publishSurface(surface) {
     if (file) await postActiveMedia({ url: file });
   }
   const next = { ...(teacherState.student_view || {}), [surface]: selected };
+  const hasActiveQuestions = lastLiveItems.some(
+    (row) =>
+      String(row?.item?.item_type || row?.kind || "") === "question" &&
+      String(row.status || "") === "active"
+  );
+  if (hasActiveQuestions && next.questions === "none") {
+    next.questions = "student";
+  }
   teacherState.student_view = next;
   await patchTeacherState({ student_view: next });
   paintSurfacePublishing();
@@ -1391,9 +1435,11 @@ async function refreshLifecycleResults() {
   if (!sessionId) return;
   const ids = lastLiveItems
     .filter((row) => {
-      const type = String(row?.item?.item_type || "");
+      const type = String(
+        row?.item?.item_type || row?.item?.type || row?.kind || ""
+      ).toLowerCase();
       return (
-        type === "question" &&
+        ["question", "poll", "mc"].includes(type) &&
         String(row.stage || "") === String(teacherState.stage || "") &&
         ["active", "closed"].includes(String(row.status || ""))
       );
@@ -1584,7 +1630,7 @@ function paintQuestionArtifact(media) {
       flag.textContent = "";
       hideLiveQuestionBody();
     }
-    paintTeamsSparkCard(lastTeamsSpark, { keepQuestionBody: true });
+    hideTeamsSparkCard();
     paintMeetChainChrome();
     return;
   }
@@ -1638,38 +1684,19 @@ function paintQuestionArtifact(media) {
 }
 
 /**
- * Soft A/B counts and A→C→B dots. No full ResultsStrip.
+ * Hide leftover Meet chain chrome. The teammate poll is an individual card.
  */
 function paintMeetChainChrome() {
   const chrome = $("meet-chain-chrome");
+  if (chrome) chrome.hidden = true;
+  const host = $("meet-poll-totals");
+  if (host) host.hidden = true;
   const dots = $("meet-chain-dots");
-  const next = $("meet-chain-next");
-  const chain = teacherState.meet_chain;
-  const on = teacherState.stage === "meet" && chain && Array.isArray(chain.chain);
-  if (chrome) chrome.hidden = !on;
-  if (!on) return;
-  const letters = chain.chain;
-  const index = Number(chain.index) || 0;
-  const step = String(letters[index] || "A");
-  if (dots) {
-    dots.innerHTML = letters
-      .map((letter, i) => {
-        const cls = i === index ? "is-current" : i < index ? "is-done" : "";
-        return `<span class="meet-dot ${cls}" data-step="${letter}">${letter}</span>`;
-      })
-      .join("");
-  }
-  const bag = step === "B" ? chain.b_picks || {} : chain.a_picks || {};
-  const counts = {};
-  Object.values(bag).forEach((choice) => {
-    const key = String(choice || "").trim();
-    if (!key) return;
-    counts[key] = (counts[key] || 0) + 1;
-  });
-  paintMeetPollTotals(step, bag, counts);
-  if (next instanceof HTMLButtonElement) {
-    next.disabled = index >= letters.length - 1;
-  }
+  if (dots) dots.innerHTML = "";
+  const classEl = $("meet-poll-class");
+  if (classEl) classEl.innerHTML = "";
+  const teamsEl = $("meet-poll-teams");
+  if (teamsEl) teamsEl.innerHTML = "";
 }
 
 /**
@@ -1698,6 +1725,8 @@ function countsToBarHtml(counts) {
  * @param {Record<string, number>} classCounts
  */
 function paintMeetPollTotals(step, bag, classCounts) {
+  paintMeetChainChrome();
+  return;
   const host = $("meet-poll-totals");
   const classEl = $("meet-poll-class");
   const teamsEl = $("meet-poll-teams");
@@ -2105,6 +2134,7 @@ async function pollLiveSessionAttendees() {
       ? payload.question_cards
       : [];
     lastLiveMetadata = payload?.live_metadata || null;
+    paintStageRail();
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
     const guests = present.filter((row) => Boolean(row.unmatched) || row.student_id == null);
@@ -3443,12 +3473,31 @@ function selectTrackMode(mode) {
   renderAttendanceList();
 }
 
+/**
+ * Confirm Quit, close the Zoom-share overlay, then let the caller submit.
+ * @param {HTMLFormElement|null|undefined} form
+ * @returns {boolean} false when the teacher cancelled the confirm
+ */
+function confirmQuitAndCloseOverlay(form) {
+  if (!(form instanceof HTMLFormElement)) return false;
+  if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return false;
+  closeLiveSessionOverlay();
+  return true;
+}
+
+$("live-quit-class-form")?.addEventListener("submit", (event) => {
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement)) return;
+  if (!confirmQuitAndCloseOverlay(form)) {
+    event.preventDefault();
+  }
+});
+
 for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
   $(id)?.addEventListener("click", () => {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
-      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
-      closeLiveSessionOverlay();
+      if (!confirmQuitAndCloseOverlay(form)) return;
       form.submit();
       return;
     }
@@ -3464,8 +3513,7 @@ document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   btn.addEventListener("click", () => {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
-      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
-      closeLiveSessionOverlay();
+      if (!confirmQuitAndCloseOverlay(form)) return;
       form.submit();
       return;
     }
@@ -5454,6 +5502,9 @@ $("live-stage-next")?.addEventListener("click", () => {
   }
   patchTeacherState({ advance: "next" });
 });
+$("live-save-as")?.addEventListener("click", () => {
+  saveLiveLessonAs().catch((err) => showError("#ap-overlay-error", err));
+});
 $("meet-chain-next")?.addEventListener("click", () => {
   patchTeacherState({ meet_action: "next" });
 });
@@ -5539,6 +5590,7 @@ function applyLivePackChoice(moduleId, slot) {
     const body = { live_module: module, live_slot: liveSlot };
     if (liveSlot === "C1") body.meet_action = "reset_a";
     return patchTeacherState(body)
+      .then(() => loadSavedLiveLesson(module, liveSlot))
       .then(() => paintLiveSlotPicks())
       .catch((err) => showError("#ap-overlay-error", err));
   }
@@ -5548,12 +5600,82 @@ function applyLivePackChoice(moduleId, slot) {
       )
     : Promise.resolve();
   write
+    .then(() => loadSavedLiveLesson(module, liveSlot))
     .then(() => {
       if (liveSlot === "C1" && sessionId && liveClassSeedMedia()) return ensureC1MediaSeeded();
       paintLiveSlotPicks();
       return null;
     })
     .catch((err) => showError("#ap-overlay-error", err));
+}
+
+/**
+ * Load a previously saved live-lesson file for this course and slot.
+ * @param {string} moduleId
+ * @param {string} slot
+ * @returns {Promise<void>}
+ */
+async function loadSavedLiveLesson(moduleId, slot) {
+  if (!classId) return;
+  const module = String(moduleId || "M1").toUpperCase();
+  const liveSlot = String(slot || "C1").toUpperCase();
+  try {
+    const payload = await api(`/api/classes/${classId}/live-lessons/${module}/${liveSlot}`);
+    if (payload?.live_metadata) {
+      lastLiveMetadata = payload.live_metadata;
+      if (Array.isArray(payload.live_metadata.items)) {
+        lastLiveItems = payload.live_metadata.items;
+      }
+      paintStageRail();
+      paintSlidesMetadata();
+    }
+    if (liveSessionId || readLiveSessionId()) {
+      await pollLiveSessionAttendees();
+    }
+  } catch (_) {
+    /* keep current pack */
+  }
+}
+
+/**
+ * Persist the current live-lesson file under a new module/class code.
+ * @returns {Promise<void>}
+ */
+async function saveLiveLessonAs() {
+  const current = `${teacherState.live_module || "M1"}${teacherState.live_slot || "C1"}`;
+  const raw = window.prompt("Save as (e.g. M2C3)", current);
+  if (!raw) return;
+  const payload = await api(`/api/classes/${classId}/live-lessons`, {
+    method: "POST",
+    body: JSON.stringify({
+      code: raw,
+      source_module: teacherState.live_module || "M1",
+      source_slot: teacherState.live_slot || "C1",
+    }),
+  });
+  if (payload?.module && payload?.live_class) {
+    rememberSavedLiveLesson(payload.module, payload.live_class);
+    applyLivePackChoice(payload.module, payload.live_class);
+  }
+}
+
+/**
+ * Keep Set Class dropdowns in sync after Save As.
+ * @param {string} moduleId
+ * @param {string} slot
+ */
+function rememberSavedLiveLesson(moduleId, slot) {
+  const module = String(moduleId || "M1").toUpperCase();
+  const liveSlot = String(slot || "C1").toUpperCase();
+  const host = $("live-pack-strip");
+  const map = slotsByModule();
+  if (!Array.isArray(map[module])) map[module] = [];
+  if (!map[module].includes(liveSlot)) map[module].push(liveSlot);
+  if (host) host.setAttribute("data-slots-by-module", JSON.stringify(map));
+  const moduleSelect = $("live-module-select");
+  if (moduleSelect && ![...moduleSelect.options].some((opt) => opt.value === module)) {
+    moduleSelect.append(new Option(module, module));
+  }
 }
 
 document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
@@ -5710,6 +5832,8 @@ $("live-responses-dialog")?.addEventListener("click", async (event) => {
     if (result?.game) overlayState = result.game;
     paintQuestionResponses(result?.responses || []);
     renderAttendanceList();
+    const dialog = $("live-responses-dialog");
+    if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
   } catch (err) {
     showError("#ap-overlay-error", err);
   }

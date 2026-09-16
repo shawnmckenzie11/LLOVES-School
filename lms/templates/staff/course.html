@@ -124,24 +124,19 @@
           </div>
           <p class="hint compact ap-join-strip" id="ap-join-strip" hidden></p>
         </div>
-        <span id="ap-att-count" class="att-count live-header-att-count">Attendance: 0</span>
-        <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class stages">
-          <button type="button" class="live-stage-stepper" id="live-stage-prev">Prev</button>
-          <span class="live-stage-pill is-active" data-stage="set_class" aria-current="step">SET CLASS</span>
-          <span class="live-stage-pill" data-stage="join">JOIN</span>
-          <span class="live-stage-pill" data-stage="teams">Welcome</span>
-          <span class="live-stage-pill" data-stage="meet">MEET</span>
-          <span class="live-stage-pill" data-stage="round">ROUND</span>
-          <span class="live-stage-pill" data-stage="play">PLAY</span>
-          <button type="button" class="live-stage-stepper" id="live-stage-next">Next</button>
+        <nav class="live-stage-rail" id="live-stage-rail" aria-label="Live class pages">
+          <button type="button" class="live-stage-stepper" id="live-stage-prev">Back</button>
+          <span class="live-page-counter" id="live-page-counter" aria-live="polite"></span>
+          <button type="button" class="live-stage-stepper" id="live-stage-next">Forward</button>
+          <span class="live-page-name" id="live-page-name">Set Class</span>
         </nav>
         <div class="live-header-actions">
+          <button type="button" class="live-header-save secondary" id="live-save-as" aria-label="Save As">Save As</button>
           <div class="live-end-class-form">
             <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
           </div>
           <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
-                data-confirm="Quit without saving attendance or participation?"
-                onsubmit="return confirm(this.dataset.confirm);">
+                data-confirm="Quit without saving attendance or participation?">
             <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
           </form>
           <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
@@ -553,6 +548,24 @@
     <div class="card lesson-slides-wizard" id="lesson-slides-root" data-class-id="{{ cls.id }}">
       <h2>Lesson Slides</h2>
       <p class="hint">Map one live class onto async Lessons, confirm the team challenge, then copy Lesson Theme Template #1 and fill by slide order.</p>
+      <h3>Live lesson files</h3>
+      <p class="hint">Saved Run Live Class templates for this course.</p>
+      <div class="table-wrap">
+        <table class="ls-live-lessons" id="ls-live-lessons">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Class</th>
+              <th>Pages</th>
+              <th>Questions</th>
+              <th>Media file</th>
+            </tr>
+          </thead>
+          <tbody id="ls-live-lessons-body">
+            <tr><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div class="lesson-slides-grid">
         <label class="field">Module #
           <input id="ls-module" type="number" min="1" value="1">

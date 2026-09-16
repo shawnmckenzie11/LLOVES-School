@@ -18,7 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from live_mc import build_mc_tally, is_mc_prompt  # noqa: E402
+from live_mc import build_mc_tally, extract_choice_labels, is_mc_prompt  # noqa: E402
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import MINDS_ON_PROMPT_REF  # noqa: E402
 from minds_on import MINDS_ON_CHOICES, minds_on_prompt_payload  # noqa: E402
@@ -65,7 +65,7 @@ class LiveMcHelperTests(unittest.TestCase):
         self.assertIsNone(build_mc_tally({"kind": "share", "payload": {"prompt": "x"}}))
 
     def test_meet_chain_is_a_first_class_mc_source(self) -> None:
-        """MEET soft MC tallies ephemeral picks, not response rows."""
+        """Meet tallies stored responses first; chain picks are fallback only."""
         prompt = {
             "id": 3,
             "kind": "mc",
@@ -79,25 +79,60 @@ class LiveMcHelperTests(unittest.TestCase):
                 "choices": ["keeps us kind", "Not sure"],
             },
         }
-        tally = build_mc_tally(
+        chain = {
+            "stage": "meet",
+            "chain": ["A", "C", "B"],
+            "index": 0,
+            "a_picks": {"p1": "keeps us kind", "p2": "Not sure"},
+            "c_reacts": {},
+            "b_picks": {},
+            "rotated": ["asks the good question", "brings the calm"],
+        }
+        from_responses = build_mc_tally(
             prompt,
             responses=[{"response": {"choice": "A"}}],
-            meet_chain={
-                "stage": "meet",
-                "chain": ["A", "C", "B"],
-                "index": 0,
-                "a_picks": {"p1": "keeps us kind", "p2": "Not sure"},
-                "c_reacts": {},
-                "b_picks": {},
-                "rotated": ["asks the good question", "brings the calm"],
-            },
+            meet_chain=chain,
             present=2,
         )
+        assert from_responses is not None
+        self.assertEqual(from_responses["source"], "live_prompt")
+        self.assertEqual(from_responses["responded"], 1)
+        self.assertEqual(from_responses["choices"][0]["count"], 1)
+        fallback = build_mc_tally(prompt, responses=[], meet_chain=chain, present=2)
+        assert fallback is not None
+        self.assertEqual(fallback["source"], "meet_chain")
+        self.assertEqual(fallback["responded"], 2)
+        self.assertEqual(fallback["choices"][0]["count"], 1)
+        self.assertEqual(fallback["choices"][1]["count"], 1)
+
+    def test_options_and_unmatched_text_still_fill_bars(self) -> None:
+        """Catalogue options and leftover answer text still increment bars."""
+        prompt = {
+            "id": 9,
+            "kind": "mc",
+            "payload": {
+                "item_id": "meet-team",
+                "type": "poll",
+                "options": ["keeps us kind", "Not sure"],
+            },
+        }
+        self.assertEqual(
+            extract_choice_labels(prompt["payload"]),
+            ["keeps us kind", "Not sure"],
+        )
+        tally = build_mc_tally(
+            prompt,
+            responses=[
+                {"response": {"choice": "keeps us kind"}},
+                {"response": {"text": "asks the good question"}},
+            ],
+            present=3,
+        )
         assert tally is not None
-        self.assertEqual(tally["source"], "meet_chain")
         self.assertEqual(tally["responded"], 2)
-        self.assertEqual(tally["choices"][0]["count"], 1)
-        self.assertEqual(tally["choices"][1]["count"], 1)
+        by_label = {row["label"]: row["count"] for row in tally["choices"]}
+        self.assertEqual(by_label["keeps us kind"], 1)
+        self.assertEqual(by_label["asks the good question"], 1)
 
 
 class LiveMcApiTests(unittest.TestCase):
@@ -169,7 +204,22 @@ class LiveMcApiTests(unittest.TestCase):
         student = self.student.get("/api/student/state").get_json()
         self.assertNotIn("mc_tally", student)
         self.assertFalse(student.get("poll_closed"))
-        prompt = student["prompt"]
+        prompt = student.get("prompt")
+        if prompt is None:
+            item = next(
+                row
+                for row in self.school.ensure_live_session_items(self.session_id)
+                if str(row.get("item_id") or "") == "minds_on"
+            )
+            self.school.publish_live_session_item(
+                self.session_id, int(item["id"]), publish_mode="individual"
+            )
+            student = self.student.get("/api/student/state").get_json()
+            prompt = student.get("prompt")
+            if prompt is None:
+                active = student.get("active_questions") or []
+                self.assertTrue(active, student)
+                prompt = active[0]["prompt"]
         self.assertEqual(prompt["payload"]["item_id"], "minds_on")
         submit = self.student.post(
             "/api/student/live-prompt/response",

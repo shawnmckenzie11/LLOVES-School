@@ -570,8 +570,19 @@ function studentProjection(payload) {
   const unlocks = ts.unlocks || {};
   const stage = String(ts.stage || "join");
   const seq = Number(ts.state_seq);
+  const hasLifecycleQuestions = [
+    ...(payload?.active_questions || []),
+    ...(payload?.closed_results || []),
+  ].some((row) => {
+    const kind = String(
+      row?.content?.item_type || row?.item_type || row?.kind || row?.prompt?.kind || "question"
+    ).toLowerCase();
+    return !["media", "whiteboard", "slides"].includes(kind);
+  });
   const questionsMode = String(
-    view.questions || payload.question_view || (frames.questions === false ? "none" : "student")
+    hasLifecycleQuestions
+      ? "student"
+      : view.questions || payload.question_view || (frames.questions === false ? "none" : "student")
   );
   const mediaItem = activePublishedItem(payload, "media");
   const whiteboardItem = activePublishedItem(payload, "whiteboard");
@@ -769,17 +780,26 @@ function bindFloatingPane(pane) {
   });
   handle.addEventListener("pointerdown", (event) => {
     if (window.innerWidth < 720 || event.target.closest("button")) return;
-    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
     drag = {
       x: event.clientX,
       y: event.clientY,
-      left: paneRect.left - hostRect.left,
-      top: paneRect.top - hostRect.top,
+      left: 0,
+      top: 0,
+      pending: true,
     };
     handle.setPointerCapture(event.pointerId);
   });
   handle.addEventListener("pointermove", (event) => {
     if (!drag) return;
+    if (drag.pending) {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+      const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+      drag.pending = false;
+      drag.left = paneRect.left - hostRect.left;
+      drag.top = paneRect.top - hostRect.top;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+    }
     const hostRect = host.getBoundingClientRect();
     const width = pane.offsetWidth;
     const height = pane.offsetHeight;
@@ -1362,8 +1382,16 @@ function liveCardKey(item) {
   return `${Number(item?.id) || 0}:${String(item?.status || "active")}`;
 }
 
+/**
+ * Stable per-question dock key so two cards never share one chip.
+ * @param {any} item
+ * @returns {string}
+ */
 function liveCardDockKey(item) {
-  return String(item?.id || item?.item_id || liveCardKey(item));
+  const liveId = Number(item?.id) || 0;
+  const promptId = Number(item?.prompt?.id) || 0;
+  const itemId = String(item?.item_id || item?.placement_key || item?.content?.item_id || "");
+  return `card:${liveId}:${promptId}:${itemId}:${liveCardKey(item)}`;
 }
 
 function stageNumberForItem(item, payload) {
@@ -1394,8 +1422,32 @@ function dockAnswerMark(item) {
  * @returns {string}
  */
 function liveAnswerLabel(answer) {
+  if (typeof answer === "string" && answer.trim()) return answer.trim();
   if (!answer || typeof answer !== "object") return "—";
   return String(answer.value ?? answer.choice ?? answer.text ?? "—");
+}
+
+/**
+ * Flatten catalogue options or prompt choices into student-facing labels.
+ * @param {any} content
+ * @returns {string[]}
+ */
+function liveChoiceLabels(content) {
+  const body = content && typeof content === "object" ? content : {};
+  const raw =
+    Array.isArray(body.choices) && body.choices.length
+      ? body.choices
+      : Array.isArray(body.options)
+        ? body.options
+        : [];
+  return raw
+    .map((choice) => {
+      if (choice && typeof choice === "object") {
+        return String(choice.label || choice.text || choice.choice || "").trim();
+      }
+      return String(choice || "").trim();
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -1445,18 +1497,33 @@ function lifecycleClassConsensusHtml(results) {
  * @param {any} [initial]
  * @returns {string}
  */
+/**
+ * Return the student answer kind for one lifecycle card.
+ * Catalogue ``type`` / ``integer_only`` win over a stale MC compatibility prompt.
+ * @param {any} item
+ * @returns {string}
+ */
+function lifecycleAnswerKind(item) {
+  const prompt = item?.prompt || {};
+  const content = item?.content || prompt.payload || {};
+  if (
+    content.integer_only ||
+    String(content.type || "").toLowerCase() === "numeric" ||
+    String(prompt.kind || "").toLowerCase() === "numeric"
+  ) {
+    return "numeric";
+  }
+  return String(prompt.kind || content.type || "mc").toLowerCase();
+}
+
 function lifecycleAnswerControls(item, action, initial = null) {
   const prompt = item?.prompt || {};
   const content = item?.content || prompt.payload || {};
-  const kind = String(prompt.kind || content.type || "mc").toLowerCase();
+  const kind = lifecycleAnswerKind(item);
   const current = liveAnswerLabel(initial);
   const prefix = action === "vote" ? "Submit private vote" : action === "team" ? "Team Answer" : "Submit Answer";
   if (kind === "mc" || kind === "poll") {
-    const choices = Array.isArray(content.options)
-      ? content.options
-      : Array.isArray(content.choices)
-        ? content.choices
-        : [];
+    const choices = liveChoiceLabels(content);
     return `<div class="student-live-answer-controls" data-live-action="${action}">
       ${choices
         .map(
@@ -1471,9 +1538,14 @@ function lifecycleAnswerControls(item, action, initial = null) {
   }
   if (kind === "numeric") {
     const value = current === "—" ? "" : current;
+    const integerOnly = Boolean(content.integer_only);
     return `<div class="student-live-answer-controls" data-live-action="${action}">
-      <label class="prompt-numeric"><span>Your answer</span>
-        <input type="number" step="any" data-live-value value="${escapeText(value)}">
+      <label class="prompt-numeric"><span>${integerOnly ? "Enter an integer…" : "Your answer"}</span>
+        <input type="number" inputmode="${integerOnly ? "numeric" : "decimal"}" step="${
+          integerOnly ? "1" : "any"
+        }" data-live-value placeholder="${escapeText(
+          content.placeholder || (integerOnly ? "Enter an integer…" : "Enter a number")
+        )}" value="${escapeText(value)}">
       </label>
       <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
     </div>`;
@@ -1595,8 +1667,18 @@ function promptAsLifecycleItem(payload) {
   const published = (payload?.active_questions || []).find(
     (row) => Number(row?.prompt?.id) === Number(prompt.id)
   );
+  const itemId = String(body.item_id || body.pack || "").toLowerCase();
+  const inferredStage = itemId.includes("teams-spark")
+    ? "teams"
+    : itemId.includes("minds_on") || itemId.includes("minds-on")
+      ? "join"
+      : itemId.includes("meet")
+        ? "meet"
+        : String(payload?.teacher_state?.stage || "");
   return {
     id: Number(prompt.id) || 0,
+    item_id: body.item_id || body.pack || "",
+    stage: inferredStage,
     status: "active",
     content: {
       type: prompt.kind,
@@ -1629,7 +1711,17 @@ function paintLifecycleQuestionStack(payload) {
   ) {
     active = [legacy, ...active];
   }
-  const all = [...active, ...closed];
+  const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
+  const all = [...active, ...closed].filter((item) => {
+    const kind = String(
+      item?.content?.item_type || item?.item_type || item?.kind || ""
+    ).toLowerCase();
+    if (["media", "whiteboard", "slides"].includes(kind)) return false;
+    const status = String(item?.status || "active").toLowerCase();
+    if (status === "active") return true;
+    const itemStage = String(item?.stage || item?.content?.stage || "").toLowerCase();
+    return !itemStage || !stage || itemStage === stage;
+  });
   const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
   paintQuestionDock(all, payload);
   liveQuestionStackBody.innerHTML = visible
@@ -1652,15 +1744,23 @@ function paintLifecycleQuestionStack(payload) {
               liveCardDrafts.get(`${Number(item.id)}:individual`)
             )
           : "";
+      const ownLabel = !groupMode
+        ? item.my_response
+          ? liveAnswerLabel(item.my_response.response)
+          : String(payload?.meet_chip || "").trim()
+        : "";
       const ownResponse =
-        !groupMode && item.my_response
-          ? `<p class="student-live-note">Your answer: ${escapeText(
-              liveAnswerLabel(item.my_response.response)
-            )}</p>`
+        ownLabel && ownLabel !== "—"
+          ? `<p class="student-live-note">Your answer: ${escapeText(ownLabel)}</p>`
           : "";
       const showResults =
         status === "closed" ||
-        (Boolean(item.show_live_results) && Boolean(item.my_response || item.group_consensus?.has_voted));
+        (Boolean(item.show_live_results) &&
+          Boolean(
+            item.my_response ||
+              (ownLabel && ownLabel !== "—") ||
+              item.group_consensus?.has_voted
+          ));
       const results =
         !showResults
           ? ""
@@ -2168,57 +2268,25 @@ function countsToTallyHtml(counts, labels) {
  */
 function studentMeetPollsHtml(payload) {
   const item =
-    (payload?.active_questions || []).find(
-      (row) => Number(row?.prompt?.id) === Number(payload?.prompt?.id)
-    ) || null;
-  if (!item || !item.show_live_results) return "";
+    (payload?.active_questions || []).find((row) => {
+      const id = String(row?.item_id || row?.content?.id || "").replace(/_/g, "-");
+      return id === "meet-team" || Number(row?.prompt?.id) === Number(payload?.prompt?.id);
+    }) || null;
+  if (item && !item.show_live_results && !item.my_response) return "";
   const ts = (payload && payload.teacher_state) || {};
   if (String(ts.stage || "") !== "meet") return "";
-  const chain = ts.meet_chain || {};
-  const letters = Array.isArray(chain.chain) ? chain.chain : [];
-  const step = String(letters[Number(chain.index) || 0] || "");
-  if (!step || step === "C") return "";
-  const bag = step === "B" ? chain.b_picks || {} : chain.a_picks || {};
-  const promptChoices =
-    (payload.prompt && payload.prompt.payload && payload.prompt.payload.choices) || [];
-  const labels = Array.isArray(promptChoices)
-    ? promptChoices.map((row) => (typeof row === "string" ? row : String(row.label || row.text || "")))
-    : [];
+  const tally = (item && item.results) || payload?.mc_tally;
+  if (!tally) return "";
+  const labels = [];
   const classCounts = {};
-  labels.forEach((label) => {
-    classCounts[label] = 0;
+  (tally.choices || []).forEach((row) => {
+    const label = typeof row === "string" ? row : String(row.label || row.text || "");
+    if (!label) return;
+    labels.push(label);
+    classCounts[label] = Number(row.count || row.n || 0);
   });
-  Object.values(bag).forEach((choice) => {
-    const key = String(choice || "").trim();
-    if (key) classCounts[key] = (classCounts[key] || 0) + 1;
-  });
-  const meId = Number((payload.me && payload.me.id) || 0);
-  const meTeam = String((payload.me && payload.me.team_name) || "").trim();
-  const teams = (payload.scoreboard && payload.scoreboard.teams) || [];
-  const mine =
-    teams.find((team) =>
-      (team.members || team.players || []).some((row) => Number(row.id) === meId)
-    ) || teams.find((team) => String(team.name || "").trim() === meTeam);
-  const teamCounts = {};
-  labels.forEach((label) => {
-    teamCounts[label] = 0;
-  });
-  if (mine) {
-    const memberIds = new Set(
-      (mine.members || mine.players || []).map((row) => Number(row.id))
-    );
-    Object.entries(bag).forEach(([key, choice]) => {
-      const sid = Number(String(key).replace(/^student:/, ""));
-      if (!memberIds.has(sid)) return;
-      const label = String(choice || "").trim();
-      if (label) teamCounts[label] = (teamCounts[label] || 0) + 1;
-    });
-  }
-  const teamName = escapeText((mine && mine.name) || "Your team");
-  return `<section class="prompt-poll-card prompt-poll-team"><p class="meet-poll-kicker">Team · ${teamName}</p>${countsToTallyHtml(
-    teamCounts,
-    labels
-  )}</section><section class="prompt-poll-card prompt-poll-class"><p class="meet-poll-kicker">Class-wide</p>${countsToTallyHtml(
+  if (!labels.length) return "";
+  return `<section class="prompt-poll-card prompt-poll-class"><p class="meet-poll-kicker">Class results</p>${countsToTallyHtml(
     classCounts,
     labels
   )}</section>`;
@@ -2392,20 +2460,34 @@ function paintCelebrate(payload) {
   const winnerBanner = document.getElementById("student-winner-banner");
   const winnerNameEl = document.getElementById("student-winner-name");
   if (saveWorkBtn) saveWorkBtn.hidden = Boolean(payload.celebrate);
-  if (!payload.celebrate) {
+  const summaryOn = String((payload.teacher_state || {}).stage || "") === "summary";
+  const showWinner = Boolean(payload.celebrate) || summaryOn || Boolean(payload.summary_winner);
+  const winnerPlayersEl = document.getElementById("student-winner-players");
+  if (!showWinner) {
     host.hidden = true;
     celebratePainted = false;
     if (graffiti) graffiti.innerHTML = "";
     if (form) form.hidden = true;
     if (winnerBanner) winnerBanner.hidden = true;
     if (winnerNameEl) winnerNameEl.textContent = "";
-    document.body.classList.remove("is-celebrating");
+    if (winnerPlayersEl) winnerPlayersEl.textContent = "";
+    document.body.classList.remove("is-celebrating", "is-summary-winner");
     return;
   }
   host.hidden = false;
-  document.body.classList.add("is-celebrating");
+  document.body.classList.toggle("is-celebrating", Boolean(payload.celebrate));
+  document.body.classList.toggle("is-summary-winner", showWinner && !payload.celebrate);
   const teamName = String((payload.winner && payload.winner.name) || "").trim();
   if (winnerNameEl) winnerNameEl.textContent = teamName || "Winner";
+  if (winnerPlayersEl) {
+    const players = Array.isArray(payload.winner && payload.winner.players)
+      ? payload.winner.players
+      : [];
+    const names = players
+      .map((row) => String((row && (row.codename || row.first_name || row.name)) || "").trim())
+      .filter(Boolean);
+    winnerPlayersEl.textContent = names.join(" · ");
+  }
   if (winnerBanner) winnerBanner.hidden = false;
   if (form) {
     form.hidden = !Boolean(payload.exit_feedback && payload.exit_feedback.pending);
@@ -2647,6 +2729,7 @@ if (liveQuestionStack) {
     }
     const dismiss = event.target.closest("[data-dismiss-live-card]");
     if (dismiss instanceof HTMLButtonElement) {
+      event.stopPropagation();
       dockedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
       paintLifecycleQuestionStack(lastStudentPayload || {});
       return;

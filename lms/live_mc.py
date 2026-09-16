@@ -29,9 +29,9 @@ def is_mc_prompt(prompt: Any) -> bool:
     payload = prompt.get("payload")
     body = payload if isinstance(payload, dict) else {}
     item_kind = str(body.get("kind") or "").strip().lower()
-    if kind == "mc" or item_kind == "mc":
+    if kind == "mc" or item_kind in {"mc", "poll"}:
         return True
-    choices = body.get("choices")
+    choices = body.get("choices") or body.get("options")
     return isinstance(choices, list) and len(choices) > 0
 
 
@@ -67,18 +67,42 @@ def extract_choice_labels(payload: Any) -> list[str]:
     """
     if not isinstance(payload, dict):
         return []
-    raw = payload.get("choices") or []
+    raw = payload.get("choices") or payload.get("options") or []
+    if not isinstance(raw, list) or not raw:
+        items = payload.get("items")
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            nested = items[0].get("choices") or items[0].get("options") or []
+            raw = nested if isinstance(nested, list) else []
     if not isinstance(raw, list):
         return []
     labels: list[str] = []
     for item in raw:
         if isinstance(item, dict):
-            text = str(item.get("label") or item.get("text") or item.get("choice") or "").strip()
+            text = str(
+                item.get("label") or item.get("text") or item.get("choice") or ""
+            ).strip()
         else:
             text = str(item or "").strip()
         if text:
             labels.append(text)
     return labels
+
+
+def _response_choice_text(raw: Any) -> str:
+    """Return the student-facing token from one stored answer.
+
+    Args:
+        raw: Response object or a bare choice string.
+    """
+    response = raw if isinstance(raw, dict) else {"choice": raw}
+    for key in ("choice", "value", "text"):
+        value = response.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
 
 
 def _meet_pick_bag(meet_chain: Any) -> dict[str, str]:
@@ -126,8 +150,8 @@ def build_mc_tally(
 ) -> dict[str, Any] | None:
     """Build a staff-only MC distribution for the Questions primary slot.
 
-    Meet rides prefer ephemeral ``meet_chain`` picks (no gradebook). Every
-    other MC ride tallies ``live_session_responses``.
+    Individual prompt responses are the source of truth. Ephemeral
+    ``meet_chain`` picks are only a fallback when no response rows exist.
 
     Args:
         prompt: Active live-prompt row.
@@ -143,27 +167,48 @@ def build_mc_tally(
         return None
     payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
     labels = extract_choice_labels(payload)
-    if not labels:
-        return None
-    letters = [CHOICE_LETTERS[i] for i in range(len(labels))]
     key = str(payload.get("key") or "").strip().upper()
     if not key:
         correct_ids = payload.get("correct_ids") or []
         if isinstance(correct_ids, list) and correct_ids:
             key = str(correct_ids[0] or "").strip().upper()
-    counts = {letter: 0 for letter in letters}
     source = "live_prompt"
     raw_values: list[Any] = []
-    if is_meet_team_payload(payload) and public_meet_chain(meet_chain) is not None:
+    for row in responses or []:
+        if not isinstance(row, dict):
+            continue
+        answer = row.get("response")
+        raw_values.append(answer if isinstance(answer, dict) else {"choice": answer})
+    if (
+        not raw_values
+        and is_meet_team_payload(payload)
+        and public_meet_chain(meet_chain) is not None
+    ):
         source = "meet_chain"
-        raw_values = list(_meet_pick_bag(meet_chain).values())
-    else:
-        for row in responses or []:
-            if not isinstance(row, dict):
-                continue
-            answer = row.get("response")
-            raw_values.append(answer if isinstance(answer, dict) else {"choice": answer})
-    for letter in _choice_rows_from_values(raw_values, payload=payload):
+        raw_values = [
+            value if isinstance(value, dict) else {"choice": value}
+            for value in _meet_pick_bag(meet_chain).values()
+        ]
+    if not labels:
+        recovered: list[str] = []
+        for raw in raw_values:
+            text = _response_choice_text(raw)
+            if text and text not in recovered:
+                recovered.append(text)
+        labels = recovered
+    for raw in raw_values:
+        text = _response_choice_text(raw)
+        if not text or choice_letter({"choice": text}, labels):
+            continue
+        if text not in labels and len(labels) < len(CHOICE_LETTERS):
+            labels.append(text)
+    if not labels:
+        return None
+    letters = [CHOICE_LETTERS[i] for i in range(len(labels))]
+    counts = {letter: 0 for letter in letters}
+    for letter in _choice_rows_from_values(
+        raw_values, payload={**payload, "choices": labels}
+    ):
         if letter in counts:
             counts[letter] += 1
     responded = len(raw_values)

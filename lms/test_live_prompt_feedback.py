@@ -30,6 +30,7 @@ from live_prompt_feedback import (  # noqa: E402
     M1C1_FEEDBACK,
     M1C2_FEEDBACK,
     M1C3_FEEDBACK,
+    choice_letter,
     public_feedback_fragment,
     resolve_live_prompt_feedback,
     strip_teacher_prompt_fields,
@@ -72,6 +73,13 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         self.assertFalse(other["match"])
         self.assertNotEqual(other["lead"], "Wrong.")
         self.assertNotIn("key", strip_teacher_prompt_fields(payload))
+
+    def test_choice_letter_reads_text_field(self) -> None:
+        """Stored poll answers may use text instead of choice."""
+        self.assertEqual(
+            choice_letter({"text": "keeps us kind"}, ["keeps us kind", "Not sure"]),
+            "A",
+        )
 
     def test_legacy_and_rename_item_ids(self) -> None:
         """meet-math, minds_on, and minds-on share the same soft key."""

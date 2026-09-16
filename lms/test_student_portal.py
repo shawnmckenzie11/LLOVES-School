@@ -359,11 +359,9 @@ class StudentPortalTests(unittest.TestCase):
         self.assertTrue(submit.get_json().get("ack"))
 
         again = self.student.get("/api/student/live-prompt").get_json()
-        spark = (again.get("prompt") or {}).get("payload") or {}
-        self.assertEqual(spark.get("item_id"), "teams-spark")
-        self.assertTrue(spark.get("integer_only"))
-        self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
-        self.assertEqual(spark.get("placeholder"), "Enter an integer")
+        payload = (again.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "minds_on")
+        self.assertTrue(again.get("my_response"))
 
     def test_pick_preserves_live_session_id(self) -> None:
         """student_pick rebind keeps the live session + visit token keys."""
@@ -888,6 +886,16 @@ class StudentPortalTests(unittest.TestCase):
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
             (again.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "minds_on",
+        )
+        moved = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.get_json())
+        again = self.student.get("/api/student/live-prompt").get_json()
+        self.assertEqual(
+            (again.get("prompt") or {}).get("payload", {}).get("item_id"),
             "teams-spark",
         )
         self.assertEqual(
@@ -932,7 +940,7 @@ class StudentPortalTests(unittest.TestCase):
         )
 
     def test_waiting_room_integer_poll_after_c2_slot(self) -> None:
-        """Any Join slot, including C2, mounts Welcome C2 after minds-on."""
+        """Any Join slot, including C2, keeps Minds-On until Welcome."""
         self._use_legacy_live_metadata()
         self._join_maple_home()
         slotted = self.staff.post(
@@ -956,8 +964,16 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertEqual(submit.status_code, 200, submit.get_json())
         again = self.student.get("/api/student/live-prompt").get_json()
-        spark = (again.get("prompt") or {}).get("payload") or {}
-        self.assertEqual(spark.get("item_id"), "teams-spark", again)
+        payload = (again.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(payload.get("item_id"), "minds_on", again)
+        moved = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"stage": "teams"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.get_json())
+        welcome = self.student.get("/api/student/live-prompt").get_json()
+        spark = (welcome.get("prompt") or {}).get("payload") or {}
+        self.assertEqual(spark.get("item_id"), "teams-spark", welcome)
         self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
 
     def test_waiting_room_refreshes_authoritative_stem(self) -> None:
@@ -1176,7 +1192,7 @@ class StudentPortalTests(unittest.TestCase):
         after_answer = self.student.get("/api/student/state").get_json()
         self.assertEqual(
             (after_answer.get("prompt") or {}).get("payload", {}).get("item_id"),
-            "teams-spark",
+            "minds_on",
             after_answer,
         )
         unanswered_before_reveal = aspen.get("/api/student/state").get_json()
@@ -1199,9 +1215,9 @@ class StudentPortalTests(unittest.TestCase):
         shared = self.student.get("/api/student/state").get_json()
         self.assertEqual(
             (shared.get("prompt") or {}).get("payload", {}).get("item_id"),
-            "teams-spark",
+            "minds_on",
         )
-        self.assertFalse(shared.get("poll_closed"))
+        self.assertTrue(shared.get("poll_closed"))
         unanswered = aspen.get("/api/student/state").get_json()
         self.assertTrue(unanswered.get("poll_closed"))
         self.assertIsNotNone(unanswered.get("mc_tally"))
@@ -1355,6 +1371,11 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("is-${row.kind}", js)
         self.assertIn("bindFloatingPane(card)", js)
         self.assertNotIn("bindFloatingPane(liveQuestionStack)", js)
+        self.assertIn("function lifecycleAnswerKind", js)
+        self.assertIn("function liveChoiceLabels", js)
+        self.assertIn("payload?.meet_chip", js)
+        self.assertIn("content.integer_only", js)
+        self.assertIn("drag.pending", js)
         self.assertIn("data-dismiss-surface", html)
         self.assertIn('aria-label="Dock media"', html)
         self.assertIn('aria-label="Dock whiteboard"', html)
@@ -1448,6 +1469,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("points", paint_team)
         self.assertNotIn("score", paint_team)
         self.assertIn('id="student-winner-name"', html)
+        self.assertIn('id="student-winner-players"', html)
         self.assertIn("payload.celebrate", js)
         self.assertIn("Waiting for the next question…", js)
         self.assertIn("celebrating || welcomeOn", js)

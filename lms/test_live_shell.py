@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -86,16 +87,15 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-stage-rail"', html)
         self.assertIn('id="live-stage-prev"', html)
         self.assertIn('id="live-stage-next"', html)
-        self.assertIn('data-stage="set_class"', html)
-        self.assertIn("SET CLASS", html)
-        self.assertIn('data-stage="join"', html)
-        self.assertIn('data-stage="teams"', html)
-        self.assertIn('data-stage="meet"', html)
-        self.assertIn('data-stage="round"', html)
-        self.assertIn('data-stage="play"', html)
-        self.assertNotIn('data-stage="challenge"', html)
-        self.assertNotIn('data-stage="freeze"', html)
-        self.assertIn("live-stage-pill", html)
+        self.assertIn('id="live-page-counter"', html)
+        self.assertIn('id="live-page-name"', html)
+        self.assertIn('id="live-save-as"', html)
+        self.assertIn("Set Class", html)
+        self.assertNotIn("Attendance: 0", html)
+        self.assertNotIn('id="live-stage-prev">Prev<', html)
+        self.assertIn('id="live-stage-prev">Back<', html)
+        self.assertIn('id="live-stage-next">Forward<', html)
+        self.assertNotIn("live-stage-pill", html)
         self.assertNotIn("live-stage-btn", html)
         self.assertIn('id="live-end-class"', html)
         self.assertIn('id="live-option-card"', html)
@@ -411,7 +411,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("teams.hidden = configured;", js)
         self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
-        self.assertIn('if (play) play.hidden = stage !== "play";', js)
+        self.assertIn('if (play) play.hidden = !["play", "round_3", "summary"].includes(stage);', js)
         self.assertIn('patchTeacherState({ advance: "prev" })', js)
         self.assertIn('patchTeacherState({ advance: "next" })', js)
         self.assertNotIn('id="class-list-pane").innerHTML', js)
@@ -1681,6 +1681,44 @@ class LiveShellTests(unittest.TestCase):
         self.assertEqual(int((state.get("game_points") or {}).get(str(aspen), 0)), 0)
         self.assertEqual(int((state.get("game_points") or {}).get(str(birch), 0)), 1)
 
+    def test_award_live_prompt_points_without_teams(self) -> None:
+        """Join-page awards credit a present student who is not on a team."""
+
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        aspen = self._aspen_id()
+        self.school.game.begin_game(self.class_id)
+        self.school.join_live_class_session(sid, aspen, codename="Aspen")
+        extra = self.school.set_live_session_prompt(
+            sid,
+            slide_index=881,
+            kind="mc",
+            payload={
+                "item_id": "C1-QH-NOTEAM",
+                "kind": "mc",
+                "prompt": "No team yet",
+                "choices": ["A", "B"],
+                "key": "A",
+            },
+            activate=True,
+        )
+        prompt_id = int(extra["id"])
+        self.school.submit_live_prompt_response(
+            prompt_id, aspen, {"choice": "A"}
+        )
+        result = self.school.award_live_prompt_points(
+            sid, prompt_id, mode="manual", student_ids=[aspen], amount=1
+        )
+        self.assertEqual(result["awarded_student_ids"], [aspen])
+        awarded = {
+            int(row["student_id"]): int(row.get("awarded_points") or 0)
+            for row in result["responses"]
+            if row.get("student_id") not in (None, "")
+        }
+        self.assertEqual(awarded.get(aspen), 1)
+
     def test_team_shared_questions_do_not_auto_score(self) -> None:
         """Shared-within-Group answers never add participation game points."""
         live = self.school.start_live_class_session(
@@ -1905,6 +1943,92 @@ class LiveShellTests(unittest.TestCase):
             row for row in grid["students"] if row["codename"] == "Aspen"
         )
         self.assertEqual(aspen_row["total"], 2)
+
+    def test_quit_closes_live_session_overlay(self) -> None:
+        """Header Quit submit closes the stored overlay; overlay self-closes when gone."""
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        self.assertIn('id="live-quit-class-form"', html)
+        self.assertIn("Quit without saving attendance or participation?", html)
+        self.assertNotIn(
+            'onsubmit="return confirm(this.dataset.confirm);"', html
+        )
+
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn(
+            '$("live-quit-class-form")?.addEventListener("submit"', staff_js
+        )
+        submit = staff_js.split(
+            '$("live-quit-class-form")?.addEventListener("submit"'
+        )[1].split("for (const id of")[0]
+        self.assertIn("confirmQuitAndCloseOverlay", submit)
+        self.assertIn("closeLiveSessionOverlay", staff_js.split(
+            "function confirmQuitAndCloseOverlay"
+        )[1].split("$(\"live-quit-class-form\")")[0])
+        self.assertIn("event.preventDefault()", submit)
+        cancel = staff_js.split(
+            'for (const id of ["ap-validate-cancel", "ap-score-cancel"])'
+        )[1].split('$("ap-allow-guests")')[0]
+        self.assertIn("confirmQuitAndCloseOverlay", cancel)
+        self.assertIn("form.submit()", cancel)
+        track = staff_js.split("document.querySelectorAll(\"[data-track-nav='quit']\")")[
+            1
+        ].split('$("ap-allow-guests")')[0]
+        self.assertIn("confirmQuitAndCloseOverlay", track)
+        self.assertIn("form.submit()", track)
+
+        common = (
+            REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("let liveSessionOverlayWindow", common)
+        self.assertIn("function rememberLiveSessionOverlay(", common)
+        reserve = common.split("export function reserveLiveSessionOverlay()")[1].split(
+            "export function openScoreboardOverlay"
+        )[0]
+        self.assertIn("rememberLiveSessionOverlay", reserve)
+        opened = common.split("export function openLiveSessionOverlay(")[1].split(
+            "export function closeLiveSessionOverlay"
+        )[0]
+        self.assertIn("rememberLiveSessionOverlay", opened)
+        close_fn = common.split("export function closeLiveSessionOverlay()")[1]
+        stored_i = close_fn.find("liveSessionOverlayWindow")
+        named_i = close_fn.find('window.open("", LIVE_SESSION_OVERLAY_NAME)')
+        self.assertGreaterEqual(stored_i, 0)
+        self.assertGreaterEqual(named_i, 0)
+        self.assertLess(stored_i, named_i)
+        self.assertIn("tryCloseWindow(stored)", close_fn)
+
+        overlay = (
+            REPO_ROOT / "tools" / "math-game-show" / "static" / "live_session_overlay.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function fetchLiveSessionState(", overlay)
+        self.assertIn("response.status === 404", overlay)
+        self.assertIn("function dismissOverlayWindow(", overlay)
+        tick = overlay.split("async function tick()")[1].split(
+            "codeEl?.addEventListener"
+        )[0]
+        self.assertIn("result.missing", tick)
+        self.assertIn("dismissOverlayWindow({ blankIfStillOpen: true })", tick)
+        paint = overlay.split("function paintSession(state)")[1].split(
+            "function paintTeamScores"
+        )[0]
+        self.assertIn('phase === "ended"', paint)
+        self.assertIn('session?.status === "ended"', paint)
+        self.assertIn("dismissOverlayWindow()", paint)
+        self.assertIn("window.close()", overlay)
+        self.assertIn('location.replace("about:blank")', overlay)
+
+        node = REPO_ROOT / "tools" / "math-game-show" / "test_live_overlay_window.mjs"
+        result = subprocess.run(
+            ["node", str(node)],
+            cwd=str(node.parent),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("ok", result.stdout)
 
 
 if __name__ == "__main__":

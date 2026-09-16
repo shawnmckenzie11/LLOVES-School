@@ -6198,6 +6198,80 @@ class SchoolDB(LovesDB):
         token = str(question.get("response_mode") or "individual").strip().lower()
         return "group_consensus" if token == "group_consensus" else "individual"
 
+    @staticmethod
+    def _question_answer_kind(item: dict[str, Any]) -> str:
+        """Return ``numeric`` or ``mc`` from catalogue type, not session kind.
+
+        Lifecycle rows store ``kind`` as the item type (``question``). Using
+        that token would publish a numeric stem as an empty MC.
+
+        Args:
+            item: Lifecycle row, optionally with a nested catalogue ``item``.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        token = str(
+            question.get("type")
+            or question.get("kind")
+            or item.get("type")
+            or ""
+        ).strip().lower()
+        if token == "question":
+            token = ""
+        if token == "numeric" or question.get("integer_only") or item.get(
+            "integer_only"
+        ):
+            return "numeric"
+        return "mc"
+
+    def _repair_numeric_live_prompt(
+        self, item: dict[str, Any], prompt: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Rewrite a compatibility prompt that lost its numeric kind.
+
+        Args:
+            item: Lifecycle row that owns the prompt.
+            prompt: Existing linked prompt row.
+
+        Returns:
+            The original prompt, or the repaired numeric prompt.
+        """
+        if self._question_answer_kind(item) != "numeric":
+            return prompt
+        payload = (
+            dict(prompt.get("payload") or {})
+            if isinstance(prompt.get("payload"), dict)
+            else {}
+        )
+        if (
+            str(prompt.get("kind") or "").strip().lower() == "numeric"
+            and str(payload.get("kind") or "").strip().lower() == "numeric"
+        ):
+            return prompt
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        payload["kind"] = "numeric"
+        payload["type"] = "numeric"
+        payload["integer_only"] = bool(
+            question.get("integer_only") or payload.get("integer_only") or True
+        )
+        payload["options"] = []
+        payload["choices"] = []
+        placeholder = str(
+            question.get("placeholder") or payload.get("placeholder") or ""
+        ).strip()
+        if placeholder:
+            payload["placeholder"] = placeholder
+        try:
+            slide_index = int(prompt.get("slide_index"))
+        except (TypeError, ValueError):
+            slide_index = 20000 + int(item["id"])
+        return self.set_live_session_prompt(
+            int(item["live_session_id"]),
+            slide_index=slide_index,
+            kind="numeric",
+            payload=payload,
+            activate=False,
+        )
+
     def ensure_live_session_items(self, session_id: int) -> list[dict[str, Any]]:
         """Seed inactive lifecycle rows for every resolved question placement.
 
@@ -6450,6 +6524,58 @@ class SchoolDB(LovesDB):
 
         prompt = self._prompt_for_live_item(item)
         if prompt is not None:
+            return self._repair_numeric_live_prompt(item, prompt)
+        item_id_norm = str(item.get("item_id") or "").strip().lower().replace("_", "-")
+        session_id = int(item["live_session_id"])
+        if item_id_norm in {"minds-on", "minds_on"}:
+            existing = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+            if existing is None:
+                self.ensure_waiting_room_minds_on(session_id)
+                existing = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
+            if existing is not None:
+                with self._lock:
+                    self.conn.execute(
+                        """
+                        UPDATE live_session_items
+                        SET prompt_id = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (int(existing["id"]), _now(), int(item["id"])),
+                    )
+                    self.conn.commit()
+                return existing
+        if item_id_norm in {"meet-team", "meet-a"}:
+            for existing in self._list_live_session_prompts(session_id):
+                if is_meet_team_payload(existing.get("payload")):
+                    with self._lock:
+                        self.conn.execute(
+                            """
+                            UPDATE live_session_items
+                            SET prompt_id = ?, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (int(existing["id"]), _now(), int(item["id"])),
+                        )
+                        self.conn.commit()
+                    return existing
+            payload = meet_team_prompt_payload()
+            prompt = self.set_live_session_prompt(
+                session_id,
+                slide_index=int(MEET_TEAM_SLIDE_INDEX),
+                kind=MEET_TEAM_KIND,
+                payload=payload,
+                activate=False,
+            )
+            with self._lock:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET prompt_id = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (int(prompt["id"]), _now(), int(item["id"])),
+                )
+                self.conn.commit()
             return prompt
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
         item_type = str(
@@ -6459,8 +6585,7 @@ class SchoolDB(LovesDB):
         if item_type != "question":
             return None
         item_id = str(item.get("item_id") or item.get("placement_key") or "")
-        kind = str(item.get("kind") or "poll").strip().lower()
-        prompt_kind = "numeric" if kind == "numeric" else "mc"
+        prompt_kind = self._question_answer_kind(item)
         payload = {
             **question,
             "item_id": item_id,
@@ -6474,9 +6599,17 @@ class SchoolDB(LovesDB):
                 question.get("options") or question.get("choices") or []
             ),
             "kind": prompt_kind,
+            "type": question.get("type") or prompt_kind,
             "key": question.get("correct_answer") or question.get("key"),
             "page_number": item.get("page_number"),
         }
+        if prompt_kind == "numeric":
+            payload["integer_only"] = bool(question.get("integer_only", True))
+            payload["options"] = []
+            payload["choices"] = []
+            placeholder = str(question.get("placeholder") or "").strip()
+            if placeholder:
+                payload["placeholder"] = placeholder
         prompt = self.set_live_session_prompt(
             int(item["live_session_id"]),
             slide_index=20000 + int(item["id"]),
@@ -7311,11 +7444,19 @@ class SchoolDB(LovesDB):
                 "live_items": [],
             }
         teacher = self.live_session_teacher_state_payload(session_id)
-        items = [
-            row
-            for row in self.ensure_live_session_items(session_id)
-            if row.get("status") in {"active", "closed"}
-        ]
+        stage = str(teacher.get("stage") or "").strip().lower()
+        items = []
+        for row in self.ensure_live_session_items(session_id):
+            if row.get("status") not in {"active", "closed"}:
+                continue
+            item_id = str(row.get("item_id") or "").strip().lower().replace("-", "_")
+            item_stage = str(row.get("stage") or "").strip().lower()
+            if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
+                if stage != "teams":
+                    continue
+            if item_id in {"minds_on"} and stage != "join":
+                continue
+            items.append(row)
         public_items: list[dict[str, Any]] = []
         for item in items:
             prompt = self._prompt_for_live_item(item)
@@ -7351,6 +7492,29 @@ class SchoolDB(LovesDB):
                     )
                     if feedback:
                         my_response["feedback"] = feedback
+                elif is_meet_team_payload(raw_payload):
+                    meet_state = public_meet_chain(teacher.get("meet_chain"))
+                    if meet_state is not None:
+                        token = meet_participant_key(
+                            participant_uuid=participant_uuid,
+                            student_id=student_id,
+                        )
+                        step = str(raw_payload.get("step") or "A")
+                        bag_key = {
+                            "A": "a_picks",
+                            "C": "c_reacts",
+                            "B": "b_picks",
+                        }.get(step, "a_picks")
+                        choice = str(
+                            (meet_state.get(bag_key) or {}).get(token) or ""
+                        ).strip()
+                        if choice:
+                            my_response = {
+                                "response": {"choice": choice},
+                                "awarded_points": None,
+                                "updated_at": None,
+                                "ephemeral": True,
+                            }
             status = str(item["status"])
             include_results = status == "closed" or (
                 bool(item["show_live_results"])
@@ -7802,6 +7966,14 @@ class SchoolDB(LovesDB):
             return None
         if self._meet_team_row_exists(session_id):
             return None
+        if self.schema_v2_owns_live_stage_questions(session_id, "join"):
+            metadata = self.live_class_metadata_for_session(session_id)
+            join_ids = {
+                str(row.get("id") or "").strip().lower().replace("-", "_")
+                for row in questions_for_stage(metadata, "join")
+            }
+            if join_ids and "minds_on" not in join_ids:
+                return None
         desired = minds_on_prompt_payload(
             self.session_live_slot(session_id),
             self.session_live_module(session_id),
@@ -7885,6 +8057,14 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
         """
+        if self.schema_v2_owns_live_stage_questions(session_id, "join"):
+            metadata = self.live_class_metadata_for_session(session_id)
+            join_ids = {
+                str(row.get("id") or "").strip().lower().replace("-", "_")
+                for row in questions_for_stage(metadata, "join")
+            }
+            if join_ids and "minds_on" not in join_ids:
+                return None
         desired = minds_on_prompt_payload(
             self.session_live_slot(session_id),
             self.session_live_module(session_id),
@@ -8091,6 +8271,62 @@ class SchoolDB(LovesDB):
         ):
             return active
         return self.seed_meet_team_warmup(session_id, chain_state=chain_state)
+
+    def activate_meet_team_question(self, session_id: int) -> dict[str, Any] | None:
+        """Publish the Meet teammate poll as an individual live question.
+
+        Reuses the seeded Meet prompt when present so staff tally and
+        student cards share one row. Group and chain modes are never applied.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        meet_prompt = None
+        for prompt in self._list_live_session_prompts(session_id):
+            if not is_meet_team_payload(prompt.get("payload")):
+                continue
+            meet_prompt = prompt
+            if prompt.get("active"):
+                break
+        published = None
+        for item in self.ensure_live_session_items(session_id):
+            item_id = str(item.get("item_id") or "").strip().lower().replace("_", "-")
+            stage = str(item.get("stage") or "").strip().lower()
+            status = str(item.get("status") or "").strip().lower()
+            if stage != "meet" or item_id not in {"meet-team", "meet-a"}:
+                continue
+            if status == "closed":
+                continue
+            if meet_prompt is not None:
+                now = _now()
+                with self._lock:
+                    self.conn.execute(
+                        """
+                        UPDATE live_session_items
+                        SET prompt_id = ?, status = 'active',
+                            publish_mode = 'individual',
+                            response_mode = 'individual',
+                            published_at = COALESCE(published_at, ?),
+                            closed_at = NULL, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (int(meet_prompt["id"]), now, now, int(item["id"])),
+                    )
+                    self.conn.commit()
+                published = self.get_live_session_item(session_id, int(item["id"]))
+                continue
+            if status != "active":
+                try:
+                    published = self.publish_live_session_item(
+                        session_id,
+                        int(item["id"]),
+                        publish_mode="individual",
+                    )
+                except ValueError:
+                    published = item
+            else:
+                published = item
+        return published
 
     def seed_meet_team_warmup(
         self,
@@ -8782,6 +9018,31 @@ class SchoolDB(LovesDB):
             "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
         }
 
+    def _response_matches_key(
+        self,
+        *,
+        letter: str | None,
+        value: Any,
+        key: str,
+        raw_key: str,
+    ) -> bool | None:
+        """Return whether one answer matches the teacher key.
+
+        Args:
+            letter: Normalized MC letter, if any.
+            value: Numeric or free-text answer.
+            key: Uppercased letter key.
+            raw_key: Original key string for numeric compare.
+        """
+        if key and letter:
+            return letter == key
+        if raw_key and value not in (None, ""):
+            try:
+                return float(value) == float(raw_key)
+            except (TypeError, ValueError):
+                return str(value).strip() == raw_key
+        return None
+
     def live_prompt_response_roster(
         self, session_id: int, prompt_id: int
     ) -> list[dict[str, Any]]:
@@ -8818,11 +9079,12 @@ class SchoolDB(LovesDB):
         }
         payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
         choices = [str(item) for item in payload.get("choices") or []]
-        key = str(
+        raw_key = str(
             payload.get("key")
             or payload.get("correct_answer")
             or ((payload.get("correct_ids") or [""])[0])
-        ).strip().upper()
+        ).strip()
+        key = raw_key.upper()
         rows: list[dict[str, Any]] = []
         for response_row in self.list_live_prompt_responses(prompt_id):
             sid = response_row.get("student_id")
@@ -8854,7 +9116,12 @@ class SchoolDB(LovesDB):
                     "character": (student or {}).get("character_key"),
                     "answer": str(label if label is not None else "").strip(),
                     "choice": letter or None,
-                    "correct": (letter == key) if key and letter else None,
+                    "correct": self._response_matches_key(
+                        letter=letter,
+                        value=value,
+                        key=key,
+                        raw_key=raw_key,
+                    ),
                     "awarded_points": response_row.get("awarded_points"),
                 }
             )
@@ -8963,9 +9230,7 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        # Only seed legacy prompt when v2 lifecycle doesn't own the stage
-        if not self.schema_v2_owns_live_stage_questions(session_id):
-            self.ensure_waiting_room_minds_on(session_id)
+        self.ensure_waiting_room_minds_on(session_id)
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
@@ -8980,6 +9245,28 @@ class SchoolDB(LovesDB):
             spark = self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
             if spark is not None:
                 prompt = spark
+        elif stage == "meet":
+            meet_row = self._prompt_at_slide(session_id, int(MEET_TEAM_SLIDE_INDEX))
+            if meet_row is None or not is_meet_team_payload(meet_row.get("payload")):
+                meet_row = None
+                for row in self._list_live_session_prompts(session_id):
+                    if is_meet_team_payload(row.get("payload")):
+                        meet_row = row
+                        if row.get("active"):
+                            break
+            if meet_row is not None:
+                prompt = meet_row
+        if prompt is None:
+            for item in self.ensure_live_session_items(session_id):
+                if str(item.get("status") or "") != "active":
+                    continue
+                item_stage = str(item.get("stage") or "").strip().lower()
+                if item_stage and stage and item_stage != stage:
+                    continue
+                linked = self._prompt_for_live_item(item)
+                if linked is not None:
+                    prompt = linked
+                    break
         if prompt is None:
             return None
         if is_minds_on_payload(prompt.get("payload")) and stage not in {
@@ -9182,9 +9469,12 @@ class SchoolDB(LovesDB):
         if active and is_cons_payload(active.get("payload")):
             return active
         if stage == "join":
-            if answered_c1:
-                spark = self.activate_welcome_c2(session_id)
-                return spark or minds
+            if (
+                mc_poll_closed(teacher)
+                and spark is not None
+                and self.schema_v2_owns_live_stage_questions(session_id, "join")
+            ):
+                return spark
             return minds or active
         if stage == "teams":
             self.ensure_teams_spark(session_id)
@@ -9425,12 +9715,7 @@ class SchoolDB(LovesDB):
         stage = str((teacher or {}).get("stage") or "")
         meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
         meet_live = stage == "meet" and meet_state is not None
-        lifecycle_owned = self.schema_v2_owns_live_stage_questions(
-            session_id, stage
-        )
-        if lifecycle_owned:
-            prompt = None
-        elif meet_live:
+        if meet_live:
             self._ensure_student_meet_prompt(session_id, meet_state)
             prompt = self._student_stage_prompt(
                 session_id,
@@ -9468,18 +9753,21 @@ class SchoolDB(LovesDB):
         )
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
-        if lifecycle_owned:
-            return empty
-        if questions_mode == "none":
+        if questions_mode == "none" and not meet_live:
             return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
         poll_closed = mc_poll_closed(teacher) and is_minds_on_payload(raw_payload)
-        if is_minds_on_payload(raw_payload) and stage not in {"join", "teams"}:
+        if is_minds_on_payload(raw_payload) and stage != "join":
             return empty
-        if is_teams_spark_payload(raw_payload) and stage not in {"join", "teams"}:
-            return empty
+        if is_teams_spark_payload(raw_payload) and stage != "teams":
+            if not (
+                stage == "join"
+                and mc_poll_closed(teacher)
+                and self.schema_v2_owns_live_stage_questions(session_id, "join")
+            ):
+                return empty
         if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
         if is_cons_payload(raw_payload):
@@ -9495,7 +9783,14 @@ class SchoolDB(LovesDB):
                     return empty
         prior = None
         my_response = None
-        if is_meet_team_payload(raw_payload) and meet_state is not None:
+        prior = self.get_live_prompt_response(
+            int(prompt["id"]), student_id, participant_uuid=participant_uuid
+        )
+        if (
+            prior is None
+            and is_meet_team_payload(raw_payload)
+            and meet_state is not None
+        ):
             token = meet_participant_key(
                 participant_uuid=participant_uuid, student_id=student_id
             )
@@ -9511,10 +9806,6 @@ class SchoolDB(LovesDB):
                     "updated_at": None,
                     "ephemeral": True,
                 }
-        else:
-            prior = self.get_live_prompt_response(
-                int(prompt["id"]), student_id, participant_uuid=participant_uuid
-            )
         if prior is not None:
             my_response = {
                 "response": prior.get("response") or {},
@@ -10383,6 +10674,7 @@ class SchoolDB(LovesDB):
         self.clear_waiting_room_minds_on(session_id)
         self.clear_teams_spark(session_id)
         self.seed_meet_team_warmup(session_id, chain_state=state)
+        self.activate_meet_team_question(session_id)
         payload["meet_chain"] = state
         payload["prompt_ref"] = meet_prompt_ref_for(state)
         bind_meet_student_projection(payload)
@@ -10480,6 +10772,9 @@ class SchoolDB(LovesDB):
                 payload["run_as_group"] = True
                 payload["scoreboard_visible"] = True
                 payload["teams_mode"] = "teams"
+        if new_stage == "summary" and prev_stage != "summary":
+            payload["winner"] = self.snapshot_live_winner(int(session_row["class_id"]))
+            payload["scoreboard_visible"] = True
         leaving = prev_stage == "meet" and new_stage != "meet"
         if meet_action == "clear":
             payload["stage"] = "round"
@@ -10493,6 +10788,10 @@ class SchoolDB(LovesDB):
                 chain_state=new_meet_chain_state(),
                 fire_open="cue_id" not in kwargs,
             )
+            try:
+                self.game.start_meet_teams(int(session_row["class_id"]), 3)
+            except (KeyError, ValueError):
+                pass
         elif leaving:
             self._wipe_meet_chain(
                 session_id,
@@ -11816,8 +12115,28 @@ class SchoolDB(LovesDB):
         if pool:
             winner = max(pool, key=lambda row: float(row.get("score") or 0))
             name = str(winner.get("name") or "").strip() or "Class"
-            return {"name": name, "score": winner.get("score")}
-        return {"name": "Class", "score": None}
+            players = []
+            for row in winner.get("players") or winner.get("members") or []:
+                if not isinstance(row, dict):
+                    continue
+                label = str(row.get("codename") or "").strip()
+                if not label:
+                    first = str(row.get("first_name") or "").strip()
+                    last = str(row.get("last_name") or "").strip()
+                    label = f"{first} {last}".strip()
+                if not label:
+                    label = str(row.get("name") or "").strip()
+                if not label:
+                    continue
+                players.append(
+                    {
+                        "name": label[:80],
+                        "codename": str(row.get("codename") or "").strip()[:80],
+                        "first_name": str(row.get("first_name") or label).strip()[:80],
+                    }
+                )
+            return {"name": name, "score": winner.get("score"), "players": players}
+        return {"name": "Class", "score": None, "players": []}
 
     def close_live_class_for_celebration(
         self,
@@ -11845,7 +12164,11 @@ class SchoolDB(LovesDB):
         payload["celebrate"] = True
         snap = winner if isinstance(winner, dict) else self.snapshot_live_winner(int(class_id))
         name = str((snap or {}).get("name") or "").strip() or "Class"
-        payload["winner"] = {"name": name[:80], "score": (snap or {}).get("score")}
+        payload["winner"] = {
+            "name": name[:80],
+            "score": (snap or {}).get("score"),
+            "players": list((snap or {}).get("players") or []),
+        }
         self._write_teacher_state(session_id, payload)
         self.cleanup_live_session_response_data(session_id)
         now = _now()
@@ -11903,12 +12226,46 @@ class SchoolDB(LovesDB):
             "winner": {
                 "name": str((winner or {}).get("name") or "Class"),
                 "score": (winner or {}).get("score"),
+                "players": list((winner or {}).get("players") or []),
             },
             "exit_feedback": {
                 "pending": bool(pending),
                 "token": pending.get("token") if pending else None,
             },
         }
+
+    def apply_student_summary_winner(
+        self,
+        payload: dict[str, Any],
+        session_id: int,
+        class_id: int,
+    ) -> dict[str, Any]:
+        """Attach the winning team graphic while the Summary page is live.
+
+        Args:
+            payload: Student home / ``/api/student/state`` dict.
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+        """
+        teacher = payload.get("teacher_state")
+        if not isinstance(teacher, dict):
+            try:
+                teacher = self.live_session_teacher_state_payload(int(session_id))
+            except KeyError:
+                teacher = {}
+        if str((teacher or {}).get("stage") or "") != "summary":
+            return payload
+        stored = (teacher or {}).get("winner")
+        snap = stored if isinstance(stored, dict) and stored.get("name") else None
+        if snap is None:
+            snap = self.snapshot_live_winner(int(class_id))
+        payload["summary_winner"] = True
+        payload["winner"] = {
+            "name": str((snap or {}).get("name") or "Class")[:80],
+            "score": (snap or {}).get("score"),
+            "players": list((snap or {}).get("players") or []),
+        }
+        return payload
 
     def apply_student_end_overlay(
         self,
@@ -11934,6 +12291,8 @@ class SchoolDB(LovesDB):
             participant_uuid,
         )
         payload.update(overlay)
+        if not overlay.get("celebrate"):
+            self.apply_student_summary_winner(payload, session_id, class_id)
         if overlay.get("celebrate") and student_id not in (None, ""):
             ended = self.game.student_live_payload(
                 int(class_id),

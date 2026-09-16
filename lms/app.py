@@ -3611,12 +3611,24 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             and int(item["prompt"].get("id") or 0) == prompt_id
             for item in facing_payload.get("active_questions") or []
         )
-        if is_meet_team_payload(meet_payload) and not lifecycle_owns_prompt:
+        if is_meet_team_payload(meet_payload):
             choice = ""
             if isinstance(response, dict):
                 choice = str(
                     response.get("choice") or response.get("text") or ""
                 ).strip()
+            stored = dict(response) if isinstance(response, dict) else {}
+            if choice:
+                stored["choice"] = choice
+            try:
+                school.submit_live_prompt_response(
+                    prompt_id,
+                    int(student_id) if student_id not in (None, "") else None,
+                    stored,
+                    participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+                )
+            except (KeyError, ValueError):
+                pass
             recorded = school.record_meet_chain_pick(
                 live_session_id,
                 participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
@@ -3643,6 +3655,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
             if recorded is None and not choice:
                 return jsonify({"ok": False, "error": "Meet is not live."}), 409
+            tally = school.live_session_mc_tally(live_session_id)
+            if tally is not None:
+                body["mc_tally"] = tally
             return jsonify(body)
         try:
             saved = school.submit_live_prompt_response(
@@ -4772,6 +4787,108 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/live-lessons", methods=["GET", "POST"])
+    @staff_required
+    def api_class_live_lessons(class_id: int):
+        """List saved live-lesson files, or Save As a new module/class template."""
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id) and user["role"] != "it":
+            abort(403)
+        try:
+            from live_class_metadata import (
+                list_live_lesson_summaries,
+                load_live_class_metadata,
+                parse_live_lesson_code,
+                write_live_lesson_playlist,
+            )
+        except ImportError:
+            from lms.live_class_metadata import (
+                list_live_lesson_summaries,
+                load_live_class_metadata,
+                parse_live_lesson_code,
+                write_live_lesson_playlist,
+            )
+        cls = school.enrich_class(school.game.get_class(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        course = str(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
+        ).upper()
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "course": course,
+                    "lessons": list_live_lesson_summaries(course),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        parsed = parse_live_lesson_code(body.get("code") or body.get("as") or "")
+        if parsed:
+            module, slot = parsed
+        else:
+            module = str(body.get("module") or "").strip().upper()
+            slot = str(body.get("live_class") or body.get("slot") or "").strip().upper()
+        if not parsed:
+            parsed = parse_live_lesson_code(f"{module}{slot}")
+        if not parsed:
+            return jsonify({"ok": False, "error": "Use a code like M2C3."}), 400
+        module, slot = parsed
+        source_module = str(body.get("source_module") or module).strip().upper()
+        source_slot = str(body.get("source_slot") or slot).strip().upper()
+        meta = load_live_class_metadata(course, source_module, source_slot)
+        path = write_live_lesson_playlist(course, module, slot, meta)
+        return jsonify(
+            {
+                "ok": True,
+                "course": course,
+                "module": module,
+                "live_class": slot,
+                "path": str(path),
+                "lessons": list_live_lesson_summaries(course),
+            }
+        )
+
+    @app.route("/api/classes/<int:class_id>/live-lessons/<module>/<slot>", methods=["GET"])
+    @staff_required
+    def api_class_live_lesson_detail(class_id: int, module: str, slot: str):
+        """Return one saved live-lesson playlist for Set Class load."""
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id) and user["role"] != "it":
+            abort(403)
+        try:
+            from live_class_metadata import load_live_class_metadata, parse_live_lesson_code
+        except ImportError:
+            from lms.live_class_metadata import (
+                load_live_class_metadata,
+                parse_live_lesson_code,
+            )
+        parsed = parse_live_lesson_code(f"{module}{slot}")
+        if not parsed:
+            return jsonify({"ok": False, "error": "Unknown live lesson."}), 404
+        module_code, slot_code = parsed
+        cls = school.enrich_class(school.game.get_class(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        course = str(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
+        ).upper()
+        return jsonify(
+            {
+                "ok": True,
+                "course": course,
+                "module": module_code,
+                "live_class": slot_code,
+                "live_metadata": load_live_class_metadata(course, module_code, slot_code),
+            }
+        )
 
     @app.route("/staff/offerings/<int:offering_id>/slides/<date_iso>.html")
     @staff_required

@@ -69,6 +69,8 @@ Slash-cloud / Cloud Agents boot a **fresh sqlite**, not the laptop DB and not Fl
 | Syllabus calendar | [`agents/syllabus-calendar.md`](agents/syllabus-calendar.md) | School-day syllabus dates (prefer `--edit`) |
 | Local verify | [`.cursor/skills/local-verify/SKILL.md`](.cursor/skills/local-verify/SKILL.md) | UI/API/staff/IT done-when on localhost |
 | Release gate | [`.cursor/skills/release-gate/SKILL.md`](.cursor/skills/release-gate/SKILL.md) | PR → CI → merge main → Deploy → `/health` |
+| Live lesson author | [`.cursor/agents/live-lesson-author.md`](.cursor/agents/live-lesson-author.md) | One playlist + namespaced `live_items.json` keys (MCF3M / MCR3U) |
+| Live class engineer | [`.cursor/agents/live-class-engineer.md`](.cursor/agents/live-class-engineer.md) | Run Live Class runtime (publish, scoring, numeric box, Meet poll results, media/whiteboard) |
 
 ## Math content builder (isolated)
 
