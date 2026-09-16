@@ -514,6 +514,9 @@ class LiveClassMetadataTests(unittest.TestCase):
         self.assertEqual(notation["correct_answer"], "B")
         self.assertEqual(numeric["type"], "numeric")
         self.assertEqual(numeric["correct_answer"], "-2")
+        self.assertTrue(numeric.get("integer_only"))
+        self.assertEqual(numeric.get("placeholder"), "Enter a number")
+        self.assertEqual(numeric.get("options") or [], [])
         for row in questions:
             if row["stage"] in {"join", "round", "play", "round_3"}:
                 self.assertEqual(row["default_status"], "inactive")
@@ -554,8 +557,78 @@ class LiveClassMetadataTests(unittest.TestCase):
         self.assertEqual(about_c["correct_answer"], "D")
         self.assertEqual(about_a["page_number"], 4)
         self.assertEqual(about_c["page_number"], 4)
+        play_ids = [
+            row["id"]
+            for row in metadata["items"]
+            if row["stage"] == "play" and row.get("item_type") == "question"
+        ]
+        self.assertEqual(
+            play_ids,
+            [
+                "transform-a-effect",
+                "transform-h-effect",
+                "transform-k-effect",
+            ],
+        )
+        round3_ids = [
+            row["id"]
+            for row in metadata["items"]
+            if row["stage"] == "round_3" and row.get("item_type") == "question"
+        ]
+        self.assertEqual(
+            round3_ids,
+            ["transform-x-minus-3", "transform-stretch-translate"],
+        )
+        media = next(
+            row
+            for row in metadata["items"]
+            if row["id"] == "parent-transformations"
+        )
+        self.assertEqual(media["page_number"], 5)
+        self.assertEqual(media["item_type"], "media")
+        self.assertEqual(media["stage"], "play")
+        self.assertEqual(
+            media["file"],
+            "/static/live-media/mcf3m-m1c2-parent-transformations.html",
+        )
+        self.assertNotEqual(
+            media["file"],
+            "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+        )
+        self.assertTrue(media.get("shared_across_rounds"))
+        self.assertEqual(media["default_status"], "inactive")
+        self.assertNotIn("feedback_id", media)
+        html = (
+            Path(__file__).resolve().parent
+            / "static"
+            / "live-media"
+            / "mcf3m-m1c2-parent-transformations.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("a(x − h)² + k", html)
+        self.assertIn('id="p-h"', html)
+        self.assertIn('id="p-k"', html)
+        self.assertIn("Push to Student View", html)
+        self.assertIn("Frozen", html)
+        self.assertNotIn('name="parent"', html)
+        transform_a = next(
+            row for row in questions if row["id"] == "transform-a-effect"
+        )
+        self.assertEqual(transform_a["correct_answer"], "D")
+        self.assertEqual(transform_a["page_number"], 5)
+        transform_h = next(
+            row for row in questions if row["id"] == "transform-h-effect"
+        )
+        self.assertEqual(transform_h["correct_answer"], "B")
+        transform_k = next(
+            row for row in questions if row["id"] == "transform-k-effect"
+        )
+        self.assertEqual(transform_k["correct_answer"], "A")
+        stretch = next(
+            row for row in questions if row["id"] == "transform-stretch-translate"
+        )
+        self.assertEqual(stretch["correct_answer"], "D")
         for row in questions:
-            if row["stage"] in {"join", "round"}:
+            if row["stage"] in {"join", "round", "play", "round_3"}:
                 self.assertEqual(row["default_status"], "inactive")
                 self.assertEqual(row["response_mode"], "individual")
                 self.assertNotIn("feedback_id", row)

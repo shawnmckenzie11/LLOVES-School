@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quadratic transformations · f(x) = a(x − h)² + k</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --panel: rgba(10, 18, 32, 0.9);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq {
+      align-self: flex-start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .eq .coeffs {
+      display: block;
+      margin-top: 0.15rem;
+      color: #d6deef;
+      font-size: 0.72em;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.7rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .dock h2 {
+      margin: 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.6rem;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span { font-family: "IBM Plex Serif", Georgia, serif; color: var(--gold); }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] { width: 100%; accent-color: var(--gold); }
+    .teacher-table {
+      display: none;
+      width: max-content;
+      max-width: 100%;
+      grid-template-columns: minmax(15.5rem, 22rem) auto auto;
+      column-gap: 1.15rem;
+      row-gap: 0.28rem;
+      align-items: center;
+    }
+    .teacher-table.is-on { display: grid; }
+    .teacher-table .th {
+      font-size: 0.62rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .teacher-table .check {
+      display: flex;
+      align-items: center;
+      gap: 0.32rem;
+      font-size: 0.72rem;
+      color: #c5d0dc;
+      min-height: 1.7rem;
+      white-space: nowrap;
+    }
+    .teacher-table .check input { margin: 0; }
+    .teacher-table .check:has(input:disabled) { cursor: not-allowed; opacity: 0.55; }
+    .teacher-table .all-label { font-size: 0.78rem; font-weight: 650; color: var(--gold); }
+    .teacher-table .row-all {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 0.35rem;
+      margin-top: 0.1rem;
+    }
+    .dock.is-student .teacher-table .th,
+    .dock.is-student .teacher-table .col-push,
+    .dock.is-student .teacher-table .col-freeze,
+    .dock.is-student .row-all { display: none !important; }
+    .dock.is-student .teacher-table { grid-template-columns: minmax(0, 1fr); }
+    .dock.is-student .slide[data-row][hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="plot" aria-label="Quadratic transformations of y equals x squared"></canvas>
+  <div class="hud">
+    <p class="eq" id="eq">f(x) = <strong>x²</strong></p>
+    <section class="dock" id="dock" aria-label="Transformation controls">
+      <h2 id="dock-title">Teacher controls</h2>
+      <div class="teacher-table" id="teacher-table">
+        <div class="th"></div>
+        <div class="th">Push to Student View</div>
+        <div class="th">Frozen</div>
+        <label class="slide" data-row="a"><span>a</span>
+          <input id="p-a" type="range" min="-3" max="3" step="0.1" value="1">
+          <output id="o-a">1.00</output>
+        </label>
+        <label class="check col-push" for="push-a"><input id="push-a" type="checkbox"> Push a</label>
+        <label class="check col-freeze" for="freeze-a"><input id="freeze-a" type="checkbox" checked disabled> Frozen</label>
+        <label class="slide" data-row="h"><span>h</span>
+          <input id="p-h" type="range" min="-6" max="6" step="0.1" value="0">
+          <output id="o-h">0.00</output>
+        </label>
+        <label class="check col-push" for="push-h"><input id="push-h" type="checkbox"> Push h</label>
+        <label class="check col-freeze" for="freeze-h"><input id="freeze-h" type="checkbox" checked disabled> Frozen</label>
+        <label class="slide" data-row="k"><span>k</span>
+          <input id="p-k" type="range" min="-6" max="6" step="0.1" value="0">
+          <output id="o-k">0.00</output>
+        </label>
+        <label class="check col-push" for="push-k"><input id="push-k" type="checkbox"> Push k</label>
+        <label class="check col-freeze" for="freeze-k"><input id="freeze-k" type="checkbox" checked disabled> Frozen</label>
+        <div class="all-label row-all">All</div>
+        <label class="check col-push row-all" for="push-all"><input id="push-all" type="checkbox"> Push All to View</label>
+        <label class="check col-freeze row-all" for="freeze-all"><input id="freeze-all" type="checkbox" checked disabled> Freeze All</label>
+      </div>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const PARAM_KEYS = ["a", "h", "k"];
+  const canvas = document.getElementById("plot");
+  const ctx = canvas.getContext("2d");
+  const eqEl = document.getElementById("eq");
+  const dock = document.getElementById("dock");
+  const dockTitle = document.getElementById("dock-title");
+  const teacherTable = document.getElementById("teacher-table");
+  const sliderInputs = { a: document.getElementById("p-a"), h: document.getElementById("p-h"), k: document.getElementById("p-k") };
+  const outputs = { a: document.getElementById("o-a"), h: document.getElementById("o-h"), k: document.getElementById("o-k") };
+  const pushBoxes = { a: document.getElementById("push-a"), h: document.getElementById("push-h"), k: document.getElementById("push-k") };
+  const freezeBoxes = { a: document.getElementById("freeze-a"), h: document.getElementById("freeze-h"), k: document.getElementById("freeze-k") };
+  const pushAll = document.getElementById("push-all");
+  const freezeAll = document.getElementById("freeze-all");
+  const X_MIN = -8, X_MAX = 8, Y_MIN = -8, Y_MAX = 8;
+  const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
+  const embedded = window.parent !== window;
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
+  const state = {
+    a: 1, h: 0, k: 0,
+    paramPush: { a: false, h: false, k: false },
+    paramFrozen: { a: true, h: true, k: true },
+    acceptParentParams: { a: true, h: true, k: true },
+  };
+  function fmt(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+  function anyPushed() { return PARAM_KEYS.some((key) => state.paramPush[key]); }
+  function parentValue(x) { return x * x; }
+  function transformedY(x) { return state.a * parentValue(x - state.h) + state.k; }
+  function equationHtml() {
+    return "f(x) = <strong>a(x − h)² + k</strong><span class='coeffs'>a=" + fmt(state.a) + " · h=" + fmt(state.h) + " · k=" + fmt(state.k) + "</span>";
+  }
+  function toX(x, width) { return ((x - X_MIN) / (X_MAX - X_MIN)) * width; }
+  function toY(y, height) { return height - ((y - Y_MIN) / (Y_MAX - Y_MIN)) * height; }
+  function syncOutputs() {
+    PARAM_KEYS.forEach((key) => {
+      outputs[key].textContent = fmt(state[key]);
+      sliderInputs[key].value = String(state[key]);
+      const pushed = state.paramPush[key];
+      if (!pushed) state.paramFrozen[key] = true;
+      pushBoxes[key].checked = pushed;
+      freezeBoxes[key].checked = Boolean(state.paramFrozen[key]);
+      freezeBoxes[key].disabled = !teacherMode || !pushed;
+      sliderInputs[key].disabled = !teacherMode && pushed && state.paramFrozen[key];
+      const row = document.querySelector('[data-row="' + key + '"]');
+      if (row) row.hidden = !teacherMode && !pushed;
+    });
+    freezeAll.checked = PARAM_KEYS.every((key) => state.paramFrozen[key]);
+    freezeAll.disabled = !teacherMode || !anyPushed();
+    eqEl.innerHTML = equationHtml();
+  }
+  function applyRoleChrome() {
+    const showDock = teacherMode || anyPushed();
+    dock.hidden = !showDock;
+    dock.classList.toggle("is-student", !teacherMode);
+    teacherTable.classList.toggle("is-on", showDock);
+    dockTitle.textContent = teacherMode ? "Teacher controls" : "Explore a, h, and k";
+  }
+  function notifyParent() {
+    if (!embedded) return;
+    try {
+      window.parent.postMessage({
+        source: "lloves-m1c1-c1",
+        type: "params",
+        params: { a: state.a, h: state.h, k: state.k },
+        param_push: { a: state.paramPush.a, h: state.paramPush.h, k: state.paramPush.k },
+        param_frozen: { a: state.paramFrozen.a, h: state.paramFrozen.h, k: state.paramFrozen.k },
+        student_controls_unlocked: anyPushed(),
+      }, window.location.origin);
+    } catch (_err) {}
+  }
+  function readSliders(fromTeacher, movedKey) {
+    if (teacherMode || (movedKey && state.paramPush[movedKey] && !state.paramFrozen[movedKey])) {
+      PARAM_KEYS.forEach((key) => { state[key] = Number(sliderInputs[key].value); });
+    }
+    if (teacherMode) {
+      PARAM_KEYS.forEach((key) => {
+        const pushed = pushBoxes[key].checked;
+        state.paramPush[key] = pushed;
+        if (!pushed) { state.paramFrozen[key] = true; freezeBoxes[key].checked = true; }
+        else { state.paramFrozen[key] = freezeBoxes[key].checked; }
+      });
+    }
+    if (fromTeacher) PARAM_KEYS.forEach((key) => { state.acceptParentParams[key] = true; });
+    if (!teacherMode && movedKey) state.acceptParentParams[movedKey] = false;
+    syncOutputs(); applyRoleChrome(); draw(); notifyParent();
+  }
+  function applyAllRow(kind) {
+    if (kind === "push") {
+      const on = pushAll.checked;
+      PARAM_KEYS.forEach((key) => { pushBoxes[key].checked = on; if (!on) freezeBoxes[key].checked = true; });
+    } else if (kind === "freeze") {
+      const on = freezeAll.checked;
+      PARAM_KEYS.forEach((key) => { if (pushBoxes[key].checked) freezeBoxes[key].checked = on; });
+    }
+    readSliders(true);
+  }
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+    canvas.height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function draw() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "#122038"); g.addColorStop(1, "#070b14");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let n = X_MIN; n <= X_MAX; n += 1) { const px = toX(n, w); ctx.moveTo(px, 0); ctx.lineTo(px, h); }
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) { const py = toY(n, h); ctx.moveTo(0, py); ctx.lineTo(w, py); }
+    ctx.stroke();
+    const originX = toX(0, w), originY = toY(0, h);
+    ctx.strokeStyle = "rgba(210, 220, 235, 0.92)"; ctx.lineWidth = 1.7; ctx.beginPath();
+    ctx.moveTo(0, originY); ctx.lineTo(w, originY); ctx.moveTo(originX, 0); ctx.lineTo(originX, h); ctx.stroke();
+    function strokeFn(fn, color, width) {
+      const steps = 720; ctx.beginPath(); let drawing = false; let lastY = NaN;
+      for (let i = 0; i <= steps; i += 1) {
+        const x = X_MIN + (i / steps) * (X_MAX - X_MIN); const y = fn(x);
+        if (!Number.isFinite(y) || y < Y_MIN - 2 || y > Y_MAX + 2) { drawing = false; lastY = NaN; continue; }
+        if (Number.isFinite(lastY) && Math.abs(y - lastY) > 8) drawing = false;
+        const px = toX(x, w), py = toY(y, h);
+        if (!drawing) { ctx.moveTo(px, py); drawing = true; } else { ctx.lineTo(px, py); }
+        lastY = y;
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = "round"; ctx.stroke();
+    }
+    strokeFn(parentValue, "rgba(143, 163, 187, 0.45)", 1.6);
+    strokeFn(transformedY, GOLD, 3);
+  }
+  ["input", "change"].forEach((evt) => {
+    PARAM_KEYS.forEach((key) => {
+      sliderInputs[key].addEventListener(evt, () => readSliders(teacherMode, key));
+      pushBoxes[key].addEventListener(evt, () => readSliders(true));
+      freezeBoxes[key].addEventListener(evt, () => readSliders(true));
+    });
+    pushAll.addEventListener("change", () => applyAllRow("push"));
+    freezeAll.addEventListener("change", () => applyAllRow("freeze"));
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "live-media-state") return;
+    if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
+    if (typeof data.student_controls_unlocked === "boolean" && !data.param_push) {
+      const unlocked = data.student_controls_unlocked;
+      PARAM_KEYS.forEach((key) => { state.paramPush[key] = unlocked; if (!unlocked) state.paramFrozen[key] = true; });
+    }
+    if (data.param_push && typeof data.param_push === "object") {
+      PARAM_KEYS.forEach((key) => { if (typeof data.param_push[key] === "boolean") state.paramPush[key] = data.param_push[key]; });
+    }
+    if (data.param_frozen && typeof data.param_frozen === "object") {
+      PARAM_KEYS.forEach((key) => { if (typeof data.param_frozen[key] === "boolean") state.paramFrozen[key] = data.param_frozen[key]; });
+    }
+    PARAM_KEYS.forEach((key) => { if (!state.paramPush[key]) state.paramFrozen[key] = true; });
+    const params = data.params || {};
+    PARAM_KEYS.forEach((key) => {
+      const ignore = !teacherMode && state.paramPush[key] && !state.paramFrozen[key] && !state.acceptParentParams[key];
+      if (!ignore && Number.isFinite(Number(params[key]))) state[key] = Number(params[key]);
+      if (state.paramFrozen[key] || !state.paramPush[key]) state.acceptParentParams[key] = true;
+    });
+    if (!teacherMode && !anyPushed()) PARAM_KEYS.forEach((key) => { state.acceptParentParams[key] = true; });
+    applyRoleChrome(); syncOutputs(); draw();
+  });
+  window.addEventListener("resize", () => { resize(); draw(); });
+  applyRoleChrome(); syncOutputs(); resize(); draw();
+})();
+  </script>
+</body>
+</html>

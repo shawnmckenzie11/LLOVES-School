@@ -60,7 +60,7 @@
       "item_type": "question",
       "id": "meet-team",
       "type": "poll",
-      "text": "Today I’m the teammate who…",
+      "text": "Today I\u2019m the teammate who\u2026",
       "options": [
         "notices details",
         "asks the good question",
@@ -263,7 +263,7 @@
       "item_type": "question",
       "id": "evaluate-f2",
       "type": "numeric",
-      "text": "Evaluate f(2) if f(x) = −3x + 4",
+      "text": "Evaluate f(2) if f(x) = \u22123x + 4",
       "options": [],
       "correct_answer": "-2",
       "integer_only": true,
@@ -341,6 +341,171 @@
         "dismissible": true
       }
     },
+    "live-class/MCF3M/M1/C2/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcf3m-m1c2-parent-transformations.html",
+      "title": "Quadratic transformations (a, h, k)",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-a-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-a-effect",
+      "type": "mc",
+      "text": "What does the value of a do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "D",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-h-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-h-effect",
+      "type": "mc",
+      "text": "What does the value of h do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-k-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-k-effect",
+      "type": "mc",
+      "text": "What does the value of k do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "A",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-x-minus-3": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-x-minus-3",
+      "type": "mc",
+      "text": "Consider the function f(x) = (x - 3)^2. Which transformation has been applied?",
+      "options": [
+        "Vertical stretch by a factor of 3",
+        "Translated 3 units left",
+        "Translated 3 units right",
+        "Shifted 3 units downward"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-stretch-translate": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-stretch-translate",
+      "type": "mc",
+      "text": "Consider the function f(x) = 3(x - 4)^2 + 1. This illustrates what transformation, applied to y = x^2?",
+      "options": [
+        "Vertical stretch by a factor of 4",
+        "Translated 4 units left",
+        "Translated 1 unit downward",
+        "Vertical stretch by a factor of 3"
+      ],
+      "correct_answer": "D",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
     "live-class/MCF3M/M1/C3/question/minds-on": {
       "scope": "live_class",
       "course": "MCF3M",
@@ -352,7 +517,7 @@
       "text": "A graph of y = x^2 has been moved so it still passes through a marked point. Which claim is safest?",
       "options": [
         "Every parameter a, h, and k is locked by the point alone",
-        "The point links the parameters — some stay free",
+        "The point links the parameters \u2014 some stay free",
         "Domain and range are always all real numbers"
       ],
       "correct_answer": "B",
@@ -408,7 +573,7 @@
       "item_type": "question",
       "id": "evaluate-f2",
       "type": "numeric",
-      "text": "Evaluate f(2) if f(x) = −3x + 4",
+      "text": "Evaluate f(2) if f(x) = \u22123x + 4",
       "options": [],
       "correct_answer": "-2",
       "integer_only": true,
@@ -434,12 +599,12 @@
       "item_type": "question",
       "id": "parent-range-quadratic",
       "type": "mc",
-      "text": "What is the range of the parent function f(x) = x²?",
+      "text": "What is the range of the parent function f(x) = x\u00b2?",
       "options": [
         "all real numbers",
-        "y ≥ 0",
+        "y \u2265 0",
         "y > 0",
-        "x ≥ 0"
+        "x \u2265 0"
       ],
       "correct_answer": "B",
       "ephemeral": true,
@@ -463,12 +628,12 @@
       "item_type": "question",
       "id": "parent-domain-sqrt",
       "type": "mc",
-      "text": "What is the domain of the parent function f(x) = √x?",
+      "text": "What is the domain of the parent function f(x) = \u221ax?",
       "options": [
         "all real numbers",
         "x > 0",
-        "x ≥ 0",
-        "y ≥ 0"
+        "x \u2265 0",
+        "y \u2265 0"
       ],
       "correct_answer": "C",
       "ephemeral": true,
@@ -495,9 +660,9 @@
       "text": "What is the domain of the parent function f(x) = 1/x?",
       "options": [
         "all real numbers",
-        "x ≥ 0",
-        "x ≠ 0",
-        "y ≠ 0"
+        "x \u2265 0",
+        "x \u2260 0",
+        "y \u2260 0"
       ],
       "correct_answer": "C",
       "ephemeral": true,
@@ -521,7 +686,7 @@
       "item_type": "question",
       "id": "not-in-domain-sqrt",
       "type": "mc",
-      "text": "Consider f(x) = √(x − 4). Which of the following values of x are not in the domain? Hint: Which one causes a problem when plugged in for x?",
+      "text": "Consider f(x) = \u221a(x \u2212 4). Which of the following values of x are not in the domain? Hint: Which one causes a problem when plugged in for x?",
       "options": [
         "4",
         "3",
@@ -579,12 +744,12 @@
       "item_type": "question",
       "id": "team-challenge",
       "type": "mc",
-      "text": "A rule subtracts one square root from another: f(x) = √(x − 5) − √(24 − 3x). Each square root only makes sense for some inputs. Which inputs are allowed?",
+      "text": "A rule subtracts one square root from another: f(x) = \u221a(x \u2212 5) \u2212 \u221a(24 \u2212 3x). Each square root only makes sense for some inputs. Which inputs are allowed?",
       "options": [
         "all real numbers",
-        "x ≥ 5",
-        "5 ≤ x ≤ 8",
-        "x ≤ 8"
+        "x \u2265 5",
+        "5 \u2264 x \u2264 8",
+        "x \u2264 8"
       ],
       "correct_answer": "C",
       "ephemeral": true,
