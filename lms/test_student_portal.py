@@ -780,6 +780,37 @@ class StudentPortalTests(unittest.TestCase):
         self.student.post("/student/mood", data={"mood": "good"})
         self._pick_character()
 
+    def _publish_live_item(self, item_id: str) -> dict:
+        """Publish one lifecycle item so students can see it.
+
+        Args:
+            item_id: Playlist or engine-ride id such as ``minds_on``.
+
+        Returns:
+            The published ``live_session_items`` row.
+        """
+        token = str(item_id or "").strip().lower().replace("-", "_")
+        items = list(self.school.ensure_live_session_items(self.live_session_id))
+        row = next(
+            (
+                item
+                for item in items
+                if str(item.get("item_id") or "").strip().lower().replace("-", "_")
+                == token
+            ),
+            None,
+        )
+        if row is None:
+            row = next(
+                item
+                for item in self.school.list_live_session_items(self.live_session_id)
+                if str(item.get("item_id") or "").strip().lower().replace("-", "_")
+                == token
+            )
+        return self.school.publish_live_session_item(
+            self.live_session_id, int(row["id"]), publish_mode="individual"
+        )
+
     def _staff_assign_two_teams(self) -> None:
         """Mark the roster present and Generate teams (n=2, random)."""
         begin = self.staff.post(
@@ -800,7 +831,6 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_waiting_room_minds_on_and_wait_copy(self) -> None:
         """Join with no challenge media: Wonder wait line + M1C1 Minds-On MC."""
-        self._use_legacy_live_metadata()
         self._join_maple_home()
         home = self.student.get("/student/home")
         html = home.get_data(as_text=True)
@@ -808,6 +838,12 @@ class StudentPortalTests(unittest.TestCase):
         self.assertNotIn("start scoring", html)
         self.assertNotIn("meet-math", html.lower())
 
+        idle = self.student.get("/api/student/state").get_json()
+        self.assertTrue(idle["waiting_room"])
+        self.assertIsNone(idle.get("active_media"))
+        self.assertIsNone(idle.get("prompt"))
+        self.assertEqual(idle.get("active_questions") or [], [])
+        self._publish_live_item("minds_on")
         state = self.student.get("/api/student/state").get_json()
         self.assertTrue(state["waiting_room"])
         self.assertIsNone(state.get("active_media"))
@@ -893,6 +929,10 @@ class StudentPortalTests(unittest.TestCase):
             json={"stage": "teams"},
         )
         self.assertEqual(moved.status_code, 200, moved.get_json())
+        hidden_spark = self.student.get("/api/student/live-prompt").get_json()
+        self.assertIsNone(hidden_spark.get("prompt"))
+        self.assertEqual(hidden_spark.get("active_questions") or [], [])
+        self._publish_live_item("teams_spark")
         again = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(
             (again.get("prompt") or {}).get("payload", {}).get("item_id"),
@@ -941,14 +981,18 @@ class StudentPortalTests(unittest.TestCase):
 
     def test_waiting_room_integer_poll_after_c2_slot(self) -> None:
         """Any Join slot, including C2, keeps Minds-On until Welcome."""
-        self._use_legacy_live_metadata()
         self._join_maple_home()
+        self.school.ensure_live_session_items(self.live_session_id)
         slotted = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/teacher-state",
             json={"live_slot": "C2"},
         )
         self.assertEqual(slotted.status_code, 200, slotted.get_json())
         self.assertEqual(slotted.get_json()["teacher_state"]["live_slot"], "C2")
+        idle = self.student.get("/api/student/state").get_json()
+        self.assertIsNone(idle.get("prompt"))
+        self.assertEqual(idle.get("active_questions") or [], [])
+        self._publish_live_item("minds_on")
         state = self.student.get("/api/student/state").get_json()
         prompt = state.get("prompt") or {}
         payload = prompt.get("payload") or {}
@@ -971,6 +1015,10 @@ class StudentPortalTests(unittest.TestCase):
             json={"stage": "teams"},
         )
         self.assertEqual(moved.status_code, 200, moved.get_json())
+        hidden = self.student.get("/api/student/live-prompt").get_json()
+        self.assertIsNone(hidden.get("prompt"), hidden)
+        self.assertEqual(hidden.get("active_questions") or [], [])
+        self._publish_live_item("teams_spark")
         welcome = self.student.get("/api/student/live-prompt").get_json()
         spark = (welcome.get("prompt") or {}).get("payload") or {}
         self.assertEqual(spark.get("item_id"), "teams-spark", welcome)
@@ -1122,7 +1170,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("function isJoinMindsOnPrompt(", js)
         self.assertIn("function studentMeetPollsHtml(", js)
         meet_polls = js.split("function studentMeetPollsHtml(")[1].split("function showFeedbackPanel(")[0]
-        self.assertIn("!item.show_live_results", meet_polls)
+        self.assertIn("item.show_live_results === false", meet_polls)
         self.assertNotIn("meet-progress-dots", js)
         self.assertNotIn("Waiting for your teacher to start scoring.", js)
         self.assertNotIn("meet-math", js)
@@ -1154,6 +1202,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn(".question-frame", css)
         self.assertIn("max-height: min(70dvh, 36rem)", css)
         self.assertIn("function studentMcSummary(", js)
+        self.assertNotIn("Your answer:", js)
+        self.assertIn("item.show_live_results === false", js.split("function paintPollIfQuestionsVisible(")[1].split("function hidePollTotals(")[0])
         self.assertIn("function mcRevealBarsHtml(", js)
         self.assertIn("student-mc-reveal-bars", js)
         self.assertIn(".question-frame .mc-reveal-row", css)
@@ -1379,11 +1429,13 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("data-dismiss-surface", html)
         self.assertIn('aria-label="Dock media"', html)
         self.assertIn('aria-label="Dock whiteboard"', html)
-        self.assertIn("Submit private vote", js)
+        self.assertIn("Submit Group Answer", js)
+        self.assertIn("teammates have responded", js)
+        self.assertIn("GROUP ANSWER SENT", js)
         self.assertIn("Team Answer", js)
         self.assertIn("/api/student/live-items/${itemId}/vote", js)
         self.assertIn("/api/student/live-items/${itemId}/team-answer", js)
-        self.assertIn("Your choice stays private", js)
+        self.assertIn("TEAM RESPONSES", js)
         self.assertIn("Class team answers", js)
         self.assertIn(".live-question-stack", css)
         self.assertIn("position: absolute", css.split(".live-question-stack {")[1].split("}")[0])
@@ -1590,11 +1642,8 @@ class StudentPortalTests(unittest.TestCase):
 
         self._join_maple_home()
         idle = self.student.get("/api/student/state").get_json()
-        self.assertEqual(
-            ((idle.get("prompt") or {}).get("payload") or {}).get("item_id"),
-            "minds_on",
-            idle,
-        )
+        self.assertIsNone(idle.get("prompt"), idle)
+        self.assertEqual(idle.get("active_questions") or [], [])
         slotted = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/teacher-state",
             json={"live_module": "M1", "live_slot": "C2"},

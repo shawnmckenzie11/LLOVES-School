@@ -5,6 +5,9 @@ import {
   api,
   displayName as displayNameFn,
   escapeHtml,
+  formatQuestionHtml,
+  questionFieldHtml,
+  questionImageHtml,
   formatCountdown,
   formatPoints,
   hideError,
@@ -30,6 +33,7 @@ import {
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
+import { openBankMcPicker } from "/static/bank_mc_picker.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -212,6 +216,7 @@ let teacherState = {
   canvas_align: "student",
   live_slot: "C1",
   live_module: "M1",
+  page_id: "",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
 
@@ -325,7 +330,8 @@ function adoptTeacherState(next) {
   teacherState.live_module = String(
     next.live_module || teacherState.live_module || "M1"
   ).toUpperCase();
-  textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
+  paintLiveLessonBadge();
+  textOnlyChallenge = isTextOnlyLiveSlot(slot) ? slot : "";
   trackMode = teacherState.run_as_group ? "team" : "individual";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
@@ -341,30 +347,69 @@ function adoptTeacherState(next) {
  */
 /**
  * Named pages for the current live-lesson file, or the math default.
- * @returns {{id: string, name: string, stage: string}[]}
+ * @returns {{id: string, name: string, stage: string, page_number?: number}[]}
  */
 function liveLessonPages() {
   const rows = lastLiveMetadata?.pages;
   if (Array.isArray(rows) && rows.length) {
     return rows
       .filter((row) => row && row.stage)
-      .map((row) => ({
-        id: String(row.id || row.stage),
-        name: String(row.name || row.stage),
-        stage: String(row.stage),
-      }));
+      .map((row) => {
+        const stored = Number(row.page_number);
+        return {
+          id: String(row.id || row.stage),
+          name: String(row.name || row.stage),
+          stage: String(row.stage),
+          page_number: stored > 0 ? stored : undefined,
+        };
+      });
   }
   return DEFAULT_LIVE_PAGES;
 }
 
 /**
- * Mark the page counter from thin JSON stage (not the wizard step).
+ * Index of the teacher's current named page in ``liveLessonPages()``.
+ * @returns {number}
+ */
+/**
+ * Named page row for the teacher's current rail position.
+ * @returns {{id: string, name: string, stage: string, page_number?: number}|null}
+ */
+function currentLivePageRow() {
+  const pages = liveLessonPages();
+  const index = currentLivePageIndex();
+  return index >= 0 ? pages[index] : null;
+}
+
+/**
+ * True when the teacher is on a class-added overlay page with no authored questions.
+ * @returns {boolean}
+ */
+function isBlankOverlayLivePage() {
+  const page = currentLivePageRow();
+  const token = String(page?.id || teacherState.page_id || "").trim();
+  return token.startsWith("custom-");
+}
+
+function currentLivePageIndex() {
+  const pages = liveLessonPages();
+  const pageId = String(teacherState.page_id || "").trim();
+  if (pageId) {
+    const byId = pages.findIndex((row) => row.id === pageId);
+    if (byId >= 0) return byId;
+  }
+  const stage = String(teacherState.stage || "round");
+  return pages.findIndex((row) => row.stage === stage);
+}
+
+/**
+ * Mark the page counter from thin JSON stage + page identity.
  */
 function paintStageRail() {
   const stage = setupPhase ? SETUP_STAGE : teacherState.stage || stageForStep();
   if (!setupPhase) REACHED_STAGES.add(stage);
   const pages = liveLessonPages();
-  const index = pages.findIndex((row) => row.stage === stage);
+  const index = currentLivePageIndex();
   const counter = $("live-page-counter");
   const name = $("live-page-name");
   if (setupPhase) {
@@ -381,6 +426,12 @@ function paintStageRail() {
   if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase;
   if (next instanceof HTMLButtonElement) {
     next.disabled = setupPhase ? false : index < 0 || index >= pages.length - 1;
+  }
+  const addBtn = $("live-add-page");
+  const deleteBtn = $("live-delete-page");
+  if (addBtn instanceof HTMLButtonElement) addBtn.disabled = setupPhase;
+  if (deleteBtn instanceof HTMLButtonElement) {
+    deleteBtn.disabled = setupPhase || pages.length <= 1;
   }
 }
 
@@ -759,6 +810,17 @@ function paintRightFlag(stage = teacherState.stage || stageForStep()) {
 function paintResultsStrip() {
   const results = $("results-strip");
   if (!results) return;
+  const questionZone = $("question-artifact-zone");
+  const usingLifecycleCards = currentPageQuestionRows().length > 0;
+  if (questionZone) {
+    questionZone.classList.toggle("has-lifecycle-cards", usingLifecycleCards);
+  }
+  paintMcResultsSlot();
+  if (usingLifecycleCards) {
+    results.hidden = true;
+    results.classList.remove("is-flagged");
+    return;
+  }
   const stage = teacherState.stage;
   const list = $("ap-score-list");
   const hasRows = Boolean(list && list.children.length);
@@ -768,12 +830,8 @@ function paintResultsStrip() {
     (hasRows || (stage === "play" && isScoringLive()));
   const scorePanel = $("ap-panel-score");
   if (scorePanel) scorePanel.hidden = !showScore;
-  paintMcResultsSlot();
-  const mcSlot = $("mc-results-slot");
-  const showMc = Boolean(mcSlot && !mcSlot.hidden);
-  const show = showMc || showScore;
-  results.hidden = !show;
-  results.classList.toggle("is-flagged", show);
+  results.hidden = !showScore;
+  results.classList.toggle("is-flagged", showScore);
 }
 
 /**
@@ -809,58 +867,24 @@ function mcRevealOn(tally = lastMcTally) {
  * @returns {boolean}
  */
 function currentStageHasLifecycleQuestionCards() {
-  const stage = String(teacherState.stage || "");
-  return lastQuestionCards.some(
-    (card) =>
-      String(card?.stage || "") === stage &&
-      Number(card?.live_item_id || 0) > 0
-  );
+  return currentPageQuestionRows().length > 0;
 }
 
 /**
- * Paint LIVE / REVEAL inside the Questions ResultsStrip slot only.
+ * Keep the leftover LIVE/REVEAL slot hidden. Results live on lifecycle cards.
  */
 function paintMcResultsSlot() {
   const slot = $("mc-results-slot");
   const progress = $("mc-live-progress");
   const bars = $("mc-reveal-bars");
-  const revealBtn = $("mc-reveal-btn");
-  const hideBtn = $("mc-hide-reveal-btn");
   if (!slot) return;
-  const tally = lastMcTally;
-  const hasMc = Boolean(
-    !currentStageHasLifecycleQuestionCards() &&
-    tally &&
-    Array.isArray(tally.choices) &&
-    tally.choices.length
-  );
-  slot.hidden = !hasMc;
-  if (!hasMc) {
-    lastMcBindKey = "";
-    return;
-  }
-  const reveal = mcRevealOn(tally);
-  const bind = mcBindKey(tally, reveal);
-  if (bind && bind === lastMcBindKey && slot.dataset.mode === (reveal ? "reveal" : "live")) {
-    return;
-  }
-  lastMcBindKey = bind;
-  slot.dataset.mode = reveal ? "reveal" : "live";
-  const responded = Number(tally.responded || 0);
-  const present = Math.max(Number(tally.present || 0), responded);
-  if (progress) progress.textContent = `${responded}/${present} responded`;
+  slot.hidden = true;
+  lastMcBindKey = "";
+  if (progress) progress.textContent = "";
   if (bars) {
-    bars.hidden = false;
-    bars.innerHTML = (tally.choices || [])
-      .map((row) => {
-        const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
-        const label = String(row.label || "").replace(/</g, "&lt;");
-        return `<div class="mc-reveal-row"><span class="mc-reveal-letter">${row.id}</span><p class="mc-reveal-label">${label}</p><span class="mc-reveal-meta">${row.count} · ${pct}%</span><span class="mc-reveal-track"><span class="mc-reveal-fill" style="width:${pct}%"></span></span></div>`;
-      })
-      .join("");
+    bars.hidden = true;
+    bars.innerHTML = "";
   }
-  if (revealBtn) revealBtn.hidden = true;
-  if (hideBtn) hideBtn.hidden = true;
 }
 
 /**
@@ -917,6 +941,7 @@ function patchMcReveal(reveal) {
  */
 function paintTeacherShell() {
   lockClassListPane();
+  paintLiveLessonBadge();
   paintStageRail();
   paintOptionCard();
   paintFrames();
@@ -997,10 +1022,8 @@ function paintLiveSlotPicks() {
     btn.classList.toggle("is-active", on);
   });
   paintLivePackStrip();
-  const textOnly = slot === "C2" || slot === "C3";
+  const textOnly = isTextOnlyLiveSlot(slot);
   textOnlyChallenge = textOnly ? slot : "";
-  const rideBox = $("text-ride-controls");
-  if (rideBox) rideBox.hidden = !textOnly;
   const preview = $("ap-media-preview");
   if (preview) {
     const hideMedia = textOnly || (!liveClassSeedMedia() && !lastTeacherMediaSrc);
@@ -1014,21 +1037,6 @@ function paintLiveSlotPicks() {
       preview.removeAttribute("hidden");
     }
   }
-  const ride = teacherState.text_ride || {};
-  const frozen = Boolean(ride.frozen);
-  const freezeBtn = $("text-ride-freeze");
-  if (freezeBtn) {
-    freezeBtn.classList.toggle("is-active", frozen);
-    freezeBtn.textContent = frozen ? "Frozen" : "Freeze";
-  }
-  const cons = String(ride.cons_item || "").trim();
-  document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
-    const id = btn.getAttribute("data-cons-item") || "";
-    const suffix = id.replace("CONS-", "");
-    btn.disabled = !frozen;
-    btn.setAttribute("aria-disabled", frozen ? "false" : "true");
-    btn.classList.toggle("is-active", cons.endsWith(`CONS-${suffix}`));
-  });
 }
 
 /**
@@ -1096,7 +1104,7 @@ function paintLiveQuestionBody(stem, choices) {
   const stemEl = $("live-question-stem");
   const choicesEl = $("live-question-choices");
   const text = String(stem || "").trim();
-  if (stemEl) stemEl.innerHTML = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  if (stemEl) stemEl.innerHTML = formatQuestionHtml(text);
   if (choicesEl) {
     const labels = Array.isArray(choices) ? choices.filter(Boolean) : [];
     choicesEl.textContent = labels.length ? labels.join(" · ") : "";
@@ -1114,6 +1122,687 @@ function hideLiveQuestionBody() {
 }
 
 /**
+ * Derive the question-binding page number for the current named page.
+ * Overlay pages keep a unique stored ``page_number`` so authored bindings
+ * do not shift when a page is inserted in the middle of the deck.
+ * @returns {number}
+ */
+function currentLivePageNumber() {
+  const pages = liveLessonPages();
+  const index = currentLivePageIndex();
+  if (index < 0) return 1;
+  const stored = Number(pages[index].page_number);
+  return stored > 0 ? stored : index + 1;
+}
+
+/**
+ * Apply add/delete page API payload to local deck and teacher caches.
+ * @param {any} payload
+ */
+function applyLivePageDeckPayload(payload) {
+  if (payload?.live_metadata) {
+    lastLiveMetadata = payload.live_metadata;
+  }
+  if (payload?.teacher_state) {
+    adoptTeacherState(payload.teacher_state);
+  } else if (payload?.land_page && typeof payload.land_page === "object") {
+    teacherState = {
+      ...teacherState,
+      stage: String(payload.land_page.stage || teacherState.stage || "play"),
+      page_id: String(payload.land_page.id || ""),
+    };
+  }
+  paintStageRail();
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+  if (liveClassSeedMedia()) paintActiveMediaStatus(null);
+}
+
+/**
+ * Show the page-name field only for a blank overlay page.
+ */
+function syncAddLivePageKindFields() {
+  const selected = document.querySelector('input[name="live-add-page-kind"]:checked');
+  const kind = String(selected?.value || "blank").toLowerCase();
+  const named = kind === "blank";
+  const input = $("live-add-page-name");
+  const label = $("live-add-page-name-label");
+  if (input instanceof HTMLInputElement) {
+    input.hidden = !named;
+    input.disabled = !named;
+    input.required = named;
+    if (!named) input.value = "";
+  }
+  if (label instanceof HTMLElement) {
+    label.hidden = !named;
+  }
+}
+
+/**
+ * Prompt for a page kind (and name when blank), then insert after the current page.
+ * @returns {Promise<void>}
+ */
+async function addLiveLessonPage() {
+  if (setupPhase) return;
+  const dialog = $("live-add-page-dialog");
+  const input = $("live-add-page-name");
+  const err = $("live-add-page-error");
+  const blank = document.querySelector(
+    'input[name="live-add-page-kind"][value="blank"]'
+  );
+  if (err instanceof HTMLElement) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  if (blank instanceof HTMLInputElement) blank.checked = true;
+  if (input instanceof HTMLInputElement) {
+    input.value = "";
+  }
+  syncAddLivePageKindFields();
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+  input?.focus();
+}
+
+/**
+ * Close the add-page dialog without saving.
+ */
+function closeAddLivePageDialog() {
+  const dialog = $("live-add-page-dialog");
+  if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+}
+
+/**
+ * POST a named overlay page after the current page and refresh the rail.
+ * @param {string} name
+ * @param {string} [kind]
+ * @returns {Promise<void>}
+ */
+async function submitAddLiveLessonPage(name, kind) {
+  const pageKind = String(kind || "blank").trim().toLowerCase() || "blank";
+  const title = String(name || "").trim();
+  if (pageKind === "blank" && !title) throw new Error("Page name required.");
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (!classId) throw new Error("Class is not loaded.");
+  const pages = liveLessonPages();
+  const index = currentLivePageIndex();
+  const afterId = index >= 0 ? pages[index].id : pages[0]?.id || "";
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/pages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: title,
+        after_page_id: afterId,
+        kind: pageKind,
+      }),
+    }
+  );
+  applyLivePageDeckPayload(payload);
+  const land = payload?.land_page;
+  if (land && !payload?.teacher_state) {
+    await patchTeacherState({
+      stage: String(land.stage || "play"),
+      page_id: String(land.id || ""),
+    });
+  }
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (sessionId) {
+    await pollLiveSessionAttendees({ full: true, force: true });
+  }
+}
+
+/**
+ * Confirm deletion of the current page, then remove it from the overlay.
+ * @returns {Promise<void>}
+ */
+async function deleteLiveLessonPage() {
+  if (setupPhase) return;
+  const pages = liveLessonPages();
+  if (pages.length <= 1) {
+    showError("#ap-overlay-error", new Error("cannot delete the last remaining page"));
+    return;
+  }
+  const index = currentLivePageIndex();
+  const page = index >= 0 ? pages[index] : null;
+  if (!page) return;
+  const dialog = $("live-delete-page-dialog");
+  const message = $("live-delete-page-message");
+  const err = $("live-delete-page-error");
+  if (err instanceof HTMLElement) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  if (message instanceof HTMLElement) {
+    message.textContent = `Delete “${page.name}” from this live class?`;
+  }
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+}
+
+/**
+ * Close the delete-page confirmation dialog.
+ */
+function closeDeleteLivePageDialog() {
+  const dialog = $("live-delete-page-dialog");
+  if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+}
+
+/**
+ * DELETE the current named page and land on the next (or previous) page.
+ * @returns {Promise<void>}
+ */
+async function confirmDeleteLiveLessonPage() {
+  const pages = liveLessonPages();
+  const index = currentLivePageIndex();
+  const page = index >= 0 ? pages[index] : null;
+  if (!page) throw new Error("No page to delete.");
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (!classId) throw new Error("Class is not loaded.");
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/pages/${encodeURIComponent(page.id)}`,
+    { method: "DELETE" }
+  );
+  applyLivePageDeckPayload(payload);
+  const land = payload?.land_page;
+  if (land && !payload?.teacher_state) {
+    await patchTeacherState({
+      stage: String(land.stage || teacherState.stage || "play"),
+      page_id: String(land.id || ""),
+    });
+  }
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (sessionId) {
+    await pollLiveSessionAttendees({ full: true, force: true });
+  }
+}
+
+/**
+ * Step one named lesson page forward or back using the merged page list.
+ * @param {number} delta
+ */
+function advanceLivePage(delta) {
+  if (setupPhase && Number(delta) > 0) {
+    applyValidateDateChoice();
+    return;
+  }
+  const pages = liveLessonPages();
+  const index = currentLivePageIndex();
+  if (index < 0) {
+    patchTeacherState({ advance: Number(delta) > 0 ? "next" : "prev" });
+    return;
+  }
+  const nextIndex = Math.max(0, Math.min(pages.length - 1, index + Number(delta)));
+  const page = pages[nextIndex];
+  if (!page || nextIndex === index) return;
+  patchTeacherState({ stage: page.stage, page_id: page.id });
+}
+
+/**
+ * POST one module-bank MC import and refresh lifecycle cards.
+ * @param {Record<string, unknown>} item
+ */
+/**
+ * Pull merged lesson-deck metadata (seed + bank imports) for the active module/slot.
+ */
+async function refreshLessonDeckMetadata() {
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (!classId) return;
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/deck`
+  );
+  if (payload?.live_metadata) {
+    lastLiveMetadata = payload.live_metadata;
+  }
+}
+
+/**
+ * Apply import-mc API payload to local deck/lifecycle caches.
+ * @param {any} payload
+ */
+function applyLiveMcImportPayload(payload) {
+  if (payload?.live_metadata) {
+    lastLiveMetadata = payload.live_metadata;
+  }
+  if (Array.isArray(payload?.live_items)) {
+    lastLiveItems = payload.live_items;
+  }
+  if (Array.isArray(payload?.question_cards)) {
+    lastQuestionCards = payload.question_cards;
+  }
+}
+
+async function importLiveMcFromBank(item) {
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  const questionId = Number(item.question_id || 0);
+  if (!classId || !questionId) {
+    throw new Error("Choose a question to import.");
+  }
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/import-mc`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        question_id: questionId,
+        page_number: currentLivePageNumber(),
+        stage: String(teacherState.stage || "round"),
+      }),
+    }
+  );
+  applyLiveMcImportPayload(payload);
+  const placementItem = payload?.placement?.item;
+  if (placementItem && typeof placementItem === "object") {
+    const meta = lastLiveMetadata && typeof lastLiveMetadata === "object"
+      ? { ...lastLiveMetadata }
+      : { questions: [], items: [] };
+    const questions = Array.isArray(meta.questions) ? [...meta.questions] : [];
+    const items = Array.isArray(meta.items) ? [...meta.items] : [];
+    const token = String(placementItem.id || payload.placement?.item_id || "").trim();
+    if (token && !questions.some((row) => String(row?.id || "") === token)) {
+      questions.push({ ...placementItem, id: token, item_type: "question" });
+      items.push({ ...placementItem, id: token, item_type: "question" });
+      meta.questions = questions;
+      meta.items = items;
+      lastLiveMetadata = meta;
+    }
+  }
+  await refreshLessonDeckMetadata();
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (sessionId) {
+    await pollLiveSessionAttendees({ full: true, force: true });
+    paintLiveQuestionCards();
+    paintQuestionArtifact();
+  }
+}
+
+/**
+ * Open the shared module-bank picker in import mode for the active lesson.
+ */
+function openLiveMcImportPicker() {
+  if (!classId) return;
+  refreshLessonDeckMetadata()
+    .catch(() => {})
+    .finally(() => {
+  openBankMcPicker({
+    classId,
+    moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
+    mode: "import",
+    onSelect: (item) => importLiveMcFromBank(item),
+  }).catch((err) => showError(err));
+    });
+}
+
+/**
+ * Build HTML options for moving a question onto any current deck page.
+ * Option values are 1-based rail indexes into ``liveLessonPages()``.
+ * The current page is included and selected so staff see the full list.
+ * @param {number} currentPageIndex
+ * @returns {string}
+ */
+function playlistMovePageOptions(currentPageIndex) {
+  const pages = liveLessonPages();
+  return pages
+    .map((page, index) => {
+      const pageIndex = index + 1;
+      const name = String(page.name || page.stage || `Page ${pageIndex}`);
+      const current = pageIndex === Number(currentPageIndex);
+      const selected = current ? " selected" : "";
+      return `<option value="${pageIndex}"${selected}>${escapeHtml(
+        `${pageIndex}. ${name}`
+      )}</option>`;
+    })
+    .join("");
+}
+
+/**
+ * Pull a fresh question-card snapshot from the active live session.
+ */
+async function refreshLiveQuestionCards() {
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return;
+  const snapshot = await api(`/api/live-sessions/${id}/state`);
+  if (Array.isArray(snapshot?.question_cards)) {
+    lastQuestionCards = snapshot.question_cards;
+  }
+  if (Array.isArray(snapshot?.live_items)) {
+    lastLiveItems = snapshot.live_items;
+  }
+  if (snapshot?.live_metadata) {
+    lastLiveMetadata = snapshot.live_metadata;
+  }
+  if (Array.isArray(snapshot?.active_questions)) {
+    lastActiveQuestions = snapshot.active_questions;
+  }
+  paintLiveQuestionCards();
+}
+
+/**
+ * Apply an immediate local card list change while the server snapshot catches up.
+ * @param {string} itemId
+ * @param {"remove"|"move"} mode
+ */
+function applyLocalPlaylistCardChange(itemId) {
+  const token = String(itemId || "").trim();
+  if (!token) return;
+  lastQuestionCards = (Array.isArray(lastQuestionCards) ? lastQuestionCards : []).filter(
+    (row) => String(row?.id || row?.item_id || "") !== token
+  );
+}
+
+/**
+ * PATCH one playlist item remove/move and refresh teacher question cards.
+ * @param {string} itemId
+ * @param {{action?: string, targetPageIndex?: number}} payload
+ */
+async function relocatePlaylistItem(itemId, payload) {
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  const token = String(itemId || "").trim();
+  if (!classId) throw new Error("Class is not loaded.");
+  if (!token) throw new Error("Question id is missing.");
+  await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/playlist-item`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        item_id: token,
+        action: payload.action,
+        target_page_index: payload.targetPageIndex,
+      }),
+    }
+  );
+  applyLocalPlaylistCardChange(token);
+  paintLiveQuestionCards();
+  staffStateNeedsFull = true;
+  try {
+    await refreshLiveQuestionCards();
+  } catch {
+    await pollLiveSessionAttendees({ full: true, force: true });
+  }
+}
+
+/** @type {{ itemId: string, label: string }} */
+let pendingRelocate = { itemId: "", label: "" };
+
+/**
+ * Return the display label for one destination page index.
+ * @param {number} pageIndex
+ * @returns {string}
+ */
+function playlistPageLabel(pageIndex) {
+  const pages = liveLessonPages();
+  const page = pages[Number(pageIndex) - 1];
+  const name = page
+    ? String(page.name || page.stage || `Page ${pageIndex}`)
+    : `Page ${pageIndex}`;
+  return `${pageIndex}. ${name}`;
+}
+
+/**
+ * True when the item is a built-in engine ride that cannot relocate pages.
+ * @param {string} itemId
+ * @returns {boolean}
+ */
+function isEngineRideItemId(itemId) {
+  const token = String(itemId || "").trim().toLowerCase().replace(/-/g, "_");
+  return (
+    token === "minds_on" ||
+    token === "teams_spark" ||
+    token === "meet_team" ||
+    token === "team_challenge"
+  );
+}
+
+/**
+ * Open the shared move/remove confirmation dialog for one playlist item.
+ * @param {string} itemId
+ * @param {string} label
+ */
+function openRelocateDialog(itemId, label) {
+  const token = String(itemId || "").trim();
+  if (!token) return;
+  pendingRelocate = { itemId: token, label: String(label || "This question").trim() };
+  const dialog = $("live-relocate-dialog");
+  const preview = $("live-relocate-preview");
+  const select = $("live-relocate-page");
+  const err = $("live-relocate-error");
+  const engineRide = isEngineRideItemId(token);
+  if (err instanceof HTMLElement) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  if (preview instanceof HTMLElement) {
+    preview.textContent = pendingRelocate.label;
+  }
+  if (select instanceof HTMLSelectElement) {
+    select.innerHTML = engineRide
+      ? ""
+      : playlistMovePageOptions(currentLivePageIndex() + 1);
+    select.disabled = engineRide || !select.options.length;
+  }
+  const moveBtn = $("live-relocate-move");
+  if (moveBtn instanceof HTMLButtonElement) {
+    moveBtn.disabled =
+      engineRide || !(select instanceof HTMLSelectElement && select.options.length);
+  }
+  const moveSection = select?.closest(".live-relocate-section");
+  if (moveSection instanceof HTMLElement) moveSection.hidden = engineRide;
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+}
+
+/**
+ * Close the shared move/remove dialog without applying a change.
+ */
+function closeRelocateDialog() {
+  const dialog = $("live-relocate-dialog");
+  if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+  pendingRelocate = { itemId: "", label: "" };
+}
+
+/**
+ * Resolve the playlist item id used by remove/move APIs for one card row.
+ * @param {any} card
+ * @param {any} [item]
+ * @returns {string}
+ */
+function resolvePlaylistItemId(card, item) {
+  const row = card && typeof card === "object" ? card : {};
+  const payload = item && typeof item === "object" ? item : {};
+  return String(
+    payload.id ||
+      payload.item_id ||
+      row.item_id ||
+      row.id ||
+      row.prompt_ref ||
+      row.placement_key ||
+      ""
+  ).trim();
+}
+
+/**
+ * Merge metadata, lifecycle, and server cards into one lesson-deck list.
+ * @returns {any[]}
+ */
+function deckQuestionRows() {
+  const lifecycleByItemId = new Map(
+    (Array.isArray(lastLiveItems) ? lastLiveItems : []).map((row) => [
+      String(row.item_id || "").trim(),
+      row,
+    ])
+  );
+  const serverCards = Array.isArray(lastQuestionCards) ? lastQuestionCards : [];
+  const metadataQs =
+    metadataMatchesCurrentPack() && Array.isArray(lastLiveMetadata?.questions)
+      ? lastLiveMetadata.questions
+      : [];
+  const rows = [];
+  const seen = new Set();
+
+  function pushRow(base) {
+    if (!base || typeof base !== "object") return;
+    const item = base.item && typeof base.item === "object" ? base.item : base;
+    const token = resolvePlaylistItemId(base, item);
+    if (!token || seen.has(token)) return;
+    seen.add(token);
+    rows.push({
+      ...base,
+      id: token,
+      item_id: token,
+      item,
+    });
+  }
+
+  for (const question of metadataQs) {
+    if (!question || typeof question !== "object") continue;
+    const kind = String(question.item_type || question.kind || question.type || "question")
+      .trim()
+      .toLowerCase();
+    if (kind in { media: 1, whiteboard: 1, slides: 1 }) continue;
+    if (question.removed || question.hidden) continue;
+    const itemId = String(question.id || question.item_id || "").trim();
+    const lifecycle = lifecycleByItemId.get(itemId);
+    const server = serverCards.find(
+      (row) => String(row.id || row.item_id || "").trim() === itemId
+    );
+    pushRow({
+      ...(server || question),
+      ...(lifecycle || {}),
+      item: {
+        ...(lifecycle?.item || {}),
+        ...question,
+        ...(server || {}),
+        ...(server?.item || {}),
+        id: itemId,
+        text:
+          (server && (server.text || server.item?.text)) ||
+          question.text ||
+          question.prompt,
+        options:
+          (server && (server.options || server.item?.options)) ||
+          question.options ||
+          [],
+      },
+      live_item_id: lifecycle?.id || server?.live_item_id || null,
+      stage: question.stage || server?.stage || lifecycle?.stage,
+      page_number:
+        question.page_number ?? server?.page_number ?? lifecycle?.page_number,
+      order: question.order ?? server?.order ?? lifecycle?.order,
+      text:
+        (server && (server.text || server.item?.text)) ||
+        question.text ||
+        question.prompt,
+    });
+  }
+
+  for (const card of serverCards) {
+    pushRow({ ...card, item: card.item || card });
+  }
+  const joinCard = joinPromptCardRow();
+  if (joinCard) pushRow(joinCard);
+
+  return rows.sort((left, right) => {
+    const leftPage = Number(left.page_number || 0);
+    const rightPage = Number(right.page_number || 0);
+    if (leftPage !== rightPage) return leftPage - rightPage;
+    return Number(left.order || 0) - Number(right.order || 0);
+  });
+}
+
+/**
+ * Questions on the teacher's current lesson page (stage + page index).
+ * @returns {any[]}
+ */
+function metadataMatchesCurrentPack() {
+  const meta = lastLiveMetadata;
+  if (!meta || typeof meta !== "object") return false;
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const metaSlot = String(meta.live_class || meta.slot || "").toUpperCase();
+  const metaModule = String(meta.module || "").toUpperCase();
+  if (metaSlot && metaSlot !== slot) return false;
+  if (metaModule && metaModule !== module) return false;
+  return true;
+}
+
+function joinPromptCardRow() {
+  if (isBlankOverlayLivePage()) return null;
+  if (String(teacherState.stage || "") !== "join") return null;
+  const joinRow = lastJoinPrompt || lastActivePrompt;
+  const action = joinRow && joinRow.payload;
+  if (!action || !(action.prompt || action.question)) return null;
+  const promptSlot = String(action.live_slot || "").toUpperCase();
+  const currentSlot = String(teacherState.live_slot || "").toUpperCase();
+  if (promptSlot && currentSlot && promptSlot !== currentSlot) return null;
+  const token = String(action.item_id || action.pack || "minds_on").trim();
+  if (!token) return null;
+  const options = Array.isArray(action.choices) ? action.choices : [];
+  return {
+    id: token,
+    item_id: token,
+    stage: "join",
+    page_number: 1,
+    engine_ride: isEngineRideItemId(token),
+    ride_label: "Waiting room",
+    type: options.length ? "mc" : "open",
+    text: String(action.prompt || action.question || "").trim(),
+    options,
+    item: {
+      id: token,
+      text: String(action.prompt || action.question || "").trim(),
+      options,
+      engine_ride: true,
+      ride_label: "Waiting room",
+    },
+    prompt_id: Number(joinRow.id) || 0,
+    status: joinRow.active ? "active" : "inactive",
+  };
+}
+
+function currentPageQuestionRows() {
+  if (isBlankOverlayLivePage()) return [];
+  const pageIndex = currentLivePageNumber();
+  const stageKey = String(teacherState.stage || "");
+  return deckQuestionRows().filter((card) => {
+    const cardPage = Number(card.page_number || 0);
+    const cardStage = String(card.stage || "");
+    const token = String(card.id || card.item_id || "");
+    if (
+      stageKey === "join" &&
+      (cardStage === "join" || isEngineRideItemId(token))
+    ) {
+      return cardStage === "join" || token.replace(/-/g, "_") === "minds_on";
+    }
+    if (pageIndex > 0 && cardPage > 0) return cardPage === pageIndex;
+    return cardStage === stageKey;
+  });
+}
+
+/**
+ * True when a live question is open-ended numeric/text and not a Meet card.
+ * @param {any} item
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveQuestionIsOpenEnded(item, card) {
+  const id = String(item?.id || card?.item_id || card?.id || "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (["meet-team", "meet-a", "meet-b", "meet-c"].includes(id)) return false;
+  const type = String(item?.type || card?.type || "").toLowerCase();
+  return (
+    ["numeric", "text", "open", "share"].includes(type) ||
+    Boolean(item?.integer_only || card?.integer_only)
+  );
+}
+
+/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
@@ -1128,20 +1817,23 @@ function paintLiveQuestionCards() {
       row,
     ])
   );
-  const cards = (Array.isArray(lastQuestionCards) ? lastQuestionCards : [])
-    .filter((card) => String(card.stage || "") === String(teacherState.stage || ""))
-    .map((card) => {
+  const cards = currentPageQuestionRows().map((card) => {
       const lifecycle = lifecycleById.get(Number(card.live_item_id));
-      const prompt = activeByItem.get(String(card.id || ""));
+      const prompt = activeByItem.get(String(card.id || card.item_id || ""));
       return {
         ...card,
         ...(lifecycle || {}),
-        item: lifecycle?.item || card,
+        item: card.item || lifecycle?.item || card,
+        text: card.text || card.item?.text || lifecycle?.item?.text,
         prompt_id: Number(prompt?.id || lifecycle?.prompt_id || card.prompt_id) || 0,
       };
     });
   if (!cards.length) {
-    host.innerHTML = `<p class="hint compact">No questions are connected to this stage.</p>`;
+    const deckTotal = deckQuestionRows().length;
+    host.innerHTML =
+      deckTotal > 0
+        ? `<p class="hint compact">No questions on this page yet. Use Import from bank to add one here.</p>`
+        : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
     return;
   }
   host.innerHTML = cards
@@ -1154,7 +1846,7 @@ function paintLiveQuestionCards() {
           : [];
       const optionHtml = options.length
         ? `<ol class="live-question-card-options" type="A">${options
-            .map((option) => `<li>${escapeHtml(option)}</li>`)
+            .map((option, optIndex) => `<li>${questionFieldHtml(item, "option", optIndex) || formatQuestionHtml(option)}</li>`)
             .join("")}</ol>`
         : "";
       const answerKey = item.correct_answer ?? card.correct_answer;
@@ -1166,6 +1858,14 @@ function paintLiveQuestionCards() {
         card.page_number == null
           ? ""
           : `<span>Page ${escapeHtml(card.page_number)}</span>`;
+      const importSource =
+        item.import_source === "module_bank" || String(card.id || "").startsWith("bank-import-")
+          ? `<span class="hint">Bank · ${escapeHtml(
+              item.bank_title || item.question_title || "Module MC"
+            )}</span>`
+          : item.engine_ride || card.engine_ride
+            ? `<span class="hint">${escapeHtml(card.ride_label || item.ride_label || "Live class")}</span>`
+            : "";
       const promptId = Number(card.prompt_id) || 0;
       const liveItemId = Number(card.live_item_id || card.id) || 0;
       const status = String(card.status || "inactive").toLowerCase();
@@ -1176,10 +1876,13 @@ function paintLiveQuestionCards() {
         : Array.isArray(item.capabilities?.publish_modes)
           ? item.capabilities.publish_modes
           : ["individual"];
+      const openEnded = liveQuestionIsOpenEnded(item, card);
       const canGroup =
         Boolean(teacherState.groups_configured) &&
         Boolean(teacherState.run_as_group) &&
-        publishModes.includes("group_consensus");
+        (openEnded || publishModes.includes("group_consensus"));
+      const showGroupBadge =
+        openEnded || card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
       const resultHtml =
         card.response_mode === "group_consensus"
@@ -1200,21 +1903,22 @@ function paintLiveQuestionCards() {
           0
       );
       const eligible = Number(result?.eligible_count ?? result?.tally?.present ?? 0);
+      const onStage = String(card.stage || "") === String(teacherState.stage || "");
       const progress =
-        active || closed
+        onStage && (active || closed)
           ? `<p class="live-question-progress">${answered} / ${Math.max(eligible, answered)} answered</p>`
           : "";
-      const publish = !liveItemId
+      const publish = !liveItemId || !onStage
         ? ""
         : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
-            <button type="button" data-publish-live-item="${liveItemId}">Publish</button>
+            <button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>
             ${
               canGroup
                 ? `<select data-publish-live-mode="${liveItemId}" aria-label="Publish mode">
                     <option value="individual">Individual</option>
                     <option value="group_consensus"${
                       card.response_mode === "group_consensus" ? " selected" : ""
-                    }>Group consensus</option>
+                    }>Individual in Group</option>
                   </select>`
                 : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
             }
@@ -1222,13 +1926,20 @@ function paintLiveQuestionCards() {
       const pointsButton =
         card.response_mode === "group_consensus"
           ? ""
-          : `<button type="button" class="secondary" data-view-responses="${promptId}" data-question-title="${escapeHtml(
+          : `<button type="button" class="secondary live-q-btn" data-view-responses="${promptId}" data-question-title="${escapeHtml(
               item.text || card.text
             )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" data-has-answer-key="${
               hasAnswerKey ? "1" : ""
             }" ${
               promptId ? "" : "disabled"
             }>Responses &amp; points</button>`;
+      const playlistItemId = resolvePlaylistItemId(card, item);
+      const questionLabel = String(item.text || item.prompt || card.text || "This question").trim();
+      const relocateButton = playlistItemId
+        ? `<button type="button" class="secondary live-q-btn live-question-relocate-btn" data-open-relocate-dialog="${escapeHtml(
+            playlistItemId
+          )}" aria-label="Move or remove question">(Re)move</button>`
+        : "";
       const activeActions = active
         ? `<label class="live-result-toggle">
             <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
@@ -1238,10 +1949,10 @@ function paintLiveQuestionCards() {
           </label>
           ${
             card.response_mode === "group_consensus"
-              ? `<button type="button" class="secondary" data-end-voting="${liveItemId}">End Voting</button>`
+              ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
               : pointsButton
           }
-          <button type="button" class="secondary" data-close-live-item="${liveItemId}">Close</button>`
+          <button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
         : closed
           ? `${pointsButton}<span class="live-closed-copy">Final results</span>`
           : "";
@@ -1249,21 +1960,33 @@ function paintLiveQuestionCards() {
         item.id || card.item_id || card.id
       )}" data-live-item-id="${liveItemId}">
         <div class="live-question-card-main">
-          <div class="live-question-card-meta">
-            <span>${escapeHtml(String(item.type || card.type || "poll").toUpperCase())}</span>${key}${page}
-            <span class="live-status-badge is-${status}">${escapeHtml(
-              status.charAt(0).toUpperCase() + status.slice(1)
-            )}</span>
+          <div class="live-question-card-head">
+            <div class="live-question-card-meta">
+              <span>${escapeHtml(
+                String(
+                  item.engine_ride || card.engine_ride
+                    ? (options.length ? item.type || card.type || "poll" : "open")
+                    : item.type || card.type || "poll"
+                ).toUpperCase()
+              )}</span>${key}${page}${importSource}
+              <span class="live-status-badge is-${status}">${escapeHtml(
+                status.charAt(0).toUpperCase() + status.slice(1)
+              )}</span>${
+                showGroupBadge
+                  ? `<span class="live-status-badge is-group">Group</span>`
+                  : ""
+              }
+            </div>
+            ${relocateButton}
           </div>
-          <p class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${escapeHtml(
-            item.text || item.prompt || card.text || ""
-          )}</p>
+          ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
+          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.text || item.prompt || card.text || "")}</div>
           ${optionHtml}
           ${resultHtml}
           ${progress}
         </div>
         <div class="live-question-card-actions">
-          ${status === "inactive" ? publish : activeActions}
+          ${onStage ? (status === "inactive" ? publish : activeActions) : ""}
         </div>
       </article>`;
     })
@@ -1303,7 +2026,27 @@ function groupAnswerLabel(answer) {
 }
 
 /**
- * Render expandable teacher-only group consensus summaries.
+ * Expand anonymous member answers for a compact teacher team card.
+ * @param {any} team
+ * @returns {string[]}
+ */
+function groupMemberAnswerValues(team) {
+  if (Array.isArray(team?.member_answers) && team.member_answers.length) {
+    return team.member_answers.map((value) => String(value));
+  }
+  const expanded = [];
+  for (const row of team?.vote_summary || []) {
+    const label = groupAnswerLabel(row.answer);
+    const count = Number(row.count) || 0;
+    for (let index = 0; index < count; index += 1) {
+      expanded.push(label);
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Render compact per-team group-consensus cards for the teacher.
  * @param {any} result
  * @returns {string}
  */
@@ -1312,34 +2055,53 @@ function groupConsensusResultsHtml(result) {
   if (!teams.length) return "";
   return `<div class="live-consensus-teams">${teams
     .map((team) => {
-      const final = groupAnswerLabel(team.final_answer);
-      const proposal = groupAnswerLabel(team.proposed_answer);
-      const distribution = (team.vote_summary || [])
-        .map(
-          (row) =>
-            `<li>${escapeHtml(groupAnswerLabel(row.answer))}: ${Number(row.count) || 0}</li>`
-        )
+      const status = String(team.status || "collecting_votes");
+      const responded = Number(team.vote_count) || 0;
+      const eligible = Math.max(Number(team.eligible_count) || 0, responded);
+      const answers = groupMemberAnswerValues(team);
+      const answerList = answers
+        .map((value) => `<li>${escapeHtml(value)}</li>`)
         .join("");
-      return `<details class="live-consensus-team">
-        <summary><span>${escapeHtml(team.team_name || "Team")}</span><span>${escapeHtml(
-          team.status || "collecting_votes"
-        )} · ${Number(team.vote_count) || 0} votes</span></summary>
-        <dl>
-          <div><dt>Distribution</dt><dd><ul>${distribution || "<li>Waiting</li>"}</ul></dd></div>
-          <div><dt>Proposal</dt><dd>${escapeHtml(proposal)}</dd></div>
-          <div><dt>Team Answer</dt><dd>${escapeHtml(final)}</dd></div>
-          <div><dt>Changed</dt><dd>${team.changed_from_proposal ? "Yes" : "No"}</dd></div>
-          <div><dt>Finalized by</dt><dd>${escapeHtml(team.finalizer_name || "—")}</dd></div>
-          <div><dt>Time</dt><dd>${escapeHtml(team.finalized_at || "—")}</dd></div>
-        </dl>
-        ${
-          team.status === "finalized"
-            ? `<button type="button" data-award-consensus="${Number(
-                result?.item?.id || 0
-              )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
-            : ""
-        }
+      const inspect = `<details class="live-consensus-inspect">
+        <summary>Member answers</summary>
+        <ul>${answerList || "<li>Waiting</li>"}</ul>
       </details>`;
+      let body = "";
+      if (status === "collecting_votes") {
+        body = `<p class="live-consensus-team-name">${escapeHtml(
+          team.team_name || "Team"
+        )}</p>
+        <p class="live-consensus-team-count">${responded}/${eligible} responded</p>
+        <p class="live-consensus-team-note">${
+          responded === eligible && eligible > 0
+            ? "Ready to discuss"
+            : "Private responses incoming…"
+        }</p>`;
+      } else if (status === "finalized") {
+        body = `<p class="live-consensus-team-name">${escapeHtml(
+          team.team_name || "Team"
+        )}</p>
+        <p class="live-consensus-team-answer">${escapeHtml(
+          groupAnswerLabel(team.final_answer)
+        )}</p>
+        <p class="live-consensus-team-count">${responded}/${eligible} contributed</p>
+        <p class="live-consensus-team-note">Group Answer ✓</p>
+        <button type="button" data-award-consensus="${Number(
+          result?.item?.id || 0
+        )}" data-team-id="${Number(team.team_id)}">+1 team</button>`;
+      } else {
+        body = `<p class="live-consensus-team-name">${escapeHtml(
+          team.team_name || "Team"
+        )}</p>
+        <p class="live-consensus-team-answers">Responses: ${
+          answers.map((value) => escapeHtml(value)).join(" · ") || "—"
+        }</p>
+        <p class="live-consensus-team-note">Awaiting Group Answer</p>`;
+      }
+      return `<article class="live-consensus-team is-${escapeHtml(status)}">
+        ${body}
+        ${inspect}
+      </article>`;
     })
     .join("")}</div>`;
 }
@@ -1620,136 +2382,28 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
   if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
 }
 
-function paintQuestionArtifact(media) {
+/**
+ * Refresh the Questions pane: slot chips, lifecycle cards, then hide relics.
+ * Leftover Meet/Join/cons stems and 0/0 bars belong on cards, not this pane.
+ * @param {any} [_media]
+ */
+function paintQuestionArtifact(_media) {
   paintLiveSlotPicks();
   paintLiveQuestionCards();
+  isBlankOverlayLivePage();
+  hideLiveQuestionBody();
+  hideTeamsSparkCard();
+  paintMeetChainChrome();
   const status = $("question-artifact-status");
   const flag = $("question-artifact-flag");
-  if (!status || !flag) return;
-  if (lastQuestionCards.length) {
-    status.hidden = true;
-    flag.hidden = true;
-    hideLiveQuestionBody();
-    hideTeamsSparkCard();
-    paintMeetChainChrome();
-    return;
-  }
-  const row = media || {};
-  const ride = teacherState.text_ride || {};
-  const cons = String(row.cons_item || ride.cons_item || "").trim();
-  const toast = String(row.toast || row.caption || ride.toast || "").trim();
-  const chain = teacherState.meet_chain;
-  const meetOn = teacherState.stage === "meet";
-  if (meetOn && chain && Array.isArray(chain.chain) && chain.chain.length) {
-    hideTeamsSparkCard();
-    const step = String(chain.chain[chain.index] || "A");
-    const labels = { A: "Today I’m the teammate who…", C: "Shared spark", B: "One thing our team might need…" };
-    const meetPayload = lastActivePrompt && lastActivePrompt.payload;
-    const meetRide =
-      meetPayload &&
-      (meetPayload.ride === "meet_team" || meetPayload.pack === "meet-team");
-    const slot = String(teacherState.live_slot || "C1").toUpperCase();
-    const showA = slot === "C1" || step === "A";
-    const stem = showA
-      ? "Today I’m the teammate who…"
-      : (meetRide && (meetPayload.prompt || meetPayload.question)) || labels[step] || "";
-    const choices = showA
-      ? (meetRide && meetPayload.step === "A" && meetPayload.choices) || []
-      : (meetRide && meetPayload.choices) || [];
-    if (status) {
-      status.hidden = true;
-      status.textContent = "";
-    }
-    flag.hidden = false;
-    flag.textContent = showA
-      ? "Meet · C1 · Today I’m the teammate who…"
-      : `Meet · ${step} · ${labels[step] || step}`;
-    paintLiveQuestionBody(stem, choices);
-    paintMeetChainChrome();
-    return;
-  }
-  if (cons && teacherState.stage !== "join") {
-    hideTeamsSparkCard();
-    if (status) {
-      status.hidden = true;
-      status.textContent = "";
-    }
-    flag.hidden = false;
-    flag.textContent = toast ? `${cons} · ${toast}` : cons;
-    paintLiveQuestionBody(toast || cons, []);
-    paintMeetChainChrome();
-    return;
-  }
-  if (teacherState.stage === "join") {
-    const joinRow = lastJoinPrompt || lastActivePrompt;
-    const action = joinRow && joinRow.payload;
-    if (status) {
-      status.hidden = true;
-      status.textContent = "";
-    }
-    if (action && (action.prompt || action.question)) {
-      flag.hidden = false;
-      flag.textContent = "Waiting room · 1";
-      paintLiveQuestionBody(
-        String(action.prompt || action.question || "").trim(),
-        action.choices || []
-      );
-    } else {
-      flag.hidden = true;
-      flag.textContent = "";
-      hideLiveQuestionBody();
-    }
-    hideTeamsSparkCard();
-    paintMeetChainChrome();
-    return;
-  }
-  if (teacherState.stage === "teams") {
-    paintTeamsSparkCard(lastTeamsSpark);
-    paintMeetChainChrome();
-    return;
-  }
-  const joinRow =
-    teacherState.stage === "join" ? lastJoinPrompt || lastActivePrompt : lastActivePrompt;
-  const action = joinRow && joinRow.payload;
-  if (
-    action &&
-    (action.ride === "action" || action.item_id === "team-challenge") &&
-    (teacherState.stage === "play" || teacherState.round === "action")
-  ) {
-    hideTeamsSparkCard();
-    if (status) {
-      status.hidden = true;
-      status.textContent = "";
-    }
-    flag.hidden = false;
-    flag.textContent = String(action.title || "Team Challenge");
-    paintLiveQuestionBody(String(action.prompt || action.question || "").trim(), action.choices || []);
-    paintMeetChainChrome();
-    return;
-  }
-  hideTeamsSparkCard();
-  if (action && (action.prompt || action.question || lastMcTally?.prompt)) {
-    if (status) {
-      status.hidden = true;
-      status.textContent = "";
-    }
-    flag.hidden = false;
-    flag.textContent = String(action.label || action.title || "Minds-On");
-    paintLiveQuestionBody(
-      String(action.prompt || action.question || lastMcTally.prompt || "").trim(),
-      action.choices || lastMcTally?.choices?.map((row) => row.label) || []
-    );
-    paintMeetChainChrome();
-    return;
-  }
   if (status) {
     status.hidden = true;
     status.textContent = "";
   }
-  flag.hidden = true;
-  flag.textContent = "";
-  hideLiveQuestionBody();
-  paintMeetChainChrome();
+  if (flag) {
+    flag.hidden = true;
+    flag.textContent = "";
+  }
 }
 
 /**
@@ -2040,7 +2694,34 @@ function joinCodeFromPayload(payload) {
  * @param {unknown} code
  * @param {{ ended?: boolean }} [opts]
  */
+
+/**
+ * Build the course + lesson token shown beside the join code (e.g. MCF3M M1C3).
+ * @returns {string}
+ */
+function liveLessonBadgeText() {
+  const course = String(root?.dataset.ontarioCode || "").trim().toUpperCase();
+  const module = String(
+    teacherState.live_module || $("live-module-select")?.value || "M1"
+  ).toUpperCase();
+  const slot = String(
+    teacherState.live_slot || $("live-class-select")?.value || "C1"
+  ).toUpperCase();
+  const lesson = `${module}${slot}`;
+  return course ? `${course} ${lesson}` : lesson;
+}
+
+/**
+ * Paint the course/lesson chip in the live header join area.
+ */
+function paintLiveLessonBadge() {
+  const el = $("live-lesson-badge");
+  if (!(el instanceof HTMLElement)) return;
+  el.textContent = liveLessonBadgeText();
+}
+
 function paintJoinBillboard(code, opts = {}) {
+  paintLiveLessonBadge();
   const board = $("ap-join-billboard");
   const codeEl = $("ap-join-billboard-code");
   const raw = opts.ended ? "" : copyableJoinCode(code);
@@ -2266,7 +2947,8 @@ async function pollLiveSessionAttendees(opts = {}) {
       paintActiveMediaStatus(media);
       paintQuestionArtifact(media);
     } else if (wantFull) {
-      paintQuestionArtifact(null);
+      if (liveClassSeedMedia()) paintActiveMediaStatus(null);
+      else paintQuestionArtifact(null);
     }
     adoptLifecycleResponseCounts(payload?.lifecycle_response_counts);
     applyMcTally(payload?.mc_tally);
@@ -2339,9 +3021,8 @@ function paintActiveMediaStatus(media) {
   const rawUrl = String((media && media.url) || "").trim();
   const realSlice = rawUrl.includes("m1c1-c1-real-slice.html");
   const seed = liveClassSeedMedia();
-  const fallbackUrl = seed ? seed.url : "";
   const mediaUrl = seed
-    ? (rawUrl || fallbackUrl)
+    ? seed.url
     : realSlice
       ? ""
       : rawUrl;
@@ -2355,13 +3036,11 @@ function paintActiveMediaStatus(media) {
   const teacherSrc = mediaUrl.includes("?")
     ? `${mediaUrl}&role=teacher`
     : `${mediaUrl}?role=teacher`;
-  const currentSrc = preview.getAttribute("src") || lastTeacherMediaSrc;
-  if (currentSrc !== teacherSrc && lastTeacherMediaSrc !== teacherSrc) {
+  const currentSrc = preview.getAttribute("src") || "";
+  if (currentSrc !== teacherSrc) {
     preview.src = teacherSrc;
-    lastTeacherMediaSrc = teacherSrc;
-  } else {
-    lastTeacherMediaSrc = currentSrc || teacherSrc;
   }
+  lastTeacherMediaSrc = teacherSrc;
   preview.hidden = false;
   preview.removeAttribute("hidden");
   if (media && media.url) {
@@ -2399,6 +3078,21 @@ function usesMcr3uM1C1Media() {
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
   return ontario === "MCR3U" && module === "M1" && slot === "C1";
+}
+
+/**
+ * True when this C2/C3 slot has no authored playlist media.
+ * Challenge C2/C3 on the C1 Real-slice stay text-only. Playlist media
+ * such as MCR3U M1 C3 parent transformations must still mount for staff.
+ * @param {string} [slot]
+ * @returns {boolean}
+ */
+function isTextOnlyLiveSlot(slot) {
+  const token = String(slot || teacherState.live_slot || "C1").toUpperCase();
+  if (token !== "C2" && token !== "C3") return false;
+  const metaSlot = String(lastLiveMetadata?.live_class || "").toUpperCase();
+  if (metaSlot && metaSlot !== token) return true;
+  return !liveClassSeedMedia();
 }
 
 /**
@@ -2461,7 +3155,7 @@ async function ensureC1MediaSeeded() {
     return;
   }
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || mediaSeedInFlight || textOnlyChallenge) return;
+  if (!sessionId || mediaSeedInFlight || isTextOnlyLiveSlot()) return;
   mediaSeedInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/active-media`);
@@ -5649,17 +6343,66 @@ $("teams-spark-reveal")?.addEventListener("click", () => {
 });
 
 $("live-stage-prev")?.addEventListener("click", () => {
-  patchTeacherState({ advance: "prev" });
+  advanceLivePage(-1);
 });
 $("live-stage-next")?.addEventListener("click", () => {
   if (setupPhase) {
     applyValidateDateChoice();
     return;
   }
-  patchTeacherState({ advance: "next" });
+  advanceLivePage(1);
 });
-$("live-save-as")?.addEventListener("click", () => {
-  saveLiveLessonAs().catch((err) => showError("#ap-overlay-error", err));
+$("live-add-page")?.addEventListener("click", () => {
+  addLiveLessonPage().catch((err) => showError("#ap-overlay-error", err));
+});
+$("live-delete-page")?.addEventListener("click", () => {
+  deleteLiveLessonPage().catch((err) => showError("#ap-overlay-error", err));
+});
+document.querySelectorAll('input[name="live-add-page-kind"]').forEach((radio) => {
+  radio.addEventListener("change", () => syncAddLivePageKindFields());
+});
+$("live-add-page-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const input = $("live-add-page-name");
+  const err = $("live-add-page-error");
+  const selected = document.querySelector('input[name="live-add-page-kind"]:checked');
+  const kind = selected instanceof HTMLInputElement ? selected.value : "blank";
+  const title = input instanceof HTMLInputElement ? input.value : "";
+  submitAddLiveLessonPage(title, kind)
+    .then(() => closeAddLivePageDialog())
+    .catch((error) => {
+      if (err instanceof HTMLElement) {
+        err.hidden = false;
+        err.textContent = String(error?.message || error);
+      } else {
+        showError("#ap-overlay-error", error);
+      }
+    });
+});
+document.querySelectorAll("[data-live-add-page-close]").forEach((btn) => {
+  btn.addEventListener("click", () => closeAddLivePageDialog());
+});
+$("live-add-page-dialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeAddLivePageDialog();
+});
+$("live-delete-page-confirm")?.addEventListener("click", () => {
+  const err = $("live-delete-page-error");
+  confirmDeleteLiveLessonPage()
+    .then(() => closeDeleteLivePageDialog())
+    .catch((error) => {
+      if (err instanceof HTMLElement) {
+        err.hidden = false;
+        err.textContent = String(error?.message || error);
+      } else {
+        showError("#ap-overlay-error", error);
+      }
+    });
+});
+document.querySelectorAll("[data-live-delete-page-close]").forEach((btn) => {
+  btn.addEventListener("click", () => closeDeleteLivePageDialog());
+});
+$("live-delete-page-dialog")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeDeleteLivePageDialog();
 });
 $("meet-chain-next")?.addEventListener("click", () => {
   patchTeacherState({ meet_action: "next" });
@@ -5740,7 +6483,7 @@ function applyLivePackChoice(moduleId, slot) {
   const liveSlot = String(slot || "C1").toUpperCase();
   teacherState.live_module = module;
   teacherState.live_slot = liveSlot;
-  textOnlyChallenge = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
+  textOnlyChallenge = isTextOnlyLiveSlot(liveSlot) ? liveSlot : "";
   const sessionId = liveSessionId || readLiveSessionId();
   if (teacherState.stage === "meet" && sessionId) {
     const body = { live_module: module, live_slot: liveSlot };
@@ -5758,7 +6501,9 @@ function applyLivePackChoice(moduleId, slot) {
   write
     .then(() => loadSavedLiveLesson(module, liveSlot))
     .then(() => {
-      if (liveSlot === "C1" && sessionId && liveClassSeedMedia()) return ensureC1MediaSeeded();
+      paintLiveLessonBadge();
+      if (sessionId && liveClassSeedMedia()) return ensureC1MediaSeeded();
+      if (liveClassSeedMedia()) paintActiveMediaStatus(null);
       paintLiveSlotPicks();
       return null;
     })
@@ -5776,7 +6521,9 @@ async function loadSavedLiveLesson(moduleId, slot) {
   const module = String(moduleId || "M1").toUpperCase();
   const liveSlot = String(slot || "C1").toUpperCase();
   try {
-    const payload = await api(`/api/classes/${classId}/live-lessons/${module}/${liveSlot}`);
+    const payload = await api(
+      `/api/staff/class/${classId}/live-lessons/${module}/${liveSlot}/deck`
+    );
     if (payload?.live_metadata) {
       lastLiveMetadata = payload.live_metadata;
       paintStageRail();
@@ -5854,24 +6601,6 @@ $("live-class-select")?.addEventListener("change", () => {
   );
 });
 
-$("text-ride-freeze")?.addEventListener("click", () => {
-  if (!textOnlyChallenge) return;
-  const frozen = !Boolean((teacherState.text_ride || {}).frozen);
-  postActiveMedia({ frozen })
-    .then(() => paintLiveSlotPicks())
-    .catch((err) => showError("#ap-overlay-error", err));
-});
-
-document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    if (!textOnlyChallenge) return;
-    const item = btn.getAttribute("data-cons-item") || "";
-    postActiveMedia({ cons_item: `${textOnlyChallenge}-${item}` })
-      .then(() => paintLiveSlotPicks())
-      .catch((err) => showError("#ap-overlay-error", err));
-  });
-});
-
 /**
  * PATCH one Student View dropdown onto teacher state.
  * @param {"media"|"canvas"|"slides"} surface
@@ -5925,8 +6654,21 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
   const award = event.target.closest("button[data-award-consensus]");
+  const openRelocate = event.target.closest("button[data-open-relocate-dialog]");
   const button = event.target.closest("button[data-view-responses]");
   try {
+    if (openRelocate instanceof HTMLButtonElement) {
+      const card = openRelocate.closest(".live-question-card");
+      const itemId = String(
+        card?.dataset?.questionId || openRelocate.dataset.openRelocateDialog || ""
+      ).trim();
+      const labelEl = card?.querySelector(".live-question-card-text");
+      const label = String(labelEl?.textContent || "This question")
+        .replace(/^\s*\d+\s*/, "")
+        .trim();
+      openRelocateDialog(itemId, label || "This question");
+      return;
+    }
     if (publish instanceof HTMLButtonElement) {
       await publishLifecycleItem(Number(publish.dataset.publishLiveItem) || 0);
       return;
@@ -6119,3 +6861,67 @@ function wireEndLiveDialog() {
 }
 
 wireEndLiveDialog();
+
+/**
+ * Show one inline error inside the relocate dialog.
+ * @param {unknown} err
+ */
+function showRelocateDialogError(err) {
+  const el = $("live-relocate-error");
+  if (!(el instanceof HTMLElement)) return;
+  el.hidden = false;
+  el.textContent = err instanceof Error ? err.message : String(err || "Request failed");
+}
+
+$("live-relocate-remove")?.addEventListener("click", async (event) => {
+  const btn = event.currentTarget;
+  const itemId = String(pendingRelocate.itemId || "").trim();
+  if (!itemId || !(btn instanceof HTMLButtonElement)) return;
+  btn.disabled = true;
+  try {
+    await relocatePlaylistItem(itemId, { action: "remove" });
+    closeRelocateDialog();
+  } catch (err) {
+    showRelocateDialogError(err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("live-relocate-move")?.addEventListener("click", async (event) => {
+  const btn = event.currentTarget;
+  const itemId = String(pendingRelocate.itemId || "").trim();
+  const select = $("live-relocate-page");
+  const targetPageIndex = Number(
+    select instanceof HTMLSelectElement ? select.value : 0
+  );
+  if (!itemId || targetPageIndex <= 0 || !(btn instanceof HTMLButtonElement)) return;
+  if (targetPageIndex === currentLivePageIndex() + 1) {
+    closeRelocateDialog();
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await relocatePlaylistItem(itemId, { targetPageIndex });
+    closeRelocateDialog();
+  } catch (err) {
+    showRelocateDialogError(err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("live-relocate-dialog")?.addEventListener("click", (event) => {
+  if (
+    event.target instanceof HTMLElement &&
+    event.target.matches("[data-live-relocate-close]")
+  ) {
+    closeRelocateDialog();
+  }
+});
+
+$("live-relocate-dialog")?.addEventListener("cancel", () => {
+  closeRelocateDialog();
+});
+
+$("live-import-mc-btn")?.addEventListener("click", () => openLiveMcImportPicker());

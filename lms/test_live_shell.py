@@ -89,7 +89,33 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-stage-next"', html)
         self.assertIn('id="live-page-counter"', html)
         self.assertIn('id="live-page-name"', html)
-        self.assertIn('id="live-save-as"', html)
+        self.assertIn('id="live-add-page"', html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function isBlankOverlayLivePage()", js)
+        artifact = js.split("function paintQuestionArtifact(")[1].split("function paintMeetChainChrome(")[0]
+        self.assertIn("isBlankOverlayLivePage()", artifact)
+        self.assertIn("paintLiveSlotPicks()", artifact)
+        self.assertIn("paintLiveQuestionCards()", artifact)
+        self.assertIn("hideLiveQuestionBody()", artifact)
+        self.assertIn("hideTeamsSparkCard()", artifact)
+        self.assertNotIn("paintLiveQuestionBody(", artifact)
+        self.assertNotIn("Today I’m the teammate", artifact)
+        self.assertNotIn("Waiting room · 1", artifact)
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Your answer:", student_js)
+        self.assertIn('id="live-delete-page"', html)
+        self.assertIn('id="live-add-page-dialog"', html)
+        self.assertIn('id="live-delete-page-dialog"', html)
+        self.assertNotIn('id="live-save-as"', html)
+        self.assertNotIn("Save As", html)
+        self.assertIn('value="welcome"', html)
+        self.assertIn('value="winner"', html)
+        self.assertIn("Blank page", html)
+        self.assertIn("function submitAddLiveLessonPage(name, kind)", js)
+        self.assertIn("kind: pageKind", js)
+        self.assertNotIn('$("live-save-as")', js)
         self.assertIn("Set Class", html)
         self.assertNotIn("Attendance: 0", html)
         self.assertNotIn('id="live-stage-prev">Prev<', html)
@@ -240,6 +266,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("/items/${liveItemId}/end-voting", js)
         self.assertIn("Show Live Results", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
+        self.assertIn("Individual in Group", js)
+        self.assertIn("Reveal answers", js)
         self.assertNotIn("lloves-scoreboard-", js)
 
     def test_keyed_numeric_enables_select_correct(self) -> None:
@@ -434,8 +462,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("if (meet) meet.hidden = true;", js)
         self.assertIn('if (round) round.hidden = stage !== "round";', js)
         self.assertIn('if (play) play.hidden = !["play", "round_3", "summary"].includes(stage);', js)
-        self.assertIn('patchTeacherState({ advance: "prev" })', js)
-        self.assertIn('patchTeacherState({ advance: "next" })', js)
+        self.assertIn("function advanceLivePage(", js)
+        self.assertIn("advanceLivePage(-1)", js)
+        self.assertIn("advanceLivePage(1)", js)
         self.assertNotIn('id="class-list-pane").innerHTML', js)
         self.assertNotIn('id="live-shell-left").innerHTML', js)
         self.assertNotIn("$(\"class-list-pane\").innerHTML", js)
@@ -560,19 +589,18 @@ class LiveShellTests(unittest.TestCase):
         helper = js.split(
             "function currentStageHasLifecycleQuestionCards()"
         )[1].split("function paintMcResultsSlot()")[0]
-        self.assertIn("lastQuestionCards.some", helper)
-        self.assertIn("teacherState.stage", helper)
-        self.assertIn("live_item_id", helper)
+        self.assertIn("currentPageQuestionRows()", helper)
         paint = js.split("function paintMcResultsSlot()")[1].split(
             "function applyMcTally("
         )[0]
-        self.assertIn("!currentStageHasLifecycleQuestionCards()", paint)
-        self.assertIn("slot.hidden = !hasMc", paint)
+        self.assertIn("slot.hidden = true", paint)
+        self.assertNotIn("lastMcTally", paint)
         results = js.split("function paintResultsStrip()")[1].split(
             "function mcBindKey("
         )[0]
         self.assertIn("const showScore =", results)
         self.assertIn("scorePanel.hidden = !showScore", results)
+        self.assertNotIn("const showMc =", results)
 
     def test_beat3_teams_strip_is_one_condensed_row(self) -> None:
         """Round Options swaps setup controls for persisted group toggles."""
@@ -1030,11 +1058,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="teams-spark-card"', q_html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("function paintTeamsSparkCard(", js)
-        self.assertIn('teacherState.stage === "join"', js)
-        self.assertIn("Waiting room · 1", js)
         self.assertIn("Waiting room · 2", js)
         self.assertIn("keepQuestionBody", js)
-        self.assertIn('teacherState.stage === "teams"', js)
         self.assertIn("lastTeamsSpark", js)
         self.assertIn("payload?.teams_spark", js)
         self.assertIn('currentMcPromptRef()', js)
@@ -1058,7 +1083,7 @@ class LiveShellTests(unittest.TestCase):
         next_click = js.split('$("live-stage-next")?.addEventListener("click"')[1].split(
             '$("meet-chain-next")'
         )[0]
-        self.assertIn('patchTeacherState({ advance: "next" })', next_click)
+        self.assertIn("advanceLivePage(1)", next_click)
         self.assertNotIn("advanceTeamsToMeet()", next_click)
         setup = js.split('$("live-teams-start")?.addEventListener("click"')[1].split(
             '$("live-run-as-group")'
@@ -2087,6 +2112,22 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("teacherStateNeedsQuestionRefresh(body)", patch)
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", patch)
+
+    def test_playlist_move_options_list_every_rail_page(self) -> None:
+        """Relocate options use 1-based rail index plus page name for every page."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function playlistMovePageOptions(", js)
+        body = js.split("function playlistMovePageOptions(")[1].split(
+            "function applyLocalPlaylistCardChange("
+        )[0]
+        self.assertIn("${pageIndex}. ${name}", body)
+        self.assertIn("currentLivePageIndex()", js)
+        self.assertNotIn(
+            "playlistMovePageOptions(currentLivePageNumber())",
+            js,
+        )
+        self.assertNotIn("if (pageIndex === currentPageIndex) return \"\";", body)
 
 if __name__ == "__main__":
     unittest.main()

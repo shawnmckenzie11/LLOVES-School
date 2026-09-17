@@ -688,6 +688,10 @@ body.student-home.is-live .student-live-response {
   padding-left: 1.2rem;
 }
 
+.student-team-distribution .student-live-card-kicker {
+  letter-spacing: 0.04em;
+}
+
 .student-live-results .mc-reveal-bars {
   display: flex;
   flex-direction: column;
@@ -1698,6 +1702,27 @@ body.student-home.is-celebrating .student-me .me-stats {
     0 0 18px rgba(245, 197, 24, 0.65);
 }
 
+.student-winner-players {
+  margin: 0.45rem 0 0;
+  color: #e8eef8;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+body.student-home.is-summary-winner .student-wait,
+body.student-home.is-summary-winner .question-frame,
+body.student-home.is-summary-winner .live-question-stack,
+body.student-home.is-summary-winner .media-pane,
+body.student-home.is-summary-winner .canvas-pane {
+  display: none !important;
+}
+
+body.student-home.has-media .live-question-stack,
+body.student-home .live-question-stack {
+  z-index: 12;
+}
+
 
 /* TEAMS · VLC Math Game Show welcome */
 .game-show-welcome {
@@ -1963,3 +1988,54 @@ body.student-home.is-game-show-welcome .prompt-ack {
     animation: none;
   }
 }
+
+.live-question-image.is-full {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0 0 0.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+.live-question-card h2 sup,
+.prompt-choice sup {
+  font-size: 0.78em;
+  line-height: 0;
+  vertical-align: super;
+}
+/* bank-mc-rich-html */
+body.staff-shell .live-question-html table,
+.student-live-card .live-question-html table,
+.bank-mc-picker-text table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.35rem 0;
+  font-size: 0.82rem;
+}
+body.staff-shell .live-question-html th,
+body.staff-shell .live-question-html td,
+.student-live-card .live-question-html th,
+.student-live-card .live-question-html td,
+.bank-mc-picker-text th,
+.bank-mc-picker-text td {
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  padding: 0.25rem 0.45rem;
+  text-align: center;
+  vertical-align: middle;
+}
+body.staff-shell .live-question-html img,
+.student-live-card .live-question-html img,
+.bank-mc-picker-text img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.25rem 0;
+}
+body.staff-shell .prompt-choice .live-question-html img,
+.student-live-card .prompt-choice .live-question-html img {
+  max-width: 12rem;
+}
+

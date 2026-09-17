@@ -83,6 +83,8 @@ const dismissedPromptIds = new Set();
 const dockedLiveCardKeys = new Set();
 /** Unsaved per-card answers preserved across state polls. */
 const liveCardDrafts = new Map();
+/** In-flight lifecycle submit keys (`itemId:action`) to block double posts. */
+const liveSubmitInFlight = new Set();
 /** @type {number} */
 let lastStateSeq = -1;
 let lastPollStamp = "";
@@ -527,7 +529,24 @@ function escapeText(value) {
  * @returns {string}
  */
 function formatPromptHtml(value) {
-  return escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  let html = escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\(([^)]+)\)\^(\d+)/g, "($1)<sup>$2</sup>");
+  html = html.replace(/([a-zA-Z])\^(\d+)/g, "$1<sup>$2</sup>");
+  return html;
+}
+
+/** Render a graph image at full card width for lifecycle questions. */
+function questionImageHtmlStudent(imageUrl) {
+  const url = String(imageUrl || "").trim();
+  if (!url) return "";
+  return `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`;
+}
+
+/** Prefer server-rendered question HTML when available. */
+function lifecyclePromptHtml(content) {
+  const rendered = String(content?.text_html || "").trim();
+  if (rendered) return `<span class="live-question-html">${rendered}</span>`;
+  return formatPromptHtml(content?.text || content?.prompt || content?.question || "Live question");
 }
 
 /** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
@@ -1356,10 +1375,6 @@ function paintPollIfQuestionsVisible(payload) {
     hidePollTotals();
     return;
   }
-  if (item && !item.show_live_results && !item.results) {
-    hidePollTotals();
-    return;
-  }
   paintPollTotalsBelowFeedback(payload);
 }
 
@@ -1490,13 +1505,6 @@ function lifecycleClassConsensusHtml(results) {
 }
 
 /**
- * Return answer controls for a lifecycle question.
- * @param {any} item
- * @param {"individual"|"vote"|"team"} action
- * @param {any} [initial]
- * @returns {string}
- */
-/**
  * Return the student answer kind for one lifecycle card.
  * Catalogue ``type`` / ``integer_only`` win over a stale MC compatibility prompt.
  * @param {any} item
@@ -1515,21 +1523,33 @@ function lifecycleAnswerKind(item) {
   return String(prompt.kind || content.type || "mc").toLowerCase();
 }
 
+/**
+ * Return answer controls for a lifecycle question.
+ * @param {any} item
+ * @param {"individual"|"vote"|"team"} action
+ * @param {any} [initial]
+ * @returns {string}
+ */
 function lifecycleAnswerControls(item, action, initial = null) {
   const prompt = item?.prompt || {};
   const content = item?.content || prompt.payload || {};
   const kind = lifecycleAnswerKind(item);
   const current = liveAnswerLabel(initial);
-  const prefix = action === "vote" ? "Submit private vote" : action === "team" ? "Team Answer" : "Submit Answer";
+  const prefix = action === "team" ? "Submit Group Answer" : "Submit Answer";
   if (kind === "mc" || kind === "poll") {
     const choices = liveChoiceLabels(content);
+    const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
     return `<div class="student-live-answer-controls" data-live-action="${action}">
       ${choices
         .map(
-          (choice) =>
-            `<button type="button" class="prompt-choice${
+          (choice, index) => {
+            const optionBody = String(optionsHtml[index] || "").trim()
+              ? `<span class="live-question-html">${optionsHtml[index]}</span>`
+              : escapeText(choice);
+            return `<button type="button" class="prompt-choice${
               String(choice) === current ? " is-selected" : ""
-            }" data-live-choice="${escapeText(choice)}">${escapeText(choice)}</button>`
+            }" data-live-choice="${escapeText(choice)}">${optionBody}</button>`;
+          }
         )
         .join("")}
       <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
@@ -1559,7 +1579,27 @@ function lifecycleAnswerControls(item, action, initial = null) {
 }
 
 /**
- * Render one student's private-vote and team-answer consensus state.
+ * Expand anonymous teammate answers for the discussion list.
+ * @param {any} group
+ * @returns {string[]}
+ */
+function lifecycleMemberAnswerValues(group) {
+  if (Array.isArray(group?.member_answers) && group.member_answers.length) {
+    return group.member_answers.map((value) => String(value));
+  }
+  const expanded = [];
+  for (const row of group?.vote_summary || []) {
+    const label = liveAnswerLabel(row.answer);
+    const count = Number(row.count) || 0;
+    for (let index = 0; index < count; index += 1) {
+      expanded.push(label);
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Render one student's private-response and group-answer consensus state.
  * @param {any} item
  * @returns {string}
  */
@@ -1568,9 +1608,9 @@ function lifecycleConsensusHtml(item) {
   if (!group.eligible) {
     return `<p class="student-live-note">You joined after voting closed for this question.</p>`;
   }
-  const progress = `<p class="student-live-progress">${Number(group.vote_count) || 0} / ${
-    Number(group.eligible_count) || 0
-  } team members voted</p>`;
+  const responded = Number(group.vote_count) || 0;
+  const eligible = Number(group.eligible_count) || 0;
+  const progress = `<p class="student-live-progress">${responded} / ${eligible} teammates have responded</p>`;
   if (group.status === "collecting_votes") {
     return `${progress}${
       group.can_vote
@@ -1579,27 +1619,20 @@ function lifecycleConsensusHtml(item) {
             "vote",
             liveCardDrafts.get(`${Number(item.id)}:vote`) || group.my_vote
           )
-        : `<p class="student-live-note">Your private vote is in. Your choice stays private while teammates vote.</p>`
+        : ""
     }`;
   }
-  const distribution = (group.vote_summary || [])
-    .map(
-      (row) =>
-        `<li>${escapeText(liveAnswerLabel(row.answer))}: ${Number(row.count) || 0}</li>`
-    )
+  const answers = lifecycleMemberAnswerValues(group);
+  const responseList = answers
+    .map((value) => `<li>${escapeText(value)}</li>`)
     .join("");
-  const proposal = group.proposed_answer
-    ? `<p class="student-live-proposal">Proposed answer: <strong>${escapeText(
-        liveAnswerLabel(group.proposed_answer)
-      )}</strong></p>`
-    : `<p class="student-live-proposal">The vote is tied. Choose the Team Answer together.</p>`;
   const discussion = `<section class="student-team-distribution">
-    <p class="student-live-card-kicker">Your team only</p>
-    <ul>${distribution || "<li>No votes recorded</li>"}</ul>
-    ${proposal}
+    <p class="student-live-card-kicker">TEAM RESPONSES</p>
+    <ul>${responseList || "<li>No responses recorded</li>"}</ul>
+    <p class="student-live-proposal">Discuss: What should your team's answer be?</p>
   </section>`;
   if (group.status === "finalized") {
-    return `${progress}${discussion}<p class="student-live-final">Team Answer: <strong>${escapeText(
+    return `${progress}${discussion}<p class="student-live-final">GROUP ANSWER SENT<br><strong>${escapeText(
       liveAnswerLabel(group.final_answer)
     )}</strong></p>`;
   }
@@ -1608,9 +1641,9 @@ function lifecycleConsensusHtml(item) {
       ? lifecycleAnswerControls(
           item,
           "team",
-          liveCardDrafts.get(`${Number(item.id)}:team`) || group.proposed_answer
+          liveCardDrafts.get(`${Number(item.id)}:team`)
         )
-      : `<p class="student-live-note">Waiting for a teammate to submit the Team Answer.</p>`
+      : `<p class="student-live-note">Waiting for a teammate to submit the group answer.</p>`
   }`;
 }
 
@@ -1796,10 +1829,6 @@ function paintLifecycleQuestionStack(payload) {
           ? liveAnswerLabel(item.my_response.response)
           : String(payload?.meet_chip || "").trim()
         : "";
-      const ownResponse =
-        ownLabel && ownLabel !== "—"
-          ? `<p class="student-live-note">Your answer: ${escapeText(ownLabel)}</p>`
-          : "";
       const showResults =
         status === "closed" ||
         (Boolean(item.show_live_results) &&
@@ -1830,11 +1859,12 @@ function paintLifecycleQuestionStack(payload) {
             String(content.type || item.prompt?.kind || "Question").toUpperCase()
           )}</span>
         </div>
-        <h2>${formatPromptHtml(content.text || content.prompt || content.question || "Live question")}</h2>
+        ${questionImageHtmlStudent(content.image_url)}
+        <h2>${lifecyclePromptHtml(content)}</h2>
         ${
           groupMode
             ? lifecycleConsensusHtml(item)
-            : `${individualControls}${ownResponse}${feedback}`
+            : `${individualControls}${feedback}`
         }
         ${results}
       </article>`;
@@ -1881,12 +1911,6 @@ function lifecycleAnswerFromCard(card) {
 }
 
 /**
- * Submit an individual response, private vote, or canonical Team Answer.
- * @param {HTMLElement} card
- * @param {"individual"|"vote"|"team"} action
- */
-
-/**
  * Apply a successful lifecycle submit onto the cached student payload.
  * @param {any} payload
  * @param {any} item
@@ -1929,8 +1953,16 @@ function mergeLifecycleSubmitResponse(payload, item, data) {
 }
 
 
+/**
+ * Submit an individual response, private vote, or canonical Team Answer.
+ * @param {HTMLElement} card
+ * @param {"individual"|"vote"|"team"} action
+ */
 async function submitLifecycleAnswer(card, action) {
   const itemId = Number(card.dataset.liveCardId) || 0;
+  const flightKey = `${itemId}:${action}`;
+  if (liveSubmitInFlight.has(flightKey)) return;
+  liveSubmitInFlight.add(flightKey);
   const promptIdFromCard = Number(card.dataset.livePromptId) || 0;
   const item =
     (lastStudentPayload?.active_questions || []).find(
@@ -1943,41 +1975,45 @@ async function submitLifecycleAnswer(card, action) {
       ? promptAsLifecycleItem(lastStudentPayload)
       : null);
   const response = lifecycleAnswerFromCard(card);
-  if (!response) return;
-  if (!item) {
-    const promptId = promptIdFromCard || Number(lastStudentPayload?.prompt?.id) || itemId;
-    if (!promptId) return;
-    await submitResponse(promptId, response);
-    return;
+  try {
+    if (!response) return;
+    if (!item) {
+      const promptId = promptIdFromCard || Number(lastStudentPayload?.prompt?.id) || itemId;
+      if (!promptId) return;
+      await submitResponse(promptId, response);
+      return;
+    }
+    let url = "/api/student/live-prompt/response";
+    let body = { prompt_id: Number(item.prompt?.id) || promptIdFromCard || 0, response };
+    if (action === "vote") {
+      url = `/api/student/live-items/${itemId}/vote`;
+      body = { response };
+    } else if (action === "team") {
+      url = `/api/student/live-items/${itemId}/team-answer`;
+      body = { response };
+    }
+    const res = await fetch(
+      url,
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      })
+    );
+    const data = await res.json();
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.error || "Could not submit that answer.");
+    }
+    liveCardDrafts.delete(`${itemId}:${action}`);
+    if (lastStudentPayload) {
+      lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+      paintLifecycleQuestionStack(lastStudentPayload);
+    }
+    await tick();
+  } finally {
+    liveSubmitInFlight.delete(flightKey);
   }
-  let url = "/api/student/live-prompt/response";
-  let body = { prompt_id: Number(item.prompt?.id) || promptIdFromCard || 0, response };
-  if (action === "vote") {
-    url = `/api/student/live-items/${itemId}/vote`;
-    body = { response };
-  } else if (action === "team") {
-    url = `/api/student/live-items/${itemId}/team-answer`;
-    body = { response };
-  }
-  const res = await fetch(
-    url,
-    visitFetchInit({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(body),
-    })
-  );
-  const data = await res.json();
-  if (!res.ok || data.ok === false) {
-    throw new Error(data.error || "Could not submit that answer.");
-  }
-  liveCardDrafts.delete(`${itemId}:${action}`);
-  if (lastStudentPayload) {
-    lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
-    paintLifecycleQuestionStack(lastStudentPayload);
-  }
-  await tick();
 }
 
 function paintPrompt(payload) {
@@ -2144,9 +2180,12 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
         .map((choice, index) => {
           const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
           const on = picked && label === picked ? " is-selected" : "";
+          const optionHtml = Array.isArray(data.options_html) && data.options_html[index]
+            ? String(data.options_html[index])
+            : formatPromptHtml(label);
           return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
             picked && lockChoices ? " disabled" : ""
-          }>${escapeText(label)}</button>`;
+          }>${optionHtml}</button>`;
         })
         .join("");
       if (!lockChoices && !closed) {
@@ -2388,7 +2427,7 @@ function studentMeetPollsHtml(payload) {
       const id = String(row?.item_id || row?.content?.id || "").replace(/_/g, "-");
       return id === "meet-team" || Number(row?.prompt?.id) === Number(payload?.prompt?.id);
     }) || null;
-  if (item && !item.show_live_results && !item.my_response) return "";
+  if (item && item.show_live_results === false) return "";
   const ts = (payload && payload.teacher_state) || {};
   if (String(ts.stage || "") !== "meet") return "";
   const tally = (item && item.results) || payload?.mc_tally;

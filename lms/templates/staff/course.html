@@ -106,6 +106,7 @@
 
       <header class="live-header" id="live-header">
         <div class="live-header-join">
+          <p id="live-lesson-badge" class="live-lesson-badge" aria-live="polite"></p>
           <div id="ap-join-billboard"
                class="ap-join-billboard"
                {% if not live_session_code %}hidden{% endif %}>
@@ -129,9 +130,10 @@
           <span class="live-page-counter" id="live-page-counter" aria-live="polite"></span>
           <button type="button" class="live-stage-stepper" id="live-stage-next">Forward</button>
           <span class="live-page-name" id="live-page-name">Set Class</span>
+          <button type="button" class="live-stage-stepper" id="live-add-page">Add Page</button>
+          <button type="button" class="live-stage-stepper" id="live-delete-page">Delete Page</button>
         </nav>
         <div class="live-header-actions">
-          <button type="button" class="live-header-save secondary" id="live-save-as" aria-label="Save As">Save As</button>
           <div class="live-end-class-form">
             <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
           </div>
@@ -382,16 +384,11 @@
                 </section>
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
-                <h2 class="live-pane-title">Questions</h2>
-                <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
-                <div id="text-ride-controls" class="live-text-ride" hidden>
-                  <button type="button" id="text-ride-freeze" class="live-round-pick">Freeze</button>
-                  <div class="live-slot-picks" id="text-ride-cons" role="group" aria-label="Light consolidation">
-                    <button type="button" class="live-round-pick" data-cons-item="CONS-1" disabled>CONS 1</button>
-                    <button type="button" class="live-round-pick" data-cons-item="CONS-2" disabled>CONS 2</button>
-                    <button type="button" class="live-round-pick" data-cons-item="CONS-3" disabled>CONS 3</button>
-                  </div>
+                <div class="live-content-pane-head live-questions-head">
+                  <h2 class="live-pane-title">Questions</h2>
+                  <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
                 </div>
+                <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
                 <p class="hint compact" id="question-artifact-status" hidden></p>
                 <div id="live-question-body" class="live-question-body" hidden>
                   <p class="live-question-stem" id="live-question-stem"></p>
@@ -532,6 +529,60 @@
           <button type="button" data-response-commit>Award Points</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="live-relocate-dialog" class="live-relocate-dialog" aria-labelledby="live-relocate-title">
+      <div class="live-relocate-dialog-card">
+        <header class="live-relocate-head">
+          <h2 id="live-relocate-title" class="live-pane-title">Move or remove question</h2>
+          <button type="button" class="secondary live-q-btn" data-live-relocate-close aria-label="Close">Close</button>
+        </header>
+        <p id="live-relocate-preview" class="hint compact"></p>
+        <p id="live-relocate-error" class="error compact" hidden></p>
+        <section class="live-relocate-section">
+          <p class="live-relocate-section-label">Remove from this lesson deck entirely</p>
+          <button type="button" id="live-relocate-remove" class="danger live-q-btn">Remove completely</button>
+        </section>
+        <section class="live-relocate-section">
+          <label class="live-relocate-move-field" for="live-relocate-page">Move to another page in this deck</label>
+          <div class="live-relocate-move-row">
+            <select id="live-relocate-page" aria-label="Destination page"></select>
+            <button type="button" id="live-relocate-move" class="secondary live-q-btn">Move to page</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
+    <dialog id="live-add-page-dialog" class="live-relocate-dialog" aria-labelledby="live-add-page-title">
+      <form id="live-add-page-form" class="live-relocate-dialog-card">
+        <header class="live-relocate-head">
+          <h2 id="live-add-page-title" class="live-pane-title">Add page</h2>
+          <button type="button" class="secondary live-q-btn" data-live-add-page-close aria-label="Close">Close</button>
+        </header>
+        <fieldset class="live-add-page-kinds">
+          <legend class="live-relocate-move-field">Page type</legend>
+          <label><input type="radio" name="live-add-page-kind" value="blank" checked> Blank page</label>
+          <label><input type="radio" name="live-add-page-kind" value="welcome"> Welcome Page</label>
+          <label><input type="radio" name="live-add-page-kind" value="winner"> Winner Page</label>
+        </fieldset>
+        <label class="live-relocate-move-field" for="live-add-page-name" id="live-add-page-name-label">Page name</label>
+        <input id="live-add-page-name" type="text" maxlength="80" autocomplete="off" required>
+        <p id="live-add-page-error" class="error compact" hidden></p>
+        <div class="live-relocate-move-row">
+          <button type="submit" class="live-q-btn" id="live-add-page-submit">Add page</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="live-delete-page-dialog" class="live-relocate-dialog" aria-labelledby="live-delete-page-title">
+      <div class="live-relocate-dialog-card">
+        <header class="live-relocate-head">
+          <h2 id="live-delete-page-title" class="live-pane-title">Delete page</h2>
+          <button type="button" class="secondary live-q-btn" data-live-delete-page-close aria-label="Close">Close</button>
+        </header>
+        <p id="live-delete-page-message" class="hint compact">Delete this page from the deck?</p>
+        <p id="live-delete-page-error" class="error compact" hidden></p>
+        <div class="live-relocate-move-row">
+          <button type="button" class="danger live-q-btn" id="live-delete-page-confirm">Delete page</button>
+        </div>
+      </div>
     </dialog>
     <dialog id="ap-teams-rename-dialog" class="live-rename-dialog" aria-labelledby="ap-teams-rename-title">
       <div class="live-rename-dialog-card" id="ap-panel-names">

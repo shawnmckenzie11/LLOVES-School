@@ -2700,6 +2700,410 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
         )
 
+    @app.route("/api/staff/class/<int:class_id>/module-banks")
+    @staff_required
+    def staff_module_banks(class_id: int):
+        """List heuristic and confirmed module bank links for one live module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module = str(request.args.get("module") or "").strip().upper()
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(module)
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify(
+                {
+                    "ok": True,
+                    "empty": True,
+                    "message": error or "Ask Admin to attach a module pack.",
+                    "module": module,
+                    "needs_confirmation": True,
+                    "suggested": [],
+                    "confirmed": [],
+                }
+            )
+        payload = school.suggest_module_banks(int(library_id), int(module_number))
+        return jsonify(
+            {
+                "ok": True,
+                "empty": False,
+                "module": module,
+                "module_number": module_number,
+                "library_id": int(library_id),
+                **payload,
+            }
+        )
+
+    @app.route("/api/staff/class/<int:class_id>/module-banks/confirm", methods=["POST"])
+    @staff_required
+    def staff_module_banks_confirm(class_id: int):
+        """Persist teacher-confirmed question banks for one module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        module = str(body.get("module") or "").strip().upper()
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(module)
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        bank_ids = body.get("bank_ids") or body.get("bankIds") or []
+        if not isinstance(bank_ids, list):
+            return jsonify({"ok": False, "error": "bank_ids must be a list"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        confirmed = school.confirm_module_bank_links(
+            int(library_id), int(module_number), bank_ids
+        )
+        payload = school.suggest_module_banks(int(library_id), int(module_number))
+        return jsonify(
+            {
+                "ok": True,
+                "module": module,
+                "module_number": module_number,
+                "library_id": int(library_id),
+                "confirmed": confirmed,
+                "recommended": payload.get("recommended") or [],
+                "needs_confirmation": bool(payload.get("needs_confirmation")),
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/module-banks/<module>/mc-search"
+    )
+    @staff_required
+    def staff_module_bank_mc_search(class_id: int, module: str):
+        """Search normalized MCs within confirmed banks for one module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(str(module or "").strip().upper())
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        query = str(request.args.get("q") or "").strip()
+        result = school.search_module_bank_mcs(
+            int(library_id), int(module_number), query, class_id=int(class_id)
+        )
+        items = result.get("items") or []
+        return jsonify(
+            {
+                "ok": True,
+                "module": str(module or "").strip().upper(),
+                "module_number": module_number,
+                "library_id": int(library_id),
+                "query": query,
+                "count": len(items),
+                "total": int(result.get("total") or 0),
+                "filtered": int(result.get("filtered") or 0),
+                "items": items,
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/deck",
+        methods=["GET"],
+    )
+    @staff_required
+    def staff_live_lesson_deck(class_id: int, module: str, slot: str):
+        """Return merged seed + bank-import metadata for one class lesson deck."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            live_metadata = school.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        return jsonify(
+            {
+                "ok": True,
+                "module": module_key,
+                "slot": slot_key,
+                "live_metadata": live_metadata,
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-mc",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_import_live_mc(class_id: int, module: str, slot: str):
+        """Import one module-bank MC onto a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            question_id = int(body.get("question_id") or body.get("questionId"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "question_id required"}), 400
+        try:
+            page_number = int(body.get("page_number") or body.get("pageNumber") or 1)
+        except (TypeError, ValueError):
+            page_number = 1
+        stage = str(body.get("stage") or "round").strip().lower()
+        order_raw = body.get("order")
+        order = int(order_raw) if order_raw not in (None, "") else None
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        try:
+            placement = school.import_mc_to_class_playlist(
+                int(class_id),
+                str(module or "").strip().upper(),
+                str(slot or "").strip().upper(),
+                int(question_id),
+                library_id=int(library_id),
+                page_number=page_number,
+                stage=stage,
+                order=order,
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        live_metadata = school.live_class_metadata_for_class_lesson(
+            int(class_id), module_key, slot_key
+        )
+        response: dict[str, Any] = {
+            "ok": True,
+            "placement": placement,
+            "live_metadata": live_metadata,
+        }
+        active = school.get_active_live_session_for_class(int(class_id))
+        if active is not None:
+            teacher = school.live_session_teacher_state_payload(int(active["id"]))
+            live_module = str(teacher.get("live_module") or "M1").upper()
+            live_slot = str(teacher.get("live_slot") or "C1").upper()
+            if live_module == module_key and live_slot == slot_key:
+                session_id = int(active["id"])
+                school.ensure_live_session_items_if_stale(session_id)
+                response["live_items"] = school.list_live_session_items(session_id)
+                response["question_cards"] = school.live_session_question_cards(
+                    session_id
+                )
+        return jsonify(response)
+
+    def _staff_relocate_playlist_item_response(
+        class_id: int,
+        module: str,
+        slot: str,
+        item_id: str,
+        body: dict[str, Any],
+    ):
+        """Shared remove/move handler for playlist item staff APIs."""
+        action = str(body.get("action") or "").strip().lower()
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        token = str(item_id or "").strip()
+        if not token:
+            return jsonify({"ok": False, "error": "item_id required"}), 400
+        try:
+            if action == "remove":
+                result = school.remove_class_playlist_item(
+                    int(class_id), module_key, slot_key, token
+                )
+            else:
+                target_raw = body.get("target_page_index")
+                if target_raw in (None, ""):
+                    target_raw = body.get("targetPageIndex")
+                result = school.move_class_playlist_item(
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    token,
+                    target_page_index=int(target_raw),
+                )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/playlist-item",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_relocate_playlist_item_post(
+        class_id: int, module: str, slot: str
+    ):
+        """Remove or move one question within a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        item_id = str(body.get("item_id") or body.get("itemId") or "").strip()
+        return _staff_relocate_playlist_item_response(
+            class_id, module, slot, item_id, body
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/playlist-items/<path:item_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_relocate_playlist_item(
+        class_id: int, module: str, slot: str, item_id: str
+    ):
+        """Remove or move one question within a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        return _staff_relocate_playlist_item_response(
+            class_id, module, slot, item_id, body
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/pages",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_add_live_lesson_page(class_id: int, module: str, slot: str):
+        """Insert an overlay page after the named current page.
+
+        Last-page delete is a sibling DELETE route. Adding never writes
+        seed JSON; the page is a ``class_live_playlist_pages`` row.
+        Body ``kind`` / ``page_kind`` selects blank, welcome, or winner.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            result = school.add_class_playlist_page(
+                int(class_id),
+                module_key,
+                slot_key,
+                name=str(body.get("name") or "").strip(),
+                after_page_id=str(
+                    body.get("after_page_id") or body.get("afterPageId") or ""
+                ).strip(),
+                kind=str(body.get("kind") or body.get("page_kind") or "blank"),
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/pages/<path:page_id>",
+        methods=["DELETE"],
+    )
+    @staff_required
+    def staff_delete_live_lesson_page(
+        class_id: int, module: str, slot: str, page_id: str
+    ):
+        """Remove one overlay or authored page from this class deck.
+
+        Last-page rule: HTTP 400 ``cannot delete the last remaining page``.
+        The deck always keeps at least one page. Confirmed deletes land on
+        the next page, or the previous page when the deleted page was last.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            result = school.delete_class_playlist_page(
+                int(class_id), module_key, slot_key, str(page_id or "")
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/question-overlays/<int:question_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_question_overlay_patch(class_id: int, question_id: int):
+        """Persist staff edits for one ingest MC via ``library_question_overlays``."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        stem = str(body.get("stem_text") or body.get("text") or "").strip()
+        options = body.get("options") or body.get("choices") or []
+        if not isinstance(options, list):
+            return jsonify({"ok": False, "error": "options must be a list"}), 400
+        correct = str(
+            body.get("correct_answer") or body.get("correctAnswer") or ""
+        ).strip()
+        points_raw = body.get("points")
+        points = None
+        if points_raw not in (None, ""):
+            try:
+                points = float(points_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "invalid points"}), 400
+        if not stem:
+            return jsonify({"ok": False, "error": "stem_text required"}), 400
+        if len([opt for opt in options if str(opt).strip()]) < 2:
+            return jsonify({"ok": False, "error": "at least two options required"}), 400
+        if not correct:
+            return jsonify({"ok": False, "error": "correct_answer required"}), 400
+        try:
+            overlay = school.upsert_library_question_overlay(
+                int(library_id),
+                int(question_id),
+                stem_text=stem,
+                options=[str(opt) for opt in options],
+                correct_answer=correct,
+                points=points,
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True, "overlay": overlay})
+
     @app.route("/staff/class/<int:class_id>/component/<kind>/<int:component_id>")
     @staff_required
     def staff_component_preview(class_id: int, kind: str, component_id: int):
@@ -3983,7 +4387,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         view tools, stem/caption/answers, ``cons_item``, ``challenge``,
         toast) on the current page. ``cons_item`` unlocks only after
         ``frozen: true`` (C1 on this blob; C2/C3 on teacher ``text_ride``).
-        C2/C3 clear media and do not seed ``active_media_json``. CONS table
+        Challenge C2/C3 clear the Real-slice blob. GET still seeds
+        authored playlist media for the current course/slot. CONS table
         checkboxes in the Real-slice iframe are disabled until the next step.
         """
         session_row = school.get_live_session(session_id)
@@ -3993,8 +4398,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         if request.method == "GET":
             live_slot = school.session_live_slot(session_id)
-            if live_slot == "C1":
-                school.ensure_live_class_media(session_id)
+            school.ensure_live_class_media(session_id)
             pack = cons_catalog(live_slot)
             return jsonify(
                 {
@@ -4200,6 +4604,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "live_module",
             "text_ride",
             "question_views",
+            "page_id",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
@@ -4914,7 +5319,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "course": course,
                 "module": module_code,
                 "live_class": slot_code,
-                "live_metadata": load_live_class_metadata(course, module_code, slot_code),
+                "live_metadata": school.live_class_metadata_for_class_lesson(
+                    int(class_id), module_code, slot_code
+                ),
             }
         )
 
