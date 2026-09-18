@@ -131,6 +131,30 @@ class BankMcNormalizeTests(unittest.TestCase):
         self.assertEqual(live["correct_answer"], "C")
         self.assertEqual(live["points"], 3.5)
 
+    def test_normalize_converts_ingest_tex_to_house_style(self) -> None:
+        """Ingest ``\\(...\\)`` and ``$1/2$`` become house ``$\\frac``."""
+        live, err = normalize_bank_mc(
+            question_id=8,
+            bank_id=1,
+            item_type="multiple_choice_question",
+            payload={
+                "stem_html": r"<p>Find \(\frac{1}{2}\)</p>",
+                "points_possible": 1.0,
+                "choices": [
+                    {"id": "a", "html": r"$1/2$", "correct": True},
+                    {"id": "b", "html": r"\(2\)", "correct": False},
+                ],
+                "correct_ids": ["a"],
+            },
+        )
+        assert live is not None and err is None
+        self.assertEqual(live["text"], r"Find $\frac{1}{2}$")
+        self.assertEqual(live["options"][0], r"$\frac{1}{2}$")
+        self.assertEqual(live["options"][1], "$2$")
+        self.assertNotIn(r"\(", live["text"])
+        self.assertIn("math-latex", live["text_html"])
+        self.assertIn(r"\frac{1}{2}", live["options_html"][0])
+
     def test_bank_matches_module_heuristics(self) -> None:
         """Bank titles and import keys match module heuristics."""
         self.assertTrue(
