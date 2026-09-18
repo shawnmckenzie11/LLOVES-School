@@ -11344,6 +11344,21 @@ class SchoolDB(LovesDB):
             else:
                 media_kwargs["url"] = C2_TRANSFORM_MEDIA_URL
         media = self.set_live_session_active_media(session_id, **media_kwargs)
+        if prompt is not None:
+            # C3 URL seed can sync CONS / waiting-room after Play; keep the
+            # minted Artifact as the active prompt.
+            prompt = self.set_live_session_prompt(
+                session_id,
+                slide_index=int(prompt.get("slide_index") or (20000 + int(published["id"]))),
+                kind=ARTIFACT_KIND,
+                payload=dict(prompt.get("payload") or prompt_payload),
+                activate=True,
+            )
+        teacher = self.live_session_teacher_state_payload(session_id)
+        view = dict(teacher.get("student_view") or {})
+        if view.get("questions") != "student":
+            view["questions"] = "student"
+            self.set_live_session_teacher_state(session_id, student_view=view)
         return {
             "prompt": prompt or {},
             "live_item": published,
