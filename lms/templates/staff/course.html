@@ -90,8 +90,9 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root live-shell-root live-shell-ia-v2"
+         class="track-live-root live-shell-root live-shell-ia-v2 is-set-class"
          data-ia="v2"
+         data-setup="1"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
@@ -285,7 +286,7 @@
         </div>
       </section>
 
-      <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel hidden" data-step="validate" hidden>
+      <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel is-current" data-step="validate">
         <h2 class="live-pane-title">Set Class</h2>
         {% set packs = live_packs if live_packs is defined else {} %}
         <div class="live-pack-strip" id="live-pack-strip"
