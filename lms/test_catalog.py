@@ -455,6 +455,7 @@ class CatalogTabTests(unittest.TestCase):
         self.assertIn("data-bank-done", js)
         self.assertIn("Edited in LMS", js)
         self.assertIn("Saved to this course’s copy.", js)
+        self.assertIn("renderLiveQuestionMath", js)
         self.assertNotIn("window.confirm(", js)
         self.assertIn("showModal", js)
         self.assertIn("data-bank-editor", js)

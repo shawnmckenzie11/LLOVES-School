@@ -102,6 +102,7 @@ from bank_edit import (  # noqa: E402
     delete_staff_bank_question,
     list_staff_bank_questions,
 )
+from question_math import format_mc_html_fragment  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -433,8 +434,10 @@ def _render_choices(choices: list, *, code: str, files_root: str) -> str:
     rows = []
     for choice in choices:
         correct = bool(choice.get("correct"))
-        body = rewrite_wiki_html(
-            str(choice.get("html") or ""), code, files_root=files_root
+        body = format_mc_html_fragment(
+            rewrite_wiki_html(
+                str(choice.get("html") or ""), code, files_root=files_root
+            )
         )
         mark = (
             '<span class="qmark">&#10003;</span>'
@@ -470,8 +473,10 @@ def _render_question(
     if bank_title:
         tags.append(f'<span class="qtag">from {_escape(bank_title)}</span>')
 
-    stem = rewrite_wiki_html(
-        str(payload.get("stem_html") or ""), code, files_root=files_root
+    stem = format_mc_html_fragment(
+        rewrite_wiki_html(
+            str(payload.get("stem_html") or ""), code, files_root=files_root
+        )
     )
     body = [f'<div class="qstem">{stem or "<em>No stem in the import.</em>"}</div>']
 
@@ -615,7 +620,25 @@ def _render_bank(
     if bank is None:
         abort(404)
     code = str(cls.get("ontario_code") or cls.get("course_code") or "")
-    questions = list_questions(school, int(library_id), int(bank_id))
+    views = list_staff_bank_questions(
+        school,
+        int(library_id),
+        int(bank_id),
+        class_id=int(cls.get("id") or 0) or None,
+    )
+    questions = [
+        {
+            "id": view["id"],
+            "item_type": view.get("item_type"),
+            "payload": {
+                "stem_html": view.get("stem_html") or "",
+                "points_possible": view.get("points"),
+                "choices": view.get("choices") or [],
+                "correct_answers": view.get("correct_answers") or [],
+            },
+        }
+        for view in views
+    ]
     title = str(bank.get("title") or "Question bank")
     return wrap_page(
         title,
@@ -2728,6 +2751,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         bank = get_question_bank(school, int(library_id), int(bank_id))
         if bank is None:
             return jsonify({"ok": False, "error": "Bank not found"}), 404
+        stored = list_questions(school, int(library_id), int(bank_id))
+        questions = list_staff_bank_questions(
+            school,
+            int(library_id),
+            int(bank_id),
+            class_id=int(class_id),
+        )
         return jsonify(
             {
                 "ok": True,
@@ -2736,12 +2766,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "title": str(bank.get("title") or ""),
                     "import_key": str(bank.get("import_key") or ""),
                 },
-                "questions": list_staff_bank_questions(
-                    school,
-                    int(library_id),
-                    int(bank_id),
-                    class_id=int(class_id),
-                ),
+                "questions": questions,
+                "hidden_duplicates": max(0, len(stored) - len(questions)),
             }
         )
 

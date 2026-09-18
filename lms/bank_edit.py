@@ -286,7 +286,14 @@ def list_staff_bank_questions(
         )
         view["bank_id"] = int(bank_id)
         out.append(view)
-    return out
+    try:
+        from bank_dedupe import drop_non_canonical, library_canonical_ids
+    except ImportError:
+        from lms.bank_dedupe import drop_non_canonical, library_canonical_ids
+
+    canonical = library_canonical_ids(school, int(library_id))
+    kept, _hidden = drop_non_canonical(out, canonical)
+    return kept
 
 
 def _parse_options(body: dict[str, Any]) -> list[str]:

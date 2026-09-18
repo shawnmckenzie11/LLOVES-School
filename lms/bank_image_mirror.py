@@ -29,6 +29,10 @@ _IMG_TITLE_LATEX_RE = re.compile(
     r"""title\s*=\s*["']([^"']*\\[^"']*)["']""",
     re.IGNORECASE,
 )
+_IMG_ALT_LATEX_RE = re.compile(
+    r"""alt\s*=\s*["']([^"']*\\[^"']*)["']""",
+    re.IGNORECASE,
+)
 _EQUATION_IMG_RE = re.compile(
     r"""<img[^>]*class\s*=\s*["'][^"']*equation_image[^"']*["'][^>]*>""",
     re.IGNORECASE,
@@ -61,8 +65,9 @@ def is_remote_bank_image_url(url: str) -> bool:
 
 
 def extract_latex_from_img_tag(tag: str) -> str:
-    """Pull LaTeX from a Canvas ``equation_image`` title attribute."""
-    match = _IMG_TITLE_LATEX_RE.search(str(tag or ""))
+    """Pull LaTeX from a Canvas ``equation_image`` title or alt attribute."""
+    raw = str(tag or "")
+    match = _IMG_TITLE_LATEX_RE.search(raw) or _IMG_ALT_LATEX_RE.search(raw)
     if not match:
         return ""
     return str(match.group(1) or "").strip()
@@ -78,7 +83,7 @@ def latex_img_tag_to_math_span(tag: str) -> str:
         .replace('"', "&quot;")
         .replace("<", "&lt;")
     )
-    return f'<span class="math-latex" data-latex="{escaped}"></span>'
+    return f'<span class="math-latex" data-latex="{escaped}">{escaped}</span>'
 
 
 def _extension_for(content_type: str, url: str) -> str:

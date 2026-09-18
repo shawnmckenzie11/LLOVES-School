@@ -74,6 +74,13 @@ class BankEditHelperTests(unittest.TestCase):
         self.assertIn("<table>", clean)
         self.assertIn("Keep", clean)
 
+    def test_sanitize_wraps_dollar_tex(self) -> None:
+        """Bank HTML with $TeX$ becomes a math-latex span."""
+        clean = sanitize_bank_html("<p>Evaluate $x^2 + 1$</p>")
+        self.assertIn('class="math-latex"', clean)
+        self.assertIn("data-latex=", clean)
+        self.assertNotIn("$x^2", clean)
+
     def test_serialize_marks_imported_overlay(self) -> None:
         """An overlay on an ingest row is a local LMS edit."""
         view = serialize_staff_question(
