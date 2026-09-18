@@ -34,7 +34,6 @@ import {
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
-import { openBankMcPicker } from "/static/bank_mc_picker.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -95,7 +94,7 @@ let sessionGuests = [];
 let sessionLateIds = new Set();
 let scoringLocked = false;
 let trackMode = null;
-let currentStep = "att";
+let currentStep = "validate";
 let draftRound = { kind: "open", minutes: 20, title: "" };
 let nextDraftRound = { kind: "open", minutes: 10, title: "" };
 let setupRoundNumber = 1;
@@ -169,8 +168,70 @@ const DEFAULT_LIVE_PAGES = [
   { id: "summary", name: "Summary", stage: "summary" },
 ];
 const SETUP_STAGE = "set_class";
-/** True while Module + date are chosen, before Join mints the session. */
-let setupPhase = false;
+/** True on Set Class (date + module + slot) until the teacher confirms Next. */
+let setupPhase = true;
+
+/**
+ * Home / remint Run Live Class (`?run=1`) always re-enters Set Class.
+ * @returns {boolean}
+ */
+function wantsFreshSetClass() {
+  return root?.dataset.run === "1";
+}
+
+/**
+ * Whether date + module + live class were already confirmed for this session.
+ * In-progress teams/rounds/live continue; leftover join shells do not.
+ * @param {string} [gameStatus]
+ * @param {{class_set?: boolean}|null} [teacher]
+ * @returns {boolean}
+ */
+function classSetIsComplete(gameStatus, teacher) {
+  const status = String(gameStatus || overlayState?.game?.status || "");
+  if (["teams", "names", "rounds", "live"].includes(status)) return true;
+  const state = teacher || teacherState;
+  return Boolean(state?.class_set);
+}
+
+/**
+ * Show Set Class and hide the join/attendance chrome.
+ */
+function enterSetClassPhase() {
+  setupPhase = true;
+  currentStep = "validate";
+  lockClassListPane();
+}
+
+/**
+ * Leave Set Class after date + module + slot are confirmed.
+ */
+function exitSetClassPhase() {
+  setupPhase = false;
+  teacherState.class_set = true;
+  lockClassListPane();
+}
+
+/**
+ * Persist Set Class confirmation on the live session teacher state.
+ * @returns {Promise<void>}
+ */
+async function markClassSetComplete() {
+  teacherState.class_set = true;
+  const module = $("live-module-select")?.value || teacherState.live_module || "M1";
+  const slot = $("live-class-select")?.value || teacherState.live_slot || "C1";
+  teacherState.live_module = String(module).toUpperCase();
+  teacherState.live_slot = String(slot).toUpperCase();
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  await patchTeacherState(
+    {
+      class_set: true,
+      live_module: teacherState.live_module,
+      live_slot: teacherState.live_slot,
+    },
+    { silent: true }
+  );
+}
 const LAYOUT_PRESETS = {
   media_full: { A: "media" },
   questions_full: { A: "questions" },
@@ -219,6 +280,7 @@ let teacherState = {
   canvas_align: "student",
   live_slot: "C1",
   live_module: "M1",
+  class_set: false,
   page_id: "",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
@@ -316,6 +378,7 @@ function adoptTeacherState(next) {
     ...next,
     frames: next.frames && typeof next.frames === "object" ? { ...next.frames } : teacherState.frames,
     canvas_ephemeral: true,
+    class_set: Boolean(next.class_set ?? teacherState.class_set),
   };
   if (next.mc_ui && typeof next.mc_ui === "object") {
     teacherState.mc_ui = { ...next.mc_ui };
@@ -1440,12 +1503,16 @@ function openLiveMcImportPicker() {
   refreshLessonDeckMetadata()
     .catch(() => {})
     .finally(() => {
-  openBankMcPicker({
-    classId,
-    moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
-    mode: "import",
-    onSelect: (item) => importLiveMcFromBank(item),
-  }).catch((err) => showError(err));
+      import("/static/bank_mc_picker.js")
+        .then(({ openBankMcPicker }) =>
+          openBankMcPicker({
+            classId,
+            moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
+            mode: "import",
+            onSelect: (item) => importLiveMcFromBank(item),
+          })
+        )
+        .catch((err) => showError("#ap-overlay-error", err));
     });
 }
 
@@ -3662,22 +3729,24 @@ async function proceedRunLiveBegin(iso, opts = {}) {
     body: JSON.stringify({ meeting_date: iso }),
   });
   if (overlayState.game?.status === "live") {
-    setupPhase = false;
-    openLiveScoring(overlayState);
     await ensureLiveSessionMinted(opts);
+    await markClassSetComplete();
+    exitSetClassPhase();
+    openLiveScoring(overlayState);
     return;
   }
   if (liveSessionId) sessionPresentIds = new Set();
   scoringLocked = false;
   trackMode = null;
-  setupPhase = false;
+  await ensureLiveSessionMinted(opts);
+  await markClassSetComplete();
+  exitSetClassPhase();
   renderAttendanceList();
   showPanel("att");
-  await ensureLiveSessionMinted(opts);
 }
 
 /**
- * Open Run Live Class with semester date gating (deferred live-session mint).
+ * Open Run Live Class on Set Class until date + module + slot are chosen.
  */
 export async function openRunLiveClass() {
   hideError("#ap-overlay-error");
@@ -3685,7 +3754,12 @@ export async function openRunLiveClass() {
     liveSessionId = readLiveSessionId() || liveSessionId;
     await loadContext();
 
-    if (overlayState?.game?.status === "live") {
+    if (
+      overlayState?.game?.status === "live" &&
+      classSetIsComplete("live") &&
+      !wantsFreshSetClass()
+    ) {
+      exitSetClassPhase();
       openLiveScoring(overlayState);
       if (liveSessionId) {
         ensureLiveSessionOverlay(null);
@@ -3710,7 +3784,7 @@ export async function openRunLiveClass() {
     };
     fillValidateHint();
     showValidateGrid(decision.iso || today);
-    setupPhase = true;
+    enterSetClassPhase();
     showPanel("validate");
   } catch (err) {
     showError("#ap-overlay-error", err);
@@ -6282,6 +6356,7 @@ $("ap-score-end")?.addEventListener("click", endGame);
 
 /**
  * Resume an in-progress live class when returning to tab=live with a session id.
+ * Fresh / reminted sessions stay on Set Class until date + module + slot are set.
  * Uses the open game's meeting_date; does not re-begin with “today” and discard
  * a picker-chosen setup column.
  * @returns {Promise<boolean>}
@@ -6289,6 +6364,7 @@ $("ap-score-end")?.addEventListener("click", endGame);
 async function resumeLiveClassIfNeeded() {
   liveSessionId = readLiveSessionId() || liveSessionId;
   if (!liveSessionId) return false;
+  if (wantsFreshSetClass()) return false;
   try {
     await loadContext();
     let state = null;
@@ -6298,6 +6374,17 @@ async function resumeLiveClassIfNeeded() {
       state = null;
     }
     const status = String(state?.game?.status || "");
+    let teacher = teacherState;
+    try {
+      const payload = await api(`/api/live-sessions/${liveSessionId}/teacher-state`);
+      if (payload?.teacher_state) {
+        teacher = payload.teacher_state;
+        adoptTeacherState(teacher);
+      }
+    } catch (_) {
+      /* keep local defaults */
+    }
+    if (!classSetIsComplete(status, teacher)) return false;
     const openStatuses = new Set(["attendance", "teams", "names", "rounds", "live"]);
     if (state?.game && openStatuses.has(status)) {
       overlayState = state;
@@ -6306,6 +6393,7 @@ async function resumeLiveClassIfNeeded() {
       syncOverlayPickers(logContext, meeting);
       const meetingInput = $("ap-meeting-date");
       if (meetingInput) meetingInput.value = meeting;
+      exitSetClassPhase();
       if (status === "live") {
         openLiveScoring(overlayState);
         ensureLiveSessionOverlay();
@@ -6332,22 +6420,7 @@ async function resumeLiveClassIfNeeded() {
       await ensureLiveSessionMinted();
       return true;
     }
-    overlayState = await api(`/api/classes/${classId}/begin`, {
-      method: "POST",
-      body: JSON.stringify({
-        meeting_date: defaultSchoolDay(logContext),
-      }),
-    });
-    if (overlayState.game?.status === "live") {
-      openLiveScoring(overlayState);
-      ensureLiveSessionOverlay();
-      startLiveSessionPolling();
-      return true;
-    }
-    renderAttendanceList();
-    showPanel("att");
-    await ensureLiveSessionMinted();
-    return true;
+    return false;
   } catch (_) {
     return false;
   }
@@ -7024,6 +7097,7 @@ if (root?.dataset.apView === "live") {
   mountTeamsRenameDialog();
   bindActiveMediaControls();
   bindEphemeralCanvas();
+  enterSetClassPhase();
   paintTeacherShell();
   paintJoinBillboard(root.dataset.liveCode || "");
   (async () => {
@@ -7031,6 +7105,7 @@ if (root?.dataset.apView === "live") {
     if (!resumed) {
       await openRunLiveClass();
     }
+    if (setupPhase) return;
     const sessionId = liveSessionId || readLiveSessionId();
     if (!sessionId) return;
     try {

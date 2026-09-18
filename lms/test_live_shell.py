@@ -1977,6 +1977,99 @@ class LiveShellTests(unittest.TestCase):
         assert again is not None
         self.assertEqual((again.get("payload") or {}).get("live_slot"), "C3")
 
+    def test_run_live_opens_on_set_class_validate(self) -> None:
+        """Fresh Run Live Class starts on Set Class, not the join/attendance shell."""
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live&run=1")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        root = html[html.index('id="ap-root"') : html.index('id="ap-overlay-error"')]
+        self.assertIn("is-set-class", root)
+        self.assertIn('data-setup="1"', root)
+        self.assertIn('data-run="1"', root)
+        self.assertIn('id="ap-panel-validate"', html)
+        self.assertIn("Set Class", html)
+        self.assertIn('id="live-module-select"', html)
+        self.assertIn('id="live-class-select"', html)
+        self.assertIn('id="ap-day-grid"', html)
+        validate = html[html.index('id="ap-panel-validate"') : html.index('id="live-shell-left"')]
+        self.assertNotIn(" hidden", validate.split(">", 1)[0])
+        self.assertIn('data-step="validate"', validate)
+        self.assertIn("is-current", validate.split(">", 1)[0])
+
+        run = self.client.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        location = run.headers.get("Location", "")
+        self.assertIn("tab=live", location)
+        self.assertIn("run=1", location)
+        reminted = self.school.get_active_live_session_for_class(self.class_id)
+        self.assertIsNotNone(reminted)
+        assert reminted is not None
+        remint_html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+            f"&live_session_id={int(reminted['id'])}"
+        ).get_data(as_text=True)
+        remint_root = remint_html[
+            remint_html.index('id="ap-root"') : remint_html.index('id="ap-overlay-error"')
+        ]
+        self.assertIn("is-set-class", remint_root)
+        self.assertIn('id="ap-panel-validate"', remint_html)
+        teacher = self.school.live_session_teacher_state_payload(int(reminted["id"]))
+        self.assertFalse(teacher.get("class_set"))
+
+        picker = LMS_DIR / "static" / "bank_mc_picker.js"
+        self.assertTrue(picker.is_file(), "bank-import picker must stay on disk")
+        picker_js = picker.read_text(encoding="utf-8")
+        self.assertIn("export async function openBankMcPicker", picker_js)
+        served = self.client.get("/static/bank_mc_picker.js")
+        self.assertEqual(served.status_code, 200)
+        common = self.client.get("/static/common.js").get_data(as_text=True)
+        self.assertIn("export function formatQuestionHtml", common)
+        self.assertIn("export function questionFieldHtml", common)
+        self.assertIn("export function questionImageHtml", common)
+        self.assertIn("export async function renderLiveQuestionMath", common)
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn(
+            'import { openBankMcPicker } from "/static/bank_mc_picker.js"', js
+        )
+        self.assertIn('import("/static/bank_mc_picker.js")', js)
+        self.assertIn('let currentStep = "validate"', js)
+        self.assertIn("let setupPhase = true", js)
+        self.assertIn("function classSetIsComplete(", js)
+        self.assertIn("function enterSetClassPhase()", js)
+        self.assertIn("function wantsFreshSetClass()", js)
+        self.assertIn("class_set: true", js)
+        boot = js.split("setSessionTimerMinutes(3);")[1].split(
+            "function spawnScorePop("
+        )[0]
+        self.assertIn("enterSetClassPhase()", boot)
+        self.assertIn("paintTeacherShell()", boot)
+        self.assertIn("await openRunLiveClass()", boot)
+        self.assertIn("if (setupPhase) return", boot)
+        resume = js.split("async function resumeLiveClassIfNeeded()")[1].split(
+            "export async function openLogParticipation()"
+        )[0]
+        self.assertIn("if (wantsFreshSetClass()) return false", resume)
+        self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
+        self.assertNotIn("/api/classes/${classId}/begin", resume)
+        open_fn = js.split("export async function openRunLiveClass()")[1].split(
+            "export async function openTakeAttendance()"
+        )[0]
+        self.assertIn("enterSetClassPhase()", open_fn)
+        self.assertIn('showPanel("validate")', open_fn)
+        begin = js.split("async function proceedRunLiveBegin(")[1].split(
+            "export async function openRunLiveClass()"
+        )[0]
+        self.assertIn("await markClassSetComplete()", begin)
+        self.assertIn("exitSetClassPhase()", begin)
+        self.assertLess(
+            begin.index("await ensureLiveSessionMinted"),
+            begin.index("exitSetClassPhase()"),
+        )
+
 
     def test_feedback_grid_before_after_mood_score(self) -> None:
         """Feedback tab lists the roster with before/after mood and no When column."""

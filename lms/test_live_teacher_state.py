@@ -80,10 +80,21 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertIsNone(state["cue_id"])
         self.assertEqual(state["live_slot"], "C1")
         self.assertEqual(state["live_module"], "M1")
+        self.assertFalse(state["class_set"])
         self.assertFalse(student_should_mount_media(state))
         self.assertFalse(student_should_mount_canvas(state))
         self.assertNotIn("url", state)
         self.assertNotIn("stem", state)
+
+    def test_class_set_defaults_false_until_patched(self) -> None:
+        """Set Class confirmation is off until staff persist class_set."""
+        state = default_teacher_state()
+        self.assertFalse(state["class_set"])
+        self.assertFalse(public_teacher_state(None)["class_set"])
+        self.assertFalse(public_teacher_state({"stage": "join"})["class_set"])
+        confirmed = apply_teacher_state_update(state, class_set=True)
+        self.assertTrue(confirmed["class_set"])
+        self.assertTrue(public_teacher_state(confirmed)["class_set"])
 
     def test_advance_moves_stage_and_bumps_seq(self) -> None:
         """Prev/Next walk stages, increment state_seq, and project student frames."""

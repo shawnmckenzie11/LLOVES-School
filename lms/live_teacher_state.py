@@ -202,6 +202,7 @@ def default_teacher_state() -> dict[str, Any]:
         JOIN focuses Questions and Minds-On; students do not get media.
         ``live_slot`` defaults to C1; C2/C3 use ``text_ride`` instead of media.
         Student-view modes default teacher-only except JOIN Questions.
+        ``class_set`` stays false until Set Class (date + module + slot).
     """
     view = default_student_view("join")
     return {
@@ -213,6 +214,7 @@ def default_teacher_state() -> dict[str, Any]:
         "run_as_group": False,
         "scoreboard_visible": False,
         "hide_absent": False,
+        "class_set": False,
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
         "active_tab": "questions",
@@ -819,6 +821,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "run_as_group",
         "scoreboard_visible",
         "hide_absent",
+        "class_set",
     ):
         parsed = _as_bool(stored.get(key))
         if parsed is not None:
@@ -958,6 +961,7 @@ def apply_teacher_state_update(
     run_as_group: Any = None,
     scoreboard_visible: Any = None,
     hide_absent: Any = None,
+    class_set: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
     active_tab: Any = None,
@@ -994,6 +998,7 @@ def apply_teacher_state_update(
         run_as_group: Session-global group presentation/tracking toggle.
         scoreboard_visible: Session-global student scoreboard toggle.
         hide_absent: Session-global class-list filter; defaults false.
+        class_set: True after the teacher confirms Set Class (date + module + slot).
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
         active_tab: Active Content tab.
@@ -1099,6 +1104,11 @@ def apply_teacher_state_update(
         if hidden is None:
             raise ValueError("hide_absent must be a boolean")
         base["hide_absent"] = hidden
+    if class_set is not None:
+        confirmed = _as_bool(class_set)
+        if confirmed is None:
+            raise ValueError("class_set must be a boolean")
+        base["class_set"] = confirmed
     if not base.get("groups_configured"):
         base["run_as_group"] = False
         base["scoreboard_visible"] = False

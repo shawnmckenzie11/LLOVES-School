@@ -2360,7 +2360,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/run-live", methods=["POST"])
     @staff_required
     def staff_run_live_class(class_id: int):
-        """Mint a live session (one per teacher) and open Mark Attendance."""
+        """Mint a live session (one per teacher) and open Set Class."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
@@ -2374,6 +2374,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "staff_course",
                 class_id=class_id,
                 tab="live",
+                run=1,
                 live_session_id=live_session["id"],
             )
         )
@@ -2521,7 +2522,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
         live_step = (request.args.get("step") or "").strip().lower()
-        if live_step not in {"", "att", "gamify", "teams", "names", "rounds", "score", "live"}:
+        if live_step not in {
+            "",
+            "validate",
+            "att",
+            "gamify",
+            "teams",
+            "names",
+            "rounds",
+            "score",
+            "live",
+        }:
             live_step = ""
         active_live = school.get_active_live_session_for_class(class_id)
         live_session_id = request.args.get("live_session_id") or ""
@@ -4738,6 +4749,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "run_as_group",
             "scoreboard_visible",
             "hide_absent",
+            "class_set",
             "layout_preset",
             "frames",
             "active_tab",

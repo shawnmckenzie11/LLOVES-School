@@ -327,3 +327,85 @@ export function closeLiveSessionOverlay() {
     /* ignore named-window lookup failures */
   }
 }
+
+/**
+ * Escape prompt copy and keep light markdown / exponent markers.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatQuestionHtml(value) {
+  let html = escapeHtml(value);
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\(([^)]+)\)\^(\d+)/g, "($1)<sup>$2</sup>");
+  html = html.replace(/([a-zA-Z])\^(\d+)/g, "$1<sup>$2</sup>");
+  return html;
+}
+
+/**
+ * Prefer server-rendered HTML for a question stem or option.
+ * @param {any} item
+ * @param {"text"|"option"} field
+ * @param {number} [index]
+ * @returns {string}
+ */
+export function questionFieldHtml(item, field, index) {
+  if (!item || typeof item !== "object") return "";
+  if (field === "text") {
+    const html = String(item.text_html || item.stem_html || "").trim();
+    return html ? `<span class="live-question-html">${html}</span>` : "";
+  }
+  if (field === "option") {
+    const htmls = item.options_html || item.option_htmls;
+    if (Array.isArray(htmls)) {
+      const html = String(htmls[index] || "").trim();
+      if (html) return `<span class="live-question-html">${html}</span>`;
+    }
+    const options = Array.isArray(item.options) ? item.options : [];
+    const row = options[index];
+    if (row && typeof row === "object") {
+      const html = String(row.html || row.text_html || "").trim();
+      if (html) return `<span class="live-question-html">${html}</span>`;
+    }
+  }
+  return "";
+}
+
+/**
+ * Render an optional question graph image.
+ * @param {unknown} imageUrl
+ * @param {{variant?: string}} [opts]
+ * @returns {string}
+ */
+export function questionImageHtml(imageUrl, opts = {}) {
+  const url = String(imageUrl || "").trim();
+  if (!url) return "";
+  const variant = opts.variant === "thumb" ? "is-thumb" : "is-full";
+  return `<img class="live-question-image ${variant}" src="${escapeHtml(
+    url
+  )}" alt="Question graph" loading="lazy">`;
+}
+
+/**
+ * Typeset ``.math-latex[data-latex]`` nodes when KaTeX is present.
+ * @param {Element|null|undefined} root
+ * @returns {Promise<void>}
+ */
+export async function renderLiveQuestionMath(root) {
+  if (!(root instanceof Element)) return;
+  const nodes = root.querySelectorAll(".math-latex[data-latex]");
+  if (!nodes.length) return;
+  const katex = globalThis.katex;
+  nodes.forEach((el) => {
+    const latex = String(el.getAttribute("data-latex") || "").trim();
+    if (!latex) return;
+    if (katex && typeof katex.render === "function") {
+      try {
+        katex.render(latex, el, { throwOnError: false, displayMode: false });
+        return;
+      } catch {
+        /* fall through to plain text */
+      }
+    }
+    el.textContent = latex;
+  });
+}
