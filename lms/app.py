@@ -76,6 +76,11 @@ from local_dev_seed import (  # noqa: E402
     seed_local_dev_school,
 )
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
+from artifact import (  # noqa: E402
+    C2_TRANSFORM_MEDIA_URL,
+    TRANSFORMATIONS_ARTIFACT_ID,
+    live_media_catalog,
+)
 from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_STEM,
     DEFAULT_LIVE_MEDIA_TITLE,
@@ -3715,6 +3720,52 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify({"ok": True, "prompt": prompt})
 
+    @app.route("/api/live-sessions/<int:session_id>/artifacts", methods=["POST"])
+    @login_required
+    def api_live_session_artifact_mint(session_id: int):
+        """Staff: mint an Artifact question on the current live-class page.
+
+        Body JSON: ``artifact_id``, ``snapshot`` (slider map), optional
+        ``target_mode`` (``graph`` / ``equation``), optional ``parent``,
+        optional ``slide_index``.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        slide_raw = body.get("slide_index")
+        slide_index = None
+        if slide_raw not in (None, ""):
+            try:
+                slide_index = int(slide_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "slide_index must be an int"}), 400
+        try:
+            minted = school.mint_live_artifact(
+                session_id,
+                artifact_id=str(
+                    body.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID
+                ),
+                snapshot=body.get("snapshot") or body.get("params"),
+                target_mode=body.get("target_mode") or "graph",
+                parent=body.get("parent") if isinstance(body.get("parent"), dict) else None,
+                slide_index=slide_index,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(
+            {
+                "ok": True,
+                "prompt": minted.get("prompt"),
+                "active_media": minted.get("active_media"),
+                "teacher_state": school.live_session_teacher_state_payload(
+                    session_id
+                ),
+            }
+        )
+
     @app.route(
         "/api/live-sessions/<int:session_id>/active-media",
         methods=["GET", "POST"],
@@ -3731,8 +3782,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         view tools, stem/caption/answers, ``cons_item``, ``challenge``,
         toast) on the current page. ``cons_item`` unlocks only after
         ``frozen: true`` (C1 on this blob; C2/C3 on teacher ``text_ride``).
-        C2/C3 clear media and do not seed ``active_media_json``. CONS table
-        checkboxes in the Real-slice iframe are disabled until the next step.
+        C3 clears media and does not seed ``active_media_json``. C2 seeds
+        the Transformations iframe. CONS table checkboxes in the Real-slice
+        iframe are disabled until the next step.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3760,11 +3812,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         "allow_3d_limited": False,
                         "frozen": False,
                         "c2": {
-                            "url": None,
+                            "url": C2_TRANSFORM_MEDIA_URL,
                             "challenge": "C2",
-                            "seed": False,
-                            "note": "C2 does not seed active_media_json.",
+                            "seed": True,
+                            "note": "C2 seeds Transformations media; teacher sliders stay hidden until Artifact mint.",
                         },
+                        "live_media_catalog": live_media_catalog(),
                         "c3": {
                             "url": None,
                             "challenge": "C3",
@@ -3864,6 +3917,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["toast"] = body.get("toast")
         if "toast_key" in body:
             kwargs["toast_key"] = body.get("toast_key")
+        if "artifact" in body:
+            kwargs["artifact"] = body.get("artifact")
         try:
             media = school.set_live_session_active_media(session_id, **kwargs)
         except (KeyError, ValueError) as exc:

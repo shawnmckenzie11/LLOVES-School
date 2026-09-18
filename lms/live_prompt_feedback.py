@@ -341,6 +341,13 @@ def public_feedback_fragment(
         payload: Live-prompt payload.
         response: Student answer JSON.
     """
+    try:
+        from artifact import artifact_feedback_fragment
+    except ImportError:
+        from lms.artifact import artifact_feedback_fragment
+    artifact = artifact_feedback_fragment(payload, response)
+    if artifact:
+        return artifact
     resolved = resolve_live_prompt_feedback(payload, response)
     if not resolved:
         return None
