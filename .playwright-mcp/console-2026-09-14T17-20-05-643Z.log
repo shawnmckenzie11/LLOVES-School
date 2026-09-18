@@ -1,6 +1,0 @@
-[  741690ms] [ERROR] Failed to load resource: the server responded with a status of 500 (INTERNAL SERVER ERROR) @ http://127.0.0.1:8787/api/live-sessions/4/state:0
-[  973588ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/live-sessions/4/state:0
-[  975590ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/live-sessions/4/state:0
-[  977588ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/live-sessions/4/state:0
-[  979587ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/live-sessions/4/state:0
-[  981588ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/live-sessions/4/state:0

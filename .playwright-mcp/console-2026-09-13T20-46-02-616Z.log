@@ -1,8 +1,0 @@
-[      18ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
-[  872032ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://127.0.0.1:8787/static/live-media/m1c1-c1-real-slice.html:0
-[  976000ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/student/state:0
-[  979995ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/student/heartbeat:0
-[  979996ms] TypeError: Failed to fetch
-    at sendHeartbeat (http://127.0.0.1:8787/static/student-live-session.js:46:7)
-[  979998ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8787/api/student/state:0
-[ 1028027ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0

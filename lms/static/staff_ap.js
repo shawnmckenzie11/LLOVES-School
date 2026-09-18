@@ -84,8 +84,10 @@ let staffStateNeedsFull = true;
 /** @type {any} */
 let lastMcTally = null;
 let lastMcBindKey = "";
-/** C2/C3 are text-only: never stored in active_media_json. */
+/** C3 is text-only (no media). C2 CONS still uses text_ride. */
 let textOnlyChallenge = "";
+/** C2/C3 CONS ride (freeze + CONS-1…3). */
+let textRideSlot = "";
 let sessionPresentIds = new Set();
 /** Unmatched guests currently present in the live session. */
 let sessionGuests = [];
@@ -332,6 +334,7 @@ function adoptTeacherState(next) {
     next.live_module || teacherState.live_module || "M1"
   ).toUpperCase();
   paintLiveLessonBadge();
+  textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
   textOnlyChallenge = isTextOnlyLiveSlot(slot) ? slot : "";
   trackMode = teacherState.run_as_group ? "team" : "individual";
   REACHED_STAGES.add(teacherState.stage);
@@ -1017,14 +1020,17 @@ function paintLivePackStrip() {
 }
 
 function paintLiveSlotPicks() {
-  const slot = String(teacherState.live_slot || textOnlyChallenge || "C1").toUpperCase();
+  const slot = String(teacherState.live_slot || textRideSlot || textOnlyChallenge || "C1").toUpperCase();
   document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
     const on = btn.getAttribute("data-live-slot") === slot;
     btn.classList.toggle("is-active", on);
   });
   paintLivePackStrip();
   const textOnly = isTextOnlyLiveSlot(slot);
+  textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
   textOnlyChallenge = textOnly ? slot : "";
+  const rideBox = $("text-ride-controls");
+  if (rideBox) rideBox.hidden = !(slot === "C2" || slot === "C3");
   const preview = $("ap-media-preview");
   if (preview) {
     const hideMedia = textOnly || (!liveClassSeedMedia() && !lastTeacherMediaSrc);
@@ -3096,6 +3102,7 @@ function staffLiveMediaState(media, params) {
     frozen: Boolean(row.frozen),
     unlock_flags: row.unlock_flags || {},
     params: params || row.params || { a: 1, b: 0, c: 0 },
+    artifact: row.artifact || null,
     stem: row.stem || SEED_MEDIA_STEM,
     entry_chip: row.entry_chip || "",
   };
@@ -3222,16 +3229,17 @@ function usesMcr3uM1C1Media() {
 }
 
 /**
- * True when this C2/C3 slot has no authored playlist media.
- * Challenge C2/C3 on the C1 Real-slice stay text-only. Playlist media
- * such as MCR3U M1 C3 parent transformations must still mount for staff.
+ * True when this C3 slot has no authored playlist media.
+ * C2 always seeds Transformations (Artifact). C3 stays text-only unless
+ * playlist media such as MCR3U M1 C3 parent transformations is authored.
  * @param {string} [slot]
  * @returns {boolean}
  */
 function isTextOnlyLiveSlot(slot) {
   const token = String(slot || teacherState.live_slot || "C1").toUpperCase();
+  if (token === "C2") return false;
   if (liveClassSeedMedia()) return false;
-  if (token !== "C2" && token !== "C3") return false;
+  if (token !== "C3") return false;
   const metaSlot = String(lastLiveMetadata?.live_class || "").toUpperCase();
   if (metaSlot && metaSlot !== token) return true;
   return true;
@@ -3302,7 +3310,7 @@ async function ensureC1MediaSeeded() {
     return;
   }
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || mediaSeedInFlight || isTextOnlyLiveSlot()) return;
+  if (!sessionId || mediaSeedInFlight || isTextOnlyLiveSlot() || textRideSlot === "C2") return;
   mediaSeedInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/active-media`);
@@ -3366,7 +3374,41 @@ async function postActiveMedia(body) {
 }
 
 /**
- * Bind iframe → session patches. All teacher tools live in the Real-slice frame.
+ * Mint an Artifact question from an in-media button.
+ * @param {Record<string, unknown>} data
+ */
+async function mintArtifactFromMedia(data) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) {
+    await ensureLiveSessionMinted();
+  }
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) throw new Error("Start the live class before minting an Artifact.");
+  const res = await api(`/api/live-sessions/${id}/artifacts`, {
+    method: "POST",
+    body: JSON.stringify({
+      artifact_id: data.artifact_id,
+      snapshot: data.snapshot,
+      target_mode: data.target_mode || "graph",
+      parent: data.parent || null,
+    }),
+  });
+  paintActiveMediaStatus(res.active_media);
+  if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+  const status = $("question-artifact-status");
+  const flag = $("question-artifact-flag");
+  if (status) {
+    status.textContent = "Artifact minted on the current page. Students match the target.";
+  }
+  if (flag) {
+    flag.hidden = false;
+    flag.textContent = "Artifact · Transformations";
+  }
+  return res;
+}
+
+/**
+ * Bind iframe → session patches. Artifact mint and C1 peel tools live in-frame.
  */
 function bindActiveMediaControls() {
   paintActiveMediaStatus(null);
@@ -3374,6 +3416,10 @@ function bindActiveMediaControls() {
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
+    if (data && data.source === "lloves-m1c2-transforms" && data.type === "artifact-mint") {
+      mintArtifactFromMedia(data).catch((err) => showError("#ap-overlay-error", err));
+      return;
+    }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
     const body = { params: data.params || {} };
     if (data.param_push && typeof data.param_push === "object") {
@@ -6629,6 +6675,7 @@ function applyLivePackChoice(moduleId, slot) {
   const liveSlot = String(slot || "C1").toUpperCase();
   teacherState.live_module = module;
   teacherState.live_slot = liveSlot;
+  textRideSlot = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
   textOnlyChallenge = isTextOnlyLiveSlot(liveSlot) ? liveSlot : "";
   const sessionId = liveSessionId || readLiveSessionId();
   if (teacherState.stage === "meet" && sessionId) {
@@ -6769,6 +6816,24 @@ document.querySelectorAll("[data-surface-publish]").forEach((button) => {
 document.querySelectorAll("[data-surface-close]").forEach((button) => {
   button.addEventListener("click", () => {
     closeSurface(button.getAttribute("data-surface-close"))
+      .catch((err) => showError("#ap-overlay-error", err));
+  });
+});
+
+$("text-ride-freeze")?.addEventListener("click", () => {
+  if (!textRideSlot) return;
+  const frozen = !Boolean((teacherState.text_ride || {}).frozen);
+  postActiveMedia({ frozen })
+    .then(() => paintLiveSlotPicks())
+    .catch((err) => showError("#ap-overlay-error", err));
+});
+
+document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!textRideSlot) return;
+    const item = btn.getAttribute("data-cons-item") || "";
+    postActiveMedia({ cons_item: `${textRideSlot}-${item}` })
+      .then(() => paintLiveSlotPicks())
       .catch((err) => showError("#ap-overlay-error", err));
   });
 });

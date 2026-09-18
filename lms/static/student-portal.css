@@ -1032,6 +1032,56 @@ body.student-home.is-live .student-live-response {
   line-height: 1.35;
 }
 
+.artifact-equation {
+  margin: 0 0 0.35rem;
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.15rem;
+  color: #f5c518;
+}
+
+.hot-cold-meters {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.55rem;
+}
+
+.hot-cold-row {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.hot-cold-key {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  color: #f5c518;
+  font-weight: 650;
+}
+
+.hot-cold-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #1e3348;
+  overflow: hidden;
+}
+
+.hot-cold-fill {
+  display: block;
+  height: 100%;
+  width: 8%;
+  background: #38bdf8;
+  border-radius: inherit;
+  transition: width 0.12s linear, background-color 0.12s linear;
+}
+
+.hot-cold-row.is-cold .hot-cold-fill {
+  background: #38bdf8;
+}
+
+.hot-cold-row.is-hot .hot-cold-fill {
+  background: #f97316;
+}
+
 .meet-progress-dots {
   display: flex;
   gap: 0.35rem;

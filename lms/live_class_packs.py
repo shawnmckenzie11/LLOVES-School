@@ -128,6 +128,16 @@ def live_class_registry(course: Any = None) -> dict[str, Any]:
     for module, slot in sorted(found, key=lambda pair: (int(pair[0][1:] or 0), int(pair[1][1:] or 0))):
         slots_by_module.setdefault(module, []).append(slot)
     packs = [found[key] for key in sorted(found, key=lambda pair: (int(pair[0][1:] or 0), int(pair[1][1:] or 0)))]
+    try:
+        from artifact import live_media_catalog
+    except ImportError:
+        from lms.artifact import live_media_catalog
+    catalog = live_media_catalog()
+    for row in packs:
+        media = catalog.get(row["slot"]) or {}
+        if media.get("url"):
+            row["media_url"] = media["url"]
+            row["media_title"] = media.get("title") or ""
     return {
         "course": code,
         "modules": modules or [DEFAULT_LIVE_MODULE],
