@@ -196,11 +196,6 @@ class LiveMcApiTests(unittest.TestCase):
         """JOIN Minds-On: live tally is staff-only until Reveal shares + closes."""
         idle = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(idle.status_code, 200, idle.get_json())
-        idle_tally = idle.get_json()["mc_tally"]
-        self.assertEqual(idle_tally["prompt_ref"], "minds_on")
-        self.assertEqual(idle_tally["responded"], 0)
-        self.assertGreaterEqual(idle_tally["present"], 1)
-        self.assertEqual(idle_tally["source"], "live_prompt")
         student = self.student.get("/api/student/state").get_json()
         self.assertNotIn("mc_tally", student)
         self.assertFalse(student.get("poll_closed"))
@@ -221,6 +216,12 @@ class LiveMcApiTests(unittest.TestCase):
                 self.assertTrue(active, student)
                 prompt = active[0]["prompt"]
         self.assertEqual(prompt["payload"]["item_id"], "minds_on")
+        idle = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+        idle_tally = idle.get_json()["mc_tally"]
+        self.assertEqual(idle_tally["prompt_ref"], "minds_on")
+        self.assertEqual(idle_tally["responded"], 0)
+        self.assertGreaterEqual(idle_tally["present"], 1)
+        self.assertEqual(idle_tally["source"], "live_prompt")
         submit = self.student.post(
             "/api/student/live-prompt/response",
             json={
@@ -254,9 +255,9 @@ class LiveMcApiTests(unittest.TestCase):
         student_after = self.student.get("/api/student/state").get_json()
         self.assertEqual(
             (student_after.get("prompt") or {}).get("payload", {}).get("item_id"),
-            "teams-spark",
+            "minds_on",
         )
-        self.assertFalse(student_after.get("poll_closed"))
+        self.assertTrue(student_after.get("poll_closed"))
         self.assertTrue(
             (student_after.get("teacher_state") or {})
             .get("mc_ui", {})

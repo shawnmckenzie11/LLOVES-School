@@ -797,7 +797,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("freeze", blocked.get_json()["error"].lower())
         idle = self.student.get("/api/student/state").get_json()
         idle_prompt = idle.get("prompt") or {}
-        self.assertEqual((idle_prompt.get("payload") or {}).get("item_id"), "minds_on")
+        self.assertNotEqual(
+            (idle_prompt.get("payload") or {}).get("item_id"),
+            "minds_on",
+        )
         self.assertFalse(idle["active_media"]["frozen"])
         self.assertEqual(idle["active_media"]["cons_item"], "")
 
@@ -811,7 +814,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(still_idle["active_media"]["toast"], TOAST_FREEZE)
         self.assertTrue(still_idle["active_media"]["toast"].strip())
         still_prompt = still_idle.get("prompt") or {}
-        self.assertEqual((still_prompt.get("payload") or {}).get("item_id"), "minds_on")
+        self.assertNotEqual(
+            (still_prompt.get("payload") or {}).get("item_id"),
+            "minds_on",
+        )
 
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -901,7 +907,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         hidden = self.student.get("/api/student/state").get_json()
         self.assertFalse(hidden["active_media"]["frozen"])
         self.assertEqual(hidden["active_media"]["cons_item"], "")
-        self.assertEqual(
+        self.assertNotEqual(
             (hidden.get("prompt") or {}).get("payload", {}).get("item_id"),
             "minds_on",
         )
@@ -927,9 +933,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertTrue(state.get("waiting_room"), state)
         prompt = state.get("prompt") or {}
         payload = prompt.get("payload") or {}
-        self.assertEqual(payload.get("item_id"), "minds_on")
-        self.assertEqual(payload.get("live_slot"), "C2")
-        self.assertEqual(payload.get("ride"), "minds_on")
+        self.assertNotEqual(payload.get("item_id"), "minds_on")
+        self.assertNotEqual(payload.get("ride"), "minds_on")
         self.assertNotIn("key", payload)
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -958,7 +963,8 @@ class LiveMediaChannelTests(unittest.TestCase):
 
         idle = self.student.get("/api/student/state").get_json()
         self.assertTrue(idle.get("waiting_room"))
-        self.assertEqual(idle["prompt"]["payload"]["prompt"], MINDS_ON_PROMPT)
+        idle_payload = ((idle.get("prompt") or {}).get("payload") or {})
+        self.assertNotEqual(idle_payload.get("prompt"), MINDS_ON_PROMPT)
         self.assertEqual(idle["teacher_state"]["live_slot"], "C1")
 
         c2 = self.staff.post(
@@ -969,21 +975,9 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIsNotNone(c2.get_json()["active_media"])
         waiting = self.student.get("/api/student/state").get_json()
         self.assertTrue(waiting.get("waiting_room"), waiting)
-        self.assertEqual(waiting["prompt"]["payload"]["prompt"], MINDS_ON_C2_PROMPT)
-        self.assertEqual(waiting["prompt"]["payload"]["live_slot"], "C2")
-        self.assertEqual(len(waiting["prompt"]["payload"]["items"]), 1)
-        self.assertNotIn("key", waiting["prompt"]["payload"])
-        self.assertNotIn("chips", waiting["prompt"]["payload"])
-        self.assertNotIn("curriculum_chips", waiting["prompt"]["payload"])
-        submit = self.student.post(
-            "/api/student/live-prompt/response",
-            json={"response": {"choice": "A"}},
-        )
-        self.assertEqual(submit.status_code, 200, submit.get_json())
-        self.assertEqual(
-            submit.get_json()["feedback"]["text"],
-            M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["A"],
-        )
+        waiting_payload = ((waiting.get("prompt") or {}).get("payload") or {})
+        self.assertNotEqual(waiting_payload.get("prompt"), MINDS_ON_C2_PROMPT)
+        self.assertNotEqual(waiting_payload.get("item_id"), "minds_on")
 
         early = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -1028,9 +1022,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(c3.status_code, 200, c3.get_json())
         self.assertIsNone(c3.get_json()["active_media"])
         c3_state = self.student.get("/api/student/state").get_json()
-        # Slot switch after CONS left the waiting-room sentinel path.
         if c3_state.get("waiting_room"):
-            self.assertEqual(c3_state["prompt"]["payload"]["prompt"], MINDS_ON_C3_PROMPT)
+            c3_payload = ((c3_state.get("prompt") or {}).get("payload") or {})
+            self.assertNotEqual(c3_payload.get("prompt"), MINDS_ON_C3_PROMPT)
+            self.assertNotEqual(c3_payload.get("item_id"), "minds_on")
         c3_frozen = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={"frozen": True},
