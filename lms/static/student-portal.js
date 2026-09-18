@@ -528,18 +528,6 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
-/**
- * Escape prompt copy and render copywriter ``**bold**`` markers.
- * @param {unknown} value
- * @returns {string}
- */
-function formatPromptHtml(value) {
-  let html = escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\(([^)]+)\)\^(\d+)/g, "($1)<sup>$2</sup>");
-  html = html.replace(/([a-zA-Z])\^(\d+)/g, "$1<sup>$2</sup>");
-  return html;
-}
-
 /** Render a graph image at full card width for lifecycle questions. */
 function questionImageHtmlStudent(imageUrl) {
   const url = String(imageUrl || "").trim();

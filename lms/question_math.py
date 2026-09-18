@@ -366,13 +366,15 @@ def format_mc_html_fragment(
 def format_math_html(text: str) -> str:
     """Escape prose, wrap TeX, and render caret exponents as HTML.
 
-    Dollar / ``\\( \\)`` / ``\\[ \\]`` / bare ``\\frac`` / ``\\sqrt`` become
-    ``math-latex`` spans. Remaining ``x^2`` carets become ``<sup>``. HTML
-    entities are unescaped first so ``&lt;`` does not show as garbage.
+    House style is ``$...$`` / ``$$...$$``. ``\\( \\)`` / ``\\[ \\]`` convert
+    first; doubled TeX backslashes collapse once. Dollar / bare ``\\frac`` /
+    ``\\sqrt`` become ``math-latex`` spans. Remaining ``x^2`` carets become
+    ``<sup>``. HTML entities are unescaped first so ``&lt;`` does not show
+    as garbage.
     """
     if not text:
         return ""
-    raw = collapse_double_tex(html.unescape(str(text)))
+    raw = normalize_house_tex(html.unescape(str(text)))
     parts: list[str] = []
     last = 0
     for match in _MATH_TOKEN_RE.finditer(raw):
@@ -432,8 +434,10 @@ def enrich_live_mc_display(
     library_id: int | None = None,
 ) -> dict[str, Any]:
     """Attach ``text_html``, ``options_html``, and resolved image metadata."""
-    text = str(live_mc.get("text") or "")
-    options = live_mc.get("options") or []
+    text = normalize_house_tex(str(live_mc.get("text") or ""))
+    live_mc["text"] = text
+    options = [normalize_house_tex(str(option)) for option in (live_mc.get("options") or [])]
+    live_mc["options"] = options
     rich_stem = str(live_mc.pop("_rich_stem_html", "") or "")
     rich_options = live_mc.pop("_rich_option_htmls", None) or []
     render_kwargs = {
