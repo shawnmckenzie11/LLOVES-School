@@ -77,6 +77,12 @@ def team_challenge_media_url(
         return DEFAULT_LIVE_MEDIA_URL
     if code == "MCR3U" and module == "M1" and slot == "C1":
         return MCR3U_M1C1_MEDIA_URL
+    if code == "MCF3M" and module == "M1" and slot == "C3":
+        try:
+            from artifact import C2_TRANSFORM_MEDIA_URL
+        except ImportError:
+            from lms.artifact import C2_TRANSFORM_MEDIA_URL
+        return C2_TRANSFORM_MEDIA_URL
     return ""
 
 
@@ -120,6 +126,16 @@ def live_class_seed_media(
             "url": url,
             "title": "Nested Square-Root Range",
             "stem": MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
+        }
+    try:
+        from artifact import C2_TRANSFORM_MEDIA_URL
+    except ImportError:
+        from lms.artifact import C2_TRANSFORM_MEDIA_URL
+    if url == C2_TRANSFORM_MEDIA_URL:
+        return {
+            "url": url,
+            "title": title or "C2 Transformations",
+            "stem": stem or title or "C2 Transformations",
         }
     return {"url": url, "title": title, "stem": stem}
 

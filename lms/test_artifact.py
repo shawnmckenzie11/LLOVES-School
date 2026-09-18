@@ -15,14 +15,19 @@ if str(LMS_DIR) not in sys.path:
 from artifact import (
     ARTIFACT_KIND,
     C2_TRANSFORM_MEDIA_URL,
+    C3_PARENT_MEDIA_URL,
     LEAD_MATCH,
     LEAD_MISS,
+    PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+    PARENT_TRANSFORMATIONS_STEM,
     TRANSFORMATIONS_ARTIFACT_ID,
     TRANSFORMATIONS_STEM,
     artifact_feedback_fragment,
     format_artifact_answer,
     format_vertex_equation,
+    grade_parent_snapshot,
     grade_transform_snapshot,
+    parent_transformations_prompt_payload,
     slider_margin,
     transformations_prompt_payload,
 )
@@ -32,6 +37,8 @@ from live_media import (
     challenge_clears_active_media,
     is_c2_transform,
 )
+from live_class_metadata import load_live_class_metadata
+from team_challenge import live_class_seed_media
 
 
 class TransformGradeTests(unittest.TestCase):
@@ -148,7 +155,7 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_c2_seeds_transform_media_c3_still_clears(self) -> None:
-        """C2 Artifact media seeds; C3 stays text-only."""
+        """C2 Artifact media seeds; generic C3 still clears without a URL."""
         self.assertFalse(challenge_clears_active_media("C2"))
         self.assertTrue(challenge_clears_active_media("C3"))
         seeded = apply_active_media_update(None, challenge="C2")
@@ -156,6 +163,18 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertTrue(is_c2_transform(seeded))
         self.assertEqual(seeded["url"], C2_TRANSFORM_MEDIA_URL)
         self.assertIsNone(apply_active_media_update(seeded, challenge="C3"))
+        copied = apply_active_media_update(
+            None, challenge="C3", url=C2_TRANSFORM_MEDIA_URL
+        )
+        assert copied is not None
+        self.assertEqual(copied["url"], C2_TRANSFORM_MEDIA_URL)
+        seed = live_class_seed_media("MCF3M", "M1", "C3")
+        assert seed is not None
+        self.assertEqual(seed["url"], C2_TRANSFORM_MEDIA_URL)
+        meta = load_live_class_metadata("MCF3M", "M1", "C3")
+        self.assertEqual(meta["media"]["file"], C2_TRANSFORM_MEDIA_URL)
+        mcr = load_live_class_metadata("MCR3U", "M1", "C3")
+        self.assertEqual(mcr["media"]["file"], C3_PARENT_MEDIA_URL)
 
     def test_c2_media_page_has_artifact_chrome(self) -> None:
         """C2 iframe ships Wonder labels and stays same-origin."""
@@ -291,6 +310,210 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(stored[first_item]["status"], "active")
         self.assertEqual(stored[second_item]["status"], "active")
 
+    def test_mcf3m_c3_mint_reuses_c2_artifact_on_c3(self) -> None:
+        """MCF3M M1 C3 Make match challenge stays on C3 and keeps C2 chrome."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3", stage="play"
+        )
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "h": -1, "k": 3},
+                "target_mode": "graph",
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        body = minted.get_json()
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["live_slot"], "C3")
+        self.assertEqual(body["prompt"]["payload"]["artifact_id"], TRANSFORMATIONS_ARTIFACT_ID)
+        self.assertEqual(body["active_media"]["url"], C2_TRANSFORM_MEDIA_URL)
+        item_id = str(body["prompt"]["payload"]["item_id"])
+        stored = {
+            str(row.get("item_id") or ""): row
+            for row in self.school.list_live_session_items(self.live_session_id)
+        }
+        self.assertEqual(stored[item_id]["status"], "active")
+        second = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": -1, "h": 2, "k": 0},
+                "target_mode": "equation",
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.get_json())
+        self.assertNotEqual(
+            str(second.get_json()["prompt"]["payload"]["item_id"]), item_id
+        )
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["live_slot"], "C3")
+
+
+class ParentArtifactTests(unittest.TestCase):
+    """MCR3U M1 C3 parent-function Artifact grade + mint."""
+
+    def test_parent_grade_and_answer_format(self) -> None:
+        """Parent radio must match; sliders use the same ±10% band."""
+        target = {"a": 2.0, "k": -1.0, "d": 3.0, "c": -2.0}
+        hit = grade_parent_snapshot(
+            {"parent": "quadratic", **target},
+            target,
+            target_parent="quadratic",
+        )
+        self.assertTrue(hit["match"], hit)
+        miss_parent = grade_parent_snapshot(
+            {"parent": "linear", **target},
+            target,
+            target_parent="quadratic",
+        )
+        self.assertFalse(miss_parent["match"])
+        self.assertFalse(miss_parent["parent_match"])
+        payload = parent_transformations_prompt_payload(
+            snapshot={"a": 2, "k": -1, "d": 3, "c": -2, "parent": "abs"},
+            target_mode="equation",
+            parent={"kind": "abs"},
+        )
+        self.assertEqual(payload["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
+        self.assertEqual(payload["slider_keys"], ["a", "k", "d", "c"])
+        fb = artifact_feedback_fragment(
+            payload, {"params": {"parent": "abs", "a": 2, "k": -1, "d": 3, "c": -2}}
+        )
+        assert fb is not None
+        self.assertTrue(fb["match"])
+        self.assertIn("parent=abs", format_artifact_answer(
+            {"params": {"parent": "abs", "a": 2, "k": -1, "d": 3, "c": -2}}
+        ))
+
+
+class Mcr3uParentMintTests(unittest.TestCase):
+    """Staff mint on an MCR3U class writes a C3 parent Artifact question."""
+
+    def setUp(self) -> None:
+        """Isolated MCR3U class with staff + student clients."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.student = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.staff.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.staff.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.class_id = int(created.get_json()["class"]["id"])
+        run = self.staff.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        live = self.school.get_active_live_session_for_class(self.class_id)
+        assert live is not None
+        self.session_code = str(live["session_code"])
+        self.live_session_id = int(live["id"])
+        self.student.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.student.post("/student/mood", data={"mood": "good"})
+        self.student.post("/student/character", data={"character": "fox"})
+
+    def tearDown(self) -> None:
+        """Close db and temp dir."""
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_c3_parent_media_has_radios_and_mint(self) -> None:
+        """C3 iframe ships parent radios, sliders, and Make match challenge."""
+        rv = self.staff.get(C3_PARENT_MEDIA_URL)
+        self.assertEqual(rv.status_code, 200)
+        body = rv.get_data(as_text=True)
+        self.assertIn("Make match challenge", body)
+        self.assertIn('name="parent"', body)
+        self.assertIn('value="quadratic"', body)
+        self.assertIn("lloves-mcr3u-m1c3-parents", body)
+        self.assertIn(PARENT_TRANSFORMATIONS_ARTIFACT_ID, body)
+        rv.close()
+
+    def test_mint_parent_artifact_on_c3(self) -> None:
+        """Teacher mint on C3 writes a Question card and grades parent+sliders."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3", stage="play"
+        )
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "k": -1, "d": 3, "c": 1},
+                "target_mode": "equation",
+                "parent": {"kind": "sqrt"},
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        body = minted.get_json()
+        payload = body["prompt"]["payload"]
+        self.assertEqual(payload["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
+        self.assertEqual(payload["parent"]["kind"], "sqrt")
+        self.assertEqual(payload["snapshot"]["d"], 3.0)
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["live_slot"], "C3")
+        self.assertIn("mcr3u-m1c3-parent-transformations.html", body["active_media"]["url"])
+        student = self.student.get("/api/student/live-prompt").get_json()
+        self.assertEqual(student["prompt"]["payload"]["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
+        hit = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "response": {
+                    "params": {"parent": "sqrt", "a": 2.1, "k": -1.0, "d": 3.0, "c": 1.0}
+                }
+            },
+        )
+        self.assertEqual(hit.status_code, 200, hit.get_json())
+        self.assertEqual(hit.get_json()["feedback"]["lead"], LEAD_MATCH)
+        miss = self.student.post(
+            "/api/student/live-prompt/response",
+            json={
+                "response": {
+                    "params": {"parent": "linear", "a": 2.1, "k": -1.0, "d": 3.0, "c": 1.0}
+                }
+            },
+        )
+        self.assertEqual(miss.status_code, 200, miss.get_json())
+        self.assertEqual(miss.get_json()["feedback"]["lead"], LEAD_MISS)
+        roster = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/questions/{body['prompt']['id']}/responses"
+        )
+        self.assertEqual(roster.status_code, 200, roster.get_json())
+        answers = roster.get_json().get("responses") or []
+        self.assertTrue(any("parent=" in str(row.get("answer") or "") for row in answers))
+
 
 class ArtifactStaffJsTests(unittest.TestCase):
     """Teacher JS still seeds and paints the C2 Transformations Artifact."""
@@ -301,6 +524,8 @@ class ArtifactStaffJsTests(unittest.TestCase):
         self.assertIn("m1c2-transforms.html", js)
         self.assertIn("lastActiveMedia", js)
         self.assertIn("function usesC2Transforms()", js)
+        self.assertIn('ontario === "MCF3M" && module === "M1" && slot === "C3"', js)
+        self.assertIn("lloves-mcr3u-m1c3-parents", js)
         self.assertIn("function mintArtifactFromMedia(", js)
         mint = js.split("async function mintArtifactFromMedia(")[1].split(
             "function bindActiveMediaControls("

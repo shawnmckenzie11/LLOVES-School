@@ -19,7 +19,9 @@ from urllib.parse import urlparse
 try:
     from artifact import (
         C2_TRANSFORM_MEDIA_URL,
+        C3_PARENT_MEDIA_URL,
         default_c2_transform_media,
+        default_c3_parent_media,
         public_artifact_media,
     )
     from quick_hitter import (
@@ -30,7 +32,9 @@ try:
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.artifact import (
         C2_TRANSFORM_MEDIA_URL,
+        C3_PARENT_MEDIA_URL,
         default_c2_transform_media,
+        default_c3_parent_media,
         public_artifact_media,
     )
     from lms.quick_hitter import (
@@ -89,10 +93,16 @@ C1_CONS_SLIDE_BASE = 900
 C2_CONS_SLIDE_BASE = 920
 C3_CONS_SLIDE_BASE = 930
 C2_C3_CHALLENGES = frozenset({"C2", "C3"})
-# C3 stays text-only. C2 now seeds transform media (Artifact).
+# Generic C3 stays text-only unless a playlist or Artifact URL is posted.
 TEXT_ONLY_CHALLENGES = frozenset({"C3"})
 ALLOWED_SEED_MEDIA_URLS = frozenset(
-    {DEFAULT_LIVE_MEDIA_URL, C2_TRANSFORM_MEDIA_URL}
+    {
+        DEFAULT_LIVE_MEDIA_URL,
+        C2_TRANSFORM_MEDIA_URL,
+        C3_PARENT_MEDIA_URL,
+        "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+        "/static/live-media/mcr3u-m1c1-sqrt.html",
+    }
 )
 CONS_PACK_IDS = {
     "C1": C1_CONS_PACK_ID,
@@ -135,6 +145,8 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
     assert path is not None
     if path == C2_TRANSFORM_MEDIA_URL:
         return default_c2_transform_media()
+    if path == C3_PARENT_MEDIA_URL:
+        return default_c3_parent_media()
     return {
         "url": path,
         "title": DEFAULT_LIVE_MEDIA_TITLE,
@@ -707,9 +719,10 @@ def is_c2_transform(media: dict[str, Any] | None) -> bool:
 
 
 def challenge_clears_active_media(raw: Any) -> bool:
-    """True when C3 is posted: do **not** seed ``active_media_json``.
+    """True when C3 is posted without an explicit playlist/Artifact URL.
 
-    C3 stays text-only (empty ArtifactViewer). C2 seeds the Transformations
+    Generic C3 stays text-only. An explicit URL (MCF3M C3 Transformations
+    or MCR3U C3 parents) stores instead. C2 seeds the Transformations
     iframe. C1 peels stay on the Real-slice blob.
 
     Args:
@@ -1123,7 +1136,9 @@ def apply_active_media_update(
     if clear:
         return None
     if challenge is not _UNSET and challenge_clears_active_media(challenge):
-        return None
+        url_posted = url is not _UNSET and bool(str(url or "").strip())
+        if not url_posted:
+            return None
     if challenge is not _UNSET:
         try:
             if normalize_challenge(challenge) == "C2" and url is _UNSET:
@@ -1169,6 +1184,9 @@ def apply_active_media_update(
         seed = default_seed_media(url=normalized)
         if normalized == C2_TRANSFORM_MEDIA_URL:
             seed["challenge"] = "C2"
+            seed["cons_item"] = ""
+        elif normalized == C3_PARENT_MEDIA_URL:
+            seed["challenge"] = "C3"
             seed["cons_item"] = ""
         elif normalized != DEFAULT_LIVE_MEDIA_URL:
             seed["title"] = ""
