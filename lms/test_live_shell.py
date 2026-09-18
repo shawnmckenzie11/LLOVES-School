@@ -2026,10 +2026,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function enterSetClassPhase()", js)
         self.assertIn("function wantsFreshSetClass()", js)
         self.assertIn("class_set: true", js)
-        boot = js.split('paintJoinBillboard(root.dataset.liveCode || "");')[1].split(
+        boot = js.split("setSessionTimerMinutes(3);")[1].split(
             "function spawnScorePop("
         )[0]
         self.assertIn("enterSetClassPhase()", boot)
+        self.assertIn("paintTeacherShell()", boot)
         self.assertIn("await openRunLiveClass()", boot)
         self.assertIn("if (setupPhase) return", boot)
         resume = js.split("async function resumeLiveClassIfNeeded()")[1].split(
