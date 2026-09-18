@@ -96,6 +96,7 @@ from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from minds_on import is_minds_on_payload  # noqa: E402
 from bank_edit import (  # noqa: E402
     EMPTY_BANKS_MESSAGE,
+    WONDER_COPY,
     apply_staff_question_patch,
     create_staff_bank_question,
     delete_staff_bank_question,
@@ -2591,6 +2592,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             pack_error=pack_error,
             pack_ok=pack_ok,
             show_portfolio_tab=show_portfolio_tab,
+            bank_copy=WONDER_COPY,
             allow_media_url_swap=live_media_url_swap_allowed(
                 testing=bool(app.config.get("TESTING"))
             ),
