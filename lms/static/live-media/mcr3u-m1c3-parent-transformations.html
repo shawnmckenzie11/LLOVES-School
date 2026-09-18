@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parent transformations · y = a f(k(x − d)) + c</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --target: #5eead4;
+      --parent: rgba(232, 238, 248, 0.28);
+      --panel: rgba(10, 18, 32, 0.86);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq {
+      align-self: flex-start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .eq .coeffs {
+      display: block;
+      margin-top: 0.15rem;
+      color: #d6deef;
+      font-size: 0.72em;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.7rem;
+      display: none;
+      gap: 0.5rem;
+    }
+    .dock.is-on { display: grid; }
+    .dock h2 {
+      margin: 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .parents {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.7rem;
+    }
+    .parents label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: #c5d0dc;
+      cursor: pointer;
+    }
+    .parents input { accent-color: var(--gold); margin: 0; }
+    .sliders { display: grid; gap: 0.35rem; }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.6rem;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span {
+      font-family: "IBM Plex Serif", Georgia, serif;
+      color: var(--gold);
+    }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] { width: 100%; accent-color: var(--gold); }
+    .teacher-bar {
+      display: none;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.65rem;
+      align-items: center;
+      margin-top: 0.25rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .teacher-bar.is-on { display: flex; }
+    .teacher-bar label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      color: #c5d0dc;
+    }
+    .teacher-bar button,
+    .mode-btn {
+      pointer-events: auto;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--gold);
+      border-radius: 8px;
+      padding: 0.28rem 0.65rem;
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .mode-btn.is-on { background: rgba(245, 197, 24, 0.16); }
+    .mint-btn {
+      margin-left: auto;
+      border-color: var(--gold);
+      background: rgba(245, 197, 24, 0.18);
+    }
+    .dock.is-student .teacher-bar { display: none !important; }
+  </style>
+</head>
+<body>
+  <canvas id="plot" aria-label="Parent function transformations"></canvas>
+  <div class="hud">
+    <p class="eq" id="eq">y = <strong>x</strong></p>
+    <section class="dock" id="dock" aria-label="Transformation controls">
+      <h2 id="dock-title">Teacher controls</h2>
+      <div class="parents" role="radiogroup" aria-label="Parent function">
+        <label><input type="radio" name="parent" value="linear" checked> Linear</label>
+        <label><input type="radio" name="parent" value="quadratic"> Quadratic</label>
+        <label><input type="radio" name="parent" value="abs"> Abs value</label>
+        <label><input type="radio" name="parent" value="sqrt"> Square root</label>
+        <label><input type="radio" name="parent" value="reciprocal"> Reciprocal</label>
+      </div>
+      <div class="sliders">
+        <label class="slide"><span>a</span><input id="p-a" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-a">1.00</output></label>
+        <label class="slide"><span>k</span><input id="p-k" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-k">1.00</output></label>
+        <label class="slide"><span>d</span><input id="p-d" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-d">0.00</output></label>
+        <label class="slide"><span>c</span><input id="p-c" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-c">0.00</output></label>
+      </div>
+      <div class="teacher-bar" id="teacher-bar">
+        <label for="t-random"><input id="t-random" type="checkbox"> Random</label>
+        <button type="button" class="mode-btn is-on" id="mode-graph" data-mode="graph">Show graph</button>
+        <button type="button" class="mode-btn" id="mode-equation" data-mode="equation">Show equation</button>
+        <button type="button" class="mint-btn" id="mint">Make match challenge</button>
+      </div>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const TARGET = "#5eead4";
+  const PARENT = "rgba(232, 238, 248, 0.32)";
+  const canvas = document.getElementById("plot");
+  const ctx = canvas.getContext("2d");
+  const eqEl = document.getElementById("eq");
+  const dock = document.getElementById("dock");
+  const dockTitle = document.getElementById("dock-title");
+  const teacherBar = document.getElementById("teacher-bar");
+  const inputA = document.getElementById("p-a");
+  const inputK = document.getElementById("p-k");
+  const inputD = document.getElementById("p-d");
+  const inputC = document.getElementById("p-c");
+  const outA = document.getElementById("o-a");
+  const outK = document.getElementById("o-k");
+  const outD = document.getElementById("o-d");
+  const outC = document.getElementById("o-c");
+  const randomBox = document.getElementById("t-random");
+  const mintBtn = document.getElementById("mint");
+  const modeGraph = document.getElementById("mode-graph");
+  const modeEquation = document.getElementById("mode-equation");
+  const PARENTS = {
+    linear: { label: "x", symbol: "x" },
+    quadratic: { label: "x²", symbol: "x²" },
+    abs: { label: "|x|", symbol: "|x|" },
+    sqrt: { label: "√x", symbol: "√x" },
+    reciprocal: { label: "1/x", symbol: "1/x" },
+  };
+  const X_MIN = -8;
+  const X_MAX = 8;
+  const Y_MIN = -8;
+  const Y_MAX = 8;
+  const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
+  const embedded = window.parent !== window;
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
+  const state = {
+    parent: "linear",
+    a: 1,
+    k: 1,
+    d: 0,
+    c: 0,
+    targetMode: "graph",
+    artifact: null,
+    studentPlay: false,
+  };
+
+  /**
+   * Format a coefficient for HUD copy.
+   * @param {number} n
+   * @returns {string}
+   */
+  function fmt(n) {
+    return (Math.round(n * 100) / 100).toFixed(2);
+  }
+
+  /**
+   * Parent y-value, or NaN where the parent is undefined.
+   * @param {string} kind
+   * @param {number} t
+   * @returns {number}
+   */
+  function parentValue(kind, t) {
+    if (kind === "linear") return t;
+    if (kind === "quadratic") return t * t;
+    if (kind === "abs") return Math.abs(t);
+    if (kind === "sqrt") return t < 0 ? NaN : Math.sqrt(t);
+    if (kind === "reciprocal") return Math.abs(t) < 1e-6 ? NaN : 1 / t;
+    return NaN;
+  }
+
+  /**
+   * Transformed y = a f(k(x − d)) + c.
+   * @param {string} kind
+   * @param {number} a
+   * @param {number} k
+   * @param {number} d
+   * @param {number} c
+   * @param {number} x
+   * @returns {number}
+   */
+  function transformedY(kind, a, k, d, c, x) {
+    const inner = k * (x - d);
+    const base = parentValue(kind, inner);
+    if (!Number.isFinite(base)) return NaN;
+    return a * base + c;
+  }
+
+  /**
+   * Pretty y = a f(k(x − d)) + c for the selected parent.
+   * @returns {string}
+   */
+  function equationHtml() {
+    const inner = "k(x − d)";
+    let body = inner;
+    if (state.parent === "quadratic") body = "(" + inner + ")²";
+    else if (state.parent === "abs") body = "|" + inner + "|";
+    else if (state.parent === "sqrt") body = "√(" + inner + ")";
+    else if (state.parent === "reciprocal") body = "1 / (" + inner + ")";
+    return (
+      "y = <strong>a · " +
+      body +
+      " + c</strong><span class='coeffs'>parent " +
+      PARENTS[state.parent].symbol +
+      " · a=" +
+      fmt(state.a) +
+      " · k=" +
+      fmt(state.k) +
+      " · d=" +
+      fmt(state.d) +
+      " · c=" +
+      fmt(state.c) +
+      "</span>"
+    );
+  }
+
+  /**
+   * Map math x to canvas pixels.
+   * @param {number} x
+   * @param {number} width
+   * @returns {number}
+   */
+  function toX(x, width) {
+    return ((x - X_MIN) / (X_MAX - X_MIN)) * width;
+  }
+
+  /**
+   * Map math y to canvas pixels (y-up).
+   * @param {number} y
+   * @param {number} height
+   * @returns {number}
+   */
+  function toY(y, height) {
+    return height - ((y - Y_MIN) / (Y_MAX - Y_MIN)) * height;
+  }
+
+  /**
+   * Current radio + slider snapshot.
+   * @returns {{parent:string,a:number,k:number,d:number,c:number}}
+   */
+  function snapshot() {
+    return {
+      parent: state.parent,
+      a: state.a,
+      k: state.k,
+      d: state.d,
+      c: state.c,
+    };
+  }
+
+  /**
+   * Sync radios, sliders, and role chrome from state.
+   */
+  function syncOutputs() {
+    const picked = document.querySelector('input[name="parent"][value="' + state.parent + '"]');
+    if (picked instanceof HTMLInputElement) picked.checked = true;
+    inputA.value = String(state.a);
+    inputK.value = String(state.k);
+    inputD.value = String(state.d);
+    inputC.value = String(state.c);
+    outA.textContent = fmt(state.a);
+    outK.textContent = fmt(state.k);
+    outD.textContent = fmt(state.d);
+    outC.textContent = fmt(state.c);
+    modeGraph.classList.toggle("is-on", state.targetMode === "graph");
+    modeEquation.classList.toggle("is-on", state.targetMode === "equation");
+    if (teacherMode) {
+      eqEl.innerHTML = equationHtml();
+    } else if (state.artifact && state.artifact.target_mode === "equation") {
+      eqEl.innerHTML = equationHtml();
+    } else {
+      eqEl.innerHTML = equationHtml();
+    }
+    dock.classList.add("is-on");
+    dock.classList.toggle("is-student", !teacherMode);
+    teacherBar.classList.toggle("is-on", teacherMode);
+    dockTitle.textContent = teacherMode ? "Teacher controls" : "Your parent and sliders";
+    const play = teacherMode || Boolean(state.studentPlay);
+    [inputA, inputK, inputD, inputC].forEach((slider) => {
+      slider.disabled = !play;
+    });
+    document.querySelectorAll('input[name="parent"]').forEach((radio) => {
+      radio.disabled = !play;
+    });
+  }
+
+  /**
+   * Stroke one sampled curve, breaking at undefined points.
+   * @param {(x: number) => number} fn
+   * @param {string} color
+   * @param {number} width
+   * @param {number} w
+   * @param {number} h
+   */
+  function strokeFn(fn, color, width, w, h) {
+    const steps = 720;
+    ctx.beginPath();
+    let drawing = false;
+    let lastY = NaN;
+    for (let i = 0; i <= steps; i += 1) {
+      const x = X_MIN + (i / steps) * (X_MAX - X_MIN);
+      const y = fn(x);
+      if (!Number.isFinite(y) || y < Y_MIN - 2 || y > Y_MAX + 2) {
+        drawing = false;
+        lastY = NaN;
+        continue;
+      }
+      if (Number.isFinite(lastY) && Math.abs(y - lastY) > 8) {
+        drawing = false;
+      }
+      const px = toX(x, w);
+      const py = toY(y, h);
+      if (!drawing) {
+        ctx.moveTo(px, py);
+        drawing = true;
+      } else {
+        ctx.lineTo(px, py);
+      }
+      lastY = y;
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+
+  /**
+   * Draw numbered axes, parent ghost, optional frozen target, live curve.
+   */
+  function draw() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "#122038");
+    g.addColorStop(1, "#070b14");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = X_MIN; n <= X_MAX; n += 1) {
+      const px = toX(n, w);
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, h);
+    }
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) {
+      const py = toY(n, h);
+      ctx.moveTo(0, py);
+      ctx.lineTo(w, py);
+    }
+    ctx.stroke();
+    const originX = toX(0, w);
+    const originY = toY(0, h);
+    ctx.strokeStyle = "rgba(210, 220, 235, 0.92)";
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, originY);
+    ctx.lineTo(w, originY);
+    ctx.moveTo(originX, 0);
+    ctx.lineTo(originX, h);
+    ctx.stroke();
+    strokeFn((x) => parentValue(state.parent, x), PARENT, 1.6, w, h);
+    const art = state.artifact;
+    const showTarget =
+      art &&
+      art.snapshot &&
+      (teacherMode || art.target_mode === "graph");
+    if (showTarget) {
+      const kind = (art.parent && art.parent.kind) || art.parent || state.parent;
+      strokeFn(
+        (x) => transformedY(kind, art.snapshot.a, art.snapshot.k, art.snapshot.d, art.snapshot.c, x),
+        TARGET,
+        2.4,
+        w,
+        h
+      );
+    }
+    strokeFn(
+      (x) => transformedY(state.parent, state.a, state.k, state.d, state.c, x),
+      GOLD,
+      3,
+      w,
+      h
+    );
+  }
+
+  /**
+   * Student sliders post a preview for the hot/cold meters.
+   */
+  function notifyParent() {
+    if (!embedded || teacherMode) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-mcr3u-m1c3-parents",
+          type: "artifact-preview",
+          sliders: snapshot(),
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Read radios and sliders into state, then redraw.
+   */
+  function readControls() {
+    const picked = document.querySelector('input[name="parent"]:checked');
+    state.parent = picked instanceof HTMLInputElement ? picked.value : "linear";
+    state.a = Number(inputA.value);
+    state.k = Number(inputK.value);
+    state.d = Number(inputD.value);
+    state.c = Number(inputC.value);
+    if (Math.abs(state.a) < 0.05) state.a = state.a < 0 ? -0.05 : 0.05;
+    if (Math.abs(state.k) < 0.05) state.k = state.k < 0 ? -0.05 : 0.05;
+    syncOutputs();
+    draw();
+    notifyParent();
+  }
+
+  /**
+   * Randomize teacher parent and sliders (hidden from students until mint).
+   */
+  function randomize() {
+    const kinds = Object.keys(PARENTS);
+    state.parent = kinds[Math.floor(Math.random() * kinds.length)];
+    let a = 0;
+    while (Math.abs(a) < 0.4) {
+      a = Math.round((Math.random() * 6 - 3) * 10) / 10;
+    }
+    let k = 0;
+    while (Math.abs(k) < 0.4) {
+      k = Math.round((Math.random() * 6 - 3) * 10) / 10;
+    }
+    state.a = a;
+    state.k = k;
+    state.d = Math.round((Math.random() * 12 - 6) * 10) / 10;
+    state.c = Math.round((Math.random() * 12 - 6) * 10) / 10;
+    syncOutputs();
+    draw();
+  }
+
+  /**
+   * Mint the parent-function Artifact question on the current live-class page.
+   */
+  function mintChallenge() {
+    if (!teacherMode) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-mcr3u-m1c3-parents",
+          type: "artifact-mint",
+          artifact_id: "mcr3u-m1-c3-parent-transformations",
+          parent: {
+            kind: state.parent,
+            formula: PARENTS[state.parent].label,
+            label: "f(x)=" + PARENTS[state.parent].symbol,
+          },
+          snapshot: snapshot(),
+          target_mode: state.targetMode,
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  document.querySelectorAll('input[name="parent"]').forEach((radio) => {
+    radio.addEventListener("change", readControls);
+  });
+  [inputA, inputK, inputD, inputC].forEach((slider) => {
+    ["input", "change"].forEach((evt) => slider.addEventListener(evt, readControls));
+  });
+  randomBox.addEventListener("change", () => {
+    if (randomBox.checked) randomize();
+  });
+  modeGraph.addEventListener("click", () => {
+    state.targetMode = "graph";
+    syncOutputs();
+    draw();
+  });
+  modeEquation.addEventListener("click", () => {
+    state.targetMode = "equation";
+    syncOutputs();
+    draw();
+  });
+  mintBtn.addEventListener("click", mintChallenge);
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "live-media-state") return;
+    if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
+    if (data.artifact && typeof data.artifact === "object") {
+      state.artifact = data.artifact;
+      state.studentPlay = !teacherMode;
+      if (!teacherMode) {
+        state.parent = "linear";
+        state.a = 1;
+        state.k = 1;
+        state.d = 0;
+        state.c = 0;
+      } else if (data.artifact.target_mode) {
+        state.targetMode = data.artifact.target_mode;
+      }
+    }
+    if (!teacherMode && typeof data.student_play === "boolean") {
+      state.studentPlay = data.student_play;
+    }
+    syncOutputs();
+    draw();
+    notifyParent();
+  });
+
+  window.addEventListener("resize", () => {
+    syncOutputs();
+    draw();
+  });
+  dock.classList.add("is-on");
+  if (!teacherMode) {
+    dock.classList.add("is-student");
+    state.studentPlay = false;
+  }
+  syncOutputs();
+  draw();
+})();
+  </script>
+</body>
+</html>

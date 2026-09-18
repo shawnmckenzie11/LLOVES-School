@@ -38,6 +38,17 @@
         "individual"
       ],
       "response_mode": "individual"
+    },
+    {
+      "ref": "live-class/MCF3M/M1/C3/media/transformations",
+      "stage": "play",
+      "page_number": 5,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
     }
   ],
   "pages": [

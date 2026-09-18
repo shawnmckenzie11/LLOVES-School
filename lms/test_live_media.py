@@ -1159,7 +1159,7 @@ class Mcr3uSlotMediaCopyTests(unittest.TestCase):
         self.assertIsNotNone(media)
         assert media is not None
         self.assertIn(
-            "mcr3u-m1c2-parent-transformations.html",
+            "mcr3u-m1c3-parent-transformations.html",
             str(media.get("url") or ""),
         )
         self.assertEqual(media.get("stem"), "C3 overlay stem")
