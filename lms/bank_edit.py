@@ -25,7 +25,7 @@ DONE_LABEL = "Done"
 CANCEL_LABEL = "Cancel"
 REMOVE_FROM_BANK_TITLE = "Remove from bank?"
 EDITED_IN_LMS_CHIP = "Edited in LMS"
-SAVE_TOAST = "Saved."
+SAVE_TOAST = "Saved to this course’s copy."
 
 WONDER_COPY = {
     "empty_banks": EMPTY_BANKS_MESSAGE,
