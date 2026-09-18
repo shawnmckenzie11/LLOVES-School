@@ -14,9 +14,19 @@ import uuid
 from typing import Any
 
 try:
-    from question_math import format_mc_html_fragment, html_to_plain
+    from question_math import (
+        format_math_html,
+        format_mc_html_fragment,
+        html_to_plain,
+        normalize_house_tex,
+    )
 except ImportError:
-    from lms.question_math import format_mc_html_fragment, html_to_plain
+    from lms.question_math import (
+        format_math_html,
+        format_mc_html_fragment,
+        html_to_plain,
+        normalize_house_tex,
+    )
 
 # Wonder IA §9 locked microcopy — do not paraphrase.
 EMPTY_BANKS_MESSAGE = "No banks imported yet."
@@ -103,6 +113,40 @@ def truncate_stem(plain: str, limit: int = STEM_PREVIEW_LIMIT) -> str:
     if len(text) <= int(limit):
         return text
     return text[: int(limit)].rstrip() + "…"
+
+
+def truncate_stem_preserving_math(plain: str, limit: int = STEM_PREVIEW_LIMIT) -> str:
+    """Truncate a stem without splitting a ``$...$`` pair.
+
+    Args:
+        plain: Plain-text stem that may contain house-style TeX.
+        limit: Soft character budget before an ellipsis.
+    """
+    text = " ".join(str(plain or "").split())
+    if len(text) <= int(limit):
+        return text
+    cut = int(limit)
+    prefix = text[:cut]
+    if len(re.findall(r"(?<!\\)\$", prefix)) % 2 == 1:
+        nxt = text.find("$", cut)
+        if 0 <= nxt <= cut + 48:
+            cut = nxt + 1
+        else:
+            prev = prefix.rfind("$")
+            if prev > 0:
+                cut = prev
+    clipped = text[:cut].rstrip()
+    return clipped + ("…" if clipped != text else "")
+
+
+def preview_stem_html(plain: str, limit: int = STEM_PREVIEW_LIMIT) -> str:
+    """Return browse-line HTML so leftover ``$TeX$`` still typesets.
+
+    Args:
+        plain: Plain-text stem.
+        limit: Soft character budget matching :func:`truncate_stem`.
+    """
+    return format_math_html(truncate_stem_preserving_math(plain, limit))
 
 
 def is_mc_item_type(item_type: str) -> bool:
@@ -243,6 +287,7 @@ def serialize_staff_question(
         "payload": payload,
         "stem_plain": stem_plain,
         "stem_preview": truncate_stem(stem_plain),
+        "stem_preview_html": preview_stem_html(stem_plain),
         "stem_html": stem_html,
         "choices": choices,
         "correct_answers": correct_answers,
@@ -308,7 +353,7 @@ def _parse_options(body: dict[str, Any]) -> list[str]:
         else:
             text = str(item or "").strip()
         if text:
-            out.append(text)
+            out.append(normalize_house_tex(text))
     return out
 
 
@@ -350,9 +395,11 @@ def _stem_from_body(
     library_id: int,
 ) -> tuple[str, str]:
     """Return ``(sanitized_html, plain_text)`` from a write body."""
-    raw = body.get("stem_html") or body.get("stem_text") or body.get("text") or ""
+    raw = normalize_house_tex(
+        str(body.get("stem_html") or body.get("stem_text") or body.get("text") or "")
+    )
     stem_html = sanitize_bank_html(
-        str(raw), class_id=class_id, school=school, library_id=library_id
+        raw, class_id=class_id, school=school, library_id=library_id
     )
     stem_plain = html_to_plain(stem_html).strip()
     if not stem_plain:
