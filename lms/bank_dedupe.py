@@ -4,7 +4,10 @@ Merge rule (library-scoped; MCF3M and MCR3U are separate libraries):
 
 1. Fingerprint = lowercase, HTML-stripped, entity-unescaped stem plus the
    sorted option texts. ``$...$`` / ``\\(...\\)`` wrappers are stripped so
-   the same equation in TeX or caret form matches.
+   the same equation in TeX or caret form matches. Whitespace, trailing
+   punctuation, doubled TeX backslashes, and ``\\frac{a}{b}`` vs ``a/b``
+   also collapse (near-duplicates). Better TeX wins when choosing the
+   canonical row.
 2. Empty stems never collapse (each keeps its own id).
 3. Within a course library, one fingerprint maps to one canonical row:
    staff overlay (``edited_in_lms``) wins, then staff-authored, then a
@@ -23,14 +26,17 @@ import re
 from typing import Any
 
 try:
-    from question_math import html_to_plain
+    from question_math import collapse_double_tex, html_to_plain
 except ImportError:
-    from lms.question_math import html_to_plain
+    from lms.question_math import collapse_double_tex, html_to_plain
 
 _MATH_WRAP_RE = re.compile(
     r"\$\$|\$|\\\(|\\\)|\\\[|\\\]",
 )
 _DASH_RE = re.compile(r"[−–—]")
+_FRAC_TEX_RE = re.compile(r"\\d?frac\{([^{}]+)\}\{([^{}]+)\}")
+_SQRT_TEX_RE = re.compile(r"\\sqrt(?:\[[^\[\]]+\])?\{([^{}]+)\}")
+_TRAIL_PUNCT_RE = re.compile(r"[.?!]+$")
 
 
 def normalize_question_text(text: str) -> str:
@@ -41,6 +47,7 @@ def normalize_question_text(text: str) -> str:
 
     Returns:
         Lowercase, entity-decoded, tag-stripped text with math wrappers gone.
+        ``\\frac{1}{2}`` and ``1/2`` share a key after this pass.
     """
     raw = str(text or "")
     if "<" in raw or "&" in raw:
@@ -49,8 +56,12 @@ def normalize_question_text(text: str) -> str:
         import html
 
         raw = html.unescape(raw)
+    raw = collapse_double_tex(raw)
+    raw = _FRAC_TEX_RE.sub(r"\1/\2", raw)
+    raw = _SQRT_TEX_RE.sub(r"sqrt(\1)", raw)
     raw = _MATH_WRAP_RE.sub(" ", raw)
     raw = _DASH_RE.sub("-", raw)
+    raw = _TRAIL_PUNCT_RE.sub("", raw)
     return re.sub(r"\s+", " ", raw).strip().lower()
 
 
@@ -132,11 +143,20 @@ def question_fingerprint(item: dict[str, Any]) -> str:
 def _canonical_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     """Lower tuples win when choosing the row to keep."""
     html = _stem_html(item)
+    plain = str(item.get("stem_plain") or "")
+    tex_quality = (
+        html.count("\\frac")
+        + html.count("\\sqrt")
+        + html.count("math-latex")
+        + plain.count("$")
+        + plain.count("\\frac")
+    )
     richness = (
         html.count("<table"),
         html.count("<img"),
         html.count("math-latex"),
         html.count("<sup"),
+        tex_quality,
         len(html),
     )
     title = str(item.get("bank_title") or "").lower()
@@ -310,3 +330,42 @@ def drop_non_canonical(
         else:
             hidden += 1
     return kept, hidden
+
+
+def apply_visible_bank_question_counts(
+    school: Any,
+    library_id: int,
+    banks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Rewrite ``question_count`` so hidden duplicates are not listed.
+
+    Args:
+        school: Open ``SchoolDB``.
+        library_id: ``content_libraries.id``.
+        banks: Rows from :func:`components.list_question_banks`.
+
+    Returns:
+        The same list with visible counts. Ingest rows stay in sqlite.
+    """
+    if not banks:
+        return banks
+    canonical = library_canonical_ids(school, int(library_id))
+    with school._lock:
+        rows = school.conn.execute(
+            """
+            SELECT q.id, q.bank_id
+            FROM questions q
+            JOIN question_banks b ON b.id = q.bank_id
+            WHERE b.library_id = ?
+            """,
+            (int(library_id),),
+        ).fetchall()
+    visible: dict[int, int] = {}
+    for row in rows:
+        qid = int(row["id"])
+        if int(canonical.get(qid, qid)) == qid:
+            bank_id = int(row["bank_id"])
+            visible[bank_id] = visible.get(bank_id, 0) + 1
+    for bank in banks:
+        bank["question_count"] = visible.get(int(bank["id"]), 0)
+    return banks

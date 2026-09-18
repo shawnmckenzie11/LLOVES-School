@@ -1,4 +1,4 @@
-import { api, escapeHtml, renderLiveQuestionMath } from "/static/common.js";
+import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -8,6 +8,7 @@ const DONE_LABEL = root?.dataset.done || "Done";
 const CANCEL_LABEL = root?.dataset.cancel || "Cancel";
 const CHIP_COPY = root?.dataset.editedInLms || "Edited in LMS";
 const TOAST_COPY = root?.dataset.saveToast || "Saved to this course’s copy.";
+const EQ_ERROR = "Couldn't render this equation — check the TeX.";
 const list = document.getElementById("catalog-list");
 const detail = document.getElementById("bank-detail");
 const toast = document.getElementById("bank-toast");
@@ -196,6 +197,8 @@ function editorHtml(question, isNew) {
     <label>Stem
       <textarea data-bank-stem rows="4" required>${escapeText(question.stem_plain || "")}</textarea>
     </label>
+    <div class="bank-q-eq-preview live-question-html" data-bank-eq-preview></div>
+    <p class="error compact" hidden data-bank-eq-error>${escapeText(EQ_ERROR)}</p>
     ${optionFields}
     <label>Points
       <input data-bank-points type="number" min="0" step="0.5" value="${escapeText(question.points ?? 1)}">
@@ -241,9 +244,13 @@ function paintDetail() {
       const chip = question.edited_in_lms
         ? `<span class="bank-q-chip">${escapeText(CHIP_COPY)}</span>`
         : "";
+      const previewHtml = String(question.stem_preview_html || "").trim();
+      const preview = previewHtml
+        ? `<span class="bank-q-preview live-question-html">${previewHtml}</span>`
+        : `<span class="bank-q-preview">${escapeText(question.stem_preview || question.stem_plain || "Untitled")}</span>`;
       body += `<li class="bank-q-row${expanded && !editing ? " is-open" : ""}" data-bank-q="${qid}">
         <button type="button" class="bank-q-stem-btn" data-bank-expand="${qid}">
-          <span class="bank-q-preview">${escapeText(question.stem_preview || question.stem_plain || "Untitled")}</span>
+          ${preview}
           <span class="hint">${escapeText(itemTypeLabel(question.item_type))}</span>
           ${chip}
         </button>
@@ -275,6 +282,36 @@ function paintDetail() {
     <div class="bank-mode-controls">${modeControls}${addBtn}</div>
   </header>${body}`;
   void renderLiveQuestionMath(detail);
+  detail.querySelectorAll("[data-bank-editor]").forEach((form) => {
+    if (form instanceof HTMLElement) void paintEditorMathPreview(form);
+  });
+}
+
+/**
+ * Typeset the in-editor stem with the same KaTeX path as browse/student.
+ * @param {HTMLElement} form
+ */
+async function paintEditorMathPreview(form) {
+  const field = form.querySelector("[data-bank-stem]");
+  const preview = form.querySelector("[data-bank-eq-preview]");
+  const error = form.querySelector("[data-bank-eq-error]");
+  if (!(preview instanceof HTMLElement)) return;
+  const stem = field instanceof HTMLTextAreaElement ? field.value : "";
+  const options = [...form.querySelectorAll("[data-bank-option]")]
+    .map((input) => (input instanceof HTMLInputElement ? input.value.trim() : ""))
+    .filter(Boolean);
+  const optionHtml = options
+    .map((text, index) => {
+      const letter = String.fromCharCode(65 + index);
+      return `<div class="bank-q-eq-choice">${letter}. ${formatQuestionHtml(text)}</div>`;
+    })
+    .join("");
+  preview.innerHTML = `${formatQuestionHtml(stem)}${optionHtml}`;
+  await renderLiveQuestionMath(preview);
+  if (error instanceof HTMLElement) {
+    error.hidden = !preview.querySelector(".katex-error");
+    if (!error.hidden) error.textContent = EQ_ERROR;
+  }
 }
 
 /**
@@ -428,6 +465,13 @@ detail?.addEventListener("click", (event) => {
     const row = expandBtn.closest("[data-bank-q]");
     row?.classList.toggle("is-open");
   }
+});
+
+detail?.addEventListener("input", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !target.matches("[data-bank-stem], [data-bank-option]")) return;
+  const form = target.closest("[data-bank-editor]");
+  if (form instanceof HTMLElement) void paintEditorMathPreview(form);
 });
 
 detail?.addEventListener("submit", (event) => {

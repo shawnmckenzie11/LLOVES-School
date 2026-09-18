@@ -2095,8 +2095,14 @@ body.staff-shell .prompt-choice .live-question-html img,
 .live-question-html .math-latex,
 .prompt-title .math-latex,
 .prompt-choice .math-latex {
-  display: inline-block;
-  vertical-align: middle;
+  display: inline;
+  vertical-align: baseline;
+}
+.live-question-html .math-display,
+.prompt-title .math-display,
+.prompt-choice .math-display {
+  display: block;
+  margin: 0.35rem 0;
 }
 .live-question-html .katex,
 .prompt-title .katex,

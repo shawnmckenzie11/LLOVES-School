@@ -94,6 +94,7 @@ from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E4
 from meet_team import is_meet_team_payload  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from minds_on import is_minds_on_payload  # noqa: E402
+from bank_dedupe import apply_visible_bank_question_counts  # noqa: E402
 from bank_edit import (  # noqa: E402
     EMPTY_BANKS_MESSAGE,
     WONDER_COPY,
@@ -2724,6 +2725,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 }
             )
         items = lister(school, int(library_id))
+        if kind == "question-banks":
+            items = apply_visible_bank_question_counts(
+                school, int(library_id), items
+            )
         empty_message = EMPTY_BANKS_MESSAGE if kind == "question-banks" else None
         return jsonify(
             {

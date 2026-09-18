@@ -383,8 +383,7 @@ function wrapDollarMath(html) {
     (_all, latex) => {
       const inner = String(latex || "").trim();
       if (!inner) return _all;
-      if (!/[\\^_A-Za-z=+\-*/]/.test(inner)) return _all;
-      return `<span class="math-latex" data-latex="${inner}"></span>`;
+      return `<span class="math-latex" data-latex="${escapeHtml(inner)}"></span>`;
     }
   );
 }
@@ -399,14 +398,9 @@ export function formatQuestionHtml(value) {
   while ((match = token.exec(raw))) {
     pieces.push(_formatPlainQuestionChunk(raw.slice(last, match.index)));
     const latex = String(match[1] || match[2] || match[3] || match[4] || "").trim();
-    const isDollar = Boolean(match[4]);
-    if (isDollar && !/[\\^_A-Za-z=+\-*/]/.test(latex)) {
-      pieces.push(_formatPlainQuestionChunk(match[0]));
-    } else {
-      pieces.push(
-        `<span class="math-latex" data-latex="${escapeHtml(latex)}"></span>`
-      );
-    }
+    pieces.push(
+      `<span class="math-latex" data-latex="${escapeHtml(latex)}"></span>`
+    );
     last = match.index + match[0].length;
   }
   pieces.push(_formatPlainQuestionChunk(raw.slice(last)));
@@ -504,12 +498,11 @@ export async function renderLiveQuestionMath(root) {
  */
 function wrapBareDollarMath(root) {
   const hosts = root.querySelectorAll(
-    ".live-question-html, .bank-q-stem, .prompt-title, .prompt-choice"
+    ".live-question-html, .bank-q-stem, .bank-q-preview, .bank-q-choices, .bank-q-eq-preview, .prompt-title, .prompt-choice"
   );
   const targets = hosts.length ? hosts : [root];
   targets.forEach((host) => {
     if (!(host instanceof Element)) return;
-    if (host.querySelector(".math-latex")) return;
     const html = host.innerHTML;
     if (!html || !html.includes("$")) return;
     const next = wrapDollarMath(html);
