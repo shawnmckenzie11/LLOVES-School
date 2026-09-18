@@ -828,7 +828,6 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             base[key] = parsed
     if not base["groups_configured"]:
         base["run_as_group"] = False
-        base["scoreboard_visible"] = False
     base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
     preset = stored.get("layout_preset")
     if preset in LAYOUT_PRESETS:
@@ -1096,8 +1095,6 @@ def apply_teacher_state_update(
         visible = _as_bool(scoreboard_visible)
         if visible is None:
             raise ValueError("scoreboard_visible must be a boolean")
-        if visible and not base.get("groups_configured"):
-            raise ValueError("set up groups before showing the scoreboard")
         base["scoreboard_visible"] = visible
     if hide_absent is not None:
         hidden = _as_bool(hide_absent)
@@ -1111,7 +1108,6 @@ def apply_teacher_state_update(
         base["class_set"] = confirmed
     if not base.get("groups_configured"):
         base["run_as_group"] = False
-        base["scoreboard_visible"] = False
     base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"
     preset_applied = False
     if layout_preset is not None:

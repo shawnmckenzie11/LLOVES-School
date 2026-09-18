@@ -445,6 +445,41 @@ class LiveBackendStateTests(unittest.TestCase):
             self.school.live_scoreboard_projection(self.session_id)
         )
 
+    def test_scoreboard_visible_survives_normalize_before_groups(self) -> None:
+        """Stored and patched scoreboard_visible stay on before groups exist."""
+
+        from live_teacher_state import apply_teacher_state_update, public_teacher_state
+
+        stored = public_teacher_state(
+            {"groups_configured": False, "scoreboard_visible": True}
+        )
+        self.assertFalse(stored["groups_configured"])
+        self.assertTrue(stored["scoreboard_visible"])
+        patched = apply_teacher_state_update(None, scoreboard_visible=True)
+        self.assertFalse(patched["groups_configured"])
+        self.assertTrue(patched["scoreboard_visible"])
+        self.school.set_live_session_teacher_state(
+            self.session_id, scoreboard_visible=True
+        )
+        before = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertFalse(before["groups_configured"])
+        self.assertTrue(before["scoreboard_visible"])
+
+    def test_setup_groups_keeps_explicit_scoreboard_false(self) -> None:
+        """Set Up / assign leaves scoreboard_visible false when staff unchecks it."""
+
+        self._begin_and_join(2)
+        result = self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="balanced",
+            present_ids=self.student_ids,
+            scoreboard_visible=False,
+        )
+        self.assertTrue(result["teacher_state"]["groups_configured"])
+        self.assertFalse(result["teacher_state"]["scoreboard_visible"])
+        self.assertIsNone(self.school.live_scoreboard_projection(self.session_id))
+
     def test_multiple_publish_close_results_and_cleanup(self) -> None:
         """Independent questions stay active, close locks, and end cleans data."""
 

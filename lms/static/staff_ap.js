@@ -544,6 +544,23 @@ function lockClassListPane() {
 }
 
 /**
+ * True when an Options strip body still has a staff-facing control.
+ * Hidden leftover wrappers (empty round/play cards) do not count.
+ * @param {HTMLElement | null} card
+ * @returns {boolean}
+ */
+function optionCardHasVisibleControls(card) {
+  if (!(card instanceof HTMLElement)) return false;
+  const controls = card.querySelectorAll("button, select, input, textarea, [role='group']");
+  return [...controls].some((node) => {
+    if (!(node instanceof HTMLElement)) return false;
+    if (node.closest(".live-legacy-control")) return false;
+    if (node.hidden || node.closest("[hidden]")) return false;
+    return true;
+  });
+}
+
+/**
  * Swap condensed OptionsStrip bodies. Never rebuild Left|Right chrome.
  * Same hidden-only swap for JOIN, TEAMS, MEET, ROUND, PLAY, and Prev.
  */
@@ -576,8 +593,12 @@ function paintOptionCard() {
     Boolean(overlayState?.game?.round_ends_at_ms) ||
     Boolean(overlayState?.game?.timer_paused);
   if (timer) timer.hidden = !timerRunning && !Boolean(timerToggle?.checked);
-  if (round) round.hidden = stage !== "round";
-  if (play) play.hidden = !["play", "round_3", "summary"].includes(stage);
+  if (round) {
+    round.hidden = stage !== "round" || !optionCardHasVisibleControls(round);
+  }
+  if (play) {
+    play.hidden = !["play", "round_3", "summary"].includes(stage) || !optionCardHasVisibleControls(play);
+  }
   paintGlobalGroupControls();
   paintTeamsStripEnabled();
   if (rounds) {
@@ -607,8 +628,9 @@ function paintGlobalGroupControls() {
   const scoreboard = $("ap-scoreboard-toggle");
   if (scoreboard instanceof HTMLInputElement) {
     scoreboard.checked = Boolean(teacherState.scoreboard_visible);
-    scoreboard.disabled = !Boolean(teacherState.run_as_group);
+    scoreboard.disabled = false;
   }
+  syncScoreboardPreview();
   const rename = $("ap-teams-rename");
   if (rename instanceof HTMLButtonElement) {
     rename.hidden = !configured;
@@ -4879,8 +4901,8 @@ function paintTeamsStripEnabled() {
 }
 
 /**
- * Beat 33: ROUND OptionsStrip is a type dropdown + SET, always visible.
- * Teams = 1 no longer blanks the strip. SET is the only write.
+ * Paint leftover ROUND chrome when those nodes still exist.
+ * Page-4+ no longer ships the type dropdown or SET button.
  */
 function paintRoundStrip() {
   const picks = $("live-round-picks");
@@ -5094,11 +5116,11 @@ function renderTeamsPanel() {
 }
 
 /**
- * Show/hide the scoreboard mock preview (below checkbox container, above footer).
+ * Show the Options-strip scoreboard preview whenever the toggle is on.
  */
 function syncScoreboardPreview() {
   const wrap = $("ap-scoreboard-preview-wrap");
-  if (wrap) wrap.hidden = true;
+  if (wrap) wrap.hidden = !Boolean(teacherState.scoreboard_visible);
 }
 
 /**
@@ -5161,7 +5183,11 @@ async function assign(mode) {
     method: "POST",
     body: JSON.stringify({ present_ids: ids, meeting_date: meeting }),
   });
-  const payload = { n_teams: Number($("ap-n-teams").value), mode };
+  const payload = {
+    n_teams: Number($("ap-n-teams").value),
+    mode,
+    scoreboard_visible: Boolean($("ap-scoreboard-toggle")?.checked),
+  };
   if (mode === "manual") {
     payload.assignments = [...document.querySelectorAll("#ap-manual-list .team-step")].map((el) => ({
       student_id: Number(el.dataset.studentId),
@@ -5500,7 +5526,8 @@ async function startTeamsForCurrentStage() {
     );
     return;
   }
-  const assign = { n_teams: nTeams, mode, present_ids: ids };
+  const scoreboardOn = Boolean($("ap-scoreboard-toggle")?.checked);
+  const assign = { n_teams: nTeams, mode, present_ids: ids, scoreboard_visible: scoreboardOn };
   if (mode === "manual") {
     assign.assignments = [
       ...document.querySelectorAll("#ap-manual-list .team-step"),
@@ -5509,7 +5536,11 @@ async function startTeamsForCurrentStage() {
       team_index: Number(el.dataset.teamIndex),
     }));
   }
-  await patchTeacherState({ teams_mode: "teams", assign });
+  await patchTeacherState({
+    teams_mode: "teams",
+    assign,
+    scoreboard_visible: scoreboardOn,
+  });
   await pollLiveSessionAttendees();
   renderAttendanceList();
 }

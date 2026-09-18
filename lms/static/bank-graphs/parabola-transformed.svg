@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="Transformed parabola">
+  <rect width="320" height="220" fill="#fff"/>
+  <line x1="40" y1="180" x2="300" y2="180" stroke="#334155" stroke-width="2"/>
+  <line x1="120" y1="20" x2="120" y2="200" stroke="#334155" stroke-width="2"/>
+  <path d="M 70 170 Q 120 40 170 170" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6 4"/>
+  <path d="M 90 150 Q 120 60 150 150" fill="none" stroke="#0f766e" stroke-width="3"/>
+</svg>

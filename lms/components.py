@@ -301,16 +301,25 @@ def library_file_path(
     """
     if not library_id or not relpath:
         return None
+    import urllib.parse
+
     key = str(relpath).lstrip("/")
-    row = db.conn.execute(
-        "SELECT blob_sha FROM library_files WHERE library_id = ? AND relpath = ?",
-        (int(library_id), key),
-    ).fetchone()
-    if row is None and not key.startswith("web_resources/"):
+    candidates = [key]
+    decoded = urllib.parse.unquote(key)
+    if decoded != key:
+        candidates.append(decoded)
+    if not key.startswith("web_resources/"):
+        candidates.append(f"web_resources/{key}")
+        if decoded != key:
+            candidates.append(f"web_resources/{decoded}")
+    row = None
+    for candidate in dict.fromkeys(candidates):
         row = db.conn.execute(
             "SELECT blob_sha FROM library_files WHERE library_id = ? AND relpath = ?",
-            (int(library_id), f"web_resources/{key}"),
+            (int(library_id), candidate),
         ).fetchone()
+        if row is not None:
+            break
     if row is None:
         return None
     path = blob_path(Path(data_dir), str(row["blob_sha"]))

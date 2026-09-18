@@ -136,9 +136,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="live-view-canvas"', html)
         self.assertIn('id="live-view-slides"', html)
         self.assertIn('id="live-question-list"', html)
-        self.assertIn("Minds-On", html)
-        self.assertIn("Consolidation", html)
-        self.assertIn(">SET<", html)
+        self.assertNotIn('id="live-round-type"', html)
+        self.assertNotIn('id="live-round-set"', html)
         self.assertIn('id="class-list-pane"', html)
         self.assertIn("course-live", html)
         self.assertIn('id="team-assign-pane"', html)
@@ -149,8 +148,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(">Questions<", html)
         self.assertIn(">Whiteboard<", html)
         self.assertIn(">Slides<", html)
-        self.assertIn('id="live-edit-layout"', html)
-        self.assertIn('id="live-layout-presets"', html)
+        self.assertNotIn('id="live-edit-layout"', html)
+        self.assertNotIn('id="live-layout-presets"', html)
         self.assertIn('id="live-frames"', html)
         self.assertIn('data-frame="A"', html)
         self.assertIn('data-frame="B"', html)
@@ -471,8 +470,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("paintSurfacePublishing();", js)
         self.assertIn("teams.hidden = configured;", js)
         self.assertIn("if (meet) meet.hidden = true;", js)
-        self.assertIn('if (round) round.hidden = stage !== "round";', js)
-        self.assertIn('if (play) play.hidden = !["play", "round_3", "summary"].includes(stage);', js)
+        self.assertIn("optionCardHasVisibleControls(round)", js)
+        self.assertIn("optionCardHasVisibleControls(play)", js)
         self.assertIn("function advanceLivePage(", js)
         self.assertIn("advanceLivePage(-1)", js)
         self.assertIn("advanceLivePage(1)", js)
@@ -644,12 +643,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="ap-scoreboard-toggle"', unlocks_html)
         self.assertIn('id="ap-teams-rename"', unlocks_html)
         self.assertLess(unlocks_html.find('id="session-timer"'), unlocks_html.find('id="live-groups-configured"'))
-        self.assertLess(unlocks_html.find('id="live-run-as-group"'), unlocks_html.find('id="ap-scoreboard-toggle"'))
-        self.assertLess(unlocks_html.find('id="ap-scoreboard-toggle"'), unlocks_html.find('id="ap-teams-rename"'))
+        self.assertLess(unlocks_html.find('id="ap-scoreboard-toggle"'), unlocks_html.find('id="live-groups-configured"'))
+        self.assertLess(unlocks_html.find('id="ap-scoreboard-preview-wrap"'), unlocks_html.find('id="live-groups-configured"'))
+        self.assertLess(unlocks_html.find('id="live-run-as-group"'), unlocks_html.find('id="ap-teams-rename"'))
         strip_html = html.split('id="teams-option-card"')[1].split('id="meet-option-card"')[0]
         self.assertIn('id="ap-n-teams"', strip_html)
         self.assertIn('id="ap-assign-balanced"', strip_html)
         self.assertNotIn('id="ap-scoreboard-toggle"', strip_html)
+        self.assertNotIn('id="ap-scoreboard-preview-wrap"', strip_html)
         self.assertNotIn('id="live-run-as-group"', strip_html)
         self.assertLess(strip_html.find('id="ap-n-teams"'), strip_html.find('id="live-teams-assign"'))
         self.assertLess(strip_html.find('id="live-teams-assign"'), strip_html.find('id="live-teams-start"'))
@@ -1263,66 +1264,43 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("async function advanceTeamsToMeet()", js)
 
     def test_beat33_round_type_dropdown_always_visible(self) -> None:
-        """Beat 33: ROUND OptionsStrip is a type dropdown + SET, even at teams=1."""
+        """Page-4+ round chrome is gone; leftover listeners stay optional."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         strip_html = html.split('id="round-option-card"')[1].split('id="play-option-card"')[0]
-        self.assertIn('id="live-round-picks"', strip_html)
-        self.assertIn('id="live-round-type"', strip_html)
-        self.assertIn('id="live-round-set"', strip_html)
-        self.assertIn(">Minds-On<", strip_html)
-        self.assertIn(">Action<", strip_html)
-        self.assertIn(">Consolidation<", strip_html)
-        self.assertIn(">SET<", strip_html)
-        self.assertIn('value="minds_on"', strip_html)
-        self.assertIn('value="action"', strip_html)
-        self.assertIn('value="consolidation"', strip_html)
-        self.assertNotIn('type="checkbox"', strip_html)
-        self.assertNotIn("data-round=", strip_html)
+        self.assertNotIn('id="live-round-type"', html)
+        self.assertNotIn('id="live-round-set"', html)
+        self.assertNotIn('id="live-edit-layout"', html)
+        self.assertNotIn('id="live-layout-presets"', html)
+        self.assertNotIn('id="live-round-picks"', html)
+        self.assertNotIn(">SET<", strip_html)
         self.assertNotIn('id="live-round-minds-on"', strip_html)
-        self.assertLess(strip_html.find('id="live-round-type"'), strip_html.find('id="live-round-set"'))
-        self.assertIn('id="live-round-picks"', html)
-        self.assertNotRegex(
-            html,
-            r'<div class="live-round-picks"[^>]*id="live-round-picks"[^>]*\bhidden\b',
-        )
         self.assertNotIn("Always 3 rounds", strip_html)
         self.assertNotIn("Keep teams", strip_html)
         self.assertNotIn("Reassign teams", strip_html)
         self.assertNotIn("Start Round 1", strip_html)
-        self.assertNotIn("Start Round", strip_html)
-        self.assertNotIn("Set up one round at a time", strip_html)
         self.assertNotIn("live-team-keep", strip_html)
-        self.assertNotIn('class="live-round-pick is-active"', strip_html)
         self.assertLess(html.index('id="round-option-card"'), html.index('class="live-shell-body"'))
         self.assertGreater(html.index('id="class-list-pane"'), html.index('id="live-shell-left"'))
         self.assertLess(html.index('id="class-list-pane"'), html.index('id="live-active-content"'))
         left_html = html[html.index('id="live-shell-left"') : html.index('id="live-shell-right"')]
-        self.assertNotIn('id="live-round-picks"', left_html)
         self.assertNotIn('id="live-round-set"', left_html)
         self.assertIn("function paintRoundStrip()", js)
+        self.assertIn("function optionCardHasVisibleControls(", js)
         self.assertIn("function readRoundFlags()", js)
         self.assertIn("function commitRoundType()", js)
         self.assertIn('$("live-round-type")?.addEventListener("change"', js)
+        self.assertIn('$("live-round-set")?.addEventListener("click"', js)
         self.assertIn("function readRoundTypeFromState()", js)
         paint = js.split("function paintRoundStrip()")[1].split("function ")[0]
-        self.assertIn("picks.hidden = false", paint)
         self.assertNotIn("currentTeamCount()", paint)
         self.assertNotIn("picks.hidden = !team", js)
-        self.assertIn('$("live-round-set")?.addEventListener("click"', js)
-        set_click = js.split('$("live-round-set")?.addEventListener("click"')[1].split(
-            '$("text-ride-freeze")'
-        )[0]
-        self.assertNotIn("currentTeamCount() <= 1", set_click)
-        self.assertIn("commitRoundType()", set_click)
-        self.assertIn("round_flags: flags", js)
-        self.assertIn("round: selected", js)
-        self.assertIn("patchTeacherState({ round: selected, round_flags: flags })", js)
-        self.assertNotIn("cue_id", set_click)
         option = js.split("function paintOptionCard()")[1].split("function paintFrames()")[0]
         self.assertIn("paintRoundStrip();", option)
+        self.assertIn("optionCardHasVisibleControls(round)", option)
+        self.assertIn("optionCardHasVisibleControls(play)", option)
         self.assertIn("rounds.hidden = true", option)
         self.assertNotIn("innerHTML", option)
         self.assertIn("paintRoundStrip();", js.split("function paintTeamsStripEnabled()")[1].split("function paintRoundStrip()")[0])
@@ -1331,20 +1309,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("const pointsButton =", js)
         self.assertIn("closed", js.split("const pointsButton =")[1].split("function individualLifecycleResultsHtml")[0])
         self.assertIn("body.staff-shell .live-round-strip {", css)
-        strip_css = css.split("body.staff-shell .live-round-strip {")[1].split("}")[0]
-        self.assertIn("flex-wrap: nowrap", strip_css)
-        self.assertIn("max-height: var(--live-options-row-h)", strip_css)
-        self.assertIn(
-            "body.staff-shell .live-option-card-body.live-round-strip",
-            css,
-        )
-        specific_round = css.split(
-            "body.staff-shell .live-option-card-body.live-round-strip"
-        )[1].split("}")[0]
-        self.assertIn("flex-wrap: nowrap", specific_round)
         self.assertIn("max-height: var(--live-options-max-h)", css)
-        self.assertIn("body.staff-shell .live-round-picks[hidden] {", css)
-        self.assertIn("body.staff-shell .live-round-strip #live-round-type", css)
         self.assertIn(
             "grid-template-columns: var(--live-left-width) minmax(0, 1fr)",
             css,
