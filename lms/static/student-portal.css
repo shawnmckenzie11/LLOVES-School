@@ -2039,3 +2039,17 @@ body.staff-shell .prompt-choice .live-question-html img,
   max-width: 12rem;
 }
 
+
+
+/* KaTeX / bank equation spans in live MC HTML */
+.live-question-html .math-latex,
+.prompt-title .math-latex,
+.prompt-choice .math-latex {
+  display: inline-block;
+  vertical-align: middle;
+}
+.live-question-html .katex,
+.prompt-title .katex,
+.prompt-choice .katex {
+  font-size: 1.05em;
+}

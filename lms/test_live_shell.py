@@ -172,6 +172,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('id="track-accordion"', html)
         self.assertNotIn("data-accordion-toggle", html)
         self.assertEqual(html.count('id="ap-media-preview"'), 1)
+        self.assertIn('id="ap-media-copy-editor"', html)
+        self.assertIn('id="ap-media-stem"', html)
+        self.assertIn('id="live-add-question-btn"', html)
+        self.assertIn('id="live-add-question-dialog"', html)
+        self.assertIn('id="live-add-q-equation-preview"', html)
+        self.assertIn('data-eq-insert="\\frac{a}{b}"', html)
+        self.assertIn('name="live-add-q-bank-scope" value="M1"', html)
+        self.assertIn('name="live-add-q-bank-scope" value="M8"', html)
+        self.assertIn('name="live-add-q-bank-scope" value="course"', html)
+        self.assertIn("Course Wide", html)
+        self.assertNotIn("This module", html)
         self.assertNotIn("Media + Q", html)
         self.assertNotIn("A / B / C", html)
         js_shell = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
@@ -2128,6 +2139,46 @@ class LiveShellTests(unittest.TestCase):
             js,
         )
         self.assertNotIn("if (pageIndex === currentPageIndex) return \"\";", body)
+
+    def test_open_relocate_dialog_fills_pages_for_engine_ride(self) -> None:
+        """(Re)move always lists rail pages, including for teams_spark."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function openRelocateDialog(", js)
+        body = js.split("function openRelocateDialog(")[1].split(
+            "function closeRelocateDialog("
+        )[0]
+        self.assertNotIn("select.innerHTML = engineRide", body)
+        self.assertNotIn('select.innerHTML = ""', body)
+        self.assertIn(
+            "playlistMovePageOptions(currentLivePageIndex() + 1)",
+            body,
+        )
+        self.assertNotIn("moveSection.hidden = engineRide", body)
+        self.assertNotIn("moveBtn.disabled =\n      engineRide", body)
+
+    def test_relocate_adopts_playlist_metadata_payload(self) -> None:
+        """Move/remove JS adopts API live_metadata instead of only filtering."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        body = js.split("async function relocatePlaylistItem(")[1].split(
+            "function playlistPageLabel("
+        )[0]
+        self.assertIn("applyLiveMcImportPayload(result)", body)
+        self.assertIn("if (!result?.live_metadata)", body)
+        self.assertIn("refreshLessonDeckMetadata()", body)
+        self.assertIn("questionCardsFromMetadata(", js)
+
+    def test_current_page_rows_honor_overlay_page_number(self) -> None:
+        """Custom overlay pages still show questions bound to their page_number."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        body = js.split("function currentPageQuestionRows()")[1].split(
+            "function liveQuestionEquationHtml("
+        )[0]
+        self.assertNotIn("if (isBlankOverlayLivePage()) return [];", body)
+        self.assertIn("if (pageIndex > 0 && cardPage > 0) return cardPage === pageIndex", body)
+        self.assertIn("if (blankOverlay) return false", body)
 
 if __name__ == "__main__":
     unittest.main()

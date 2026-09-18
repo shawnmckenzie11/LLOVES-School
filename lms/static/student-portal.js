@@ -1,6 +1,7 @@
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
+import { renderLiveQuestionMath } from "/static/common.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -547,6 +548,20 @@ function lifecyclePromptHtml(content) {
   const rendered = String(content?.text_html || "").trim();
   if (rendered) return `<span class="live-question-html">${rendered}</span>`;
   return formatPromptHtml(content?.text || content?.prompt || content?.question || "Live question");
+}
+
+/**
+ * Render optional LaTeX under the student stem, never concatenated into text.
+ * @param {any} content
+ * @returns {string}
+ */
+function lifecycleEquationHtml(content) {
+  const latex = String(content?.equation_latex || content?.equation || "").trim();
+  if (!latex) return "";
+  const raw = latex.replace(/^\$+|\$+$/g, "").trim();
+  return `<p class="student-live-equation"><span class="math-latex" data-latex="${escapeText(
+    raw
+  )}"></span></p>`;
 }
 
 /** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
@@ -1415,18 +1430,14 @@ function stageNumberForItem(item, payload) {
   return { join: 1, teams: 2, meet: 3, round: 4, play: 5 }[stage] || 1;
 }
 
+/**
+ * Dock chip for a submitted card: answered, never hit/miss.
+ * @param {any} item
+ * @returns {string}
+ */
 function dockAnswerMark(item) {
-  const content = item?.content || item?.prompt?.payload || {};
   const submitted = Boolean(item?.my_response);
   if (!submitted) return "—";
-  const isPoll = !content.key && !content.correct && String(content.type || content.kind || "").toLowerCase() !== "mc";
-  const feedback = item?.my_response?.feedback || {};
-  if (feedback.correct === true) return "✓";
-  if (feedback.correct === false) return "✕";
-  const lead = String(feedback.lead || "").toLowerCase();
-  if (lead.includes("correct") || lead.includes("yes")) return "✓";
-  if (lead.includes("miss") || lead.includes("wrong") || lead.includes("not quite")) return "✕";
-  if (isPoll || !content.key) return "S";
   return "S";
 }
 
@@ -1520,7 +1531,11 @@ function lifecycleAnswerKind(item) {
   ) {
     return "numeric";
   }
-  return String(prompt.kind || content.type || "mc").toLowerCase();
+  const type = String(content.type || prompt.kind || "mc").toLowerCase();
+  if (type === "poll" && !liveChoiceLabels(content).length) {
+    return "text";
+  }
+  return type;
 }
 
 /**
@@ -1809,13 +1824,6 @@ function paintLifecycleQuestionStack(payload) {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
       const groupMode = item.response_mode === "group_consensus";
-      const feedback =
-        !groupMode && item.my_response?.feedback
-          ? `<section class="student-live-feedback">
-              <strong>${escapeText(item.my_response.feedback.lead || "Response received.")}</strong>
-              <p>${escapeText(item.my_response.feedback.text || "")}</p>
-            </section>`
-          : "";
       const individualControls =
         !groupMode && !item.my_response && item.can_submit
           ? lifecycleAnswerControls(
@@ -1861,15 +1869,17 @@ function paintLifecycleQuestionStack(payload) {
         </div>
         ${questionImageHtmlStudent(content.image_url)}
         <h2>${lifecyclePromptHtml(content)}</h2>
+        ${lifecycleEquationHtml(content)}
         ${
           groupMode
             ? lifecycleConsensusHtml(item)
-            : `${individualControls}${feedback}`
+            : individualControls
         }
         ${results}
       </article>`;
     })
     .join("");
+  void renderLiveQuestionMath(liveQuestionStackBody);
   visible.forEach((item, index) => {
     const card = liveQuestionStackBody.querySelector(
       `[data-live-card-key="${CSS.escape(liveCardDockKey(item))}"]`
@@ -1922,7 +1932,9 @@ function mergeLifecycleSubmitResponse(payload, item, data) {
   const promptId = Number(item.prompt?.id) || 0;
   const itemId = Number(item.id) || 0;
   const myResponse = data.my_response || null;
-  const tally = data.mc_tally;
+  const allowTally =
+    String(item.status || "") === "closed" || item.show_live_results !== false;
+  const tally = allowTally ? data.mc_tally : null;
   const active = Array.isArray(payload.active_questions)
     ? payload.active_questions.slice()
     : [];
@@ -2157,7 +2169,7 @@ function paintPrompt(payload) {
  */
 function renderPromptBody(prompt, data, payload, lockChoices) {
   const kind = String(prompt.kind);
-  const title = formatPromptHtml(data.prompt || data.question || "Live response");
+  const title = lifecyclePromptHtml(data);
   const picked = String(
     (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
       (payload.group_draft && payload.group_draft.choice) ||
@@ -2181,7 +2193,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
           const label = typeof choice === "string" ? choice : `Option ${index + 1}`;
           const on = picked && label === picked ? " is-selected" : "";
           const optionHtml = Array.isArray(data.options_html) && data.options_html[index]
-            ? String(data.options_html[index])
+            ? `<span class="live-question-html">${String(data.options_html[index])}</span>`
             : formatPromptHtml(label);
           return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
             picked && lockChoices ? " disabled" : ""
@@ -2265,6 +2277,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   if (!lockChoices && !studentPollClosed(payload)) {
     wirePromptControls(prompt);
   }
+  void renderLiveQuestionMath(promptShell);
 }
 
 /**
@@ -2322,6 +2335,7 @@ function wirePromptControls(prompt) {
 
 /**
  * Student-safe feedback object from submit JSON or my_response.
+ * Leftover keyed miss/hit payloads stay hidden; cards never paint lead/why.
  * @param {any} data
  * @returns {{text: string, lead: string, source: string, match?: boolean} | null}
  */
@@ -2333,12 +2347,7 @@ function feedbackObject(data) {
   const text = String(fb.text || "").trim();
   const lead = String(fb.lead || "").trim();
   if (!text && !lead) return null;
-  return {
-    text,
-    lead,
-    source: String(fb.source || "").trim(),
-    match: Boolean(fb.match),
-  };
+  return null;
 }
 
 /**

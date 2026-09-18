@@ -86,7 +86,6 @@ from live_media import (  # noqa: E402
 )
 from live_class_packs import live_class_registry  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
-from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
 from minds_on import is_minds_on_payload  # noqa: E402
 from components import (  # noqa: E402
@@ -2894,27 +2893,88 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         module_key = str(module or "").strip().upper()
         slot_key = str(slot or "").strip().upper()
-        live_metadata = school.live_class_metadata_for_class_lesson(
-            int(class_id), module_key, slot_key
-        )
         response: dict[str, Any] = {
             "ok": True,
             "placement": placement,
-            "live_metadata": live_metadata,
+            **school.playlist_staff_snapshot(int(class_id), module_key, slot_key),
         }
-        active = school.get_active_live_session_for_class(int(class_id))
-        if active is not None:
-            teacher = school.live_session_teacher_state_payload(int(active["id"]))
-            live_module = str(teacher.get("live_module") or "M1").upper()
-            live_slot = str(teacher.get("live_slot") or "C1").upper()
-            if live_module == module_key and live_slot == slot_key:
-                session_id = int(active["id"])
-                school.ensure_live_session_items_if_stale(session_id)
-                response["live_items"] = school.list_live_session_items(session_id)
-                response["question_cards"] = school.live_session_question_cards(
-                    session_id
-                )
         return jsonify(response)
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/add-question",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_add_live_question(class_id: int, module: str, slot: str):
+        """Add a staff-authored MC, numeric, or poll onto the current page."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            page_number = int(body.get("page_number") or body.get("pageNumber") or 1)
+        except (TypeError, ValueError):
+            page_number = 1
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, _error = _ready_library(school, cls)
+        save_raw = body.get("save_to_bank")
+        if save_raw is None:
+            save_raw = body.get("saveToBank")
+        save_to_bank = bool(save_raw)
+        if isinstance(save_raw, str):
+            save_to_bank = save_raw.strip().lower() in {"1", "true", "yes"}
+        try:
+            placement = school.add_staff_question_to_class_playlist(
+                int(class_id),
+                str(module or "").strip().upper(),
+                str(slot or "").strip().upper(),
+                question_type=str(body.get("type") or body.get("question_type") or ""),
+                text=str(body.get("text") or body.get("stem") or ""),
+                page_number=page_number,
+                stage=str(body.get("stage") or "round"),
+                options=list(body.get("options") or []),
+                correct_index=body.get("correct_index", body.get("correctIndex")),
+                correct_answer=body.get("correct_answer", body.get("correctAnswer")),
+                tolerance=body.get("tolerance"),
+                tolerance_kind=body.get("tolerance_kind", body.get("toleranceKind")),
+                equation=body.get("equation") or body.get("equation_latex"),
+                image_url=body.get("image_url") or body.get("imageUrl"),
+                save_to_bank=save_to_bank,
+                bank_scope=str(body.get("bank_scope") or body.get("bankScope") or "module"),
+                library_id=int(library_id) if library_id else None,
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        return jsonify(
+            {
+                "ok": True,
+                "placement": placement,
+                **school.playlist_staff_snapshot(int(class_id), module_key, slot_key),
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-question-image",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_upload_live_question_image(class_id: int):
+        """Store one staff-authored question image on the data volume."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        uploaded = request.files.get("image") or request.files.get("file")
+        try:
+            stored = school.store_live_question_image(int(class_id), uploaded)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **stored})
 
     def _staff_relocate_playlist_item_response(
         class_id: int,
@@ -2950,7 +3010,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 404
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
-        return jsonify({"ok": True, **result})
+        snapshot = school.playlist_staff_snapshot(
+            int(class_id), module_key, slot_key
+        )
+        return jsonify({"ok": True, **result, **snapshot})
 
     @app.route(
         "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/playlist-item",
@@ -3365,6 +3428,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if ctx is None:
             return None
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
+
+    @app.route(
+        "/api/classes/<int:class_id>/live-question-images/<path:filename>"
+    )
+    @login_required
+    def serve_live_question_image(class_id: int, filename: str):
+        """Serve one staff-authored live question image to class participants."""
+        user = current_user()
+        assert user is not None
+        allowed = school.teacher_owns_class(int(user["id"]), int(class_id))
+        if not allowed:
+            ctx = _student_live_context()
+            allowed = bool(ctx and int(ctx.get("class_id") or 0) == int(class_id))
+        if not allowed:
+            abort(403)
+        path = school.live_question_image_path(int(class_id), filename)
+        if path is None:
+            abort(404)
+        return send_from_directory(path.parent, path.name)
 
     def _ended_student_response(*, as_json: bool = False):
         """Clear student keys + rejoin cookie and return to the landing page."""
@@ -3944,7 +4026,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
     def api_student_live_prompt_response():
-        """Submit a live-prompt response; return instant text feedback when keyed."""
+        """Submit a live-prompt response; ack only, never keyed student copy."""
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
             return denied
@@ -4073,8 +4155,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
             if recorded is None and not choice:
                 return jsonify({"ok": False, "error": "Meet is not live."}), 409
+            try:
+                teacher = school.live_session_teacher_state_payload(live_session_id)
+            except KeyError:
+                teacher = None
             tally = school.live_session_mc_tally(live_session_id)
-            if tally is not None:
+            if tally is not None and school._student_may_see_tally(
+                live_session_id,
+                target,
+                my_response=my_response,
+                teacher=teacher,
+            ):
                 body["mc_tally"] = tally
             return jsonify(body)
         try:
@@ -4091,18 +4182,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "awarded_points": saved.get("awarded_points"),
             "updated_at": saved.get("updated_at"),
         }
-        fragment = public_feedback_fragment(
-            (target or {}).get("payload") or {}, my_response["response"]
-        )
-        if fragment:
-            my_response["feedback"] = fragment
         body: dict[str, Any] = {
             "ok": True,
             "ack": True,
             "my_response": my_response,
         }
-        if fragment:
-            body["feedback"] = fragment
         try:
             teacher = school.live_session_teacher_state_payload(live_session_id)
         except KeyError:
@@ -4110,7 +4194,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         tally = school._tally_for_prompt(live_session_id, target, teacher)
         if tally is None:
             tally = school.live_session_mc_tally(live_session_id)
-        if tally is not None:
+        if tally is not None and school._student_may_see_tally(
+            live_session_id,
+            target,
+            my_response=my_response,
+            teacher=teacher,
+        ):
             body["mc_tally"] = tally
         return jsonify(body)
 

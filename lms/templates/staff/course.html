@@ -381,12 +381,30 @@
                     <button type="button" class="secondary" data-surface-close="media" disabled>Close</button>
                   </div>
                   <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
+                  <form id="ap-media-copy-editor" class="ap-media-copy-editor" hidden>
+                    <p class="ap-media-copy-label">Student-facing text</p>
+                    <label class="ap-media-copy-field" for="ap-media-stem">
+                      <span>Title / stem</span>
+                      <input id="ap-media-stem" type="text" maxlength="240" autocomplete="off">
+                    </label>
+                    <label class="ap-media-copy-field" for="ap-media-caption">
+                      <span>Caption</span>
+                      <input id="ap-media-caption" type="text" maxlength="240" autocomplete="off">
+                    </label>
+                    <div class="ap-media-copy-row">
+                      <button type="submit" id="ap-media-copy-save" class="secondary live-q-btn">Save student text</button>
+                      <p id="ap-media-copy-status" class="hint compact" hidden></p>
+                    </div>
+                  </form>
                 </section>
               </section>
               <section id="question-artifact-zone" class="live-content-slot live-flag-panel is-flagged" data-content-id="questions" data-flag="question" data-slot="A">
                 <div class="live-content-pane-head live-questions-head">
                   <h2 class="live-pane-title">Questions</h2>
-                  <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
+                  <div class="live-questions-head-actions">
+                    <button type="button" id="live-add-question-btn" class="secondary live-q-btn">Add New</button>
+                    <button type="button" id="live-import-mc-btn" class="secondary live-q-btn">Import from bank</button>
+                  </div>
                 </div>
                 <div id="live-question-list" class="live-question-list" aria-live="polite"></div>
                 <p class="hint compact" id="question-artifact-status" hidden></p>
@@ -527,6 +545,76 @@
           <button type="button" data-response-select="correct">+1 Everyone correct</button>
           <button type="button" data-response-select="manual">+1 Selected</button>
           <button type="button" data-response-commit>Award Points</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="live-add-question-dialog" class="live-relocate-dialog" aria-labelledby="live-add-question-title">
+      <form id="live-add-question-form" class="live-relocate-dialog-card live-add-question-card">
+        <header class="live-relocate-head">
+          <h2 id="live-add-question-title" class="live-pane-title">Add New question</h2>
+          <button type="button" class="secondary live-q-btn" data-live-add-question-close aria-label="Close">Close</button>
+        </header>
+        <fieldset class="live-add-page-kinds">
+          <legend class="live-relocate-move-field">Type</legend>
+          <label><input type="radio" name="live-add-q-type" value="mc" checked> Multiple choice</label>
+          <label><input type="radio" name="live-add-q-type" value="numeric"> Numeric</label>
+          <label><input type="radio" name="live-add-q-type" value="poll"> Poll</label>
+        </fieldset>
+        <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>
+        <textarea id="live-add-q-text" rows="3" maxlength="2000" required></textarea>
+        <fieldset class="live-add-q-equation-block">
+          <legend class="live-relocate-move-field">Equation (optional, shown below the question)</legend>
+          <p class="hint compact">Separate from the question text. Insert LaTeX, then check the preview.</p>
+          <div class="live-add-q-eq-toolbar" role="group" aria-label="Equation shortcuts">
+            <button type="button" class="secondary live-q-btn" data-eq-insert="\frac{a}{b}">frac</button>
+            <button type="button" class="secondary live-q-btn" data-eq-insert="\sqrt{}">sqrt</button>
+            <button type="button" class="secondary live-q-btn" data-eq-insert="^{}">^</button>
+            <button type="button" class="secondary live-q-btn" data-eq-insert="_{}">_</button>
+          </div>
+          <label class="live-relocate-move-field" for="live-add-q-equation">LaTeX</label>
+          <textarea id="live-add-q-equation" rows="2" maxlength="1000" placeholder="e.g. y = x^2"></textarea>
+          <p class="live-relocate-move-field">Preview</p>
+          <div id="live-add-q-equation-preview" class="live-add-q-equation-preview" aria-live="polite"></div>
+        </fieldset>
+        <label class="live-relocate-move-field" for="live-add-q-image">Image (optional)</label>
+        <input id="live-add-q-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+        <div id="live-add-q-mc-fields" class="live-add-q-type-fields">
+          <p class="live-relocate-section-label">Four options — mark the correct one</p>
+          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="0" checked> <input id="live-add-q-opt-0" type="text" maxlength="240" placeholder="A"></label>
+          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="1"> <input id="live-add-q-opt-1" type="text" maxlength="240" placeholder="B"></label>
+          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="2"> <input id="live-add-q-opt-2" type="text" maxlength="240" placeholder="C"></label>
+          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
+        </div>
+        <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
+          <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>
+          <input id="live-add-q-numeric-answer" type="text" inputmode="decimal">
+          <div class="live-add-q-tolerance-row">
+            <label class="live-relocate-move-field" for="live-add-q-tolerance">Error margin</label>
+            <input id="live-add-q-tolerance" type="text" inputmode="decimal" value="0">
+            <select id="live-add-q-tolerance-kind" aria-label="Tolerance kind">
+              <option value="absolute">Absolute</option>
+              <option value="percent">Percent</option>
+            </select>
+          </div>
+        </div>
+        <label class="live-add-q-bank">
+          <input id="live-add-q-save-bank" type="checkbox"> Save to bank
+        </label>
+        <fieldset id="live-add-q-bank-scope" class="live-add-page-kinds" hidden>
+          <legend class="live-relocate-move-field">Save to bank in</legend>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M1" checked> Module 1</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M2"> Module 2</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M3"> Module 3</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M4"> Module 4</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M5"> Module 5</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M6"> Module 6</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M7"> Module 7</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="M8"> Module 8</label>
+          <label><input type="radio" name="live-add-q-bank-scope" value="course"> Course Wide</label>
+        </fieldset>
+        <p id="live-add-q-error" class="error compact" hidden></p>
+        <div class="live-relocate-move-row">
+          <button type="submit" class="live-q-btn" id="live-add-q-submit">Add to this page</button>
         </div>
       </form>
     </dialog>

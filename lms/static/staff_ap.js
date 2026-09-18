@@ -8,6 +8,7 @@ import {
   formatQuestionHtml,
   questionFieldHtml,
   questionImageHtml,
+  renderLiveQuestionMath,
   formatCountdown,
   formatPoints,
   hideError,
@@ -1104,7 +1105,10 @@ function paintLiveQuestionBody(stem, choices) {
   const stemEl = $("live-question-stem");
   const choicesEl = $("live-question-choices");
   const text = String(stem || "").trim();
-  if (stemEl) stemEl.innerHTML = formatQuestionHtml(text);
+  if (stemEl) {
+    stemEl.innerHTML = formatQuestionHtml(text);
+    void renderLiveQuestionMath(stemEl);
+  }
   if (choicesEl) {
     const labels = Array.isArray(choices) ? choices.filter(Boolean) : [];
     choicesEl.textContent = labels.length ? labels.join(" · ") : "";
@@ -1371,7 +1375,7 @@ function applyLiveMcImportPayload(payload) {
     lastLiveItems = payload.live_items;
   }
   if (Array.isArray(payload?.question_cards)) {
-    lastQuestionCards = payload.question_cards;
+    lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
   }
 }
 
@@ -1468,19 +1472,63 @@ async function refreshLiveQuestionCards() {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
   const snapshot = await api(`/api/live-sessions/${id}/state`);
-  if (Array.isArray(snapshot?.question_cards)) {
-    lastQuestionCards = snapshot.question_cards;
+  if (snapshot?.live_metadata) {
+    lastLiveMetadata = snapshot.live_metadata;
   }
   if (Array.isArray(snapshot?.live_items)) {
     lastLiveItems = snapshot.live_items;
   }
-  if (snapshot?.live_metadata) {
-    lastLiveMetadata = snapshot.live_metadata;
+  if (Array.isArray(snapshot?.question_cards)) {
+    lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
   }
   if (Array.isArray(snapshot?.active_questions)) {
     lastActiveQuestions = snapshot.active_questions;
   }
   paintLiveQuestionCards();
+}
+
+/**
+ * Build staff cards from merged deck metadata so dest-page items survive
+ * a current-page-only ``/state`` snapshot after a move.
+ * @param {any[]} [serverCards]
+ * @returns {any[]}
+ */
+function questionCardsFromMetadata(serverCards) {
+  const incoming = Array.isArray(serverCards) ? serverCards : [];
+  const metaQs =
+    metadataMatchesCurrentPack() && Array.isArray(lastLiveMetadata?.questions)
+      ? lastLiveMetadata.questions
+      : [];
+  if (!metaQs.length) return incoming;
+  const byId = new Map();
+  for (const question of metaQs) {
+    if (!question || typeof question !== "object") continue;
+    if (question.removed || question.hidden) continue;
+    const kind = String(question.item_type || question.kind || question.type || "question")
+      .trim()
+      .toLowerCase();
+    if (kind in { media: 1, whiteboard: 1, slides: 1 }) continue;
+    const token = String(question.id || question.item_id || "").trim();
+    if (!token) continue;
+    const server = incoming.find(
+      (row) => String(row?.id || row?.item_id || "").trim() === token
+    );
+    byId.set(token, {
+      ...(server || {}),
+      ...question,
+      id: token,
+      item_id: token,
+      stage: question.stage || server?.stage,
+      page_number: question.page_number ?? server?.page_number,
+      text: question.text || question.prompt || server?.text,
+      options: question.options || server?.options || [],
+    });
+  }
+  for (const card of incoming) {
+    const token = String(card?.id || card?.item_id || "").trim();
+    if (token && !byId.has(token)) byId.set(token, card);
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -1507,7 +1555,7 @@ async function relocatePlaylistItem(itemId, payload) {
   const token = String(itemId || "").trim();
   if (!classId) throw new Error("Class is not loaded.");
   if (!token) throw new Error("Question id is missing.");
-  await api(
+  const result = await api(
     `/api/staff/class/${classId}/live-lessons/${module}/${slot}/playlist-item`,
     {
       method: "POST",
@@ -1518,8 +1566,16 @@ async function relocatePlaylistItem(itemId, payload) {
       }),
     }
   );
-  applyLocalPlaylistCardChange(token);
+  applyLiveMcImportPayload(result);
+  if (!result?.live_metadata) {
+    applyLocalPlaylistCardChange(token);
+  }
+  await refreshLessonDeckMetadata();
+  lastQuestionCards = questionCardsFromMetadata(
+    Array.isArray(result?.question_cards) ? result.question_cards : lastQuestionCards
+  );
   paintLiveQuestionCards();
+  paintQuestionArtifact();
   staffStateNeedsFull = true;
   try {
     await refreshLiveQuestionCards();
@@ -1546,7 +1602,8 @@ function playlistPageLabel(pageIndex) {
 }
 
 /**
- * True when the item is a built-in engine ride that cannot relocate pages.
+ * True when the item is a built-in engine ride (waiting-room, spark, Meet, challenge).
+ * Used for badges and labels; does not block (Re)move.
  * @param {string} itemId
  * @returns {boolean}
  */
@@ -1562,6 +1619,7 @@ function isEngineRideItemId(itemId) {
 
 /**
  * Open the shared move/remove confirmation dialog for one playlist item.
+ * Every question — bank, seed, or engine ride — gets the same rail page list.
  * @param {string} itemId
  * @param {string} label
  */
@@ -1573,7 +1631,6 @@ function openRelocateDialog(itemId, label) {
   const preview = $("live-relocate-preview");
   const select = $("live-relocate-page");
   const err = $("live-relocate-error");
-  const engineRide = isEngineRideItemId(token);
   if (err instanceof HTMLElement) {
     err.hidden = true;
     err.textContent = "";
@@ -1582,18 +1639,17 @@ function openRelocateDialog(itemId, label) {
     preview.textContent = pendingRelocate.label;
   }
   if (select instanceof HTMLSelectElement) {
-    select.innerHTML = engineRide
-      ? ""
-      : playlistMovePageOptions(currentLivePageIndex() + 1);
-    select.disabled = engineRide || !select.options.length;
+    select.innerHTML = playlistMovePageOptions(currentLivePageIndex() + 1);
+    select.disabled = !select.options.length;
   }
   const moveBtn = $("live-relocate-move");
   if (moveBtn instanceof HTMLButtonElement) {
-    moveBtn.disabled =
-      engineRide || !(select instanceof HTMLSelectElement && select.options.length);
+    moveBtn.disabled = !(
+      select instanceof HTMLSelectElement && select.options.length
+    );
   }
   const moveSection = select?.closest(".live-relocate-section");
-  if (moveSection instanceof HTMLElement) moveSection.hidden = engineRide;
+  if (moveSection instanceof HTMLElement) moveSection.hidden = !select?.options?.length;
   if (dialog instanceof HTMLDialogElement) dialog.showModal();
 }
 
@@ -1690,9 +1746,9 @@ function deckQuestionRows() {
           [],
       },
       live_item_id: lifecycle?.id || server?.live_item_id || null,
-      stage: question.stage || server?.stage || lifecycle?.stage,
+      stage: question.stage || lifecycle?.stage || server?.stage,
       page_number:
-        question.page_number ?? server?.page_number ?? lifecycle?.page_number,
+        question.page_number ?? lifecycle?.page_number ?? server?.page_number,
       order: question.order ?? server?.order ?? lifecycle?.order,
       text:
         (server && (server.text || server.item?.text)) ||
@@ -1716,8 +1772,8 @@ function deckQuestionRows() {
 }
 
 /**
- * Questions on the teacher's current lesson page (stage + page index).
- * @returns {any[]}
+ * True when cached live_metadata belongs to the teacher's current module/slot.
+ * @returns {boolean}
  */
 function metadataMatchesCurrentPack() {
   const meta = lastLiveMetadata;
@@ -1731,6 +1787,10 @@ function metadataMatchesCurrentPack() {
   return true;
 }
 
+/**
+ * Waiting-room prompt as a deck row on the Join page only.
+ * @returns {any|null}
+ */
 function joinPromptCardRow() {
   if (isBlankOverlayLivePage()) return null;
   if (String(teacherState.stage || "") !== "join") return null;
@@ -1765,10 +1825,15 @@ function joinPromptCardRow() {
   };
 }
 
+/**
+ * Questions on the teacher's current lesson page (stored page_number, then stage).
+ * Overlay pages still list items bound to that stored page_number.
+ * @returns {any[]}
+ */
 function currentPageQuestionRows() {
-  if (isBlankOverlayLivePage()) return [];
   const pageIndex = currentLivePageNumber();
   const stageKey = String(teacherState.stage || "");
+  const blankOverlay = isBlankOverlayLivePage();
   return deckQuestionRows().filter((card) => {
     const cardPage = Number(card.page_number || 0);
     const cardStage = String(card.stage || "");
@@ -1779,7 +1844,9 @@ function currentPageQuestionRows() {
     ) {
       return cardStage === "join" || token.replace(/-/g, "_") === "minds_on";
     }
+    // Class-added overlay pages still show items staff placed on this stored page.
     if (pageIndex > 0 && cardPage > 0) return cardPage === pageIndex;
+    if (blankOverlay) return false;
     return cardStage === stageKey;
   });
 }
@@ -1790,6 +1857,23 @@ function currentPageQuestionRows() {
  * @param {any} card
  * @returns {boolean}
  */
+/**
+ * Render optional LaTeX under a staff question stem.
+ * @param {any} item
+ * @param {any} card
+ * @returns {string}
+ */
+function liveQuestionEquationHtml(item, card) {
+  const latex = String(
+    item?.equation_latex || item?.equation || card?.equation_latex || card?.equation || ""
+  ).trim();
+  if (!latex) return "";
+  const raw = latex.replace(/^\$+|\$+$/g, "").trim();
+  return `<p class="live-question-equation"><span class="math-latex" data-latex="${escapeHtml(
+    raw
+  )}"></span></p>`;
+}
+
 function liveQuestionIsOpenEnded(item, card) {
   const id = String(item?.id || card?.item_id || card?.id || "")
     .toLowerCase()
@@ -1797,7 +1881,7 @@ function liveQuestionIsOpenEnded(item, card) {
   if (["meet-team", "meet-a", "meet-b", "meet-c"].includes(id)) return false;
   const type = String(item?.type || card?.type || "").toLowerCase();
   return (
-    ["numeric", "text", "open", "share"].includes(type) ||
+    ["numeric", "text", "open", "share", "poll"].includes(type) ||
     Boolean(item?.integer_only || card?.integer_only)
   );
 }
@@ -1820,11 +1904,15 @@ function paintLiveQuestionCards() {
   const cards = currentPageQuestionRows().map((card) => {
       const lifecycle = lifecycleById.get(Number(card.live_item_id));
       const prompt = activeByItem.get(String(card.id || card.item_id || ""));
+      const pageNumber = card.page_number;
+      const stage = card.stage;
       return {
         ...card,
         ...(lifecycle || {}),
         item: card.item || lifecycle?.item || card,
         text: card.text || card.item?.text || lifecycle?.item?.text,
+        page_number: pageNumber ?? lifecycle?.page_number,
+        stage: stage || lifecycle?.stage,
         prompt_id: Number(prompt?.id || lifecycle?.prompt_id || card.prompt_id) || 0,
       };
     });
@@ -1832,7 +1920,7 @@ function paintLiveQuestionCards() {
     const deckTotal = deckQuestionRows().length;
     host.innerHTML =
       deckTotal > 0
-        ? `<p class="hint compact">No questions on this page yet. Use Import from bank to add one here.</p>`
+        ? `<p class="hint compact">No questions on this page yet. Use Add New or Import from bank to add one here.</p>`
         : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
     return;
   }
@@ -1981,6 +2069,7 @@ function paintLiveQuestionCards() {
           </div>
           ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
           <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.text || item.prompt || card.text || "")}</div>
+          ${liveQuestionEquationHtml(item, card)}
           ${optionHtml}
           ${resultHtml}
           ${progress}
@@ -1991,6 +2080,7 @@ function paintLiveQuestionCards() {
       </article>`;
     })
     .join("");
+  void renderLiveQuestionMath(host);
 }
 
 /**
@@ -2123,7 +2213,7 @@ async function setQuestionStudentView(questionId, mode) {
   );
   if (result?.teacher_state) adoptTeacherState(result.teacher_state);
   if (Array.isArray(result?.question_cards)) {
-    lastQuestionCards = result.question_cards;
+    lastQuestionCards = questionCardsFromMetadata(result.question_cards);
     paintLiveQuestionCards();
   }
 }
@@ -2914,10 +3004,10 @@ async function pollLiveSessionAttendees(opts = {}) {
     if (payload?.active_prompt !== undefined) {
       lastActivePrompt = payload.active_prompt || null;
     }
-    if (Array.isArray(payload?.question_cards)) {
-      lastQuestionCards = payload.question_cards;
-    }
     if (payload?.live_metadata) lastLiveMetadata = payload.live_metadata;
+    if (Array.isArray(payload?.question_cards)) {
+      lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
+    }
     paintStageRail();
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
     const present = rows.filter((row) => !row?.left_at);
@@ -3015,6 +3105,53 @@ function staffLiveMediaState(media, params) {
  * Teacher preview iframe for the C1 Real-slice. Controls live in the frame.
  * @param {any} media
  */
+/**
+ * True when the session media URL is this slot's seed URL.
+ * @param {any} row
+ * @param {{url?: string} | null} seed
+ * @returns {boolean}
+ */
+function activeMediaUrlMatchesSeed(row, seed) {
+  const rowUrl = String(row?.url || "").trim();
+  const seedUrl = String(seed?.url || "").trim();
+  return Boolean(rowUrl && seedUrl && rowUrl === seedUrl);
+}
+
+/**
+ * Fill the staff student-copy editor from this slot's overlay/seed, not a
+ * leftover stem from a previous URL.
+ * @param {any} media
+ */
+function paintActiveMediaCopyEditor(media) {
+  const editor = $("ap-media-copy-editor");
+  const stemInput = $("ap-media-stem");
+  const captionInput = $("ap-media-caption");
+  const seed = liveClassSeedMedia();
+  const row = media && typeof media === "object" ? media : {};
+  const hasMedia = Boolean(String(seed?.url || row.url || "").trim());
+  if (editor instanceof HTMLElement) {
+    editor.hidden = !hasMedia;
+  }
+  if (!(stemInput instanceof HTMLInputElement)) return;
+  const urlMatches = activeMediaUrlMatchesSeed(row, seed);
+  const nextStem = String(
+    (urlMatches ? row.stem : "") ||
+      seed?.stem ||
+      (urlMatches ? row.title : "") ||
+      seed?.title ||
+      ""
+  ).trim();
+  const nextCaption = String(
+    (urlMatches ? row.caption : "") || seed?.caption || ""
+  ).trim();
+  if (document.activeElement !== stemInput) {
+    stemInput.value = nextStem;
+  }
+  if (captionInput instanceof HTMLInputElement && document.activeElement !== captionInput) {
+    captionInput.value = nextCaption;
+  }
+}
+
 function paintActiveMediaStatus(media) {
   const preview = $("ap-media-preview");
   if (!preview) return;
@@ -3026,6 +3163,10 @@ function paintActiveMediaStatus(media) {
     : realSlice
       ? ""
       : rawUrl;
+  const row = media && typeof media === "object" ? media : {};
+  const copySource =
+    seed && !activeMediaUrlMatchesSeed(row, seed) ? seed : media || seed;
+  paintActiveMediaCopyEditor(mediaUrl ? copySource : null);
   if (!mediaUrl) {
     preview.hidden = true;
     preview.removeAttribute("src");
@@ -3089,10 +3230,11 @@ function usesMcr3uM1C1Media() {
  */
 function isTextOnlyLiveSlot(slot) {
   const token = String(slot || teacherState.live_slot || "C1").toUpperCase();
+  if (liveClassSeedMedia()) return false;
   if (token !== "C2" && token !== "C3") return false;
   const metaSlot = String(lastLiveMetadata?.live_class || "").toUpperCase();
   if (metaSlot && metaSlot !== token) return true;
-  return !liveClassSeedMedia();
+  return true;
 }
 
 /**
@@ -3113,8 +3255,13 @@ function liveClassSeedMedia() {
         stem: MCR3U_M1C1_MEDIA_STEM,
       };
     }
-    const title = String(configured.title || "Live class media").trim();
-    return { url: configuredUrl, title, stem: title };
+    const title = String(configured.title || configured.stem || "Live class media").trim();
+    return {
+      url: configuredUrl,
+      title,
+      stem: String(configured.stem || title).trim(),
+      caption: String(configured.caption || "").trim(),
+    };
   }
   if (usesC1RealSlice()) {
     return { url: SEED_MEDIA_URL, title: SEED_MEDIA_TITLE, stem: SEED_MEDIA_STEM };
@@ -3164,11 +3311,10 @@ async function ensureC1MediaSeeded() {
       paintActiveMediaStatus(res.active_media);
       return;
     }
+    paintActiveMediaCopyEditor(seed);
     const body = {
       url: seed.url,
       title: seed.title,
-      stem: seed.stem,
-      caption: "",
       entry_chip: "",
       student_controls_unlocked: false,
       frozen: false,
@@ -6925,3 +7071,250 @@ $("live-relocate-dialog")?.addEventListener("cancel", () => {
 });
 
 $("live-import-mc-btn")?.addEventListener("click", () => openLiveMcImportPicker());
+
+/**
+ * Save staff-edited student media stem/caption onto the live session.
+ * @param {SubmitEvent} event
+ */
+async function saveActiveMediaCopy(event) {
+  event.preventDefault();
+  const stemInput = $("ap-media-stem");
+  const captionInput = $("ap-media-caption");
+  const status = $("ap-media-copy-status");
+  const stem = stemInput instanceof HTMLInputElement ? stemInput.value.trim() : "";
+  const caption = captionInput instanceof HTMLInputElement ? captionInput.value.trim() : "";
+  try {
+    await postActiveMedia({ stem, caption });
+    if (status instanceof HTMLElement) {
+      status.hidden = false;
+      status.textContent = "Saved for students.";
+    }
+  } catch (err) {
+    if (status instanceof HTMLElement) {
+      status.hidden = false;
+      status.textContent = err instanceof Error ? err.message : String(err);
+    }
+  }
+}
+
+$("ap-media-copy-editor")?.addEventListener("submit", (event) => {
+  saveActiveMediaCopy(event).catch((err) => showError("#ap-overlay-error", err));
+});
+
+/**
+ * Show MC / numeric fields for the Add New dialog.
+ */
+function syncAddQuestionTypeFields() {
+  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
+  const kind = String(selected?.value || "mc").toLowerCase();
+  const mc = $("live-add-q-mc-fields");
+  const numeric = $("live-add-q-numeric-fields");
+  if (mc instanceof HTMLElement) mc.hidden = kind !== "mc";
+  if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
+}
+
+/**
+ * Insert a LaTeX snippet into the Add New equation field.
+ * @param {string} snippet
+ */
+function insertAddQuestionLatex(snippet) {
+  const field = $("live-add-q-equation");
+  if (!(field instanceof HTMLTextAreaElement)) return;
+  const start = field.selectionStart ?? field.value.length;
+  const end = field.selectionEnd ?? field.value.length;
+  const token = String(snippet || "");
+  field.value = `${field.value.slice(0, start)}${token}${field.value.slice(end)}`;
+  const cursor = start + token.length;
+  field.focus();
+  field.setSelectionRange(cursor, cursor);
+  paintAddQuestionEquationPreview();
+}
+
+/**
+ * Typeset the Add New equation preview with staff KaTeX helpers.
+ */
+function paintAddQuestionEquationPreview() {
+  const field = $("live-add-q-equation");
+  const preview = $("live-add-q-equation-preview");
+  if (!(preview instanceof HTMLElement)) return;
+  const latex = field instanceof HTMLTextAreaElement ? field.value.trim() : "";
+  if (!latex) {
+    preview.innerHTML = `<p class="hint compact">No equation yet.</p>`;
+    return;
+  }
+  preview.innerHTML = liveQuestionEquationHtml({ equation_latex: latex }, {});
+  void renderLiveQuestionMath(preview);
+}
+
+/**
+ * Toggle bank-scope radios when Save to Bank is checked.
+ */
+function syncAddQuestionBankFields() {
+  const save = $("live-add-q-save-bank");
+  const scope = $("live-add-q-bank-scope");
+  if (scope instanceof HTMLElement) {
+    scope.hidden = !(save instanceof HTMLInputElement && save.checked);
+  }
+}
+
+/**
+ * Open the Add New question dialog for the current page.
+ */
+function openAddQuestionDialog() {
+  const dialog = $("live-add-question-dialog");
+  const form = $("live-add-question-form");
+  const err = $("live-add-q-error");
+  if (form instanceof HTMLFormElement) form.reset();
+  const mc = document.querySelector('input[name="live-add-q-type"][value="mc"]');
+  if (mc instanceof HTMLInputElement) mc.checked = true;
+  const currentModule = String(teacherState.live_module || "M1").toUpperCase();
+  const moduleRadio = document.querySelector(
+    `input[name="live-add-q-bank-scope"][value="${currentModule}"]`
+  );
+  if (moduleRadio instanceof HTMLInputElement) {
+    moduleRadio.checked = true;
+  } else {
+    const fallback = document.querySelector(
+      'input[name="live-add-q-bank-scope"][value="M1"]'
+    );
+    if (fallback instanceof HTMLInputElement) fallback.checked = true;
+  }
+  if (err instanceof HTMLElement) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  syncAddQuestionTypeFields();
+  syncAddQuestionBankFields();
+  paintAddQuestionEquationPreview();
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+}
+
+/**
+ * Close the Add New question dialog.
+ */
+function closeAddQuestionDialog() {
+  const dialog = $("live-add-question-dialog");
+  if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+}
+
+/**
+ * Upload an optional question image and return its public URL.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+async function uploadLiveQuestionImage(file) {
+  if (!classId || !(file instanceof File) || !file.size) return "";
+  const body = new FormData();
+  body.append("image", file);
+  const response = await fetch(`/api/staff/class/${classId}/live-question-image`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
+  return String(payload?.image_url || "").trim();
+}
+
+/**
+ * POST one staff-authored question onto the current overlay page.
+ * @returns {Promise<void>}
+ */
+async function submitAddQuestion() {
+  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
+  const kind = String(selected?.value || "mc").toLowerCase();
+  const text = String(($("live-add-q-text")?.value || "")).trim();
+  if (!text) throw new Error("Question text required.");
+  const equation = String(($("live-add-q-equation")?.value || "")).trim();
+  const imageInput = $("live-add-q-image");
+  const imageFile =
+    imageInput instanceof HTMLInputElement && imageInput.files?.[0]
+      ? imageInput.files[0]
+      : null;
+  const imageUrl = imageFile ? await uploadLiveQuestionImage(imageFile) : "";
+  const saveBank = $("live-add-q-save-bank");
+  const scope = document.querySelector('input[name="live-add-q-bank-scope"]:checked');
+  const body = {
+    type: kind,
+    text,
+    equation,
+    image_url: imageUrl,
+    page_number: currentLivePageNumber(),
+    stage: String(teacherState.stage || "round"),
+    save_to_bank: Boolean(saveBank instanceof HTMLInputElement && saveBank.checked),
+    bank_scope: String(scope?.value || teacherState.live_module || "M1"),
+  };
+  if (kind === "mc") {
+    body.options = [0, 1, 2, 3].map((index) =>
+      String($(`live-add-q-opt-${index}`)?.value || "").trim()
+    );
+    const key = document.querySelector('input[name="live-add-q-key"]:checked');
+    body.correct_index = Number(key?.value || 0);
+  }
+  if (kind === "numeric") {
+    body.correct_answer = String(($("live-add-q-numeric-answer")?.value || "")).trim();
+    body.tolerance = String(($("live-add-q-tolerance")?.value || "0")).trim();
+    body.tolerance_kind = String(($("live-add-q-tolerance-kind")?.value || "absolute"));
+  }
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (!classId) throw new Error("Class is not loaded.");
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/add-question`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  applyLiveMcImportPayload(payload);
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (sessionId) {
+    await pollLiveSessionAttendees({ full: true, force: true });
+    paintLiveQuestionCards();
+  }
+}
+
+$("live-add-question-btn")?.addEventListener("click", () => openAddQuestionDialog());
+document.querySelectorAll('input[name="live-add-q-type"]').forEach((input) => {
+  input.addEventListener("change", () => syncAddQuestionTypeFields());
+});
+document.querySelectorAll("[data-eq-insert]").forEach((button) => {
+  button.addEventListener("click", () => {
+    insertAddQuestionLatex(String(button.getAttribute("data-eq-insert") || ""));
+  });
+});
+$("live-add-q-equation")?.addEventListener("input", () => paintAddQuestionEquationPreview());
+$("live-add-q-save-bank")?.addEventListener("change", () => syncAddQuestionBankFields());
+$("live-add-question-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const err = $("live-add-q-error");
+  if (err instanceof HTMLElement) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  const btn = $("live-add-q-submit");
+  if (btn instanceof HTMLButtonElement) btn.disabled = true;
+  try {
+    await submitAddQuestion();
+    closeAddQuestionDialog();
+  } catch (error) {
+    if (err instanceof HTMLElement) {
+      err.hidden = false;
+      err.textContent = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    if (btn instanceof HTMLButtonElement) btn.disabled = false;
+  }
+});
+$("live-add-question-dialog")?.addEventListener("click", (event) => {
+  if (
+    event.target instanceof HTMLElement &&
+    event.target.matches("[data-live-add-question-close]")
+  ) {
+    closeAddQuestionDialog();
+  }
+});
+$("live-add-question-dialog")?.addEventListener("cancel", () => closeAddQuestionDialog());

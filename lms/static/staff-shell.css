@@ -1097,6 +1097,39 @@ body.staff-shell .live-content-slot[data-content-id="media"]:not(.is-parked) .ap
 body.staff-shell .ap-media-preview[hidden] {
   display: none !important;
 }
+body.staff-shell .ap-media-copy-editor {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d5deea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+body.staff-shell .ap-media-copy-editor[hidden] {
+  display: none !important;
+}
+body.staff-shell .ap-media-copy-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: #334155;
+}
+body.staff-shell .ap-media-copy-field {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: #475569;
+}
+body.staff-shell .ap-media-copy-field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+body.staff-shell .ap-media-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
 body.staff-shell .ap-media-params .hint {
   grid-column: 1 / -1;
 }
@@ -4243,6 +4276,59 @@ body.staff-shell .score-pop-chip {
 body.staff-shell .live-questions-head {
   margin-bottom: 0.45rem;
 }
+body.staff-shell .live-questions-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+body.staff-shell .live-add-question-card {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: min(86vh, 44rem);
+  overflow: auto;
+}
+body.staff-shell .live-add-q-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+body.staff-shell .live-add-q-option input[type="text"] {
+  flex: 1 1 auto;
+}
+body.staff-shell .live-add-q-tolerance-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+body.staff-shell .live-add-q-bank {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+body.staff-shell .live-add-q-equation-block {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+body.staff-shell .live-add-q-eq-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.45rem;
+}
+body.staff-shell .live-add-q-equation-preview {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px dashed #c5d0de;
+  border-radius: 8px;
+  background: #fff;
+}
+body.staff-shell #live-add-q-bank-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
 body.staff-shell .live-import-mc-btn {
   font-size: 0.72rem;
   padding: 0.2rem 0.55rem;
@@ -4518,3 +4604,17 @@ body.staff-shell .prompt-choice .live-question-html img,
   max-width: 12rem;
 }
 
+
+
+/* KaTeX / bank equation spans in live MC HTML */
+.live-question-html .math-latex,
+.prompt-title .math-latex,
+.prompt-choice .math-latex {
+  display: inline-block;
+  vertical-align: middle;
+}
+.live-question-html .katex,
+.prompt-title .katex,
+.prompt-choice .katex {
+  font-size: 1.05em;
+}

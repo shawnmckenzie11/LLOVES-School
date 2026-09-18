@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
@@ -59,7 +60,6 @@ try:
     )
     from live_prompt_feedback import (
         choice_letter,
-        public_feedback_fragment,
         strip_teacher_prompt_fields,
     )
     from meet_team import (
@@ -150,7 +150,6 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.live_prompt_feedback import (
         choice_letter,
-        public_feedback_fragment,
         strip_teacher_prompt_fields,
     )
     from lms.meet_team import (
@@ -1446,6 +1445,20 @@ class LovesDB:
             );
             CREATE INDEX IF NOT EXISTS idx_class_playlist_pages_class_module_slot
                 ON class_live_playlist_pages(class_id, module, slot);
+
+            CREATE TABLE IF NOT EXISTS class_live_media_overlays (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                slot TEXT NOT NULL,
+                stem TEXT NOT NULL DEFAULT '',
+                caption TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(class_id, module, slot)
+            );
+            CREATE INDEX IF NOT EXISTS idx_class_media_overlays_class_module_slot
+                ON class_live_media_overlays(class_id, module, slot);
 
             CREATE TABLE IF NOT EXISTS library_question_overlays (
                 library_id INTEGER NOT NULL
@@ -5259,6 +5272,8 @@ class SchoolDB(LovesDB):
                 payload=payload,
                 overlay=overlay,
                 class_id=class_id,
+                school=self,
+                library_id=int(library_id),
             )
             if normalized is None:
                 continue
@@ -5316,6 +5331,129 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_class_live_media_copy(
+        self, class_id: int, module: str, slot: str
+    ) -> dict[str, str]:
+        """Return the class overlay stem/caption for one lesson slot.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+
+        Returns:
+            ``{stem, caption}``; empty strings when no overlay exists.
+        """
+        module_key = str(module or "").upper()
+        slot_key = str(slot or "").upper()
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT stem, caption
+                FROM class_live_media_overlays
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                (int(class_id), module_key, slot_key),
+            ).fetchone()
+        if row is None:
+            return {"stem": "", "caption": ""}
+        return {
+            "stem": str(row["stem"] or ""),
+            "caption": str(row["caption"] or ""),
+        }
+
+    def upsert_class_live_media_copy(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        stem: str | None = None,
+        caption: str | None = None,
+    ) -> dict[str, str]:
+        """Persist student-facing media text as a class overlay template.
+
+        Same lifetime as playlist overlays: the next open of this
+        class/module/slot restores the saved stem and caption.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+            stem: Replacement title/stem, or ``None`` to keep the stored value.
+            caption: Replacement caption, or ``None`` to keep the stored value.
+
+        Returns:
+            Stored ``{stem, caption}``.
+        """
+        module_key = str(module or "").upper()
+        slot_key = str(slot or "").upper()
+        current = self.get_class_live_media_copy(int(class_id), module_key, slot_key)
+        next_stem = current["stem"] if stem is None else str(stem)
+        next_caption = current["caption"] if caption is None else str(caption)
+        stamp = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO class_live_media_overlays (
+                    class_id, module, slot, stem, caption, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, module, slot) DO UPDATE SET
+                    stem = excluded.stem,
+                    caption = excluded.caption,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    next_stem,
+                    next_caption,
+                    stamp,
+                    stamp,
+                ),
+            )
+            self.conn.commit()
+        self.invalidate_live_metadata_cache(
+            class_id=int(class_id), module=module_key, slot=slot_key
+        )
+        return {"stem": next_stem, "caption": next_caption}
+
+    @staticmethod
+    def _apply_class_live_media_overlay(
+        metadata: dict[str, Any], overlay: dict[str, str] | None
+    ) -> dict[str, Any]:
+        """Copy class media stem/caption onto merged live-lesson metadata.
+
+        Args:
+            metadata: Seed metadata after playlist overlays.
+            overlay: ``get_class_live_media_copy`` row.
+
+        Returns:
+            Metadata whose ``media`` slot includes overlay text when present.
+        """
+        if not overlay:
+            return metadata
+        stem = str(overlay.get("stem") or "")
+        caption = str(overlay.get("caption") or "")
+        if not stem and not caption:
+            return metadata
+        merged = deepcopy(metadata)
+        media = (
+            dict(merged["media"])
+            if isinstance(merged.get("media"), dict)
+            else {}
+        )
+        if stem:
+            media["stem"] = stem
+            if not str(media.get("title") or "").strip():
+                media["title"] = stem
+        if caption:
+            media["caption"] = caption
+        if media:
+            merged["media"] = media
+        return merged
+
     @staticmethod
     def _apply_class_playlist_item_overrides(
         metadata: dict[str, Any], overrides: list[dict[str, Any]]
@@ -5339,9 +5477,25 @@ class SchoolDB(LovesDB):
         if not by_item:
             return metadata
 
+        def override_for_item(item_id: str) -> dict[str, Any] | None:
+            """Return the hide/move override that matches one playlist id.
+
+            Engine-ride aliases (``teams_spark`` / ``teams-spark``) share a row.
+            """
+            token = str(item_id or "").strip()
+            if not token:
+                return None
+            direct = by_item.get(token)
+            if direct is not None:
+                return direct
+            for key, row in by_item.items():
+                if SchoolDB._same_live_item_id(key, token):
+                    return row
+            return None
+
         def transform(row: dict[str, Any]) -> dict[str, Any] | None:
             item_id = SchoolDB._playlist_row_item_id(row)
-            override = by_item.get(item_id)
+            override = override_for_item(item_id)
             if override is None:
                 return row
             if int(override.get("removed") or 0):
@@ -5380,10 +5534,13 @@ class SchoolDB(LovesDB):
     def _playlist_page_target(
         metadata: dict[str, Any], page_index: int
     ) -> tuple[str, int]:
-        """Resolve one deck page index into stage and page_number.
+        """Resolve one rail page index into stage and page_number.
+
+        ``metadata`` must be the same merged deck the staff rail uses
+        (``live_class_metadata_for_class_lesson``), including overlay pages.
 
         Args:
-            metadata: Loaded live-lesson metadata with ``pages``.
+            metadata: Merged live-lesson metadata with ``pages``.
             page_index: One-based index into ``metadata.pages``.
 
         Returns:
@@ -5436,13 +5593,42 @@ class SchoolDB(LovesDB):
                 page = 0
             if page != int(page_number):
                 continue
-            if exclude and self._playlist_row_item_id(row) == exclude:
+            if exclude and self._same_live_item_id(
+                self._playlist_row_item_id(row), exclude
+            ):
                 continue
             try:
                 orders.append(int(row.get("order") or 0))
             except (TypeError, ValueError):
                 orders.append(0)
         return max(orders, default=0) + 1
+
+    def _resolve_playlist_metadata_item_id(
+        self, metadata: dict[str, Any], item_id: str
+    ) -> str:
+        """Return the merged-deck question id that matches ``item_id``.
+
+        Engine-ride aliases (``teams_spark`` / ``teams-spark``) resolve to the
+        catalogue id already on the deck so overrides apply to that row.
+
+        Args:
+            metadata: Merged live-lesson metadata.
+            item_id: Staff-supplied playlist or engine-ride id.
+
+        Returns:
+            Canonical metadata ``id``, or the original token when unmatched.
+        """
+        token = str(item_id or "").strip()
+        if not token:
+            return token
+        for key in ("questions", "items"):
+            for row in metadata.get(key) or []:
+                if not isinstance(row, dict):
+                    continue
+                candidate = self._playlist_row_item_id(row)
+                if self._same_live_item_id(candidate, token):
+                    return candidate
+        return token
 
     def _prepare_playlist_item_edit(self, class_id: int, item_id: str) -> None:
         """Close an active lifecycle row so playlist edits can apply immediately."""
@@ -5452,7 +5638,7 @@ class SchoolDB(LovesDB):
         token = str(item_id or "").strip()
         session_id = int(active["id"])
         for row in self.list_live_session_items(session_id):
-            if str(row.get("item_id") or "").strip() != token:
+            if not self._same_live_item_id(row.get("item_id"), token):
                 continue
             if str(row.get("status") or "").strip().lower() != "active":
                 continue
@@ -5596,7 +5782,7 @@ class SchoolDB(LovesDB):
         if not token:
             raise ValueError("item_id required")
         self._prepare_playlist_item_edit(int(class_id), token)
-        if token.startswith("bank-import-"):
+        if token.startswith("bank-import-") or token.startswith("staff-q-"):
             with self._lock:
                 cur = self.conn.execute(
                     """
@@ -5634,12 +5820,18 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Move one question onto another page in the same lesson deck.
 
+        Bank imports update their placement row. Seed and engine-ride
+        questions (``teams_spark``, ``minds_on``, ``meet_team``,
+        ``team_challenge``) persist a class overlay. Destination pages
+        come from the same merged deck as the staff rail, including
+        overlay Welcome/Winner/blank pages.
+
         Args:
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C2``.
-            item_id: Resolved metadata question id.
-            target_page_index: One-based index into ``metadata.pages``.
+            item_id: Playlist, bank-import, or engine-ride id.
+            target_page_index: One-based rail index into merged ``pages``.
 
         Returns:
             Summary dict with destination stage/page and ``item_id``.
@@ -5650,31 +5842,20 @@ class SchoolDB(LovesDB):
         if not token:
             raise ValueError("item_id required")
         self._prepare_playlist_item_edit(int(class_id), token)
-        metadata = load_live_class_metadata(
-            str(self.game.get_class(int(class_id)).get("course_code") or ""),
-            module_key,
-            slot_key,
-        )
-        placements = self.list_class_playlist_placements(
+        metadata = self.live_class_metadata_for_class_lesson(
             int(class_id), module_key, slot_key
         )
-        overrides = self.list_class_playlist_item_overrides(
-            int(class_id), module_key, slot_key
-        )
-        merged = self._apply_class_playlist_item_overrides(
-            self._merge_playlist_placements_into_metadata(metadata, placements),
-            overrides,
-        )
+        canonical = self._resolve_playlist_metadata_item_id(metadata, token)
         stage, page_number = self._playlist_page_target(
-            merged, int(target_page_index)
+            metadata, int(target_page_index)
         )
         sort_order = self._next_question_sort_order(
-            merged,
+            metadata,
             stage=stage,
             page_number=page_number,
-            exclude_item_id=token,
+            exclude_item_id=canonical,
         )
-        if token.startswith("bank-import-"):
+        if canonical.startswith("bank-import-") or canonical.startswith("staff-q-"):
             with self._lock:
                 cur = self.conn.execute(
                     """
@@ -5689,18 +5870,18 @@ class SchoolDB(LovesDB):
                         int(class_id),
                         module_key,
                         slot_key,
-                        token,
+                        canonical,
                     ),
                 )
                 self.conn.commit()
                 if int(cur.rowcount or 0) == 0:
-                    raise KeyError(f"playlist item {token}")
+                    raise KeyError(f"playlist item {canonical}")
                 row = self.conn.execute(
                     """
                     SELECT item_json FROM class_live_playlist_placements
                     WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
                     """,
-                    (int(class_id), module_key, slot_key, token),
+                    (int(class_id), module_key, slot_key, canonical),
                 ).fetchone()
                 if row is not None:
                     try:
@@ -5722,7 +5903,7 @@ class SchoolDB(LovesDB):
                                 int(class_id),
                                 module_key,
                                 slot_key,
-                                token,
+                                canonical,
                             ),
                         )
                         self.conn.commit()
@@ -5731,13 +5912,20 @@ class SchoolDB(LovesDB):
                 int(class_id),
                 module_key,
                 slot_key,
-                token,
+                canonical,
                 removed=False,
                 stage=stage,
                 page_number=int(page_number),
                 sort_order=int(sort_order),
             )
         self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._apply_moved_playlist_item_to_session(
+            int(class_id),
+            canonical,
+            stage=stage,
+            page_number=int(page_number),
+            sort_order=int(sort_order),
+        )
         self._reset_moved_playlist_item_session_state(
             int(class_id), token, module=module_key, slot=slot_key
         )
@@ -5749,6 +5937,41 @@ class SchoolDB(LovesDB):
             "sort_order": int(sort_order),
             "target_page_index": int(target_page_index),
         }
+
+    def playlist_staff_snapshot(
+        self, class_id: int, module: str, slot: str
+    ) -> dict[str, Any]:
+        """Return merged deck metadata plus live cards for staff playlist APIs.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C2``.
+
+        Returns:
+            Dict with ``live_metadata`` and, when this lesson is the active
+            session, ``live_items`` plus ``question_cards``.
+        """
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        snapshot: dict[str, Any] = {
+            "live_metadata": self.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key
+            )
+        }
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is None:
+            return snapshot
+        teacher = self.live_session_teacher_state_payload(int(active["id"]))
+        live_module = str(teacher.get("live_module") or "M1").upper()
+        live_slot = str(teacher.get("live_slot") or "C1").upper()
+        if live_module != module_key or live_slot != slot_key:
+            return snapshot
+        session_id = int(active["id"])
+        self.ensure_live_session_items_if_stale(session_id)
+        snapshot["live_items"] = self.list_live_session_items(session_id)
+        snapshot["question_cards"] = self.live_session_question_cards(session_id)
+        return snapshot
 
     def _reset_moved_playlist_item_session_state(
         self,
@@ -5776,10 +5999,9 @@ class SchoolDB(LovesDB):
             return
         session_id = int(live["id"])
         token = str(item_id or "").strip()
-        aliases = {token, token.replace("_", "-"), token.replace("-", "_")}
         now = _now()
         for item in self.list_live_session_items(session_id):
-            if str(item.get("item_id") or "").strip() not in aliases:
+            if not self._same_live_item_id(item.get("item_id"), token):
                 continue
             prompt_id = item.get("prompt_id")
             with self._lock:
@@ -5819,6 +6041,79 @@ class SchoolDB(LovesDB):
                 )
                 self.conn.commit()
         self._sync_playlist_change(int(class_id), str(module or ""), str(slot or ""))
+
+    def _apply_moved_playlist_item_to_session(
+        self,
+        class_id: int,
+        item_id: str,
+        *,
+        stage: str,
+        page_number: int,
+        sort_order: int,
+    ) -> None:
+        """Write dest stage/page onto every matching active-session lifecycle row.
+
+        Bank and staff-authored items keep a stable ``placement_key``, so
+        ``ensure_live_session_items_if_stale`` would otherwise skip the write
+        and leave the old page on the session blob. Seed items may have a
+        stage:page key; those rows are patched here and stale keys are
+        dropped by the following ``_sync_playlist_change``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            item_id: Canonical playlist id after the move.
+            stage: Destination stage token.
+            page_number: Stored dest ``page_number``.
+            sort_order: Destination sort/order value.
+        """
+        live = self.get_active_live_session_for_class(int(class_id))
+        if live is None:
+            return
+        token = str(item_id or "").strip()
+        if not token:
+            return
+        now = _now()
+        stage_key = str(stage or "round").strip().lower() or "round"
+        dest_page = int(page_number)
+        dest_order = int(sort_order)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, item_id, item_json
+                FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(live["id"]),),
+            ).fetchall()
+            for row in rows:
+                if not self._same_live_item_id(row["item_id"], token):
+                    continue
+                try:
+                    payload = json.loads(row["item_json"] or "{}")
+                except json.JSONDecodeError:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                payload["stage"] = stage_key
+                payload["page_number"] = dest_page
+                payload["order"] = dest_order
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET stage = ?, page_number = ?, sort_order = ?,
+                        item_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        stage_key,
+                        dest_page,
+                        dest_order,
+                        json.dumps(payload),
+                        now,
+                        int(row["id"]),
+                    ),
+                )
+            self.conn.commit()
 
     CUSTOM_LIVE_PAGE_STAGE = "play"
 
@@ -6379,6 +6674,98 @@ class SchoolDB(LovesDB):
         for key in drop:
             self._live_metadata_cache.pop(key, None)
 
+
+    def _class_library_id(self, class_id: int) -> int | None:
+        """Return the content library attached to one class offering."""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT o.library_id
+                FROM classes c
+                JOIN course_offerings o ON o.id = c.offering_id
+                WHERE c.id = ?
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if row is None or row["library_id"] is None:
+            return None
+        return int(row["library_id"])
+
+    def _bank_item_needs_rehydrate(self, payload: dict[str, Any]) -> bool:
+        """Return True when a stored bank import should be re-normalized."""
+        if str(payload.get("import_source") or "") != "module_bank":
+            return False
+        if not payload.get("source_question_id"):
+            return False
+        blob = json.dumps(payload, ensure_ascii=False)
+        if "instructure.com" in blob or "equation_images" in blob:
+            return True
+        if not str(payload.get("text_html") or "").strip():
+            return True
+        return False
+
+    def rehydrate_module_bank_item(
+        self,
+        class_id: int,
+        library_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Re-normalize one stored bank import with fresh image mirroring."""
+        if not self._bank_item_needs_rehydrate(payload):
+            return payload
+        try:
+            from bank_mc_normalize import normalize_bank_mc
+        except ImportError:
+            from lms.bank_mc_normalize import normalize_bank_mc
+
+        question_id = int(payload.get("source_question_id") or 0)
+        if not question_id:
+            return payload
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.id, q.bank_id, q.item_type, q.payload_json,
+                       o.stem_text, o.options_json, o.correct_answer, o.points
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                LEFT JOIN library_question_overlays o
+                    ON o.library_id = b.library_id AND o.question_id = q.id
+                WHERE q.id = ? AND b.library_id = ?
+                """,
+                (question_id, int(library_id)),
+            ).fetchone()
+        if row is None:
+            return payload
+        try:
+            raw_payload = json.loads(row["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            return payload
+        overlay = None
+        if row["stem_text"] is not None:
+            overlay = {
+                "stem_text": row["stem_text"],
+                "options_json": row["options_json"],
+                "correct_answer": row["correct_answer"],
+                "points": row["points"],
+            }
+        normalized, _ = normalize_bank_mc(
+            question_id=int(row["id"]),
+            bank_id=int(row["bank_id"]),
+            item_type=str(row["item_type"] or ""),
+            payload=raw_payload,
+            overlay=overlay,
+            class_id=int(class_id),
+            school=self,
+            library_id=int(library_id),
+        )
+        if not normalized:
+            return payload
+        merged = {**payload, **normalized}
+        merged["id"] = str(payload.get("id") or merged.get("id") or "")
+        merged["import_source"] = "module_bank"
+        return merged
+
+
     def list_class_playlist_placements(
         self, class_id: int, module: str, slot: str
     ) -> list[dict[str, Any]]:
@@ -6414,6 +6801,14 @@ class SchoolDB(LovesDB):
             item["item"] = parsed if isinstance(parsed, dict) else {}
             item.pop("item_json", None)
             out.append(item)
+        library_id = self._class_library_id(int(class_id))
+        if library_id is not None:
+            for item in out:
+                payload = item.get("item")
+                if isinstance(payload, dict):
+                    item["item"] = self.rehydrate_module_bank_item(
+                        int(class_id), int(library_id), payload
+                    )
         return out
 
     @staticmethod
@@ -6634,6 +7029,8 @@ class SchoolDB(LovesDB):
                 payload=payload,
                 overlay=overlay,
                 class_id=int(class_id),
+                school=self,
+                library_id=int(library_id),
             )
             if normalized is None:
                 raise ValueError(skip_reason or "invalid_mc")
@@ -6687,6 +7084,452 @@ class SchoolDB(LovesDB):
                     item_id,
                     json.dumps(item_payload),
                     int(question_id),
+                    stamp,
+                ),
+            )
+            self.conn.commit()
+            placement_id = int(cur.lastrowid)
+            saved = self.conn.execute(
+                """
+                SELECT * FROM class_live_playlist_placements WHERE id = ?
+                """,
+                (placement_id,),
+            ).fetchone()
+        self.invalidate_live_metadata_cache(
+            class_id=int(class_id),
+            module=module_key,
+            slot=slot_key,
+        )
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is not None:
+            teacher = self.live_session_teacher_state_payload(int(active["id"]))
+            live_module = str(teacher.get("live_module") or "M1").upper()
+            live_slot = str(teacher.get("live_slot") or "C1").upper()
+            if live_module == module_key and live_slot == slot_key:
+                self.ensure_live_session_items(int(active["id"]))
+        placement = dict(saved) if saved else {}
+        try:
+            parsed_item = json.loads(placement.get("item_json") or "{}")
+        except json.JSONDecodeError:
+            parsed_item = {}
+        placement["item"] = parsed_item if isinstance(parsed_item, dict) else {}
+        placement.pop("item_json", None)
+        return placement
+
+    def _ensure_module_bank_link(
+        self, library_id: int, module_number: int, bank_id: int
+    ) -> None:
+        """Confirm one bank for a module without replacing existing links.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            module_number: One-based module index.
+            bank_id: ``question_banks.id``.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO course_module_bank_links (
+                    library_id, module_number, bank_id, confirmed_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    int(library_id),
+                    int(module_number),
+                    int(bank_id),
+                    _now(),
+                ),
+            )
+            self.conn.commit()
+
+    def _ensure_staff_authored_bank(self, library_id: int) -> int:
+        """Return the library's staff-authored bank, creating it when missing.
+
+        Args:
+            library_id: ``content_libraries.id``.
+
+        Returns:
+            ``question_banks.id``.
+        """
+        import_key = "staff-authored"
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM question_banks
+                WHERE library_id = ? AND import_key = ?
+                """,
+                (int(library_id), import_key),
+            ).fetchone()
+            if row is not None:
+                return int(row["id"])
+            cur = self.conn.execute(
+                """
+                INSERT INTO question_banks (
+                    library_id, import_key, title, settings_json, created_at
+                ) VALUES (?, ?, ?, '{}', ?)
+                """,
+                (int(library_id), import_key, "Staff authored", _now()),
+            )
+            self.conn.commit()
+            return int(cur.lastrowid)
+
+    def _insert_staff_bank_question(
+        self,
+        *,
+        library_id: int,
+        bank_id: int,
+        question_type: str,
+        text: str,
+        options: list[str],
+        correct_answer: str,
+        payload: dict[str, Any],
+    ) -> int:
+        """Insert one staff-authored question into the existing bank schema.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            bank_id: ``question_banks.id``.
+            question_type: ``mc``, ``numeric``, or ``poll``.
+            text: Stem text.
+            options: MC option strings.
+            correct_answer: Letter key or numeric string; empty for polls.
+            payload: Full live-item payload stored on ``questions.payload_json``.
+
+        Returns:
+            New ``questions.id``.
+        """
+        item_type = {
+            "mc": "multiple_choice_question",
+            "numeric": "numerical_question",
+            "poll": "essay_question",
+        }.get(question_type, "essay_question")
+        import_key = f"staff-q-{uuid.uuid4().hex}"
+        title = str(text or "").strip()[:80] or "Staff question"
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT INTO questions (
+                    bank_id, import_key, item_type, title, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(bank_id),
+                    import_key,
+                    item_type,
+                    title,
+                    json.dumps(payload),
+                    _now(),
+                ),
+            )
+            self.conn.commit()
+            question_id = int(cur.lastrowid)
+        if question_type == "mc":
+            self.upsert_library_question_overlay(
+                int(library_id),
+                question_id,
+                stem_text=text,
+                options=options,
+                correct_answer=correct_answer,
+            )
+        return question_id
+
+    @staticmethod
+    def _bank_scope_module_numbers(
+        bank_scope: str, current_module_number: int
+    ) -> list[int]:
+        """Resolve Save-to-bank radios into module numbers 1–8.
+
+        Accepts ``course`` / ``all`` (every module), ``module`` (current),
+        ``M2`` / ``m2`` / ``2``. Unknown tokens fall back to the current module.
+
+        Args:
+            bank_scope: Staff radio value.
+            current_module_number: Module number of the open live lesson.
+
+        Returns:
+            Distinct module numbers to link.
+        """
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+
+        token = str(bank_scope or "module").strip().lower()
+        if token in {"course", "course-wide", "coursewide", "all"}:
+            return list(range(1, 9))
+        if token in {"module", "this", "current", ""}:
+            return [int(current_module_number)]
+        digits = token[1:] if token.startswith("m") else token
+        if digits.isdigit():
+            number = int(digits)
+            if 1 <= number <= 8:
+                return [number]
+        parsed = parse_module_token(str(bank_scope or "").strip().upper())
+        if parsed is not None and 1 <= int(parsed) <= 8:
+            return [int(parsed)]
+        return [int(current_module_number)]
+
+    def live_question_image_path(
+        self, class_id: int, filename: str
+    ) -> Path | None:
+        """Return the on-disk path for one staff-authored live question image.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            filename: Safe stored filename (digest + extension).
+
+        Returns:
+            Existing file path, or ``None``.
+        """
+        safe = Path(str(filename or "")).name
+        if not safe or safe != str(filename or "").strip():
+            return None
+        path = Path(self.data_dir) / "live-question-images" / str(int(class_id)) / safe
+        return path if path.is_file() else None
+
+    def store_live_question_image(
+        self, class_id: int, uploaded: Any, *, filename: str = ""
+    ) -> dict[str, Any]:
+        """Store one staff-authored question image on the data volume.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            uploaded: Flask file storage or raw bytes.
+            filename: Original filename, used only for the extension.
+
+        Returns:
+            Dict with ``image_url`` and ``filename``.
+
+        Raises:
+            ValueError: When the upload is missing or not a supported image.
+        """
+        raw = b""
+        name = str(filename or "").strip()
+        mime = ""
+        if hasattr(uploaded, "read"):
+            raw = uploaded.read() or b""
+            name = name or str(getattr(uploaded, "filename", "") or "")
+            mime = str(getattr(uploaded, "mimetype", "") or "")
+        elif isinstance(uploaded, (bytes, bytearray)):
+            raw = bytes(uploaded)
+        if not raw:
+            raise ValueError("image required")
+        if len(raw) > 4 * 1024 * 1024:
+            raise ValueError("image is too large (4 MB max)")
+        ext = Path(name).suffix.lower()
+        allowed = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+        if ext not in allowed:
+            raise ValueError("image must be png, jpg, gif, or webp")
+        if mime and not str(mime).startswith("image/"):
+            raise ValueError("image must be png, jpg, gif, or webp")
+        digest = hashlib.sha256(raw).hexdigest()
+        stored_name = f"{digest}{ext}"
+        folder = Path(self.data_dir) / "live-question-images" / str(int(class_id))
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / stored_name
+        if not target.exists():
+            target.write_bytes(raw)
+        return {
+            "filename": stored_name,
+            "image_url": (
+                f"/api/classes/{int(class_id)}/live-question-images/{stored_name}"
+            ),
+        }
+
+    def add_staff_question_to_class_playlist(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        question_type: str,
+        text: str,
+        page_number: int,
+        stage: str | None = None,
+        options: list[str] | None = None,
+        correct_index: int | None = None,
+        correct_answer: str | None = None,
+        tolerance: Any = None,
+        tolerance_kind: str | None = None,
+        equation: str | None = None,
+        image_url: str | None = None,
+        save_to_bank: bool = False,
+        bank_scope: str = "module",
+        library_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Add one staff-authored question to the current class overlay page.
+
+        Always writes a ``class_live_playlist_placements`` row. Optional bank
+        save uses the existing ``questions`` / overlay / module-link tables so
+        Import from Bank can pick the item up later. Does not write seed JSON.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C2``.
+            question_type: ``mc``, ``numeric``, or ``poll``.
+            text: Required stem (equation is stored separately).
+            page_number: Current overlay page number.
+            stage: Lifecycle stage; defaults to ``round``.
+            options: Four MC option strings.
+            correct_index: Zero-based correct MC option.
+            correct_answer: Numeric key when ``question_type`` is ``numeric``.
+            tolerance: Absolute or percent window for numeric scoring.
+            tolerance_kind: ``absolute`` or ``percent``.
+            equation: Optional LaTeX shown below the stem.
+            image_url: Optional stored image URL.
+            save_to_bank: Persist into the module-bank tables.
+            bank_scope: ``course``, ``module``, ``M2`` / ``2``, or similar.
+            library_id: Attached pack library, required when saving to bank.
+
+        Returns:
+            Inserted placement row including parsed ``item`` payload.
+        """
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+
+        kind = str(question_type or "").strip().lower()
+        if kind not in {"mc", "numeric", "poll"}:
+            raise ValueError("type must be mc, numeric, or poll")
+        stem = str(text or "").strip()
+        if not stem:
+            raise ValueError("question text required")
+        module_number = parse_module_token(str(module or "").strip().upper())
+        if module_number is None:
+            raise ValueError("module required (e.g. M1)")
+        module_key = f"M{module_number}"
+        slot_key = str(slot or "").upper()
+        stage_key = str(stage or "round").strip().lower() or "round"
+        try:
+            page = max(1, int(page_number))
+        except (TypeError, ValueError):
+            page = 1
+        latex = str(equation or "").strip()
+        image = str(image_url or "").strip()
+        option_list = [str(opt or "").strip() for opt in (options or [])]
+        item_payload: dict[str, Any] = {
+            "item_type": "question",
+            "type": kind,
+            "text": stem,
+            "prompt": stem,
+            "stage": stage_key,
+            "page_number": page,
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+            "import_source": "staff_authored",
+        }
+        if latex:
+            item_payload["equation"] = latex
+            item_payload["equation_latex"] = latex
+        if image:
+            item_payload["image_url"] = image
+        if kind == "mc":
+            clean_options = [opt for opt in option_list if opt]
+            if len(clean_options) != 4:
+                raise ValueError("multiple choice needs four options")
+            try:
+                key_index = int(correct_index)
+            except (TypeError, ValueError):
+                raise ValueError("mark the correct option") from None
+            if key_index < 0 or key_index > 3:
+                raise ValueError("mark the correct option")
+            letter = chr(ord("A") + key_index)
+            item_payload["options"] = clean_options
+            item_payload["choices"] = clean_options
+            item_payload["key"] = letter
+            item_payload["correct_answer"] = letter
+        elif kind == "numeric":
+            key = str(correct_answer or "").strip()
+            if not key:
+                raise ValueError("correct answer required")
+            try:
+                float(key)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("correct answer must be a number") from exc
+            kind_token = str(tolerance_kind or "absolute").strip().lower()
+            if kind_token not in {"absolute", "percent"}:
+                raise ValueError("tolerance_kind must be absolute or percent")
+            try:
+                window = float(0 if tolerance in (None, "") else tolerance)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("tolerance must be a number") from exc
+            if window < 0:
+                raise ValueError("tolerance cannot be negative")
+            item_payload["correct_answer"] = key
+            item_payload["key"] = key
+            item_payload["tolerance"] = window
+            item_payload["tolerance_kind"] = kind_token
+            item_payload["integer_only"] = False
+            item_payload["options"] = []
+            item_payload["choices"] = []
+        else:
+            item_payload["options"] = []
+            item_payload["choices"] = []
+
+        source_question_id = None
+        if save_to_bank:
+            if library_id in (None, ""):
+                raise ValueError("a module pack is required to save to the bank")
+            bank_id = self._ensure_staff_authored_bank(int(library_id))
+            source_question_id = self._insert_staff_bank_question(
+                library_id=int(library_id),
+                bank_id=bank_id,
+                question_type=kind,
+                text=stem,
+                options=list(item_payload.get("options") or []),
+                correct_answer=str(item_payload.get("correct_answer") or ""),
+                payload=item_payload,
+            )
+            for number in self._bank_scope_module_numbers(
+                bank_scope, int(module_number)
+            ):
+                self._ensure_module_bank_link(int(library_id), number, bank_id)
+            item_payload["source_question_id"] = source_question_id
+            item_payload["import_source"] = "module_bank"
+
+        with self._lock:
+            existing = self.conn.execute(
+                """
+                SELECT MAX(sort_order) AS max_order
+                FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                  AND stage = ? AND page_number = ?
+                """,
+                (int(class_id), module_key, slot_key, stage_key, page),
+            ).fetchone()
+            sort_order = int(existing["max_order"] or 0) + 1 if existing else 1
+            item_id = (
+                f"bank-import-{int(source_question_id)}"
+                if source_question_id is not None
+                else f"staff-q-{uuid.uuid4().hex}"
+            )
+            placement_key = f"class:{int(class_id)}:staff:{uuid.uuid4().hex}"
+            item_payload["id"] = item_id
+            item_payload["item_id"] = item_id
+            item_payload["order"] = sort_order
+            item_payload["placement_key"] = placement_key
+            stamp = _now()
+            cur = self.conn.execute(
+                """
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, source_question_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    page,
+                    stage_key,
+                    sort_order,
+                    placement_key,
+                    item_id,
+                    json.dumps(item_payload),
+                    source_question_id,
                     stamp,
                 ),
             )
@@ -8095,6 +8938,8 @@ class SchoolDB(LovesDB):
             "integer_only"
         ):
             return "numeric"
+        if token == "poll":
+            return "poll"
         return "mc"
 
     @staticmethod
@@ -8460,8 +9305,65 @@ class SchoolDB(LovesDB):
         have = {str(row.get("placement_key") or "") for row in existing}
         expected = self._expected_live_item_placement_keys(session_id)
         if expected and expected <= have:
-            return existing
+            if not self._live_session_items_placement_stale(session_id, existing):
+                return existing
         return self.ensure_live_session_items(session_id)
+
+    def _live_session_items_placement_stale(
+        self, session_id: int, existing: list[dict[str, Any]]
+    ) -> bool:
+        """True when a lifecycle row still has a pre-move stage or page.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            existing: Current ``live_session_items`` rows.
+
+        Returns:
+            True when metadata dest stage/page differs from a session row.
+        """
+        metadata = self.live_class_metadata_for_session(session_id)
+        wanted: dict[str, tuple[str, int | None]] = {}
+        for row in metadata.get("questions") or []:
+            if not isinstance(row, dict):
+                continue
+            token = str(row.get("id") or row.get("item_id") or "").strip()
+            if not token:
+                continue
+            stage = str(row.get("stage") or "").strip().lower()
+            try:
+                page = (
+                    int(row["page_number"])
+                    if row.get("page_number") not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                page = None
+            wanted[token] = (stage, page)
+        for item in existing:
+            token = str(item.get("item_id") or "").strip()
+            dest = wanted.get(token)
+            if dest is None:
+                for key, value in wanted.items():
+                    if self._same_live_item_id(key, token):
+                        dest = value
+                        break
+            if dest is None:
+                continue
+            stage, page = dest
+            item_stage = str(item.get("stage") or "").strip().lower()
+            try:
+                item_page = (
+                    int(item["page_number"])
+                    if item.get("page_number") not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                item_page = None
+            if stage and item_stage and stage != item_stage:
+                return True
+            if page is not None and item_page is not None and page != item_page:
+                return True
+        return False
 
     def get_live_session_item(
         self, session_id: int, placement_or_item: str | int
@@ -8612,7 +9514,13 @@ class SchoolDB(LovesDB):
             "type": question.get("type") or prompt_kind,
             "page_number": item.get("page_number"),
         }
-        self._attach_singular_answer_key(payload, question)
+        if prompt_kind == "poll":
+            payload.pop("key", None)
+            payload.pop("correct_answer", None)
+            payload["options"] = []
+            payload["choices"] = []
+        else:
+            self._attach_singular_answer_key(payload, question)
         if prompt_kind == "numeric":
             payload["integer_only"] = bool(question.get("integer_only", True))
             payload["options"] = []
@@ -8620,10 +9528,28 @@ class SchoolDB(LovesDB):
             placeholder = str(question.get("placeholder") or "").strip()
             if placeholder:
                 payload["placeholder"] = placeholder
+            if question.get("tolerance") not in (None, ""):
+                try:
+                    payload["tolerance"] = float(question.get("tolerance"))
+                except (TypeError, ValueError):
+                    payload["tolerance"] = 0.0
+            kind = str(question.get("tolerance_kind") or "").strip().lower()
+            if kind in {"absolute", "percent"}:
+                payload["tolerance_kind"] = kind
+        equation = str(
+            question.get("equation_latex") or question.get("equation") or ""
+        ).strip()
+        if equation:
+            payload["equation"] = equation
+            payload["equation_latex"] = equation
+        image_url = str(question.get("image_url") or "").strip()
+        if image_url:
+            payload["image_url"] = image_url
+        session_kind = "share" if prompt_kind == "poll" else prompt_kind
         prompt = self.set_live_session_prompt(
             int(item["live_session_id"]),
             slide_index=20000 + int(item["id"]),
-            kind=prompt_kind,
+            kind=session_kind,
             payload=payload,
             activate=False,
         )
@@ -9591,11 +10517,6 @@ class SchoolDB(LovesDB):
                         "awarded_points": prior.get("awarded_points"),
                         "updated_at": prior.get("updated_at"),
                     }
-                    feedback = public_feedback_fragment(
-                        raw_payload, my_response["response"]
-                    )
-                    if feedback:
-                        my_response["feedback"] = feedback
                 elif is_meet_team_payload(raw_payload):
                     meet_state = public_meet_chain(teacher.get("meet_chain"))
                     if meet_state is not None:
@@ -10008,7 +10929,9 @@ class SchoolDB(LovesDB):
         MCF3M M1C1 keeps the parabola Real-slice. MCR3U M1C1 mounts the
         nested square-root graph. C2/C3 playlists with a ``media.file``
         (for example MCR3U M1 C3 parent transformations) seed the same way.
-        Wrong-course leftovers are replaced.
+        Wrong-course leftovers are replaced. A leftover stem or caption
+        from another slot is replaced with this slot's overlay or seed
+        title; remounts do not persist that copy onto the overlay.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -10022,12 +10945,40 @@ class SchoolDB(LovesDB):
             return self.live_session_active_media_payload(session_id)
         current = self.live_session_active_media_payload(session_id)
         current_url = str((current or {}).get("url") or "")
+        session_row = self.get_live_session(session_id)
+        overlay = (
+            self.get_class_live_media_copy(
+                int(session_row["class_id"]),
+                self.session_live_module(session_id),
+                self.session_live_slot(session_id),
+            )
+            if session_row is not None
+            else {"stem": "", "caption": ""}
+        )
+        overlay_stem = str(overlay.get("stem") or "").strip()
+        overlay_caption = str(overlay.get("caption") or "").strip()
+        wanted_stem = overlay_stem or str(seed.get("stem") or seed.get("title") or "")
+        wanted_caption = overlay_caption
+        wanted_title = str(seed.get("title") or wanted_stem or "")
         if current_url == seed["url"]:
+            current_stem = str((current or {}).get("stem") or "")
+            current_caption = str((current or {}).get("caption") or "").strip()
+            if current_stem != wanted_stem or current_caption != wanted_caption:
+                return self.set_live_session_active_media(
+                    session_id,
+                    merge=True,
+                    title=wanted_title,
+                    stem=wanted_stem,
+                    caption=wanted_caption,
+                    persist_media_copy=False,
+                )
             return current
         kwargs: dict[str, Any] = {
             "url": seed["url"],
-            "title": seed.get("title") or "",
-            "stem": seed.get("stem") or "",
+            "title": wanted_title,
+            "stem": wanted_stem,
+            "caption": wanted_caption,
+            "persist_media_copy": False,
         }
         if uses_c1_real_slice(
             self.session_ontario_code(session_id),
@@ -10926,11 +11877,14 @@ class SchoolDB(LovesDB):
             try:
                 number = float(raw_value)
             except (TypeError, ValueError) as exc:
-                raise ValueError("Enter an integer.") from exc
-            if not number.is_integer():
+                raise ValueError("Enter a number.") from exc
+            integer_only = bool(
+                payload.get("integer_only") or is_teams_spark_payload(payload)
+            )
+            if integer_only and not number.is_integer():
                 raise ValueError("Enter an integer.")
             response = dict(response or {})
-            response["value"] = int(number)
+            response["value"] = int(number) if integer_only else number
         session_id = int(prompt_row["live_session_id"])
         questions_mode = self._questions_view_mode(session_id)
         response = dict(response or {})
@@ -11079,6 +12033,10 @@ class SchoolDB(LovesDB):
         )
         merged = self._apply_class_playlist_item_overrides(merged, overrides)
         merged = self._apply_class_playlist_page_overlays(merged, page_overlays)
+        merged = self._apply_class_live_media_overlay(
+            merged,
+            self.get_class_live_media_copy(int(class_id), key[2], key[3]),
+        )
         self._live_metadata_cache[key] = merged
         return deepcopy(merged)
 
@@ -11159,6 +12117,48 @@ class SchoolDB(LovesDB):
             public[key] = cleaned_rows
         return public
 
+    @staticmethod
+    def _lifecycle_row_for_metadata_question(
+        candidates: list[dict[str, Any]],
+        question: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Pick the session row whose stage/page matches metadata dest first.
+
+        Args:
+            candidates: Lifecycle rows sharing the question id.
+            question: Merged metadata question (post-move dest).
+
+        Returns:
+            Best matching row, or the first candidate.
+        """
+        if not candidates:
+            return None
+        dest_stage = str(question.get("stage") or "").strip().lower()
+        try:
+            dest_page = (
+                int(question["page_number"])
+                if question.get("page_number") not in (None, "")
+                else None
+            )
+        except (TypeError, ValueError):
+            dest_page = None
+        for row in candidates:
+            row_stage = str(row.get("stage") or "").strip().lower()
+            try:
+                row_page = (
+                    int(row["page_number"])
+                    if row.get("page_number") not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                row_page = None
+            if dest_stage and row_stage and dest_stage != row_stage:
+                continue
+            if dest_page is not None and row_page is not None and dest_page != row_page:
+                continue
+            return row
+        return candidates[0]
+
     def live_session_question_cards(self, session_id: int) -> list[dict[str, Any]]:
         """Return ordered teacher cards for questions associated with the stage."""
 
@@ -11216,8 +12216,9 @@ class SchoolDB(LovesDB):
                 and question_page != wanted_page
             ):
                 continue
-            lifecycle = next(
-                iter(lifecycle_by_item.get(question_id) or []), None
+            lifecycle = self._lifecycle_row_for_metadata_question(
+                lifecycle_by_item.get(question_id) or [],
+                question,
             )
             prompt = by_item.get(question_id)
             if prompt is None and lifecycle is not None:
@@ -11503,6 +12504,32 @@ class SchoolDB(LovesDB):
             "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
         }
 
+    @staticmethod
+    def _numeric_within_tolerance(
+        actual: float,
+        expected: float,
+        tolerance: Any,
+        tolerance_kind: Any,
+    ) -> bool:
+        """Return True when ``actual`` is within the authored numeric window.
+
+        Args:
+            actual: Student numeric response.
+            expected: Authored correct value.
+            tolerance: Absolute delta or percent, depending on ``tolerance_kind``.
+            tolerance_kind: ``absolute`` or ``percent``.
+        """
+        try:
+            window = float(tolerance)
+        except (TypeError, ValueError):
+            window = 0.0
+        kind = str(tolerance_kind or "absolute").strip().lower()
+        if kind in {"percent", "percentage", "pct"}:
+            if expected == 0:
+                return abs(actual) <= window
+            return abs(actual - expected) <= abs(expected) * (window / 100.0)
+        return abs(actual - expected) <= window
+
     def _response_matches_key(
         self,
         *,
@@ -11510,6 +12537,7 @@ class SchoolDB(LovesDB):
         value: Any,
         key: str,
         raw_key: str,
+        payload: dict[str, Any] | None = None,
     ) -> bool | None:
         """Return whether one answer matches the teacher key.
 
@@ -11518,10 +12546,17 @@ class SchoolDB(LovesDB):
             value: Numeric or free-text answer.
             key: Uppercased letter key.
             raw_key: Original key string for numeric compare.
+            payload: Prompt payload that may hold numeric tolerance.
         """
+        body = payload if isinstance(payload, dict) else {}
         if raw_key and value not in (None, ""):
             try:
-                return float(str(value).strip()) == float(str(raw_key).strip())
+                return self._numeric_within_tolerance(
+                    float(str(value).strip()),
+                    float(str(raw_key).strip()),
+                    body.get("tolerance"),
+                    body.get("tolerance_kind"),
+                )
             except (TypeError, ValueError):
                 pass
         if key and letter:
@@ -11608,6 +12643,7 @@ class SchoolDB(LovesDB):
                         value=value,
                         key=key,
                         raw_key=raw_key,
+                        payload=payload,
                     ),
                     "awarded_points": response_row.get("awarded_points"),
                 }
@@ -12002,6 +13038,37 @@ class SchoolDB(LovesDB):
                 return None
         return prompt
 
+    def _student_may_see_tally(
+        self,
+        session_id: int,
+        prompt: dict[str, Any] | None,
+        *,
+        my_response: Any = None,
+        teacher: dict[str, Any] | None = None,
+    ) -> bool:
+        """True when a student payload may include live MC totals.
+
+        Closed items stay visible. Active items need Show live results
+        plus a submit or Reveal. Prompts with no lifecycle row keep the
+        legacy ``my_response`` / Reveal rule.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Facing prompt row.
+            my_response: Prior or just-saved student response, if any.
+            teacher: Public teacher state for Reveal.
+        """
+        lifecycle = self._lifecycle_item_for_prompt(session_id, prompt)
+        if lifecycle is None:
+            return my_response is not None or student_mc_summary_visible(teacher)
+        status = str(lifecycle.get("status") or "")
+        return status == "closed" or (
+            bool(lifecycle.get("show_live_results"))
+            and (
+                my_response is not None
+                or student_mc_summary_visible(teacher)
+            )
+        )
 
     def _published_stage_catalogue_prompt(
         self, session_id: int, stage: str
@@ -12462,11 +13529,6 @@ class SchoolDB(LovesDB):
                 "awarded_points": prior.get("awarded_points"),
                 "updated_at": prior.get("updated_at"),
             }
-            fragment = public_feedback_fragment(
-                raw_payload, my_response["response"]
-            )
-            if fragment:
-                my_response["feedback"] = fragment
         cleaned = strip_teacher_prompt_fields(raw_payload)
         if is_teams_spark_payload(raw_payload):
             ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
@@ -12496,24 +13558,13 @@ class SchoolDB(LovesDB):
         if stage == "teams":
             out["game_show_welcome"] = self.student_game_show_welcome(session_id)
         shared_tally = self._tally_for_prompt(session_id, prompt, teacher)
-        if shared_tally is not None:
-            lifecycle = self._lifecycle_item_for_prompt(session_id, prompt)
-            if lifecycle is None:
-                include_tally = (
-                    my_response is not None
-                    or student_mc_summary_visible(teacher)
-                )
-            else:
-                status = str(lifecycle.get("status") or "")
-                include_tally = status == "closed" or (
-                    bool(lifecycle.get("show_live_results"))
-                    and (
-                        my_response is not None
-                        or student_mc_summary_visible(teacher)
-                    )
-                )
-            if include_tally:
-                out["mc_tally"] = shared_tally
+        if shared_tally is not None and self._student_may_see_tally(
+            session_id,
+            prompt,
+            my_response=my_response,
+            teacher=teacher,
+        ):
+            out["mc_tally"] = shared_tally
         draft = self.group_question_draft(
             session_id,
             prompt_id=int(prompt["id"]),
@@ -12589,6 +13640,7 @@ class SchoolDB(LovesDB):
         toast_key: Any = None,
         allow_url_swap: bool = True,
         merge: bool = False,
+        persist_media_copy: bool = True,
     ) -> dict[str, Any] | None:
         """Set, swap, patch control-state, or clear session active media.
 
@@ -12628,6 +13680,8 @@ class SchoolDB(LovesDB):
             toast_key: Optional toast identity.
             allow_url_swap: When False, production seed-locks the Real-slice URL.
             merge: When True, treat omitted url as a patch of current media.
+            persist_media_copy: When False, skip writing ``class_live_media_overlays``
+                (automatic slot remounts must not overwrite a saved overlay).
 
         Returns:
             Public payload, or ``None`` when cleared.
@@ -12773,6 +13827,16 @@ class SchoolDB(LovesDB):
             frames = teacher.get("student_frames") or {}
             if stage in {"round", "play"} or bool(frames.get("media")):
                 self.clear_session_warmups(session_id)
+            if persist_media_copy and (stem is not None or caption is not None):
+                self.upsert_class_live_media_copy(
+                    int(session_row["class_id"]),
+                    teacher.get("live_module") or "M1",
+                    teacher.get("live_slot") or slot,
+                    stem=None if stem is None else str(payload.get("stem") or ""),
+                    caption=None
+                    if caption is None
+                    else str(payload.get("caption") or ""),
+                )
         self._sync_cons_prompt(session_id, payload)
         return payload
 
@@ -13503,23 +14567,18 @@ class SchoolDB(LovesDB):
                 int(session_row["class_id"]), new_stage
             )
         if posted_slot is not None or posted_module is not None:
-            slot = normalize_live_slot(
+            prev_slot = normalize_live_slot(current.get("live_slot"))
+            prev_module = normalize_live_module(current.get("live_module"))
+            new_slot = normalize_live_slot(
                 posted_slot if posted_slot is not None else payload.get("live_slot")
             )
-            if slot in {"C2", "C3"}:
-                media = self.live_session_active_media_payload(session_id)
-                if media is not None:
-                    encoded = None
-                    with self._lock:
-                        self.conn.execute(
-                            """
-                            UPDATE live_class_sessions
-                            SET active_media_json = ?
-                            WHERE id = ?
-                            """,
-                            (encoded, int(session_id)),
-                        )
-                        self.conn.commit()
+            new_module = normalize_live_module(
+                posted_module
+                if posted_module is not None
+                else payload.get("live_module")
+            )
+            if new_slot != prev_slot or new_module != prev_module:
+                self.ensure_live_class_media(session_id)
             if not self._session_left_waiting_room(session_id) and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
         return written
