@@ -1,0 +1,809 @@
+{
+  "schema_version": 2,
+  "catalogue_id": "lloves-live-items",
+  "items": {
+    "universal/question/minds-on": {
+      "scope": "universal",
+      "item_type": "question",
+      "id": "minds_on",
+      "type": "mc",
+      "text": "A straight-line graph has a **constant rate of change**. Which statement best matches that?",
+      "options": [
+        "Every equal step across adds the same amount up (or down)",
+        "The graph curves",
+        "Second differences in a table are constant"
+      ],
+      "correct_answer": "A",
+      "feedback_id": "minds_on",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "response_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "universal/question/teams-spark": {
+      "scope": "universal",
+      "item_type": "question",
+      "id": "teams-spark",
+      "type": "numeric",
+      "text": "Type the integer you think most students will answer",
+      "options": [],
+      "correct_answer": null,
+      "integer_only": true,
+      "placeholder": "Enter an integer",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "response_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "universal/question/meet-team": {
+      "scope": "universal",
+      "item_type": "question",
+      "id": "meet-team",
+      "type": "poll",
+      "text": "Today I\u2019m the teammate who\u2026",
+      "options": [
+        "notices details",
+        "asks the good question",
+        "keeps us kind",
+        "wants to try being team leader",
+        "Not sure"
+      ],
+      "option_pool": [
+        "notices details",
+        "asks the good question",
+        "tries the weird idea",
+        "checks our work",
+        "explains so it clicks",
+        "brings the calm",
+        "connects ideas"
+      ],
+      "fixed_options": [
+        "keeps us kind",
+        "wants to try being team leader",
+        "Not sure"
+      ],
+      "correct_answer": null,
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "universal/whiteboard/live-workspace": {
+      "scope": "universal",
+      "item_type": "whiteboard",
+      "id": "whiteboard",
+      "title": "Whiteboard",
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_shared"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "group_shared": true,
+        "dismissible": true
+      }
+    },
+    "universal/slides/lesson-deck": {
+      "scope": "universal",
+      "item_type": "slides",
+      "id": "slides",
+      "title": "Slides",
+      "deck_ref": null,
+      "page_numbers": [],
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "course/MCF3M/media/real-slice": {
+      "scope": "course",
+      "course": "MCF3M",
+      "item_type": "media",
+      "id": "real-slice",
+      "file": "/static/live-media/m1c1-c1-real-slice.html",
+      "title": "Real Slice",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "course/MCR3U/media/square-root-transformation": {
+      "scope": "course",
+      "course": "MCR3U",
+      "item_type": "media",
+      "id": "square-root-transformation",
+      "file": "/static/live-media/mcr3u-m1c1-sqrt.html",
+      "title": "Square-root transformation",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C1/question/minds-on": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C1",
+      "item_type": "question",
+      "id": "minds_on",
+      "type": "mc",
+      "text": "A straight-line graph has a **constant rate of change**. Which statement best matches that?",
+      "options": [
+        "Every equal step across adds the same amount up (or down)",
+        "The graph curves",
+        "Second differences in a table are constant"
+      ],
+      "correct_answer": "A",
+      "feedback_id": "minds_on",
+      "brief_path": "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C1-minds-on-student.md",
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "response_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/minds-on": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "minds_on",
+      "type": "mc",
+      "text": "Looking at y = x^2, which claim must be true from the graph?",
+      "options": [
+        "a > 0 (it opens upward)",
+        "a < 0 (it opens downward)",
+        "The graph is a straight line"
+      ],
+      "correct_answer": "A",
+      "feedback_id": "C2-minds_on",
+      "brief_path": "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C2-minds-on-student.md",
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "response_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/function-notation": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "function-notation",
+      "type": "mc",
+      "text": "What does the notation **f(x)** mean?",
+      "options": [
+        "f multiplied by x",
+        "the output of rule f when the input is x",
+        "f is always equal to x",
+        "x is the name of the function"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/evaluate-f2": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "evaluate-f2",
+      "type": "numeric",
+      "text": "Evaluate f(2) if f(x) = \u22123x + 4",
+      "options": [],
+      "correct_answer": "-2",
+      "integer_only": true,
+      "placeholder": "Enter a number",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/parabola-a": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "parabola-a",
+      "type": "mc",
+      "text": "From the graph of y = ax^2 + bx + c, what do you know about the value of a?",
+      "options": [
+        "Impossible to know",
+        "It's positive",
+        "It's negative",
+        "It's zero",
+        "It's not connected to the graph"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/parabola-c": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "parabola-c",
+      "type": "mc",
+      "text": "From the graph of y = ax^2 + bx + c, what do you know about the value of c?",
+      "options": [
+        "Impossible to know",
+        "It's positive",
+        "It's negative",
+        "It's zero",
+        "It's not connected to the graph"
+      ],
+      "correct_answer": "D",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcf3m-m1c2-parent-transformations.html",
+      "title": "Quadratic transformations (a, h, k)",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-a-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-a-effect",
+      "type": "mc",
+      "text": "What does the value of a do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "D",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-h-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-h-effect",
+      "type": "mc",
+      "text": "What does the value of h do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-k-effect": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-k-effect",
+      "type": "mc",
+      "text": "What does the value of k do to the parabola?",
+      "options": [
+        "Moves it up/down",
+        "Moves it left/right",
+        "Vertically compresses it",
+        "Vertically stretches it"
+      ],
+      "correct_answer": "A",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-x-minus-3": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-x-minus-3",
+      "type": "mc",
+      "text": "Consider the function f(x) = (x - 3)^2. Which transformation has been applied?",
+      "options": [
+        "Vertical stretch by a factor of 3",
+        "Translated 3 units left",
+        "Translated 3 units right",
+        "Shifted 3 units downward"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C2/question/transform-stretch-translate": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "transform-stretch-translate",
+      "type": "mc",
+      "text": "Consider the function f(x) = 3(x - 4)^2 + 1. This illustrates what transformation, applied to y = x^2?",
+      "options": [
+        "Vertical stretch by a factor of 4",
+        "Translated 4 units left",
+        "Translated 1 unit downward",
+        "Vertical stretch by a factor of 3"
+      ],
+      "correct_answer": "D",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCF3M/M1/C3/question/minds-on": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C3",
+      "item_type": "question",
+      "id": "minds_on",
+      "type": "mc",
+      "text": "A graph of y = x^2 has been moved so it still passes through a marked point. Which claim is safest?",
+      "options": [
+        "Every parameter a, h, and k is locked by the point alone",
+        "The point links the parameters \u2014 some stay free",
+        "Domain and range are always all real numbers"
+      ],
+      "correct_answer": "B",
+      "feedback_id": "C3-minds_on",
+      "brief_path": "catalogue/challenges/module-briefs/minds-on/MCF3M-M1-C3-minds-on-student.md",
+      "capabilities": {
+        "publish_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "response_modes": [
+          "individual",
+          "group_consensus"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/function-notation": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "function-notation",
+      "type": "mc",
+      "text": "What does the notation **f(x)** mean?",
+      "options": [
+        "f multiplied by x",
+        "the output of rule f when the input is x",
+        "f is always equal to x",
+        "x is the name of the function"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/evaluate-f2": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "evaluate-f2",
+      "type": "numeric",
+      "text": "Evaluate f(2) if f(x) = \u22123x + 4",
+      "options": [],
+      "correct_answer": "-2",
+      "integer_only": true,
+      "placeholder": "Enter a number",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/parent-range-quadratic": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "parent-range-quadratic",
+      "type": "mc",
+      "text": "What is the range of the parent function f(x) = x\u00b2?",
+      "options": [
+        "all real numbers",
+        "y \u2265 0",
+        "y > 0",
+        "x \u2265 0"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/parent-domain-sqrt": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "parent-domain-sqrt",
+      "type": "mc",
+      "text": "What is the domain of the parent function f(x) = \u221ax?",
+      "options": [
+        "all real numbers",
+        "x > 0",
+        "x \u2265 0",
+        "y \u2265 0"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/parent-domain-reciprocal": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "parent-domain-reciprocal",
+      "type": "mc",
+      "text": "What is the domain of the parent function f(x) = 1/x?",
+      "options": [
+        "all real numbers",
+        "x \u2265 0",
+        "x \u2260 0",
+        "y \u2260 0"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/not-in-domain-sqrt": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "not-in-domain-sqrt",
+      "type": "mc",
+      "text": "Consider f(x) = \u221a(x \u2212 4). Which of the following values of x are not in the domain? Hint: Which one causes a problem when plugged in for x?",
+      "options": [
+        "4",
+        "3",
+        "7",
+        "9.3"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/not-in-domain-reciprocal": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "not-in-domain-reciprocal",
+      "type": "mc",
+      "text": "Consider f(x) = 1/x. Which of the following values of x are not in the domain? Hint: Which one causes a problem when plugged in for x?",
+      "options": [
+        "4",
+        "0",
+        "7",
+        "9.3"
+      ],
+      "correct_answer": "B",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/question/team-challenge": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "question",
+      "id": "team-challenge",
+      "type": "mc",
+      "text": "A rule subtracts one square root from another: f(x) = \u221a(x \u2212 5) \u2212 \u221a(24 \u2212 3x). Each square root only makes sense for some inputs. Which inputs are allowed?",
+      "options": [
+        "all real numbers",
+        "x \u2265 5",
+        "5 \u2264 x \u2264 8",
+        "x \u2264 8"
+      ],
+      "correct_answer": "C",
+      "ephemeral": true,
+      "durable_store": false,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "live_results": true,
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C3/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C3",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+      "title": "Parent transformations",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C2/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C2",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+      "title": "Parent transformations",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    }
+  }
+}

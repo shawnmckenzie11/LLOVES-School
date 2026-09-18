@@ -31,6 +31,7 @@ from teams import (
     assign_random,
     color_for_team,
     default_team_name,
+    pick_late_team,
     validate_team_count,
 )
 
@@ -130,6 +131,24 @@ CREATE TABLE IF NOT EXISTS team_buckets (
     PRIMARY KEY (game_id, team_id)
 );
 
+CREATE TABLE IF NOT EXISTS team_name_proposals (
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES game_teams(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (game_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS team_name_votes (
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES game_teams(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    name_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (game_id, student_id)
+);
+
 CREATE TABLE IF NOT EXISTS subtotals (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
@@ -171,6 +190,8 @@ CREATE TABLE IF NOT EXISTS student_moods (
 );
 """
 
+TEAM_NAME_OPTION_MAX = 32
+
 SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
 STAT_WINDOW_KEY_PREFIX = "stat_window:"
@@ -199,6 +220,19 @@ STAT_WINDOW_LABELS = {
 def ontario_today() -> date:
     """Return today's calendar date in ``America/Toronto``."""
     return datetime.now(ZoneInfo("America/Toronto")).date()
+
+
+def normalize_team_name_option(raw: str) -> str:
+    """Collapse whitespace and cap length for a student-submitted team name."""
+    name = " ".join(str(raw or "").split())
+    if len(name) > TEAM_NAME_OPTION_MAX:
+        name = name[:TEAM_NAME_OPTION_MAX].rstrip()
+    return name
+
+
+def team_name_option_key(name: str) -> str:
+    """Case-insensitive key used to tally votes for one proposed name."""
+    return normalize_team_name_option(name).casefold()
 
 
 TEAM_RULES = ("each_member", "split_members", "team_only")
@@ -636,8 +670,9 @@ class GameShowDB:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
@@ -675,6 +710,7 @@ class GameShowDB:
         self._migrate_class_live_access_code()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
+        self._migrate_team_name_poll()
 
     def _migrate_rounds(self) -> None:
         """Add round/timer columns and copy legacy points into Round 1.
@@ -814,6 +850,37 @@ class GameShowDB:
             self.conn.execute(
                 "ALTER TABLE session_scores ADD COLUMN late INTEGER NOT NULL DEFAULT 0"
             )
+
+    def _migrate_team_name_poll(self) -> None:
+        """Add per-game team-name proposals/votes and the teacher approve flag."""
+        game_cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(games)").fetchall()
+        }
+        if "team_names_approved" not in game_cols:
+            self.conn.execute(
+                "ALTER TABLE games ADD COLUMN team_names_approved INTEGER NOT NULL DEFAULT 0"
+            )
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS team_name_proposals (
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL REFERENCES game_teams(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (game_id, student_id)
+            );
+            CREATE TABLE IF NOT EXISTS team_name_votes (
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL REFERENCES game_teams(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                name_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (game_id, student_id)
+            );
+            """
+        )
 
     def _ensure_real_points(self, table: str) -> None:
         """Rebuild a scores table if ``points`` still has INTEGER affinity.
@@ -1252,7 +1319,7 @@ class GameShowDB:
         During Mark Attendance / setup, marks ordinary present (``P``).
         After scoring has started (``live``), delegates to
         :meth:`admit_late_joiner` so the student gets Late (``L``) plus a
-        race-safe random team (or the Class list for individual tracking).
+        balanced team (fewest players, then lowest score) or the Class list.
 
         Args:
             class_id: Classes primary key.
@@ -1284,16 +1351,77 @@ class GameShowDB:
                 return False
             session_id = int(game["session_id"])
             self._ensure_session_scores(session_id, int(class_id))
+            late = self._named_teams_exist_locked(int(game["id"]))
             self.conn.execute(
                 """
                 UPDATE session_scores
-                SET present = 1, late = 0
+                SET present = 1, late = ?
                 WHERE session_id = ? AND student_id = ?
                 """,
-                (session_id, int(student_id)),
+                (1 if late else 0, session_id, int(student_id)),
             )
+            if late:
+                self._assign_joiner_if_teams_locked(
+                    int(game["id"]), session_id, int(student_id)
+                )
             self.conn.commit()
         return True
+
+    def _named_teams_exist_locked(self, game_id: int) -> bool:
+        """True when this game already has named (non-Class) teams."""
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM game_teams
+            WHERE game_id = ? AND name != 'Class'
+            """,
+            (int(game_id),),
+        ).fetchone()
+        return bool(row and int(row["n"] or 0) > 0)
+
+    def _assign_joiner_if_teams_locked(
+        self, game_id: int, session_id: int, student_id: int
+    ) -> None:
+        """Put a mid-class joiner on the smallest / weakest-career team."""
+        already = self.conn.execute(
+            """
+            SELECT student_id FROM game_memberships
+            WHERE game_id = ? AND student_id = ?
+            """,
+            (int(game_id), int(student_id)),
+        ).fetchone()
+        if already is not None:
+            return
+        teams = [
+            dict(row)
+            for row in self.conn.execute(
+                """
+                SELECT t.id, t.name,
+                       (SELECT COUNT(*) FROM game_memberships m
+                        WHERE m.team_id = t.id) AS size,
+                       COALESCE((
+                           SELECT SUM(s.points)
+                           FROM game_memberships m
+                           JOIN session_scores s
+                             ON s.student_id = m.student_id
+                           WHERE m.team_id = t.id
+                       ), 0) AS course_total
+                FROM game_teams t
+                WHERE t.game_id = ? AND t.name != 'Class'
+                ORDER BY t.sort_order, t.id
+                """,
+                (int(game_id),),
+            )
+        ]
+        if not teams:
+            return
+        team_id = pick_late_team(teams)
+        self.conn.execute(
+            """
+            INSERT INTO game_memberships (game_id, team_id, student_id)
+            VALUES (?, ?, ?)
+            """,
+            (int(game_id), int(team_id), int(student_id)),
+        )
 
     def admit_late_joiner(
         self,
@@ -1305,7 +1433,7 @@ class GameShowDB:
         """Admit a rostered student who joins after live scoring started.
 
         Marks attendance Late (``present=1``, ``late=1``), assigns them to a
-        random existing team (or the sole Class team for individual tracking),
+        balanced existing team (fewest players, then lowest summed course score),
         and is race-safe under the DB lock (idempotent if already a member).
 
         Args:
@@ -1358,9 +1486,19 @@ class GameShowDB:
                 dict(row)
                 for row in self.conn.execute(
                     """
-                    SELECT id, name FROM game_teams
-                    WHERE game_id = ?
-                    ORDER BY sort_order, id
+                    SELECT t.id, t.name,
+                           (SELECT COUNT(*) FROM game_memberships m
+                            WHERE m.team_id = t.id) AS size,
+                           COALESCE((
+                               SELECT SUM(s.points)
+                               FROM game_memberships m
+                               JOIN session_scores s
+                                 ON s.student_id = m.student_id
+                               WHERE m.team_id = t.id
+                           ), 0) AS course_total
+                    FROM game_teams t
+                    WHERE t.game_id = ?
+                    ORDER BY t.sort_order, t.id
                     """,
                     (game_id,),
                 )
@@ -1370,7 +1508,7 @@ class GameShowDB:
             if len(teams) == 1 and str(teams[0].get("name") or "") == "Class":
                 team_id = int(teams[0]["id"])
             else:
-                team_id = int(picker.choice(teams)["id"])
+                team_id = pick_late_team(teams)
 
             if score is None:
                 self.conn.execute(
@@ -1512,6 +1650,24 @@ class GameShowDB:
             ).fetchall()
         return {int(row["student_id"]): str(row["mood"]) for row in rows}
 
+    def character_keys(self, class_id: int) -> dict[int, str]:
+        """Map student id → join-screen character key.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, character_key FROM students
+                WHERE class_id = ?
+                  AND character_key IS NOT NULL
+                  AND TRIM(character_key) != ''
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return {int(row["id"]): str(row["character_key"]) for row in rows}
+
     def attach_today_moods(self, class_id: int, students: list[dict[str, Any]]) -> None:
         """Set ``mood`` on each roster dict from today's check-ins.
 
@@ -1578,7 +1734,88 @@ class GameShowDB:
             ).fetchone()
         return int(row["id"]) if row else None
 
-    def student_live_payload(self, class_id: int, student_id: int) -> dict[str, Any]:
+    def _student_scoreboard(
+        self,
+        class_id: int,
+        open_game: Any,
+        include_ended: bool,
+    ) -> dict[str, Any]:
+        """Public scoreboard, falling back to an ended game after End Live.
+
+        Args:
+            class_id: Classes primary key.
+            open_game: Latest game row, possibly ended.
+            include_ended: When True, rebuild from that ended game.
+        """
+        board = self.scoreboard(class_id)
+        if board.get("teams"):
+            return board
+        if not include_ended or open_game is None:
+            return board
+        try:
+            return self._scoreboard_payload(
+                self.game_state(class_id, game_id=int(open_game["id"])),
+                live=False,
+            )
+        except Exception:  # noqa: BLE001 — idle board is fine
+            return board
+
+    def _public_my_team(
+        self, state: dict[str, Any], student_id: int
+    ) -> dict[str, Any] | None:
+        """Return this student's named team as names and avatars only.
+
+        Individual Class tracking (one team named Class) stays hidden. Member
+        rows omit scores and moods.
+
+        Args:
+            state: ``game_state`` payload with ``teams`` and members.
+            student_id: Roster student id.
+
+        Returns:
+            ``{name, members:[{id, codename, character}]}`` or ``None``.
+        """
+        named = [
+            team
+            for team in (state.get("teams") or [])
+            if str(team.get("name") or "").strip()
+            and str(team.get("name") or "").strip() != "Class"
+        ]
+        if not named:
+            return None
+        sid = int(student_id)
+        for team in named:
+            members = list(team.get("members") or [])
+            if not any(int(row.get("id") or 0) == sid for row in members):
+                continue
+            people: list[dict[str, Any]] = []
+            for row in members:
+                label = str(row.get("codename") or row.get("first_name") or "").strip()
+                if not label:
+                    continue
+                people.append(
+                    {
+                        "id": int(row.get("id") or 0),
+                        "codename": label,
+                        "character": row.get("character_key") or row.get("character"),
+                    }
+                )
+            people.sort(key=lambda row: str(row["codename"]).lower())
+            if not people:
+                return None
+            return {
+                "name": str(team.get("name") or "Team").strip() or "Team",
+                "members": people,
+            }
+        return None
+
+    def student_live_payload(
+        self,
+        class_id: int,
+        student_id: int,
+        *,
+        include_ended: bool = False,
+    ) -> dict[str, Any]:
         """Build the student home/API payload for one rostered student.
 
         Rank is computed among present students by ``session_points`` and
@@ -1587,6 +1824,8 @@ class GameShowDB:
         Args:
             class_id: Classes primary key.
             student_id: Students primary key.
+            include_ended: When True and no open game remains, read the
+                latest ended game so End Live can keep points and teams.
         """
         student = self.get_student(class_id, student_id)
         show_rank = self.get_show_rank(class_id)
@@ -1595,6 +1834,7 @@ class GameShowDB:
         points = 0.0
         team_name = None
         team_points = 0.0
+        my_team = None
         rank = None
         rank_of = None
         with self._lock:
@@ -1607,6 +1847,16 @@ class GameShowDB:
                 """,
                 (int(class_id),),
             ).fetchone()
+            if open_game is None and include_ended:
+                open_game = self.conn.execute(
+                    """
+                    SELECT id, status FROM games
+                    WHERE class_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (int(class_id),),
+                ).fetchone()
         round_label = ""
         round_kind = ""
         if open_game is not None:
@@ -1614,15 +1864,20 @@ class GameShowDB:
             if game_status == "live":
                 status = "scoring"
                 scoring = True
+            elif game_status == "ended":
+                # Celebration keeps the SID; do not mark the portal ended.
+                status = "waiting"
+                scoring = False
             else:
                 status = "setup"
-            state = self.game_state(class_id)
+            state = self.game_state(class_id, game_id=int(open_game["id"]))
             sid = int(student_id)
             for row in state.get("students") or []:
                 if int(row["id"]) != sid:
                     continue
                 points = as_points(row.get("session_points"))
                 break
+            my_team = self._public_my_team(state, sid)
             for team in state.get("teams") or []:
                 members = team.get("members") or []
                 if any(int(m["id"]) == sid for m in members):
@@ -1673,7 +1928,8 @@ class GameShowDB:
             "round_label": round_label,
             "round_kind": round_kind,
             "me": me,
-            "scoreboard": self.scoreboard(class_id),
+            "my_team": my_team,
+            "scoreboard": self._student_scoreboard(class_id, open_game, include_ended),
         }
 
     def get_class_by_live_code(self, live_access_code: str) -> dict[str, Any] | None:
@@ -2847,7 +3103,10 @@ class GameShowDB:
             if not present_set:
                 raise ValueError("Mark at least one student present")
             self._write_attendance_unlocked(game, present_set)
-            # Drop any teams from a previous pass through this setup.
+            if self._named_teams_exist_locked(int(game["id"])):
+                self.conn.commit()
+                return self.game_state(class_id)
+            # No fixed setup exists yet, so stale partial buckets may be reset.
             self.conn.execute(
                 "DELETE FROM game_memberships WHERE game_id = ?", (game["id"],)
             )
@@ -2964,20 +3223,22 @@ class GameShowDB:
         present_ids: list[int],
         credits: dict[int, Any],
         *,
+        include_attendance: bool = True,
         include_participation: bool = True,
     ) -> dict[str, Any] | None:
-        """Write attendance, optional +1/question participation, then end.
+        """Write optional attendance / +1/question participation, then end.
 
-        Used by Save and End Class (attendance + participation) and Quit
-        (attendance only). Creates an open game when none exists and
+        Used by End Live Class (teacher picks which columns to keep) and
+        Quit (attendance only). Creates an open game when none exists and
         there is something to persist.
 
         Args:
             class_id: Classes primary key.
             present_ids: Roster ids marked present.
             credits: ``student_id → iterable of question keys or a count``.
-            include_participation: When False (Quit), zero live points
-                so only attendance remains.
+            include_attendance: When False, skip the attendance write.
+            include_participation: When False (Quit / unchecked), zero
+                live points so only attendance remains.
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -3004,12 +3265,16 @@ class GameShowDB:
         try:
             self._game_row(class_id)
         except KeyError:
-            if not present_set and not credit_map:
+            if not (
+                (include_attendance and present_set)
+                or (include_participation and credit_map)
+            ):
                 return None
             self.begin_game(class_id)
         with self._lock:
             game = self._game_row(class_id)
-            self._write_attendance_unlocked(game, present_set)
+            if include_attendance:
+                self._write_attendance_unlocked(game, present_set)
             session_id = int(game["session_id"])
             game_id = int(game["id"])
             if not include_participation:
@@ -3210,6 +3475,10 @@ class GameShowDB:
                     (int(game["id"]),),
                 )
                 game = self._game_row(class_id)
+            if self._named_teams_exist_locked(int(game["id"])):
+                raise ValueError(
+                    "Groups are already set up for this session; rename or toggle them instead."
+                )
             session_id = int(game["session_id"])
             present_rows = self.conn.execute(
                 """
@@ -3271,8 +3540,14 @@ class GameShowDB:
                         (game_id, team_id, sid),
                     )
             self.conn.execute(
-                "UPDATE games SET status = 'names' WHERE id = ?", (game_id,)
+                """
+                UPDATE games
+                SET status = 'names', team_names_approved = 0
+                WHERE id = ?
+                """,
+                (game_id,),
             )
+            self._clear_team_name_poll_unlocked(game_id)
             self.conn.commit()
         return self.game_state(class_id)
 
@@ -3320,7 +3595,8 @@ class GameShowDB:
                     """
                     UPDATE games
                     SET status = 'rounds',
-                        overlay_phase = NULL
+                        overlay_phase = NULL,
+                        team_names_approved = 1
                     WHERE id = ?
                     """,
                     (game_id,),
@@ -3362,6 +3638,332 @@ class GameShowDB:
             self._set_scoreboard_game(game_id)
             self.conn.commit()
         return self.game_state(class_id)
+
+    def _clear_team_name_poll_unlocked(self, game_id: int) -> None:
+        """Drop proposals and votes for one game. Caller holds the lock."""
+        self.conn.execute(
+            "DELETE FROM team_name_votes WHERE game_id = ?", (int(game_id),)
+        )
+        self.conn.execute(
+            "DELETE FROM team_name_proposals WHERE game_id = ?", (int(game_id),)
+        )
+
+    def _student_team_id(self, game_id: int, student_id: int) -> int | None:
+        """Return this student's team id, or None when unassigned."""
+        row = self.conn.execute(
+            """
+            SELECT team_id FROM game_memberships
+            WHERE game_id = ? AND student_id = ?
+            """,
+            (int(game_id), int(student_id)),
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["team_id"])
+
+    def _tally_team_name_options(
+        self, game_id: int, team_id: int
+    ) -> list[dict[str, Any]]:
+        """Build proposed names with vote counts for one team.
+
+        Args:
+            game_id: Open game primary key.
+            team_id: ``game_teams.id``.
+
+        Returns:
+            Options sorted by votes desc, then first-proposed.
+        """
+        proposals = [
+            dict(row)
+            for row in self.conn.execute(
+                """
+                SELECT student_id, name, created_at
+                FROM team_name_proposals
+                WHERE game_id = ? AND team_id = ?
+                ORDER BY created_at ASC, student_id ASC
+                """,
+                (int(game_id), int(team_id)),
+            ).fetchall()
+        ]
+        votes = [
+            str(row["name_key"])
+            for row in self.conn.execute(
+                """
+                SELECT name_key FROM team_name_votes
+                WHERE game_id = ? AND team_id = ?
+                """,
+                (int(game_id), int(team_id)),
+            ).fetchall()
+        ]
+        buckets: dict[str, dict[str, Any]] = {}
+        for row in proposals:
+            key = team_name_option_key(str(row["name"]))
+            if not key:
+                continue
+            if key not in buckets:
+                buckets[key] = {
+                    "name": str(row["name"]).strip(),
+                    "votes": 0,
+                    "first_at": str(row["created_at"] or ""),
+                }
+        for key in votes:
+            if key not in buckets:
+                buckets[key] = {"name": key, "votes": 0, "first_at": ""}
+            buckets[key]["votes"] = int(buckets[key]["votes"]) + 1
+        options = list(buckets.values())
+        options.sort(
+            key=lambda item: (-int(item["votes"]), str(item["first_at"]), str(item["name"]))
+        )
+        return [{"name": item["name"], "votes": int(item["votes"])} for item in options]
+
+    def team_name_poll_for_game(self, game_id: int) -> dict[str, Any]:
+        """Staff-facing poll summary with the current top-voted name per team.
+
+        Args:
+            game_id: Games primary key.
+
+        Returns:
+            ``{approved, teams:[{id, name, tentative, options}]}``.
+        """
+        game = self.conn.execute(
+            "SELECT team_names_approved FROM games WHERE id = ?",
+            (int(game_id),),
+        ).fetchone()
+        approved = bool(game and int(game["team_names_approved"] or 0))
+        teams: list[dict[str, Any]] = []
+        rows = self.conn.execute(
+            """
+            SELECT id, name, sort_order FROM game_teams
+            WHERE game_id = ? ORDER BY sort_order
+            """,
+            (int(game_id),),
+        ).fetchall()
+        for row in rows:
+            label = str(row["name"] or "").strip()
+            if not label or label == "Class":
+                continue
+            options = self._tally_team_name_options(int(game_id), int(row["id"]))
+            top = options[0]["name"] if options else ""
+            teams.append(
+                {
+                    "id": int(row["id"]),
+                    "name": label,
+                    "tentative": top or label,
+                    "options": options,
+                }
+            )
+        return {"approved": approved, "teams": teams}
+
+    def student_team_name_poll(
+        self, class_id: int, student_id: int
+    ) -> dict[str, Any] | None:
+        """Student-facing Team Name poll for this live game, or None.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Roster student id.
+
+        Returns:
+            Poll payload when the student is on a named team and names are
+            not yet approved.
+        """
+        with self._lock:
+            open_game = self.conn.execute(
+                """
+                SELECT id, team_names_approved FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+            if open_game is None:
+                return None
+            if int(open_game["team_names_approved"] or 0):
+                return None
+            game_id = int(open_game["id"])
+            team_id = self._student_team_id(game_id, int(student_id))
+            if team_id is None:
+                return None
+            team = self.conn.execute(
+                "SELECT name FROM game_teams WHERE id = ? AND game_id = ?",
+                (team_id, game_id),
+            ).fetchone()
+            label = str((team or {}).get("name") or "").strip()
+            if not label or label == "Class":
+                return None
+            proposal = self.conn.execute(
+                """
+                SELECT name FROM team_name_proposals
+                WHERE game_id = ? AND student_id = ?
+                """,
+                (game_id, int(student_id)),
+            ).fetchone()
+            vote = self.conn.execute(
+                """
+                SELECT name_key FROM team_name_votes
+                WHERE game_id = ? AND student_id = ?
+                """,
+                (game_id, int(student_id)),
+            ).fetchone()
+            options = self._tally_team_name_options(game_id, team_id)
+            tentative = options[0]["name"] if options else label
+            my_proposal = str(proposal["name"]).strip() if proposal else ""
+            my_vote = ""
+            if vote is not None:
+                key = str(vote["name_key"])
+                match = next(
+                    (row["name"] for row in options if team_name_option_key(row["name"]) == key),
+                    "",
+                )
+                my_vote = match or key
+            return {
+                "open": True,
+                "team_id": team_id,
+                "team_name": label,
+                "tentative": tentative,
+                "my_proposal": my_proposal,
+                "my_vote": my_vote,
+                "can_propose": not bool(my_proposal),
+                "options": options,
+            }
+
+    def propose_team_name(
+        self, class_id: int, student_id: int, name: str
+    ) -> dict[str, Any]:
+        """Record this student's one team-name option and vote for it if needed.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Roster student id.
+            name: Proposed team name.
+
+        Returns:
+            Updated student poll payload.
+
+        Raises:
+            ValueError: Empty name, already proposed, or poll closed.
+        """
+        cleaned = normalize_team_name_option(name)
+        if not cleaned:
+            raise ValueError("Enter a team name.")
+        key = team_name_option_key(cleaned)
+        with self._lock:
+            open_game = self.conn.execute(
+                """
+                SELECT id, team_names_approved FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+            if open_game is None:
+                raise ValueError("No live game is running.")
+            if int(open_game["team_names_approved"] or 0):
+                raise ValueError("Team names are already approved.")
+            game_id = int(open_game["id"])
+            team_id = self._student_team_id(game_id, int(student_id))
+            if team_id is None:
+                raise ValueError("Join a team before naming it.")
+            existing = self.conn.execute(
+                """
+                SELECT name FROM team_name_proposals
+                WHERE game_id = ? AND student_id = ?
+                """,
+                (game_id, int(student_id)),
+            ).fetchone()
+            if existing is not None:
+                raise ValueError("You already submitted a name.")
+            now = self._now()
+            self.conn.execute(
+                """
+                INSERT INTO team_name_proposals (game_id, team_id, student_id, name, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (game_id, team_id, int(student_id), cleaned, now),
+            )
+            voted = self.conn.execute(
+                """
+                SELECT 1 FROM team_name_votes
+                WHERE game_id = ? AND student_id = ?
+                """,
+                (game_id, int(student_id)),
+            ).fetchone()
+            if voted is None:
+                self.conn.execute(
+                    """
+                    INSERT INTO team_name_votes
+                        (game_id, team_id, student_id, name_key, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (game_id, team_id, int(student_id), key, now),
+                )
+            self.conn.commit()
+        poll = self.student_team_name_poll(class_id, student_id)
+        if poll is None:
+            raise ValueError("Team name poll is closed.")
+        return poll
+
+    def vote_team_name(
+        self, class_id: int, student_id: int, name: str
+    ) -> dict[str, Any]:
+        """Cast or change this student's one vote for a proposed team name.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Roster student id.
+            name: Option to vote for.
+
+        Returns:
+            Updated student poll payload.
+        """
+        cleaned = normalize_team_name_option(name)
+        key = team_name_option_key(cleaned)
+        if not key:
+            raise ValueError("Pick a team name to vote for.")
+        with self._lock:
+            open_game = self.conn.execute(
+                """
+                SELECT id, team_names_approved FROM games
+                WHERE class_id = ? AND status != 'ended'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+            if open_game is None:
+                raise ValueError("No live game is running.")
+            if int(open_game["team_names_approved"] or 0):
+                raise ValueError("Team names are already approved.")
+            game_id = int(open_game["id"])
+            team_id = self._student_team_id(game_id, int(student_id))
+            if team_id is None:
+                raise ValueError("Join a team before voting.")
+            known = self.conn.execute(
+                """
+                SELECT 1 FROM team_name_proposals
+                WHERE game_id = ? AND team_id = ? AND lower(trim(name)) = ?
+                """,
+                (game_id, team_id, key),
+            ).fetchone()
+            if known is None:
+                raise ValueError("That name is not on the ballot yet.")
+            now = self._now()
+            self.conn.execute(
+                """
+                INSERT INTO team_name_votes
+                    (game_id, team_id, student_id, name_key, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(game_id, student_id) DO UPDATE SET
+                    team_id = excluded.team_id,
+                    name_key = excluded.name_key,
+                    created_at = excluded.created_at
+                """,
+                (game_id, team_id, int(student_id), key, now),
+            )
+            self.conn.commit()
+        poll = self.student_team_name_poll(class_id, student_id)
+        if poll is None:
+            raise ValueError("Team name poll is closed.")
+        return poll
 
     def start_meet_teams(self, class_id: int, minutes: int = 3) -> dict[str, Any]:
         """Start the Meet the Teams overlay timer after teams are assigned.
@@ -3526,6 +4128,42 @@ class GameShowDB:
                 WHERE id = ?
                 """,
                 (self._now(), int(game["id"])),
+            )
+            self.conn.commit()
+        return self.game_state(class_id)
+
+    def set_paused_timer_minutes(self, class_id: int, minutes: int) -> dict[str, Any]:
+        """Set remaining session/Meet countdown to N integer minutes while paused.
+
+        Stores ``minutes * 60`` in ``round_duration_sec`` without starting
+        the clock. The timer must already be paused with remaining time.
+
+        Args:
+            class_id: Classes primary key.
+            minutes: Remaining whole minutes (clamped 1–30).
+
+        Returns:
+            Updated game state.
+
+        Raises:
+            ValueError: When the timer is running, or there is no paused
+                remaining time to update.
+        """
+        minutes_i = max(1, min(30, int(minutes)))
+        with self._lock:
+            game = dict(self._game_row(class_id))
+            if game.get("round_started_at"):
+                raise ValueError("Pause the timer before changing remaining time")
+            duration = game.get("round_duration_sec")
+            if not duration or int(duration) <= 0:
+                raise ValueError("No paused timer to update")
+            self.conn.execute(
+                """
+                UPDATE games
+                SET round_duration_sec = ?
+                WHERE id = ?
+                """,
+                (minutes_i * 60, int(game["id"])),
             )
             self.conn.commit()
         return self.game_state(class_id)
@@ -4158,8 +4796,8 @@ class GameShowDB:
         action_label = (label or "").strip() or None
         with self._lock:
             game = self._game_row(class_id)
-            if game["status"] != "live":
-                raise ValueError("Scoring starts after teams are created")
+            if str(game["status"] or "") in {"ended", "template"}:
+                raise ValueError("Scoring is closed")
             game_id = int(game["id"])
             session_id = int(game["session_id"])
             seq = int(game["event_seq"] or 0) + 1
@@ -4181,36 +4819,50 @@ class GameShowDB:
                     """,
                     (game_id, target_id),
                 ).fetchone()
-                if member is None:
-                    raise KeyError(f"student {target_id} is not on a live team")
-                self._credit_student(session_id, target_id, amount, score_bucket)
-                team = dict(
-                    self.conn.execute(
-                        "SELECT * FROM game_teams WHERE id = ?",
-                        (member["team_id"],),
-                    ).fetchone()
-                )
                 student = self.conn.execute(
                     "SELECT first_name FROM students WHERE id = ?",
                     (target_id,),
                 ).fetchone()
                 first_name = str(student["first_name"] if student else "").strip()
                 signed = f"+{amount}" if amount > 0 else str(amount)
-                default_label = (
-                    f"{first_name} {signed}".strip() or f"{team['name']} {signed}"
-                )
-                last_event = {
-                    "kind": "student",
-                    "student_id": target_id,
-                    "first_name": first_name,
-                    "team_id": int(team["id"]),
-                    "team_name": team["name"],
-                    "amount": amount,
-                    "team_rule": None,
-                    "celebrate": amount > 0,
-                    "label": action_label or default_label,
-                    "action_label": action_label,
-                }
+                if member is None:
+                    self._credit_student(session_id, target_id, amount, score_bucket)
+                    default_label = f"{first_name} {signed}".strip() or signed
+                    last_event = {
+                        "kind": "student",
+                        "student_id": target_id,
+                        "first_name": first_name,
+                        "team_id": None,
+                        "team_name": "",
+                        "amount": amount,
+                        "team_rule": None,
+                        "celebrate": amount > 0,
+                        "label": action_label or default_label,
+                        "action_label": action_label,
+                    }
+                else:
+                    self._credit_student(session_id, target_id, amount, score_bucket)
+                    team = dict(
+                        self.conn.execute(
+                            "SELECT * FROM game_teams WHERE id = ?",
+                            (member["team_id"],),
+                        ).fetchone()
+                    )
+                    default_label = (
+                        f"{first_name} {signed}".strip() or f"{team['name']} {signed}"
+                    )
+                    last_event = {
+                        "kind": "student",
+                        "student_id": target_id,
+                        "first_name": first_name,
+                        "team_id": int(team["id"]),
+                        "team_name": team["name"],
+                        "amount": amount,
+                        "team_rule": None,
+                        "celebrate": amount > 0,
+                        "label": action_label or default_label,
+                        "action_label": action_label,
+                    }
                 self._insert_event(
                     session_id=session_id,
                     game_id=game_id,

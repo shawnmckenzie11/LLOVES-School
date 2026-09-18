@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alc.mckenzian.com/schemas/live-class-playlist-v2.json",
+  "title": "LLOVES live-class playlist",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "course",
+    "module",
+    "live_class",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "course": {
+      "type": "string",
+      "pattern": "^[A-Z]{3,}[0-9][A-Z]?$"
+    },
+    "module": {
+      "type": "string",
+      "pattern": "^M[1-8]$"
+    },
+    "live_class": {
+      "type": "string",
+      "pattern": "^C[1-4]$"
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "team_challenge": {
+      "$ref": "#/$defs/team_challenge"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/placement"
+      }
+    }
+  },
+  "$defs": {
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "stage"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "enum": [
+            "join",
+            "teams",
+            "meet",
+            "round",
+            "play",
+            "round_3",
+            "summary"
+          ]
+        }
+      }
+    },
+    "team_challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string"
+        },
+        "speaker_notes": {
+          "type": "string"
+        }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "stage",
+        "page_number",
+        "order",
+        "default_status",
+        "publish_modes",
+        "response_mode"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^(universal|course/[A-Z]{3,}[0-9][A-Z]?|live-class/[A-Z]{3,}[0-9][A-Z]?/M[1-8]/C[1-4])/(question|media|whiteboard|slides)/[a-z0-9][a-z0-9-]*$"
+        },
+        "stage": {
+          "enum": [
+            "join",
+            "teams",
+            "meet",
+            "round",
+            "play",
+            "round_3",
+            "summary"
+          ]
+        },
+        "page_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "default_status": {
+          "const": "inactive"
+        },
+        "publish_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "individual",
+              "group_consensus",
+              "group_shared"
+            ]
+          }
+        },
+        "response_mode": {
+          "enum": [
+            "individual",
+            "group_consensus"
+          ]
+        }
+      }
+    }
+  }
+}

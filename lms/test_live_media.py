@@ -19,6 +19,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_constants import MCR3U_M1C1_TEAM_CHALLENGE_QUESTION  # noqa: E402
 from live_media import (  # noqa: E402
     DEFAULT_LIVE_MEDIA_CHIP,
     DEFAULT_LIVE_MEDIA_LATERAL_CHIP,
@@ -452,13 +453,14 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("ax²", body.replace("ax^2", "ax²"))
         self.assertIn("consider the parabola", body)
         self.assertNotIn("from this view only", body)
-        self.assertIn("this picture was always a slice", body)
+        self.assertIn("this graph was always a slice", body)
         self.assertIn("teacher-table", body)
         self.assertIn("push to student view", body)
         self.assertIn("push all to view", body)
         self.assertIn("freeze all", body)
         self.assertIn("generate all", body)
         self.assertIn('role !== "student"', body)
+        self.assertIn("studentaskabovegraph", body)
         self.assertIn("lateral axis", body)
         self.assertIn("lateral", body)
         self.assertIn("surface_alpha_min", body)
@@ -636,6 +638,70 @@ class LiveMediaChannelTests(unittest.TestCase):
         gone = self.student.get("/api/student/state").get_json()
         self.assertIsNone(gone.get("active_media"))
 
+    def test_patch_stem_caption_reaches_student_active_media(self) -> None:
+        """Staff stem/caption patches persist on the session active_media blob."""
+
+        self._join_home()
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"url": DEFAULT_LIVE_MEDIA_URL},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        patched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={
+                "stem": "Parent transformations",
+                "caption": "Watch how the parent moves",
+            },
+        )
+        self.assertEqual(patched.status_code, 200, patched.get_json())
+        media = patched.get_json()["active_media"]
+        self.assertEqual(media["stem"], "Parent transformations")
+        self.assertEqual(media["caption"], "Watch how the parent moves")
+        state = self.student.get("/api/student/state").get_json()
+        self.assertEqual(state["active_media"]["stem"], "Parent transformations")
+        self.assertEqual(
+            state["active_media"]["caption"], "Watch how the parent moves"
+        )
+
+    def test_media_copy_overlay_restores_on_next_session(self) -> None:
+        """Stem/caption persist as a class overlay, not only the session blob."""
+
+        self._join_home()
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"url": DEFAULT_LIVE_MEDIA_URL},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        patched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={
+                "stem": "Parent transformations",
+                "caption": "Watch how the parent moves",
+            },
+        )
+        self.assertEqual(patched.status_code, 200, patched.get_json())
+        overlay = self.school.get_class_live_media_copy(self.class_id, "M1", "C1")
+        self.assertEqual(overlay["stem"], "Parent transformations")
+        self.assertEqual(overlay["caption"], "Watch how the parent moves")
+        self.school.end_live_class_session(self.live_session_id, clear_moods=False)
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        new_id = int(live["id"])
+        self.school.set_live_session_teacher_state(
+            new_id, live_module="M1", live_slot="C1", stage="join"
+        )
+        seeded = self.school.ensure_live_class_media(new_id)
+        self.assertIsNotNone(seeded)
+        assert seeded is not None
+        self.assertEqual(seeded.get("stem"), "Parent transformations")
+        self.assertEqual(seeded.get("caption"), "Watch how the parent moves")
+        metadata = self.school.live_class_metadata_for_session(new_id)
+        media = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+        self.assertEqual(media.get("stem"), "Parent transformations")
+        self.assertEqual(media.get("caption"), "Watch how the parent moves")
+
     def test_prompt_still_works_alongside_media(self) -> None:
         """Game-show prompt push is unchanged when media is active."""
         self.staff.post(
@@ -682,15 +748,27 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
 
     def test_staff_live_tab_has_media_controls(self) -> None:
-        """Run Live Class Active Media card is title + teacher iframe only."""
+        """Run Live Class Media page is title + teacher iframe only."""
         page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
         self.assertIn("ap-active-media", html)
-        self.assertIn("Active Media", html)
+        self.assertIn('<h2 class="live-content-heading">Content</h2>', html)
+        self.assertIn("<h2>Media</h2>", html)
         self.assertIn("ap-media-preview", html)
-        self.assertIn(DEFAULT_LIVE_MEDIA_URL, html)
-        self.assertIn("role=teacher", html)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn(DEFAULT_LIVE_MEDIA_URL, js)
+        self.assertIn("/static/live-media/mcr3u-m1c1-sqrt.html", js)
+        self.assertIn("function liveClassSeedMedia()", js)
+        self.assertIn("function isTextOnlyLiveSlot", js)
+        self.assertIn("function isEngineRideItemId", js)
+        self.assertIn("function joinPromptCardRow", js)
+        self.assertIn("function metadataMatchesCurrentPack", js)
+        self.assertNotIn(
+            'const textOnly = slot === "C2" || slot === "C3";',
+            js,
+        )
+        self.assertIn("role=teacher", js)
         self.assertNotIn("Show Real-slice", html)
         self.assertNotIn("Unlock a, b, c sliders", html)
         self.assertNotIn("Reveal axes on student view", html)
@@ -719,7 +797,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIn("freeze", blocked.get_json()["error"].lower())
         idle = self.student.get("/api/student/state").get_json()
         idle_prompt = idle.get("prompt") or {}
-        self.assertEqual((idle_prompt.get("payload") or {}).get("item_id"), "minds_on")
+        self.assertNotEqual(
+            (idle_prompt.get("payload") or {}).get("item_id"),
+            "minds_on",
+        )
         self.assertFalse(idle["active_media"]["frozen"])
         self.assertEqual(idle["active_media"]["cons_item"], "")
 
@@ -733,7 +814,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(still_idle["active_media"]["toast"], TOAST_FREEZE)
         self.assertTrue(still_idle["active_media"]["toast"].strip())
         still_prompt = still_idle.get("prompt") or {}
-        self.assertEqual((still_prompt.get("payload") or {}).get("item_id"), "minds_on")
+        self.assertNotEqual(
+            (still_prompt.get("payload") or {}).get("item_id"),
+            "minds_on",
+        )
 
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -755,7 +839,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             "quick-hitter-question-chain",
         )
         self.assertEqual(state["prompt"]["payload"]["ride"], "cons")
-        self.assertIn("this picture", state["prompt"]["payload"]["prompt"].lower())
+        self.assertIn("this graph", state["prompt"]["payload"]["prompt"].lower())
         self.assertNotIn("key", state["prompt"]["payload"])
         self.assertNotIn("cement", state["prompt"]["payload"])
         self.assertNotIn("by_choice", state["prompt"]["payload"])
@@ -770,7 +854,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons1_submit.status_code, 200, cons1_submit.get_json())
         cons1_body = cons1_submit.get_json()
         self.assertEqual(cons1_body["feedback"]["source"], "by_choice")
-        self.assertEqual(cons1_body["feedback"]["text"], "Opens upward → a > 0.")
+        self.assertEqual(
+            cons1_body["feedback"]["text"],
+            "The graph opens upward, so a is greater than 0.",
+        )
         self.assertEqual(cons1_body["feedback"]["lead"], "Good work.")
         self.assertTrue(cons1_body["feedback"]["match"])
         self.assertEqual(state["active_media"]["stem"], DEFAULT_LIVE_MEDIA_STEM)
@@ -799,7 +886,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons4_submit.get_json()["feedback"]["source"], "on_submit")
         self.assertEqual(
             cons4_submit.get_json()["feedback"]["text"],
-            "Feature → claim. That’s the whole move.",
+            "Name one feature you marked and the claim it supports.",
         )
         self.assertEqual(cons4_submit.get_json()["feedback"]["lead"], "Good work.")
 
@@ -820,7 +907,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         hidden = self.student.get("/api/student/state").get_json()
         self.assertFalse(hidden["active_media"]["frozen"])
         self.assertEqual(hidden["active_media"]["cons_item"], "")
-        self.assertIsNone(hidden.get("prompt"))
+        self.assertNotEqual(
+            (hidden.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "minds_on",
+        )
 
     def test_c2_api_seeds_transform_media_c3_does_not(self) -> None:
         """C2 POST seeds Transformations; C3 GET still says it does not seed."""
@@ -843,9 +933,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertTrue(state.get("waiting_room"), state)
         prompt = state.get("prompt") or {}
         payload = prompt.get("payload") or {}
-        self.assertEqual(payload.get("item_id"), "minds_on")
-        self.assertEqual(payload.get("live_slot"), "C2")
-        self.assertEqual(payload.get("ride"), "minds_on")
+        self.assertNotEqual(payload.get("item_id"), "minds_on")
+        self.assertNotEqual(payload.get("ride"), "minds_on")
         self.assertNotIn("key", payload)
         cons = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -874,7 +963,8 @@ class LiveMediaChannelTests(unittest.TestCase):
 
         idle = self.student.get("/api/student/state").get_json()
         self.assertTrue(idle.get("waiting_room"))
-        self.assertEqual(idle["prompt"]["payload"]["prompt"], MINDS_ON_PROMPT)
+        idle_payload = ((idle.get("prompt") or {}).get("payload") or {})
+        self.assertNotEqual(idle_payload.get("prompt"), MINDS_ON_PROMPT)
         self.assertEqual(idle["teacher_state"]["live_slot"], "C1")
 
         c2 = self.staff.post(
@@ -885,21 +975,9 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertIsNotNone(c2.get_json()["active_media"])
         waiting = self.student.get("/api/student/state").get_json()
         self.assertTrue(waiting.get("waiting_room"), waiting)
-        self.assertEqual(waiting["prompt"]["payload"]["prompt"], MINDS_ON_C2_PROMPT)
-        self.assertEqual(waiting["prompt"]["payload"]["live_slot"], "C2")
-        self.assertEqual(len(waiting["prompt"]["payload"]["items"]), 1)
-        self.assertNotIn("key", waiting["prompt"]["payload"])
-        self.assertNotIn("chips", waiting["prompt"]["payload"])
-        self.assertNotIn("curriculum_chips", waiting["prompt"]["payload"])
-        submit = self.student.post(
-            "/api/student/live-prompt/response",
-            json={"response": {"choice": "A"}},
-        )
-        self.assertEqual(submit.status_code, 200, submit.get_json())
-        self.assertEqual(
-            submit.get_json()["feedback"]["text"],
-            M1C2_FEEDBACK["C2-minds_on"]["by_choice"]["A"],
-        )
+        waiting_payload = ((waiting.get("prompt") or {}).get("payload") or {})
+        self.assertNotEqual(waiting_payload.get("prompt"), MINDS_ON_C2_PROMPT)
+        self.assertNotEqual(waiting_payload.get("item_id"), "minds_on")
 
         early = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
@@ -944,9 +1022,10 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(c3.status_code, 200, c3.get_json())
         self.assertIsNone(c3.get_json()["active_media"])
         c3_state = self.student.get("/api/student/state").get_json()
-        # Slot switch after CONS left the waiting-room sentinel path.
         if c3_state.get("waiting_room"):
-            self.assertEqual(c3_state["prompt"]["payload"]["prompt"], MINDS_ON_C3_PROMPT)
+            c3_payload = ((c3_state.get("prompt") or {}).get("payload") or {})
+            self.assertNotEqual(c3_payload.get("prompt"), MINDS_ON_C3_PROMPT)
+            self.assertNotEqual(c3_payload.get("item_id"), "minds_on")
         c3_frozen = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={"frozen": True},
@@ -988,6 +1067,138 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(len(pack["cons_pack"]), 5)
         self.assertEqual(pack["cons_pack"][0]["id"], "C1-CONS-1")
         self.assertNotIn("chips", pack["cons_pack"][0])
+
+    def test_c3_explicit_playlist_url_is_stored(self) -> None:
+        """Posting a playlist URL on C3 stores it instead of staying text-only."""
+        switched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"challenge": "C3"},
+        )
+        self.assertEqual(switched.status_code, 200, switched.get_json())
+        self.assertIsNone(switched.get_json()["active_media"])
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"url": "/static/live-media/mcr3u-m1c2-parent-transformations.html"},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        media = posted.get_json().get("active_media") or {}
+        self.assertIn("mcr3u-m1c2-parent-transformations.html", str(media.get("url") or ""))
+
+
+class Mcr3uSlotMediaCopyTests(unittest.TestCase):
+    """C1 session copy must not leak onto MCR3U M1 C3 parent transformations."""
+
+    def setUp(self) -> None:
+        """Isolated MCR3U class with an open live session."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.staff.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.staff.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.class_id = int(created.get_json()["class"]["id"])
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.live_session_id = int(live["id"])
+
+    def tearDown(self) -> None:
+        """Close db and temp dir."""
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_c1_to_c3_teacher_state_drops_c1_stem(self) -> None:
+        """C1 leftover stem does not ride onto C3 URL; overlay/seed title wins."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C1", stage="join"
+        )
+        c1 = self.school.ensure_live_class_media(self.live_session_id)
+        self.assertIsNotNone(c1)
+        assert c1 is not None
+        self.assertIn("mcr3u-m1c1-sqrt.html", str(c1.get("url") or ""))
+        self.assertEqual(c1.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
+        self.school.upsert_class_live_media_copy(
+            self.class_id,
+            "M1",
+            "C3",
+            stem="C3 overlay stem",
+            caption="C3 overlay caption",
+        )
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3"
+        )
+        media = self.school.live_session_active_media_payload(self.live_session_id)
+        self.assertIsNotNone(media)
+        assert media is not None
+        self.assertIn(
+            "mcr3u-m1c2-parent-transformations.html",
+            str(media.get("url") or ""),
+        )
+        self.assertEqual(media.get("stem"), "C3 overlay stem")
+        self.assertEqual(media.get("caption"), "C3 overlay caption")
+        self.assertNotEqual(media.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
+        overlay = self.school.get_class_live_media_copy(self.class_id, "M1", "C3")
+        self.assertEqual(overlay["stem"], "C3 overlay stem")
+        self.assertEqual(overlay["caption"], "C3 overlay caption")
+
+    def test_c3_seed_url_post_does_not_keep_c1_stem(self) -> None:
+        """Posting the C3 seed URL after C1 remounts Parent transformations."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C1", stage="join"
+        )
+        self.school.ensure_live_class_media(self.live_session_id)
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3"
+        )
+        self.school.set_live_session_active_media(
+            self.live_session_id,
+            url="/static/live-media/mcr3u-m1c2-parent-transformations.html",
+            stem=MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
+            persist_media_copy=False,
+        )
+        leftover = self.school.live_session_active_media_payload(self.live_session_id)
+        assert leftover is not None
+        self.assertEqual(leftover.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"url": "/static/live-media/mcr3u-m1c2-parent-transformations.html"},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        seeded = self.school.ensure_live_class_media(self.live_session_id)
+        self.assertIsNotNone(seeded)
+        assert seeded is not None
+        self.assertEqual(seeded.get("stem"), "Parent transformations")
+        self.assertNotEqual(seeded.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
+        overlay = self.school.get_class_live_media_copy(self.class_id, "M1", "C3")
+        self.assertNotEqual(overlay.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
 
 
 if __name__ == "__main__":

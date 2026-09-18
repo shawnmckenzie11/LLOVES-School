@@ -365,3 +365,41 @@ def membership_payload(teams: Sequence[Sequence[Any]]) -> list[dict[str, Any]]:
             }
         )
     return payload
+
+
+def pick_late_team(teams: Sequence[dict[str, Any]]) -> int:
+    """Choose a team for a late joiner by size and course strength.
+
+    Prefers the fewest players, then the lowest summed course/career score,
+    then the stable team id. Assigning only to a current minimum-size team
+    keeps ``max(size) - min(size) <= 1`` when the roster was balanced.
+
+    Args:
+        teams: Snapshots with ``id``, ``size``, and ``course_total``.
+            ``career_total`` and legacy ``score`` are accepted as fallbacks.
+
+    Returns:
+        Chosen ``game_teams.id``.
+
+    Raises:
+        ValueError: When no teams are available.
+    """
+    rows = [row for row in teams if row and row.get("id") not in (None, "")]
+    if not rows:
+        raise ValueError("No teams available for late join")
+    min_size = min(int(row.get("size") or 0) for row in rows)
+    candidates = [row for row in rows if int(row.get("size") or 0) == min_size]
+    candidates.sort(
+        key=lambda row: (
+            float(
+                row.get("course_total")
+                if row.get("course_total") is not None
+                else row.get("career_total")
+                if row.get("career_total") is not None
+                else row.get("score")
+                or 0
+            ),
+            int(row["id"]),
+        )
+    )
+    return int(candidates[0]["id"])

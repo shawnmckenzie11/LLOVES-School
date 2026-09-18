@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parent transformations · y = a f(k(x − d)) + c</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --panel: rgba(10, 18, 32, 0.9);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq {
+      align-self: flex-start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .eq .coeffs {
+      display: block;
+      margin-top: 0.15rem;
+      color: #d6deef;
+      font-size: 0.72em;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.7rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .dock h2 {
+      margin: 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .parents {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.7rem;
+    }
+    .parents label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: #c5d0dc;
+      cursor: pointer;
+    }
+    .parents input { accent-color: var(--gold); margin: 0; }
+    .sliders {
+      display: grid;
+      gap: 0.35rem;
+    }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.6rem;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span {
+      font-family: "IBM Plex Serif", Georgia, serif;
+      color: var(--gold);
+    }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="plot" aria-label="Two-dimensional parent function transformations"></canvas>
+  <div class="hud">
+    <p class="eq" id="eq">y = <strong>x</strong></p>
+    <section class="dock" aria-label="Transformation controls">
+      <h2>Parent function</h2>
+      <div class="parents" role="radiogroup" aria-label="Parent function">
+        <label><input type="radio" name="parent" value="linear" checked> Linear</label>
+        <label><input type="radio" name="parent" value="quadratic"> Quadratic</label>
+        <label><input type="radio" name="parent" value="abs"> Abs value</label>
+        <label><input type="radio" name="parent" value="sqrt"> Square root</label>
+        <label><input type="radio" name="parent" value="reciprocal"> Reciprocal</label>
+      </div>
+      <div class="sliders">
+        <label class="slide"><span>a</span><input id="p-a" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-a">1.00</output></label>
+        <label class="slide"><span>k</span><input id="p-k" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-k">1.00</output></label>
+        <label class="slide"><span>d</span><input id="p-d" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-d">0.00</output></label>
+        <label class="slide"><span>c</span><input id="p-c" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-c">0.00</output></label>
+      </div>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const canvas = document.getElementById("plot");
+  const ctx = canvas.getContext("2d");
+  const eqEl = document.getElementById("eq");
+  const inputA = document.getElementById("p-a");
+  const inputK = document.getElementById("p-k");
+  const inputD = document.getElementById("p-d");
+  const inputC = document.getElementById("p-c");
+  const outA = document.getElementById("o-a");
+  const outK = document.getElementById("o-k");
+  const outD = document.getElementById("o-d");
+  const outC = document.getElementById("o-c");
+  const X_MIN = -8;
+  const X_MAX = 8;
+  const Y_MIN = -8;
+  const Y_MAX = 8;
+  const PARENTS = {
+    linear: { label: "x", symbol: "x" },
+    quadratic: { label: "x²", symbol: "x²" },
+    abs: { label: "|x|", symbol: "|x|" },
+    sqrt: { label: "√x", symbol: "√x" },
+    reciprocal: { label: "1/x", symbol: "1/x" },
+  };
+
+  const state = {
+    parent: "linear",
+    a: 1,
+    k: 1,
+    d: 0,
+    c: 0,
+  };
+
+  /**
+   * Format a coefficient for HUD copy.
+   * @param {number} n
+   * @returns {string}
+   */
+  function fmt(n) {
+    const v = Math.round(n * 100) / 100;
+    return v.toFixed(2);
+  }
+
+  /**
+   * Parent y-value, or NaN where the parent is undefined.
+   * @param {string} kind
+   * @param {number} t
+   * @returns {number}
+   */
+  function parentValue(kind, t) {
+    if (kind === "linear") return t;
+    if (kind === "quadratic") return t * t;
+    if (kind === "abs") return Math.abs(t);
+    if (kind === "sqrt") return t < 0 ? NaN : Math.sqrt(t);
+    if (kind === "reciprocal") return Math.abs(t) < 1e-6 ? NaN : 1 / t;
+    return NaN;
+  }
+
+  /**
+   * Transformed y = a f(k(x − d)) + c.
+   * @param {number} x
+   * @returns {number}
+   */
+  function transformedY(x) {
+    const inner = state.k * (x - state.d);
+    const base = parentValue(state.parent, inner);
+    if (!Number.isFinite(base)) return NaN;
+    return state.a * base + state.c;
+  }
+
+  /**
+   * Pretty y = a f(k(x − d)) + c for the selected parent.
+   * @returns {string}
+   */
+  function equationHtml() {
+    const inner = "k(x − d)";
+    let body = inner;
+    if (state.parent === "quadratic") body = "(" + inner + ")²";
+    else if (state.parent === "abs") body = "|" + inner + "|";
+    else if (state.parent === "sqrt") body = "√(" + inner + ")";
+    else if (state.parent === "reciprocal") body = "1 / (" + inner + ")";
+    return (
+      "y = <strong>a · " +
+      body +
+      " + c</strong><span class='coeffs'>parent " +
+      PARENTS[state.parent].symbol +
+      " · a=" +
+      fmt(state.a) +
+      " · k=" +
+      fmt(state.k) +
+      " · d=" +
+      fmt(state.d) +
+      " · c=" +
+      fmt(state.c) +
+      "</span>"
+    );
+  }
+
+  /**
+   * Map math x to canvas pixels.
+   * @param {number} x
+   * @param {number} width
+   * @returns {number}
+   */
+  function toX(x, width) {
+    return ((x - X_MIN) / (X_MAX - X_MIN)) * width;
+  }
+
+  /**
+   * Map math y to canvas pixels (y-up).
+   * @param {number} y
+   * @param {number} height
+   * @returns {number}
+   */
+  function toY(y, height) {
+    return height - ((y - Y_MIN) / (Y_MAX - Y_MIN)) * height;
+  }
+
+  /**
+   * Read radios and sliders into state, then redraw.
+   */
+  function readControls() {
+    const picked = document.querySelector('input[name="parent"]:checked');
+    state.parent = picked instanceof HTMLInputElement ? picked.value : "linear";
+    state.a = Number(inputA.value);
+    state.k = Number(inputK.value);
+    state.d = Number(inputD.value);
+    state.c = Number(inputC.value);
+    outA.textContent = fmt(state.a);
+    outK.textContent = fmt(state.k);
+    outD.textContent = fmt(state.d);
+    outC.textContent = fmt(state.c);
+    eqEl.innerHTML = equationHtml();
+    draw();
+  }
+
+  /**
+   * Size the canvas to the current CSS box.
+   */
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /**
+   * Draw numbered axes, parent ghost, and the transformed curve.
+   */
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "#122038");
+    g.addColorStop(1, "#070b14");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = X_MIN; n <= X_MAX; n += 1) {
+      const px = toX(n, w);
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, h);
+    }
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) {
+      const py = toY(n, h);
+      ctx.moveTo(0, py);
+      ctx.lineTo(w, py);
+    }
+    ctx.stroke();
+
+    const originX = toX(0, w);
+    const originY = toY(0, h);
+    ctx.strokeStyle = "rgba(210, 220, 235, 0.92)";
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, originY);
+    ctx.lineTo(w, originY);
+    ctx.moveTo(originX, 0);
+    ctx.lineTo(originX, h);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(210, 220, 235, 0.88)";
+    ctx.font = "11px 'IBM Plex Sans', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (let n = X_MIN; n <= X_MAX; n += 1) {
+      if (n === 0) continue;
+      const px = toX(n, w);
+      ctx.beginPath();
+      ctx.moveTo(px, originY - 4);
+      ctx.lineTo(px, originY + 4);
+      ctx.stroke();
+      ctx.fillText(String(n), px, originY + 6);
+    }
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) {
+      if (n === 0) continue;
+      const py = toY(n, h);
+      ctx.beginPath();
+      ctx.moveTo(originX - 4, py);
+      ctx.lineTo(originX + 4, py);
+      ctx.stroke();
+      ctx.fillText(String(n), originX - 6, py);
+    }
+    ctx.textAlign = "left";
+    ctx.fillText("x", w - 14, originY - 12);
+    ctx.fillText("y", originX + 8, 12);
+
+    /**
+     * Stroke one sampled curve, breaking at undefined points.
+     * @param {(x: number) => number} fn
+     * @param {string} color
+     * @param {number} width
+     */
+    function strokeFn(fn, color, width) {
+      const steps = 720;
+      ctx.beginPath();
+      let drawing = false;
+      let lastY = NaN;
+      for (let i = 0; i <= steps; i += 1) {
+        const x = X_MIN + (i / steps) * (X_MAX - X_MIN);
+        const y = fn(x);
+        if (!Number.isFinite(y) || y < Y_MIN - 2 || y > Y_MAX + 2) {
+          drawing = false;
+          lastY = NaN;
+          continue;
+        }
+        if (Number.isFinite(lastY) && Math.abs(y - lastY) > 8) {
+          drawing = false;
+        }
+        const px = toX(x, w);
+        const py = toY(y, h);
+        if (!drawing) {
+          ctx.moveTo(px, py);
+          drawing = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+        lastY = y;
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+
+    strokeFn((x) => parentValue(state.parent, x), "rgba(143, 163, 187, 0.45)", 1.6);
+    strokeFn(transformedY, GOLD, 3);
+  }
+
+  document.querySelectorAll('input[name="parent"]').forEach((radio) => {
+    radio.addEventListener("change", readControls);
+  });
+  [inputA, inputK, inputD, inputC].forEach((slider) => {
+    ["input", "change"].forEach((evt) => slider.addEventListener(evt, readControls));
+  });
+  window.addEventListener("resize", () => {
+    resize();
+    draw();
+  });
+
+  resize();
+  readControls();
+})();
+  </script>
+</body>
+</html>

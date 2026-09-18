@@ -18,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_class_metadata import empty_live_class_metadata  # noqa: E402
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import (  # noqa: E402
     LAYOUT_PRESETS,
@@ -56,10 +57,18 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(state["state_seq"], 0)
         self.assertEqual(
             state["student_frames"],
-            {"questions": True, "media": False, "canvas": False},
+            {
+                "questions": True,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
-        self.assertEqual(state["unlocks"], {"media": False, "canvas": False})
-        self.assertEqual(state["canvas_align"], "student")
+        self.assertEqual(
+            state["unlocks"],
+            {"media": False, "canvas": False, "slides": False},
+        )
+        self.assertEqual(state["canvas_align"], "teacher")
         self.assertTrue(state["canvas_ephemeral"])
         self.assertEqual(
             state["round_flags"],
@@ -90,16 +99,24 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(play["state_seq"], 2)
         self.assertEqual(
             play["student_frames"],
-            {"questions": True, "media": False, "canvas": False},
+            {
+                "questions": False,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
-        self.assertEqual(play["unlocks"], {"media": False, "canvas": False})
+        self.assertEqual(
+            play["unlocks"],
+            {"media": False, "canvas": False, "slides": False},
+        )
         self.assertFalse(student_should_mount_media(play))
         self.assertFalse(student_should_mount_canvas(play))
         still = apply_teacher_state_update(play, advance="next")
-        self.assertEqual(still["stage"], "play")
+        self.assertEqual(still["stage"], "round_3")
         self.assertEqual(still["state_seq"], 3)
         back = apply_teacher_state_update(still, advance="prev")
-        self.assertEqual(back["stage"], "round")
+        self.assertEqual(back["stage"], "play")
         self.assertEqual(back["state_seq"], 4)
         self.assertFalse(student_should_mount_media(back))
         self.assertEqual(adjacent_stage("join", -1), "join")
@@ -109,14 +126,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         revealed = apply_teacher_state_update(
             default_teacher_state(),
             mc_ui={"prompt_ref": MINDS_ON_PROMPT_REF, "reveal": True},
+            question_views={"minds_on": "student"},
         )
         self.assertEqual(revealed["prompt_ref"], MINDS_ON_PROMPT_REF)
         self.assertTrue(revealed["mc_ui"]["reveal"])
+        self.assertEqual(revealed["question_views"], {"minds_on": "student"})
         nxt = apply_teacher_state_update(revealed, advance="next")
         self.assertEqual(nxt["stage"], "teams")
         self.assertEqual(nxt["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         self.assertEqual(nxt["mc_ui"]["prompt_ref"], TEAMS_SPARK_PROMPT_REF)
         self.assertFalse(nxt["mc_ui"]["reveal"])
+        self.assertEqual(nxt["question_views"], {})
         self.assertEqual(nxt["state_seq"], revealed["state_seq"] + 1)
         self.assertTrue(nxt["student_frames"]["questions"])
         self.assertFalse(nxt["student_frames"]["media"])
@@ -142,7 +162,12 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertEqual(meet["prompt_ref"], "meet-team")
         self.assertEqual(
             meet["student_frames"],
-            {"questions": True, "media": False, "canvas": False},
+            {
+                "questions": True,
+                "media": False,
+                "canvas": False,
+                "slides": False,
+            },
         )
         self.assertEqual(meet["active_tab"], "questions")
         self.assertEqual(meet["layout_preset"], "questions_full")
@@ -198,15 +223,33 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         self.assertTrue(student_should_mount_canvas(join))
         meet = apply_teacher_state_update(join, stage="meet")
         self.assertEqual(meet["stage"], "meet")
-        self.assertTrue(meet["unlocks"]["media"])
-        self.assertTrue(meet["unlocks"]["canvas"])
-        self.assertTrue(student_should_mount_media(meet))
-        self.assertTrue(student_should_mount_canvas(meet))
+        self.assertFalse(meet["unlocks"]["media"])
+        self.assertFalse(meet["unlocks"]["canvas"])
+        self.assertFalse(student_should_mount_media(meet))
+        self.assertFalse(student_should_mount_canvas(meet))
         self.assertTrue(meet["student_frames"]["questions"])
         aligned = apply_teacher_state_update(meet, canvas_align="team")
         self.assertEqual(aligned["canvas_align"], "team")
         frozen = apply_teacher_state_update(aligned, canvas_align="teacher")
         self.assertEqual(frozen["canvas_align"], "teacher")
+
+    def test_round_unlocks_wait_until_play(self) -> None:
+        """ROUND stores unlocks but students only see them on PLAY."""
+        rnd = apply_teacher_state_update(
+            None, stage="round", unlocks={"media": True, "canvas": True}
+        )
+        self.assertEqual(rnd["stage"], "round")
+        self.assertFalse(rnd["unlocks"]["media"])
+        self.assertFalse(rnd["unlocks"]["canvas"])
+        self.assertFalse(rnd["student_frames"]["media"])
+        self.assertFalse(rnd["student_frames"]["canvas"])
+        self.assertFalse(student_should_mount_media(rnd))
+        self.assertFalse(student_should_mount_canvas(rnd))
+        play = apply_teacher_state_update(rnd, stage="play")
+        self.assertFalse(play["student_frames"]["media"])
+        self.assertFalse(play["student_frames"]["canvas"])
+        self.assertFalse(student_should_mount_media(play))
+        self.assertFalse(student_should_mount_canvas(play))
 
     def test_uncheck_collapses_media_and_canvas_frames(self) -> None:
         """Beat 29: uncheck removes the student frame; PLAY has no locked pane."""
@@ -360,6 +403,17 @@ class LiveTeacherStateHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             apply_teacher_state_update(None, round_flags="minds_on")
 
+    def test_question_view_is_individual_only_and_slides_can_be_shared(self) -> None:
+        """Questions reject team sharing while the Slides surface keeps it."""
+
+        state = apply_teacher_state_update(
+            None,
+            student_view={"questions": "team", "slides": "team"},
+        )
+        self.assertEqual(state["student_view"]["questions"], "none")
+        self.assertEqual(state["student_view"]["slides"], "team")
+        self.assertTrue(state["student_frames"]["slides"])
+
 
 class LiveTeacherStateApiTests(unittest.TestCase):
     """Staff API + student projection for the thin channel."""
@@ -410,6 +464,18 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
+    def _use_legacy_live_metadata(self) -> None:
+        """Route this test through the schema-v1 singleton compatibility path."""
+
+        self.school.live_class_metadata_for_session = (
+            self._legacy_live_metadata_for_session
+        )
+
+    def _legacy_live_metadata_for_session(self, _session_id: int) -> dict:
+        """Return empty schema-v1 metadata for legacy prompt tests."""
+
+        return empty_live_class_metadata("MCF3M", "M1", "C1")
+
     def test_get_defaults_then_advance_and_preset(self) -> None:
         """GET seeds join; POST advance/preset/tab stay thin."""
         got = self.client.get(f"/api/live-sessions/{self.session_id}/teacher-state")
@@ -451,6 +517,44 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertEqual(session_state["teacher_state"]["stage"], "teams")
         self.assertIn("active_media", session_state)
 
+    def test_question_cards_and_visibility_api(self) -> None:
+        """Staff state stacks metadata questions and can activate one for students."""
+
+        state = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state"
+        ).get_json()
+        cards = state["question_cards"]
+        self.assertEqual([row["id"] for row in cards], ["minds_on"])
+        self.assertEqual(cards[0]["type"], "mc")
+        shown = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/minds_on/visibility",
+            json={"mode": "student"},
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_json())
+        body = shown.get_json()
+        visible = {
+            row["id"]: row["student_view"] for row in body["question_cards"]
+        }
+        self.assertEqual(visible["minds_on"], "student")
+        self.assertEqual(
+            body["teacher_state"]["student_view"]["questions"], "student"
+        )
+        prompt_id = next(
+            row["prompt_id"]
+            for row in body["question_cards"]
+            if row["id"] == "minds_on"
+        )
+        self.school.end_live_class_session(self.session_id, clear_moods=False)
+        responses = self.client.get(
+            f"/api/live-sessions/{self.session_id}/questions/{prompt_id}/responses"
+        )
+        self.assertEqual(responses.status_code, 409, responses.get_json())
+        visibility = self.client.post(
+            f"/api/live-sessions/{self.session_id}/questions/minds_on/visibility",
+            json={"mode": "none"},
+        )
+        self.assertEqual(visibility.status_code, 409, visibility.get_json())
+
     def test_student_state_projects_teacher_state(self) -> None:
         """Student poll includes teacher_state beside active_media."""
         self.school.set_live_session_teacher_state(
@@ -480,6 +584,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
 
     def test_join_to_teams_clears_teacher_and_student_questions(self) -> None:
         """Beat 12 + 25: JOIN→TEAMS closes Minds-On and binds the shared spark."""
+        self._use_legacy_live_metadata()
         live = self.school.get_live_session(self.session_id)
         student = self.app.test_client()
         student.post(
@@ -538,10 +643,10 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         staff_live = self.client.get(f"/api/live-sessions/{self.session_id}/state")
         self.assertEqual(staff_live.status_code, 200, staff_live.get_json())
         staff_body = staff_live.get_json()
-        self.assertIsNone(staff_body.get("mc_tally"))
+        self.assertIsNotNone(staff_body.get("mc_tally"))
         spark = staff_body.get("teams_spark") or {}
         self.assertEqual(spark.get("prompt"), TEAMS_SPARK_PROMPT)
-        self.assertIn("9", str(spark.get("teacher_key") or ""))
+        self.assertTrue(spark.get("integer_only"))
         self.assertFalse(spark.get("reveal"))
         student_teams = student.get("/api/student/state").get_json()
         self.assertEqual(student_teams.get("teacher_state", {}).get("stage"), "teams")
@@ -549,28 +654,33 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             student_teams.get("teacher_state", {}).get("prompt_ref"),
             TEAMS_SPARK_PROMPT_REF,
         )
-        self.assertFalse(student_teams.get("waiting_room"), student_teams)
-        prompt = student_teams.get("prompt") or {}
-        payload = prompt.get("payload") or {}
-        self.assertTrue(is_teams_spark_payload(payload), student_teams)
-        self.assertFalse(is_minds_on_payload(payload), student_teams)
-        self.assertEqual(payload.get("prompt"), TEAMS_SPARK_PROMPT)
-        self.assertEqual(payload.get("choices"), ["8", "9", "17", "0"])
-        self.assertNotIn("key", payload)
-        self.assertNotIn("teacher_key", payload)
-        self.assertNotIn("student_feedback_after_reveal", payload)
+        # TEAMS spark stays teacher-only; students get the VLC welcome card.
+        welcome = student_teams.get("game_show_welcome") or {}
+        self.assertEqual(welcome.get("title"), "VLC Math Game Show")
+        self.assertTrue(welcome.get("class_code"), welcome)
+        self.assertRegex(str(welcome.get("lesson_code") or ""), r"^M\d+-C\d+$")
+        self.assertEqual(len(welcome.get("rounds") or []), 3)
+        self.assertEqual(welcome["rounds"][0]["title"], "You Lead the Way")
+        self.assertEqual(welcome["rounds"][1]["title"], "Team Challenge")
+        self.assertEqual(welcome["rounds"][2]["title"], "Test-style practice + feedback")
+        names = {row.get("codename") for row in welcome.get("participants") or []}
+        self.assertIn("Aspen", names)
+        spark_prompt = student_teams.get("prompt") or {}
+        self.assertEqual((spark_prompt.get("payload") or {}).get("item_id"), "teams-spark")
         self.assertIsNone(student_teams.get("my_response"))
-        self.assertNotIn("mc_tally", student_teams)
         live_prompt = student.get("/api/student/live-prompt").get_json()
-        self.assertTrue(is_teams_spark_payload((live_prompt.get("prompt") or {}).get("payload")))
-        self.assertFalse(live_prompt.get("waiting_room"), live_prompt)
-        if live_prompt.get("prompt") is not None:
-            self.assertFalse(
-                is_minds_on_payload((live_prompt["prompt"] or {}).get("payload"))
-            )
+        self.assertEqual(
+            (live_prompt.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
+        )
+        self.assertEqual(
+            (live_prompt.get("game_show_welcome") or {}).get("title"),
+            "VLC Math Game Show",
+        )
 
     def test_beat25_teams_spark_reveals_then_clears_on_meet(self) -> None:
         """Beat 25: spark stay-line is teacher-gated; TEAMS→MEET clears it."""
+        self._use_legacy_live_metadata()
         live = self.school.get_live_session(self.session_id)
         student = self.app.test_client()
         student.post(
@@ -613,12 +723,9 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertFalse(ui.get("poll_closed"))
         after = student.get("/api/student/state").get_json()
         stay = (after.get("prompt") or {}).get("payload") or {}
-        self.assertEqual(
-            stay.get("student_feedback_after_reveal"),
-            "All but nine means nine stay.",
-        )
+        self.assertEqual((after.get("game_show_welcome") or {}).get("title"), "VLC Math Game Show")
+        self.assertTrue(is_teams_spark_payload(stay), after)
         self.assertNotIn("teacher_key", stay)
-        self.assertNotIn("mc_tally", after)
         meet = self.client.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={"advance": "next"},
@@ -638,6 +745,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
 
     def test_join_does_not_project_teacher_preview_media(self) -> None:
         """JOIN keeps Question-only frames after a teacher Real-slice seed."""
+        self._use_legacy_live_metadata()
         self.school.set_live_session_active_media(
             self.session_id, url=DEFAULT_LIVE_MEDIA_URL
         )
@@ -711,6 +819,14 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertTrue(body["round_flags"]["consolidation"])
         self.assertIsNone(body.get("cue_id"))
         prompt = self.school.get_active_live_prompt(self.session_id)
+        payload = (prompt or {}).get("payload") or {}
+        self.assertNotEqual(payload.get("item_id"), "C1-CONS-1")
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}
         self.assertEqual(payload.get("item_id"), "C1-CONS-1")
@@ -739,6 +855,13 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         self.assertTrue(body["round_flags"]["consolidation"])
         ride = body.get("text_ride") or {}
         self.assertFalse(ride.get("frozen"))
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertFalse(is_cons_payload((prompt or {}).get("payload")))
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
         prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}
@@ -787,6 +910,13 @@ class LiveTeacherStateApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(posted.status_code, 200, posted.get_json())
+        prompt = self.school.get_active_live_prompt(self.session_id)
+        self.assertFalse(is_cons_payload((prompt or {}).get("payload")))
+        play = self.client.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={"stage": "play"},
+        )
+        self.assertEqual(play.status_code, 200, play.get_json())
         prompt = self.school.get_active_live_prompt(self.session_id)
         self.assertIsNotNone(prompt)
         payload = prompt.get("payload") or {}

@@ -30,6 +30,7 @@ from live_prompt_feedback import (  # noqa: E402
     M1C1_FEEDBACK,
     M1C2_FEEDBACK,
     M1C3_FEEDBACK,
+    choice_letter,
     public_feedback_fragment,
     resolve_live_prompt_feedback,
     strip_teacher_prompt_fields,
@@ -72,6 +73,13 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
         self.assertFalse(other["match"])
         self.assertNotEqual(other["lead"], "Wrong.")
         self.assertNotIn("key", strip_teacher_prompt_fields(payload))
+
+    def test_choice_letter_reads_text_field(self) -> None:
+        """Stored poll answers may use text instead of choice."""
+        self.assertEqual(
+            choice_letter({"text": "keeps us kind"}, ["keeps us kind", "Not sure"]),
+            "A",
+        )
 
     def test_legacy_and_rename_item_ids(self) -> None:
         """meet-math, minds_on, and minds-on share the same soft key."""
@@ -138,6 +146,23 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
                 {"choice": "A"},
             )
         )
+
+    def test_generic_keyed_mc_always_returns_compact_feedback(self) -> None:
+        """Any keyed MC gets feedback even without authored choice copy."""
+        payload = {
+            "item_id": "metadata-mc",
+            "choices": ["First answer", "Second answer"],
+            "correct_answer": "B",
+        }
+        hit = public_feedback_fragment(payload, {"choice": "Second answer"})
+        miss = public_feedback_fragment(payload, {"choice": "A"})
+        self.assertEqual(hit["source"], "answer_key")
+        self.assertEqual(hit["lead"], LEAD_MATCH)
+        self.assertTrue(hit["match"])
+        self.assertEqual(miss["source"], "answer_key")
+        self.assertEqual(miss["lead"], LEAD_MISS)
+        self.assertFalse(miss["match"])
+        self.assertIn("B: Second answer", miss["text"])
 
     def test_strip_teacher_fields(self) -> None:
         """Student GET must not see keys, cement, or the feedback map."""
@@ -270,6 +295,8 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             self.assertNotIn("by_choice", fragment)
             self.assertNotIn("key", fragment)
             self.assertNotEqual(fragment["lead"], "Wrong.")
+        self.assertNotIn("stay with the picture", LEAD_MISS)
+        self.assertNotIn("picture forced", LEAD_WEAK)
 
 
 if __name__ == "__main__":

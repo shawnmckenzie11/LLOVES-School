@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "course": "MCT4C",
+  "module": "M6",
+  "live_class": "C2",
+  "items": [
+    {
+      "ref": "universal/question/teams-spark",
+      "stage": "teams",
+      "page_number": 2,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual",
+        "group_consensus"
+      ],
+      "response_mode": "individual"
+    },
+    {
+      "ref": "universal/question/meet-team",
+      "stage": "meet",
+      "page_number": 3,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
+    }
+  ],
+  "pages": [
+    {
+      "id": "join",
+      "name": "Join",
+      "stage": "join"
+    },
+    {
+      "id": "welcome",
+      "name": "Welcome",
+      "stage": "teams"
+    },
+    {
+      "id": "meet",
+      "name": "Meet",
+      "stage": "meet"
+    },
+    {
+      "id": "round_1",
+      "name": "Round 1",
+      "stage": "round"
+    },
+    {
+      "id": "round_2",
+      "name": "Round 2",
+      "stage": "play"
+    },
+    {
+      "id": "round_3",
+      "name": "Round 3",
+      "stage": "round_3"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "stage": "summary"
+    }
+  ]
+}

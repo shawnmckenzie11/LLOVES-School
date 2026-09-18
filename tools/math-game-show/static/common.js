@@ -179,6 +179,9 @@ export function lockRoundDeadline(currentMs, nextMs) {
 const SCOREBOARD_OVERLAY_NAME = "mgs-scoreboard";
 const LIVE_SESSION_OVERLAY_NAME = "mgs-live-session";
 
+/** Opener-side handle for the Zoom-share live overlay (not a named-window lookup). */
+let liveSessionOverlayWindow = null;
+
 /**
  * Popup chrome for the student-facing ESPN overlay (Zoom share window).
  * @returns {string}
@@ -232,12 +235,40 @@ export function reserveScoreboardOverlay() {
 }
 
 /**
+ * Keep the last script-opened live-overlay Window so Quit can close it.
+ * @param {Window|null|undefined} win
+ * @returns {Window|null}
+ */
+function rememberLiveSessionOverlay(win) {
+  if (win && !win.closed) {
+    liveSessionOverlayWindow = win;
+    return win;
+  }
+  return null;
+}
+
+/**
+ * Close a popup handle if it is still open.
+ * @param {Window|null|undefined} win
+ * @returns {boolean} whether close was attempted on an open window
+ */
+function tryCloseWindow(win) {
+  if (!win || win.closed) return false;
+  try {
+    win.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reserve the narrow live-session overlay during a user click (avoids blockers).
  * @returns {Window|null}
  */
 export function reserveLiveSessionOverlay() {
   const win = window.open("about:blank", LIVE_SESSION_OVERLAY_NAME, liveSessionOverlayFeatures());
-  return win && !win.closed ? win : null;
+  return rememberLiveSessionOverlay(win);
 }
 
 /**
@@ -268,10 +299,31 @@ export function openLiveSessionOverlay(sessionId, existing, opts = {}) {
   const qs = new URLSearchParams({ overlay: "1" });
   if (classId > 0) qs.set("class_id", String(classId));
   const url = `/live-overlay/${id}?${qs.toString()}`;
-  return openNamedOverlay(
-    url,
-    liveSessionOverlayFeatures(),
-    existing,
-    LIVE_SESSION_OVERLAY_NAME
+  return rememberLiveSessionOverlay(
+    openNamedOverlay(
+      url,
+      liveSessionOverlayFeatures(),
+      existing,
+      LIVE_SESSION_OVERLAY_NAME
+    )
   );
+}
+
+/**
+ * Close the Zoom-share live overlay from the staff opener.
+ *
+ * Uses the module-level Window from reserve/open first. A named
+ * ``window.open("", name)`` lookup is only a fallback when no stored
+ * handle exists (for example after a staff-page reload).
+ */
+export function closeLiveSessionOverlay() {
+  const stored = liveSessionOverlayWindow;
+  liveSessionOverlayWindow = null;
+  if (tryCloseWindow(stored)) return;
+  try {
+    const named = window.open("", LIVE_SESSION_OVERLAY_NAME);
+    tryCloseWindow(named);
+  } catch {
+    /* ignore named-window lookup failures */
+  }
 }

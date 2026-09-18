@@ -25,6 +25,7 @@ from schedule import (  # noqa: E402
     next_meeting_datetime,
     parse_semester_field,
     picker_year_semester,
+    store_days,
     unique_header_label,
     wizard_defaults,
 )
@@ -429,6 +430,23 @@ class GamePersistTests(unittest.TestCase):
         resumed = self.db.resume_round_timer(class_id)
         self.assertFalse(resumed["game"].get("timer_paused"))
         self.assertIsInstance(resumed["game"]["round_ends_at_ms"], int)
+
+    def test_paused_timer_stepper_sets_integer_minutes(self) -> None:
+        """Paused SessionTimer −/+ writes remaining as integer minutes."""
+        class_id = self.cls["id"]
+        self.db.begin_game(class_id, today=date(2026, 8, 31))
+        started = self.db.start_session_timer(class_id, minutes=5)
+        self.assertFalse(started["game"].get("timer_paused"))
+        paused = self.db.pause_round_timer(class_id)
+        self.assertTrue(paused["game"]["timer_paused"])
+        updated = self.db.set_paused_timer_minutes(class_id, 2)
+        self.assertEqual(updated["game"]["round_remaining_sec"], 120)
+        self.assertTrue(updated["game"]["timer_paused"])
+        resumed = self.db.resume_round_timer(class_id)
+        self.assertFalse(resumed["game"].get("timer_paused"))
+        remaining = resumed["game"]["round_remaining_sec"]
+        self.assertGreaterEqual(remaining, 119)
+        self.assertLessEqual(remaining, 120)
 
     def test_game_scoring_end_log_and_colors(self) -> None:
         """4 present, 2 random teams, individual+team awards, End Game persist."""
@@ -1050,6 +1068,29 @@ class GamePersistTests(unittest.TestCase):
                 class_id, kind="student", target_id=member["id"], amount=1
             )
 
+    def test_student_live_payload_my_team_is_names_and_avatars(self) -> None:
+        """Named-team membership is names + characters only; Class tracking hides."""
+        class_id = self.cls["id"]
+        state = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present = [s["id"] for s in state["students"][:4]]
+        self.db.save_attendance(class_id, present)
+        self.db.assign_teams(class_id, 2, "random")
+        member = self.db.game_state(class_id)["teams"][0]["members"][0]
+        phone = self.db.student_live_payload(class_id, member["id"])
+        mine = phone["my_team"]
+        self.assertTrue(mine["name"])
+        self.assertNotEqual(mine["name"], "Class")
+        self.assertGreaterEqual(len(mine["members"]), 1)
+        for row in mine["members"]:
+            self.assertEqual(set(row), {"id", "codename", "character"})
+        solo = self.db.begin_game(class_id, today=date(2026, 8, 31))
+        present2 = [s["id"] for s in solo["students"][:3]]
+        self.db.save_attendance(class_id, present2)
+        self.db.start_ungamified_live(class_id, go_live=False)
+        class_member = self.db.game_state(class_id)["teams"][0]["members"][0]
+        hidden = self.db.student_live_payload(class_id, class_member["id"])
+        self.assertIsNone(hidden.get("my_team"))
+
     def test_individual_open_question_only_rounds(self) -> None:
         """Individual Class tracking allows Open Question and Team Challenge."""
         class_id = self.cls["id"]
@@ -1601,7 +1642,11 @@ class HttpApiTests(unittest.TestCase):
         self.assertTrue(any(c["id"] == class_id for c in listed["classes"]))
         dash = _http_json(self.base, f"/api/classes/{class_id}/dashboard")
         self.assertEqual(len(dash["students"]), 17)
-        self.assertEqual(dash["sessions"][0]["header_label"], "Tue 9/8 2:00pm")
+        expected_header = format_header_label(
+            next_meeting_datetime(store_days("T/Th/F"), "2:00pm"),
+            "2:00pm",
+        )
+        self.assertEqual(dash["sessions"][0]["header_label"], expected_header)
         begin = _http_json(self.base, f"/api/classes/{class_id}/begin", {})
         present = [s["id"] for s in begin["students"][:4]]
         moved = _http_json(
@@ -1914,6 +1959,27 @@ class LlovesCodenameRosterTests(unittest.TestCase):
         )
         za = self.db.dashboard(created["id"], sort="za")
         self.assertEqual([s["codename"] for s in za["students"]], ["Maple", "Cedar", "Birch"])
+
+
+    def test_pick_late_team_prefers_size_then_course_total_then_id(self) -> None:
+        """Late join uses size, summed course score, then stable team id."""
+        from teams import pick_late_team
+
+        chosen = pick_late_team(
+            [
+                {"id": 1, "size": 3, "course_total": 0},
+                {"id": 2, "size": 2, "course_total": 10},
+                {"id": 3, "size": 2, "course_total": 4},
+            ]
+        )
+        self.assertEqual(chosen, 3)
+        stable = pick_late_team(
+            [
+                {"id": 9, "size": 2, "course_total": 4},
+                {"id": 7, "size": 2, "course_total": 4},
+            ]
+        )
+        self.assertEqual(stable, 7)
 
 
 if __name__ == "__main__":

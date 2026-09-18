@@ -1,8 +1,9 @@
-"""TEAMS shared spark: one ephemeral class-wide riddle, not a chain.
+"""Welcome-stage C2: one ephemeral integer poll, not a chain.
 
-Shown while the teacher is on TEAMS (selection / assignment). One prompt
-on the Question frame for teacher and students. Not Minds-On, not the
-Meet A→C→B ride, not Team Challenge. No gradebook. No curriculum chips.
+Shown after students submit the Join minds-on (any slot), and on
+Welcome (TEAMS). Same stem for MCF3M and MCR3U M1C1. Class-wide integer
+histogram after submit.
+No gradebook. No curriculum chips.
 
 Clears on TEAMS→MEET. Wonder fires ``cue.teams_spark`` on enter only;
 mid-TEAMS patches stay silent.
@@ -16,28 +17,22 @@ TEAMS_SPARK_ITEM_ID = "teams-spark"
 TEAMS_SPARK_PACK_ID = "teams-spark"
 TEAMS_SPARK_PROMPT_REF = TEAMS_SPARK_ITEM_ID
 TEAMS_SPARK_SLIDE_INDEX = 810
-TEAMS_SPARK_KIND = "mc"
-TEAMS_SPARK_LABEL = "Shared spark"
+TEAMS_SPARK_KIND = "numeric"
+TEAMS_SPARK_LABEL = "C2"
 CUE_TEAMS_SPARK = "cue.teams_spark"
 
-TEAMS_SPARK_PROMPT = (
-    "A farmer has 17 sheep. All but 9 run away. How many are left?"
-)
-TEAMS_SPARK_CHOICES: tuple[str, ...] = ("8", "9", "17", "0")
-# Soft key is teacher-only; student_live_prompt_payload must strip it.
-TEAMS_SPARK_KEY = "9"
-TEAMS_SPARK_TEACHER_KEY = "9 — “all but 9” means 9 remain."
-TEAMS_SPARK_STUDENT_FEEDBACK = "All but nine means nine stay."
+TEAMS_SPARK_PROMPT = "Type the integer you think most students will answer"
+TEAMS_SPARK_INTEGER_ONLY = True
 
 _LEGACY_ITEM_IDS = frozenset({TEAMS_SPARK_ITEM_ID, "teams_spark"})
 _LEGACY_PACK_IDS = frozenset({TEAMS_SPARK_PACK_ID, "teams_spark"})
 
 
 def teams_spark_prompt_payload() -> dict[str, Any]:
-    """Return the locked TEAMS shared-spark MC payload.
+    """Return the Welcome C2 integer-poll payload.
 
-    Includes teacher-only ``key`` / ``teacher_key``. Student APIs must
-    strip those before send. ``gradebook`` is false. No chips.
+    ``gradebook`` is false. Student APIs must not invent a key. Integer
+    answers only.
 
     Returns:
         Live-prompt payload with ``item_id`` ``teams-spark``.
@@ -48,10 +43,8 @@ def teams_spark_prompt_payload() -> dict[str, Any]:
         "label": TEAMS_SPARK_LABEL,
         "kind": TEAMS_SPARK_KIND,
         "prompt": TEAMS_SPARK_PROMPT,
-        "choices": list(TEAMS_SPARK_CHOICES),
-        "key": TEAMS_SPARK_KEY,
-        "teacher_key": TEAMS_SPARK_TEACHER_KEY,
-        "student_feedback_after_reveal": TEAMS_SPARK_STUDENT_FEEDBACK,
+        "integer_only": TEAMS_SPARK_INTEGER_ONLY,
+        "placeholder": "Enter an integer",
         "source": "teams_spark",
         "gradebook": False,
         "meet_chip": False,
@@ -62,7 +55,7 @@ def teams_spark_prompt_payload() -> dict[str, Any]:
 
 
 def is_teams_spark_payload(payload: Any) -> bool:
-    """True when a live-prompt payload is the TEAMS shared spark.
+    """True when a live-prompt payload is the Welcome C2 integer poll.
 
     Args:
         payload: Prompt JSON object.
@@ -77,7 +70,7 @@ def is_teams_spark_payload(payload: Any) -> bool:
 
 
 def is_teams_spark_ref(ref: Any) -> bool:
-    """True when a teacher ``prompt_ref`` points at the TEAMS spark.
+    """True when a teacher ``prompt_ref`` points at Welcome C2.
 
     Args:
         ref: Stored or public prompt_ref value.
@@ -90,22 +83,19 @@ def staff_teams_spark_card(
     *,
     reveal: bool = False,
 ) -> dict[str, Any]:
-    """Teacher Question-frame card for the locked spark.
+    """Teacher Question-frame card for Welcome C2.
 
     Args:
-        payload: Stored spark payload (may include teacher-only fields).
-        reveal: True when the stay-line has been shared with students.
+        payload: Stored spark payload.
+        reveal: True when the class histogram has been shared.
     """
     body = payload if isinstance(payload, dict) else teams_spark_prompt_payload()
     return {
         "prompt": str(body.get("prompt") or TEAMS_SPARK_PROMPT),
-        "choices": list(body.get("choices") or TEAMS_SPARK_CHOICES),
-        "teacher_key": str(
-            body.get("teacher_key") or TEAMS_SPARK_TEACHER_KEY
-        ),
-        "student_feedback_after_reveal": str(
-            body.get("student_feedback_after_reveal")
-            or TEAMS_SPARK_STUDENT_FEEDBACK
-        ),
+        "kind": TEAMS_SPARK_KIND,
+        "integer_only": True,
+        "choices": [],
+        "teacher_key": "",
+        "student_feedback_after_reveal": "",
         "reveal": bool(reveal),
     }

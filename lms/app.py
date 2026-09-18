@@ -54,6 +54,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 from auth import (  # noqa: E402
     current_user,
     google_oauth_ready,
+    it_emails,
     it_required,
     landing_kwargs,
     login_required,
@@ -90,8 +91,9 @@ from live_media import (  # noqa: E402
 )
 from live_class_packs import live_class_registry  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
-from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
+from live_prompt_feedback import public_feedback_fragment  # noqa: E402
+from minds_on import is_minds_on_payload  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -2191,9 +2193,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/bots")
     @staff_required
     def staff_bots():
-        """Staff-only Grok bots showcase (Module Engineer and later cards)."""
+        """IT/Admin-only Grok bots showcase (Module Engineer and later cards)."""
         user = current_user()
         assert user is not None
+        email = str(user.get("email") or "").lower()
+        if user.get("role") != "it" and email not in it_emails():
+            return redirect(url_for("staff_home"))
         return render_template(
             "staff/bots.html",
             user=user,
@@ -2376,13 +2381,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """Save and End Class: persist A&P, then wipe the SID.
+        """End Live Class: persist chosen A&P columns, then wipe the SID.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
         (``class_id`` must match ``get_active_live_session_for_teacher``).
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
+
+        The dialog posts ``end_options`` plus optional ``save_attendance``
+        / ``save_participation`` checkboxes. A bare POST (tests / old
+        clients) still saves both.
 
         After a save, staff land on Attendance & Participation so the
         new class-day column is visible.
@@ -2394,7 +2403,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        school.finish_live_class(int(class_id), persist=True)
+        form = request.form
+        if str(form.get("end_options") or "") == "1":
+            save_attendance = str(form.get("save_attendance") or "") == "1"
+            save_participation = str(form.get("save_participation") or "") == "1"
+        else:
+            save_attendance = True
+            save_participation = True
+        school.finish_live_class(
+            int(class_id),
+            save_attendance=save_attendance,
+            save_participation=save_participation,
+            celebrate=True,
+        )
         return redirect(
             url_for(
                 "staff_course",
@@ -2407,19 +2428,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required
     def staff_quit_live_class(class_id: int):
-        """Quit: keep attendance, discard participation, wipe the SID.
+        """Quit: discard attendance and participation, wipe the SID.
 
-        Same ownership rules as Save and End Class. Attendance always
-        persists. Participation, meet taps, and live QH are discarded.
+        Same ownership rules as End Live Class. Nothing is written to
+        the attendance column. Meet taps and live QH are discarded.
         """
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         active = school.get_active_live_session_for_teacher(int(user["id"]))
-        if active is None or int(active["class_id"]) != int(class_id):
-            return redirect(url_for("staff_home"))
-        school.finish_live_class(int(class_id), persist=False)
+        if active is not None and int(active["class_id"]) == int(class_id):
+            school.finish_live_class(int(class_id), persist=False, celebrate=False)
+        else:
+            school.wipe_live_sessions_for_class(int(class_id))
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
@@ -2517,6 +2539,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         exit_feedback = (
             school.list_exit_feedback_for_class(class_id) if tab == "ap" else []
         )
+        feedback_grid = (
+            school.feedback_grid_for_class(class_id)
+            if tab == "ap" and ap_view == "feedback"
+            else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
+        )
         live_packs = live_class_registry(
             (offering or {}).get("ontario_code")
             or cls.get("ontario_code")
@@ -2532,6 +2559,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             tab=tab,
             ap_view=ap_view,
             exit_feedback=exit_feedback,
+            feedback_grid=feedback_grid,
             live_packs=live_packs,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
@@ -2676,6 +2704,474 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "questions": list_questions(school, int(library_id), int(bank_id)),
             }
         )
+
+    @app.route("/api/staff/class/<int:class_id>/module-banks")
+    @staff_required
+    def staff_module_banks(class_id: int):
+        """List heuristic and confirmed module bank links for one live module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module = str(request.args.get("module") or "").strip().upper()
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(module)
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify(
+                {
+                    "ok": True,
+                    "empty": True,
+                    "message": error or "Ask Admin to attach a module pack.",
+                    "module": module,
+                    "needs_confirmation": True,
+                    "suggested": [],
+                    "confirmed": [],
+                }
+            )
+        payload = school.suggest_module_banks(int(library_id), int(module_number))
+        return jsonify(
+            {
+                "ok": True,
+                "empty": False,
+                "module": module,
+                "module_number": module_number,
+                "library_id": int(library_id),
+                **payload,
+            }
+        )
+
+    @app.route("/api/staff/class/<int:class_id>/module-banks/confirm", methods=["POST"])
+    @staff_required
+    def staff_module_banks_confirm(class_id: int):
+        """Persist teacher-confirmed question banks for one module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        module = str(body.get("module") or "").strip().upper()
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(module)
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        bank_ids = body.get("bank_ids") or body.get("bankIds") or []
+        if not isinstance(bank_ids, list):
+            return jsonify({"ok": False, "error": "bank_ids must be a list"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        confirmed = school.confirm_module_bank_links(
+            int(library_id), int(module_number), bank_ids
+        )
+        payload = school.suggest_module_banks(int(library_id), int(module_number))
+        return jsonify(
+            {
+                "ok": True,
+                "module": module,
+                "module_number": module_number,
+                "library_id": int(library_id),
+                "confirmed": confirmed,
+                "recommended": payload.get("recommended") or [],
+                "needs_confirmation": bool(payload.get("needs_confirmation")),
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/module-banks/<module>/mc-search"
+    )
+    @staff_required
+    def staff_module_bank_mc_search(class_id: int, module: str):
+        """Search normalized MCs within confirmed banks for one module."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            from bank_mc_normalize import parse_module_token
+        except ImportError:
+            from lms.bank_mc_normalize import parse_module_token
+        module_number = parse_module_token(str(module or "").strip().upper())
+        if module_number is None:
+            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        query = str(request.args.get("q") or "").strip()
+        result = school.search_module_bank_mcs(
+            int(library_id), int(module_number), query, class_id=int(class_id)
+        )
+        items = result.get("items") or []
+        return jsonify(
+            {
+                "ok": True,
+                "module": str(module or "").strip().upper(),
+                "module_number": module_number,
+                "library_id": int(library_id),
+                "query": query,
+                "count": len(items),
+                "total": int(result.get("total") or 0),
+                "filtered": int(result.get("filtered") or 0),
+                "items": items,
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/deck",
+        methods=["GET"],
+    )
+    @staff_required
+    def staff_live_lesson_deck(class_id: int, module: str, slot: str):
+        """Return merged seed + bank-import metadata for one class lesson deck."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            live_metadata = school.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        return jsonify(
+            {
+                "ok": True,
+                "module": module_key,
+                "slot": slot_key,
+                "live_metadata": live_metadata,
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-mc",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_import_live_mc(class_id: int, module: str, slot: str):
+        """Import one module-bank MC onto a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            question_id = int(body.get("question_id") or body.get("questionId"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "question_id required"}), 400
+        try:
+            page_number = int(body.get("page_number") or body.get("pageNumber") or 1)
+        except (TypeError, ValueError):
+            page_number = 1
+        stage = str(body.get("stage") or "round").strip().lower()
+        order_raw = body.get("order")
+        order = int(order_raw) if order_raw not in (None, "") else None
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        try:
+            placement = school.import_mc_to_class_playlist(
+                int(class_id),
+                str(module or "").strip().upper(),
+                str(slot or "").strip().upper(),
+                int(question_id),
+                library_id=int(library_id),
+                page_number=page_number,
+                stage=stage,
+                order=order,
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        response: dict[str, Any] = {
+            "ok": True,
+            "placement": placement,
+            **school.playlist_staff_snapshot(int(class_id), module_key, slot_key),
+        }
+        return jsonify(response)
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/add-question",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_add_live_question(class_id: int, module: str, slot: str):
+        """Add a staff-authored MC, numeric, or poll onto the current page."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            page_number = int(body.get("page_number") or body.get("pageNumber") or 1)
+        except (TypeError, ValueError):
+            page_number = 1
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, _error = _ready_library(school, cls)
+        save_raw = body.get("save_to_bank")
+        if save_raw is None:
+            save_raw = body.get("saveToBank")
+        save_to_bank = bool(save_raw)
+        if isinstance(save_raw, str):
+            save_to_bank = save_raw.strip().lower() in {"1", "true", "yes"}
+        try:
+            placement = school.add_staff_question_to_class_playlist(
+                int(class_id),
+                str(module or "").strip().upper(),
+                str(slot or "").strip().upper(),
+                question_type=str(body.get("type") or body.get("question_type") or ""),
+                text=str(body.get("text") or body.get("stem") or ""),
+                page_number=page_number,
+                stage=str(body.get("stage") or "round"),
+                options=list(body.get("options") or []),
+                correct_index=body.get("correct_index", body.get("correctIndex")),
+                correct_answer=body.get("correct_answer", body.get("correctAnswer")),
+                tolerance=body.get("tolerance"),
+                tolerance_kind=body.get("tolerance_kind", body.get("toleranceKind")),
+                equation=body.get("equation") or body.get("equation_latex"),
+                image_url=body.get("image_url") or body.get("imageUrl"),
+                save_to_bank=save_to_bank,
+                bank_scope=str(body.get("bank_scope") or body.get("bankScope") or "module"),
+                library_id=int(library_id) if library_id else None,
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        return jsonify(
+            {
+                "ok": True,
+                "placement": placement,
+                **school.playlist_staff_snapshot(int(class_id), module_key, slot_key),
+            }
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-question-image",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_upload_live_question_image(class_id: int):
+        """Store one staff-authored question image on the data volume."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        uploaded = request.files.get("image") or request.files.get("file")
+        try:
+            stored = school.store_live_question_image(int(class_id), uploaded)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **stored})
+
+    def _staff_relocate_playlist_item_response(
+        class_id: int,
+        module: str,
+        slot: str,
+        item_id: str,
+        body: dict[str, Any],
+    ):
+        """Shared remove/move handler for playlist item staff APIs."""
+        action = str(body.get("action") or "").strip().lower()
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        token = str(item_id or "").strip()
+        if not token:
+            return jsonify({"ok": False, "error": "item_id required"}), 400
+        try:
+            if action == "remove":
+                result = school.remove_class_playlist_item(
+                    int(class_id), module_key, slot_key, token
+                )
+            else:
+                target_raw = body.get("target_page_index")
+                if target_raw in (None, ""):
+                    target_raw = body.get("targetPageIndex")
+                result = school.move_class_playlist_item(
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    token,
+                    target_page_index=int(target_raw),
+                )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        snapshot = school.playlist_staff_snapshot(
+            int(class_id), module_key, slot_key
+        )
+        return jsonify({"ok": True, **result, **snapshot})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/playlist-item",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_relocate_playlist_item_post(
+        class_id: int, module: str, slot: str
+    ):
+        """Remove or move one question within a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        item_id = str(body.get("item_id") or body.get("itemId") or "").strip()
+        return _staff_relocate_playlist_item_response(
+            class_id, module, slot, item_id, body
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/playlist-items/<path:item_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_relocate_playlist_item(
+        class_id: int, module: str, slot: str, item_id: str
+    ):
+        """Remove or move one question within a class live-lesson overlay."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        return _staff_relocate_playlist_item_response(
+            class_id, module, slot, item_id, body
+        )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/pages",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_add_live_lesson_page(class_id: int, module: str, slot: str):
+        """Insert an overlay page after the named current page.
+
+        Last-page delete is a sibling DELETE route. Adding never writes
+        seed JSON; the page is a ``class_live_playlist_pages`` row.
+        Body ``kind`` / ``page_kind`` selects blank, welcome, or winner.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            result = school.add_class_playlist_page(
+                int(class_id),
+                module_key,
+                slot_key,
+                name=str(body.get("name") or "").strip(),
+                after_page_id=str(
+                    body.get("after_page_id") or body.get("afterPageId") or ""
+                ).strip(),
+                kind=str(body.get("kind") or body.get("page_kind") or "blank"),
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/pages/<path:page_id>",
+        methods=["DELETE"],
+    )
+    @staff_required
+    def staff_delete_live_lesson_page(
+        class_id: int, module: str, slot: str, page_id: str
+    ):
+        """Remove one overlay or authored page from this class deck.
+
+        Last-page rule: HTTP 400 ``cannot delete the last remaining page``.
+        The deck always keeps at least one page. Confirmed deletes land on
+        the next page, or the previous page when the deleted page was last.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            result = school.delete_class_playlist_page(
+                int(class_id), module_key, slot_key, str(page_id or "")
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/question-overlays/<int:question_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_question_overlay_patch(class_id: int, question_id: int):
+        """Persist staff edits for one ingest MC via ``library_question_overlays``."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        stem = str(body.get("stem_text") or body.get("text") or "").strip()
+        options = body.get("options") or body.get("choices") or []
+        if not isinstance(options, list):
+            return jsonify({"ok": False, "error": "options must be a list"}), 400
+        correct = str(
+            body.get("correct_answer") or body.get("correctAnswer") or ""
+        ).strip()
+        points_raw = body.get("points")
+        points = None
+        if points_raw not in (None, ""):
+            try:
+                points = float(points_raw)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "invalid points"}), 400
+        if not stem:
+            return jsonify({"ok": False, "error": "stem_text required"}), 400
+        if len([opt for opt in options if str(opt).strip()]) < 2:
+            return jsonify({"ok": False, "error": "at least two options required"}), 400
+        if not correct:
+            return jsonify({"ok": False, "error": "correct_answer required"}), 400
+        try:
+            overlay = school.upsert_library_question_overlay(
+                int(library_id),
+                int(question_id),
+                stem_text=stem,
+                options=[str(opt) for opt in options],
+                correct_answer=correct,
+                points=points,
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True, "overlay": overlay})
 
     @app.route("/staff/class/<int:class_id>/component/<kind>/<int:component_id>")
     @staff_required
@@ -2939,27 +3435,37 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
 
+    @app.route(
+        "/api/classes/<int:class_id>/live-question-images/<path:filename>"
+    )
+    @login_required
+    def serve_live_question_image(class_id: int, filename: str):
+        """Serve one staff-authored live question image to class participants."""
+        user = current_user()
+        assert user is not None
+        allowed = school.teacher_owns_class(int(user["id"]), int(class_id))
+        if not allowed:
+            ctx = _student_live_context()
+            allowed = bool(ctx and int(ctx.get("class_id") or 0) == int(class_id))
+        if not allowed:
+            abort(403)
+        path = school.live_question_image_path(int(class_id), filename)
+        if path is None:
+            abort(404)
+        return send_from_directory(path.parent, path.name)
+
     def _ended_student_response(*, as_json: bool = False):
-        """Clear student keys + rejoin cookie; send How-was-class when pending."""
-        pending = school.pending_exit_feedback(
-            class_id=session.get("student_class_id"),
-            student_id=session.get("student_id"),
-            participant_uuid=session.get("student_participant_uuid"),
-        )
-        if pending:
-            session[EXIT_FEEDBACK_SESSION_KEY] = pending["token"]
-        dest = (
-            url_for("student_exit_feedback")
-            if pending
-            else url_for("landing")
-        )
+        """Clear student keys + rejoin cookie and return to the landing page."""
+        dest = url_for("landing")
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
         clear_student_session_keys(session)
         if as_json:
             resp = jsonify(
                 {
                     "ok": True,
                     "status": "ended",
-                    "feedback": bool(pending),
+                    "celebrate": False,
+                    "feedback": False,
                     "redirect": dest,
                 }
             )
@@ -3159,6 +3665,29 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             codename=str(ctx.get("codename") or ""),
         )
 
+
+    @app.route("/api/student/exit-feedback", methods=["POST"])
+    def api_student_exit_feedback():
+        """Submit How-was-class from the celebrating student home overlay."""
+        data = request.get_json(silent=True) or {}
+        token = str(
+            data.get("token") or session.get(EXIT_FEEDBACK_SESSION_KEY) or ""
+        ).strip()
+        row = school.get_exit_feedback_by_token(token) if token else None
+        if row is None or row.get("submitted_at"):
+            return jsonify({"ok": False, "error": "No pending feedback."}), 404
+        skip = str(data.get("skip") or "").strip() in {"1", "true", "yes"}
+        try:
+            school.submit_exit_feedback(
+                token,
+                mood=str(data.get("mood") or "") or None,
+                comment=str(data.get("comment") or ""),
+                skip=skip,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True})
+
     @app.route("/student/exit", methods=["GET", "POST"])
     def student_exit_feedback():
         """How-was-class faces + optional comment after Quit or Save and End."""
@@ -3290,10 +3819,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        school.apply_student_live_group_projection(payload, live_session_id)
+        payload["live_metadata"] = (
+            school.student_live_class_metadata_for_session(live_session_id)
+        )
         payload["canvas_sync"] = school.live_session_canvas_view(
             live_session_id,
             student_id=int(student_id) if student_id not in (None, "") else None,
         )
+        school.apply_student_end_overlay(
+            payload,
+            live_session_id,
+            class_id,
+            int(student_id) if student_id not in (None, "") else None,
+            pid,
+        )
+        if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
+            session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
         return render_template(
             "student/home.html",
             offering=offering,
@@ -3367,6 +3909,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
+        unchanged = school.student_live_poll_unchanged(
+            live_session_id,
+            int(class_id),
+            request.args.get("seq"),
+            request.args.get("stamp"),
+        )
+        if unchanged is not None:
+            return jsonify(unchanged)
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
         if unmatched:
@@ -3389,11 +3939,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         payload["teacher_state"] = school.live_session_teacher_state_payload(
             live_session_id
         )
+        school.apply_student_live_group_projection(payload, live_session_id)
+        payload["live_metadata"] = (
+            school.student_live_class_metadata_for_session(live_session_id)
+        )
         payload["canvas_sync"] = school.live_session_canvas_view(
             live_session_id,
             student_id=int(student_id) if student_id not in (None, "") else None,
         )
         payload["display_time"] = school.live_session_display_time(int(class_id))
+        school.apply_student_end_overlay(
+            payload,
+            live_session_id,
+            int(class_id),
+            int(student_id) if student_id not in (None, "") else None,
+            pid,
+        )
+        if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
+            session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
+        payload["stamp"] = school.live_student_poll_stamp(
+            live_session_id, int(class_id)
+        )
+        payload["state_seq"] = int(
+            (payload.get("teacher_state") or {}).get("state_seq") or 0
+        )
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -3463,7 +4032,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
     def api_student_live_prompt_response():
-        """Submit a live-prompt response; return instant text feedback when keyed."""
+        """Submit a live-prompt response; ack only, never keyed student copy."""
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
             return denied
@@ -3477,27 +4046,95 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
+        facing_payload = school.student_live_prompt_payload(
+            live_session_id,
+            int(student_id) if student_id not in (None, "") else None,
+            participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+        )
+        facing = facing_payload.get("prompt") if isinstance(facing_payload, dict) else None
         active = school.get_active_live_prompt(live_session_id)
-        if active is None or active.get("kind") == "idle":
+        allowed_ids: set[int] = set()
+        if isinstance(facing, dict) and facing.get("id") not in (None, ""):
+            allowed_ids.add(int(facing["id"]))
+        if active is not None and active.get("id") not in (None, ""):
+            allowed_ids.add(int(active["id"]))
+        for item in facing_payload.get("active_questions") or []:
+            item_prompt = item.get("prompt") if isinstance(item, dict) else None
+            if isinstance(item_prompt, dict) and item_prompt.get("id") not in (
+                None,
+                "",
+            ):
+                allowed_ids.add(int(item_prompt["id"]))
+        if not allowed_ids:
             return jsonify({"ok": False, "error": "No active prompt."}), 409
-        if school.live_session_mc_poll_closed(live_session_id):
-            return jsonify(
-                {"ok": False, "error": "Poll is closed.", "poll_closed": True}
-            ), 409
         body = request.get_json(silent=True) or {}
         response = body.get("response")
         if not isinstance(response, dict):
             response = {k: body[k] for k in body if k != "prompt_id"}
-        prompt_id = int(body.get("prompt_id") or active["id"])
-        if prompt_id != int(active["id"]):
+        prompt_id = int(body.get("prompt_id") or next(iter(allowed_ids)))
+        if prompt_id not in allowed_ids:
             return jsonify({"ok": False, "error": "Prompt is no longer active."}), 409
-        meet_payload = active.get("payload") or {}
+        target = (
+            facing
+            if isinstance(facing, dict) and int(facing.get("id") or 0) == prompt_id
+            else active
+        )
+        if target is None or int(target.get("id") or 0) != prompt_id:
+            target = next(
+                (
+                    item.get("prompt")
+                    for item in facing_payload.get("active_questions") or []
+                    if isinstance(item, dict)
+                    and isinstance(item.get("prompt"), dict)
+                    and int(item["prompt"].get("id") or 0) == prompt_id
+                ),
+                None,
+            )
+        target_payload = (target or {}).get("payload") or {}
+        if school.live_session_mc_poll_closed(live_session_id) and is_minds_on_payload(
+            target_payload
+        ):
+            return jsonify(
+                {"ok": False, "error": "Poll is closed.", "poll_closed": True}
+            ), 409
+        if bool(body.get("draft")):
+            choice = ""
+            if isinstance(response, dict):
+                choice = str(
+                    response.get("choice") or response.get("text") or ""
+                ).strip()
+            draft = school.set_group_question_draft(
+                live_session_id,
+                prompt_id=prompt_id,
+                student_id=int(student_id) if student_id not in (None, "") else None,
+                choice=choice,
+            )
+            return jsonify({"ok": True, "draft": True, "group_draft": draft})
+        meet_payload = (target or {}).get("payload") or {}
+        lifecycle_owns_prompt = any(
+            isinstance(item, dict)
+            and isinstance(item.get("prompt"), dict)
+            and int(item["prompt"].get("id") or 0) == prompt_id
+            for item in facing_payload.get("active_questions") or []
+        )
         if is_meet_team_payload(meet_payload):
             choice = ""
             if isinstance(response, dict):
                 choice = str(
                     response.get("choice") or response.get("text") or ""
                 ).strip()
+            stored = dict(response) if isinstance(response, dict) else {}
+            if choice:
+                stored["choice"] = choice
+            try:
+                school.submit_live_prompt_response(
+                    prompt_id,
+                    int(student_id) if student_id not in (None, "") else None,
+                    stored,
+                    participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
+                )
+            except (KeyError, ValueError):
+                pass
             recorded = school.record_meet_chain_pick(
                 live_session_id,
                 participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
@@ -3524,6 +4161,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
             if recorded is None and not choice:
                 return jsonify({"ok": False, "error": "Meet is not live."}), 409
+            try:
+                teacher = school.live_session_teacher_state_payload(live_session_id)
+            except KeyError:
+                teacher = None
+            tally = school.live_session_mc_tally(live_session_id)
+            if tally is not None and school._student_may_see_tally(
+                live_session_id,
+                target,
+                my_response=my_response,
+                teacher=teacher,
+            ):
+                body["mc_tally"] = tally
             return jsonify(body)
         try:
             saved = school.submit_live_prompt_response(
@@ -3534,22 +4183,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        # Gradebook auto-insert stays stubbed for the slides-plugin branch.
-        if student_id not in (None, ""):
-            school.apply_prompt_score_to_participation(
-                class_id,
-                int(student_id),
-                0.0,
-                prompt_id=prompt_id,
-                label=str(active.get("kind") or "prompt"),
-            )
         my_response = {
             "response": saved.get("response") or {},
             "awarded_points": saved.get("awarded_points"),
             "updated_at": saved.get("updated_at"),
         }
         fragment = public_feedback_fragment(
-            active.get("payload") or {}, my_response["response"]
+            target_payload, saved.get("response") or response
         )
         if fragment:
             my_response["feedback"] = fragment
@@ -3560,7 +4200,89 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }
         if fragment:
             body["feedback"] = fragment
+        try:
+            teacher = school.live_session_teacher_state_payload(live_session_id)
+        except KeyError:
+            teacher = None
+        tally = school._tally_for_prompt(live_session_id, target, teacher)
+        if tally is None:
+            tally = school.live_session_mc_tally(live_session_id)
+        if tally is not None and school._student_may_see_tally(
+            live_session_id,
+            target,
+            my_response=my_response,
+            teacher=teacher,
+        ):
+            body["mc_tally"] = tally
         return jsonify(body)
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/vote",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_vote(live_item_id: int):
+        """Submit a private vote for the student's active consensus item."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        response = body.get("response")
+        if not isinstance(response, dict):
+            response = {
+                key: body[key]
+                for key in ("choice", "value", "text", "share")
+                if key in body
+            }
+        try:
+            result = school.submit_group_consensus_vote(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                response,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/team-answer",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_team_answer(live_item_id: int):
+        """Atomically finalize the student's one canonical team answer."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        response = body.get("response")
+        if not isinstance(response, dict):
+            response = {
+                key: body[key]
+                for key in ("choice", "value", "text", "share")
+                if key in body
+            }
+        try:
+            team = school.finalize_group_consensus_answer(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                response,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "group_consensus": team})
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
@@ -3587,6 +4309,29 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             int(user["id"]), int(session_row["class_id"])
         )
 
+    def _active_owned_live_session(
+        session_id: int,
+    ) -> tuple[dict[str, Any] | None, Any | None]:
+        """Resolve an active teacher-owned session for mutation APIs."""
+
+        row = school.get_live_session(session_id)
+        if row is None:
+            return None, (
+                jsonify({"ok": False, "error": "Session not found"}),
+                404,
+            )
+        if not _can_view_live_session(row):
+            return None, (
+                jsonify({"ok": False, "error": "Forbidden"}),
+                403,
+            )
+        if row.get("status") != "active":
+            return None, (
+                jsonify({"ok": False, "error": "Session is not active"}),
+                409,
+            )
+        return row, None
+
     @app.route("/api/live-sessions/active")
     @login_required
     def api_live_sessions_active():
@@ -3604,14 +4349,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/live-sessions/<int:session_id>/state")
     @login_required
     def api_live_session_state(session_id: int):
-        """Return code, attendee count, roster, and phase for one live session."""
+        """Return code, attendee count, roster, and phase for one live session.
+
+        ``?light=1`` omits cards, metadata, and scoreboard for interval polls.
+        """
         session_row = school.get_live_session(session_id)
         if session_row is None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        light = str(request.args.get("light") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         try:
-            state = school.get_live_session_state(session_id)
+            state = school.get_live_session_state(session_id, light=light)
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         return jsonify({"ok": True, **state})
@@ -3783,8 +4536,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         toast) on the current page. ``cons_item`` unlocks only after
         ``frozen: true`` (C1 on this blob; C2/C3 on teacher ``text_ride``).
         C3 clears media and does not seed ``active_media_json``. C2 seeds
-        the Transformations iframe. CONS table checkboxes in the Real-slice
-        iframe are disabled until the next step.
+        the Transformations iframe. GET still seeds authored playlist media
+        for the current course/slot when present. CONS table checkboxes in
+        the Real-slice iframe are disabled until the next step.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -3793,6 +4547,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         if request.method == "GET":
             live_slot = school.session_live_slot(session_id)
+            school.ensure_live_class_media(session_id)
             pack = cons_catalog(live_slot)
             return jsonify(
                 {
@@ -3979,6 +4734,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "round",
             "round_flags",
             "teams_mode",
+            "groups_configured",
+            "run_as_group",
+            "scoreboard_visible",
+            "hide_absent",
             "layout_preset",
             "frames",
             "active_tab",
@@ -3989,12 +4748,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "meet_action",
             "assign",
             "student_frames",
+            "student_view",
             "unlocks",
             "canvas_align",
             "mc_ui",
             "live_slot",
             "live_module",
             "text_ride",
+            "question_views",
+            "page_id",
         ):
             if key in body:
                 kwargs[key] = body.get(key)
@@ -4009,6 +4771,204 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except Exception:
                 pass
         return jsonify(payload)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/questions/<question_id>/visibility",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_question_visibility(session_id: int, question_id: str):
+        """Set one question teacher-only or activate it for individual students."""
+
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Session is not active"}), 409
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.set_live_question_visibility(
+                session_id,
+                question_id,
+                str(body.get("mode") or "none"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/publish",
+        methods=["POST"],
+    )
+    @login_required
+    def api_publish_live_item(session_id: int, live_item_id: int):
+        """Publish one lifecycle item without deactivating other items."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            item = school.publish_live_session_item(
+                session_id,
+                live_item_id,
+                publish_mode=str(body.get("publish_mode") or "individual"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(
+            {
+                "ok": True,
+                "item": item,
+                "active_questions": school.list_active_live_questions(
+                    session_id
+                ),
+            }
+        )
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/close",
+        methods=["POST"],
+    )
+    @login_required
+    def api_close_live_item(session_id: int, live_item_id: int):
+        """Close one published item and lock its result set."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            item = school.close_live_session_item(session_id, live_item_id)
+            results = school.live_session_item_results(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "item": item, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/settings",
+        methods=["PATCH", "POST"],
+    )
+    @login_required
+    def api_live_item_settings(session_id: int, live_item_id: int):
+        """Update one item's Show Live Results setting."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        if "show_live_results" not in body:
+            return jsonify(
+                {"ok": False, "error": "show_live_results is required"}
+            ), 400
+        try:
+            item = school.update_live_session_item_settings(
+                session_id,
+                live_item_id,
+                show_live_results=body.get("show_live_results"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "item": item})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/results"
+    )
+    @login_required
+    def api_live_item_results(session_id: int, live_item_id: int):
+        """Return teacher-only live or final results for one item."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            results = school.live_session_item_results(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/end-voting",
+        methods=["POST"],
+    )
+    @login_required
+    def api_end_group_voting(session_id: int, live_item_id: int):
+        """Advance every unfinished group from voting to discussion."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            summary = school.end_group_consensus_voting(
+                session_id, live_item_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **summary})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/points",
+        methods=["POST"],
+    )
+    @login_required
+    def api_award_group_item_points(session_id: int, live_item_id: int):
+        """Award a finalized group response to every current team member."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.award_group_consensus_points(
+                session_id,
+                live_item_id,
+                team_id=int(body.get("team_id")),
+                amount=int(body.get("amount") or 1),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
+        methods=["GET", "POST"],
+    )
+    @login_required
+    def api_live_question_responses(session_id: int, prompt_id: int):
+        """Read ephemeral response rows or award their live-game points."""
+
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if not _can_view_live_session(session_row):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if session_row.get("status") != "active":
+            return jsonify({"ok": False, "error": "Responses are active-session only"}), 409
+        try:
+            if request.method == "GET":
+                responses = school.live_prompt_response_roster(
+                    session_id, prompt_id
+                )
+                return jsonify({"ok": True, "responses": responses})
+            body = request.get_json(silent=True) or {}
+            result = school.award_live_prompt_points(
+                session_id,
+                prompt_id,
+                mode=str(body.get("mode") or ""),
+                student_ids=body.get("student_ids")
+                if isinstance(body.get("student_ids"), list)
+                else [],
+                amount=int(body.get("amount") or 1),
+                replace=bool(body.get("replace", True)),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
 
     @app.route(
         "/api/live-sessions/<int:session_id>/canvas-presence",
@@ -4128,6 +5088,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         scoped = class_id
         if session.get("student_class_id") and current_user() is None:
             scoped = int(session["student_class_id"])
+            live_session_id = session.get("student_live_session_id")
+            if live_session_id not in (None, ""):
+                try:
+                    projected = school.live_scoreboard_projection(
+                        int(live_session_id)
+                    )
+                except (KeyError, ValueError):
+                    projected = None
+                if projected is None:
+                    return jsonify(
+                        {
+                            "ok": True,
+                            "teams": [],
+                            "live": False,
+                            "hidden": True,
+                        }
+                    )
+                return jsonify(projected)
         try:
             return jsonify(school.game.scoreboard(scoped))
         except Exception as exc:  # noqa: BLE001
@@ -4394,6 +5372,110 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/live-lessons", methods=["GET", "POST"])
+    @staff_required
+    def api_class_live_lessons(class_id: int):
+        """List saved live-lesson files, or Save As a new module/class template."""
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id) and user["role"] != "it":
+            abort(403)
+        try:
+            from live_class_metadata import (
+                list_live_lesson_summaries,
+                load_live_class_metadata,
+                parse_live_lesson_code,
+                write_live_lesson_playlist,
+            )
+        except ImportError:
+            from lms.live_class_metadata import (
+                list_live_lesson_summaries,
+                load_live_class_metadata,
+                parse_live_lesson_code,
+                write_live_lesson_playlist,
+            )
+        cls = school.enrich_class(school.game.get_class(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        course = str(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
+        ).upper()
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "ok": True,
+                    "course": course,
+                    "lessons": list_live_lesson_summaries(course),
+                }
+            )
+        body = request.get_json(silent=True) or {}
+        parsed = parse_live_lesson_code(body.get("code") or body.get("as") or "")
+        if parsed:
+            module, slot = parsed
+        else:
+            module = str(body.get("module") or "").strip().upper()
+            slot = str(body.get("live_class") or body.get("slot") or "").strip().upper()
+        if not parsed:
+            parsed = parse_live_lesson_code(f"{module}{slot}")
+        if not parsed:
+            return jsonify({"ok": False, "error": "Use a code like M2C3."}), 400
+        module, slot = parsed
+        source_module = str(body.get("source_module") or module).strip().upper()
+        source_slot = str(body.get("source_slot") or slot).strip().upper()
+        meta = load_live_class_metadata(course, source_module, source_slot)
+        path = write_live_lesson_playlist(course, module, slot, meta)
+        return jsonify(
+            {
+                "ok": True,
+                "course": course,
+                "module": module,
+                "live_class": slot,
+                "path": str(path),
+                "lessons": list_live_lesson_summaries(course),
+            }
+        )
+
+    @app.route("/api/classes/<int:class_id>/live-lessons/<module>/<slot>", methods=["GET"])
+    @staff_required
+    def api_class_live_lesson_detail(class_id: int, module: str, slot: str):
+        """Return one saved live-lesson playlist for Set Class load."""
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id) and user["role"] != "it":
+            abort(403)
+        try:
+            from live_class_metadata import load_live_class_metadata, parse_live_lesson_code
+        except ImportError:
+            from lms.live_class_metadata import (
+                load_live_class_metadata,
+                parse_live_lesson_code,
+            )
+        parsed = parse_live_lesson_code(f"{module}{slot}")
+        if not parsed:
+            return jsonify({"ok": False, "error": "Unknown live lesson."}), 404
+        module_code, slot_code = parsed
+        cls = school.enrich_class(school.game.get_class(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        course = str(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
+        ).upper()
+        return jsonify(
+            {
+                "ok": True,
+                "course": course,
+                "module": module_code,
+                "live_class": slot_code,
+                "live_metadata": school.live_class_metadata_for_class_lesson(
+                    int(class_id), module_code, slot_code
+                ),
+            }
+        )
 
     @app.route("/staff/offerings/<int:offering_id>/slides/<date_iso>.html")
     @staff_required
@@ -4713,6 +5795,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 raise ValueError("date is required (YYYY-MM-DD)")
             sort = str(body.get("sort") or "az")
             return school.clear_attendance_day(class_id, chosen, sort=sort)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/feedback-live/clear", methods=["POST"])
+    @login_required
+    def api_clear_live_class_feedback(class_id: int):
+        """Delete How-was-class rows for one live class column (e.g. M1C1)."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            key = str(body.get("key") or body.get("live_key") or "").strip()
+            return school.clear_live_class_feedback(class_id, key)
 
         return _staff_post(class_id, run)
 
@@ -5119,6 +6213,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             raw_assignments = body.get("assignments")
             if raw_assignments is not None and not isinstance(raw_assignments, list):
                 raise ValueError("assignments must be a list")
+            live = school.get_active_live_session_for_class(class_id)
+            if live is not None:
+                raw_present = body.get("present_ids")
+                if raw_present is None:
+                    raw_present = school.game.game_state(class_id).get(
+                        "present_ids"
+                    ) or []
+                setup = school.setup_live_session_groups(
+                    int(live["id"]),
+                    n_teams=int(body.get("n_teams") or 0),
+                    mode=str(body.get("mode") or ""),
+                    present_ids=[int(value) for value in raw_present],
+                    assignments=raw_assignments,
+                )
+                return setup
             return school.game.assign_teams(
                 class_id,
                 int(body.get("n_teams") or 0),
@@ -5238,6 +6347,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(_body):
             """Apply one staff JSON mutation for this class."""
             return school.game.resume_round_timer(class_id)
+
+        return _staff_post(class_id, run)
+
+    @app.route("/api/classes/<int:class_id>/game/timer/remaining", methods=["POST"])
+    @login_required
+    def api_timer_remaining(class_id: int):
+        """Set remaining session/Meet countdown to N integer minutes while paused."""
+
+        def run(body):
+            """Apply one staff JSON mutation for this class."""
+            minutes = body.get("minutes")
+            try:
+                minutes_i = int(minutes)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("minutes must be an integer") from exc
+            return school.game.set_paused_timer_minutes(class_id, minutes_i)
 
         return _staff_post(class_id, run)
 

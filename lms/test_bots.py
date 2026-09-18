@@ -23,7 +23,7 @@ from bots import list_bots  # noqa: E402
 
 
 class BotsShowcaseTests(unittest.TestCase):
-    """Staff-only /staff/bots page, featured Module Engineer, and Wonder card."""
+    """IT/Admin-only /staff/bots page, featured Module Engineer, and Wonder card."""
 
     def setUp(self) -> None:
         """Isolated sqlite + Flask test client."""
@@ -48,6 +48,16 @@ class BotsShowcaseTests(unittest.TestCase):
         self.client.get("/auth/google?portal=staff")
         self.client.get(f"/auth/google/callback?email={email}&name=T")
         user = self.school.get_user_by_email(email)
+        assert user is not None
+        self.client.post("/verify-email", data={"code": user["verification_code"]})
+
+    def _login_it(self) -> None:
+        """Finish mock Google + 2SV as the default IT email."""
+        self.client.get("/auth/google?portal=it")
+        self.client.get(
+            "/auth/google/callback?email=solutions@mckenzian.com&name=Shawn"
+        )
+        user = self.school.get_user_by_email("solutions@mckenzian.com")
         assert user is not None
         self.client.post("/verify-email", data={"code": user["verification_code"]})
 
@@ -114,9 +124,17 @@ class BotsShowcaseTests(unittest.TestCase):
         self.assertIn("/auth/google", rv.headers.get("Location", ""))
         self.assertIn("portal=staff", rv.headers.get("Location", ""))
 
-    def test_staff_page_renders_module_engineer(self) -> None:
-        """Signed-in staff see the featured card and open slots."""
+    def test_teacher_is_redirected_from_bots(self) -> None:
+        """Teachers cannot open the IT/Admin bots page."""
         self._login_staff()
+        rv = self.client.get("/staff/bots", follow_redirects=False)
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("/staff", rv.headers.get("Location", ""))
+        self.assertNotIn("/staff/bots", rv.headers.get("Location", ""))
+
+    def test_staff_page_renders_module_engineer(self) -> None:
+        """Signed-in IT sees the featured card and open slots."""
+        self._login_it()
         rv = self.client.get("/staff/bots")
         self.assertEqual(rv.status_code, 200)
         html = rv.get_data(as_text=True)
@@ -131,17 +149,17 @@ class BotsShowcaseTests(unittest.TestCase):
         self.assertIn("Hall of Wonder / Celebrations", html)
         self.assertIn('id="wonder"', html)
         self.assertIn("Open slot", html)
-        self.assertIn("Staff · development", html)
+        self.assertIn("Admin · development", html)
         self.assertNotIn("href=\"/student", html)
 
-    def test_staff_home_and_course_nav_link_to_bots(self) -> None:
-        """Staff home corner and course chrome both expose /staff/bots."""
+    def test_staff_home_and_course_nav_hide_bots_from_teachers(self) -> None:
+        """Teacher home and course chrome do not expose /staff/bots."""
         self._login_staff()
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
-        self.assertIn("/staff/bots", home_html)
-        self.assertIn(">Bots<", home_html)
+        self.assertNotIn("/staff/bots", home_html)
+        self.assertNotIn(">Bots<", home_html)
 
         self.school.activate_from_semester_json()
         teacher = self.school.get_user_by_email("teacher@gmail.com")
@@ -162,7 +180,8 @@ class BotsShowcaseTests(unittest.TestCase):
         course = self.client.get(f"/staff/class/{cls['id']}")
         self.assertEqual(course.status_code, 200)
         course_html = course.get_data(as_text=True)
-        self.assertIn("/staff/bots", course_html)
+        self.assertNotIn("/staff/bots", course_html)
+        self.assertNotIn(">Bots<", course_html)
 
     def test_it_dashboard_links_to_bots(self) -> None:
         """Admin chrome also points at the staff bots page."""
@@ -178,6 +197,11 @@ class BotsShowcaseTests(unittest.TestCase):
         html = rv.get_data(as_text=True)
         self.assertIn("/staff/bots", html)
         self.assertIn(">Bots<", html)
+        staff_home = self.client.get("/staff")
+        self.assertEqual(staff_home.status_code, 200)
+        staff_html = staff_home.get_data(as_text=True)
+        self.assertIn("/staff/bots", staff_html)
+        self.assertIn(">Bots<", staff_html)
         bots = self.client.get("/staff/bots")
         self.assertEqual(bots.status_code, 200)
         self.assertIn("Module Engineer", bots.get_data(as_text=True))

@@ -31,18 +31,29 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.teams_spark import TEAMS_SPARK_PROMPT_REF
 
-STAGES: tuple[str, ...] = ("join", "teams", "meet", "round", "play")
+STAGES: tuple[str, ...] = (
+    "join",
+    "teams",
+    "meet",
+    "round",
+    "play",
+    "round_3",
+    "summary",
+)
 MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
 MEET_WONDER_CUES: tuple[str, ...] = (CUE_MEET_OPEN, CUE_MEET_CLEAR)
 ROUNDS: tuple[str, ...] = ("minds_on", "action", "consolidation")
 TEAMS_MODES: tuple[str, ...] = ("teams", "individual")
-TABS: tuple[str, ...] = ("media", "questions", "canvas_slides")
-CONTENT_IDS: tuple[str, ...] = ("media", "questions", "canvas_slides")
+TABS: tuple[str, ...] = ("media", "questions", "canvas", "slides")
+CONTENT_IDS: tuple[str, ...] = ("media", "questions", "canvas", "slides")
 FRAME_KEYS: tuple[str, ...] = ("A", "B", "C")
-STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas")
-UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas")
+STUDENT_FRAME_KEYS: tuple[str, ...] = ("questions", "media", "canvas", "slides")
+UNLOCK_KEYS: tuple[str, ...] = ("media", "canvas", "slides")
+STUDENT_VIEW_KEYS: tuple[str, ...] = ("media", "canvas", "slides", "questions")
+VIEW_MODES: tuple[str, ...] = ("none", "student", "team")
+QUESTION_STUDENT_STAGES: frozenset[str] = frozenset({"join", "teams", "meet"})
 MINDS_ON_PROMPT_REF = "minds_on"
-LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3")
+LIVE_SLOTS: tuple[str, ...] = ("C1", "C2", "C3", "C4")
 DEFAULT_LIVE_SLOT = "C1"
 DEFAULT_LIVE_MODULE = "M1"
 CUE_FREEZE = "cue.freeze"
@@ -52,9 +63,11 @@ TEXT_RIDE_CUES: tuple[str, ...] = (CUE_FREEZE, CUE_CONS_UNLOCK)
 LAYOUT_PRESETS: dict[str, dict[str, str]] = {
     "media_full": {"A": "media"},
     "questions_full": {"A": "questions"},
+    "canvas_full": {"A": "canvas"},
+    "slides_full": {"A": "slides"},
     "media_questions": {"A": "media", "B": "questions"},
-    "three_up": {"A": "media", "B": "questions", "C": "canvas_slides"},
-    "canvas_media": {"A": "canvas_slides", "B": "media"},
+    "three_up": {"A": "media", "B": "questions", "C": "canvas"},
+    "canvas_media": {"A": "canvas", "B": "media"},
 }
 
 DEFAULT_LAYOUT_PRESET = "questions_full"
@@ -66,12 +79,51 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def default_student_view(stage: str | None = None) -> dict[str, str]:
+    """Return per-surface student-view modes for one stage.
+
+    Media and canvas start teacher-only. Questions start on the
+    student Individual face for JOIN and MEET; every other stage
+    keeps Questions frozen to the teacher until the dropdown changes.
+
+    Args:
+        stage: Stage id, or None for JOIN defaults.
+
+    Returns:
+        ``{media, canvas, questions}`` each ``none`` / ``student`` / ``team``.
+    """
+    name = stage if stage in STAGES else "join"
+    questions = "student" if name in QUESTION_STUDENT_STAGES else "none"
+    return {
+        "media": "none",
+        "canvas": "none",
+        "slides": "none",
+        "questions": questions,
+    }
+
+
+def normalize_view_mode(raw: Any, *, fallback: str = "none") -> str:
+    """Return a known student-view mode.
+
+    Args:
+        raw: Posted or stored mode token.
+        fallback: Value when ``raw`` is empty or unknown.
+    """
+    token = str(raw or "").strip().lower()
+    if token in VIEW_MODES:
+        return token
+    if raw is True or token in {"1", "true", "yes", "on"}:
+        return "student"
+    if raw is False or token in {"0", "false", "no", "off"}:
+        return "none"
+    return fallback if fallback in VIEW_MODES else "none"
+
+
 def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     """Student frame visibility for one pedagogical stage.
 
-    JOIN / TEAMS / MEET / ROUND / PLAY project Question. Media and
-    canvas appear only while the matching unlock checkbox is on
-    (collapse when unchecked — no empty locked pane).
+    Derived from ``student_view``: a surface is visible when its mode
+    is not ``none``. JOIN / MEET Questions start visible.
 
     Args:
         stage: Stage id, or None for JOIN defaults.
@@ -79,13 +131,46 @@ def default_student_frames(stage: str | None = None) -> dict[str, bool]:
     Returns:
         ``{questions, media, canvas}`` booleans.
     """
-    _ = stage
-    return {"questions": True, "media": False, "canvas": False}
+    view = default_student_view(stage)
+    return {
+        "questions": view["questions"] != "none",
+        "media": view["media"] != "none",
+        "canvas": view["canvas"] != "none",
+        "slides": view["slides"] != "none",
+    }
 
 
 def default_unlocks() -> dict[str, bool]:
-    """Return locked media/canvas unlock flags."""
-    return {"media": False, "canvas": False}
+    """Return locked media/canvas/slides unlock flags."""
+    return {"media": False, "canvas": False, "slides": False}
+
+
+def unlocks_from_student_view(view: dict[str, str] | None) -> dict[str, bool]:
+    """Derive legacy unlock booleans from student-view modes.
+
+    Args:
+        view: ``{media, canvas, questions}`` modes.
+    """
+    body = view if isinstance(view, dict) else default_student_view()
+    return {
+        "media": str(body.get("media") or "none") != "none",
+        "canvas": str(body.get("canvas") or "none") != "none",
+        "slides": str(body.get("slides") or "none") != "none",
+    }
+
+
+def canvas_align_from_view(mode: str | None) -> str:
+    """Map a canvas student-view mode onto the canvas-align token.
+
+    Args:
+        mode: ``none`` / ``student`` / ``team``.
+    """
+    token = normalize_view_mode(mode, fallback="none")
+    if token == "team":
+        return "team"
+    if token == "student":
+        return "student"
+    return "teacher"
 
 
 def default_round_flags() -> dict[str, bool]:
@@ -103,6 +188,12 @@ def default_text_ride() -> dict[str, Any]:
     }
 
 
+def default_question_views() -> dict[str, str]:
+    """Return an empty per-question student-visibility map."""
+
+    return {}
+
+
 def default_teacher_state() -> dict[str, Any]:
     """Return a fresh join-stage teacher state.
 
@@ -110,28 +201,39 @@ def default_teacher_state() -> dict[str, Any]:
         Public ``LiveTeacherState`` dict with ``canvas_ephemeral: True``.
         JOIN focuses Questions and Minds-On; students do not get media.
         ``live_slot`` defaults to C1; C2/C3 use ``text_ride`` instead of media.
+        Student-view modes default teacher-only except JOIN Questions.
     """
+    view = default_student_view("join")
     return {
         "stage": "join",
         "round": None,
         "round_flags": default_round_flags(),
         "teams_mode": "individual",
+        "groups_configured": False,
+        "run_as_group": False,
+        "scoreboard_visible": False,
+        "hide_absent": False,
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
         "active_tab": "questions",
         "active_media_ref": None,
         "prompt_ref": MINDS_ON_PROMPT_REF,
         "canvas_ephemeral": True,
+        "celebrate": False,
+        "winner": None,
         "updated_at": _now_iso(),
         "cue_id": None,
         "meet_chain": None,
         "state_seq": 0,
         "student_frames": default_student_frames("join"),
-        "unlocks": default_unlocks(),
-        "canvas_align": DEFAULT_CANVAS_ALIGN,
+        "student_view": view,
+        "unlocks": unlocks_from_student_view(view),
+        "canvas_align": canvas_align_from_view(view["canvas"]),
         "live_slot": DEFAULT_LIVE_SLOT,
         "live_module": DEFAULT_LIVE_MODULE,
+        "page_id": "",
         "text_ride": default_text_ride(),
+        "question_views": default_question_views(),
     }
 
 
@@ -194,6 +296,76 @@ def _clean_unlocks(raw: Any) -> dict[str, bool]:
     return base
 
 
+def _clean_student_view(raw: Any, *, stage: str | None = None) -> dict[str, str]:
+    """Keep known student-view keys as ``none`` / ``student`` / ``team``.
+
+    Args:
+        raw: Posted or stored ``student_view`` object.
+        stage: Stage used for missing-key defaults.
+    """
+    base = default_student_view(stage)
+    if not isinstance(raw, dict):
+        return base
+    for key in STUDENT_VIEW_KEYS:
+        if key in raw:
+            base[key] = normalize_view_mode(raw.get(key), fallback=base[key])
+    base["questions"] = (
+        "student" if base.get("questions") == "student" else "none"
+    )
+    return base
+
+
+def _clean_question_views(raw: Any) -> dict[str, str]:
+    """Keep short question ids mapped to teacher-only or individual view."""
+
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, str] = {}
+    for key, value in list(raw.items())[:100]:
+        question_id = str(key or "").strip()[:120]
+        if not question_id:
+            continue
+        cleaned[question_id] = "student" if value == "student" else "none"
+    return cleaned
+
+
+def student_view_from_legacy(
+    *,
+    unlocks: dict[str, bool] | None = None,
+    canvas_align: str | None = None,
+    student_frames: dict[str, bool] | None = None,
+    stage: str | None = None,
+) -> dict[str, str]:
+    """Rebuild student-view modes from older unlock / align flags.
+
+    Args:
+        unlocks: Legacy ``{media, canvas}`` booleans.
+        canvas_align: Legacy canvas alignment token.
+        student_frames: Legacy frame visibility map.
+        stage: Stage used when a surface was never stored.
+    """
+    view = default_student_view(stage)
+    flags = unlocks if isinstance(unlocks, dict) else {}
+    frames = student_frames if isinstance(student_frames, dict) else {}
+    if "media" in flags:
+        view["media"] = "student" if flags.get("media") else "none"
+    if "canvas" in flags:
+        align = str(canvas_align or "").strip().lower()
+        if not flags.get("canvas"):
+            view["canvas"] = "none"
+        elif align == "team":
+            view["canvas"] = "team"
+        elif align == "teacher":
+            view["canvas"] = "none"
+        else:
+            view["canvas"] = "student"
+    if "slides" in flags:
+        view["slides"] = "student" if flags.get("slides") else "none"
+    if "questions" in frames:
+        view["questions"] = "student" if frames.get("questions") else "none"
+    return view
+
+
 def normalize_canvas_align(raw: Any) -> str:
     """Return a known canvas alignment token.
 
@@ -207,20 +379,30 @@ def normalize_canvas_align(raw: Any) -> str:
 
 
 def apply_unlock_frames(state: dict[str, Any]) -> dict[str, Any]:
-    """Project media/canvas only while the teacher unlock checkbox is on.
+    """Project student frames from student-view modes.
 
-    Unchecked flags collapse the student frame (no empty locked pane).
-    PLAY no longer keeps a locked placeholder. Mutates ``state``.
+    ``none`` collapses the student frame (no empty locked pane). ROUND
+    never mounts media/canvas. Mutates ``state`` and keeps legacy
+    ``unlocks`` / ``canvas_align`` in sync.
 
     Args:
         state: In-progress public teacher state.
     """
     stage = str(state.get("stage") or "join")
-    frames = dict(state.get("student_frames") or default_student_frames(stage))
-    unlocks = state.get("unlocks") or default_unlocks()
-    frames["media"] = bool(unlocks.get("media"))
-    frames["canvas"] = bool(unlocks.get("canvas"))
-    state["student_frames"] = frames
+    view = _clean_student_view(state.get("student_view"), stage=stage)
+    if stage == "round":
+        view["media"] = "none"
+        view["canvas"] = "none"
+        view["slides"] = "none"
+    state["student_view"] = view
+    state["unlocks"] = unlocks_from_student_view(view)
+    state["canvas_align"] = canvas_align_from_view(view["canvas"])
+    state["student_frames"] = {
+        "questions": view["questions"] != "none",
+        "media": view["media"] != "none",
+        "canvas": view["canvas"] != "none",
+        "slides": view["slides"] != "none",
+    }
     return state
 
 
@@ -468,11 +650,10 @@ def bind_meet_student_projection(state: dict[str, Any]) -> dict[str, Any]:
     Returns:
         The same ``state`` dict.
     """
-    frames = dict(state.get("student_frames") or default_student_frames("meet"))
-    frames["questions"] = True
-    frames["media"] = False
-    frames["canvas"] = False
-    state["student_frames"] = frames
+    view = dict(state.get("student_view") or default_student_view("meet"))
+    if str(view.get("questions") or "none") == "none":
+        view["questions"] = "student"
+    state["student_view"] = view
     apply_unlock_frames(state)
     state["active_tab"] = "questions"
     state["layout_preset"] = "questions_full"
@@ -504,7 +685,8 @@ def apply_stage_projection(state: dict[str, Any], stage: str) -> dict[str, Any]:
         The same ``state`` dict.
     """
     name = stage if stage in STAGES else "join"
-    state["student_frames"] = default_student_frames(name)
+    state["student_view"] = default_student_view(name)
+    state["question_views"] = default_question_views()
     apply_unlock_frames(state)
     if name in QUESTION_ONLY_STAGES:
         state["active_tab"] = "questions"
@@ -532,8 +714,64 @@ def student_should_mount_media(state: dict[str, Any] | None) -> bool:
         Whether the student media iframe should have a ``src``.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    unlocks = public.get("unlocks") or default_unlocks()
-    return bool(unlocks.get("media"))
+    if str(public.get("stage") or "") == "round":
+        return False
+    view = public.get("student_view") or default_student_view(public.get("stage"))
+    return str(view.get("media") or "none") != "none"
+
+
+def student_should_mount_questions(state: dict[str, Any] | None) -> bool:
+    """True when the student Question frame may be shown.
+
+    Args:
+        state: Public teacher state.
+
+    Returns:
+        Whether the student question pane is visible.
+    """
+    public = public_teacher_state(state if isinstance(state, dict) else None)
+    view = public.get("student_view") or default_student_view(public.get("stage"))
+    return str(view.get("questions") or "none") != "none"
+
+
+def student_view_mode(state: dict[str, Any] | None, surface: str) -> str:
+    """Return ``none`` / ``student`` / ``team`` for one student surface.
+
+    Args:
+        state: Public teacher state.
+        surface: ``media``, ``canvas``, or ``questions``.
+    """
+    public = public_teacher_state(state if isinstance(state, dict) else None)
+    view = public.get("student_view") or default_student_view(public.get("stage"))
+    key = str(surface or "").strip().lower()
+    if key not in STUDENT_VIEW_KEYS:
+        return "none"
+    return normalize_view_mode(view.get(key), fallback="none")
+
+
+def _clean_group_drafts(raw: Any) -> dict[str, dict[str, Any]]:
+    """Keep one-response-per-group draft picks.
+
+    Args:
+        raw: Stored ``group_drafts`` map keyed ``prompt_id:team_id``.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, dict[str, Any]] = {}
+    for key, row in raw.items():
+        token = str(key or "").strip()
+        if not token or not isinstance(row, dict):
+            continue
+        choice = str(row.get("choice") or "").strip()
+        if not choice:
+            continue
+        by_raw = row.get("by")
+        try:
+            by = int(by_raw) if by_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            by = None
+        cleaned[token] = {"choice": choice[:240], "by": by}
+    return cleaned
 
 
 def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
@@ -546,8 +784,10 @@ def student_should_mount_canvas(state: dict[str, Any] | None) -> bool:
         Whether the student canvas pane is visible.
     """
     public = public_teacher_state(state if isinstance(state, dict) else None)
-    unlocks = public.get("unlocks") or default_unlocks()
-    return bool(unlocks.get("canvas"))
+    if str(public.get("stage") or "") == "round":
+        return False
+    view = public.get("student_view") or default_student_view(public.get("stage"))
+    return str(view.get("canvas") or "none") != "none"
 
 
 def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
@@ -574,6 +814,19 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     mode = stored.get("teams_mode")
     if mode in TEAMS_MODES:
         base["teams_mode"] = mode
+    for key in (
+        "groups_configured",
+        "run_as_group",
+        "scoreboard_visible",
+        "hide_absent",
+    ):
+        parsed = _as_bool(stored.get(key))
+        if parsed is not None:
+            base[key] = parsed
+    if not base["groups_configured"]:
+        base["run_as_group"] = False
+        base["scoreboard_visible"] = False
+    base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
     preset = stored.get("layout_preset")
     if preset in LAYOUT_PRESETS:
         base["layout_preset"] = preset
@@ -594,6 +847,17 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     elif base["stage"] == "teams":
         base["prompt_ref"] = TEAMS_SPARK_PROMPT_REF
     base["canvas_ephemeral"] = True
+    base["celebrate"] = bool(stored.get("celebrate"))
+    raw_winner = stored.get("winner")
+    if isinstance(raw_winner, dict):
+        winner_name = str(raw_winner.get("name") or "").strip()
+        base["winner"] = (
+            {"name": winner_name[:80], "score": raw_winner.get("score")}
+            if winner_name
+            else None
+        )
+    else:
+        base["winner"] = None
     stamp = stored.get("updated_at")
     if isinstance(stamp, str) and stamp.strip():
         base["updated_at"] = stamp.strip()
@@ -605,6 +869,21 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
     base["meet_chain"] = public_meet_chain(stored.get("meet_chain"))
     if "state_seq" in stored:
         base["state_seq"] = _clean_state_seq(stored.get("state_seq"))
+    if "student_view" in stored:
+        base["student_view"] = _clean_student_view(
+            stored.get("student_view"), stage=base["stage"]
+        )
+    else:
+        base["student_view"] = student_view_from_legacy(
+            unlocks=stored.get("unlocks") if "unlocks" in stored else None,
+            canvas_align=stored.get("canvas_align")
+            if "canvas_align" in stored
+            else None,
+            student_frames=stored.get("student_frames")
+            if "student_frames" in stored
+            else None,
+            stage=base["stage"],
+        )
     if "student_frames" in stored:
         base["student_frames"] = _clean_student_frames(
             stored.get("student_frames"), stage=base["stage"]
@@ -634,12 +913,19 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
     if "live_module" in stored:
         base["live_module"] = normalize_live_module(stored.get("live_module"))
+    if "page_id" in stored:
+        base["page_id"] = str(stored.get("page_id") or "").strip()
     if "text_ride" in stored:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
         base["text_ride"] = default_text_ride()
+    if "question_views" in stored:
+        base["question_views"] = _clean_question_views(stored.get("question_views"))
     if base["stage"] == "meet":
         bind_meet_student_projection(base)
+    drafts = _clean_group_drafts(stored.get("group_drafts"))
+    if drafts:
+        base["group_drafts"] = drafts
     apply_unlock_frames(base)
     return base
 
@@ -668,6 +954,10 @@ def apply_teacher_state_update(
     round: Any = None,
     round_flags: Any = None,
     teams_mode: Any = None,
+    groups_configured: Any = None,
+    run_as_group: Any = None,
+    scoreboard_visible: Any = None,
+    hide_absent: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
     active_tab: Any = None,
@@ -677,12 +967,15 @@ def apply_teacher_state_update(
     meet_chain: Any = None,
     canvas_ephemeral: Any = None,
     student_frames: Any = None,
+    student_view: Any = None,
     unlocks: Any = None,
     canvas_align: Any = None,
     mc_ui: Any = None,
     live_slot: Any = None,
     live_module: Any = None,
+    page_id: Any = None,
     text_ride: Any = None,
+    question_views: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -697,6 +990,10 @@ def apply_teacher_state_update(
         round: Pedagogical round, or empty to clear.
         round_flags: ``{minds_on, action, consolidation}`` facet map.
         teams_mode: ``teams`` or ``individual``.
+        groups_configured: Whether fixed memberships have been created.
+        run_as_group: Session-global group presentation/tracking toggle.
+        scoreboard_visible: Session-global student scoreboard toggle.
+        hide_absent: Session-global class-list filter; defaults false.
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
         active_tab: Active Content tab.
@@ -706,18 +1003,22 @@ def apply_teacher_state_update(
         meet_chain: Optional ephemeral MeetChainState, or empty to clear.
         canvas_ephemeral: Ignored; the field stays ``True``.
         student_frames: Optional ``{questions, media, canvas}`` projection.
-        unlocks: Optional ``{media, canvas}`` flags. Valid on any stage;
-            unlocked frames project even when the default layout omits them.
+        student_view: Optional ``{media, canvas, questions}`` modes
+            (``none`` / ``student`` / ``team``).
+        unlocks: Optional ``{media, canvas}`` flags. Mapped onto
+            ``student_view`` when that object is omitted.
         canvas_align: ``teacher`` (frozen), ``student`` (unique), or
-            ``team`` (shared within group).
+            ``team`` (shared within group). Mapped onto canvas mode.
         mc_ui: Optional ``{prompt_ref, reveal, reveal_to_students,
             poll_closed}``. Reveal toggles bump ``state_seq``. JOIN
             Reveal commits ``reveal_to_students`` and closes the poll.
             Empty clears the blob.
-        live_slot: ``C1`` / ``C2`` / ``C3``. C2/C3 stay text-only.
+        live_slot: ``C1`` / ``C2`` / ``C3`` / ``C4``.
         live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
+        page_id: Named deck page id such as ``join`` or ``welcome``.
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
+        question_views: Per-question ``none`` / ``student`` visibility map.
 
     Returns:
         Updated public state.
@@ -764,6 +1065,44 @@ def apply_teacher_state_update(
         if mode not in TEAMS_MODES:
             raise ValueError(f"unknown teams_mode: {mode}")
         base["teams_mode"] = mode
+        if base.get("groups_configured"):
+            base["run_as_group"] = mode == "teams"
+    configured_before = bool(base.get("groups_configured"))
+    if groups_configured is not None:
+        configured = _as_bool(groups_configured)
+        if configured is None:
+            raise ValueError("groups_configured must be a boolean")
+        if configured_before and not configured:
+            raise ValueError("groups cannot be unconfigured during a session")
+        base["groups_configured"] = configured
+        if configured and not configured_before:
+            if run_as_group is None:
+                base["run_as_group"] = True
+            if scoreboard_visible is None:
+                base["scoreboard_visible"] = True
+    if run_as_group is not None:
+        enabled = _as_bool(run_as_group)
+        if enabled is None:
+            raise ValueError("run_as_group must be a boolean")
+        if enabled and not base.get("groups_configured"):
+            raise ValueError("set up groups before enabling group mode")
+        base["run_as_group"] = enabled
+    if scoreboard_visible is not None:
+        visible = _as_bool(scoreboard_visible)
+        if visible is None:
+            raise ValueError("scoreboard_visible must be a boolean")
+        if visible and not base.get("groups_configured"):
+            raise ValueError("set up groups before showing the scoreboard")
+        base["scoreboard_visible"] = visible
+    if hide_absent is not None:
+        hidden = _as_bool(hide_absent)
+        if hidden is None:
+            raise ValueError("hide_absent must be a boolean")
+        base["hide_absent"] = hidden
+    if not base.get("groups_configured"):
+        base["run_as_group"] = False
+        base["scoreboard_visible"] = False
+    base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"
     preset_applied = False
     if layout_preset is not None:
         preset = str(layout_preset).strip()
@@ -776,13 +1115,19 @@ def apply_teacher_state_update(
     if frames is not None and not preset_applied:
         cleaned = _clean_frames(frames)
         if not cleaned:
-            raise ValueError("frames must map A/B/C to media, questions, or canvas_slides")
+            raise ValueError(
+                "frames must map A/B/C to media, questions, canvas, or slides"
+            )
         base["frames"] = cleaned
     if active_tab is not None:
         tab = str(active_tab).strip()
         if tab not in TABS:
             raise ValueError(f"unknown active_tab: {tab}")
         base["active_tab"] = tab
+    if question_views is not None:
+        if not isinstance(question_views, dict):
+            raise ValueError("question_views must be an object")
+        base["question_views"] = _clean_question_views(question_views)
     if active_media_ref is not None:
         base["active_media_ref"] = _clean_ref(active_media_ref)
     if prompt_ref is not None:
@@ -794,24 +1139,59 @@ def apply_teacher_state_update(
             base["meet_chain"] = None
         else:
             base["meet_chain"] = public_meet_chain(meet_chain)
+    view = _clean_student_view(base.get("student_view"), stage=new_stage)
+    if student_view is not None:
+        if not isinstance(student_view, dict):
+            raise ValueError("student_view must be an object")
+        view = _clean_student_view({**view, **student_view}, stage=new_stage)
     if student_frames is not None:
         if not isinstance(student_frames, dict):
             raise ValueError("student_frames must be an object")
         base["student_frames"] = _clean_student_frames(
             student_frames, stage=new_stage
         )
+        if "questions" in student_frames and (
+            student_view is None or "questions" not in student_view
+        ):
+            parsed = _as_bool(student_frames.get("questions"))
+            if parsed is not None:
+                view["questions"] = "student" if parsed else "none"
     if unlocks is not None:
         if not isinstance(unlocks, dict):
             raise ValueError("unlocks must be an object")
         merged = dict(base.get("unlocks") or default_unlocks())
         merged.update(unlocks)
         base["unlocks"] = _clean_unlocks(merged)
+        if student_view is None:
+            for key in UNLOCK_KEYS:
+                if key not in unlocks:
+                    continue
+                parsed = _as_bool(unlocks.get(key))
+                if parsed is None:
+                    continue
+                if parsed and view.get(key) == "none":
+                    view[key] = "student"
+                elif not parsed:
+                    view[key] = "none"
     if canvas_align is not None:
         base["canvas_align"] = normalize_canvas_align(canvas_align)
+        if student_view is None or "canvas" not in (student_view or {}):
+            align = normalize_canvas_align(canvas_align)
+            if align == "team":
+                view["canvas"] = "team"
+            elif align == "student":
+                view["canvas"] = "student"
+            else:
+                view["canvas"] = "none"
+    base["student_view"] = view
     if live_slot is not None:
         base["live_slot"] = normalize_live_slot(live_slot)
     if live_module is not None:
         base["live_module"] = normalize_live_module(live_module)
+    if page_id is not None:
+        base["page_id"] = str(page_id or "").strip()
+    elif stage_changed:
+        base["page_id"] = ""
     if text_ride is not None:
         if text_ride in (None, "", {}, False):
             base["text_ride"] = default_text_ride()

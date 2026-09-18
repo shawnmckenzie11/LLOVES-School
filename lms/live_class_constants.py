@@ -84,6 +84,24 @@ M1C1_TEAM_CHALLENGE_NOTES = (
     "integers. Quadratics, midpoint, and x^2 = 16 are nearby."
 )
 
+# MCR3U M1C1 — curator nominee C (Nested Square-Root Range, MathNet 03xe).
+# Adapted rewrite; not an Exact contest badge. Domain first, then range.
+MCR3U_M1C1_TEAM_CHALLENGE_CONTEXT = (
+    "A rule subtracts one square root from another: "
+    "f(x) = √(x − 5) − √(24 − 3x). "
+    "Each square root only makes sense for some inputs."
+)
+MCR3U_M1C1_TEAM_CHALLENGE_QUESTION = (
+    "Which inputs are allowed? What outputs can you actually get?"
+)
+MCR3U_M1C1_TEAM_CHALLENGE_NOTES = (
+    "Curator nominee C assigned to MCR3U M1 C1. MathNet 03xe "
+    "(China Mathematical Competition) is inspiration only — do not label Exact. "
+    "Live ask is A1.3 domain then range by trying endpoints and a middle value. "
+    "Contest closed interval is not the student badge. Inverse (A1.6) is a weak tag; "
+    "do not treat this as an inverse lesson."
+)
+
 
 def process_key_from_name(name: str) -> str | None:
     """Map a Ministry process display name to a stable database key.

@@ -362,4 +362,19 @@ function initPackProgress() {
   });
 }
 
+/**
+ * Open / close the End Live Class save-options dialog.
+ */
+function wireEndLiveDialog() {
+  const dialog = document.getElementById("end-live-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) return;
+  document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
+    btn.addEventListener("click", () => dialog.showModal());
+  });
+  dialog.querySelector("[data-close-end-live]")?.addEventListener("click", () => {
+    dialog.close();
+  });
+}
+
 initPackProgress();
+wireEndLiveDialog();

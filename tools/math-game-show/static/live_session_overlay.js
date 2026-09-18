@@ -2,7 +2,7 @@
  * Narrow Zoom-share overlay: session code, join count, roster, optional teams.
  */
 import { escapeHtml, formatPoints, formatCountdown, remainingUntilMs } from "./common.js";
-import { moodGlyph } from "/static/mood_faces.js";
+import { nameWithAvatar } from "/static/student_avatars.js";
 
 const params = new URLSearchParams(location.search);
 if (params.get("overlay") === "1") {
@@ -32,9 +32,13 @@ const celebrateTeamEl = document.getElementById("live-celebrate-team");
 const celebrateMembersEl = document.getElementById("live-celebrate-members");
 const confettiEl = document.getElementById("live-confetti");
 const fireworksEl = document.getElementById("live-fireworks");
+const graffitiEl = document.getElementById("live-graffiti");
 
 let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
+let overlayDismissed = false;
+let tickTimer = 0;
+let clockTimer = 0;
 let lastRosterKey = "";
 let lastTeamKey = "";
 let lastRoundKey = "";
@@ -42,6 +46,10 @@ let roundEndsAtMs = 0;
 let lastPresent = [];
 /** @type {any|null} */
 let lastBoard = null;
+/** @type {any} */
+let lastTeacherState = {};
+/** @type {any[]} */
+let lastGroups = [];
 let copyFeedbackTimer = 0;
 let lastPhase = "";
 let celebrationDone = false;
@@ -51,7 +59,7 @@ let anticipationIntensity = 0;
 /**
  * Present attendees (still in the session) from a state payload.
  * @param {any} state
- * @returns {Array<{student_id:number,codename:string,mood:string|null}>}
+ * @returns {Array<{student_id:number,codename:string,character:string|null}>}
  */
 function presentAttendees(state) {
   const rows = Array.isArray(state?.attendees) ? state.attendees : [];
@@ -62,7 +70,7 @@ function presentAttendees(state) {
       participant_uuid: String(row.participant_uuid || ""),
       unmatched: Boolean(row.unmatched),
       codename: String(row.codename || "").trim() || (row.unmatched ? "Guest" : `Student ${row.student_id}`),
-      mood: row.mood || null,
+      character: row.character || null,
     }))
     .sort((a, b) => a.codename.localeCompare(b.codename, undefined, { sensitivity: "base" }));
 }
@@ -72,6 +80,18 @@ function presentAttendees(state) {
  * @param {any} board
  * @returns {boolean}
  */
+/**
+ * True when groups are assigned and Run as Group is enabled.
+ * @returns {boolean}
+ */
+function hasGroupMode() {
+  return (
+    Boolean(lastTeacherState?.run_as_group) &&
+    Array.isArray(lastGroups) &&
+    lastGroups.filter((g) => g.name !== "Class").length >= 1
+  );
+}
+
 function hasTeamScoreboard(board) {
   if (!board) return false;
   const phase = String(board.overlay_phase || "");
@@ -88,6 +108,16 @@ function hasTeamScoreboard(board) {
 }
 
 /**
+ * Normalize a roster, player, or group-member id.
+ * @param {{student_id?: number, id?: number}|null|undefined} row
+ * @returns {number}
+ */
+function rosterStudentId(row) {
+  const sid = Number(row?.student_id ?? row?.id);
+  return Number.isFinite(sid) && sid > 0 ? sid : 0;
+}
+
+/**
  * Map student_id → team metadata from a live scoreboard payload.
  * @param {any} board
  * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
@@ -96,6 +126,7 @@ function teamByStudentId(board) {
   const map = new Map();
   const teams = Array.isArray(board?.teams) ? board.teams : [];
   teams.forEach((team, index) => {
+    if (team.name === "Class") return;
     const meta = {
       id: Number(team.id) || index,
       name: String(team.name || `Team ${index + 1}`),
@@ -103,23 +134,69 @@ function teamByStudentId(board) {
       sort: index,
     };
     for (const player of team.players || []) {
-      const sid = Number(player.student_id);
-      if (Number.isFinite(sid) && sid > 0) map.set(sid, meta);
+      const sid = rosterStudentId(player);
+      if (sid) map.set(sid, meta);
+    }
+    for (const member of team.members || []) {
+      const sid = rosterStudentId(member);
+      if (sid) map.set(sid, meta);
     }
   });
   return map;
 }
 
 /**
- * One roster list item HTML (mood glyph + escaped codename).
- * @param {{codename:string,mood:string|null}} row
+ * Map student_id → team metadata from session groups array.
+ * Game memberships use ``id``; scoreboard players use ``student_id``.
+ * @param {any[]} groups
+ * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
+ */
+function teamByStudentFromGroups(groups) {
+  const map = new Map();
+  (groups || []).forEach((team, index) => {
+    if (team.name === "Class") return;
+    const meta = {
+      id: Number(team.id) || index,
+      name: String(team.name || `Team ${index + 1}`),
+      color: String(team.color || "#888"),
+      sort: Number(team.sort_order) || index,
+    };
+    for (const member of team.members || []) {
+      const sid = rosterStudentId(member);
+      if (sid) map.set(sid, meta);
+    }
+    for (const player of team.players || []) {
+      const sid = rosterStudentId(player);
+      if (sid) map.set(sid, meta);
+    }
+  });
+  return map;
+}
+
+/**
+ * Prefer first-seen team metadata when merging board and group maps.
+ * @param {...Map<number, {id:number,name:string,color:string,sort:number}>} maps
+ * @returns {Map<number, {id:number,name:string,color:string,sort:number}>}
+ */
+function mergeTeamMaps(...maps) {
+  const out = new Map();
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [sid, meta] of map.entries()) {
+      if (!out.has(sid)) out.set(sid, meta);
+    }
+  }
+  return out;
+}
+
+/**
+ * One roster list item HTML (avatar left of name; no mood).
+ * @param {{codename:string,character:string|null}} row
  * @returns {string}
  */
 function rosterItemHtml(row) {
-  const face = moodGlyph(row.mood);
   const guest = row.unmatched ? ' <span class="live-guest-flag">guest</span>' : "";
-  const label = face ? `${face} ${escapeHtml(row.codename)}` : escapeHtml(row.codename);
-  return `<li class="${row.unmatched ? "is-guest" : ""}">${label}${guest}</li>`;
+  return `<li class="${row.unmatched ? "is-guest" : ""}">${nameWithAvatar(row.codename, row.character)}${guest}</li>`;
 }
 
 /**
@@ -128,14 +205,17 @@ function rosterItemHtml(row) {
 function paintRoster() {
   if (!rosterBody) return;
   const present = lastPresent;
-  const teamMode = hasTeamScoreboard(lastBoard);
+  const teamMode = hasTeamScoreboard(lastBoard) || hasGroupMode();
+  const namedGroups = (lastGroups || []).filter((team) => team && team.name !== "Class");
+  const boardTeams = (lastBoard?.teams || []).filter((team) => team && team.name !== "Class");
   const key = [
     teamMode ? "team" : "flat",
-    present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.mood || ""}:${row.unmatched ? "g" : ""}`).join("|"),
+    present.map((row) => `${row.participant_uuid || row.student_id}:${row.codename}:${row.character || ""}:${row.unmatched ? "g" : ""}`).join("|"),
     teamMode
-      ? (lastBoard?.teams || [])
-          .map((t) => `${t.id}:${(t.players || []).map((p) => p.student_id).join(",")}`)
-          .join(";")
+      ? [
+          namedGroups.map((t) => `${t.id}:${(t.members || []).map((m) => rosterStudentId(m)).join(",")}`).join(";"),
+          boardTeams.map((t) => `${t.id}:${(t.players || t.members || []).map((p) => rosterStudentId(p)).join(",")}`).join(";"),
+        ].join("|")
       : "",
   ].join("::");
   if (key === lastRosterKey) {
@@ -149,10 +229,16 @@ function paintRoster() {
     const list = document.getElementById("live-roster");
     if (list) list.innerHTML = present.map(rosterItemHtml).join("");
   } else {
-    const byTeam = teamByStudentId(lastBoard);
+    const teamsSource = namedGroups.length ? namedGroups : boardTeams;
+    const byTeam = mergeTeamMaps(
+      teamByStudentFromGroups(namedGroups),
+      teamByStudentId(lastBoard),
+      teamByStudentFromGroups(boardTeams)
+    );
     /** @type {Map<number|string, {name:string,color:string,sort:number,members:typeof present}>} */
     const groups = new Map();
-    (lastBoard?.teams || []).forEach((team, index) => {
+    teamsSource.forEach((team, index) => {
+      if (team.name === "Class") return;
       const tid = Number(team.id) || index;
       groups.set(tid, {
         name: String(team.name || "Team"),
@@ -163,7 +249,7 @@ function paintRoster() {
     });
     const unassigned = [];
     for (const row of present) {
-      const meta = byTeam.get(row.student_id);
+      const meta = byTeam.get(rosterStudentId(row));
       if (!meta) {
         unassigned.push(row);
         continue;
@@ -282,6 +368,11 @@ function paintSession(state) {
     const count = Number.isFinite(n) ? n : lastPresent.length;
     countEl.textContent = `(${count})`;
   }
+  lastTeacherState = state?.teacher_state || {};
+  lastGroups = Array.isArray(state?.groups) ? state.groups : [];
+  if (state?.scoreboard && Array.isArray(state.scoreboard.teams) && state.scoreboard.teams.length) {
+    lastBoard = state.scoreboard;
+  }
   paintRoster();
   const ended = state?.phase === "ended" || state?.session?.status === "ended";
   if (endedEl) {
@@ -289,10 +380,11 @@ function paintSession(state) {
     endedEl.classList.toggle("hidden", !ended);
   }
   if (ended) {
-    document.body.classList.add("is-ended");
+    dismissOverlayWindow();
   }
   const sessionClass = Number(state?.session?.class_id || 0);
   if (sessionClass > 0) classId = sessionClass;
+  paintTeamScores(lastBoard);
 }
 
 /**
@@ -302,14 +394,17 @@ function paintSession(state) {
 function paintTeamScores(board) {
   if (!teamsSection || !teamBoard) return;
   const phase = String(board?.overlay_phase || "");
-  if (phase === "anticipation" || !hasTeamScoreboard(board)) {
+  const wantBoard = Boolean(lastTeacherState?.scoreboard_visible);
+  const groupTeams = (lastGroups || []).filter((team) => team && team.name !== "Class");
+  const scoreTeams = Array.isArray(board?.teams) ? board.teams.filter((t) => t.name !== "Class") : [];
+  const teams = scoreTeams.length ? scoreTeams : groupTeams;
+  if (phase === "anticipation" || !wantBoard || teams.length < 1) {
     teamsSection.hidden = true;
     teamsSection.classList.add("hidden");
     teamBoard.innerHTML = "";
     lastTeamKey = "";
     return;
   }
-  const teams = board.teams || [];
   const key = teams.map((t) => `${t.id}:${t.score}:${t.name}`).join("|");
   teamsSection.hidden = false;
   teamsSection.classList.remove("hidden");
@@ -408,15 +503,21 @@ function maybeCelebrateWinner(board) {
   if (celebrateTeamEl) celebrateTeamEl.textContent = String(top.name || "Winner");
   const members = Array.isArray(top.players) ? top.players : [];
   if (celebrateMembersEl) {
+    const byId = new Map(
+      lastPresent.map((row) => [Number(row.student_id), row.character || null])
+    );
     celebrateMembersEl.innerHTML = members
       .map((p) => {
         const name = String(p.codename || p.first_name || p.name || "").trim() || "Player";
-        return `<li>${escapeHtml(name)}</li>`;
+        const sid = Number(p.student_id || p.id || 0);
+        const character = p.character || byId.get(sid) || null;
+        return `<li>${nameWithAvatar(name, character)}</li>`;
       })
       .join("");
   }
   spawnFireworks();
   spawnConfetti();
+  spawnGraffiti(String(top.name || "Winner"));
   window.setTimeout(() => {
     if (fireworksEl) fireworksEl.innerHTML = "";
   }, 10000);
@@ -426,7 +527,32 @@ function maybeCelebrateWinner(board) {
       celebrateEl.classList.add("is-settled");
     }
     if (confettiEl) confettiEl.innerHTML = "";
+    if (graffitiEl) graffitiEl.innerHTML = "";
   }, 20000);
+}
+
+/**
+ * Spray-paint the winning team name over the live overlay.
+ * @param {string} name
+ */
+function spawnGraffiti(name) {
+  if (!graffitiEl) return;
+  graffitiEl.innerHTML = "";
+  const tag = document.createElement("p");
+  tag.className = "live-overlay-graffiti-tag";
+  tag.textContent = name;
+  graffitiEl.appendChild(tag);
+  const colors = ["#f5c518", "#ef4444", "#3d7eff", "#9dffb0"];
+  for (let i = 0; i < 8; i += 1) {
+    const drip = document.createElement("span");
+    drip.className = "live-overlay-graffiti-drip";
+    drip.style.setProperty("--c", colors[i % colors.length]);
+    drip.style.setProperty("--delay", `${(0.2 + Math.random() * 0.8).toFixed(2)}s`);
+    drip.style.setProperty("--h", `${24 + Math.random() * 56}px`);
+    drip.style.left = `${18 + Math.random() * 64}%`;
+    drip.style.top = `${42 + Math.random() * 18}%`;
+    graffitiEl.appendChild(drip);
+  }
 }
 
 /**
@@ -523,6 +649,49 @@ async function copyClassCode() {
 }
 
 /**
+ * Stop roster/scoreboard polling after this overlay has dismissed.
+ */
+function stopOverlayPolling() {
+  if (tickTimer) window.clearInterval(tickTimer);
+  if (clockTimer) window.clearInterval(clockTimer);
+  tickTimer = 0;
+  clockTimer = 0;
+}
+
+/**
+ * Show Session ended and close this Zoom-share popup.
+ *
+ * If the browser ignores ``window.close()`` (window was not script-opened),
+ * optionally blank the page so Zoom is not left on "Waiting for students…".
+ * End Live Class celebration still paints in the same tick when the session
+ * row remains; Quit wipe uses ``blankIfStillOpen``.
+ * @param {{blankIfStillOpen?: boolean}} [opts]
+ */
+function dismissOverlayWindow(opts = {}) {
+  overlayDismissed = true;
+  stopOverlayPolling();
+  if (endedEl) {
+    endedEl.hidden = false;
+    endedEl.classList.remove("hidden");
+  }
+  document.body.classList.add("is-ended");
+  try {
+    window.close();
+  } catch {
+    /* popup close can fail if the window was not script-opened */
+  }
+  if (opts.blankIfStillOpen) {
+    window.setTimeout(() => {
+      try {
+        if (!window.closed) location.replace("about:blank");
+      } catch {
+        /* ignore navigation failures in a closing popup */
+      }
+    }, 50);
+  }
+}
+
+/**
  * Fetch JSON from an API path; return null on auth/network failure.
  * @param {string} url
  * @returns {Promise<any|null>}
@@ -537,15 +706,34 @@ async function fetchJson(url) {
 }
 
 /**
+ * Load live-session state, treating a wiped SID as a close signal.
+ * @returns {Promise<{missing: boolean, payload?: any}>}
+ */
+async function fetchLiveSessionState() {
+  const response = await fetch(`/api/live-sessions/${sessionId}/state`, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (response.status === 404) return { missing: true };
+  if (!response.ok) return { missing: false };
+  const payload = await response.json();
+  if (payload?.ok === false) return { missing: true };
+  return { missing: false, payload };
+}
+
+/**
  * Poll session roster and optional class scoreboard once.
  */
 async function tick() {
-  if (!sessionId || tickBusy) return;
+  if (!sessionId || tickBusy || overlayDismissed) return;
   tickBusy = true;
   try {
-    const payload = await fetchJson(`/api/live-sessions/${sessionId}/state`);
-    if (payload?.ok === false) return;
-    if (payload) paintSession(payload);
+    const result = await fetchLiveSessionState();
+    if (result.missing) {
+      dismissOverlayWindow({ blankIfStillOpen: true });
+      return;
+    }
+    if (result.payload) paintSession(result.payload);
     if (classId > 0) {
       const board = await fetchJson(`/api/classes/${classId}/scoreboard`);
       if (board) paintTeams(board);
@@ -571,10 +759,11 @@ codeEl?.addEventListener("keydown", (event) => {
 if (!sessionId) {
   if (codeEl) codeEl.textContent = "—";
   if (countEl) countEl.textContent = "Missing session";
+  dismissOverlayWindow({ blankIfStillOpen: true });
 } else {
   tick();
-  setInterval(tick, 2000);
-  setInterval(() => {
+  tickTimer = window.setInterval(tick, 2000);
+  clockTimer = window.setInterval(() => {
     if (!lastBoard) return;
     const phase = String(lastBoard.overlay_phase || "");
     if (phase === "anticipation") paintAnticipationClock(lastBoard);

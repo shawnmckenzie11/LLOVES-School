@@ -289,6 +289,33 @@ ORIGINAL_LESSON_ITEMS: list[dict[str, Any]] = [
         "sort_order": 46,
     },
     {
+        "ontario_code": "MCR3U",
+        "module_hint": "A/M1C1",
+        "kind": "contest",
+        "title": "Nested Square-Root Range",
+        "stem_html": (
+            "<p>A rule subtracts one square root from another: "
+            "<em>f</em>(<em>x</em>) = √(<em>x</em> − 5) − √(24 − 3<em>x</em>). "
+            "Each square root only makes sense for some inputs.</p>"
+        ),
+        "task_html": (
+            "<p>Which inputs are allowed? What outputs can you actually get?</p>"
+        ),
+        "diagram_note": (
+            "Table or number line first: both insides ≥ 0, then try endpoints "
+            "and a middle value. Do not open with the contest interval."
+        ),
+        "source": "mathnet:03xe",
+        "license": "unknown",
+        "expectation_codes": ["A1.3"],
+        "processes": ["problem_solving", "representing", "reasoning_proving"],
+        "sort_order": 50,
+        "staff_note": (
+            "Shawn assigned curator nominee C to MCR3U M1 C1. "
+            "Adapted CONTEXT/QUESTION from MathNet 03xe; not Exact contest."
+        ),
+    },
+    {
         "ontario_code": "MCF3M",
         "module_hint": "A/M1C2",
         "kind": "contest",

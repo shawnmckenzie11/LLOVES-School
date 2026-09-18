@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alc.mckenzian.com/schemas/live-items-v2.json",
+  "title": "LLOVES canonical live-item catalogue",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "catalogue_id",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "catalogue_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(universal|course/[A-Z]{3,}[0-9][A-Z]?|live-class/[A-Z]{3,}[0-9][A-Z]?/M[1-8]/C[1-4])/(question|media|whiteboard|slides)/[a-z0-9][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "publish_modes",
+        "response_modes"
+      ],
+      "properties": {
+        "publish_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "individual",
+              "group_consensus",
+              "group_shared"
+            ]
+          }
+        },
+        "response_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "individual",
+              "group_consensus"
+            ]
+          }
+        },
+        "group_shared": {
+          "type": "boolean"
+        },
+        "live_results": {
+          "type": "boolean"
+        },
+        "dismissible": {
+          "type": "boolean"
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "scope",
+        "item_type",
+        "id",
+        "capabilities"
+      ],
+      "properties": {
+        "scope": {
+          "enum": [
+            "universal",
+            "course",
+            "live_class"
+          ]
+        },
+        "item_type": {
+          "enum": [
+            "question",
+            "media",
+            "whiteboard",
+            "slides"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "course": {
+          "type": "string",
+          "pattern": "^[A-Z]{3,}[0-9][A-Z]?$"
+        },
+        "module": {
+          "type": "string",
+          "pattern": "^M[1-8]$"
+        },
+        "live_class": {
+          "type": "string",
+          "pattern": "^C[1-4]$"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    }
+  }
+}
