@@ -2025,6 +2025,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("export async function openBankMcPicker", picker_js)
         served = self.client.get("/static/bank_mc_picker.js")
         self.assertEqual(served.status_code, 200)
+        common = self.client.get("/static/common.js").get_data(as_text=True)
+        self.assertIn("export function formatQuestionHtml", common)
+        self.assertIn("export function questionFieldHtml", common)
+        self.assertIn("export function questionImageHtml", common)
+        self.assertIn("export async function renderLiveQuestionMath", common)
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertNotIn(
