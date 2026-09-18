@@ -70,6 +70,7 @@
       color: var(--muted);
       font-weight: 650;
     }
+    .parents-heading { margin-top: 0.15rem; }
     .parents {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -165,7 +166,8 @@
     <p class="eq" id="eq">y = <strong>x</strong></p>
     <section class="dock" id="dock" aria-label="Transformation controls">
       <h2 id="dock-title">Teacher controls</h2>
-      <div class="parents" role="radiogroup" aria-label="Parent function">
+      <h2 class="parents-heading" id="parents-heading">Parent function</h2>
+      <div class="parents" role="radiogroup" aria-labelledby="parents-heading">
         <label><input type="radio" name="parent" value="linear" checked> Linear</label>
         <label><input type="radio" name="parent" value="quadratic"> Quadratic</label>
         <label><input type="radio" name="parent" value="sqrt"> Square root</label>

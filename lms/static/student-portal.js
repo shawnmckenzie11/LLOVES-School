@@ -1548,7 +1548,10 @@ function parentChoiceRadiosHtml(content, groupId) {
     lastArtifactSliders.parent || content.parent?.kind || choices[0]?.kind || ""
   );
   const name = `artifact-parent-${escapeText(groupId)}`;
-  return `<div class="artifact-parents" role="radiogroup" aria-label="Parent function">${choices
+  const labelId = `${name}-label`;
+  return `<div class="artifact-parents-block">
+    <p class="artifact-parents-label" id="${labelId}">Parent function</p>
+    <div class="artifact-parents" role="radiogroup" aria-labelledby="${labelId}">${choices
     .map((row) => {
       const kind = String(row?.kind || "");
       const label = String(row?.label || kind);
@@ -1560,7 +1563,8 @@ function parentChoiceRadiosHtml(content, groupId) {
         <span>${escapeText(label)}</span>
       </label>`;
     })
-    .join("")}</div>`;
+    .join("")}</div>
+  </div>`;
 }
 
 /**
@@ -1910,7 +1914,21 @@ function paintLifecycleQuestionStack(payload) {
           )}</span>
         </div>
         ${questionImageHtmlStudent(content.image_url)}
-        <h2>${lifecyclePromptHtml(content)}</h2>
+        <h2>${lifecyclePromptHtml({
+          ...content,
+          text: content.title || content.text,
+          prompt: content.title || content.text || content.prompt,
+        })}</h2>
+        ${
+          String(content.title || "").trim() &&
+          String(content.stem || content.prompt || "").trim() &&
+          String(content.stem || content.prompt || "").trim() !==
+            String(content.title || "").trim()
+            ? `<p class="student-live-stem">${formatPromptHtml(
+                content.stem || content.prompt
+              )}</p>`
+            : ""
+        }
         ${lifecycleEquationHtml(content)}
         ${
           groupMode
@@ -2214,7 +2232,18 @@ function paintPrompt(payload) {
  */
 function renderPromptBody(prompt, data, payload, lockChoices) {
   const kind = String(prompt.kind);
-  const title = lifecyclePromptHtml(data);
+  const mintedTitle = String(data.title || "").trim();
+  const title = mintedTitle
+    ? formatPromptHtml(mintedTitle)
+    : lifecyclePromptHtml(data);
+  const mintedStem =
+    mintedTitle &&
+    String(data.stem || data.prompt || "").trim() &&
+    String(data.stem || data.prompt || "").trim() !== mintedTitle
+      ? `<p class="student-live-stem">${formatPromptHtml(
+          data.stem || data.prompt
+        )}</p>`
+      : "";
   const picked = String(
     (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
       (payload.group_draft && payload.group_draft.choice) ||
@@ -2340,6 +2369,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   promptShell.innerHTML = `
     <p class="prompt-kind">${escapeText(kindLine)}</p>
     <h2 class="prompt-title">${title}</h2>
+    ${mintedStem}
     <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
   `;
   lastPromptId = Number(prompt.id);

@@ -2133,14 +2133,16 @@ function paintLiveQuestionCards() {
         card.response_mode === "group_consensus"
           ? ""
           : `<button type="button" class="secondary live-q-btn" data-view-responses="${promptId}" data-question-title="${escapeHtml(
-              item.text || card.text
+              item.title || item.text || card.text
             )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" data-has-answer-key="${
               hasAnswerKey ? "1" : ""
             }" ${
               promptId ? "" : "disabled"
             }>Responses &amp; points</button>`;
       const playlistItemId = resolvePlaylistItemId(card, item);
-      const questionLabel = String(item.text || item.prompt || card.text || "This question").trim();
+      const questionLabel = String(
+        item.title || item.text || item.prompt || card.text || "This question"
+      ).trim();
       const relocateButton = playlistItemId
         ? `<button type="button" class="secondary live-q-btn live-question-relocate-btn" data-open-relocate-dialog="${escapeHtml(
             playlistItemId
@@ -2186,7 +2188,7 @@ function paintLiveQuestionCards() {
             ${relocateButton}
           </div>
           ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
-          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.text || item.prompt || card.text || "")}</div>
+          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.title || item.text || item.prompt || card.text || "")}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${optionHtml}
           ${resultHtml}
@@ -3509,6 +3511,26 @@ async function postActiveMedia(body) {
   return res.active_media;
 }
 
+let mintToastTimer = 0;
+
+/**
+ * Staff-only first-mint line. Never writes ``active_media.toast``.
+ * @param {string} line
+ */
+function showStaffMintToast(line) {
+  const el = $("live-mint-toast");
+  if (!(el instanceof HTMLElement)) return;
+  const text = String(line || "").trim();
+  if (!text) return;
+  el.textContent = text;
+  el.hidden = false;
+  window.clearTimeout(mintToastTimer);
+  mintToastTimer = window.setTimeout(() => {
+    el.hidden = true;
+    el.textContent = "";
+  }, 2800);
+}
+
 /**
  * Mint an Artifact question from an in-media button.
  * @param {Record<string, unknown>} data
@@ -3543,6 +3565,9 @@ async function mintArtifactFromMedia(data) {
   staffStateNeedsFull = true;
   await pollLiveSessionAttendees({ full: true, force: true });
   paintLiveQuestionCards();
+  if (res?.first_mint && res?.toast) {
+    showStaffMintToast(String(res.toast));
+  }
   return res;
 }
 

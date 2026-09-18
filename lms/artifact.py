@@ -44,6 +44,8 @@ GRADE_RELATIVE_MARGIN = 0.10
 GRADE_ABS_FLOOR = 1.0
 LEAD_MATCH = "Matched."
 LEAD_MISS = "Not yet — watch the meters."
+MATCH_CHALLENGE_TOAST = "Match challenge added."
+PARENT_FUNCTION_LABEL = "Parent function"
 ARTIFACT_SLIDE_BASE = 800
 C2_TRANSFORM_MEDIA_URL = "/static/live-media/m1c2-transforms.html"
 C3_PARENT_MEDIA_URL = "/static/live-media/mcr3u-m1c3-parent-transformations.html"
@@ -309,6 +311,56 @@ def parent_choice_list() -> list[dict[str, str]]:
         Copies of ``PARENT_CHOICES`` for prompt JSON.
     """
     return [dict(row) for row in PARENT_CHOICES]
+
+
+def match_challenge_title(n: int) -> str:
+    """Return the locked minted-question title for challenge ``n``.
+
+    Args:
+        n: 1-based increment on the current live-class page.
+
+    Returns:
+        ``Match challenge N``.
+    """
+    try:
+        index = int(n)
+    except (TypeError, ValueError):
+        index = 1
+    return f"Match challenge {max(1, index)}"
+
+
+def is_match_challenge_item(payload: Any) -> bool:
+    """True when playlist JSON is a minted Artifact match challenge.
+
+    Args:
+        payload: Stored ``item_json`` or prompt payload.
+    """
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("import_source") or "").strip() == "artifact":
+        return True
+    kind = str(payload.get("kind") or payload.get("type") or "").strip().lower()
+    return kind == ARTIFACT_KIND
+
+
+def artifact_question_label(payload: Any, fallback: str = "") -> str:
+    """Staff/student card title for a minted Artifact question.
+
+    Prefers locked ``Match challenge N`` over the instructional stem.
+
+    Args:
+        payload: Prompt or playlist JSON.
+        fallback: Used when title/text are empty.
+    """
+    if not isinstance(payload, dict):
+        return str(fallback or "").strip()
+    return str(
+        payload.get("title")
+        or payload.get("text")
+        or fallback
+        or payload.get("prompt")
+        or ""
+    ).strip()
 
 
 def parent_function_dict(kind: Any) -> dict[str, Any]:
@@ -598,10 +650,13 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if is_parent_transformations_artifact(payload):
         parent_fn = parent_function_dict(payload.get("parent"))
         snapshot = normalize_parent_params(payload.get("snapshot"))
+        title = str(payload.get("title") or "").strip()
         out = {
             "kind": ARTIFACT_KIND,
             "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
             "channel": ARTIFACT_CHANNEL,
+            "title": title,
+            "text": title or PARENT_TRANSFORMATIONS_STEM,
             "prompt": PARENT_TRANSFORMATIONS_STEM,
             "stem": PARENT_TRANSFORMATIONS_STEM,
             "parent": parent_fn,
@@ -622,10 +677,13 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 or format_parent_equation(parent_fn["kind"], snapshot)
             )
         return out
+    title = str(payload.get("title") or "").strip()
     out = {
         "kind": ARTIFACT_KIND,
         "artifact_id": str(payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID),
         "channel": ARTIFACT_CHANNEL,
+        "title": title,
+        "text": title or TRANSFORMATIONS_STEM,
         "prompt": TRANSFORMATIONS_STEM,
         "stem": TRANSFORMATIONS_STEM,
         "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),

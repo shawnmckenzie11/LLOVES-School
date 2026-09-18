@@ -20,9 +20,12 @@ from artifact import (
     LEAD_MISS,
     PARENT_CHOICES,
     PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+    MATCH_CHALLENGE_TOAST,
+    PARENT_FUNCTION_LABEL,
     PARENT_TRANSFORMATIONS_STEM,
     TRANSFORMATIONS_ARTIFACT_ID,
     TRANSFORMATIONS_STEM,
+    match_challenge_title,
     artifact_feedback_fragment,
     format_artifact_answer,
     format_vertex_equation,
@@ -75,6 +78,12 @@ class TransformGradeTests(unittest.TestCase):
         self.assertFalse(result["match"], result)
         self.assertFalse(result["per_key"]["a"]["match"])
         self.assertTrue(result["per_key"]["h"]["match"])
+
+    def test_match_challenge_title_increments(self) -> None:
+        """Locked minted titles are Match challenge N."""
+        self.assertEqual(match_challenge_title(1), "Match challenge 1")
+        self.assertEqual(match_challenge_title(2), "Match challenge 2")
+        self.assertEqual(match_challenge_title(0), "Match challenge 1")
 
     def test_feedback_leads(self) -> None:
         """Wonder copy: Matched. / Not yet — watch the meters."""
@@ -209,6 +218,11 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertNotEqual(prompt["slide_index"], 800)
         payload = prompt["payload"]
         self.assertEqual(payload["prompt"], TRANSFORMATIONS_STEM)
+        self.assertEqual(payload["title"], "Match challenge 1")
+        self.assertEqual(payload["text"], "Match challenge 1")
+        self.assertEqual(payload["match_index"], 1)
+        self.assertTrue(body["first_mint"])
+        self.assertEqual(body["toast"], MATCH_CHALLENGE_TOAST)
         self.assertEqual(payload["snapshot"], {"a": 3.0, "h": 5.0, "k": -1.0})
         self.assertEqual(payload["target_mode"], "equation")
         self.assertEqual(payload["equation"], "f(x)=3(x−5)²−1")
@@ -225,10 +239,13 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(media["url"], C2_TRANSFORM_MEDIA_URL)
         self.assertEqual(media["artifact"]["target_mode"], "equation")
         self.assertEqual(media["artifact"]["snapshot"]["h"], 5.0)
+        self.assertEqual(str(media.get("toast") or ""), "")
 
         student = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(student["prompt"]["kind"], ARTIFACT_KIND)
         self.assertEqual(student["prompt"]["payload"]["prompt"], TRANSFORMATIONS_STEM)
+        self.assertEqual(student["prompt"]["payload"]["title"], "Match challenge 1")
+        self.assertEqual(student["prompt"]["payload"]["text"], "Match challenge 1")
         self.assertEqual(student["prompt"]["payload"]["equation"], "f(x)=3(x−5)²−1")
         self.assertNotIn("cement", student["prompt"]["payload"])
         active_q = student.get("active_questions") or []
@@ -310,6 +327,21 @@ class ArtifactMintChannelTests(unittest.TestCase):
         }
         self.assertEqual(stored[first_item]["status"], "active")
         self.assertEqual(stored[second_item]["status"], "active")
+        first_body = first.get_json()
+        second_body = second.get_json()
+        self.assertEqual(first_body["prompt"]["payload"]["title"], "Match challenge 1")
+        self.assertTrue(first_body["first_mint"])
+        self.assertEqual(first_body["toast"], MATCH_CHALLENGE_TOAST)
+        self.assertEqual(second_body["prompt"]["payload"]["title"], "Match challenge 2")
+        self.assertFalse(second_body["first_mint"])
+        self.assertEqual(second_body["toast"], "")
+        self.assertEqual(str(second_body["active_media"].get("toast") or ""), "")
+        titles = {
+            str(row.get("id") or ""): str(row.get("text") or "")
+            for row in second_body["question_cards"]
+        }
+        self.assertEqual(titles.get(first_item), "Match challenge 1")
+        self.assertEqual(titles.get(second_item), "Match challenge 2")
 
     def test_mcf3m_c3_mint_reuses_c2_artifact_on_c3(self) -> None:
         """MCF3M M1 C3 Make match challenge stays on C3 and keeps C2 chrome."""
@@ -460,6 +492,10 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
         self.assertIn("Make match challenge", body)
+        self.assertIn(PARENT_FUNCTION_LABEL, body)
+        self.assertIn('id="parents-heading"', body)
+        self.assertNotIn('"toast"', body)
+        self.assertNotIn("toast_key", body)
         self.assertIn('name="parent"', body)
         self.assertIn('value="quadratic"', body)
         self.assertIn('value="sqrt"', body)
@@ -489,12 +525,17 @@ class Mcr3uParentMintTests(unittest.TestCase):
         payload = body["prompt"]["payload"]
         self.assertEqual(payload["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
         self.assertEqual(payload["parent"]["kind"], "sqrt")
+        self.assertEqual(payload["title"], "Match challenge 1")
+        self.assertTrue(body["first_mint"])
+        self.assertEqual(body["toast"], MATCH_CHALLENGE_TOAST)
+        self.assertEqual(str(body["active_media"].get("toast") or ""), "")
         self.assertEqual(payload["snapshot"]["d"], 3.0)
         teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
         self.assertEqual(teacher["live_slot"], "C3")
         self.assertIn("mcr3u-m1c3-parent-transformations.html", body["active_media"]["url"])
         student = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(student["prompt"]["payload"]["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
+        self.assertEqual(student["prompt"]["payload"]["title"], "Match challenge 1")
         self.assertEqual(len(student["prompt"]["payload"]["parent_choices"]), 4)
         hit = self.student.post(
             "/api/student/live-prompt/response",
@@ -536,11 +577,16 @@ class ArtifactStaffJsTests(unittest.TestCase):
         self.assertIn('ontario === "MCF3M" && module === "M1" && slot === "C3"', js)
         self.assertIn("lloves-mcr3u-m1c3-parents", js)
         self.assertIn("function mintArtifactFromMedia(", js)
+        self.assertIn("function showStaffMintToast(", js)
+        self.assertIn("live-mint-toast", js)
         mint = js.split("async function mintArtifactFromMedia(")[1].split(
             "function bindActiveMediaControls("
         )[0]
         self.assertIn("paintLiveQuestionCards()", mint)
         self.assertIn("question_cards", mint)
+        self.assertIn("first_mint", mint)
+        self.assertIn("showStaffMintToast", mint)
+        self.assertNotIn("active_media.toast", mint)
         bind = js.split("function bindActiveMediaControls(")[1].split(
             "window.addEventListener(\"message\""
         )[0]
