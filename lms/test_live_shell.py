@@ -2032,6 +2032,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("paintTeacherShell()", boot)
         self.assertIn("await openRunLiveClass()", boot)
         self.assertIn("if (setupPhase) return", boot)
+        self.assertIn("await ensureC1MediaSeeded()", boot)
         resume = js.split("async function resumeLiveClassIfNeeded()")[1].split(
             "export async function openLogParticipation()"
         )[0]
@@ -2044,6 +2045,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
         self.assertIn("paintTeacherShell()", resume)
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", resume)
+        self.assertIn("await ensureC1MediaSeeded()", resume)
+        bind = js.split("function bindActiveMediaControls(")[1].split(
+            "window.addEventListener(\"message\""
+        )[0]
+        self.assertNotIn("ensureC1MediaSeeded()", bind)
         self.assertNotIn("/api/classes/${classId}/begin", resume)
         open_fn = js.split("export async function openRunLiveClass()")[1].split(
             "export async function openTakeAttendance()"

@@ -3415,7 +3415,10 @@ function liveClassSeedMedia() {
 }
 
 /**
- * Seed C1 Real-slice onto the live session when the blob is empty.
+ * Seed the current slot's media after teacher state is restored.
+ *
+ * Must not run on first paint: default ``live_slot`` is C1, and posting
+ * ``challenge=C1`` would overwrite a persisted C2/C3 session on refresh.
  */
 async function ensureC1MediaSeeded() {
   const seed = liveClassSeedMedia();
@@ -3545,7 +3548,6 @@ async function mintArtifactFromMedia(data) {
  */
 function bindActiveMediaControls() {
   paintActiveMediaStatus(null);
-  ensureC1MediaSeeded();
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
@@ -6510,6 +6512,7 @@ async function resumeLiveClassIfNeeded() {
     await pollLiveSessionAttendees({ full: true, force: true });
     paintTeacherShell();
     paintQuestionArtifact();
+    await ensureC1MediaSeeded();
     return true;
   } catch (_) {
     return false;
@@ -7205,6 +7208,7 @@ if (root?.dataset.apView === "live") {
     } catch (_) {
       /* first paint uses the local default */
     }
+    await ensureC1MediaSeeded();
   })().catch((err) => showError("#ap-overlay-error", err));
 }
 

@@ -307,6 +307,10 @@ class ArtifactStaffJsTests(unittest.TestCase):
         )[0]
         self.assertIn("paintLiveQuestionCards()", mint)
         self.assertIn("question_cards", mint)
+        bind = js.split("function bindActiveMediaControls(")[1].split(
+            "window.addEventListener(\"message\""
+        )[0]
+        self.assertNotIn("ensureC1MediaSeeded()", bind)
 
 
 if __name__ == "__main__":
