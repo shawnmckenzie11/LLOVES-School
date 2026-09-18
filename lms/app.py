@@ -4523,6 +4523,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             {
                 "ok": True,
                 "prompt": minted.get("prompt"),
+                "live_item": minted.get("live_item"),
+                "live_items": minted.get("live_items") or [],
+                "question_cards": minted.get("question_cards") or [],
                 "active_media": minted.get("active_media"),
                 "teacher_state": school.live_session_teacher_state_payload(
                     session_id

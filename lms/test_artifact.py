@@ -14,13 +14,13 @@ if str(LMS_DIR) not in sys.path:
 
 from artifact import (
     ARTIFACT_KIND,
-    ARTIFACT_SLIDE_BASE,
     C2_TRANSFORM_MEDIA_URL,
     LEAD_MATCH,
     LEAD_MISS,
     TRANSFORMATIONS_ARTIFACT_ID,
     TRANSFORMATIONS_STEM,
     artifact_feedback_fragment,
+    format_artifact_answer,
     format_vertex_equation,
     grade_transform_snapshot,
     slider_margin,
@@ -36,6 +36,13 @@ from live_media import (
 
 class TransformGradeTests(unittest.TestCase):
     """±10% auto-check for vertex-form sliders."""
+
+    def test_format_artifact_answer(self) -> None:
+        """Responses & Points show compact slider values."""
+        self.assertEqual(
+            format_artifact_answer({"params": {"a": 3, "h": 5, "k": -1}}),
+            "a=3, h=5, k=-1",
+        )
 
     def test_format_example_equation(self) -> None:
         """Spec example f(x)=3(x−5)²−1 is formatted with unicode minus."""
@@ -166,7 +173,7 @@ class ArtifactMintChannelTests(unittest.TestCase):
         rv.close()
 
     def test_mint_stores_parent_and_snapshot_on_current_page(self) -> None:
-        """Teacher mint writes the exact stem + snapshot onto slide 800."""
+        """Teacher mint writes a Question card plus the exact stem + snapshot."""
         minted = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/artifacts",
             json={
@@ -179,12 +186,21 @@ class ArtifactMintChannelTests(unittest.TestCase):
         body = minted.get_json()
         prompt = body["prompt"]
         self.assertEqual(prompt["kind"], ARTIFACT_KIND)
-        self.assertEqual(prompt["slide_index"], ARTIFACT_SLIDE_BASE)
+        self.assertNotEqual(prompt["slide_index"], 800)
         payload = prompt["payload"]
         self.assertEqual(payload["prompt"], TRANSFORMATIONS_STEM)
         self.assertEqual(payload["snapshot"], {"a": 3.0, "h": 5.0, "k": -1.0})
         self.assertEqual(payload["target_mode"], "equation")
         self.assertEqual(payload["equation"], "f(x)=3(x−5)²−1")
+        self.assertTrue(str(payload.get("item_id") or "").startswith("artifact-match-"))
+        live_item = body["live_item"]
+        self.assertEqual(live_item["status"], "active")
+        self.assertEqual(int(live_item["prompt_id"]), int(prompt["id"]))
+        cards = body["question_cards"]
+        self.assertTrue(
+            any(str(row.get("id") or "") == payload["item_id"] for row in cards),
+            cards,
+        )
         media = body["active_media"]
         self.assertEqual(media["url"], C2_TRANSFORM_MEDIA_URL)
         self.assertEqual(media["artifact"]["target_mode"], "equation")
@@ -195,6 +211,15 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(student["prompt"]["payload"]["prompt"], TRANSFORMATIONS_STEM)
         self.assertEqual(student["prompt"]["payload"]["equation"], "f(x)=3(x−5)²−1")
         self.assertNotIn("cement", student["prompt"]["payload"])
+        active_q = student.get("active_questions") or []
+        self.assertTrue(
+            any(
+                str((row.get("content") or {}).get("item_id") or row.get("item_id") or "")
+                == payload["item_id"]
+                for row in active_q
+            ),
+            active_q,
+        )
 
         hit = self.student.post(
             "/api/student/live-prompt/response",
@@ -212,11 +237,59 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(miss.get_json()["feedback"]["lead"], LEAD_MISS)
         self.assertFalse(miss.get_json()["feedback"]["match"])
 
+        roster = self.staff.get(
+            f"/api/live-sessions/{self.live_session_id}/questions/{prompt['id']}/responses"
+        )
+        self.assertEqual(roster.status_code, 200, roster.get_json())
+        answers = roster.get_json().get("responses") or []
+        self.assertTrue(answers)
+        self.assertTrue(any("a=" in str(row.get("answer") or "") for row in answers))
+
         still = self.school.ensure_waiting_room_minds_on(self.live_session_id)
         self.assertIsNone(still)
         active = self.school.get_active_live_prompt(self.live_session_id)
         assert active is not None
         self.assertEqual(active["kind"], ARTIFACT_KIND)
+
+    def test_each_mint_creates_a_new_question_card(self) -> None:
+        """A second Make match challenge does not overwrite the first prompt."""
+        first = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "h": 1, "k": 0},
+                "target_mode": "graph",
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.get_json())
+        first_id = int(first.get_json()["prompt"]["id"])
+        first_item = str(first.get_json()["prompt"]["payload"]["item_id"])
+        second = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": -1, "h": 4, "k": 3},
+                "target_mode": "equation",
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.get_json())
+        second_id = int(second.get_json()["prompt"]["id"])
+        second_item = str(second.get_json()["prompt"]["payload"]["item_id"])
+        self.assertNotEqual(first_id, second_id)
+        self.assertNotEqual(first_item, second_item)
+        cards = second.get_json()["question_cards"]
+        ids = {str(row.get("id") or "") for row in cards}
+        self.assertIn(first_item, ids)
+        self.assertIn(second_item, ids)
+        first_prompt = self.school.get_active_live_prompt(self.live_session_id)
+        assert first_prompt is not None
+        self.assertEqual(int(first_prompt["id"]), second_id)
+        stored = {
+            str(row.get("item_id") or ""): row
+            for row in self.school.list_live_session_items(self.live_session_id)
+        }
+        self.assertEqual(stored[first_item]["status"], "active")
+        self.assertEqual(stored[second_item]["status"], "active")
 
 
 class ArtifactStaffJsTests(unittest.TestCase):
@@ -228,6 +301,12 @@ class ArtifactStaffJsTests(unittest.TestCase):
         self.assertIn("m1c2-transforms.html", js)
         self.assertIn("lastActiveMedia", js)
         self.assertIn("function usesC2Transforms()", js)
+        self.assertIn("function mintArtifactFromMedia(", js)
+        mint = js.split("async function mintArtifactFromMedia(")[1].split(
+            "function bindActiveMediaControls("
+        )[0]
+        self.assertIn("paintLiveQuestionCards()", mint)
+        self.assertIn("question_cards", mint)
 
 
 if __name__ == "__main__":

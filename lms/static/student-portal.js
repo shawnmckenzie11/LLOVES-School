@@ -1536,6 +1536,14 @@ function lifecycleAnswerKind(item) {
   ) {
     return "numeric";
   }
+  if (
+    String(content.kind || "").toLowerCase() === "artifact" ||
+    String(content.type || "").toLowerCase() === "artifact" ||
+    String(prompt.kind || "").toLowerCase() === "artifact" ||
+    String(content.artifact_id || "").trim()
+  ) {
+    return "artifact";
+  }
   const type = String(content.type || prompt.kind || "mc").toLowerCase();
   if (type === "poll" && !liveChoiceLabels(content).length) {
     return "text";
@@ -1586,6 +1594,30 @@ function lifecycleAnswerControls(item, action, initial = null) {
           content.placeholder || (integerOnly ? "Enter an integer…" : "Enter a number")
         )}" value="${escapeText(value)}">
       </label>
+      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
+    </div>`;
+  }
+  if (kind === "artifact") {
+    const mode = String(content.target_mode || "graph");
+    const equation = String(content.equation || "").trim();
+    const keys = Array.isArray(content.slider_keys) ? content.slider_keys : ["a", "h", "k"];
+    const snapshot = content.snapshot && typeof content.snapshot === "object" ? content.snapshot : {};
+    const meters = keys
+      .map((key) => {
+        const target = Number(snapshot[key] ?? 0);
+        return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+          <span class="hot-cold-key">${escapeText(key)}</span>
+          <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
+        </div>`;
+      })
+      .join("");
+    const eqBlock =
+      mode === "equation" && equation
+        ? `<p class="artifact-equation">${escapeText(equation)}</p>`
+        : "";
+    return `<div class="student-live-answer-controls" data-live-action="${action}" data-artifact-kind="1">
+      ${eqBlock}
+      <div class="hot-cold-meters">${meters}</div>
       <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
     </div>`;
   }
@@ -1911,6 +1943,9 @@ function paintLifecycleQuestionStack(payload) {
  * @returns {Record<string, unknown>|null}
  */
 function lifecycleAnswerFromCard(card) {
+  if (card.querySelector("[data-artifact-kind]")) {
+    return { params: { ...lastArtifactSliders } };
+  }
   const selected = card.querySelector("[data-live-choice].is-selected");
   if (selected) return { choice: selected.getAttribute("data-live-choice") || "" };
   const numeric = card.querySelector("[data-live-value]");
@@ -2379,15 +2414,18 @@ function wirePromptControls(prompt) {
  * @param {number} target
  */
 function paintHotColdMeter(key, student, target) {
-  const row = promptShell && promptShell.querySelector(`[data-meter="${key}"]`);
-  if (!row) return;
-  const fill = row.querySelector(".hot-cold-fill");
-  if (!(fill instanceof HTMLElement)) return;
-  const allowed = 0.1 * Math.max(Math.abs(target), 1);
-  const heat = Math.max(0, Math.min(1, 1 - Math.abs(student - target) / (allowed * 6)));
-  fill.style.width = `${Math.round(heat * 100)}%`;
-  row.classList.toggle("is-hot", heat > 0.72);
-  row.classList.toggle("is-cold", heat < 0.28);
+  const roots = [promptShell, liveQuestionStack].filter(Boolean);
+  for (const root of roots) {
+    root.querySelectorAll(`[data-meter="${key}"]`).forEach((row) => {
+      const fill = row.querySelector(".hot-cold-fill");
+      if (!(fill instanceof HTMLElement)) return;
+      const allowed = 0.1 * Math.max(Math.abs(target), 1);
+      const heat = Math.max(0, Math.min(1, 1 - Math.abs(student - target) / (allowed * 6)));
+      fill.style.width = `${Math.round(heat * 100)}%`;
+      row.classList.toggle("is-hot", heat > 0.72);
+      row.classList.toggle("is-cold", heat < 0.28);
+    });
+  }
 }
 
 /**
@@ -2401,12 +2439,15 @@ function applyArtifactPreview(sliders) {
     h: Number(sliders.h ?? lastArtifactSliders.h),
     k: Number(sliders.k ?? lastArtifactSliders.k),
   };
-  if (!promptShell) return;
-  promptShell.querySelectorAll("[data-meter]").forEach((row) => {
-    const key = row.getAttribute("data-meter") || "";
-    const target = Number(row.getAttribute("data-target") || 0);
-    if (!key) return;
-    paintHotColdMeter(key, Number(lastArtifactSliders[key] ?? 0), target);
+  const roots = [promptShell, liveQuestionStack].filter(Boolean);
+  if (!roots.length) return;
+  roots.forEach((root) => {
+    root.querySelectorAll("[data-meter]").forEach((row) => {
+      const key = row.getAttribute("data-meter") || "";
+      const target = Number(row.getAttribute("data-target") || 0);
+      if (!key) return;
+      paintHotColdMeter(key, Number(lastArtifactSliders[key] ?? 0), target);
+    });
   });
 }
 

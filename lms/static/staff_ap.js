@@ -182,6 +182,19 @@ function wantsFreshSetClass() {
 }
 
 /**
+ * Drop leftover ``run=1`` after the live session is already class-set so a
+ * hard refresh restores the current teacher view instead of reminting Set Class.
+ */
+function clearFreshSetClassFromUrl() {
+  if (!root) return;
+  root.dataset.run = "0";
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("run")) return;
+  url.searchParams.delete("run");
+  window.history.replaceState({}, "", url.toString());
+}
+
+/**
  * Whether date + module + live class were already confirmed for this session.
  * In-progress teams/rounds/live continue; leftover join shells do not.
  * @param {string} [gameStatus]
@@ -210,6 +223,7 @@ function enterSetClassPhase() {
 function exitSetClassPhase() {
   setupPhase = false;
   teacherState.class_set = true;
+  clearFreshSetClassFromUrl();
   lockClassListPane();
 }
 
@@ -302,6 +316,9 @@ let lastLiveItems = [];
 let lastActiveQuestions = [];
 /** @type {any[]} */
 let lastClassList = [];
+/** Full roster so Hide Absent can toggle without waiting for a refetch. */
+/** @type {any[]} */
+let lastClassListFull = [];
 /** @type {any[]} */
 let lastGroups = [];
 /** @type {any} */
@@ -1980,7 +1997,7 @@ function liveQuestionIsOpenEnded(item, card) {
   if (["meet-team", "meet-a", "meet-b", "meet-c"].includes(id)) return false;
   const type = String(item?.type || card?.type || "").toLowerCase();
   return (
-    ["numeric", "text", "open", "share", "poll"].includes(type) ||
+    ["numeric", "text", "open", "share", "poll", "artifact"].includes(type) ||
     Boolean(item?.integer_only || card?.integer_only)
   );
 }
@@ -2046,7 +2063,9 @@ function paintLiveQuestionCards() {
           ? ""
           : `<span>Page ${escapeHtml(card.page_number)}</span>`;
       const importSource =
-        item.import_source === "module_bank" || String(card.id || "").startsWith("bank-import-")
+        item.import_source === "artifact" || String(item.type || card.type || "") === "artifact"
+          ? `<span class="hint">Artifact · Transformations</span>`
+          : item.import_source === "module_bank" || String(card.id || "").startsWith("bank-import-")
           ? `<span class="hint">Bank · ${escapeHtml(
               item.bank_title || item.question_title || "Module MC"
             )}</span>`
@@ -2578,32 +2597,6 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
  */
 function paintQuestionArtifact(media) {
   if (media && typeof media === "object") lastActiveMedia = media;
-  const row = media || lastActiveMedia || {};
-  const art = row.artifact && typeof row.artifact === "object" ? row.artifact : null;
-  if (art && (art.snapshot || art.artifact_id)) {
-    paintLiveSlotPicks();
-    paintLiveQuestionCards();
-    isBlankOverlayLivePage();
-    hideLiveQuestionBody();
-    hideTeamsSparkCard();
-    const mode = String(art.target_mode || "graph");
-    const equation = String(art.equation || "").trim();
-    const stem =
-      "Drag sliders to transform the parent function to match the target (transformed) function.";
-    const status = $("question-artifact-status");
-    const flag = $("question-artifact-flag");
-    if (status) {
-      status.hidden = false;
-      status.textContent =
-        mode === "equation" && equation ? `${stem} Target: ${equation}` : stem;
-    }
-    if (flag) {
-      flag.hidden = false;
-      flag.textContent = "Artifact · Transformations";
-    }
-    paintMeetChainChrome();
-    return;
-  }
   paintLiveSlotPicks();
   paintLiveQuestionCards();
   isBlankOverlayLivePage();
@@ -3109,7 +3102,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
-    if (Array.isArray(payload?.class_list)) lastClassList = payload.class_list;
+    if (Array.isArray(payload?.class_list)) adoptClassListRows(payload.class_list);
     if (Array.isArray(payload?.groups)) lastGroups = payload.groups;
     if (Object.prototype.hasOwnProperty.call(payload || {}, "scoreboard")) {
       lastScoreboard = payload.scoreboard || null;
@@ -3528,19 +3521,22 @@ async function mintArtifactFromMedia(data) {
       snapshot: data.snapshot,
       target_mode: data.target_mode || "graph",
       parent: data.parent || null,
+      page_number: currentLivePageNumber(),
+      slide_index: currentLivePageNumber(),
     }),
   });
   paintActiveMediaStatus(res.active_media);
   if (res?.teacher_state) adoptTeacherState(res.teacher_state);
-  const status = $("question-artifact-status");
-  const flag = $("question-artifact-flag");
-  if (status) {
-    status.textContent = "Artifact minted on the current page. Students match the target.";
+  if (Array.isArray(res?.live_items)) lastLiveItems = res.live_items;
+  if (Array.isArray(res?.question_cards)) {
+    lastQuestionCards = questionCardsFromMetadata(res.question_cards);
   }
-  if (flag) {
-    flag.hidden = false;
-    flag.textContent = "Artifact · Transformations";
-  }
+  applyLiveMcImportPayload(res);
+  paintLiveQuestionCards();
+  paintQuestionArtifact(res.active_media);
+  staffStateNeedsFull = true;
+  await pollLiveSessionAttendees({ full: true, force: true });
+  paintLiveQuestionCards();
   return res;
 }
 
@@ -4237,15 +4233,35 @@ function classListVisibleStudents(students) {
 }
 
 /**
+ * Merge a class_list snapshot into the durable full-roster cache.
+ * @param {any[]} rows
+ */
+function adoptClassListRows(rows) {
+  const incoming = Array.isArray(rows) ? rows : [];
+  if (!incoming.length) return;
+  const byId = new Map(
+    lastClassListFull.map((row) => [Number(row.student_id ?? row.id), row])
+  );
+  for (const row of incoming) {
+    const id = Number(row.student_id ?? row.id);
+    if (!id) continue;
+    byId.set(id, { ...(byId.get(id) || {}), ...row, id, student_id: id });
+  }
+  lastClassListFull = [...byId.values()];
+  lastClassList = lastClassListFull;
+}
+
+/**
  * Normalize the server class_list projection for existing roster renderers.
  * @returns {any[]}
  */
 function projectedClassListStudents() {
-  if (!lastClassList.length) return overlayState?.students || [];
+  const source = lastClassListFull.length ? lastClassListFull : lastClassList;
+  if (!source.length) return overlayState?.students || [];
   const existing = new Map(
     (overlayState?.students || []).map((row) => [Number(row.id), row])
   );
-  return lastClassList.map((row) => {
+  return source.map((row) => {
     const id = Number(row.student_id ?? row.id);
     return {
       ...(existing.get(id) || {}),
@@ -5737,10 +5753,7 @@ $("live-hide-absent")?.addEventListener("change", (event) => {
   if (!(input instanceof HTMLInputElement)) return;
   teacherState.hide_absent = input.checked;
   renderAttendanceList();
-  const needFullRoster = !input.checked;
-  patchTeacherState({ hide_absent: input.checked }, { silent: true }).then(() => {
-    if (needFullRoster) pollLiveSessionAttendees();
-  });
+  patchTeacherState({ hide_absent: input.checked }, { silent: true });
 });
 
 /**
@@ -6443,7 +6456,6 @@ $("ap-score-end")?.addEventListener("click", endGame);
 async function resumeLiveClassIfNeeded() {
   liveSessionId = readLiveSessionId() || liveSessionId;
   if (!liveSessionId) return false;
-  if (wantsFreshSetClass()) return false;
   try {
     await loadContext();
     let state = null;
@@ -6463,43 +6475,42 @@ async function resumeLiveClassIfNeeded() {
     } catch (_) {
       /* keep local defaults */
     }
+    if (wantsFreshSetClass() && !classSetIsComplete(status, teacher)) return false;
     if (!classSetIsComplete(status, teacher)) return false;
     const openStatuses = new Set(["attendance", "teams", "names", "rounds", "live"]);
-    if (state?.game && openStatuses.has(status)) {
-      overlayState = state;
-      const meeting =
-        state.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
-      syncOverlayPickers(logContext, meeting);
-      const meetingInput = $("ap-meeting-date");
-      if (meetingInput) meetingInput.value = meeting;
-      exitSetClassPhase();
-      if (status === "live") {
-        openLiveScoring(overlayState);
-        ensureLiveSessionOverlay();
-        startLiveSessionPolling();
-        return true;
-      }
+    overlayState = state || overlayState;
+    const meeting =
+      state?.session?.meeting_date || defaultSchoolDay(logContext) || todayISO();
+    syncOverlayPickers(logContext, meeting);
+    const meetingInput = $("ap-meeting-date");
+    if (meetingInput) meetingInput.value = meeting;
+    exitSetClassPhase();
+    paintTeacherShell();
+    if (status === "live" && state?.game) {
+      openLiveScoring(overlayState);
+      ensureLiveSessionOverlay();
+    } else if (state?.game && openStatuses.has(status)) {
       renderAttendanceList();
       if (status === "teams" || status === "names") {
         const nAssigned = (state.teams || []).filter((team) => team.name !== "Class").length;
         if (nAssigned >= 2) setNTeams(nAssigned);
         else selectTrackMode("team");
         renderTeamsPanel();
-        showPanel("teams");
         if (status === "names") {
           renderNamesPanel();
           openTeamsRenameModal();
         }
-      } else if (status === "rounds") {
-        selectTrackMode("team");
-        showPanel("rounds");
-      } else {
-        showPanel("att");
       }
-      await ensureLiveSessionMinted();
-      return true;
+    } else {
+      renderAttendanceList();
     }
-    return false;
+    await ensureLiveSessionMinted();
+    startLiveSessionPolling();
+    staffStateNeedsFull = true;
+    await pollLiveSessionAttendees({ full: true, force: true });
+    paintTeacherShell();
+    paintQuestionArtifact();
+    return true;
   } catch (_) {
     return false;
   }
@@ -7176,7 +7187,8 @@ if (root?.dataset.apView === "live") {
   mountTeamsRenameDialog();
   bindActiveMediaControls();
   bindEphemeralCanvas();
-  enterSetClassPhase();
+  const preferResume = Boolean(readLiveSessionId() || liveSessionId) && !wantsFreshSetClass();
+  if (!preferResume) enterSetClassPhase();
   paintTeacherShell();
   paintJoinBillboard(root.dataset.liveCode || "");
   (async () => {
