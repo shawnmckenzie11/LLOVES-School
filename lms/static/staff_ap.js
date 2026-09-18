@@ -195,6 +195,8 @@ let lastTeamsSpark = null;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
+/** Last active-media blob so Question-tab paints survive calls without media. */
+let lastActiveMedia = null;
 
 /**
  * Map a setup step onto the StageRail id.
@@ -713,7 +715,8 @@ function paintQuestionArtifact(media) {
   const status = $("question-artifact-status");
   const flag = $("question-artifact-flag");
   if (!status || !flag) return;
-  const row = media || {};
+  if (media && typeof media === "object") lastActiveMedia = media;
+  const row = media || lastActiveMedia || {};
   const art = row.artifact && typeof row.artifact === "object" ? row.artifact : null;
   if (art && (art.snapshot || art.artifact_id)) {
     hideTeamsSparkCard();
