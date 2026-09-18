@@ -18,7 +18,25 @@ try:
 except ImportError:
     from lms.question_math import format_mc_html_fragment, html_to_plain
 
+# Wonder IA §9 locked microcopy — do not paraphrase.
 EMPTY_BANKS_MESSAGE = "No banks imported yet."
+EDIT_BANK_LABEL = "Edit bank"
+DONE_LABEL = "Done"
+CANCEL_LABEL = "Cancel"
+REMOVE_FROM_BANK_TITLE = "Remove from bank?"
+EDITED_IN_LMS_CHIP = "Edited in LMS"
+SAVE_TOAST = "Saved."
+
+WONDER_COPY = {
+    "empty_banks": EMPTY_BANKS_MESSAGE,
+    "edit_bank": EDIT_BANK_LABEL,
+    "done": DONE_LABEL,
+    "cancel": CANCEL_LABEL,
+    "remove_from_bank": REMOVE_FROM_BANK_TITLE,
+    "edited_in_lms": EDITED_IN_LMS_CHIP,
+    "save_toast": SAVE_TOAST,
+}
+
 STEM_PREVIEW_LIMIT = 140
 MC_ITEM_TYPES = frozenset(
     {

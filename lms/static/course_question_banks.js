@@ -1,11 +1,13 @@
 import { api, escapeHtml } from "/static/common.js";
 
-const EMPTY_BANKS = "No banks imported yet.";
-const TOAST_COPY = "Saved.";
-const CHIP_COPY = "Edited in LMS";
-
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
+const EMPTY_BANKS = root?.dataset.emptyBanks || "No banks imported yet.";
+const EDIT_BANK = root?.dataset.editBank || "Edit bank";
+const DONE_LABEL = root?.dataset.done || "Done";
+const CANCEL_LABEL = root?.dataset.cancel || "Cancel";
+const CHIP_COPY = root?.dataset.editedInLms || "Edited in LMS";
+const TOAST_COPY = root?.dataset.saveToast || "Saved.";
 const list = document.getElementById("catalog-list");
 const detail = document.getElementById("bank-detail");
 const toast = document.getElementById("bank-toast");
@@ -203,7 +205,7 @@ function editorHtml(question, isNew) {
       ${
         !isNew
           ? `<button type="button" class="danger" data-bank-remove="${Number(question.id)}">Remove</button>`
-          : `<button type="button" class="secondary" data-bank-cancel-new>Cancel</button>`
+          : `<button type="button" class="secondary" data-bank-cancel-new>${escapeText(CANCEL_LABEL)}</button>`
       }
     </p>
   </form>`;
@@ -221,9 +223,9 @@ function paintDetail() {
   const bank = banks.find((row) => Number(row.id) === Number(selectedBankId));
   const title = String(bank?.title || "Question bank");
   const modeControls = editMode
-    ? `<button type="button" data-bank-done>Done</button>
-       <button type="button" class="secondary" data-bank-cancel>Cancel</button>`
-    : `<button type="button" data-bank-edit>Edit bank</button>`;
+    ? `<button type="button" data-bank-done>${escapeText(DONE_LABEL)}</button>
+       <button type="button" class="secondary" data-bank-cancel>${escapeText(CANCEL_LABEL)}</button>`
+    : `<button type="button" data-bank-edit>${escapeText(EDIT_BANK)}</button>`;
   const addBtn = editMode
     ? `<button type="button" class="secondary" data-bank-add>Add question</button>`
     : "";

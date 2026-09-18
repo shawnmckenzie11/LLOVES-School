@@ -16,7 +16,14 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from bank_edit import (  # noqa: E402
+    CANCEL_LABEL,
+    DONE_LABEL,
+    EDITED_IN_LMS_CHIP,
+    EDIT_BANK_LABEL,
     EMPTY_BANKS_MESSAGE,
+    REMOVE_FROM_BANK_TITLE,
+    SAVE_TOAST,
+    WONDER_COPY,
     sanitize_bank_html,
     serialize_staff_question,
     truncate_stem,
@@ -26,9 +33,27 @@ from bank_edit import (  # noqa: E402
 class BankEditHelperTests(unittest.TestCase):
     """Pure helpers used by the staff Question banks tab."""
 
-    def test_empty_copy_is_exact(self) -> None:
-        """Wonder empty-state copy is locked."""
+    def test_wonder_section_nine_copy_is_exact(self) -> None:
+        """Wonder IA §9 microcopy is locked — do not paraphrase."""
         self.assertEqual(EMPTY_BANKS_MESSAGE, "No banks imported yet.")
+        self.assertEqual(EDIT_BANK_LABEL, "Edit bank")
+        self.assertEqual(DONE_LABEL, "Done")
+        self.assertEqual(CANCEL_LABEL, "Cancel")
+        self.assertEqual(REMOVE_FROM_BANK_TITLE, "Remove from bank?")
+        self.assertEqual(EDITED_IN_LMS_CHIP, "Edited in LMS")
+        self.assertEqual(SAVE_TOAST, "Saved.")
+        self.assertEqual(
+            WONDER_COPY,
+            {
+                "empty_banks": "No banks imported yet.",
+                "edit_bank": "Edit bank",
+                "done": "Done",
+                "cancel": "Cancel",
+                "remove_from_bank": "Remove from bank?",
+                "edited_in_lms": "Edited in LMS",
+                "save_toast": "Saved.",
+            },
+        )
 
     def test_truncate_stem_adds_ellipsis(self) -> None:
         """Long stems collapse to one preview line."""

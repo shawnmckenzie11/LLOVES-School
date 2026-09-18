@@ -432,15 +432,23 @@ class CatalogTabTests(unittest.TestCase):
         self._login_staff()
 
     def test_question_banks_tab_ui_copy(self) -> None:
-        """Course tab ships Wonder copy, the modal, and one QuestionEditor script."""
+        """Course tab ships Wonder §9 copy, the modal, and one QuestionEditor."""
         page = self.client.get(
             f"/staff/class/{self.cls['id']}?tab=question-banks"
         )
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
         self.assertIn("course_question_banks.js", html)
+        self.assertIn('data-empty-banks="No banks imported yet."', html)
+        self.assertIn('data-edit-bank="Edit bank"', html)
+        self.assertIn('data-done="Done"', html)
+        self.assertIn('data-cancel="Cancel"', html)
+        self.assertIn('data-remove-from-bank="Remove from bank?"', html)
+        self.assertIn('data-edited-in-lms="Edited in LMS"', html)
+        self.assertIn('data-save-toast="Saved."', html)
         self.assertIn("Remove from bank?", html)
         self.assertNotIn("course_catalog.js", html)
+        self.assertNotIn("Imported catalog for this course", html)
         js = (LMS_DIR / "static" / "course_question_banks.js").read_text()
         self.assertIn("No banks imported yet.", js)
         self.assertIn("Edit bank", js)
