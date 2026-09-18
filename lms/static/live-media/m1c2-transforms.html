@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C2 Transformations · f(x) = a(x − h)² + k</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --target: #5eead4;
+      --parent: rgba(232, 238, 248, 0.28);
+      --panel: rgba(10, 18, 32, 0.86);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq {
+      align-self: flex-start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.95rem, 2.6vw, 1.25rem);
+    }
+    .eq strong { color: var(--gold); font-weight: 650; }
+    .eq .parent { color: var(--muted); font-size: 0.78em; }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.75rem;
+      display: none;
+      gap: 0.4rem;
+    }
+    .dock.is-on { display: grid; }
+    .dock h2 {
+      margin: 0 0 0.15rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.6rem;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span { font-family: "IBM Plex Serif", Georgia, serif; color: var(--gold); }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] { width: 100%; accent-color: var(--gold); }
+    .teacher-bar {
+      display: none;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.65rem;
+      align-items: center;
+      margin-top: 0.25rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .teacher-bar.is-on { display: flex; }
+    .teacher-bar label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.78rem;
+      color: #c5d0dc;
+    }
+    .teacher-bar button,
+    .mode-btn {
+      pointer-events: auto;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--gold);
+      border-radius: 8px;
+      padding: 0.28rem 0.65rem;
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .mode-btn.is-on {
+      background: rgba(245, 197, 24, 0.16);
+    }
+    .mint-btn {
+      margin-left: auto;
+      border-color: var(--gold);
+      background: rgba(245, 197, 24, 0.18);
+    }
+    .dock.is-student .teacher-bar { display: none !important; }
+  </style>
+</head>
+<body>
+  <canvas id="stage" aria-label="Vertex-form transformations of y = x squared"></canvas>
+  <div class="hud">
+    <p class="eq" id="eq">f(x) = <strong>x²</strong> <span class="parent">parent</span></p>
+    <section class="dock" id="dock">
+      <h2 id="dock-title">Teacher controls</h2>
+      <label class="slide"> <span>a</span>
+        <input id="p-a" type="range" min="-5" max="5" step="0.05" value="1">
+        <output id="o-a">1.00</output>
+      </label>
+      <label class="slide"> <span>h</span>
+        <input id="p-h" type="range" min="-8" max="8" step="0.1" value="0">
+        <output id="o-h">0.00</output>
+      </label>
+      <label class="slide"> <span>k</span>
+        <input id="p-k" type="range" min="-8" max="8" step="0.1" value="0">
+        <output id="o-k">0.00</output>
+      </label>
+      <div class="teacher-bar" id="teacher-bar">
+        <label for="t-random"><input id="t-random" type="checkbox"> Random</label>
+        <button type="button" class="mode-btn is-on" id="mode-graph" data-mode="graph">Show graph</button>
+        <button type="button" class="mode-btn" id="mode-equation" data-mode="equation">Show equation</button>
+        <button type="button" class="mint-btn" id="mint">Make match challenge</button>
+      </div>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const TARGET = "#5eead4";
+  const PARENT = "rgba(232, 238, 248, 0.32)";
+  const canvas = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  const eqEl = document.getElementById("eq");
+  const dock = document.getElementById("dock");
+  const dockTitle = document.getElementById("dock-title");
+  const teacherBar = document.getElementById("teacher-bar");
+  const inputA = document.getElementById("p-a");
+  const inputH = document.getElementById("p-h");
+  const inputK = document.getElementById("p-k");
+  const outA = document.getElementById("o-a");
+  const outH = document.getElementById("o-h");
+  const outK = document.getElementById("o-k");
+  const randomBox = document.getElementById("t-random");
+  const mintBtn = document.getElementById("mint");
+  const modeGraph = document.getElementById("mode-graph");
+  const modeEquation = document.getElementById("mode-equation");
+
+  const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
+  const embedded = window.parent !== window;
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
+
+  const state = {
+    a: 1,
+    h: 0,
+    k: 0,
+    targetMode: "graph",
+    artifact: null,
+    studentPlay: false,
+  };
+
+  /**
+   * Format a slider readout to two decimals.
+   * @param {number} n
+   * @returns {string}
+   */
+  function fmt(n) {
+    return (Math.round(n * 100) / 100).toFixed(2);
+  }
+
+  /**
+   * Vertex-form value.
+   * @param {number} x
+   * @param {number} a
+   * @param {number} h
+   * @param {number} k
+   * @returns {number}
+   */
+  function yOf(x, a, h, k) {
+    const d = x - h;
+    return a * d * d + k;
+  }
+
+  /**
+   * Pretty-print f(x)=a(x−h)²+k for the HUD.
+   * @param {number} a
+   * @param {number} h
+   * @param {number} k
+   * @returns {string}
+   */
+  function equationHtml(a, h, k) {
+    const aBit = Math.abs(a - 1) < 0.001 ? "" : (Math.abs(a + 1) < 0.001 ? "−" : fmt(a));
+    let core;
+    if (Math.abs(h) < 0.001) {
+      core = aBit + "x²";
+    } else {
+      const inner = h > 0 ? ("x−" + fmt(Math.abs(h))) : ("x+" + fmt(Math.abs(h)));
+      core = aBit + "(" + inner + ")²";
+    }
+    let tail = "";
+    if (Math.abs(k) > 0.001) {
+      tail = (k > 0 ? "+" : "−") + fmt(Math.abs(k));
+    }
+    return "f(x) = <strong>" + core + tail + "</strong>";
+  }
+
+  /**
+   * Sync slider chrome from state.
+   */
+  function syncOutputs() {
+    inputA.value = String(state.a);
+    inputH.value = String(state.h);
+    inputK.value = String(state.k);
+    outA.textContent = fmt(state.a);
+    outH.textContent = fmt(state.h);
+    outK.textContent = fmt(state.k);
+    modeGraph.classList.toggle("is-on", state.targetMode === "graph");
+    modeEquation.classList.toggle("is-on", state.targetMode === "equation");
+    if (teacherMode) {
+      eqEl.innerHTML = equationHtml(state.a, state.h, state.k) +
+        ' <span class="parent">parent f(x)=x²</span>';
+    } else if (state.artifact && state.artifact.target_mode === "equation") {
+      eqEl.innerHTML = equationHtml(state.a, state.h, state.k);
+    } else {
+      eqEl.innerHTML = equationHtml(state.a, state.h, state.k) +
+        ' <span class="parent">your curve</span>';
+    }
+    dock.classList.add("is-on");
+    dock.classList.toggle("is-student", !teacherMode);
+    teacherBar.classList.toggle("is-on", teacherMode);
+    dockTitle.textContent = teacherMode ? "Teacher controls" : "Your sliders";
+    const play = teacherMode || Boolean(state.studentPlay);
+    inputA.disabled = !play;
+    inputH.disabled = !play;
+    inputK.disabled = !play;
+  }
+
+  /**
+   * Map math (x,y) onto the canvas.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} w
+   * @param {number} ht
+   * @returns {{x:number,y:number}}
+   */
+  function toPx(x, y, w, ht) {
+    const scale = Math.min(w, ht) / 22;
+    return { x: w / 2 + x * scale, y: ht / 2 - y * scale };
+  }
+
+  /**
+   * Stroke one parabola.
+   * @param {CanvasRenderingContext2D} g
+   * @param {number} a
+   * @param {number} h
+   * @param {number} k
+   * @param {string} color
+   * @param {number} width
+   * @param {number} w
+   * @param {number} ht
+   */
+  function strokeCurve(g, a, h, k, color, width, w, ht) {
+    g.beginPath();
+    let started = false;
+    for (let x = -12; x <= 12; x += 0.08) {
+      const y = yOf(x, a, h, k);
+      if (y < -12 || y > 12) {
+        started = false;
+        continue;
+      }
+      const p = toPx(x, y, w, ht);
+      if (!started) {
+        g.moveTo(p.x, p.y);
+        started = true;
+      } else {
+        g.lineTo(p.x, p.y);
+      }
+    }
+    g.strokeStyle = color;
+    g.lineWidth = width;
+    g.stroke();
+  }
+
+  /**
+   * Draw axes + parent + optional frozen target + live curve.
+   */
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const ht = canvas.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(ht * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, ht);
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    const origin = toPx(0, 0, w, ht);
+    ctx.beginPath();
+    ctx.moveTo(0, origin.y);
+    ctx.lineTo(w, origin.y);
+    ctx.moveTo(origin.x, 0);
+    ctx.lineTo(origin.x, ht);
+    ctx.stroke();
+    strokeCurve(ctx, 1, 0, 0, PARENT, 1.6, w, ht);
+    const art = state.artifact;
+    const showTarget =
+      art &&
+      art.snapshot &&
+      (teacherMode || art.target_mode === "graph");
+    if (showTarget) {
+      strokeCurve(
+        ctx,
+        art.snapshot.a,
+        art.snapshot.h,
+        art.snapshot.k,
+        TARGET,
+        2.4,
+        w,
+        ht
+      );
+    }
+    strokeCurve(ctx, state.a, state.h, state.k, GOLD, 3, w, ht);
+  }
+
+  /**
+   * Current slider snapshot.
+   * @returns {{a:number,h:number,k:number}}
+   */
+  function snapshot() {
+    return { a: state.a, h: state.h, k: state.k };
+  }
+
+  /**
+   * Teacher sliders stay local — students never see live teacher motion.
+   * Student sliders post a preview for the hot/cold meters.
+   */
+  function notifyParent() {
+    if (!embedded || teacherMode) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-m1c2-transforms",
+          type: "artifact-preview",
+          sliders: snapshot(),
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Read sliders from the dock.
+   */
+  function readSliders() {
+    state.a = Number(inputA.value);
+    state.h = Number(inputH.value);
+    state.k = Number(inputK.value);
+    if (Math.abs(state.a) < 0.05) state.a = state.a < 0 ? -0.05 : 0.05;
+    syncOutputs();
+    draw();
+    notifyParent();
+  }
+
+  /**
+   * Randomize teacher sliders (hidden from students until mint).
+   */
+  function randomize() {
+    let a = 0;
+    while (Math.abs(a) < 0.4) {
+      a = Math.round((Math.random() * 10 - 5) * 20) / 20;
+    }
+    state.a = a;
+    state.h = Math.round((Math.random() * 16 - 8) * 10) / 10;
+    state.k = Math.round((Math.random() * 16 - 8) * 10) / 10;
+    syncOutputs();
+    draw();
+  }
+
+  /**
+   * Mint the Artifact question on the current live-class page.
+   */
+  function mintChallenge() {
+    if (!teacherMode) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-m1c2-transforms",
+          type: "artifact-mint",
+          artifact_id: "mcf3m-m1-c2-transformations",
+          parent: { kind: "quadratic", formula: "x^2", label: "f(x)=x²" },
+          snapshot: snapshot(),
+          target_mode: state.targetMode,
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  ["input", "change"].forEach((evt) => {
+    inputA.addEventListener(evt, readSliders);
+    inputH.addEventListener(evt, readSliders);
+    inputK.addEventListener(evt, readSliders);
+  });
+  randomBox.addEventListener("change", () => {
+    if (randomBox.checked) randomize();
+  });
+  modeGraph.addEventListener("click", () => {
+    state.targetMode = "graph";
+    syncOutputs();
+    draw();
+  });
+  modeEquation.addEventListener("click", () => {
+    state.targetMode = "equation";
+    syncOutputs();
+    draw();
+  });
+  mintBtn.addEventListener("click", mintChallenge);
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "live-media-state") return;
+    if (data.source !== "lloves-student-home" && data.source !== "lloves-staff-live") return;
+    if (data.artifact && typeof data.artifact === "object") {
+      state.artifact = data.artifact;
+      state.studentPlay = !teacherMode;
+      if (!teacherMode) {
+        state.a = 1;
+        state.h = 0;
+        state.k = 0;
+      } else if (data.artifact.target_mode) {
+        state.targetMode = data.artifact.target_mode;
+      }
+    }
+    if (!teacherMode && typeof data.student_play === "boolean") {
+      state.studentPlay = data.student_play;
+    }
+    syncOutputs();
+    draw();
+    notifyParent();
+  });
+
+  window.addEventListener("resize", draw);
+  dock.classList.add("is-on");
+  if (!teacherMode) {
+    dock.classList.add("is-student");
+    state.studentPlay = false;
+  }
+  syncOutputs();
+  draw();
+})();
+  </script>
+</body>
+</html>

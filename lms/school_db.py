@@ -14,6 +14,16 @@ from typing import Any
 
 try:
     from codes import generate_live_access_code
+    from artifact import (
+        ARTIFACT_KIND,
+        ARTIFACT_SLIDE_BASE,
+        C2_TRANSFORM_MEDIA_URL,
+        TRANSFORMATIONS_ARTIFACT_ID,
+        is_artifact_payload,
+        public_artifact_media,
+        student_artifact_payload,
+        transformations_prompt_payload,
+    )
     from live_media import (
         apply_active_media_update,
         challenge_clears_active_media,
@@ -22,6 +32,7 @@ try:
         cons_catalog,
         get_cons_item,
         is_c1_real_slice,
+        is_c2_transform,
         is_cons_payload,
         public_active_media_payload,
         staff_cons_prompt_payload,
@@ -86,6 +97,16 @@ try:
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
+    from lms.artifact import (
+        ARTIFACT_KIND,
+        ARTIFACT_SLIDE_BASE,
+        C2_TRANSFORM_MEDIA_URL,
+        TRANSFORMATIONS_ARTIFACT_ID,
+        is_artifact_payload,
+        public_artifact_media,
+        student_artifact_payload,
+        transformations_prompt_payload,
+    )
     from lms.live_media import (
         apply_active_media_update,
         challenge_clears_active_media,
@@ -94,6 +115,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         cons_catalog,
         get_cons_item,
         is_c1_real_slice,
+        is_c2_transform,
         is_cons_payload,
         public_active_media_payload,
         staff_cons_prompt_payload,
@@ -5862,7 +5884,7 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             slide_index: Zero-based slide index from the future slides plugin.
-            kind: ``mc``, ``numeric``, ``share``, ``draw``, or ``idle``.
+            kind: ``mc``, ``numeric``, ``share``, ``draw``, ``artifact``, or ``idle``.
             payload: Kind-specific JSON (choices, prompt text, etc.).
             activate: When True, deactivate other prompts for this session.
 
@@ -5877,7 +5899,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         kind_norm = (kind or "idle").strip().lower()
-        if kind_norm not in {"mc", "numeric", "share", "draw", "idle"}:
+        if kind_norm not in {"mc", "numeric", "share", "draw", "artifact", "idle"}:
             raise ValueError(f"unsupported prompt kind: {kind}")
         if is_cons_payload(payload):
             slot = self.session_live_slot(session_id)
@@ -5946,6 +5968,74 @@ class SchoolDB(LovesDB):
                 (int(session_id), int(slide_index)),
             ).fetchone()
         return self._prompt_row_to_dict(row) if row else {}
+
+    def mint_live_artifact(
+        self,
+        session_id: int,
+        *,
+        artifact_id: str,
+        snapshot: Any,
+        target_mode: Any = "graph",
+        parent: dict[str, Any] | None = None,
+        slide_index: int | None = None,
+    ) -> dict[str, Any]:
+        """Mint an Artifact question on the current live-class page.
+
+        Persists the parent + slider snapshot on the prompt (deck page) and
+        freezes the target onto C2 active media so student graph mode is
+        disconnected from teacher sliders. Does not award points.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            artifact_id: Registered Artifact id.
+            snapshot: Teacher slider values at mint time.
+            target_mode: ``graph`` or ``equation``.
+            parent: Optional parent-function override.
+            slide_index: Page index; defaults to the Artifact page.
+
+        Returns:
+            ``{prompt, active_media}``.
+
+        Raises:
+            KeyError: If the live session is missing.
+            ValueError: Unknown artifact or invalid snapshot.
+        """
+        if self.get_live_session(session_id) is None:
+            raise KeyError(f"live session {session_id}")
+        wanted = str(artifact_id or "").strip()
+        if wanted and wanted != TRANSFORMATIONS_ARTIFACT_ID:
+            raise ValueError(f"unknown artifact: {wanted}")
+        page = ARTIFACT_SLIDE_BASE if slide_index is None else int(slide_index)
+        payload = transformations_prompt_payload(
+            snapshot=snapshot,
+            target_mode=target_mode,
+            parent=parent,
+            slide_index=page,
+        )
+        frozen = public_artifact_media(
+            {
+                "artifact_id": payload["artifact_id"],
+                "parent": payload["parent"],
+                "snapshot": payload["snapshot"],
+                "target_mode": payload["target_mode"],
+            }
+        )
+        media = self.set_live_session_active_media(
+            session_id,
+            challenge="C2",
+            url=C2_TRANSFORM_MEDIA_URL,
+            artifact=frozen,
+            merge=False,
+        )
+        prompt = self.set_live_session_prompt(
+            session_id,
+            slide_index=page,
+            kind=ARTIFACT_KIND,
+            payload=payload,
+            activate=True,
+        )
+        return {"prompt": prompt, "active_media": media}
+
 
     def clear_active_live_prompt(self, session_id: int) -> None:
         """Deactivate every prompt for a live session (idle shell).
@@ -6837,7 +6927,10 @@ class SchoolDB(LovesDB):
             )
             if fragment:
                 my_response["feedback"] = fragment
-        cleaned = strip_teacher_prompt_fields(raw_payload)
+        if is_artifact_payload(raw_payload):
+            cleaned = student_artifact_payload(raw_payload)
+        else:
+            cleaned = strip_teacher_prompt_fields(raw_payload)
         if is_teams_spark_payload(raw_payload):
             ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
             revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))
@@ -6913,6 +7006,7 @@ class SchoolDB(LovesDB):
         cons_item: Any = None,
         toast: Any = None,
         toast_key: Any = None,
+        artifact: Any = None,
         allow_url_swap: bool = True,
         merge: bool = False,
     ) -> dict[str, Any] | None:
@@ -6946,7 +7040,8 @@ class SchoolDB(LovesDB):
             unlock_flags: Partial L0–L4 flags (delight pass).
             answers: Optional engagement choices for the current reveal.
             params: Optional ``{a,b,c}`` for y = ax^2 + bx + c.
-            challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 clear the blob (do not seed).
+            challenge: ``C1`` / ``C2`` / ``C3``. C3 clears the blob. C2 seeds
+            the Transformations iframe; C2 CONS stays on ``text_ride``.
             cons_item: Post-freeze CONS-1…5 id, or empty to clear.
             toast: Optional Wonder toast overlay.
             toast_key: Optional toast identity.
@@ -7022,12 +7117,14 @@ class SchoolDB(LovesDB):
             kwargs["toast"] = toast
         if toast_key is not None:
             kwargs["toast_key"] = toast_key
+        if artifact is not None:
+            kwargs["artifact"] = artifact
         slot = (
             normalize_live_slot(challenge)
             if challenge is not None
             else self.session_live_slot(session_id)
         )
-        text_only = slot in {"C2", "C3"}
+        text_only = slot == "C3"
         if text_only:
             payload = None
             if challenge is not None or current is not None:
@@ -7070,6 +7167,53 @@ class SchoolDB(LovesDB):
                 )
             self._sync_cons_prompt(session_id, None)
             return None
+        if slot == "C2":
+            media_kwargs = {
+                key: value
+                for key, value in kwargs.items()
+                if key not in {"frozen", "cons_item"}
+            }
+            media_kwargs["challenge"] = "C2"
+            if not merge or current is None or not is_c2_transform(current):
+                media_kwargs["url"] = media_kwargs.get("url") or C2_TRANSFORM_MEDIA_URL
+                media_kwargs.pop("clear", None)
+            payload = apply_active_media_update(current, **media_kwargs)
+            encoded = json.dumps(payload) if payload else None
+            with self._lock:
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET active_media_json = ?
+                    WHERE id = ?
+                    """,
+                    (encoded, int(session_id)),
+                )
+                self.conn.commit()
+            self._persist_live_slot(session_id, slot)
+            waiting_room = not self._session_left_waiting_room(session_id)
+            if waiting_room:
+                self.ensure_waiting_room_minds_on(session_id)
+            elif challenge is not None:
+                teacher = self.live_session_teacher_state_payload(session_id)
+                stage = str(teacher.get("stage") or "")
+                frames = teacher.get("student_frames") or {}
+                if stage in {"round", "play"} or bool(frames.get("media")):
+                    self.clear_session_warmups(session_id)
+            if (
+                frozen is not None
+                or cons_item is not None
+                or toast is not None
+                or toast_key is not None
+            ):
+                self._apply_text_ride_update(
+                    session_id,
+                    frozen=frozen,
+                    cons_item=cons_item,
+                    toast=toast,
+                    toast_key=toast_key,
+                )
+            self._sync_cons_prompt(session_id, None)
+            return payload
         payload = apply_active_media_update(current, **kwargs)
         encoded = json.dumps(payload) if payload else None
         with self._lock:

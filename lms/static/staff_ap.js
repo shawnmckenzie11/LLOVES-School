@@ -75,8 +75,10 @@ let sessionPollMs = 0;
 /** @type {any} */
 let lastMcTally = null;
 let lastMcBindKey = "";
-/** C2/C3 are text-only: never stored in active_media_json. */
+/** C3 is text-only (no media). C2 CONS still uses text_ride. */
 let textOnlyChallenge = "";
+/** C2/C3 CONS ride (freeze + CONS-1…3). */
+let textRideSlot = "";
 let sessionPresentIds = new Set();
 /** Unmatched guests currently present in the live session. */
 let sessionGuests = [];
@@ -258,7 +260,8 @@ function adoptTeacherState(next) {
   teacherState.live_module = String(
     next.live_module || teacherState.live_module || "M1"
   ).toUpperCase();
-  textOnlyChallenge = slot === "C2" || slot === "C3" ? slot : "";
+  textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
+  textOnlyChallenge = slot === "C3" ? slot : "";
   REACHED_STAGES.add(teacherState.stage);
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
@@ -625,16 +628,17 @@ function paintLivePackStrip() {
 }
 
 function paintLiveSlotPicks() {
-  const slot = String(teacherState.live_slot || textOnlyChallenge || "C1").toUpperCase();
+  const slot = String(teacherState.live_slot || textRideSlot || textOnlyChallenge || "C1").toUpperCase();
   document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => {
     const on = btn.getAttribute("data-live-slot") === slot;
     btn.classList.toggle("is-active", on);
   });
   paintLivePackStrip();
-  const textOnly = slot === "C2" || slot === "C3";
+  const textOnly = slot === "C3";
+  textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
   textOnlyChallenge = textOnly ? slot : "";
   const rideBox = $("text-ride-controls");
-  if (rideBox) rideBox.hidden = !textOnly;
+  if (rideBox) rideBox.hidden = !(slot === "C2" || slot === "C3");
   const preview = $("ap-media-preview");
   if (preview) {
     preview.hidden = textOnly;
@@ -1210,6 +1214,7 @@ function staffLiveMediaState(media, params) {
     frozen: Boolean(row.frozen),
     unlock_flags: row.unlock_flags || {},
     params: params || row.params || { a: 1, b: 0, c: 0 },
+    artifact: row.artifact || null,
     stem: row.stem || SEED_MEDIA_STEM,
     entry_chip: row.entry_chip || "",
   };
@@ -1255,7 +1260,7 @@ function paintActiveMediaStatus(media) {
  */
 async function ensureC1MediaSeeded() {
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || mediaSeedInFlight || textOnlyChallenge) return;
+  if (!sessionId || mediaSeedInFlight || textOnlyChallenge || textRideSlot === "C2") return;
   mediaSeedInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/active-media`);
@@ -1316,7 +1321,41 @@ async function postActiveMedia(body) {
 }
 
 /**
- * Bind iframe → session patches. All teacher tools live in the Real-slice frame.
+ * Mint an Artifact question from an in-media button.
+ * @param {Record<string, unknown>} data
+ */
+async function mintArtifactFromMedia(data) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) {
+    await ensureLiveSessionMinted();
+  }
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) throw new Error("Start the live class before minting an Artifact.");
+  const res = await api(`/api/live-sessions/${id}/artifacts`, {
+    method: "POST",
+    body: JSON.stringify({
+      artifact_id: data.artifact_id,
+      snapshot: data.snapshot,
+      target_mode: data.target_mode || "graph",
+      parent: data.parent || null,
+    }),
+  });
+  paintActiveMediaStatus(res.active_media);
+  if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+  const status = $("question-artifact-status");
+  const flag = $("question-artifact-flag");
+  if (status) {
+    status.textContent = "Artifact minted on the current page. Students match the target.";
+  }
+  if (flag) {
+    flag.hidden = false;
+    flag.textContent = "Artifact · Transformations";
+  }
+  return res;
+}
+
+/**
+ * Bind iframe → session patches. Artifact mint and C1 peel tools live in-frame.
  */
 function bindActiveMediaControls() {
   paintActiveMediaStatus(null);
@@ -1324,6 +1363,10 @@ function bindActiveMediaControls() {
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
+    if (data && data.source === "lloves-m1c2-transforms" && data.type === "artifact-mint") {
+      mintArtifactFromMedia(data).catch((err) => showError("#ap-overlay-error", err));
+      return;
+    }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
     const body = { params: data.params || {} };
     if (data.param_push && typeof data.param_push === "object") {
@@ -4238,7 +4281,8 @@ function applyLivePackChoice(moduleId, slot) {
   const liveSlot = String(slot || "C1").toUpperCase();
   teacherState.live_module = module;
   teacherState.live_slot = liveSlot;
-  textOnlyChallenge = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
+  textRideSlot = liveSlot === "C2" || liveSlot === "C3" ? liveSlot : "";
+  textOnlyChallenge = liveSlot === "C3" ? liveSlot : "";
   const sessionId = liveSessionId || readLiveSessionId();
   const write = sessionId
     ? patchTeacherState({ live_module: module, live_slot: liveSlot }).then(() =>
@@ -4276,7 +4320,7 @@ $("live-class-select")?.addEventListener("change", () => {
 });
 
 $("text-ride-freeze")?.addEventListener("click", () => {
-  if (!textOnlyChallenge) return;
+  if (!textRideSlot) return;
   const frozen = !Boolean((teacherState.text_ride || {}).frozen);
   postActiveMedia({ frozen })
     .then(() => paintLiveSlotPicks())
@@ -4285,9 +4329,9 @@ $("text-ride-freeze")?.addEventListener("click", () => {
 
 document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    if (!textOnlyChallenge) return;
+    if (!textRideSlot) return;
     const item = btn.getAttribute("data-cons-item") || "";
-    postActiveMedia({ cons_item: `${textOnlyChallenge}-${item}` })
+    postActiveMedia({ cons_item: `${textRideSlot}-${item}` })
       .then(() => paintLiveSlotPicks())
       .catch((err) => showError("#ap-overlay-error", err));
   });

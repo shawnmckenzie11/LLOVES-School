@@ -66,6 +66,8 @@ let lastStateSeq = -1;
 let lastSummarySig = "";
 /** @type {number} */
 let toastHideTimer = 0;
+/** @type {{a:number,h:number,k:number}} */
+let lastArtifactSliders = { a: 1, h: 0, k: 0 };
 const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
 const MEET_CUE_COPY = {
   "cue.meet_open": "Meet your team",
@@ -713,6 +715,8 @@ function postMediaState(media) {
         frozen: Boolean(media.frozen),
         unlock_flags: media.unlock_flags || {},
         params: media.params || { a: 1, b: 0, c: 0 },
+        artifact: media.artifact || null,
+        student_play: Boolean(media.artifact),
         stem: media.stem || "",
         caption: media.caption || "",
         entry_chip: media.chip || media.entry_chip || "",
@@ -825,6 +829,7 @@ function paintMedia(payload) {
     unlock_flags: media.unlock_flags || {},
     answers: media.answers || [],
     params: media.params || {},
+    artifact: media.artifact || null,
     entry_chip: media.entry_chip || "",
     chip: media.chip || "",
     caption: media.caption || "",
@@ -1123,6 +1128,31 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
         lockChoices ? " disabled" : ""
       }>Submit</button>
     `;
+  } else if (kind === "artifact") {
+    const mode = String(data.target_mode || "graph");
+    const equation = String(data.equation || "").trim();
+    const keys = Array.isArray(data.slider_keys) ? data.slider_keys : ["a", "h", "k"];
+    const snapshot = data.snapshot && typeof data.snapshot === "object" ? data.snapshot : {};
+    const meters = keys
+      .map((key) => {
+        const target = Number(snapshot[key] ?? 0);
+        return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+          <span class="hot-cold-key">${escapeText(key)}</span>
+          <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
+        </div>`;
+      })
+      .join("");
+    const eqBlock =
+      mode === "equation" && equation
+        ? `<p class="artifact-equation">${escapeText(equation)}</p>`
+        : "";
+    controls = `
+      ${eqBlock}
+      <div class="hot-cold-meters" id="artifact-meters">${meters}</div>
+      <button type="button" class="prompt-submit" id="prompt-artifact-submit"${
+        lockChoices ? " disabled" : ""
+      }>Submit Answer</button>
+    `;
   } else if (kind === "share" || kind === "draw") {
     const placeholder = escapeText(data.placeholder || "Type a short note…");
     const shared = escapeText(
@@ -1173,6 +1203,9 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   if (!picked && !lockChoices && !studentMcSummary(payload) && !studentPollClosed(payload)) {
     wirePromptControls(prompt);
   }
+  if (kind === "artifact") {
+    applyArtifactPreview(lastArtifactSliders);
+  }
 }
 
 /**
@@ -1203,6 +1236,50 @@ function wirePromptControls(prompt) {
       submitResponse(prompt.id, { text });
     });
   }
+  const artifactSubmit = root.querySelector("#prompt-artifact-submit");
+  if (artifactSubmit) {
+    artifactSubmit.addEventListener("click", () => {
+      submitResponse(prompt.id, { params: { ...lastArtifactSliders } });
+    });
+  }
+}
+
+/**
+ * Live hot/cold chrome for one Artifact slider. Silent — no chatter.
+ * @param {string} key
+ * @param {number} student
+ * @param {number} target
+ */
+function paintHotColdMeter(key, student, target) {
+  const row = promptShell && promptShell.querySelector(`[data-meter="${key}"]`);
+  if (!row) return;
+  const fill = row.querySelector(".hot-cold-fill");
+  if (!(fill instanceof HTMLElement)) return;
+  const allowed = 0.1 * Math.max(Math.abs(target), 1);
+  const heat = Math.max(0, Math.min(1, 1 - Math.abs(student - target) / (allowed * 6)));
+  fill.style.width = `${Math.round(heat * 100)}%`;
+  row.classList.toggle("is-hot", heat > 0.72);
+  row.classList.toggle("is-cold", heat < 0.28);
+}
+
+/**
+ * Apply a student slider preview to the meters under the question.
+ * @param {{a?:number,h?:number,k?:number}} sliders
+ */
+function applyArtifactPreview(sliders) {
+  if (!sliders || typeof sliders !== "object") return;
+  lastArtifactSliders = {
+    a: Number(sliders.a ?? lastArtifactSliders.a),
+    h: Number(sliders.h ?? lastArtifactSliders.h),
+    k: Number(sliders.k ?? lastArtifactSliders.k),
+  };
+  if (!promptShell) return;
+  promptShell.querySelectorAll("[data-meter]").forEach((row) => {
+    const key = row.getAttribute("data-meter") || "";
+    const target = Number(row.getAttribute("data-target") || 0);
+    if (!key) return;
+    paintHotColdMeter(key, Number(lastArtifactSliders[key] ?? 0), target);
+  });
 }
 
 /**
@@ -1430,6 +1507,15 @@ if (saveWorkBtn) {
     saveStudentWork();
   });
 }
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  const data = event.data;
+  if (!data || data.source !== "lloves-m1c2-transforms") return;
+  if (data.type === "artifact-preview") {
+    applyArtifactPreview(data.sliders || {});
+  }
+});
 
 bindStudentCanvas();
 tick();

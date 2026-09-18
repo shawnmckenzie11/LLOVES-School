@@ -4,8 +4,9 @@ One current media object per ``live_class_sessions`` row (JSON column), not a
 parallel session table, not a live-prompt kind, and not a FlagStrip. Teacher
 set/swap/clear plus mid-session peels (``reveal_axes`` / L0–L4 /
 ``reveal_lateral`` / ``allow_3d_limited`` / view tools) share this blob.
-CONS-1…5 unlock on ``frozen: true`` here. C2/C3 never seed
-``active_media_json``.
+CONS-1…5 unlock on ``frozen: true`` here. C3 never seeds
+``active_media_json``. C2 seeds the Transformations iframe; teacher
+sliders stay iframe-local until an Artifact mint freezes a snapshot.
 """
 
 from __future__ import annotations
@@ -16,12 +17,22 @@ from typing import Any
 from urllib.parse import urlparse
 
 try:
+    from artifact import (
+        C2_TRANSFORM_MEDIA_URL,
+        default_c2_transform_media,
+        public_artifact_media,
+    )
     from quick_hitter import (
         QUICK_HITTER_ARTIFACT_ID,
         RIDE_CONS,
         quick_hitter_packaging,
     )
 except ImportError:  # ``python3 lms/app.py`` package import
+    from lms.artifact import (
+        C2_TRANSFORM_MEDIA_URL,
+        default_c2_transform_media,
+        public_artifact_media,
+    )
     from lms.quick_hitter import (
         QUICK_HITTER_ARTIFACT_ID,
         RIDE_CONS,
@@ -82,6 +93,11 @@ C1_CONS_SLIDE_BASE = 900
 C2_CONS_SLIDE_BASE = 920
 C3_CONS_SLIDE_BASE = 930
 C2_C3_CHALLENGES = frozenset({"C2", "C3"})
+# C3 stays text-only. C2 now seeds transform media (Artifact).
+TEXT_ONLY_CHALLENGES = frozenset({"C3"})
+ALLOWED_SEED_MEDIA_URLS = frozenset(
+    {DEFAULT_LIVE_MEDIA_URL, C2_TRANSFORM_MEDIA_URL}
+)
 CONS_PACK_IDS = {
     "C1": C1_CONS_PACK_ID,
     "C2": C2_CONS_PACK_ID,
@@ -121,6 +137,8 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
     """
     path = normalize_active_media_url(url or DEFAULT_LIVE_MEDIA_URL)
     assert path is not None
+    if path == C2_TRANSFORM_MEDIA_URL:
+        return default_c2_transform_media()
     return {
         "url": path,
         "title": DEFAULT_LIVE_MEDIA_TITLE,
@@ -679,18 +697,30 @@ def is_c1_real_slice(media: dict[str, Any] | None) -> bool:
     return url == DEFAULT_LIVE_MEDIA_URL or challenge == "C1"
 
 
-def challenge_clears_active_media(raw: Any) -> bool:
-    """True when C2/C3 is posted: do **not** seed ``active_media_json``.
+def is_c2_transform(media: dict[str, Any] | None) -> bool:
+    """True when the session is on the C2 Transformations page.
 
-    Live-Class Designer: C2/C3 are text-only (empty ArtifactViewer). C1 peels
-    (``reveal_axes`` / L0–L4 / ``reveal_lateral`` / ``allow_3d_limited`` /
-    view tools / ``frozen``) live only on the C1 Real-slice blob.
+    Args:
+        media: Public active-media payload.
+    """
+    if not media or not isinstance(media, dict):
+        return False
+    url = str(media.get("url") or "").strip()
+    challenge = str(media.get("challenge") or "").strip().upper()
+    return url == C2_TRANSFORM_MEDIA_URL or challenge == "C2"
+
+
+def challenge_clears_active_media(raw: Any) -> bool:
+    """True when C3 is posted: do **not** seed ``active_media_json``.
+
+    C3 stays text-only (empty ArtifactViewer). C2 seeds the Transformations
+    iframe. C1 peels stay on the Real-slice blob.
 
     Args:
         raw: Posted challenge id.
     """
     try:
-        return normalize_challenge(raw) in C2_C3_CHALLENGES
+        return normalize_challenge(raw) in TEXT_ONLY_CHALLENGES
     except ValueError:
         return False
 
@@ -903,8 +933,9 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
 
     Lateral peel sets ``chip`` to ``DEFAULT_LIVE_MEDIA_LATERAL_CHIP``; the stored
     ``entry_chip`` and stem stay put. Encore URL is always present on C1; student
-    chrome must not show it until ``frozen``. C2/C3 never seed this blob
-    (empty URL is treated as cleared, not a challenge stub).
+    chrome must not show it until ``frozen``. C3 never seeds this blob
+    (empty URL is treated as cleared, not a challenge stub). C2 seeds
+    Transformations media without leaking live teacher sliders.
 
     Args:
         stored: Dict from ``active_media_json``, possibly partial.
@@ -918,6 +949,8 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
     url = str(stored.get("url") or "").strip()
     if url == DEFAULT_LIVE_MEDIA_URL:
         challenge = "C1"
+    elif url == C2_TRANSFORM_MEDIA_URL:
+        challenge = "C2"
     if not url:
         return None
     params = stored.get("params")
@@ -994,7 +1027,15 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         "unlock_flags": flags,
         "answers": answer_list,
         "params": coeffs,
-        "challenge": challenge or ("C1" if url == DEFAULT_LIVE_MEDIA_URL else ""),
+        "challenge": challenge
+        or (
+            "C1"
+            if url == DEFAULT_LIVE_MEDIA_URL
+            else "C2"
+            if url == C2_TRANSFORM_MEDIA_URL
+            else ""
+        ),
+        "artifact": public_artifact_media(stored.get("artifact")),
         "cons_item": cons_item,
         "toast": str(stored.get("toast") or ""),
         "toast_key": str(stored.get("toast_key") or ""),
@@ -1032,6 +1073,7 @@ def apply_active_media_update(
     cons_item: Any = _UNSET,
     toast: Any = _UNSET,
     toast_key: Any = _UNSET,
+    artifact: Any = _UNSET,
     allow_url_swap: bool = True,
     updated_at: str | None = None,
 ) -> dict[str, Any] | None:
@@ -1066,7 +1108,8 @@ def apply_active_media_update(
         params: Optional ``{a,b,c}`` overlay (merged onto current/defaults).
         param_push: Optional ``{a,b,c}`` student-view push flags.
         param_frozen: Optional ``{a,b,c}`` freeze flags (locked until pushed).
-        challenge: ``C1`` / ``C2`` / ``C3``. C2/C3 **clear** the blob (do not seed).
+        challenge: ``C1`` / ``C2`` / ``C3``. C3 **clears** the blob. C2 seeds
+            the Transformations iframe.
         cons_item: Post-freeze CONS-1…5 id, or empty to clear.
         toast: Optional explicit Wonder toast overlay.
         toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` /
@@ -1085,6 +1128,12 @@ def apply_active_media_update(
         return None
     if challenge is not _UNSET and challenge_clears_active_media(challenge):
         return None
+    if challenge is not _UNSET:
+        try:
+            if normalize_challenge(challenge) == "C2" and url is _UNSET:
+                url = C2_TRANSFORM_MEDIA_URL
+        except ValueError:
+            pass
     url_given = url is not _UNSET
     persist_keys = (
         "title",
@@ -1108,6 +1157,8 @@ def apply_active_media_update(
         "unlock_flags",
         "answers",
         "params",
+        "transform",
+        "artifact",
         "challenge",
         "cons_item",
         "toast",
@@ -1117,10 +1168,13 @@ def apply_active_media_update(
         normalized = normalize_active_media_url(url)
         if normalized is None:
             return None
-        if not allow_url_swap and normalized != DEFAULT_LIVE_MEDIA_URL:
-            raise ValueError("Production seed-locks the C1 Real-slice URL.")
+        if not allow_url_swap and normalized not in ALLOWED_SEED_MEDIA_URLS:
+            raise ValueError("Production seed-locks registered live-media URLs.")
         seed = default_seed_media(url=normalized)
-        if normalized != DEFAULT_LIVE_MEDIA_URL:
+        if normalized == C2_TRANSFORM_MEDIA_URL:
+            seed["challenge"] = "C2"
+            seed["cons_item"] = ""
+        elif normalized != DEFAULT_LIVE_MEDIA_URL:
             seed["title"] = ""
             seed["stem"] = ""
             seed["caption"] = ""
@@ -1260,11 +1314,17 @@ def apply_active_media_update(
         base["challenge"] = normalize_challenge(challenge)
     elif str(base.get("url") or "") == DEFAULT_LIVE_MEDIA_URL:
         base["challenge"] = "C1"
+    elif str(base.get("url") or "") == C2_TRANSFORM_MEDIA_URL:
+        base["challenge"] = "C2"
     else:
         try:
             base["challenge"] = normalize_challenge(base.get("challenge"))
         except ValueError:
             base["challenge"] = ""
+    if artifact is not _UNSET:
+        base["artifact"] = public_artifact_media(artifact)
+    elif "artifact" in base:
+        base["artifact"] = public_artifact_media(base.get("artifact"))
     if answers is not _UNSET:
         base["answers"] = normalize_answers(answers)
     else:

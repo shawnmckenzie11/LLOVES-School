@@ -325,12 +325,15 @@ class LiveMediaHelperTests(unittest.TestCase):
             set(current["unlock_flags"]), {"L0", "L1", "L2", "L3", "L4"}
         )
 
-    def test_c2_c3_do_not_seed_active_media(self) -> None:
-        """C2/C3 clear the blob instead of seeding a no-URL stub."""
-        self.assertTrue(challenge_clears_active_media("C2"))
+    def test_c2_seeds_transform_media_c3_clears(self) -> None:
+        """C2 seeds Transformations; C3 still clears the blob."""
+        self.assertFalse(challenge_clears_active_media("C2"))
         self.assertTrue(challenge_clears_active_media("C3"))
         self.assertFalse(challenge_clears_active_media("C1"))
-        self.assertIsNone(apply_active_media_update(None, challenge="C2"))
+        c2 = apply_active_media_update(None, challenge="C2")
+        assert c2 is not None
+        self.assertEqual(c2["challenge"], "C2")
+        self.assertTrue(str(c2["url"]).endswith("m1c2-transforms.html"))
         current = apply_active_media_update(None, url=DEFAULT_LIVE_MEDIA_URL)
         frozen = apply_active_media_update(current, frozen=True)
         assert frozen is not None
@@ -339,7 +342,7 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(with_cons["cons_item"], "C1-CONS-1")
         self.assertIsNone(apply_active_media_update(with_cons, challenge="C3"))
         self.assertIsNone(
-            public_active_media_payload({"challenge": "C2", "url": "", "stem": "nope"})
+            public_active_media_payload({"challenge": "C3", "url": "", "stem": "nope"})
         )
         with self.assertRaises(ValueError):
             apply_active_media_update(None, cons_item="C1-CONS-1")
@@ -819,8 +822,8 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(hidden["active_media"]["cons_item"], "")
         self.assertIsNone(hidden.get("prompt"))
 
-    def test_c2_c3_api_does_not_seed_active_media(self) -> None:
-        """C2/C3 POST clears the blob; GET defaults say they do not seed."""
+    def test_c2_api_seeds_transform_media_c3_does_not(self) -> None:
+        """C2 POST seeds Transformations; C3 GET still says it does not seed."""
         seeded = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={"url": DEFAULT_LIVE_MEDIA_URL},
@@ -831,10 +834,12 @@ class LiveMediaChannelTests(unittest.TestCase):
             json={"challenge": "C2"},
         )
         self.assertEqual(c2.status_code, 200, c2.get_json())
-        self.assertIsNone(c2.get_json()["active_media"])
+        media = c2.get_json()["active_media"]
+        self.assertIsNotNone(media)
+        self.assertTrue(str(media["url"]).endswith("m1c2-transforms.html"))
         self.assertEqual(c2.get_json()["live_slot"], "C2")
         state = self.student.get("/api/student/state").get_json()
-        self.assertIsNone(state.get("active_media"))
+        self.assertIsNotNone(state.get("active_media"))
         self.assertTrue(state.get("waiting_room"), state)
         prompt = state.get("prompt") or {}
         payload = prompt.get("payload") or {}
@@ -850,12 +855,11 @@ class LiveMediaChannelTests(unittest.TestCase):
         defaults = self.staff.get(
             f"/api/live-sessions/{self.live_session_id}/active-media"
         ).get_json()
-        self.assertIsNone(defaults["active_media"])
-        self.assertIsNone(defaults["defaults"]["c2"]["url"])
+        self.assertIsNotNone(defaults["active_media"])
+        self.assertTrue(str(defaults["defaults"]["c2"]["url"]).endswith("m1c2-transforms.html"))
         self.assertIsNone(defaults["defaults"]["c3"]["url"])
-        self.assertFalse(defaults["defaults"]["c2"]["seed"])
+        self.assertTrue(defaults["defaults"]["c2"]["seed"])
         self.assertFalse(defaults["defaults"]["c3"]["seed"])
-        self.assertIn("not seed", defaults["defaults"]["c2"]["note"].lower())
         self.assertEqual(defaults["defaults"]["url"], DEFAULT_LIVE_MEDIA_URL)
         self.assertEqual(defaults["live_slot"], "C2")
         self.assertEqual(len(defaults["cons_pack"]), 3)
@@ -878,7 +882,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             json={"challenge": "C2"},
         )
         self.assertEqual(c2.status_code, 200, c2.get_json())
-        self.assertIsNone(c2.get_json()["active_media"])
+        self.assertIsNotNone(c2.get_json()["active_media"])
         waiting = self.student.get("/api/student/state").get_json()
         self.assertTrue(waiting.get("waiting_room"), waiting)
         self.assertEqual(waiting["prompt"]["payload"]["prompt"], MINDS_ON_C2_PROMPT)
@@ -907,7 +911,7 @@ class LiveMediaChannelTests(unittest.TestCase):
             json={"frozen": True},
         )
         self.assertEqual(frozen.status_code, 200, frozen.get_json())
-        self.assertIsNone(frozen.get_json()["active_media"])
+        self.assertIsNotNone(frozen.get_json()["active_media"])
         self.assertTrue(frozen.get_json()["text_ride"]["frozen"])
         self.assertEqual(frozen.get_json()["teacher_state"]["cue_id"], "cue.freeze")
         cons1 = self.staff.post(
@@ -918,7 +922,7 @@ class LiveMediaChannelTests(unittest.TestCase):
         self.assertEqual(cons1.get_json()["text_ride"]["cons_item"], "C2-CONS-1")
         self.assertEqual(cons1.get_json()["text_ride"]["toast"], TOAST_C2_CONS_UNLOCK)
         after = self.student.get("/api/student/state").get_json()
-        self.assertIsNone(after.get("active_media"))
+        self.assertIsNotNone(after.get("active_media"))
         self.assertEqual(after["prompt"]["payload"]["item_id"], "C2-CONS-1")
         self.assertEqual(after["prompt"]["payload"]["chain_length"], 3)
         self.assertNotIn("key", after["prompt"]["payload"])
