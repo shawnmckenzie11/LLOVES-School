@@ -11417,6 +11417,8 @@ class SchoolDB(LovesDB):
             "url": media_url,
             "artifact": frozen,
             "merge": False,
+            "toast": "",
+            "toast_key": "",
         }
         if slot_key == "C2":
             media_kwargs["challenge"] = "C2"
