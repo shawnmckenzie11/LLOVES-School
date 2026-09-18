@@ -6997,6 +6997,204 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return dict(row) if row else {}
 
+    def get_library_question(
+        self, library_id: int, question_id: int
+    ) -> dict[str, Any] | None:
+        """Fetch one question scoped to a content library.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.id, q.bank_id, q.import_key, q.item_type, q.title,
+                       q.payload_json
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE q.id = ? AND b.library_id = ?
+                """,
+                (int(question_id), int(library_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        data = dict(row)
+        try:
+            data["payload"] = json.loads(data.pop("payload_json") or "{}")
+        except json.JSONDecodeError:
+            data["payload"] = {}
+        return data
+
+    def get_library_question_overlay(
+        self, library_id: int, question_id: int
+    ) -> dict[str, Any] | None:
+        """Return the LMS overlay for one library question, if any.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM library_question_overlays
+                WHERE library_id = ? AND question_id = ?
+                """,
+                (int(library_id), int(question_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_library_question_overlays(
+        self, library_id: int, question_ids: list[int]
+    ) -> dict[int, dict[str, Any]]:
+        """Map question ids to overlay rows for one library.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_ids: ``questions.id`` values to look up.
+        """
+        ids = [int(qid) for qid in question_ids if int(qid) > 0]
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT * FROM library_question_overlays
+                WHERE library_id = ? AND question_id IN ({placeholders})
+                """,
+                (int(library_id), *ids),
+            ).fetchall()
+        return {int(row["question_id"]): dict(row) for row in rows}
+
+    def insert_library_bank_question(
+        self,
+        library_id: int,
+        bank_id: int,
+        *,
+        item_type: str,
+        title: str,
+        payload: dict[str, Any],
+        import_key: str = "",
+    ) -> int:
+        """Insert one teacher-authored question into an existing bank.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            bank_id: ``question_banks.id`` belonging to the library.
+            item_type: Canvas-style item type; preserved after insert.
+            title: Short title stored on ``questions.title``.
+            payload: JSON blob written to ``payload_json``.
+            import_key: Optional stable key; generated when omitted.
+
+        Returns:
+            New ``questions.id``.
+        """
+        try:
+            from bank_edit import staff_authored_import_key
+        except ImportError:
+            from lms.bank_edit import staff_authored_import_key
+
+        key = str(import_key or "").strip() or staff_authored_import_key()
+        with self._lock:
+            bank = self.conn.execute(
+                """
+                SELECT id FROM question_banks
+                WHERE id = ? AND library_id = ?
+                """,
+                (int(bank_id), int(library_id)),
+            ).fetchone()
+            if bank is None:
+                raise KeyError(f"bank {bank_id}")
+            cur = self.conn.execute(
+                """
+                INSERT INTO questions (
+                    bank_id, import_key, item_type, title, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(bank_id),
+                    key,
+                    str(item_type or "multiple_choice_question"),
+                    str(title or "Question")[:120],
+                    json.dumps(payload if isinstance(payload, dict) else {}),
+                    _now(),
+                ),
+            )
+            self.conn.commit()
+            return int(cur.lastrowid)
+
+    def update_library_question_payload(
+        self,
+        library_id: int,
+        question_id: int,
+        *,
+        title: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Replace payload JSON for a staff-authored question.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+            title: Updated short title.
+            payload: Replacement ``payload_json`` object.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.id
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE q.id = ? AND b.library_id = ?
+                """,
+                (int(question_id), int(library_id)),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"question {question_id}")
+            self.conn.execute(
+                """
+                UPDATE questions
+                SET title = ?, payload_json = ?
+                WHERE id = ?
+                """,
+                (
+                    str(title or "Question")[:120],
+                    json.dumps(payload if isinstance(payload, dict) else {}),
+                    int(question_id),
+                ),
+            )
+            self.conn.commit()
+
+    def delete_library_bank_question(
+        self, library_id: int, bank_id: int, question_id: int
+    ) -> None:
+        """Delete one question from a bank. Overlay rows cascade.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            bank_id: ``question_banks.id``.
+            question_id: ``questions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.id
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE q.id = ? AND q.bank_id = ? AND b.library_id = ?
+                """,
+                (int(question_id), int(bank_id), int(library_id)),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"question {question_id}")
+            self.conn.execute(
+                "DELETE FROM questions WHERE id = ?",
+                (int(question_id),),
+            )
+            self.conn.commit()
+
     def import_mc_to_class_playlist(
         self,
         class_id: int,

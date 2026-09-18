@@ -310,6 +310,138 @@ class CatalogTabTests(unittest.TestCase):
         rv = self.client.get(expected)
         self.assertEqual(rv.status_code, 200)
 
+    def _first_bank(self) -> dict:
+        """Return the first imported question bank for this class."""
+        banks = self.client.get(
+            f"/api/staff/class/{self.cls['id']}/components/question-banks"
+        ).get_json()
+        self.assertTrue(banks.get("items"))
+        return banks["items"][0]
+
+    def test_question_bank_tab_browse_fields(self) -> None:
+        """GET bank questions include truncated stems and no LMS-edit chip yet."""
+        bank_id = self._first_bank()["id"]
+        data = self.client.get(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}"
+        ).get_json()
+        essay = data["questions"][0]
+        self.assertEqual(essay["item_type"], "essay_question")
+        self.assertIn("photosynthesis", essay["stem_plain"].lower())
+        self.assertEqual(essay["stem_preview"], essay["stem_plain"])
+        self.assertLessEqual(len(essay["stem_preview"]), 141)
+        self.assertFalse(essay["edited_in_lms"])
+        self.assertIn("photosynthesis", essay["stem_html"].lower())
+
+    def test_question_bank_patch_preserves_item_type_and_marks_override(self) -> None:
+        """PATCH writes an overlay, keeps ingest type, and strips script HTML."""
+        bank_id = self._first_bank()["id"]
+        data = self.client.get(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}"
+        ).get_json()
+        mc = data["questions"][1]
+        self.assertEqual(mc["item_type"], "multiple_choice_question")
+        rv = self.client.patch(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}/questions/{mc['id']}",
+            json={
+                "item_type": "essay_question",
+                "stem_html": "<script>alert(1)</script><p>Patched chloroplast stem</p>",
+                "options": ["Chloroplast", "Nucleus", "Vacuole"],
+                "correct_answer": "A",
+                "points": 2,
+            },
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        saved = rv.get_json()["question"]
+        self.assertEqual(saved["item_type"], "multiple_choice_question")
+        self.assertTrue(saved["edited_in_lms"])
+        self.assertIn("Patched chloroplast stem", saved["stem_plain"])
+        self.assertNotIn("<script", saved["stem_html"].lower())
+        self.assertNotIn("alert(1)", saved["stem_html"])
+        raw = self.school.conn.execute(
+            "SELECT item_type FROM questions WHERE id = ?",
+            (int(mc["id"]),),
+        ).fetchone()
+        self.assertEqual(raw["item_type"], "multiple_choice_question")
+
+    def test_question_bank_add_and_delete_question(self) -> None:
+        """POST adds a staff question; DELETE removes it from the bank."""
+        bank_id = self._first_bank()["id"]
+        created = self.client.post(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}/questions",
+            json={
+                "stem_text": "Which organelle makes ATP?",
+                "options": ["Mitochondrion", "Ribosome"],
+                "correct_answer": "A",
+                "points": 1,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        question = created.get_json()["question"]
+        self.assertEqual(question["item_type"], "multiple_choice_question")
+        self.assertFalse(question["edited_in_lms"])
+        self.assertTrue(question["authored_in_lms"])
+        listed = self.client.get(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}"
+        ).get_json()
+        ids = [row["id"] for row in listed["questions"]]
+        self.assertIn(question["id"], ids)
+        deleted = self.client.delete(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}/questions/{question['id']}"
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.get_json())
+        after = self.client.get(
+            f"/api/staff/class/{self.cls['id']}/question-bank/{bank_id}"
+        ).get_json()
+        self.assertNotIn(question["id"], [row["id"] for row in after["questions"]])
+
+    def test_question_banks_empty_message(self) -> None:
+        """A class with no pack uses the Wonder empty-banks copy."""
+        solo = self.school.register_staff("nobanks@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(solo["id"]), ontario_code="SBI3U"
+        )
+        bare = self.school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="SBI3U",
+            days_preset="M/W/F",
+            time_label="3:00pm",
+            codenames=["Aspen"],
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(solo["id"]),
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=nobanks@gmail.com&name=N")
+        user = self.school.get_user_by_email("nobanks@gmail.com")
+        assert user is not None
+        self.client.post("/verify-email", data={"code": user["verification_code"]})
+        data = self.client.get(
+            f"/api/staff/class/{bare['id']}/components/question-banks"
+        ).get_json()
+        self.assertTrue(data.get("empty"))
+        self.assertEqual(data.get("message"), "No banks imported yet.")
+        self._login_staff()
+
+    def test_question_banks_tab_ui_copy(self) -> None:
+        """Course tab ships Wonder copy, the modal, and one QuestionEditor script."""
+        page = self.client.get(
+            f"/staff/class/{self.cls['id']}?tab=question-banks"
+        )
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn("course_question_banks.js", html)
+        self.assertIn("Remove from bank?", html)
+        self.assertNotIn("course_catalog.js", html)
+        js = self.client.get("/static/course_question_banks.js").get_data(as_text=True)
+        self.assertIn("No banks imported yet.", js)
+        self.assertIn("Edit bank", js)
+        self.assertIn(">Done<", html + js)
+        self.assertIn("Edited in LMS", js)
+        self.assertIn("Saved.", js)
+        self.assertNotIn("window.confirm", js)
+        self.assertIn("data-bank-editor", js)
+        self.assertIn("openEditorId", js)
+
     def test_question_bank_preview_page_shows_questions(self) -> None:
         """The Question banks tab previews real stems, not just a count."""
         banks = self.client.get(

@@ -72,7 +72,7 @@
       <iframe class="module-frame" id="module-frame" title="Module page"></iframe>
     </div>
     <script type="module" src="/static/course_modules.js"></script>
-    {% elif tab in ['pages', 'assignments', 'quizzes', 'question-banks'] %}
+    {% elif tab in ['pages', 'assignments', 'quizzes'] %}
     <p class="hint">Imported catalog for this course. Items here are the building blocks the Modules tab links to.</p>
     <div class="layout" id="catalog-root" data-class-id="{{ cls.id }}" data-kind="{{ tab }}">
       <aside class="card module-nav-pane">
@@ -81,6 +81,28 @@
       <iframe class="module-frame" id="catalog-frame" title="Component preview"></iframe>
     </div>
     <script type="module" src="/static/course_catalog.js"></script>
+    {% elif tab == 'question-banks' %}
+    <p class="hint">Imported catalog for this course. Items here are the building blocks the Modules tab links to.</p>
+    <div class="layout bank-browser" id="catalog-root" data-class-id="{{ cls.id }}" data-kind="question-banks">
+      <aside class="card module-nav-pane">
+        <div id="catalog-list">Loading question banks…</div>
+      </aside>
+      <section class="card bank-detail" id="bank-detail">
+        <p class="hint">Select a bank to browse questions.</p>
+      </section>
+    </div>
+    <p id="bank-toast" class="bank-toast" hidden role="status"></p>
+    <dialog id="bank-remove-dialog" class="bank-remove-dialog" aria-labelledby="bank-remove-title">
+      <form method="dialog" class="bank-remove-card">
+        <h2 id="bank-remove-title">Remove from bank?</h2>
+        <p class="hint compact">This question will be removed from this bank.</p>
+        <div class="row-actions">
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
+          <button type="submit" value="ok" class="danger">Remove</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="/static/course_question_banks.js"></script>
     {% elif tab == 'syllabus' %}
     <p class="hint">Click-to-place editor only (no sequential packer). Calendar is locked from Admin.</p>
     <p class="row-actions">

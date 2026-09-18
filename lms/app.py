@@ -94,6 +94,13 @@ from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E4
 from meet_team import is_meet_team_payload  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from minds_on import is_minds_on_payload  # noqa: E402
+from bank_edit import (  # noqa: E402
+    EMPTY_BANKS_MESSAGE,
+    apply_staff_question_patch,
+    create_staff_bank_question,
+    delete_staff_bank_question,
+    list_staff_bank_questions,
+)
 from components import (  # noqa: E402
     blob_file_path,
     ensure_ingested,
@@ -2678,15 +2685,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         cls = school.enrich_class(school.game.get_class(class_id))
         library_id, error = _ready_library(school, cls)
         if not library_id:
+            empty_message = (
+                EMPTY_BANKS_MESSAGE
+                if kind == "question-banks"
+                else (error or "Ask Admin to attach a module pack.")
+            )
             return jsonify(
                 {
                     "ok": True,
                     "empty": True,
-                    "message": error or "Ask Admin to attach a module pack.",
+                    "message": empty_message,
                     "items": [],
                 }
             )
         items = lister(school, int(library_id))
+        empty_message = EMPTY_BANKS_MESSAGE if kind == "question-banks" else None
         return jsonify(
             {
                 "ok": True,
@@ -2694,6 +2707,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "kind": kind,
                 "items": items,
                 "counts": library_counts(school, int(library_id)),
+                **({"message": empty_message} if not items and empty_message else {}),
             }
         )
 
@@ -2709,12 +2723,118 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         library_id, _error = _ready_library(school, cls)
         if not library_id:
             return jsonify({"ok": False, "error": "No module pack"}), 404
+        bank = get_question_bank(school, int(library_id), int(bank_id))
+        if bank is None:
+            return jsonify({"ok": False, "error": "Bank not found"}), 404
         return jsonify(
             {
                 "ok": True,
-                "questions": list_questions(school, int(library_id), int(bank_id)),
+                "bank": {
+                    "id": int(bank["id"]),
+                    "title": str(bank.get("title") or ""),
+                    "import_key": str(bank.get("import_key") or ""),
+                },
+                "questions": list_staff_bank_questions(
+                    school,
+                    int(library_id),
+                    int(bank_id),
+                    class_id=int(class_id),
+                ),
             }
         )
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/question-bank/<int:bank_id>/questions",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_question_bank_add_question(class_id: int, bank_id: int):
+        """Add one teacher-authored question to an imported bank."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        if get_question_bank(school, int(library_id), int(bank_id)) is None:
+            return jsonify({"ok": False, "error": "Bank not found"}), 404
+        body = request.get_json(silent=True) or {}
+        try:
+            question = create_staff_bank_question(
+                school,
+                library_id=int(library_id),
+                bank_id=int(bank_id),
+                body=body if isinstance(body, dict) else {},
+                class_id=int(class_id),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Bank not found"}), 404
+        return jsonify({"ok": True, "question": question})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/question-bank/<int:bank_id>/questions/<int:question_id>",
+        methods=["PATCH"],
+    )
+    @staff_required
+    def staff_question_bank_patch_question(
+        class_id: int, bank_id: int, question_id: int
+    ):
+        """Save one bank question. Imported ``item_type`` is preserved."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        body = request.get_json(silent=True) or {}
+        try:
+            question = apply_staff_question_patch(
+                school,
+                library_id=int(library_id),
+                bank_id=int(bank_id),
+                question_id=int(question_id),
+                body=body if isinstance(body, dict) else {},
+                class_id=int(class_id),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True, "question": question})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/question-bank/<int:bank_id>/questions/<int:question_id>",
+        methods=["DELETE"],
+    )
+    @staff_required
+    def staff_question_bank_delete_question(
+        class_id: int, bank_id: int, question_id: int
+    ):
+        """Remove one question from a bank after the staff confirm modal."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        try:
+            delete_staff_bank_question(
+                school,
+                library_id=int(library_id),
+                bank_id=int(bank_id),
+                question_id=int(question_id),
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True})
 
     @app.route("/api/staff/class/<int:class_id>/module-banks")
     @staff_required
