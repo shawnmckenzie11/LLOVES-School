@@ -212,6 +212,12 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(miss.get_json()["feedback"]["lead"], LEAD_MISS)
         self.assertFalse(miss.get_json()["feedback"]["match"])
 
+        still = self.school.ensure_waiting_room_minds_on(self.live_session_id)
+        self.assertIsNone(still)
+        active = self.school.get_active_live_prompt(self.live_session_id)
+        assert active is not None
+        self.assertEqual(active["kind"], ARTIFACT_KIND)
+
 
 if __name__ == "__main__":
     os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")

@@ -6201,7 +6201,8 @@ class SchoolDB(LovesDB):
         Lazy-seeds existing smoke sessions that started before this prompt
         existed. Refreshes the active waiting-room payload when the
         authoritative stem/choices/key change. Does not recreate the row
-        after Team Challenge / scoring cleared it.
+        after Team Challenge / scoring cleared it. Does not remount over
+        an active Artifact prompt.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -6218,6 +6219,8 @@ class SchoolDB(LovesDB):
             self.session_live_module(session_id),
         )
         active = self.get_active_live_prompt(session_id)
+        if active and is_artifact_payload(active.get("payload")):
+            return None
         if active and is_minds_on_payload(active.get("payload")):
             current = active.get("payload") or {}
             if (

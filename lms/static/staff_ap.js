@@ -714,6 +714,20 @@ function paintQuestionArtifact(media) {
   const flag = $("question-artifact-flag");
   if (!status || !flag) return;
   const row = media || {};
+  const art = row.artifact && typeof row.artifact === "object" ? row.artifact : null;
+  if (art && (art.snapshot || art.artifact_id)) {
+    hideTeamsSparkCard();
+    const mode = String(art.target_mode || "graph");
+    const equation = String(art.equation || "").trim();
+    const stem =
+      "Drag sliders to transform the parent function to match the target (transformed) function.";
+    status.textContent =
+      mode === "equation" && equation ? `${stem} Target: ${equation}` : stem;
+    flag.hidden = false;
+    flag.textContent = "Artifact · Transformations";
+    paintMeetChainChrome();
+    return;
+  }
   const ride = teacherState.text_ride || {};
   const cons = String(row.cons_item || ride.cons_item || "").trim();
   const toast = String(row.toast || row.caption || ride.toast || "").trim();
