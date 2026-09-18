@@ -1074,12 +1074,22 @@ body.student-home.is-live .student-live-response {
   transition: width 0.12s linear, background-color 0.12s linear;
 }
 
-.hot-cold-row.is-cold .hot-cold-fill {
+.hot-cold-row.is-cold .hot-cold-fill,
+.hot-cold-row.is-hc-cold .hot-cold-fill {
   background: #38bdf8;
 }
 
-.hot-cold-row.is-hot .hot-cold-fill {
+.hot-cold-row.is-hc-near .hot-cold-fill {
+  background: #fde047;
+}
+
+.hot-cold-row.is-hot .hot-cold-fill,
+.hot-cold-row.is-hc-very .hot-cold-fill {
   background: #f97316;
+}
+
+.hot-cold-row.is-hc-hot .hot-cold-fill {
+  background: #ef4444;
 }
 
 .meet-progress-dots {

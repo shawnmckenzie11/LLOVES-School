@@ -44,6 +44,26 @@ GRADE_RELATIVE_MARGIN = 0.10
 GRADE_ABS_FLOOR = 1.0
 LEAD_MATCH = "Matched."
 LEAD_MISS = "Not yet — watch the meters."
+
+
+def apply_artifact_teacher_flags(
+    payload: dict[str, Any],
+    *,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
+) -> dict[str, Any]:
+    """Attach Show hot/cold and Group Q flags to an Artifact blob.
+
+    Args:
+        payload: Prompt or media artifact dict.
+        hot_cold_visible: When true, students see slider heat hints.
+        group_q: When true, Submit waits for every teammate to match.
+    """
+    if hot_cold_visible is not None:
+        payload["hot_cold_visible"] = bool(hot_cold_visible)
+    if group_q is not None:
+        payload["group_q"] = bool(group_q)
+    return payload
 ARTIFACT_SLIDE_BASE = 800
 C2_TRANSFORM_MEDIA_URL = "/static/live-media/m1c2-transforms.html"
 C3_PARENT_MEDIA_URL = "/static/live-media/mcr3u-m1c3-parent-transformations.html"
@@ -442,6 +462,40 @@ def grade_parent_snapshot(
     }
 
 
+def artifact_snapshot_matches(payload: Any, student: Any) -> bool:
+    """True when posted sliders match the minted Artifact snapshot.
+
+    Parent Artifacts require the posted parent kind plus ``a, k, d, c``.
+    Vertex-form Artifacts grade ``a, h, k``.
+
+    Args:
+        payload: Live-prompt payload with teacher snapshot.
+        student: Posted ``params`` or full response JSON.
+
+    Returns:
+        True when every required field is inside its ±10% band.
+    """
+    if not is_artifact_payload(payload):
+        return False
+    snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+    posted = student if isinstance(student, dict) else {}
+    raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+    if is_parent_transformations_artifact(payload):
+        parent = None
+        if isinstance(payload, dict):
+            parent = (
+                (payload.get("parent") or {}).get("kind")
+                if isinstance(payload.get("parent"), dict)
+                else payload.get("parent")
+            )
+        return bool(
+            grade_parent_snapshot(raw, snapshot, target_parent=parent)["match"]
+        )
+    if is_transformations_artifact(payload):
+        return bool(grade_transform_snapshot(raw, snapshot)["match"])
+    return False
+
+
 def artifact_feedback_fragment(payload: Any, response: Any) -> dict[str, Any] | None:
     """Student-safe match / miss line for an Artifact submit.
 
@@ -455,25 +509,12 @@ def artifact_feedback_fragment(payload: Any, response: Any) -> dict[str, Any] | 
     """
     if not is_artifact_payload(payload):
         return None
-    snapshot = (payload or {}).get("snapshot") if isinstance(payload, dict) else None
-    posted = response if isinstance(response, dict) else {}
-    raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
-    if is_parent_transformations_artifact(payload):
-        parent = None
-        if isinstance(payload, dict):
-            parent = (payload.get("parent") or {}).get("kind") if isinstance(
-                payload.get("parent"), dict
-            ) else payload.get("parent")
-        result = grade_parent_snapshot(
-            raw,
-            snapshot,
-            target_parent=parent,
-        )
-    elif is_transformations_artifact(payload):
-        result = grade_transform_snapshot(raw, snapshot)
-    else:
+    if not (
+        is_parent_transformations_artifact(payload)
+        or is_transformations_artifact(payload)
+    ):
         return None
-    match = bool(result["match"])
+    match = artifact_snapshot_matches(payload, response)
     lead = LEAD_MATCH if match else LEAD_MISS
     return {
         "text": lead,
@@ -489,6 +530,8 @@ def transformations_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
 ) -> dict[str, Any]:
     """Build the live-prompt payload stored on the current page.
 
@@ -506,7 +549,7 @@ def transformations_prompt_payload(
     mode = normalize_target_mode(target_mode)
     parent_fn = dict(parent) if isinstance(parent, dict) else dict(TRANSFORMATIONS_PARENT)
     equation = format_vertex_equation(params)
-    return {
+    payload = {
         "kind": ARTIFACT_KIND,
         "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
         "channel": ARTIFACT_CHANNEL,
@@ -522,7 +565,14 @@ def transformations_prompt_payload(
         "slide_index": int(slide_index),
         "ephemeral": False,
         "durable_store": True,
+        "hot_cold_visible": False,
+        "group_q": False,
     }
+    return apply_artifact_teacher_flags(
+        payload,
+        hot_cold_visible=hot_cold_visible,
+        group_q=group_q,
+    )
 
 
 def parent_transformations_prompt_payload(
@@ -531,6 +581,8 @@ def parent_transformations_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | str | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
 ) -> dict[str, Any]:
     """Build the MCR3U M1 C3 parent-function Artifact prompt.
 
@@ -549,7 +601,7 @@ def parent_transformations_prompt_payload(
         else posted.get("parent") or posted.get("kind")
     )
     equation = format_parent_equation(parent_fn["kind"], params)
-    return {
+    payload = {
         "kind": ARTIFACT_KIND,
         "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
         "channel": ARTIFACT_CHANNEL,
@@ -567,7 +619,14 @@ def parent_transformations_prompt_payload(
         "slide_index": int(slide_index),
         "ephemeral": False,
         "durable_store": True,
+        "hot_cold_visible": False,
+        "group_q": False,
     }
+    return apply_artifact_teacher_flags(
+        payload,
+        hot_cold_visible=hot_cold_visible,
+        group_q=group_q,
+    )
 
 
 def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -602,7 +661,11 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 payload.get("equation")
                 or format_parent_equation(parent_fn["kind"], snapshot)
             )
-        return out
+        return apply_artifact_teacher_flags(
+            out,
+            hot_cold_visible=payload.get("hot_cold_visible"),
+            group_q=payload.get("group_q"),
+        )
     out = {
         "kind": ARTIFACT_KIND,
         "artifact_id": str(payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID),
@@ -622,7 +685,11 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
             payload.get("equation")
             or format_vertex_equation(out["snapshot"])
         )
-    return out
+    return apply_artifact_teacher_flags(
+        out,
+        hot_cold_visible=payload.get("hot_cold_visible"),
+        group_q=payload.get("group_q"),
+    )
 
 
 def format_artifact_answer(response: Any) -> str:
@@ -684,20 +751,28 @@ def public_artifact_media(payload: dict[str, Any] | None) -> dict[str, Any] | No
             mode = normalize_target_mode(payload.get("target_mode"))
         except ValueError:
             return None
-        return {
-            "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
-            "parent": parent_fn,
+        return apply_artifact_teacher_flags(
+            {
+                "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+                "parent": parent_fn,
+                "snapshot": snapshot,
+                "target_mode": mode,
+                "equation": format_parent_equation(parent_fn["kind"], snapshot),
+            },
+            hot_cold_visible=payload.get("hot_cold_visible"),
+            group_q=payload.get("group_q"),
+        )
+    return apply_artifact_teacher_flags(
+        {
+            "artifact_id": artifact_id,
+            "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),
             "snapshot": snapshot,
             "target_mode": mode,
-            "equation": format_parent_equation(parent_fn["kind"], snapshot),
-        }
-    return {
-        "artifact_id": artifact_id,
-        "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),
-        "snapshot": snapshot,
-        "target_mode": mode,
-        "equation": format_vertex_equation(snapshot),
-    }
+            "equation": format_vertex_equation(snapshot),
+        },
+        hot_cold_visible=payload.get("hot_cold_visible"),
+        group_q=payload.get("group_q"),
+    )
 
 
 def default_c2_transform_media() -> dict[str, Any]:
@@ -787,6 +862,8 @@ def artifact_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
 ) -> dict[str, Any]:
     """Build the stored prompt for a registered Artifact.
 
@@ -807,6 +884,8 @@ def artifact_prompt_payload(
             target_mode=target_mode,
             parent=parent,
             slide_index=slide_index,
+            hot_cold_visible=hot_cold_visible,
+            group_q=group_q,
         )
     if wanted == TRANSFORMATIONS_ARTIFACT_ID:
         return transformations_prompt_payload(
@@ -814,5 +893,7 @@ def artifact_prompt_payload(
             target_mode=target_mode,
             parent=parent,
             slide_index=slide_index,
+            hot_cold_visible=hot_cold_visible,
+            group_q=group_q,
         )
     raise ValueError(f"unknown artifact: {wanted}")

@@ -103,6 +103,14 @@
       font-variant-numeric: tabular-nums;
     }
     input[type="range"] { width: 100%; accent-color: var(--gold); }
+    label.slide.is-hc-cold input { accent-color: #3b82f6; }
+    label.slide.is-hc-cold output { color: #93c5fd; }
+    label.slide.is-hc-near input { accent-color: #eab308; }
+    label.slide.is-hc-near output { color: #fde047; }
+    label.slide.is-hc-very input { accent-color: #f97316; }
+    label.slide.is-hc-very output { color: #fdba74; }
+    label.slide.is-hc-hot input { accent-color: #ef4444; }
+    label.slide.is-hc-hot output { color: #fca5a5; }
     .teacher-bar {
       display: none;
       flex-wrap: wrap;
@@ -162,7 +170,9 @@
         <label class="slide"><span>c</span><input id="p-c" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-c">0.00</output></label>
       </div>
       <div class="teacher-bar" id="teacher-bar">
-        <label for="t-random"><input id="t-random" type="checkbox"> Random</label>
+        <button type="button" id="t-random">Random</button>
+        <label for="t-hot-cold"><input id="t-hot-cold" type="checkbox"> Show hot/cold sliders</label>
+        <label for="t-group-q"><input id="t-group-q" type="checkbox"> Group Q</label>
         <button type="button" class="mode-btn is-on" id="mode-graph" data-mode="graph">Show graph</button>
         <button type="button" class="mode-btn" id="mode-equation" data-mode="equation">Show equation</button>
         <button type="button" class="mint-btn" id="mint">Make match challenge</button>
@@ -188,7 +198,9 @@
   const outK = document.getElementById("o-k");
   const outD = document.getElementById("o-d");
   const outC = document.getElementById("o-c");
-  const randomBox = document.getElementById("t-random");
+  const randomBtn = document.getElementById("t-random");
+  const hotColdBox = document.getElementById("t-hot-cold");
+  const groupQBox = document.getElementById("t-group-q");
   const mintBtn = document.getElementById("mint");
   const modeGraph = document.getElementById("mode-graph");
   const modeEquation = document.getElementById("mode-equation");
@@ -216,6 +228,8 @@
     targetMode: "graph",
     artifact: null,
     studentPlay: false,
+    hotColdVisible: false,
+    groupQ: false,
   };
 
   /**
@@ -260,7 +274,7 @@
   }
 
   /**
-   * Pretty y = a f(k(x − d)) + c for the selected parent.
+   * General y = a f(k(x − d)) + c in yellow — letters, not slider numbers.
    * @returns {string}
    */
   function equationHtml() {
@@ -275,16 +289,47 @@
       body +
       " + c</strong><span class='coeffs'>parent " +
       PARENTS[state.parent].symbol +
-      " · a=" +
-      fmt(state.a) +
-      " · k=" +
-      fmt(state.k) +
-      " · d=" +
-      fmt(state.d) +
-      " · c=" +
-      fmt(state.c) +
       "</span>"
     );
+  }
+
+  /**
+   * Hot/cold band for one slider versus the minted target.
+   * @param {number} student
+   * @param {number} target
+   * @returns {string}
+   */
+  function heatClass(student, target) {
+    const allowed = 0.1 * Math.max(Math.abs(target), 1);
+    const err = Math.abs(Number(student) - Number(target));
+    if (err <= allowed) return "is-hc-hot";
+    if (err <= allowed * 2.5) return "is-hc-very";
+    if (err <= allowed * 5) return "is-hc-near";
+    return "is-hc-cold";
+  }
+
+  /**
+   * Color student sliders when the teacher has shown hot/cold hints.
+   */
+  function applySliderHeat() {
+    const art = state.artifact;
+    const show =
+      !teacherMode &&
+      Boolean(state.hotColdVisible) &&
+      art &&
+      art.snapshot;
+    [
+      [inputA, "a"],
+      [inputK, "k"],
+      [inputD, "d"],
+      [inputC, "c"],
+    ].forEach(([input, key]) => {
+      const label = input.closest("label.slide");
+      if (!(label instanceof HTMLElement)) return;
+      label.classList.remove("is-hc-cold", "is-hc-near", "is-hc-very", "is-hc-hot");
+      if (!show) return;
+      label.classList.add(heatClass(state[key], Number(art.snapshot[key] ?? 0)));
+    });
   }
 
   /**
@@ -337,13 +382,14 @@
     outC.textContent = fmt(state.c);
     modeGraph.classList.toggle("is-on", state.targetMode === "graph");
     modeEquation.classList.toggle("is-on", state.targetMode === "equation");
-    if (teacherMode) {
-      eqEl.innerHTML = equationHtml();
-    } else if (state.artifact && state.artifact.target_mode === "equation") {
-      eqEl.innerHTML = equationHtml();
-    } else {
-      eqEl.innerHTML = equationHtml();
+    eqEl.innerHTML = equationHtml();
+    if (hotColdBox instanceof HTMLInputElement) {
+      hotColdBox.checked = Boolean(state.hotColdVisible);
     }
+    if (groupQBox instanceof HTMLInputElement) {
+      groupQBox.checked = Boolean(state.groupQ);
+    }
+    applySliderHeat();
     dock.classList.add("is-on");
     dock.classList.toggle("is-student", !teacherMode);
     teacherBar.classList.toggle("is-on", teacherMode);
@@ -482,6 +528,26 @@
   }
 
   /**
+   * Push Show hot/cold and Group Q to the staff live-class shell.
+   */
+  function postTeacherFlags() {
+    if (!teacherMode || !embedded) return;
+    try {
+      window.parent.postMessage(
+        {
+          source: "lloves-mcr3u-m1c3-parents",
+          type: "artifact-teacher-flags",
+          hot_cold_visible: Boolean(state.hotColdVisible),
+          group_q: Boolean(state.groupQ),
+        },
+        window.location.origin
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  /**
    * Read radios and sliders into state, then redraw.
    */
   function readControls() {
@@ -538,6 +604,8 @@
           },
           snapshot: snapshot(),
           target_mode: state.targetMode,
+          hot_cold_visible: Boolean(state.hotColdVisible),
+          group_q: Boolean(state.groupQ),
         },
         window.location.origin
       );
@@ -552,8 +620,17 @@
   [inputA, inputK, inputD, inputC].forEach((slider) => {
     ["input", "change"].forEach((evt) => slider.addEventListener(evt, readControls));
   });
-  randomBox.addEventListener("change", () => {
-    if (randomBox.checked) randomize();
+  randomBtn?.addEventListener("click", () => {
+    randomize();
+  });
+  hotColdBox?.addEventListener("change", () => {
+    state.hotColdVisible = Boolean(hotColdBox.checked);
+    applySliderHeat();
+    postTeacherFlags();
+  });
+  groupQBox?.addEventListener("change", () => {
+    state.groupQ = Boolean(groupQBox.checked);
+    postTeacherFlags();
   });
   modeGraph.addEventListener("click", () => {
     state.targetMode = "graph";
@@ -583,6 +660,12 @@
         state.c = 0;
       } else if (data.artifact.target_mode) {
         state.targetMode = data.artifact.target_mode;
+      }
+      if (typeof data.artifact.hot_cold_visible === "boolean") {
+        state.hotColdVisible = data.artifact.hot_cold_visible;
+      }
+      if (typeof data.artifact.group_q === "boolean") {
+        state.groupQ = data.artifact.group_q;
       }
     }
     if (!teacherMode && typeof data.student_play === "boolean") {

@@ -1586,23 +1586,29 @@ function lifecycleAnswerControls(item, action, initial = null) {
     const equation = String(content.equation || "").trim();
     const keys = Array.isArray(content.slider_keys) ? content.slider_keys : ["a", "h", "k"];
     const snapshot = content.snapshot && typeof content.snapshot === "object" ? content.snapshot : {};
-    const meters = keys
-      .map((key) => {
-        const target = Number(snapshot[key] ?? 0);
-        return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+    const showMeters = Boolean(content.hot_cold_visible);
+    const meters = showMeters
+      ? keys
+          .map((key) => {
+            const target = Number(snapshot[key] ?? 0);
+            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
           <span class="hot-cold-key">${escapeText(key)}</span>
           <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
         </div>`;
-      })
-      .join("");
+          })
+          .join("")
+      : "";
     const eqBlock =
       mode === "equation" && equation
         ? `<p class="artifact-equation">${escapeText(equation)}</p>`
         : "";
-    return `<div class="student-live-answer-controls" data-live-action="${action}" data-artifact-kind="1">
+    const locked = artifactGroupQLocked(content, lastStudentPayload, item);
+    return `<div class="student-live-answer-controls" data-live-action="${action}" data-artifact-kind="1" data-group-q="1">
       ${eqBlock}
-      <div class="hot-cold-meters">${meters}</div>
-      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
+      ${showMeters ? `<div class="hot-cold-meters">${meters}</div>` : ""}
+      <button type="button" class="prompt-submit" data-live-submit="${action}"${
+        locked ? " disabled" : ""
+      }>${prefix}</button>
     </div>`;
   }
   const value = current === "—" ? "" : current;
@@ -1911,6 +1917,7 @@ function paintLifecycleQuestionStack(payload) {
   if (questionFrame && (lifecycleOwnsLegacy || (welcomeOn && visible.length))) {
     questionFrame.hidden = true;
   }
+  syncArtifactGroupQLock();
 }
 
 /**
@@ -2252,25 +2259,34 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     const equation = String(data.equation || "").trim();
     const keys = Array.isArray(data.slider_keys) ? data.slider_keys : ["a", "h", "k"];
     const snapshot = data.snapshot && typeof data.snapshot === "object" ? data.snapshot : {};
-    const meters = keys
-      .map((key) => {
-        const target = Number(snapshot[key] ?? 0);
-        return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+    const showMeters = Boolean(data.hot_cold_visible);
+    const meters = showMeters
+      ? keys
+          .map((key) => {
+            const target = Number(snapshot[key] ?? 0);
+            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
           <span class="hot-cold-key">${escapeText(key)}</span>
           <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
         </div>`;
-      })
-      .join("");
+          })
+          .join("")
+      : "";
     const eqBlock =
       mode === "equation" && equation
         ? `<p class="artifact-equation">${escapeText(equation)}</p>`
         : "";
+    const artifactItem = (payload.active_questions || []).find(
+      (row) => Number(row?.prompt?.id) === Number(prompt.id)
+    );
+    const locked = lockChoices || artifactGroupQLocked(data, payload, artifactItem);
     controls = `
+      <div data-artifact-kind="1" data-group-q="1">
       ${eqBlock}
-      <div class="hot-cold-meters" id="artifact-meters">${meters}</div>
+      ${showMeters ? `<div class="hot-cold-meters" id="artifact-meters">${meters}</div>` : ""}
       <button type="button" class="prompt-submit" id="prompt-artifact-submit"${
-        lockChoices ? " disabled" : ""
+        locked ? " disabled" : ""
       }>Submit Answer</button>
+      </div>
     `;
   } else if (kind === "share" || kind === "draw") {
     const isTeamChallenge =
@@ -2321,6 +2337,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   void renderLiveQuestionMath(promptShell);
   if (kind === "artifact") {
     applyArtifactPreview(lastArtifactSliders);
+    syncArtifactGroupQLock();
   }
 }
 
@@ -2378,6 +2395,7 @@ function wirePromptControls(prompt) {
   const artifactSubmit = root.querySelector("#prompt-artifact-submit");
   if (artifactSubmit) {
     artifactSubmit.addEventListener("click", () => {
+      if (artifactSubmit.disabled) return;
       submitResponse(prompt.id, { params: { ...lastArtifactSliders } });
     });
   }
@@ -2396,12 +2414,132 @@ function paintHotColdMeter(key, student, target) {
       const fill = row.querySelector(".hot-cold-fill");
       if (!(fill instanceof HTMLElement)) return;
       const allowed = 0.1 * Math.max(Math.abs(target), 1);
-      const heat = Math.max(0, Math.min(1, 1 - Math.abs(student - target) / (allowed * 6)));
+      const err = Math.abs(Number(student) - Number(target));
+      row.classList.remove(
+        "is-cold",
+        "is-hot",
+        "is-hc-cold",
+        "is-hc-near",
+        "is-hc-very",
+        "is-hc-hot"
+      );
+      let band = "is-hc-cold";
+      if (err <= allowed) band = "is-hc-hot";
+      else if (err <= allowed * 2.5) band = "is-hc-very";
+      else if (err <= allowed * 5) band = "is-hc-near";
+      row.classList.add(band);
+      const heat = Math.max(0, Math.min(1, 1 - err / (allowed * 6)));
       fill.style.width = `${Math.round(heat * 100)}%`;
-      row.classList.toggle("is-hot", heat > 0.72);
-      row.classList.toggle("is-cold", heat < 0.28);
     });
   }
+}
+
+/**
+ * True when the live class is running questions as groups.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function artifactGroupsRunning(payload) {
+  const bag = payload && typeof payload === "object" ? payload : {};
+  if (String(bag.question_view || "") === "team") return true;
+  const teacher = bag.teacher_state;
+  return Boolean(teacher && teacher.run_as_group);
+}
+
+/**
+ * True when Group Q submit must wait for every teammate to match.
+ * @param {any} content
+ * @param {any} payload
+ * @param {any} [item]
+ * @returns {boolean}
+ */
+function artifactGroupQLocked(content, payload, item) {
+  const body = content && typeof content === "object" ? content : {};
+  if (!body.group_q) return false;
+  if (!artifactGroupsRunning(payload)) return false;
+  if (item && typeof item.group_q_ready === "boolean") {
+    return !item.group_q_ready;
+  }
+  const bag = payload && typeof payload === "object" ? payload : {};
+  return !bag.group_q_ready;
+}
+
+/**
+ * Disable Artifact Submit Answer until every teammate matches.
+ */
+function syncArtifactGroupQLock() {
+  const payload = lastStudentPayload || {};
+  const questions = Array.isArray(payload.active_questions)
+    ? payload.active_questions
+    : [];
+  const shellBtn = document.querySelector("#prompt-artifact-submit");
+  if (shellBtn instanceof HTMLButtonElement) {
+    const content =
+      payload.prompt && typeof payload.prompt.payload === "object"
+        ? payload.prompt.payload
+        : {};
+    const item = questions.find(
+      (row) => Number(row?.prompt?.id) === Number(payload.prompt?.id)
+    );
+    shellBtn.disabled = artifactGroupQLocked(content, payload, item);
+  }
+  document.querySelectorAll("[data-artifact-kind][data-group-q]").forEach((root) => {
+    const card = root.closest("[data-live-card-id]");
+    const cardId = Number(card instanceof HTMLElement ? card.dataset.liveCardId : 0);
+    const promptId = Number(
+      card instanceof HTMLElement ? card.dataset.livePromptId : 0
+    );
+    const item =
+      questions.find((row) => Number(row?.id) === cardId) ||
+      questions.find((row) => Number(row?.prompt?.id) === promptId);
+    const content =
+      item?.content ||
+      item?.prompt?.payload ||
+      (payload.prompt && payload.prompt.payload) ||
+      {};
+    const btn = root.querySelector("#prompt-artifact-submit, [data-live-submit], .prompt-submit");
+    if (btn instanceof HTMLButtonElement) {
+      btn.disabled = artifactGroupQLocked(content, payload, item);
+    }
+  });
+}
+
+/**
+ * POST live Artifact sliders so Group Q can see this student's match.
+ * @param {Record<string, unknown>} sliders
+ */
+function postArtifactSliderPreview(sliders) {
+  const questions = lastStudentPayload?.active_questions || [];
+  const artifactCard = questions.find(
+    (row) =>
+      String(row?.content?.kind || row?.prompt?.kind || row?.prompt?.payload?.kind || "") ===
+      "artifact"
+  );
+  const promptId =
+    Number(artifactCard?.prompt?.id) || Number(lastStudentPayload?.prompt?.id) || 0;
+  if (!promptId) return;
+  fetch(
+    "/api/student/live-prompt/artifact-preview",
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ prompt_id: promptId, params: sliders }),
+    })
+  )
+    .then((res) => res.json())
+    .then((data) => {
+      if (data && data.ok && lastStudentPayload) {
+        lastStudentPayload.group_q_ready = Boolean(data.group_q_ready);
+        (lastStudentPayload.active_questions || []).forEach((row) => {
+          if (Number(row?.prompt?.id) === promptId) {
+            row.group_q_ready = Boolean(data.group_q_ready);
+          }
+        });
+      }
+      syncArtifactGroupQLock();
+    })
+    .catch(() => {});
 }
 
 /**
@@ -2420,6 +2558,7 @@ function applyArtifactPreview(sliders) {
     if (Number.isFinite(number)) next[key] = number;
   });
   lastArtifactSliders = next;
+  postArtifactSliderPreview(lastArtifactSliders);
   const roots = [promptShell, liveQuestionStack].filter(Boolean);
   if (!roots.length) return;
   roots.forEach((root) => {
@@ -3010,6 +3149,7 @@ if (liveQuestionStack) {
     const submit = event.target.closest("[data-live-submit]");
     const card = submit?.closest("[data-live-card-id]");
     if (!(submit instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
+    if (submit.disabled) return;
     submit.disabled = true;
     submitLifecycleAnswer(card, submit.dataset.liveSubmit || "individual")
       .catch((err) => {

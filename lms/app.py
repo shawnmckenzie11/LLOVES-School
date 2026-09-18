@@ -80,6 +80,7 @@ from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
 from artifact import (  # noqa: E402
     C2_TRANSFORM_MEDIA_URL,
     TRANSFORMATIONS_ARTIFACT_ID,
+    is_artifact_payload,
     live_media_catalog,
 )
 from live_media import (  # noqa: E402
@@ -4154,6 +4155,57 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return jsonify({"ok": True, **frag})
 
+    @app.route("/api/student/live-prompt/artifact-preview", methods=["POST"])
+    @student_required
+    def api_student_live_prompt_artifact_preview():
+        """Record Artifact slider preview for Group Q matching."""
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        if ident is None:
+            return jsonify(
+                {"ok": False, "error": "Not joined.", "redirect": url_for("landing")}
+            ), 401
+        _offering, _class_id, student_id = ident
+        ctx = _student_live_context()
+        live_session_id = int(
+            (ctx or {}).get("live_session_id") or session["student_live_session_id"]
+        )
+        body = request.get_json(silent=True) or {}
+        try:
+            prompt_id = int(body.get("prompt_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "No prompt."}), 409
+        params = body.get("params")
+        prompt = next(
+            (
+                row
+                for row in school._list_live_session_prompts(live_session_id)
+                if int(row["id"]) == prompt_id
+            ),
+            None,
+        )
+        payload = (prompt or {}).get("payload") if isinstance(prompt, dict) else {}
+        if prompt is None or not is_artifact_payload(payload):
+            return jsonify({"ok": False, "error": "No artifact prompt."}), 409
+        sid = int(student_id) if student_id not in (None, "") else None
+        school.record_artifact_slider_preview(
+            live_session_id, sid, prompt_id, params
+        )
+        status = school.artifact_group_q_status(
+            live_session_id, sid, prompt, params=params
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "group_q_ready": status["ready"],
+                "needed": status["needed"],
+                "matched": status["matched"],
+                "members": status["members"],
+            }
+        )
+
     @app.route("/api/student/canvas-presence", methods=["POST"])
     @student_required
     def api_student_canvas_presence():
@@ -4669,6 +4721,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 target_mode=body.get("target_mode") or "graph",
                 parent=body.get("parent") if isinstance(body.get("parent"), dict) else None,
                 slide_index=slide_index,
+                hot_cold_visible=body.get("hot_cold_visible"),
+                group_q=body.get("group_q"),
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
@@ -4845,6 +4899,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             media = school.set_live_session_active_media(session_id, **kwargs)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        if "artifact" in body:
+            school.sync_artifact_teacher_flags(session_id, body.get("artifact"))
         return jsonify(
             {
                 "ok": True,
