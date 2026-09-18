@@ -765,6 +765,26 @@
         "dismissible": true
       }
     },
+    "live-class/MCR3U/M1/C3/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C3",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+      "title": "Parent transformations",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
     "live-class/MCR3U/M1/C2/media/parent-transformations": {
       "scope": "live_class",
       "course": "MCR3U",

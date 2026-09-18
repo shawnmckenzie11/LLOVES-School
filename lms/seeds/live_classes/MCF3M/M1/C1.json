@@ -1,87 +1,96 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "course": "MCF3M",
   "module": "M1",
   "live_class": "C1",
-  "media": {
-    "file": "/static/live-media/m1c1-c1-real-slice.html",
-    "title": "Real Slice",
-    "shared_across_rounds": true
-  },
-  "slides": {
-    "deck_ref": null,
-    "page_numbers": []
-  },
-  "questions": [
+  "items": [
     {
-      "id": "minds_on",
+      "ref": "live-class/MCF3M/M1/C1/question/minds-on",
       "stage": "join",
-      "type": "mc",
-      "text": "A straight-line graph has a **constant rate of change**. Which statement best matches that?",
-      "options": [
-        "Every equal step across adds the same amount up (or down)",
-        "The graph curves",
-        "Second differences in a table are constant"
-      ],
-      "correct_answer": "A",
       "page_number": 1,
       "order": 1,
-      "default_visibility": true
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual",
+        "group_consensus"
+      ],
+      "response_mode": "individual"
     },
     {
-      "id": "teams-spark",
-      "stage": "join",
-      "type": "numeric",
-      "text": "Type the integer you think most students will answer",
-      "options": [],
-      "correct_answer": null,
+      "ref": "universal/question/teams-spark",
+      "stage": "teams",
       "page_number": 2,
-      "order": 2,
-      "default_visibility": false
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual",
+        "group_consensus"
+      ],
+      "response_mode": "individual"
     },
     {
-      "id": "meet-team",
+      "ref": "universal/question/meet-team",
       "stage": "meet",
-      "type": "poll",
-      "text": "Today I’m the teammate who…",
-      "options": [
-        "notices details",
-        "asks the good question",
-        "keeps us kind",
-        "wants to try being team leader",
-        "Not sure"
-      ],
-      "correct_answer": null,
-      "page_number": 1,
+      "page_number": 3,
       "order": 1,
-      "default_visibility": true
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
+    },
+    {
+      "ref": "course/MCF3M/media/real-slice",
+      "stage": "play",
+      "page_number": 5,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
     }
   ],
-  "round_defaults": {
-    "join": {
-      "timer": false,
-      "timer_minutes": 3,
-      "teams": false
+  "pages": [
+    {
+      "id": "join",
+      "name": "Join",
+      "stage": "join"
     },
-    "teams": {
-      "timer": false,
-      "timer_minutes": 3,
-      "teams": false
+    {
+      "id": "welcome",
+      "name": "Welcome",
+      "stage": "teams"
     },
-    "meet": {
-      "timer": false,
-      "timer_minutes": 3,
-      "teams": false
+    {
+      "id": "meet",
+      "name": "Meet",
+      "stage": "meet"
     },
-    "round": {
-      "timer": false,
-      "timer_minutes": 3,
-      "teams": false
+    {
+      "id": "round_1",
+      "name": "Round 1",
+      "stage": "round"
     },
-    "play": {
-      "timer": false,
-      "timer_minutes": 3,
-      "teams": false
+    {
+      "id": "round_2",
+      "name": "Round 2",
+      "stage": "play"
+    },
+    {
+      "id": "round_3",
+      "name": "Round 3",
+      "stage": "round_3"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "stage": "summary"
     }
+  ],
+  "team_challenge": {
+    "context": "Mr. M loves classes that split nicely into equal (or very similar) group sizes. His favourite class size is 16, because he can run a jigsaw with equal groups.",
+    "question": "How can Mr. M quickly check if his class is nicely jigsaw-able?",
+    "speaker_notes": "Explain jigsaw grouping: home groups, then expert groups, then return. Connect to functions and notation, perfect squares, factoring, and integers. Quadratics, midpoint, and x^2 = 16 are nearby."
   }
 }
