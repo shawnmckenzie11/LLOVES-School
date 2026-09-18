@@ -34,7 +34,6 @@ import {
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
-import { openBankMcPicker } from "/static/bank_mc_picker.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -1504,12 +1503,16 @@ function openLiveMcImportPicker() {
   refreshLessonDeckMetadata()
     .catch(() => {})
     .finally(() => {
-  openBankMcPicker({
-    classId,
-    moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
-    mode: "import",
-    onSelect: (item) => importLiveMcFromBank(item),
-  }).catch((err) => showError(err));
+      import("/static/bank_mc_picker.js")
+        .then(({ openBankMcPicker }) =>
+          openBankMcPicker({
+            classId,
+            moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
+            mode: "import",
+            onSelect: (item) => importLiveMcFromBank(item),
+          })
+        )
+        .catch((err) => showError("#ap-overlay-error", err));
     });
 }
 

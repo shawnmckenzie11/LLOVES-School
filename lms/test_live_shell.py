@@ -2019,7 +2019,18 @@ class LiveShellTests(unittest.TestCase):
         teacher = self.school.live_session_teacher_state_payload(int(reminted["id"]))
         self.assertFalse(teacher.get("class_set"))
 
+        picker = LMS_DIR / "static" / "bank_mc_picker.js"
+        self.assertTrue(picker.is_file(), "bank-import picker must stay on disk")
+        picker_js = picker.read_text(encoding="utf-8")
+        self.assertIn("export async function openBankMcPicker", picker_js)
+        served = self.client.get("/static/bank_mc_picker.js")
+        self.assertEqual(served.status_code, 200)
+
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn(
+            'import { openBankMcPicker } from "/static/bank_mc_picker.js"', js
+        )
+        self.assertIn('import("/static/bank_mc_picker.js")', js)
         self.assertIn('let currentStep = "validate"', js)
         self.assertIn("let setupPhase = true", js)
         self.assertIn("function classSetIsComplete(", js)
