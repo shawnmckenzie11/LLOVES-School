@@ -599,6 +599,13 @@ body.student-home.is-live .student-live-response {
   line-height: 1.35;
 }
 
+.student-live-stem {
+  margin: -0.45rem 0 0.75rem;
+  color: #c5d0dc;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
 .student-live-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -1037,6 +1044,48 @@ body.student-home.is-live .student-live-response {
   font-family: "IBM Plex Serif", Georgia, serif;
   font-size: 1.15rem;
   color: #f5c518;
+}
+
+.artifact-parents-label {
+  margin: 0 0 0.28rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8fa3bb;
+  font-weight: 650;
+}
+
+.artifact-parents {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+  margin: 0 0 0.5rem;
+}
+
+.artifact-parent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 8px;
+  border: 1px solid #2a4660;
+  background: #102536;
+  color: #d6e4ef;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.artifact-parent input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.artifact-parent.is-on {
+  border-color: #f5c518;
+  background: rgba(245, 197, 24, 0.14);
+  color: #f5e6a8;
 }
 
 .hot-cold-meters {

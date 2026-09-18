@@ -1525,6 +1525,38 @@ function lifecycleAnswerKind(item) {
 }
 
 /**
+ * Compact parent-function radios for the MCR3U C3 Artifact card.
+ * @param {any} content
+ * @param {string} groupId
+ * @returns {string}
+ */
+function parentChoiceRadiosHtml(content, groupId) {
+  const choices = Array.isArray(content?.parent_choices) ? content.parent_choices : [];
+  if (!choices.length) return "";
+  const picked = String(
+    lastArtifactSliders.parent || content.parent?.kind || choices[0]?.kind || ""
+  );
+  const name = `artifact-parent-${escapeText(groupId)}`;
+  const labelId = `${name}-label`;
+  return `<div class="artifact-parents-block">
+    <p class="artifact-parents-label" id="${labelId}">Parent function</p>
+    <div class="artifact-parents" role="radiogroup" aria-labelledby="${labelId}">${choices
+    .map((row) => {
+      const kind = String(row?.kind || "");
+      const label = String(row?.label || kind);
+      const on = kind === picked;
+      return `<label class="artifact-parent${on ? " is-on" : ""}">
+        <input type="radio" name="${name}" data-artifact-parent="${escapeText(kind)}"${
+          on ? " checked" : ""
+        }>
+        <span>${escapeText(label)}</span>
+      </label>`;
+    })
+    .join("")}</div>
+  </div>`;
+}
+
+/**
  * Return answer controls for a lifecycle question.
  * @param {any} item
  * @param {"individual"|"vote"|"team"} action
@@ -1590,6 +1622,7 @@ function lifecycleAnswerControls(item, action, initial = null) {
         : "";
     return `<div class="student-live-answer-controls" data-live-action="${action}" data-artifact-kind="1">
       ${eqBlock}
+      ${parentChoiceRadiosHtml(content, `${Number(item.id)}:${action}`)}
       <div class="hot-cold-meters">${meters}</div>
       <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
     </div>`;
@@ -1870,7 +1903,21 @@ function paintLifecycleQuestionStack(payload) {
           )}</span>
         </div>
         ${questionImageHtmlStudent(content.image_url)}
-        <h2>${lifecyclePromptHtml(content)}</h2>
+        <h2>${lifecyclePromptHtml({
+          ...content,
+          text: content.title || content.text,
+          prompt: content.title || content.text || content.prompt,
+        })}</h2>
+        ${
+          String(content.title || "").trim() &&
+          String(content.stem || content.prompt || "").trim() &&
+          String(content.stem || content.prompt || "").trim() !==
+            String(content.title || "").trim()
+            ? `<p class="student-live-stem">${formatPromptHtml(
+                content.stem || content.prompt
+              )}</p>`
+            : ""
+        }
         ${lifecycleEquationHtml(content)}
         ${
           groupMode
@@ -2174,7 +2221,18 @@ function paintPrompt(payload) {
  */
 function renderPromptBody(prompt, data, payload, lockChoices) {
   const kind = String(prompt.kind);
-  const title = lifecyclePromptHtml(data);
+  const mintedTitle = String(data.title || "").trim();
+  const title = mintedTitle
+    ? formatPromptHtml(mintedTitle)
+    : lifecyclePromptHtml(data);
+  const mintedStem =
+    mintedTitle &&
+    String(data.stem || data.prompt || "").trim() &&
+    String(data.stem || data.prompt || "").trim() !== mintedTitle
+      ? `<p class="student-live-stem">${formatPromptHtml(
+          data.stem || data.prompt
+        )}</p>`
+      : "";
   const picked = String(
     (payload.my_response && payload.my_response.response && payload.my_response.response.choice) ||
       (payload.group_draft && payload.group_draft.choice) ||
@@ -2256,6 +2314,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
         : "";
     controls = `
       ${eqBlock}
+      ${parentChoiceRadiosHtml(data, "prompt")}
       <div class="hot-cold-meters" id="artifact-meters">${meters}</div>
       <button type="button" class="prompt-submit" id="prompt-artifact-submit"${
         lockChoices ? " disabled" : ""
@@ -2299,6 +2358,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   promptShell.innerHTML = `
     <p class="prompt-kind">${escapeText(kindLine)}</p>
     <h2 class="prompt-title">${title}</h2>
+    ${mintedStem}
     <div class="prompt-controls" data-prompt-id="${escapeText(prompt.id)}">${controls}</div>
   `;
   lastPromptId = Number(prompt.id);
@@ -2370,6 +2430,21 @@ function wirePromptControls(prompt) {
       submitResponse(prompt.id, { params: { ...lastArtifactSliders } });
     });
   }
+  root.querySelectorAll("[data-artifact-parent]").forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (!(radio instanceof HTMLInputElement) || !radio.checked) return;
+      lastArtifactSliders = {
+        ...lastArtifactSliders,
+        parent: radio.getAttribute("data-artifact-parent") || "",
+      };
+      radio
+        .closest(".artifact-parents")
+        ?.querySelectorAll(".artifact-parent")
+        .forEach((label) => {
+          label.classList.toggle("is-on", label.contains(radio));
+        });
+    });
+  });
 }
 
 /**
@@ -2994,6 +3069,20 @@ if (liveQuestionStack) {
       event.stopPropagation();
       dismissedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
       paintLifecycleQuestionStack(lastStudentPayload || {});
+      return;
+    }
+    const parentPick = event.target.closest("[data-artifact-parent]");
+    if (parentPick instanceof HTMLInputElement) {
+      lastArtifactSliders = {
+        ...lastArtifactSliders,
+        parent: parentPick.getAttribute("data-artifact-parent") || "",
+      };
+      parentPick
+        .closest(".artifact-parents")
+        ?.querySelectorAll(".artifact-parent")
+        .forEach((label) => {
+          label.classList.toggle("is-on", label.contains(parentPick));
+        });
       return;
     }
     const submit = event.target.closest("[data-live-submit]");
