@@ -2045,7 +2045,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
         self.assertIn("paintTeacherShell()", resume)
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", resume)
+        self.assertIn("await loadSavedLiveLesson(", resume)
         self.assertIn("await ensureC1MediaSeeded()", resume)
+        self.assertIn("function persistActiveMediaCopy(", js)
+        self.assertIn("function scheduleActiveMediaCopyAutosave()", js)
+        self.assertIn("deck?fresh=1", js)
         bind = js.split("function bindActiveMediaControls(")[1].split(
             "window.addEventListener(\"message\""
         )[0]

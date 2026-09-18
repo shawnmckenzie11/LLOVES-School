@@ -4650,7 +4650,7 @@ class SchoolDB(LovesDB):
         self.game = mod.GameShowDB(path, store)
         self.data_dir = store
         self._live_metadata_cache: dict[
-            tuple[int, str, str, str], dict[str, Any]
+            tuple[int, str, str, str, str], dict[str, Any]
         ] = {}
 
     def close(self) -> None:
@@ -6017,8 +6017,11 @@ class SchoolDB(LovesDB):
         slot_key = str(slot or "").strip().upper()
         snapshot: dict[str, Any] = {
             "live_metadata": self.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key, fresh=True
+            ),
+            "deck_revision": self.class_deck_revision(
                 int(class_id), module_key, slot_key
-            )
+            ),
         }
         active = self.get_active_live_session_for_class(int(class_id))
         if active is None:
@@ -6700,6 +6703,80 @@ class SchoolDB(LovesDB):
             "teacher_state": teacher_state,
         }
 
+    def class_deck_revision(
+        self, class_id: int, module: str, slot: str
+    ) -> str:
+        """Return a fingerprint of saved class overlays for one lesson deck.
+
+        Playlist placements, hide/move overrides, page overlays, and media
+        copy all participate. The next open compares this token so a cached
+        seed pack cannot outlive teacher edits.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+
+        Returns:
+            Opaque revision string that changes when overlays change.
+        """
+        module_key = str(module or "").upper()
+        slot_key = str(slot or "").upper()
+        params = (int(class_id), module_key, slot_key)
+        with self._lock:
+            placements = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id
+                FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchone()
+            overrides = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id,
+                       COALESCE(MAX(updated_at), '') AS stamp
+                FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchone()
+            pages = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id,
+                       COALESCE(MAX(updated_at), '') AS stamp
+                FROM class_live_playlist_pages
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchone()
+            media = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_id,
+                       COALESCE(MAX(updated_at), '') AS stamp
+                FROM class_live_media_overlays
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchone()
+        return "|".join(
+            [
+                f"p:{int(placements['n'] or 0)}:{int(placements['max_id'] or 0)}",
+                (
+                    f"o:{int(overrides['n'] or 0)}:{int(overrides['max_id'] or 0)}:"
+                    f"{overrides['stamp'] or ''}"
+                ),
+                (
+                    f"g:{int(pages['n'] or 0)}:{int(pages['max_id'] or 0)}:"
+                    f"{pages['stamp'] or ''}"
+                ),
+                (
+                    f"m:{int(media['n'] or 0)}:{int(media['max_id'] or 0)}:"
+                    f"{media['stamp'] or ''}"
+                ),
+            ]
+        )
+
     def invalidate_live_metadata_cache(
         self,
         *,
@@ -6721,7 +6798,7 @@ class SchoolDB(LovesDB):
         course_key = str(course or "").upper() if course else None
         module_key = str(module or "").upper() if module else None
         slot_key = str(slot or "").upper() if slot else None
-        drop: list[tuple[int, str, str, str]] = []
+        drop: list[tuple[int, str, str, str, str]] = []
         for key in self._live_metadata_cache:
             if class_id is not None and key[0] != int(class_id):
                 continue
@@ -12284,17 +12361,33 @@ class SchoolDB(LovesDB):
         course: str,
         module: str,
         slot: str,
+        *,
+        fresh: bool = False,
     ) -> dict[str, Any]:
-        """Load seed metadata merged with per-class bank, page, and item overlays."""
+        """Load seed metadata merged with per-class bank, page, and item overlays.
+
+        Cache keys include ``class_deck_revision`` so a prior seed merge cannot
+        be reused after playlist, page, or media-copy edits.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            course: Ontario course code.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+            fresh: When True, skip the in-process cache and rebuild.
+        """
         key = (
             int(class_id),
             str(course or "").upper(),
             str(module or "M1").upper(),
             str(slot or "C1").upper(),
         )
-        cached = self._live_metadata_cache.get(key)
-        if cached is not None:
-            return deepcopy(cached)
+        revision = self.class_deck_revision(int(class_id), key[2], key[3])
+        cache_key = (*key, revision)
+        if not fresh:
+            cached = self._live_metadata_cache.get(cache_key)
+            if cached is not None:
+                return deepcopy(cached)
         loaded = load_live_class_metadata(key[1], key[2], key[3])
         placements = self.list_class_playlist_placements(
             int(class_id), key[2], key[3]
@@ -12314,19 +12407,30 @@ class SchoolDB(LovesDB):
             merged,
             self.get_class_live_media_copy(int(class_id), key[2], key[3]),
         )
-        self._live_metadata_cache[key] = merged
+        merged["deck_revision"] = revision
+        self._live_metadata_cache[cache_key] = merged
         return deepcopy(merged)
 
     def live_class_metadata_for_class_lesson(
-        self, class_id: int, module: str, slot: str
+        self, class_id: int, module: str, slot: str, *, fresh: bool = True
     ) -> dict[str, Any]:
-        """Return merged live-lesson metadata for one class deck."""
+        """Return merged live-lesson metadata for one class deck.
+
+        Staff open/edit paths default to ``fresh=True`` so the latest saved
+        overlays win over a cached seed pack.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+            fresh: When True, rebuild from sqlite overlays.
+        """
         class_row = self.game.get_class(int(class_id))
         if class_row is None:
             raise KeyError(f"class {class_id}")
         course = str(class_row.get("course_code") or "").upper()
         return self._merged_live_class_metadata(
-            int(class_id), course, module, slot
+            int(class_id), course, module, slot, fresh=fresh
         )
 
     def live_class_metadata_for_session(self, session_id: int) -> dict[str, Any]:
@@ -14094,6 +14198,16 @@ class SchoolDB(LovesDB):
                     toast_key=toast_key,
                 )
             self._sync_cons_prompt(session_id, None)
+            if persist_media_copy and (stem is not None or caption is not None):
+                teacher = self.live_session_teacher_state_payload(session_id)
+                self._persist_session_media_copy(
+                    session_row,
+                    module=str(teacher.get("live_module") or "M1"),
+                    slot=str(teacher.get("live_slot") or slot),
+                    stem=stem,
+                    caption=caption,
+                    payload=None,
+                )
             return None
         if slot == "C2":
             media_kwargs = {
@@ -14143,6 +14257,16 @@ class SchoolDB(LovesDB):
                     toast_key=toast_key,
                 )
             self._sync_cons_prompt(session_id, None)
+            if persist_media_copy and (stem is not None or caption is not None):
+                teacher = self.live_session_teacher_state_payload(session_id)
+                self._persist_session_media_copy(
+                    session_row,
+                    module=str(teacher.get("live_module") or "M1"),
+                    slot=str(teacher.get("live_slot") or slot),
+                    stem=stem,
+                    caption=caption,
+                    payload=payload,
+                )
             return payload
         payload = apply_active_media_update(current, **kwargs)
         encoded = json.dumps(payload) if payload else None
@@ -14167,17 +14291,53 @@ class SchoolDB(LovesDB):
             if stage in {"round", "play"} or bool(frames.get("media")):
                 self.clear_session_warmups(session_id)
             if persist_media_copy and (stem is not None or caption is not None):
-                self.upsert_class_live_media_copy(
-                    int(session_row["class_id"]),
-                    teacher.get("live_module") or "M1",
-                    teacher.get("live_slot") or slot,
-                    stem=None if stem is None else str(payload.get("stem") or ""),
-                    caption=None
-                    if caption is None
-                    else str(payload.get("caption") or ""),
+                self._persist_session_media_copy(
+                    session_row,
+                    module=str(teacher.get("live_module") or "M1"),
+                    slot=str(teacher.get("live_slot") or slot),
+                    stem=stem,
+                    caption=caption,
+                    payload=payload,
                 )
         self._sync_cons_prompt(session_id, payload)
         return payload
+
+    def _persist_session_media_copy(
+        self,
+        session_row: dict[str, Any],
+        *,
+        module: str,
+        slot: str,
+        stem: str | None,
+        caption: str | None,
+        payload: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        """Write stem/caption onto the class overlay for the next open.
+
+        C2/C3 used to return before the generic persist path, so the next
+        Set Class load reused the seed pack instead of the edited copy.
+
+        Args:
+            session_row: ``live_class_sessions`` row with ``class_id``.
+            module: Module token such as ``M1``.
+            slot: Live slot such as ``C3``.
+            stem: Posted stem, or ``None`` to keep the stored value.
+            caption: Posted caption, or ``None`` to keep the stored value.
+            payload: Applied media blob when present; used for normalized text.
+
+        Returns:
+            Stored ``{stem, caption}``.
+        """
+        body = payload if isinstance(payload, dict) else {}
+        return self.upsert_class_live_media_copy(
+            int(session_row["class_id"]),
+            module,
+            slot,
+            stem=None if stem is None else str(body.get("stem") or stem or ""),
+            caption=None
+            if caption is None
+            else str(body.get("caption") or caption or ""),
+        )
 
     def _persist_live_slot(self, session_id: int, live_slot: str) -> dict[str, Any]:
         """Write ``live_slot`` on the teacher channel and reset C1 text_ride.
@@ -16789,6 +16949,11 @@ class SchoolDB(LovesDB):
                     self.list_live_session_items(session_id) if is_active else []
                 ),
                 "live_metadata": self.live_class_metadata_for_session(session_id),
+                "deck_revision": self.class_deck_revision(
+                    int(session_row["class_id"]),
+                    str(teacher_state.get("live_module") or "M1"),
+                    str(teacher_state.get("live_slot") or "C1"),
+                ),
                 "question_cards": (
                     self.live_session_question_cards(session_id) if is_active else []
                 ),
