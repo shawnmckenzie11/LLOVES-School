@@ -7,6 +7,8 @@ that prompt. Student submit grades against the snapshot. Teacher points stay
 on existing Responses & Points — this module does not award.
 
 First concrete: MCF3M M1 C2 Transformations (vertex form of ``y = x^2``).
+MCF3M M1 C3 reuses that same Artifact. MCR3U M1 C3 is the parent-function
+variant (radio parent + ``a, k, d, c`` sliders).
 """
 
 from __future__ import annotations
@@ -16,10 +18,15 @@ from typing import Any
 ARTIFACT_KIND = "artifact"
 ARTIFACT_CHANNEL = "live-prompt"
 TRANSFORMATIONS_ARTIFACT_ID = "mcf3m-m1-c2-transformations"
+PARENT_TRANSFORMATIONS_ARTIFACT_ID = "mcr3u-m1-c3-parent-transformations"
+REGISTERED_ARTIFACT_IDS = frozenset(
+    {TRANSFORMATIONS_ARTIFACT_ID, PARENT_TRANSFORMATIONS_ARTIFACT_ID}
+)
 TRANSFORMATIONS_STEM = (
     "Drag sliders to transform the parent function to match "
     "the target (transformed) function."
 )
+PARENT_TRANSFORMATIONS_STEM = TRANSFORMATIONS_STEM
 TRANSFORMATIONS_PARENT = {
     "kind": "quadratic",
     "formula": "x^2",
@@ -39,6 +46,37 @@ LEAD_MATCH = "Matched."
 LEAD_MISS = "Not yet — watch the meters."
 ARTIFACT_SLIDE_BASE = 800
 C2_TRANSFORM_MEDIA_URL = "/static/live-media/m1c2-transforms.html"
+C3_PARENT_MEDIA_URL = "/static/live-media/mcr3u-m1c3-parent-transformations.html"
+PARENT_KINDS = frozenset(
+    {"linear", "quadratic", "abs", "sqrt", "reciprocal"}
+)
+PARENT_KIND_LABELS: dict[str, str] = {
+    "linear": "f(x)=x",
+    "quadratic": "f(x)=x²",
+    "abs": "f(x)=|x|",
+    "sqrt": "f(x)=√x",
+    "reciprocal": "f(x)=1/x",
+}
+PARENT_KIND_FORMULAS: dict[str, str] = {
+    "linear": "x",
+    "quadratic": "x^2",
+    "abs": "|x|",
+    "sqrt": "sqrt(x)",
+    "reciprocal": "1/x",
+}
+PARENT_TRANSFORM_KEYS: tuple[str, ...] = ("a", "k", "d", "c")
+PARENT_TRANSFORM_RANGES: dict[str, tuple[float, float]] = {
+    "a": (-3.0, 3.0),
+    "k": (-3.0, 3.0),
+    "d": (-6.0, 6.0),
+    "c": (-6.0, 6.0),
+}
+PARENT_TRANSFORMATIONS_PARENT = {
+    "kind": "linear",
+    "formula": "x",
+    "label": "f(x)=x",
+    "params": {"a": 1.0, "k": 1.0, "d": 0.0, "c": 0.0},
+}
 
 
 def is_artifact_payload(payload: Any) -> bool:
@@ -52,13 +90,25 @@ def is_artifact_payload(payload: Any) -> bool:
     kind = str(payload.get("kind") or "").strip().lower()
     if kind == ARTIFACT_KIND:
         return True
-    return (
-        str(payload.get("artifact_id") or "").strip() == TRANSFORMATIONS_ARTIFACT_ID
-    )
+    return str(payload.get("artifact_id") or "").strip() in REGISTERED_ARTIFACT_IDS
 
 
 def is_transformations_artifact(payload: Any) -> bool:
-    """True when the payload is the MCF3M M1 C2 Transformations Artifact.
+    """True when the payload is the MCF3M vertex-form Transformations Artifact.
+
+    Used on MCF3M M1 C2 and the C3 copy.
+
+    Args:
+        payload: Prompt JSON object.
+    """
+    if not is_artifact_payload(payload):
+        return False
+    artifact_id = str(payload.get("artifact_id") or "").strip()
+    return artifact_id == TRANSFORMATIONS_ARTIFACT_ID or not artifact_id
+
+
+def is_parent_transformations_artifact(payload: Any) -> bool:
+    """True when the payload is the MCR3U M1 C3 parent-function Artifact.
 
     Args:
         payload: Prompt JSON object.
@@ -66,7 +116,8 @@ def is_transformations_artifact(payload: Any) -> bool:
     if not is_artifact_payload(payload):
         return False
     return (
-        str(payload.get("artifact_id") or "").strip() == TRANSFORMATIONS_ARTIFACT_ID
+        str(payload.get("artifact_id") or "").strip()
+        == PARENT_TRANSFORMATIONS_ARTIFACT_ID
     )
 
 
@@ -212,23 +263,216 @@ def grade_transform_snapshot(
     }
 
 
+def normalize_parent_kind(raw: Any) -> str:
+    """Return a known parent-function id.
+
+    Args:
+        raw: Posted parent kind, mapping with ``kind``, or empty.
+
+    Raises:
+        ValueError: If ``raw`` is present but not a known parent.
+    """
+    if isinstance(raw, dict):
+        text = str(raw.get("kind") or raw.get("parent") or "").strip().lower()
+    else:
+        text = str(raw or "").strip().lower()
+    aliases = {
+        "absvalue": "abs",
+        "absolute": "abs",
+        "absolute_value": "abs",
+        "square_root": "sqrt",
+        "root": "sqrt",
+        "line": "linear",
+        "quad": "quadratic",
+        "parabola": "quadratic",
+    }
+    text = aliases.get(text, text)
+    if not text:
+        return "linear"
+    if text not in PARENT_KINDS:
+        raise ValueError("parent must be linear, quadratic, abs, sqrt, or reciprocal.")
+    return text
+
+
+def parent_function_dict(kind: Any) -> dict[str, Any]:
+    """Return the stored parent-function object for one kind.
+
+    Args:
+        kind: Parent id or mapping with ``kind``.
+    """
+    token = normalize_parent_kind(kind)
+    return {
+        "kind": token,
+        "formula": PARENT_KIND_FORMULAS[token],
+        "label": PARENT_KIND_LABELS[token],
+    }
+
+
+def normalize_parent_params(raw: Any) -> dict[str, float]:
+    """Clamp ``a``, ``k``, ``d``, ``c`` for ``y = a f(k(x − d)) + c``.
+
+    ``a`` and ``k`` cannot be 0.
+
+    Args:
+        raw: Mapping of parameter names, or ``None`` for the identity.
+
+    Returns:
+        Dict with float ``a``, ``k``, ``d``, ``c``.
+
+    Raises:
+        ValueError: If a provided value is not a finite number.
+    """
+    values = dict(PARENT_TRANSFORMATIONS_PARENT["params"])
+    if raw is None:
+        return values
+    if not isinstance(raw, dict):
+        raise ValueError("snapshot must be an object with a, k, d, and c.")
+    for key, (low, high) in PARENT_TRANSFORM_RANGES.items():
+        if key not in raw:
+            continue
+        try:
+            number = float(raw[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"snapshot.{key} must be a number.") from exc
+        if number != number or number in (float("inf"), float("-inf")):
+            raise ValueError(f"snapshot.{key} must be a finite number.")
+        values[key] = max(low, min(high, number))
+    if abs(values["a"]) < 0.05:
+        values["a"] = 0.05 if values["a"] >= 0 else -0.05
+    if abs(values["k"]) < 0.05:
+        values["k"] = 0.05 if values["k"] >= 0 else -0.05
+    return values
+
+
+def format_parent_equation(kind: Any, params: dict[str, float]) -> str:
+    """Pretty-print ``y = a · parent(k(x − d)) + c``.
+
+    Args:
+        kind: Parent function id.
+        params: Clamped ``{a, k, d, c}``.
+    """
+    token = normalize_parent_kind(kind)
+    a = float(params["a"])
+    k = float(params["k"])
+    d = float(params["d"])
+    c = float(params["c"])
+
+    def _num(value: float) -> str:
+        text = f"{value:.4f}".rstrip("0").rstrip(".")
+        return text.replace("-", "−")
+
+    inner = "k(x−d)" if abs(d) > 0.001 else "kx"
+    if token == "quadratic":
+        body = f"({inner})²"
+    elif token == "abs":
+        body = f"|{inner}|"
+    elif token == "sqrt":
+        body = f"√({inner})"
+    elif token == "reciprocal":
+        body = f"1/({inner})"
+    else:
+        body = inner
+    a_bit = "" if abs(a - 1) < 0.001 else ("−" if abs(a + 1) < 0.001 else _num(a))
+    core = f"{a_bit}{body}" if a_bit else body
+    if a_bit and a_bit not in {"−"}:
+        core = f"{a_bit}·{body}"
+    tail = ""
+    if abs(c) > 0.001:
+        tail = f"+{_num(abs(c))}" if c > 0 else f"−{_num(abs(c))}"
+    return (
+        f"y={core}{tail} · a={_num(a)} k={_num(k)} d={_num(d)} c={_num(c)}"
+    )
+
+
+def grade_parent_snapshot(
+    student: Any,
+    target: Any,
+    *,
+    parent: Any = None,
+    target_parent: Any = None,
+) -> dict[str, Any]:
+    """Auto-check parent radio plus ``a, k, d, c`` sliders.
+
+    Args:
+        student: Posted ``{a, k, d, c}`` and optional ``parent``.
+        target: Stored snapshot ``{a, k, d, c}``.
+        parent: Posted parent kind when not inside ``student``.
+        target_parent: Teacher parent kind.
+
+    Returns:
+        ``{match, parent_match, per_key, student, target, parent}``.
+    """
+    posted = student if isinstance(student, dict) else {}
+    want_parent = normalize_parent_kind(
+        target_parent
+        if target_parent is not None
+        else (target.get("parent") if isinstance(target, dict) else None)
+    )
+    got_parent = normalize_parent_kind(
+        parent
+        if parent is not None
+        else posted.get("parent") or posted.get("kind")
+    )
+    parent_match = got_parent == want_parent
+    got = normalize_parent_params(posted)
+    want = normalize_parent_params(target)
+    per_key: dict[str, dict[str, float | bool]] = {}
+    ok = parent_match
+    for key in PARENT_TRANSFORM_KEYS:
+        allowed = slider_margin(want[key], key)
+        delta = abs(got[key] - want[key])
+        hit = delta <= allowed + 1e-9
+        per_key[key] = {
+            "student": got[key],
+            "target": want[key],
+            "delta": delta,
+            "allowed": allowed,
+            "match": hit,
+        }
+        if not hit:
+            ok = False
+    return {
+        "match": ok,
+        "parent_match": parent_match,
+        "per_key": per_key,
+        "student": got,
+        "target": want,
+        "parent": got_parent,
+        "target_parent": want_parent,
+    }
+
+
 def artifact_feedback_fragment(payload: Any, response: Any) -> dict[str, Any] | None:
     """Student-safe match / miss line for an Artifact submit.
 
     Args:
         payload: Live-prompt payload (includes teacher snapshot).
-        response: Student answer JSON (``params`` or top-level a/h/k).
+        response: Student answer JSON (``params`` or top-level sliders).
 
     Returns:
         ``{text, lead, source, match}`` or ``None`` when this is not an
         Artifact prompt.
     """
-    if not is_transformations_artifact(payload):
+    if not is_artifact_payload(payload):
         return None
     snapshot = (payload or {}).get("snapshot") if isinstance(payload, dict) else None
     posted = response if isinstance(response, dict) else {}
     raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
-    result = grade_transform_snapshot(raw, snapshot)
+    if is_parent_transformations_artifact(payload):
+        parent = None
+        if isinstance(payload, dict):
+            parent = (payload.get("parent") or {}).get("kind") if isinstance(
+                payload.get("parent"), dict
+            ) else payload.get("parent")
+        result = grade_parent_snapshot(
+            raw,
+            snapshot,
+            target_parent=parent,
+        )
+    elif is_transformations_artifact(payload):
+        result = grade_transform_snapshot(raw, snapshot)
+    else:
+        return None
     match = bool(result["match"])
     lead = LEAD_MATCH if match else LEAD_MISS
     return {
@@ -281,6 +525,51 @@ def transformations_prompt_payload(
     }
 
 
+def parent_transformations_prompt_payload(
+    *,
+    snapshot: Any,
+    target_mode: Any = "graph",
+    parent: dict[str, Any] | str | None = None,
+    slide_index: int = ARTIFACT_SLIDE_BASE,
+) -> dict[str, Any]:
+    """Build the MCR3U M1 C3 parent-function Artifact prompt.
+
+    Args:
+        snapshot: Teacher slider values at mint time.
+        target_mode: ``graph`` (frozen target curve) or ``equation``.
+        parent: Parent kind or ``{kind, ...}`` object.
+        slide_index: Page index this question is minted onto.
+    """
+    params = normalize_parent_params(snapshot)
+    mode = normalize_target_mode(target_mode)
+    posted = snapshot if isinstance(snapshot, dict) else {}
+    parent_fn = parent_function_dict(
+        parent
+        if parent is not None
+        else posted.get("parent") or posted.get("kind")
+    )
+    equation = format_parent_equation(parent_fn["kind"], params)
+    return {
+        "kind": ARTIFACT_KIND,
+        "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+        "channel": ARTIFACT_CHANNEL,
+        "prompt": PARENT_TRANSFORMATIONS_STEM,
+        "stem": PARENT_TRANSFORMATIONS_STEM,
+        "parent": parent_fn,
+        "snapshot": params,
+        "target_mode": mode,
+        "equation": equation,
+        "slider_keys": list(PARENT_TRANSFORM_KEYS),
+        "slider_ranges": {
+            key: list(PARENT_TRANSFORM_RANGES[key]) for key in PARENT_TRANSFORM_KEYS
+        },
+        "media_url": C3_PARENT_MEDIA_URL,
+        "slide_index": int(slide_index),
+        "ephemeral": False,
+        "durable_store": True,
+    }
+
+
 def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Student-facing Artifact fields (snapshot kept for live hot/cold meters).
 
@@ -288,6 +577,32 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
         payload: Staff prompt payload.
     """
     mode = normalize_target_mode(payload.get("target_mode"))
+    if is_parent_transformations_artifact(payload):
+        parent_fn = parent_function_dict(payload.get("parent"))
+        snapshot = normalize_parent_params(payload.get("snapshot"))
+        out = {
+            "kind": ARTIFACT_KIND,
+            "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+            "channel": ARTIFACT_CHANNEL,
+            "prompt": PARENT_TRANSFORMATIONS_STEM,
+            "stem": PARENT_TRANSFORMATIONS_STEM,
+            "parent": parent_fn,
+            "snapshot": snapshot,
+            "target_mode": mode,
+            "slider_keys": list(payload.get("slider_keys") or PARENT_TRANSFORM_KEYS),
+            "slider_ranges": payload.get("slider_ranges")
+            or {
+                key: list(PARENT_TRANSFORM_RANGES[key])
+                for key in PARENT_TRANSFORM_KEYS
+            },
+            "media_url": str(payload.get("media_url") or C3_PARENT_MEDIA_URL),
+        }
+        if mode == "equation":
+            out["equation"] = str(
+                payload.get("equation")
+                or format_parent_equation(parent_fn["kind"], snapshot)
+            )
+        return out
     out = {
         "kind": ARTIFACT_KIND,
         "artifact_id": str(payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID),
@@ -311,19 +626,36 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_artifact_answer(response: Any) -> str:
-    """Return a compact ``a, h, k`` readout for Responses & Points.
+    """Return a compact slider readout for Responses & Points.
 
     Args:
-        response: Student answer JSON (``params`` or top-level a/h/k).
+        response: Student answer JSON (``params`` or top-level sliders).
     """
     posted = response if isinstance(response, dict) else {}
     raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+    if not isinstance(raw, dict):
+        return ""
+    parent = raw.get("parent") or posted.get("parent")
+    uses_parent = bool(parent) or "d" in raw or (
+        "c" in raw and "h" not in raw
+    )
     try:
-        params = normalize_transform_params(raw)
+        if uses_parent:
+            params = normalize_parent_params(raw)
+            keys = PARENT_TRANSFORM_KEYS
+        else:
+            params = normalize_transform_params(raw)
+            keys = TRANSFORM_KEYS
     except ValueError:
         return ""
     parts = []
-    for key in TRANSFORM_KEYS:
+    if uses_parent:
+        try:
+            parts.append(f"parent={normalize_parent_kind(parent)}")
+        except ValueError:
+            if parent:
+                parts.append(f"parent={parent}")
+    for key in keys:
         text = f"{params[key]:.4f}".rstrip("0").rstrip(".")
         parts.append(f"{key}={text}")
     return ", ".join(parts)
@@ -342,10 +674,25 @@ def public_artifact_media(payload: dict[str, Any] | None) -> dict[str, Any] | No
         mode = normalize_target_mode(payload.get("target_mode"))
     except ValueError:
         return None
+    artifact_id = str(
+        payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID
+    )
+    if artifact_id == PARENT_TRANSFORMATIONS_ARTIFACT_ID:
+        try:
+            parent_fn = parent_function_dict(payload.get("parent"))
+            snapshot = normalize_parent_params(payload.get("snapshot"))
+            mode = normalize_target_mode(payload.get("target_mode"))
+        except ValueError:
+            return None
+        return {
+            "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+            "parent": parent_fn,
+            "snapshot": snapshot,
+            "target_mode": mode,
+            "equation": format_parent_equation(parent_fn["kind"], snapshot),
+        }
     return {
-        "artifact_id": str(
-            payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID
-        ),
+        "artifact_id": artifact_id,
         "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),
         "snapshot": snapshot,
         "target_mode": mode,
@@ -397,11 +744,25 @@ def default_c2_transform_media() -> dict[str, Any]:
     }
 
 
+def default_c3_parent_media() -> dict[str, Any]:
+    """Return the MCR3U M1 C3 parent-function iframe seed.
+
+    Teacher radios and sliders stay iframe-local until Artifact mint.
+    """
+    seeded = default_c2_transform_media()
+    seeded["url"] = C3_PARENT_MEDIA_URL
+    seeded["challenge"] = "C3"
+    seeded["transform"] = dict(PARENT_TRANSFORMATIONS_PARENT["params"])
+    seeded["parent"] = parent_function_dict("linear")
+    return seeded
+
+
 def live_media_catalog() -> dict[str, dict[str, str]]:
     """Modulified live-media registry keyed by live slot.
 
     Returns:
-        ``{C1, C2}`` rows with ``url`` + ``title``. C3 stays text-only.
+        ``{C1, C2, C3}`` rows with ``url`` + ``title``. Generic C3 still
+        clears unless a playlist or Artifact URL is posted.
     """
     return {
         "C1": {
@@ -412,4 +773,46 @@ def live_media_catalog() -> dict[str, dict[str, str]]:
             "url": C2_TRANSFORM_MEDIA_URL,
             "title": "C2 Transformations",
         },
+        "C3": {
+            "url": C2_TRANSFORM_MEDIA_URL,
+            "title": "C3 Transformations",
+        },
     }
+
+
+def artifact_prompt_payload(
+    artifact_id: str,
+    *,
+    snapshot: Any,
+    target_mode: Any = "graph",
+    parent: dict[str, Any] | None = None,
+    slide_index: int = ARTIFACT_SLIDE_BASE,
+) -> dict[str, Any]:
+    """Build the stored prompt for a registered Artifact.
+
+    Args:
+        artifact_id: Registered Artifact id.
+        snapshot: Teacher slider values at mint time.
+        target_mode: ``graph`` or ``equation``.
+        parent: Optional parent-function override.
+        slide_index: Page index this question is minted onto.
+
+    Raises:
+        ValueError: Unknown artifact id.
+    """
+    wanted = str(artifact_id or "").strip() or TRANSFORMATIONS_ARTIFACT_ID
+    if wanted == PARENT_TRANSFORMATIONS_ARTIFACT_ID:
+        return parent_transformations_prompt_payload(
+            snapshot=snapshot,
+            target_mode=target_mode,
+            parent=parent,
+            slide_index=slide_index,
+        )
+    if wanted == TRANSFORMATIONS_ARTIFACT_ID:
+        return transformations_prompt_payload(
+            snapshot=snapshot,
+            target_mode=target_mode,
+            parent=parent,
+            slide_index=slide_index,
+        )
+    raise ValueError(f"unknown artifact: {wanted}")

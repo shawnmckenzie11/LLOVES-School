@@ -22,14 +22,17 @@ try:
         ARTIFACT_KIND,
         ARTIFACT_SLIDE_BASE,
         C2_TRANSFORM_MEDIA_URL,
+        C3_PARENT_MEDIA_URL,
+        PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+        REGISTERED_ARTIFACT_IDS,
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
+        artifact_prompt_payload,
         format_artifact_answer,
         grade_transform_snapshot,
         is_artifact_payload,
         public_artifact_media,
         student_artifact_payload,
-        transformations_prompt_payload,
     )
     from live_media import (
         apply_active_media_update,
@@ -127,14 +130,17 @@ except ImportError:  # ``python3 lms/app.py`` package import
         ARTIFACT_KIND,
         ARTIFACT_SLIDE_BASE,
         C2_TRANSFORM_MEDIA_URL,
+        C3_PARENT_MEDIA_URL,
+        PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+        REGISTERED_ARTIFACT_IDS,
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
+        artifact_prompt_payload,
         format_artifact_answer,
         grade_transform_snapshot,
         is_artifact_payload,
         public_artifact_media,
         student_artifact_payload,
-        transformations_prompt_payload,
     )
     from lms.live_media import (
         apply_active_media_update,
@@ -11174,26 +11180,39 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
-        wanted = str(artifact_id or "").strip()
-        if wanted and wanted != TRANSFORMATIONS_ARTIFACT_ID:
+        wanted = str(artifact_id or "").strip() or TRANSFORMATIONS_ARTIFACT_ID
+        if wanted not in REGISTERED_ARTIFACT_IDS:
             raise ValueError(f"unknown artifact: {wanted}")
         teacher = self.live_session_teacher_state_payload(session_id)
         class_id = int(session_row["class_id"])
         module_key = str(teacher.get("live_module") or "M1").upper()
         slot_key = str(teacher.get("live_slot") or "C1").upper()
         if wanted == TRANSFORMATIONS_ARTIFACT_ID:
-            # Transformations media lives on M1 C2; remounting C2 after a C1
-            # mint used to drop the new card from the current question list.
-            module_key = "M1"
-            slot_key = "C2"
-            if (
-                str(teacher.get("live_module") or "").upper() != "M1"
-                or str(teacher.get("live_slot") or "").upper() != "C2"
-            ):
+            # C2 original and the MCF3M M1 C3 copy stay on the current slot so
+            # minted cards land in that page's Questions list. Other slots
+            # remount M1 C2 (legacy: a C1 mint used to drop the new card).
+            if module_key == "M1" and slot_key in {"C2", "C3"}:
+                pass
+            else:
+                module_key = "M1"
+                slot_key = "C2"
+                if (
+                    str(teacher.get("live_module") or "").upper() != "M1"
+                    or str(teacher.get("live_slot") or "").upper() != "C2"
+                ):
+                    teacher = self.set_live_session_teacher_state(
+                        session_id,
+                        live_module="M1",
+                        live_slot="C2",
+                    )
+        elif wanted == PARENT_TRANSFORMATIONS_ARTIFACT_ID:
+            if module_key != "M1" or slot_key != "C3":
+                module_key = "M1"
+                slot_key = "C3"
                 teacher = self.set_live_session_teacher_state(
                     session_id,
                     live_module="M1",
-                    live_slot="C2",
+                    live_slot="C3",
                 )
         stage_key = str(teacher.get("stage") or "play").strip().lower() or "play"
         metadata = self.live_class_metadata_for_session(session_id)
@@ -11203,12 +11222,14 @@ class SchoolDB(LovesDB):
             page_number = int(slide_index)
         if page_number in (None, 0):
             page_number = self._page_number_for_stage(metadata, stage_key) or 1
-        payload = transformations_prompt_payload(
+        payload = artifact_prompt_payload(
+            wanted,
             snapshot=snapshot,
             target_mode=target_mode,
             parent=parent,
             slide_index=int(page_number),
         )
+        stem = str(payload.get("stem") or TRANSFORMATIONS_STEM)
         item_id = f"artifact-match-{uuid.uuid4().hex}"
         placement_key = f"class:{int(class_id)}:artifact:{uuid.uuid4().hex}"
         item_payload = {
@@ -11218,8 +11239,8 @@ class SchoolDB(LovesDB):
             "item_type": "question",
             "type": ARTIFACT_KIND,
             "kind": ARTIFACT_KIND,
-            "text": TRANSFORMATIONS_STEM,
-            "prompt": TRANSFORMATIONS_STEM,
+            "text": stem,
+            "prompt": stem,
             "stage": stage_key,
             "page_number": int(page_number),
             "publish_modes": ["individual"],
@@ -11307,13 +11328,37 @@ class SchoolDB(LovesDB):
                 "target_mode": payload["target_mode"],
             }
         )
-        media = self.set_live_session_active_media(
-            session_id,
-            challenge="C2",
-            url=C2_TRANSFORM_MEDIA_URL,
-            artifact=frozen,
-            merge=False,
-        )
+        media_url = str(payload.get("media_url") or C2_TRANSFORM_MEDIA_URL)
+        media_kwargs: dict[str, Any] = {
+            "url": media_url,
+            "artifact": frozen,
+            "merge": False,
+        }
+        if slot_key == "C2":
+            media_kwargs["challenge"] = "C2"
+            media_kwargs["url"] = C2_TRANSFORM_MEDIA_URL
+        elif slot_key == "C3":
+            media_kwargs["challenge"] = "C3"
+            if wanted == PARENT_TRANSFORMATIONS_ARTIFACT_ID:
+                media_kwargs["url"] = C3_PARENT_MEDIA_URL
+            else:
+                media_kwargs["url"] = C2_TRANSFORM_MEDIA_URL
+        media = self.set_live_session_active_media(session_id, **media_kwargs)
+        if prompt is not None:
+            # C3 URL seed can sync CONS / waiting-room after Play; keep the
+            # minted Artifact as the active prompt.
+            prompt = self.set_live_session_prompt(
+                session_id,
+                slide_index=int(prompt.get("slide_index") or (20000 + int(published["id"]))),
+                kind=ARTIFACT_KIND,
+                payload=dict(prompt.get("payload") or prompt_payload),
+                activate=True,
+            )
+        teacher = self.live_session_teacher_state_payload(session_id)
+        view = dict(teacher.get("student_view") or {})
+        if view.get("questions") != "student":
+            view["questions"] = "student"
+            self.set_live_session_teacher_state(session_id, student_view=view)
         return {
             "prompt": prompt or {},
             "live_item": published,

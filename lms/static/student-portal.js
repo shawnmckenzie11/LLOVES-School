@@ -82,6 +82,8 @@ let holdJoinFeedback = false;
 const dismissedPromptIds = new Set();
 /** Lifecycle Active/Closed cards explicitly dismissed in this tab. */
 const dockedLiveCardKeys = new Set();
+/** Question cards closed with × — removed from the student view, not docked. */
+const dismissedLiveCardKeys = new Set();
 /** Unsaved per-card answers preserved across state polls. */
 const liveCardDrafts = new Map();
 /** In-flight lifecycle submit keys (`itemId:action`) to block double posts. */
@@ -95,7 +97,7 @@ let lastStudentPayload = null;
 let lastSummarySig = "";
 /** @type {number} */
 let toastHideTimer = 0;
-/** @type {{a:number,h:number,k:number}} */
+/** @type {Record<string, number|string>} */
 let lastArtifactSliders = { a: 1, h: 0, k: 0 };
 const MEET_CUES = new Set(["cue.meet_open", "cue.meet_clear"]);
 const MEET_CUE_COPY = {
@@ -1428,24 +1430,6 @@ function liveCardDockKey(item) {
   return `card:${liveId}:${promptId}:${itemId}:${liveCardKey(item)}`;
 }
 
-function stageNumberForItem(item, payload) {
-  const stage = String(
-    item?.stage || item?.content?.stage || payload?.teacher_state?.stage || ""
-  ).toLowerCase();
-  return { join: 1, teams: 2, meet: 3, round: 4, play: 5 }[stage] || 1;
-}
-
-/**
- * Dock chip for a submitted card: answered, never hit/miss.
- * @param {any} item
- * @returns {string}
- */
-function dockAnswerMark(item) {
-  const submitted = Boolean(item?.my_response);
-  if (!submitted) return "—";
-  return "S";
-}
-
 /**
  * Display a normalized individual/group answer.
  * @param {any} answer
@@ -1700,12 +1684,13 @@ function lifecycleConsensusHtml(item) {
 }
 
 /**
- * Render ordered active questions followed by closed final-result cards.
+ * Render dock chips for media / whiteboard / slides only.
+ * Dismissed questions are removed from the student view, not docked.
+ * @param {any} _items
  * @param {any} payload
  */
-function paintQuestionDock(items, payload) {
+function paintQuestionDock(_items, payload) {
   if (!studentQuestionDock) return;
-  const docked = (items || []).filter((item) => dockedLiveCardKeys.has(liveCardDockKey(item)));
   const proj = studentProjection(payload);
   const surfaces = [];
   if (proj.media && dockedLiveCardKeys.has("surface:media")) {
@@ -1717,24 +1702,12 @@ function paintQuestionDock(items, payload) {
   if (proj.slides && dockedLiveCardKeys.has("surface:slides")) {
     surfaces.push({ key: "surface:slides", kind: "slides", label: "Slides" });
   }
-  const chips = [
-    ...surfaces.map(
-      (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}">
+  const chips = surfaces.map(
+    (row) => `<div class="student-question-dock-chip is-${row.kind}" data-dock-key="${escapeText(row.key)}">
         <span class="student-question-dock-kind">${escapeText(row.label)}</span>
         <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(row.key)}" aria-label="Pop ${escapeText(row.label)} back out">↗</button>
       </div>`
-    ),
-    ...docked.map((item) => {
-      const key = liveCardDockKey(item);
-      const stage = stageNumberForItem(item, payload);
-      const mark = dockAnswerMark(item);
-      return `<div class="student-question-dock-chip is-question" data-dock-key="${escapeText(key)}">
-        <span class="student-question-dock-kind">Question</span>
-        <span class="student-question-dock-label">${stage} | ${escapeText(mark)}</span>
-        <button type="button" class="student-question-dock-pop" data-undock-live-card="${escapeText(key)}" aria-label="Pop question back out">↗</button>
-      </div>`;
-    }),
-  ];
+  );
   studentQuestionDock.hidden = chips.length === 0;
   studentQuestionDock.innerHTML = chips.join("");
 }
@@ -1854,7 +1827,10 @@ function paintLifecycleQuestionStack(payload) {
     }
     return !itemStage || !stage || itemStage === stage;
   });
-  const visible = all.filter((item) => !dockedLiveCardKeys.has(liveCardDockKey(item)));
+  const visible = all.filter((item) => {
+    const key = liveCardDockKey(item);
+    return !dismissedLiveCardKeys.has(key) && !dockedLiveCardKeys.has(key);
+  });
   paintQuestionDock(all, payload);
   liveQuestionStackBody.innerHTML = visible
     .map((item) => {
@@ -1896,7 +1872,7 @@ function paintLifecycleQuestionStack(payload) {
           <span>Question</span>
           <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
-          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dock question">×</button>
+          <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
         <div class="student-live-card-head">
@@ -2430,15 +2406,20 @@ function paintHotColdMeter(key, student, target) {
 
 /**
  * Apply a student slider preview to the meters under the question.
- * @param {{a?:number,h?:number,k?:number}} sliders
+ * @param {Record<string, unknown>} sliders
  */
 function applyArtifactPreview(sliders) {
   if (!sliders || typeof sliders !== "object") return;
-  lastArtifactSliders = {
-    a: Number(sliders.a ?? lastArtifactSliders.a),
-    h: Number(sliders.h ?? lastArtifactSliders.h),
-    k: Number(sliders.k ?? lastArtifactSliders.k),
-  };
+  const next = { ...lastArtifactSliders };
+  Object.entries(sliders).forEach(([key, value]) => {
+    if (key === "parent") {
+      next.parent = String(value || "");
+      return;
+    }
+    const number = Number(value);
+    if (Number.isFinite(number)) next[key] = number;
+  });
+  lastArtifactSliders = next;
   const roots = [promptShell, liveQuestionStack].filter(Boolean);
   if (!roots.length) return;
   roots.forEach((root) => {
@@ -3022,7 +3003,7 @@ if (liveQuestionStack) {
     const dismiss = event.target.closest("[data-dismiss-live-card]");
     if (dismiss instanceof HTMLButtonElement) {
       event.stopPropagation();
-      dockedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
+      dismissedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
       paintLifecycleQuestionStack(lastStudentPayload || {});
       return;
     }
@@ -3082,7 +3063,11 @@ if (saveWorkBtn) {
 window.addEventListener("message", (event) => {
   if (event.origin !== window.location.origin) return;
   const data = event.data;
-  if (!data || data.source !== "lloves-m1c2-transforms") return;
+  const artifactSources = new Set([
+    "lloves-m1c2-transforms",
+    "lloves-mcr3u-m1c3-parents",
+  ]);
+  if (!data || !artifactSources.has(data.source)) return;
   if (data.type === "artifact-preview") {
     applyArtifactPreview(data.sliders || {});
   }

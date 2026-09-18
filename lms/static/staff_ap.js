@@ -3332,12 +3332,15 @@ function usesC1RealSlice() {
 
 /**
  * True when this live slot should seed the C2 Transformations Artifact.
- * C2 always seeds Transformations, matching live_media challenge C2.
+ * All C2 slots seed Transformations. MCF3M M1 C3 reuses the same iframe.
  * @returns {boolean}
  */
 function usesC2Transforms() {
   const slot = String(teacherState.live_slot || textRideSlot || "C1").toUpperCase();
-  return slot === "C2";
+  if (slot === "C2") return true;
+  const ontario = String(root?.dataset.ontarioCode || "").toUpperCase();
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  return ontario === "MCF3M" && module === "M1" && slot === "C3";
 }
 
 /**
@@ -3353,8 +3356,8 @@ function usesMcr3uM1C1Media() {
 
 /**
  * True when this C3 slot has no authored playlist media.
- * C2 always seeds Transformations (Artifact). C3 stays text-only unless
- * playlist media such as MCR3U M1 C3 parent transformations is authored.
+ * C2 always seeds Transformations (Artifact). MCF3M M1 C3 reuses that
+ * iframe. Other C3 slots stay text-only unless playlist media is authored.
  * @param {string} [slot]
  * @returns {boolean}
  */
@@ -3551,7 +3554,12 @@ function bindActiveMediaControls() {
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
-    if (data && data.source === "lloves-m1c2-transforms" && data.type === "artifact-mint") {
+    if (
+      data &&
+      data.type === "artifact-mint" &&
+      (data.source === "lloves-m1c2-transforms" ||
+        data.source === "lloves-mcr3u-m1c3-parents")
+    ) {
       mintArtifactFromMedia(data).catch((err) => showError("#ap-overlay-error", err));
       return;
     }
