@@ -333,30 +333,41 @@ export function closeLiveSessionOverlay() {
  * @param {unknown} value
  * @returns {string}
  */
-const KATEX_VERSION = "0.16.22";
-const KATEX_CDN = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist`;
+const KATEX_LOCAL = "/static/vendor/katex";
+const KATEX_CDN = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist";
 
 /**
  * Load KaTeX once so staff and student surfaces share one renderer.
+ * Prefers the vendored LMS copy, then the jsDelivr CDN.
  * @returns {Promise<unknown>}
  */
 function loadKatex() {
   if (globalThis.katex) return Promise.resolve(globalThis.katex);
   if (globalThis.__llovesKatexPromise) return globalThis.__llovesKatexPromise;
   globalThis.__llovesKatexPromise = new Promise((resolve) => {
-    if (!document.querySelector('link[data-lloves-katex]')) {
-      const css = document.createElement("link");
-      css.rel = "stylesheet";
-      css.href = `${KATEX_CDN}/katex.min.css`;
-      css.setAttribute("data-lloves-katex", "1");
-      document.head.appendChild(css);
-    }
-    const script = document.createElement("script");
-    script.src = `${KATEX_CDN}/katex.min.js`;
-    script.async = true;
-    script.onload = () => resolve(globalThis.katex || null);
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
+    const trySrc = (base, fallback) => {
+      if (!document.querySelector('link[data-lloves-katex]')) {
+        const css = document.createElement("link");
+        css.rel = "stylesheet";
+        css.href = `${base}/katex.min.css`;
+        css.setAttribute("data-lloves-katex", "1");
+        document.head.appendChild(css);
+      }
+      const script = document.createElement("script");
+      script.src = `${base}/katex.min.js`;
+      script.async = true;
+      script.onload = () => resolve(globalThis.katex || null);
+      script.onerror = () => {
+        if (fallback) {
+          document.querySelectorAll('link[data-lloves-katex]').forEach((el) => el.remove());
+          trySrc(fallback, null);
+          return;
+        }
+        resolve(null);
+      };
+      document.head.appendChild(script);
+    };
+    trySrc(KATEX_LOCAL, KATEX_CDN);
   });
   return globalThis.__llovesKatexPromise;
 }

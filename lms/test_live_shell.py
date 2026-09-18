@@ -2013,6 +2013,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("export function questionFieldHtml", common)
         self.assertIn("export function questionImageHtml", common)
         self.assertIn("export async function renderLiveQuestionMath", common)
+        self.assertIn("/static/vendor/katex", common)
+        self.assertTrue(
+            (LMS_DIR / "static" / "vendor" / "katex" / "katex.min.js").is_file()
+        )
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertNotIn(
