@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="Coordinate grid with parabola">
+  <rect width="320" height="220" fill="#fff"/>
+  <line x1="40" y1="180" x2="300" y2="180" stroke="#334155" stroke-width="2"/>
+  <line x1="160" y1="20" x2="160" y2="200" stroke="#334155" stroke-width="2"/>
+  <path d="M 60 170 Q 160 20 260 170" fill="none" stroke="#0f766e" stroke-width="3"/>
+</svg>

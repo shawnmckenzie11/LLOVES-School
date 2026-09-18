@@ -14237,7 +14237,6 @@ class SchoolDB(LovesDB):
                 state["scoreboard_visible"] = True
         if not state.get("groups_configured"):
             state["run_as_group"] = False
-            state["scoreboard_visible"] = False
         state["teams_mode"] = (
             "teams" if state.get("run_as_group") else "individual"
         )
@@ -14328,16 +14327,13 @@ class SchoolDB(LovesDB):
     def live_scoreboard_projection(
         self, session_id: int
     ) -> dict[str, Any] | None:
-        """Return the scoreboard only when both global group flags permit it."""
+        """Return the scoreboard when the session-global toggle is on."""
 
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         teacher = self.live_session_teacher_state_payload(session_id)
-        if not (
-            teacher.get("run_as_group")
-            and teacher.get("scoreboard_visible")
-        ):
+        if not teacher.get("scoreboard_visible"):
             return None
         try:
             return self.game.scoreboard(int(session_row["class_id"]))
@@ -14360,7 +14356,7 @@ class SchoolDB(LovesDB):
             if isinstance(me, dict):
                 me["team_name"] = None
                 me["team_points"] = 0
-        if not (run and board_on):
+        if not board_on:
             payload["scoreboard"] = None
         else:
             current = payload.get("scoreboard")
@@ -14680,8 +14676,17 @@ class SchoolDB(LovesDB):
             if assigned is not None:
                 payload["groups_configured"] = True
                 payload["run_as_group"] = True
-                payload["scoreboard_visible"] = True
                 payload["teams_mode"] = "teams"
+                if "scoreboard_visible" not in kwargs:
+                    raw_board = (
+                        assign.get("scoreboard_visible")
+                        if isinstance(assign, dict)
+                        else None
+                    )
+                    if raw_board is None:
+                        payload["scoreboard_visible"] = True
+                    else:
+                        payload["scoreboard_visible"] = bool(raw_board)
         if new_stage == "summary" and prev_stage != "summary":
             payload["winner"] = self.snapshot_live_winner(int(session_row["class_id"]))
             payload["scoreboard_visible"] = True
@@ -14813,6 +14818,7 @@ class SchoolDB(LovesDB):
             mode=str(assign.get("mode") or "balanced"),
             present_ids=present_ids,
             assignments=raw_assignments,
+            scoreboard_visible=assign.get("scoreboard_visible"),
         )
         return setup["game"]
 
@@ -14824,6 +14830,7 @@ class SchoolDB(LovesDB):
         mode: str,
         present_ids: list[int],
         assignments: list[dict[str, Any]] | None = None,
+        scoreboard_visible: Any = None,
     ) -> dict[str, Any]:
         """Create fixed memberships once and enable group projections.
 
@@ -14833,6 +14840,8 @@ class SchoolDB(LovesDB):
             mode: ``balanced``, ``random``, or ``manual``.
             present_ids: Roster ids included in initial setup.
             assignments: Manual assignment rows when ``mode=manual``.
+            scoreboard_visible: Optional checkbox value from Set Up. When
+                omitted, first-time group setup still defaults the board on.
         """
         session_row = self._require_active_live_session(session_id)
         current = self.live_session_teacher_state_payload(session_id)
@@ -14856,7 +14865,11 @@ class SchoolDB(LovesDB):
             current,
             groups_configured=True,
             run_as_group=True,
-            scoreboard_visible=True,
+            **(
+                {"scoreboard_visible": scoreboard_visible}
+                if scoreboard_visible is not None
+                else {}
+            ),
         )
         teacher = self._write_teacher_state(session_id, teacher)
         return {"game": game, "teacher_state": teacher}

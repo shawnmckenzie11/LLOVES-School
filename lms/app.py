@@ -6250,6 +6250,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     mode=str(body.get("mode") or ""),
                     present_ids=[int(value) for value in raw_present],
                     assignments=raw_assignments,
+                    scoreboard_visible=body.get("scoreboard_visible"),
                 )
                 return setup
             return school.game.assign_teams(

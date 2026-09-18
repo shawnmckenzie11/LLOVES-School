@@ -124,7 +124,7 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         )
         created_class = True
 
-    return {
+    summary = {
         "skipped": False,
         "semester_id": int(semester["id"]),
         "semester_label": str(semester.get("label") or ""),
@@ -135,6 +135,54 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         "created_class": created_class,
         "picker_emails": list(LOCAL_DEV_PICKER_EMAILS),
     }
+    bank_seed = _seed_existing_mcf3m_builder_banks(school)
+    if bank_seed is not None:
+        summary["bank_seed"] = bank_seed
+    return summary
+
+
+def _seed_existing_mcf3m_builder_banks(school: Any) -> dict[str, Any] | None:
+    """Seed builder banks only when an MCF3M content library already exists.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        Seed summary, or ``None`` when no MCF3M library is present.
+    """
+    library_ids = {
+        int(row["id"])
+        for row in school.conn.execute(
+            "SELECT id FROM content_libraries WHERE ontario_code = ?",
+            (LOCAL_DEV_COURSE,),
+        ).fetchall()
+    }
+    if not library_ids:
+        return None
+    try:
+        from builder_bank_seed import seed_mcf3m_builder_banks
+    except ImportError:
+        from lms.builder_bank_seed import seed_mcf3m_builder_banks
+
+    bank_seed: dict[str, Any] = {"libraries": []}
+    for library_id in sorted(library_ids):
+        library_entry: dict[str, Any] = {
+            "library_id": int(library_id),
+            **seed_mcf3m_builder_banks(school, int(library_id)),
+        }
+        if os.getenv("LOCAL_DEV_MIRROR_BANK_IMAGES", "").strip() == "1":
+            try:
+                from bank_image_mirror import mirror_library_bank_images
+            except ImportError:
+                from lms.bank_image_mirror import mirror_library_bank_images
+
+            mirror_limit = int(os.getenv("LOCAL_DEV_MIRROR_BANK_IMAGES_LIMIT", "0") or "0")
+            limit = mirror_limit if mirror_limit > 0 else None
+            library_entry["mirror"] = mirror_library_bank_images(
+                school, int(library_id), limit=limit
+            )
+        bank_seed["libraries"].append(library_entry)
+    return bank_seed
 
 
 def main() -> int:
