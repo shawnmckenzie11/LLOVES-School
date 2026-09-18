@@ -396,16 +396,25 @@ class CatalogTabTests(unittest.TestCase):
 
     def test_question_banks_empty_message(self) -> None:
         """A class with no pack uses the Wonder empty-banks copy."""
+        if self.school.get_ontario_course("SCH4U") is None:
+            self.school.upsert_ontario_course(
+                "SCH4U",
+                "Chemistry, Grade 12, University Preparation",
+                grade=12,
+                pathway="U",
+                expectations_status="unverified",
+            )
         solo = self.school.register_staff("nobanks@gmail.com")
         offering = self.school.assign_course(
-            teacher_user_id=int(solo["id"]), ontario_code="SBI3U"
+            teacher_user_id=int(solo["id"]), ontario_code="SCH4U"
         )
+        self.assertIsNone(offering.get("library_id"))
         bare = self.school.game.create_class(
             year="2026/27",
             semester="Semester 1",
-            course_code="SBI3U",
+            course_code="SCH4U",
             days_preset="M/W/F",
-            time_label="3:00pm",
+            time_label="3:15pm",
             codenames=["Aspen"],
             offering_id=int(offering["id"]),
             teacher_user_id=int(solo["id"]),
@@ -432,13 +441,14 @@ class CatalogTabTests(unittest.TestCase):
         self.assertIn("course_question_banks.js", html)
         self.assertIn("Remove from bank?", html)
         self.assertNotIn("course_catalog.js", html)
-        js = self.client.get("/static/course_question_banks.js").get_data(as_text=True)
+        js = (LMS_DIR / "static" / "course_question_banks.js").read_text()
         self.assertIn("No banks imported yet.", js)
         self.assertIn("Edit bank", js)
-        self.assertIn(">Done<", html + js)
+        self.assertIn("data-bank-done", js)
         self.assertIn("Edited in LMS", js)
         self.assertIn("Saved.", js)
-        self.assertNotIn("window.confirm", js)
+        self.assertNotIn("window.confirm(", js)
+        self.assertIn("showModal", js)
         self.assertIn("data-bank-editor", js)
         self.assertIn("openEditorId", js)
 

@@ -9,6 +9,7 @@ rows in the selected bank.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
@@ -27,6 +28,15 @@ MC_ITEM_TYPES = frozenset(
         "true_false_question",
     }
 )
+_SCRIPT_OR_STYLE_RE = re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_SCRIPT_OR_STYLE_OPEN_RE = re.compile(
+    r"<(script|style)\b[^>]*/?>",
+    re.IGNORECASE,
+)
+
 ALLOWED_NEW_ITEM_TYPES = frozenset(
     {
         "multiple_choice_question",
@@ -54,8 +64,10 @@ def sanitize_bank_html(
         school: School database for optional image mirroring.
         library_id: Content library id for cartridge assets.
     """
+    text = _SCRIPT_OR_STYLE_RE.sub("", str(raw or ""))
+    text = _SCRIPT_OR_STYLE_OPEN_RE.sub("", text)
     return format_mc_html_fragment(
-        str(raw or ""),
+        text,
         class_id=class_id,
         school=school,
         library_id=library_id,

@@ -337,7 +337,7 @@ async function saveEditor(form) {
 }
 
 /**
- * Ask for delete confirmation with the in-page modal, not window.confirm.
+ * Ask for delete confirmation with the in-page modal, not a browser confirm.
  * @param {number} questionId
  */
 function confirmRemove(questionId) {

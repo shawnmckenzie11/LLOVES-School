@@ -45,6 +45,7 @@ class BankEditHelperTests(unittest.TestCase):
         )
         clean = sanitize_bank_html(html)
         self.assertNotIn("<script", clean.lower())
+        self.assertNotIn("alert(1)", clean)
         self.assertIn("<table>", clean)
         self.assertIn("Keep", clean)
 
