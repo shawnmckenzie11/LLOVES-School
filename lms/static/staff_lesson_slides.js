@@ -35,6 +35,109 @@ function previewQuery() {
 }
 
 /**
+ * Return a same-origin or http(s) href, or empty if unsafe.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function safeDeckHref(raw) {
+  const url = String(raw || "").trim();
+  if (!url) return "";
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return parsed.href;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+/**
+ * Paint saved Google decks from the lesson-slides GET payload.
+ * @param {Record<string, unknown>} data
+ */
+function paintSavedDecks(data) {
+  const body = document.getElementById("ls-saved-decks-body");
+  if (!body) return;
+  const decks = Array.isArray(data.saved_decks) ? data.saved_decks : [];
+  body.replaceChildren();
+  if (!decks.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.textContent = "No Google decks saved for this class yet.";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+  for (const deck of decks) {
+    const moduleN = Number(deck.module_number || 0);
+    const liveI = Number(deck.live_index || 0);
+    const href = safeDeckHref(deck.presentation_url);
+    const tr = document.createElement("tr");
+    const moduleTd = document.createElement("td");
+    moduleTd.textContent = `Module ${moduleN}`;
+    const classTd = document.createElement("td");
+    classTd.textContent = `Class C${liveI}`;
+    const linkTd = document.createElement("td");
+    if (href) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "Open slides";
+      linkTd.appendChild(a);
+    } else {
+      linkTd.textContent = "Open slides";
+    }
+    tr.append(moduleTd, classTd, linkTd);
+    body.appendChild(tr);
+  }
+}
+
+/**
+ * Load saved live-lesson files and paint the inventory table.
+ * @returns {Promise<void>}
+ */
+async function loadLiveLessons() {
+  const body = document.getElementById("ls-live-lessons-body");
+  if (!classId || !body) return;
+  const res = await fetch(`/api/classes/${classId}/live-lessons`, {
+    credentials: "same-origin",
+  });
+  const data = await res.json().catch(() => ({}));
+  const lessons = Array.isArray(data.lessons) ? data.lessons : [];
+  body.replaceChildren();
+  if (!res.ok || !lessons.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.textContent = "No saved live lesson files yet.";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+  for (const lesson of lessons) {
+    const tr = document.createElement("tr");
+    const cells = [
+      lesson.module || "",
+      lesson.live_class || "",
+      lesson.page_count ?? "",
+      lesson.question_count ?? "",
+      lesson.media_file || "",
+    ];
+    for (const value of cells) {
+      const td = document.createElement("td");
+      td.textContent = String(value);
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+
+/**
  * Paint preview summary, connected Lessons, and challenge defaults.
  * @param {Record<string, unknown>} data
  */
@@ -73,6 +176,7 @@ function paintPreview(data) {
     if (url) open.href = url;
   }
   if (rebuild) rebuild.hidden = !url;
+  paintSavedDecks(data);
 }
 
 /**
@@ -207,4 +311,5 @@ if (root && classId) {
     })
     .catch(() => {});
   loadPreview().catch(() => {});
+  loadLiveLessons().catch(() => {});
 }

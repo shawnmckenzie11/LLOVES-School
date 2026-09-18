@@ -5335,6 +5335,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 keyword=str(request.args.get("keyword") or "Lesson"),
             )
             deck = school.get_lesson_slide_deck(class_id, module_n, live_i)
+            saved_decks = [
+                {
+                    "module_number": row.get("module_number"),
+                    "live_index": row.get("live_index"),
+                    "presentation_id": row.get("presentation_id"),
+                    "presentation_url": row.get("presentation_url"),
+                    "updated_at": row.get("updated_at"),
+                }
+                for row in school.list_lesson_slide_decks(class_id)
+                if row.get("presentation_url")
+            ]
             return jsonify(
                 {
                     "ok": True,
@@ -5342,6 +5353,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     "presentation_id": (deck or {}).get("presentation_id"),
                     "presentation_url": (deck or {}).get("presentation_url"),
                     "has_presentation": bool((deck or {}).get("presentation_id")),
+                    "saved_decks": saved_decks,
                 }
             )
         if not is_slides_operator_email(user.get("email")):

@@ -620,6 +620,7 @@ class LessonSlidesHttpTests(unittest.TestCase):
         )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         body = rv.get_json()
+        self.assertIsInstance(body.get("saved_decks"), list)
         preview = body["preview"]
         self.assertEqual(preview["lesson_key"], "M1C1")
         self.assertEqual(preview["window_start"], 1)
@@ -657,6 +658,35 @@ class LessonSlidesHttpTests(unittest.TestCase):
         self.assertIn("ls-preview", tab.get_data(as_text=True))
         live = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertNotIn("ap-connect-slides", live.get_data(as_text=True))
+
+    def test_lesson_slides_lists_upserted_saved_decks(self) -> None:
+        """GET lesson-slides includes upserted decks that have a presentation URL."""
+        self.school.upsert_lesson_slide_deck(
+            self.class_id,
+            2,
+            3,
+            presentation_id="deck-m2c3",
+            presentation_url="https://docs.google.com/presentation/d/abc/edit",
+        )
+        self.school.upsert_lesson_slide_deck(
+            self.class_id,
+            1,
+            1,
+            presentation_id="deck-no-url",
+            presentation_url="",
+        )
+        rv = self.client.get(f"/api/classes/{self.class_id}/lesson-slides")
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        decks = rv.get_json()["saved_decks"]
+        self.assertEqual(len(decks), 1)
+        self.assertEqual(decks[0]["module_number"], 2)
+        self.assertEqual(decks[0]["live_index"], 3)
+        self.assertEqual(decks[0]["presentation_id"], "deck-m2c3")
+        self.assertEqual(
+            decks[0]["presentation_url"],
+            "https://docs.google.com/presentation/d/abc/edit",
+        )
+        self.assertIn("updated_at", decks[0])
 
     def _insert_bank_question(self, *, title: str, stem: str, bank_title: str) -> None:
         """Insert one ingested question into the offering library."""

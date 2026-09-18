@@ -3577,6 +3577,25 @@ class LovesDB:
             ).fetchone()
         return dict(row) if row else None
 
+    def _lesson_slide_deck_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        """Parse JSON columns on a ``lesson_slide_decks`` sqlite row.
+
+        Args:
+            row: Raw sqlite row from ``lesson_slide_decks``.
+
+        Returns:
+            Deck dict with ``preview_json`` and ``fill_json`` decoded when valid.
+        """
+        data = dict(row)
+        for key in ("preview_json", "fill_json"):
+            raw = data.get(key)
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    data[key] = json.loads(raw)
+                except json.JSONDecodeError:
+                    pass
+        return data
+
     def get_lesson_slide_deck(
         self,
         class_id: int,
@@ -3600,15 +3619,27 @@ class LovesDB:
             ).fetchone()
         if row is None:
             return None
-        data = dict(row)
-        for key in ("preview_json", "fill_json"):
-            raw = data.get(key)
-            if isinstance(raw, str) and raw.strip():
-                try:
-                    data[key] = json.loads(raw)
-                except json.JSONDecodeError:
-                    pass
-        return data
+        return self._lesson_slide_deck_row(row)
+
+    def list_lesson_slide_decks(self, class_id: int) -> list[dict]:
+        """Return Lesson Slides decks for one class, ordered by live-class slot.
+
+        Args:
+            class_id: MGS ``classes.id``.
+
+        Returns:
+            Parsed ``lesson_slide_decks`` rows for the class.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM lesson_slide_decks
+                WHERE class_id = ?
+                ORDER BY module_number, live_index, id
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [self._lesson_slide_deck_row(row) for row in rows]
 
     def upsert_lesson_slide_deck(
         self,
@@ -11277,7 +11308,8 @@ class SchoolDB(LovesDB):
         Lazy-seeds existing smoke sessions that started before this prompt
         existed. Refreshes the active waiting-room payload when the
         authoritative stem/choices/key change. Does not recreate the row
-        after Team Challenge / scoring cleared it.
+        after Team Challenge / scoring cleared it. Does not remount over
+        an active Artifact prompt.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11294,6 +11326,8 @@ class SchoolDB(LovesDB):
             self.session_live_module(session_id),
         )
         active = self.get_active_live_prompt(session_id)
+        if active and is_artifact_payload(active.get("payload")):
+            return None
         existing = self._prompt_at_slide(session_id, int(MINDS_ON_SLIDE_INDEX))
         stale = existing if existing and is_minds_on_payload(existing.get("payload")) else (
             active if active and is_minds_on_payload(active.get("payload")) else None

@@ -212,6 +212,23 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(miss.get_json()["feedback"]["lead"], LEAD_MISS)
         self.assertFalse(miss.get_json()["feedback"]["match"])
 
+        still = self.school.ensure_waiting_room_minds_on(self.live_session_id)
+        self.assertIsNone(still)
+        active = self.school.get_active_live_prompt(self.live_session_id)
+        assert active is not None
+        self.assertEqual(active["kind"], ARTIFACT_KIND)
+
+
+class ArtifactStaffJsTests(unittest.TestCase):
+    """Teacher JS still seeds and paints the C2 Transformations Artifact."""
+
+    def test_staff_js_seeds_and_remembers_c2_artifact(self) -> None:
+        """staff_ap.js points C2 at m1c2-transforms.html and keeps lastActiveMedia."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("m1c2-transforms.html", js)
+        self.assertIn("lastActiveMedia", js)
+        self.assertIn("function usesC2Transforms()", js)
+
 
 if __name__ == "__main__":
     os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")

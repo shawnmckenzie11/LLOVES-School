@@ -110,6 +110,8 @@ const MCR3U_M1C1_MEDIA_URL = "/static/live-media/mcr3u-m1c1-sqrt.html";
 const MCR3U_M1C1_MEDIA_TITLE = "Nested Square-Root Range";
 const MCR3U_M1C1_MEDIA_STEM =
   "Which inputs are allowed? What outputs can you actually get?";
+const C2_TRANSFORM_MEDIA_URL = "/static/live-media/m1c2-transforms.html";
+const C2_TRANSFORM_MEDIA_TITLE = "C2 Transformations";
 let mediaSeedInFlight = false;
 
 const ROUND_KIND_OPTIONS = [
@@ -335,6 +337,8 @@ let openResponsePromptId = 0;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
+/** Last active-media blob so Question-tab paints survive calls without media. */
+let lastActiveMedia = null;
 
 /**
  * Map a setup step onto the StageRail id.
@@ -2546,11 +2550,38 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
 }
 
 /**
- * Refresh the Questions pane: slot chips, lifecycle cards, then hide relics.
+ * Refresh the Questions pane: slot chips, lifecycle cards, minted Artifact, then hide relics.
  * Leftover Meet/Join/cons stems and 0/0 bars belong on cards, not this pane.
- * @param {any} [_media]
+ * @param {any} [media]
  */
-function paintQuestionArtifact(_media) {
+function paintQuestionArtifact(media) {
+  if (media && typeof media === "object") lastActiveMedia = media;
+  const row = media || lastActiveMedia || {};
+  const art = row.artifact && typeof row.artifact === "object" ? row.artifact : null;
+  if (art && (art.snapshot || art.artifact_id)) {
+    paintLiveSlotPicks();
+    paintLiveQuestionCards();
+    isBlankOverlayLivePage();
+    hideLiveQuestionBody();
+    hideTeamsSparkCard();
+    const mode = String(art.target_mode || "graph");
+    const equation = String(art.equation || "").trim();
+    const stem =
+      "Drag sliders to transform the parent function to match the target (transformed) function.";
+    const status = $("question-artifact-status");
+    const flag = $("question-artifact-flag");
+    if (status) {
+      status.hidden = false;
+      status.textContent =
+        mode === "equation" && equation ? `${stem} Target: ${equation}` : stem;
+    }
+    if (flag) {
+      flag.hidden = false;
+      flag.textContent = "Artifact · Transformations";
+    }
+    paintMeetChainChrome();
+    return;
+  }
   paintLiveSlotPicks();
   paintLiveQuestionCards();
   isBlankOverlayLivePage();
@@ -3285,6 +3316,16 @@ function usesC1RealSlice() {
 }
 
 /**
+ * True when this live slot should seed the C2 Transformations Artifact.
+ * C2 always seeds Transformations, matching live_media challenge C2.
+ * @returns {boolean}
+ */
+function usesC2Transforms() {
+  const slot = String(teacherState.live_slot || textRideSlot || "C1").toUpperCase();
+  return slot === "C2";
+}
+
+/**
  * True when MCR3U M1C1 should mount the nested square-root graph.
  * @returns {boolean}
  */
@@ -3317,6 +3358,13 @@ function isTextOnlyLiveSlot(slot) {
  * @returns {{url: string, title: string, stem: string} | null}
  */
 function liveClassSeedMedia() {
+  if (usesC2Transforms()) {
+    return {
+      url: C2_TRANSFORM_MEDIA_URL,
+      title: C2_TRANSFORM_MEDIA_TITLE,
+      stem: C2_TRANSFORM_MEDIA_TITLE,
+    };
+  }
   const configured = lastLiveMetadata?.media;
   const configuredUrl = String(configured?.file || "").trim();
   if (configuredUrl) {
@@ -3377,7 +3425,7 @@ async function ensureC1MediaSeeded() {
     return;
   }
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || mediaSeedInFlight || isTextOnlyLiveSlot() || textRideSlot === "C2") return;
+  if (!sessionId || mediaSeedInFlight || isTextOnlyLiveSlot()) return;
   mediaSeedInFlight = true;
   try {
     const res = await api(`/api/live-sessions/${sessionId}/active-media`);

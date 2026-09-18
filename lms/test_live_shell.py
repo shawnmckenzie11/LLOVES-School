@@ -788,6 +788,14 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         # Timer, Run as Group, Scoreboard, and Rename stay on one row after Set Up
         self.assertIn("flex-wrap: nowrap", unlocks_css)
+        self.assertIn(
+            "body.staff-shell .live-option-card-body.live-unlocks-strip",
+            css,
+        )
+        specific_unlocks = css.split(
+            "body.staff-shell .live-option-card-body.live-unlocks-strip"
+        )[1].split("}")[0]
+        self.assertIn("flex-wrap: nowrap", specific_unlocks)
         self.assertIn("max-height: none", unlocks_css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("function paintStudentCanvas(", student_js)
@@ -1326,6 +1334,14 @@ class LiveShellTests(unittest.TestCase):
         strip_css = css.split("body.staff-shell .live-round-strip {")[1].split("}")[0]
         self.assertIn("flex-wrap: nowrap", strip_css)
         self.assertIn("max-height: var(--live-options-row-h)", strip_css)
+        self.assertIn(
+            "body.staff-shell .live-option-card-body.live-round-strip",
+            css,
+        )
+        specific_round = css.split(
+            "body.staff-shell .live-option-card-body.live-round-strip"
+        )[1].split("}")[0]
+        self.assertIn("flex-wrap: nowrap", specific_round)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn("body.staff-shell .live-round-picks[hidden] {", css)
         self.assertIn("body.staff-shell .live-round-strip #live-round-type", css)

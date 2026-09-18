@@ -1753,6 +1753,10 @@ body.staff-shell .live-option-card-body {
   align-items: center;
   gap: 0.55rem 0.85rem;
 }
+body.staff-shell .live-option-card-body.live-unlocks-strip,
+body.staff-shell .live-option-card-body.live-round-strip {
+  flex-wrap: nowrap;
+}
 body.staff-shell .live-teams-strip {
   position: relative;
   flex-wrap: nowrap;
@@ -1923,7 +1927,6 @@ body.staff-shell .live-round-strip #live-round-set {
   flex: 0 0 auto;
   white-space: nowrap;
 }
-body.staff-shell .live-round-picks,
 body.staff-shell .live-preset-row,
 body.staff-shell .live-content-palette {
   display: flex;
