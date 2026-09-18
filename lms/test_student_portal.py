@@ -1162,6 +1162,7 @@ class StudentPortalTests(unittest.TestCase):
     def test_waiting_room_js_has_no_start_scoring_copy(self) -> None:
         """Student portal JS must not use the scoring-phase wait line in waiting-room."""
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("formatQuestionHtml", js)
         self.assertIn("Waiting room — class is about to begin.", js)
         self.assertIn("studentProjection", js)
         self.assertIn("unmountStudentMedia", js)
