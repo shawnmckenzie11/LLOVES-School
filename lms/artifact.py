@@ -1,10 +1,10 @@
 """Course-wide Artifact pattern: media buttons that mint connected questions.
 
-An Artifact is a control **inside** live media. Teacher click mints a Question
-on the current live-class page (``live_session_prompts.slide_index``) and
-stores the media snapshot with that prompt. Student submit grades against the
-snapshot. Teacher points stay on existing Responses & Points — this module
-does not award.
+An Artifact is a control **inside** live media. Teacher click mints a **new**
+Question on the current live-class page (playlist + ``live_session_items``)
+so it sits in the normal Questions section. The media snapshot is stored on
+that prompt. Student submit grades against the snapshot. Teacher points stay
+on existing Responses & Points — this module does not award.
 
 First concrete: MCF3M M1 C2 Transformations (vertex form of ``y = x^2``).
 """
@@ -308,6 +308,25 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
             or format_vertex_equation(out["snapshot"])
         )
     return out
+
+
+def format_artifact_answer(response: Any) -> str:
+    """Return a compact ``a, h, k`` readout for Responses & Points.
+
+    Args:
+        response: Student answer JSON (``params`` or top-level a/h/k).
+    """
+    posted = response if isinstance(response, dict) else {}
+    raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+    try:
+        params = normalize_transform_params(raw)
+    except ValueError:
+        return ""
+    parts = []
+    for key in TRANSFORM_KEYS:
+        text = f"{params[key]:.4f}".rstrip("0").rstrip(".")
+        parts.append(f"{key}={text}")
+    return ", ".join(parts)
 
 
 def public_artifact_media(payload: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -23,6 +23,9 @@ try:
         ARTIFACT_SLIDE_BASE,
         C2_TRANSFORM_MEDIA_URL,
         TRANSFORMATIONS_ARTIFACT_ID,
+        TRANSFORMATIONS_STEM,
+        format_artifact_answer,
+        grade_transform_snapshot,
         is_artifact_payload,
         public_artifact_media,
         student_artifact_payload,
@@ -125,6 +128,9 @@ except ImportError:  # ``python3 lms/app.py`` package import
         ARTIFACT_SLIDE_BASE,
         C2_TRANSFORM_MEDIA_URL,
         TRANSFORMATIONS_ARTIFACT_ID,
+        TRANSFORMATIONS_STEM,
+        format_artifact_answer,
+        grade_transform_snapshot,
         is_artifact_payload,
         public_artifact_media,
         student_artifact_payload,
@@ -6917,7 +6923,10 @@ class SchoolDB(LovesDB):
                 "page_number": placement.get("page_number"),
                 "order": placement.get("sort_order") or payload.get("order"),
                 "source_question_id": placement.get("source_question_id"),
-                "import_source": "module_bank",
+                "import_source": str(
+                    payload.get("import_source") or "module_bank"
+                ).strip()
+                or "module_bank",
             }
             if not row["id"]:
                 continue
@@ -8993,6 +9002,10 @@ class SchoolDB(LovesDB):
             "integer_only"
         ):
             return "numeric"
+        if token == ARTIFACT_KIND or is_artifact_payload(question) or is_artifact_payload(
+            item
+        ):
+            return ARTIFACT_KIND
         if token == "poll":
             return "poll"
         return "mc"
@@ -9593,6 +9606,11 @@ class SchoolDB(LovesDB):
             kind = str(question.get("tolerance_kind") or "").strip().lower()
             if kind in {"absolute", "percent"}:
                 payload["tolerance_kind"] = kind
+        if prompt_kind == ARTIFACT_KIND:
+            payload["kind"] = ARTIFACT_KIND
+            payload["type"] = ARTIFACT_KIND
+            payload["options"] = []
+            payload["choices"] = []
         equation = str(
             question.get("equation_latex") or question.get("equation") or ""
         ).strip()
@@ -9602,7 +9620,11 @@ class SchoolDB(LovesDB):
         image_url = str(question.get("image_url") or "").strip()
         if image_url:
             payload["image_url"] = image_url
-        session_kind = "share" if prompt_kind == "poll" else prompt_kind
+        session_kind = (
+            ARTIFACT_KIND
+            if prompt_kind == ARTIFACT_KIND
+            else ("share" if prompt_kind == "poll" else prompt_kind)
+        )
         prompt = self.set_live_session_prompt(
             int(item["live_session_id"]),
             slide_index=20000 + int(item["id"]),
@@ -10679,13 +10701,21 @@ class SchoolDB(LovesDB):
                     "show_live_results": bool(item["show_live_results"]),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
-                    "content": strip_teacher_prompt_fields(raw_payload),
+                    "content": (
+                        student_artifact_payload(raw_payload)
+                        if is_artifact_payload(raw_payload)
+                        else strip_teacher_prompt_fields(raw_payload)
+                    ),
                     "prompt": (
                         {
                             "id": int(prompt["id"]),
                             "slide_index": int(prompt["slide_index"]),
                             "kind": str(prompt["kind"]),
-                            "payload": strip_teacher_prompt_fields(raw_payload),
+                            "payload": (
+                                student_artifact_payload(raw_payload)
+                                if is_artifact_payload(raw_payload)
+                                else strip_teacher_prompt_fields(raw_payload)
+                            ),
                         }
                         if prompt is not None
                         else None
@@ -10844,11 +10874,12 @@ class SchoolDB(LovesDB):
         parent: dict[str, Any] | None = None,
         slide_index: int | None = None,
     ) -> dict[str, Any]:
-        """Mint an Artifact question on the current live-class page.
+        """Mint a fresh Artifact Question on the current live-class page.
 
-        Persists the parent + slider snapshot on the prompt (deck page) and
-        freezes the target onto C2 active media so student graph mode is
-        disconnected from teacher sliders. Does not award points.
+        Each click writes a new playlist placement + lifecycle item + prompt
+        so the teacher Questions pane and Responses & Points UI own the
+        challenge. Media keeps only the latest visual snapshot (graph target),
+        not the question itself. Does not award points.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -10856,27 +10887,143 @@ class SchoolDB(LovesDB):
             snapshot: Teacher slider values at mint time.
             target_mode: ``graph`` or ``equation``.
             parent: Optional parent-function override.
-            slide_index: Page index; defaults to the Artifact page.
+            slide_index: Optional page number override.
 
         Returns:
-            ``{prompt, active_media}``.
+            ``{prompt, live_item, question_cards, active_media}``.
 
         Raises:
             KeyError: If the live session is missing.
             ValueError: Unknown artifact or invalid snapshot.
         """
-        if self.get_live_session(session_id) is None:
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
             raise KeyError(f"live session {session_id}")
         wanted = str(artifact_id or "").strip()
         if wanted and wanted != TRANSFORMATIONS_ARTIFACT_ID:
             raise ValueError(f"unknown artifact: {wanted}")
-        page = ARTIFACT_SLIDE_BASE if slide_index is None else int(slide_index)
+        teacher = self.live_session_teacher_state_payload(session_id)
+        class_id = int(session_row["class_id"])
+        module_key = str(teacher.get("live_module") or "M1").upper()
+        slot_key = str(teacher.get("live_slot") or "C1").upper()
+        if wanted == TRANSFORMATIONS_ARTIFACT_ID:
+            # Transformations media lives on M1 C2; remounting C2 after a C1
+            # mint used to drop the new card from the current question list.
+            module_key = "M1"
+            slot_key = "C2"
+            if (
+                str(teacher.get("live_module") or "").upper() != "M1"
+                or str(teacher.get("live_slot") or "").upper() != "C2"
+            ):
+                teacher = self.set_live_session_teacher_state(
+                    session_id,
+                    live_module="M1",
+                    live_slot="C2",
+                )
+        stage_key = str(teacher.get("stage") or "play").strip().lower() or "play"
+        metadata = self.live_class_metadata_for_session(session_id)
+        page_row = self._current_deck_page(metadata, teacher)
+        page_number = self._page_number_for_deck_page(page_row)
+        if slide_index not in (None, "") and int(slide_index) < ARTIFACT_SLIDE_BASE:
+            page_number = int(slide_index)
+        if page_number in (None, 0):
+            page_number = self._page_number_for_stage(metadata, stage_key) or 1
         payload = transformations_prompt_payload(
             snapshot=snapshot,
             target_mode=target_mode,
             parent=parent,
-            slide_index=page,
+            slide_index=int(page_number),
         )
+        item_id = f"artifact-match-{uuid.uuid4().hex}"
+        placement_key = f"class:{int(class_id)}:artifact:{uuid.uuid4().hex}"
+        item_payload = {
+            **payload,
+            "id": item_id,
+            "item_id": item_id,
+            "item_type": "question",
+            "type": ARTIFACT_KIND,
+            "kind": ARTIFACT_KIND,
+            "text": TRANSFORMATIONS_STEM,
+            "prompt": TRANSFORMATIONS_STEM,
+            "stage": stage_key,
+            "page_number": int(page_number),
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+            "import_source": "artifact",
+            "placement_key": placement_key,
+        }
+        with self._lock:
+            existing = self.conn.execute(
+                """
+                SELECT MAX(sort_order) AS max_order
+                FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                  AND stage = ? AND page_number = ?
+                """,
+                (int(class_id), module_key, slot_key, stage_key, int(page_number)),
+            ).fetchone()
+            sort_order = int(existing["max_order"] or 0) + 1 if existing else 1
+            item_payload["order"] = sort_order
+            self.conn.execute(
+                """
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, source_question_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    int(page_number),
+                    stage_key,
+                    sort_order,
+                    placement_key,
+                    item_id,
+                    json.dumps(item_payload),
+                    None,
+                    _now(),
+                ),
+            )
+            self.conn.commit()
+        self.invalidate_live_metadata_cache(
+            class_id=int(class_id),
+            module=module_key,
+            slot=slot_key,
+        )
+        self.ensure_live_session_items(session_id)
+        minted_item = next(
+            (
+                row
+                for row in self.list_live_session_items(session_id)
+                if str(row.get("item_id") or "") == item_id
+            ),
+            None,
+        )
+        if minted_item is None:
+            raise ValueError("failed to mint Artifact question")
+        published = self.publish_live_session_item(
+            session_id, int(minted_item["id"]), publish_mode="individual"
+        )
+        prompt = self._prompt_for_live_item(published)
+        if prompt is None:
+            prompt = self._ensure_prompt_for_live_item(published)
+        if prompt is not None:
+            prompt_payload = (
+                dict(prompt.get("payload") or {})
+                if isinstance(prompt.get("payload"), dict)
+                else dict(item_payload)
+            )
+            prompt_payload["item_id"] = item_id
+            prompt_payload["page_number"] = int(page_number)
+            prompt = self.set_live_session_prompt(
+                session_id,
+                slide_index=int(prompt.get("slide_index") or (20000 + int(published["id"]))),
+                kind=ARTIFACT_KIND,
+                payload=prompt_payload,
+                activate=True,
+            )
         frozen = public_artifact_media(
             {
                 "artifact_id": payload["artifact_id"],
@@ -10892,14 +11039,13 @@ class SchoolDB(LovesDB):
             artifact=frozen,
             merge=False,
         )
-        prompt = self.set_live_session_prompt(
-            session_id,
-            slide_index=page,
-            kind=ARTIFACT_KIND,
-            payload=payload,
-            activate=True,
-        )
-        return {"prompt": prompt, "active_media": media}
+        return {
+            "prompt": prompt or {},
+            "live_item": published,
+            "question_cards": self.live_session_question_cards(session_id),
+            "live_items": self.list_live_session_items(session_id),
+            "active_media": media,
+        }
 
 
     def clear_active_live_prompt(self, session_id: int) -> None:
@@ -12123,6 +12269,8 @@ class SchoolDB(LovesDB):
         token = str(kind or body.get("kind") or "").strip().lower()
         if token == "numeric" or body.get("integer_only"):
             return "numeric"
+        if token == ARTIFACT_KIND or is_artifact_payload(body):
+            return ARTIFACT_KIND
         key = str(
             body.get("key")
             or body.get("correct_answer")
@@ -12677,6 +12825,17 @@ class SchoolDB(LovesDB):
             payload: Prompt payload that may hold numeric tolerance.
         """
         body = payload if isinstance(payload, dict) else {}
+        if is_artifact_payload(body):
+            posted = {"params": value} if not isinstance(value, dict) else value
+            if not isinstance(posted.get("params"), dict) and any(
+                key in posted for key in ("a", "h", "k")
+            ):
+                posted = {"params": posted}
+            result = grade_transform_snapshot(
+                posted.get("params") if isinstance(posted.get("params"), dict) else posted,
+                body.get("snapshot"),
+            )
+            return bool(result["match"])
         if raw_key and value not in (None, ""):
             try:
                 return self._numeric_within_tolerance(
@@ -12749,10 +12908,16 @@ class SchoolDB(LovesDB):
                 value = answer.get("share")
             if value is None:
                 value = answer.get("choice")
+            if value is None and is_artifact_payload(payload):
+                value = answer
             label = (
-                choices[ord(letter) - ord("A")]
-                if letter and ord(letter) - ord("A") < len(choices)
-                else value
+                format_artifact_answer(answer)
+                if is_artifact_payload(payload)
+                else (
+                    choices[ord(letter) - ord("A")]
+                    if letter and ord(letter) - ord("A") < len(choices)
+                    else value
+                )
             )
             rows.append(
                 {
@@ -14245,7 +14410,7 @@ class SchoolDB(LovesDB):
     def live_class_roster_projection(
         self, session_id: int
     ) -> list[dict[str, Any]]:
-        """Return the full roster or the session's Hide Absent subset."""
+        """Return the full roster with present flags for client-side Hide Absent."""
 
         session_row = self.get_live_session(session_id)
         if session_row is None:
@@ -14288,8 +14453,6 @@ class SchoolDB(LovesDB):
             student_id = int(student["id"])
             attendee = attendees.get(student_id)
             present = bool(attendee and not attendee.get("left_at"))
-            if teacher.get("hide_absent") and not present:
-                continue
             rows.append(
                 {
                     "student_id": student_id,

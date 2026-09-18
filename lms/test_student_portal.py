@@ -1422,6 +1422,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("bindFloatingPane(card)", js)
         self.assertNotIn("bindFloatingPane(liveQuestionStack)", js)
         self.assertIn("function lifecycleAnswerKind", js)
+        self.assertIn('return "artifact"', js)
+        self.assertIn("data-artifact-kind", js)
         self.assertIn("function liveChoiceLabels", js)
         self.assertIn("payload?.meet_chip", js)
         self.assertIn("content.integer_only", js)

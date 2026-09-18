@@ -438,8 +438,8 @@ class LiveBackendStateTests(unittest.TestCase):
             before_members,
         )
         roster = self.school.live_class_roster_projection(self.session_id)
-        self.assertEqual(len(roster), 2)
-        self.assertTrue(all(row["present"] for row in roster))
+        self.assertEqual(len(roster), 4)
+        self.assertEqual(sum(1 for row in roster if row["present"]), 2)
         self.assertEqual(self.school.live_group_projection(self.session_id), [])
         self.assertIsNone(
             self.school.live_scoreboard_projection(self.session_id)

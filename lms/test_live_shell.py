@@ -861,6 +861,8 @@ class LiveShellTests(unittest.TestCase):
     def test_beat22b_teams_classlist_present_only(self) -> None:
         """Class List stays full until durable Hide Absent is checked."""
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function adoptClassListRows(", js)
+        self.assertIn("lastClassListFull", js)
         visible = js.split("function classListVisibleStudents(")[1].split(
             "function projectedClassListStudents("
         )[0]
@@ -2030,11 +2032,24 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("paintTeacherShell()", boot)
         self.assertIn("await openRunLiveClass()", boot)
         self.assertIn("if (setupPhase) return", boot)
+        self.assertIn("await ensureC1MediaSeeded()", boot)
         resume = js.split("async function resumeLiveClassIfNeeded()")[1].split(
             "export async function openLogParticipation()"
         )[0]
-        self.assertIn("if (wantsFreshSetClass()) return false", resume)
+        self.assertIn("function clearFreshSetClassFromUrl()", js)
+        self.assertIn("clearFreshSetClassFromUrl()", js)
+        self.assertIn(
+            "if (wantsFreshSetClass() && !classSetIsComplete(status, teacher)) return false",
+            resume,
+        )
         self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
+        self.assertIn("paintTeacherShell()", resume)
+        self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", resume)
+        self.assertIn("await ensureC1MediaSeeded()", resume)
+        bind = js.split("function bindActiveMediaControls(")[1].split(
+            "window.addEventListener(\"message\""
+        )[0]
+        self.assertNotIn("ensureC1MediaSeeded()", bind)
         self.assertNotIn("/api/classes/${classId}/begin", resume)
         open_fn = js.split("export async function openRunLiveClass()")[1].split(
             "export async function openTakeAttendance()"
@@ -2192,6 +2207,10 @@ class LiveShellTests(unittest.TestCase):
             '$("live-hide-absent")'
         )[0]
         self.assertNotIn("pollLiveSessionAttendees()", handler)
+        hide = js.split('$("live-hide-absent")?.addEventListener("change"')[1]
+        hide = hide.split("function availableRoundKinds(")[0]
+        self.assertIn("renderAttendanceList()", hide)
+        self.assertNotIn("pollLiveSessionAttendees()", hide)
         patch = js.split("async function patchTeacherState(")[1].split(
             '$("mc-reveal-btn")'
         )[0]
