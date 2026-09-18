@@ -1,7 +1,7 @@
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
-import { renderLiveQuestionMath } from "/static/common.js";
+import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -528,18 +528,6 @@ function escapeText(value) {
     .replaceAll('"', "&quot;");
 }
 
-/**
- * Escape prompt copy and render copywriter ``**bold**`` markers.
- * @param {unknown} value
- * @returns {string}
- */
-function formatPromptHtml(value) {
-  let html = escapeText(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\(([^)]+)\)\^(\d+)/g, "($1)<sup>$2</sup>");
-  html = html.replace(/([a-zA-Z])\^(\d+)/g, "$1<sup>$2</sup>");
-  return html;
-}
-
 /** Render a graph image at full card width for lifecycle questions. */
 function questionImageHtmlStudent(imageUrl) {
   const url = String(imageUrl || "").trim();
@@ -551,7 +539,8 @@ function questionImageHtmlStudent(imageUrl) {
 function lifecyclePromptHtml(content) {
   const rendered = String(content?.text_html || "").trim();
   if (rendered) return `<span class="live-question-html">${rendered}</span>`;
-  return formatPromptHtml(content?.text || content?.prompt || content?.question || "Live question");
+  const raw = content?.text || content?.prompt || content?.question || "Live question";
+  return `<span class="live-question-html">${formatQuestionHtml(raw)}</span>`;
 }
 
 /**
@@ -2210,7 +2199,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
           const on = picked && label === picked ? " is-selected" : "";
           const optionHtml = Array.isArray(data.options_html) && data.options_html[index]
             ? `<span class="live-question-html">${String(data.options_html[index])}</span>`
-            : formatPromptHtml(label);
+            : formatQuestionHtml(label);
           return `<button type="button" class="prompt-choice${on}" data-choice="${escapeText(choice)}"${
             picked && lockChoices ? " disabled" : ""
           }>${optionHtml}</button>`;

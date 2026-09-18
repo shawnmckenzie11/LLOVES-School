@@ -288,6 +288,19 @@ function paintDetail() {
 }
 
 /**
+ * Return True when ``$...$`` delimiters are unbalanced.
+ * @param {string} text
+ */
+function hasUnmatchedDollar(text) {
+  let count = 0;
+  const raw = String(text || "");
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] === "$" && raw[index - 1] !== "\\") count += 1;
+  }
+  return count % 2 === 1;
+}
+
+/**
  * Typeset the in-editor stem with the same KaTeX path as browse/student.
  * @param {HTMLElement} form
  */
@@ -309,7 +322,10 @@ async function paintEditorMathPreview(form) {
   preview.innerHTML = `${formatQuestionHtml(stem)}${optionHtml}`;
   await renderLiveQuestionMath(preview);
   if (error instanceof HTMLElement) {
-    error.hidden = !preview.querySelector(".katex-error");
+    const unmatched = [stem, ...options].some(hasUnmatchedDollar);
+    const leftover = /(?<!\\)\$/.test(preview.textContent || "");
+    const failed = unmatched || leftover || Boolean(preview.querySelector(".katex-error"));
+    error.hidden = !failed;
     if (!error.hidden) error.textContent = EQ_ERROR;
   }
 }

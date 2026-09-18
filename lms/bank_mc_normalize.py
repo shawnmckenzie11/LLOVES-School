@@ -7,7 +7,11 @@ import json
 import re
 from typing import Any
 
-from question_math import enrich_live_mc_display, extract_image_src
+from question_math import (
+    enrich_live_mc_display,
+    extract_image_src,
+    normalize_house_tex,
+)
 
 CHOICE_LETTERS = "ABCDEFGH"
 
@@ -254,6 +258,8 @@ def normalize_bank_mc(
         stem = _plain_stem_from_html(raw_stem_html)
     if not stem:
         return None, "empty_stem"
+    stem = normalize_house_tex(stem)
+    options = [normalize_house_tex(opt) for opt in options]
     if len(options) < 2:
         return None, "need_two_options"
     if not overlay_row.get("correct_answer"):

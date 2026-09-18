@@ -70,6 +70,12 @@ class QuestionMathTests(unittest.TestCase):
         self.assertEqual(normalize_house_tex(r"Find \(\frac{1}{2}\)"), r"Find $\frac{1}{2}$")
         self.assertIn("$$", normalize_house_tex(r"\[x^2\]"))
 
+    def test_format_math_html_houses_paren_delimiters(self) -> None:
+        """Display wrapping runs after house-style conversion."""
+        rendered = format_math_html(r"Find \(\frac{1}{2}\)")
+        self.assertIn('data-latex="\\frac{1}{2}"', rendered)
+        self.assertNotIn(r"\(", rendered)
+
     def test_format_math_html_unescapes_entities(self) -> None:
         """Double-escaped less-than does not stay as visible &lt;."""
         rendered = format_math_html("Is x &lt; 5?")
