@@ -2973,18 +2973,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         slot_key = str(slot or "").strip().upper()
         try:
             live_metadata = school.live_class_metadata_for_class_lesson(
-                int(class_id), module_key, slot_key
+                int(class_id), module_key, slot_key, fresh=True
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
-        return jsonify(
+        response = jsonify(
             {
                 "ok": True,
                 "module": module_key,
                 "slot": slot_key,
+                "deck_revision": school.class_deck_revision(
+                    int(class_id), module_key, slot_key
+                ),
                 "live_metadata": live_metadata,
             }
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.route(
         "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-mc",
@@ -5612,17 +5617,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         course = str(
             (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
         ).upper()
-        return jsonify(
+        response = jsonify(
             {
                 "ok": True,
                 "course": course,
                 "module": module_code,
                 "live_class": slot_code,
-                "live_metadata": school.live_class_metadata_for_class_lesson(
+                "deck_revision": school.class_deck_revision(
                     int(class_id), module_code, slot_code
+                ),
+                "live_metadata": school.live_class_metadata_for_class_lesson(
+                    int(class_id), module_code, slot_code, fresh=True
                 ),
             }
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.route("/staff/offerings/<int:offering_id>/slides/<date_iso>.html")
     @staff_required

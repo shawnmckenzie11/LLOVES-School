@@ -1468,7 +1468,7 @@ async function refreshLessonDeckMetadata() {
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
   if (!classId) return;
   const payload = await api(
-    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/deck`
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/deck?fresh=1`
   );
   if (payload?.live_metadata) {
     lastLiveMetadata = payload.live_metadata;
@@ -6510,6 +6510,10 @@ async function resumeLiveClassIfNeeded() {
     startLiveSessionPolling();
     staffStateNeedsFull = true;
     await pollLiveSessionAttendees({ full: true, force: true });
+    await loadSavedLiveLesson(
+      teacherState.live_module || "M1",
+      teacherState.live_slot || "C1"
+    );
     paintTeacherShell();
     paintQuestionArtifact();
     await ensureC1MediaSeeded();
@@ -6881,7 +6885,7 @@ async function loadSavedLiveLesson(moduleId, slot) {
   const liveSlot = String(slot || "C1").toUpperCase();
   try {
     const payload = await api(
-      `/api/staff/class/${classId}/live-lessons/${module}/${liveSlot}/deck`
+      `/api/staff/class/${classId}/live-lessons/${module}/${liveSlot}/deck?fresh=1`
     );
     if (payload?.live_metadata) {
       lastLiveMetadata = payload.live_metadata;
@@ -7308,11 +7312,10 @@ $("live-relocate-dialog")?.addEventListener("cancel", () => {
 $("live-import-mc-btn")?.addEventListener("click", () => openLiveMcImportPicker());
 
 /**
- * Save staff-edited student media stem/caption onto the live session.
- * @param {SubmitEvent} event
+ * Persist staff-edited student media stem/caption to the class overlay.
+ * @param {{silent?: boolean}} [opts]
  */
-async function saveActiveMediaCopy(event) {
-  event.preventDefault();
+async function persistActiveMediaCopy(opts = {}) {
   const stemInput = $("ap-media-stem");
   const captionInput = $("ap-media-caption");
   const status = $("ap-media-copy-status");
@@ -7322,18 +7325,57 @@ async function saveActiveMediaCopy(event) {
     await postActiveMedia({ stem, caption });
     if (status instanceof HTMLElement) {
       status.hidden = false;
-      status.textContent = "Saved for students.";
+      status.textContent = opts.silent ? "Autosaved." : "Saved for students.";
     }
   } catch (err) {
     if (status instanceof HTMLElement) {
       status.hidden = false;
       status.textContent = err instanceof Error ? err.message : String(err);
     }
+    throw err;
   }
+}
+
+/**
+ * Save staff-edited student media stem/caption onto the live session.
+ * @param {SubmitEvent} event
+ */
+async function saveActiveMediaCopy(event) {
+  event.preventDefault();
+  window.clearTimeout(mediaCopySaveTimer);
+  await persistActiveMediaCopy();
+}
+
+let mediaCopySaveTimer = 0;
+
+/**
+ * Debounce stem/caption edits onto the class overlay (next open uses this).
+ */
+function scheduleActiveMediaCopyAutosave() {
+  window.clearTimeout(mediaCopySaveTimer);
+  mediaCopySaveTimer = window.setTimeout(() => {
+    persistActiveMediaCopy({ silent: true }).catch((err) =>
+      showError("#ap-overlay-error", err)
+    );
+  }, 400);
 }
 
 $("ap-media-copy-editor")?.addEventListener("submit", (event) => {
   saveActiveMediaCopy(event).catch((err) => showError("#ap-overlay-error", err));
+});
+$("ap-media-stem")?.addEventListener("input", () => scheduleActiveMediaCopyAutosave());
+$("ap-media-caption")?.addEventListener("input", () => scheduleActiveMediaCopyAutosave());
+$("ap-media-stem")?.addEventListener("blur", () => {
+  window.clearTimeout(mediaCopySaveTimer);
+  persistActiveMediaCopy({ silent: true }).catch((err) =>
+    showError("#ap-overlay-error", err)
+  );
+});
+$("ap-media-caption")?.addEventListener("blur", () => {
+  window.clearTimeout(mediaCopySaveTimer);
+  persistActiveMediaCopy({ silent: true }).catch((err) =>
+    showError("#ap-overlay-error", err)
+  );
 });
 
 /**
