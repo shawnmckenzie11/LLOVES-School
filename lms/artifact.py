@@ -50,6 +50,14 @@ C3_PARENT_MEDIA_URL = "/static/live-media/mcr3u-m1c3-parent-transformations.html
 PARENT_KINDS = frozenset(
     {"linear", "quadratic", "abs", "sqrt", "reciprocal"}
 )
+# MCR3U M1 C2 curator playlist (domain/range of x², √x, 1/x) plus the
+# identity parent from that media. Cap is 3–5; abs is grade-only leftover.
+PARENT_CHOICES: tuple[dict[str, str], ...] = (
+    {"kind": "linear", "label": "Linear", "symbol": "x"},
+    {"kind": "quadratic", "label": "Quadratic", "symbol": "x²"},
+    {"kind": "sqrt", "label": "Square root", "symbol": "√x"},
+    {"kind": "reciprocal", "label": "Reciprocal", "symbol": "1/x"},
+)
 PARENT_KIND_LABELS: dict[str, str] = {
     "linear": "f(x)=x",
     "quadratic": "f(x)=x²",
@@ -292,6 +300,15 @@ def normalize_parent_kind(raw: Any) -> str:
     if text not in PARENT_KINDS:
         raise ValueError("parent must be linear, quadratic, abs, sqrt, or reciprocal.")
     return text
+
+
+def parent_choice_list() -> list[dict[str, str]]:
+    """Return the MCR3U M1 C3 radio set (MD/Curator, four parents).
+
+    Returns:
+        Copies of ``PARENT_CHOICES`` for prompt JSON.
+    """
+    return [dict(row) for row in PARENT_CHOICES]
 
 
 def parent_function_dict(kind: Any) -> dict[str, Any]:
@@ -563,6 +580,7 @@ def parent_transformations_prompt_payload(
         "slider_ranges": {
             key: list(PARENT_TRANSFORM_RANGES[key]) for key in PARENT_TRANSFORM_KEYS
         },
+        "parent_choices": parent_choice_list(),
         "media_url": C3_PARENT_MEDIA_URL,
         "slide_index": int(slide_index),
         "ephemeral": False,
@@ -595,6 +613,7 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 key: list(PARENT_TRANSFORM_RANGES[key])
                 for key in PARENT_TRANSFORM_KEYS
             },
+            "parent_choices": payload.get("parent_choices") or parent_choice_list(),
             "media_url": str(payload.get("media_url") or C3_PARENT_MEDIA_URL),
         }
         if mode == "equation":

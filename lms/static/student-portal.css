@@ -1039,6 +1039,39 @@ body.student-home.is-live .student-live-response {
   color: #f5c518;
 }
 
+.artifact-parents {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+  margin: 0 0 0.5rem;
+}
+
+.artifact-parent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 8px;
+  border: 1px solid #2a4660;
+  background: #102536;
+  color: #d6e4ef;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.artifact-parent input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.artifact-parent.is-on {
+  border-color: #f5c518;
+  background: rgba(245, 197, 24, 0.14);
+  color: #f5e6a8;
+}
+
 .hot-cold-meters {
   display: grid;
   gap: 0.4rem;

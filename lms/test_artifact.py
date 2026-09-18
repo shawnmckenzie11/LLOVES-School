@@ -18,6 +18,7 @@ from artifact import (
     C3_PARENT_MEDIA_URL,
     LEAD_MATCH,
     LEAD_MISS,
+    PARENT_CHOICES,
     PARENT_TRANSFORMATIONS_ARTIFACT_ID,
     PARENT_TRANSFORMATIONS_STEM,
     TRANSFORMATIONS_ARTIFACT_ID,
@@ -377,6 +378,9 @@ class ParentArtifactTests(unittest.TestCase):
         )
         self.assertEqual(payload["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
         self.assertEqual(payload["slider_keys"], ["a", "k", "d", "c"])
+        self.assertEqual([row["kind"] for row in payload["parent_choices"]], [row["kind"] for row in PARENT_CHOICES])
+        self.assertEqual(len(payload["parent_choices"]), 4)
+        self.assertNotIn("abs", [row["kind"] for row in payload["parent_choices"]])
         fb = artifact_feedback_fragment(
             payload, {"params": {"parent": "abs", "a": 2, "k": -1, "d": 3, "c": -2}}
         )
@@ -458,6 +462,10 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertIn("Make match challenge", body)
         self.assertIn('name="parent"', body)
         self.assertIn('value="quadratic"', body)
+        self.assertIn('value="sqrt"', body)
+        self.assertIn('value="reciprocal"', body)
+        self.assertNotIn('value="abs"', body)
+        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", body)
         self.assertIn("lloves-mcr3u-m1c3-parents", body)
         self.assertIn(PARENT_TRANSFORMATIONS_ARTIFACT_ID, body)
         rv.close()
@@ -487,6 +495,7 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertIn("mcr3u-m1c3-parent-transformations.html", body["active_media"]["url"])
         student = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(student["prompt"]["payload"]["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
+        self.assertEqual(len(student["prompt"]["payload"]["parent_choices"]), 4)
         hit = self.student.post(
             "/api/student/live-prompt/response",
             json={

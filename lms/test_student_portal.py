@@ -1407,6 +1407,7 @@ class StudentPortalTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "student-portal.css").read_text(
             encoding="utf-8"
         )
+        self.assertIn(".artifact-parents", css)
         self.assertIn('id="live-question-stack"', html)
         self.assertIn('id="student-question-dock"', html)
         self.assertIn(">Whiteboard<", html)
@@ -1428,6 +1429,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("function lifecycleAnswerKind", js)
         self.assertIn('return "artifact"', js)
         self.assertIn("data-artifact-kind", js)
+        self.assertIn("function parentChoiceRadiosHtml", js)
+        self.assertIn("data-artifact-parent", js)
         self.assertIn("function liveChoiceLabels", js)
         self.assertIn("payload?.meet_chip", js)
         self.assertIn("content.integer_only", js)
