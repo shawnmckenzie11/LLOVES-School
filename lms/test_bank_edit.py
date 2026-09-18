@@ -41,7 +41,7 @@ class BankEditHelperTests(unittest.TestCase):
         self.assertEqual(CANCEL_LABEL, "Cancel")
         self.assertEqual(REMOVE_FROM_BANK_TITLE, "Remove from bank?")
         self.assertEqual(EDITED_IN_LMS_CHIP, "Edited in LMS")
-        self.assertEqual(SAVE_TOAST, "Saved.")
+        self.assertEqual(SAVE_TOAST, "Saved to this course’s copy.")
         self.assertEqual(
             WONDER_COPY,
             {
@@ -51,7 +51,7 @@ class BankEditHelperTests(unittest.TestCase):
                 "cancel": "Cancel",
                 "remove_from_bank": "Remove from bank?",
                 "edited_in_lms": "Edited in LMS",
-                "save_toast": "Saved.",
+                "save_toast": "Saved to this course’s copy.",
             },
         )
 
