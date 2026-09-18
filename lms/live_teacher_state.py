@@ -231,6 +231,7 @@ def default_teacher_state() -> dict[str, Any]:
         "canvas_align": canvas_align_from_view(view["canvas"]),
         "live_slot": DEFAULT_LIVE_SLOT,
         "live_module": DEFAULT_LIVE_MODULE,
+        "page_id": "",
         "text_ride": default_text_ride(),
         "question_views": default_question_views(),
     }
@@ -912,6 +913,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         base["live_slot"] = normalize_live_slot(stored.get("live_slot"))
     if "live_module" in stored:
         base["live_module"] = normalize_live_module(stored.get("live_module"))
+    if "page_id" in stored:
+        base["page_id"] = str(stored.get("page_id") or "").strip()
     if "text_ride" in stored:
         base["text_ride"] = public_text_ride(stored.get("text_ride"))
     if base.get("live_slot") == "C1":
@@ -970,6 +973,7 @@ def apply_teacher_state_update(
     mc_ui: Any = None,
     live_slot: Any = None,
     live_module: Any = None,
+    page_id: Any = None,
     text_ride: Any = None,
     question_views: Any = None,
 ) -> dict[str, Any]:
@@ -1011,6 +1015,7 @@ def apply_teacher_state_update(
             Empty clears the blob.
         live_slot: ``C1`` / ``C2`` / ``C3`` / ``C4``.
         live_module: ``M1`` / ``M2`` / … Catalogue module (interim).
+        page_id: Named deck page id such as ``join`` or ``welcome``.
         text_ride: Optional ``{frozen, cons_item, toast, toast_key}`` for
             C2/C3 (never written to ``active_media_json``).
         question_views: Per-question ``none`` / ``student`` visibility map.
@@ -1183,6 +1188,10 @@ def apply_teacher_state_update(
         base["live_slot"] = normalize_live_slot(live_slot)
     if live_module is not None:
         base["live_module"] = normalize_live_module(live_module)
+    if page_id is not None:
+        base["page_id"] = str(page_id or "").strip()
+    elif stage_changed:
+        base["page_id"] = ""
     if text_ride is not None:
         if text_ride in (None, "", {}, False):
             base["text_ride"] = default_text_ride()
