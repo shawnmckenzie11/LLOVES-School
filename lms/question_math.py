@@ -17,6 +17,22 @@ _PAREN_EXP_RE = re.compile(r"\(([^)]+)\)\^(\d+)")
 _SIMPLE_EXP_RE = re.compile(r"([a-zA-Z])\^(\d+)")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _FILEBASE_RE = re.compile(r"\$IMS-CC-FILEBASE\$", re.IGNORECASE)
+_MATH_TOKEN_RE = re.compile(
+    r"\$\$(.+?)\$\$"
+    r"|\\\[(.+?)\\\]"
+    r"|\\\((.+?)\\\)"
+    r"|(?<!\\)\$(?!\$)((?:\\.|[^$])+?)(?<!\\)\$(?!\$)"
+    r"|(\\frac\{[^{}]+\}\{[^{}]+\}"
+    r"|\\dfrac\{[^{}]+\}\{[^{}]+\}"
+    r"|\\tfrac\{[^{}]+\}\{[^{}]+\}"
+    r"|\\sqrt(?:\[[^\[\]]+\])?\{[^{}]+\})",
+    re.DOTALL,
+)
+_MATH_SPAN_RE = re.compile(
+    r"<span\b[^>]*\bdata-latex\s*=\s*[\"']([^\"']*)[\"'][^>]*>.*?</span>",
+    re.IGNORECASE | re.DOTALL,
+)
+_ESCAPED_HTML_RE = re.compile(r"<(?:[a-zA-Z/!])")
 _WEB_RES_RE = re.compile(
     r"""^(?:\.\./)+web_resources/""",
     re.IGNORECASE,
@@ -68,6 +84,7 @@ class _MCSanitizer(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._parts: list[str] = []
+        self._math_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Emit whitelisted opening tags with safe attributes."""
@@ -75,11 +92,16 @@ class _MCSanitizer(HTMLParser):
         if name not in _MC_ALLOWED_TAGS:
             return
         clean_attrs: list[tuple[str, str]] = []
+        class_value = ""
         for key, value in attrs:
             attr = str(key or "").lower()
             if attr not in _MC_ALLOWED_ATTRS:
                 continue
             clean_attrs.append((attr, html.escape(str(value or ""), quote=True)))
+            if attr == "class":
+                class_value = str(value or "")
+        if name == "span" and "math-latex" in class_value:
+            self._math_depth += 1
         if clean_attrs:
             attrs_text = " ".join(f'{key}="{val}"' for key, val in clean_attrs)
             self._parts.append(f"<{name} {attrs_text}>")
@@ -91,17 +113,18 @@ class _MCSanitizer(HTMLParser):
         name = tag.lower()
         if name in _MC_ALLOWED_TAGS and name not in {"br", "img"}:
             self._parts.append(f"</{name}>")
+        if name == "span" and self._math_depth:
+            self._math_depth -= 1
 
     def handle_data(self, data: str) -> None:
-        """Escape text nodes while preserving math caret formatting."""
+        """Escape text nodes and wrap TeX / caret math for KaTeX."""
         text = str(data or "")
         if not text:
             return
-        escaped = html.escape(text)
-        escaped = _BOLD_RE.sub(r"<strong>\1</strong>", escaped)
-        escaped = _PAREN_EXP_RE.sub(r"(\1)<sup>\2</sup>", escaped)
-        escaped = _SIMPLE_EXP_RE.sub(r"\1<sup>\2</sup>", escaped)
-        self._parts.append(escaped)
+        if self._math_depth:
+            self._parts.append(html.escape(text))
+            return
+        self._parts.append(format_math_html(text))
 
     def sanitized_html(self) -> str:
         """Return the rebuilt HTML fragment."""
@@ -109,13 +132,19 @@ class _MCSanitizer(HTMLParser):
 
 
 def html_to_plain(text: str) -> str:
-    """Strip HTML to plain text, preserving caret exponents from ``<sup>`` tags."""
+    """Strip HTML to plain text, preserving caret exponents and TeX spans."""
     if not text:
         return ""
     cleaned = str(text)
     cleaned = re.sub(r"<br\s*/?>", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"</p\s*>", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"</t[dh]\s*>", " ", cleaned, flags=re.IGNORECASE)
+
+    def _span_to_dollar(match: re.Match[str]) -> str:
+        latex = html.unescape(match.group(1)).strip()
+        return f"${latex}$" if latex else ""
+
+    cleaned = _MATH_SPAN_RE.sub(_span_to_dollar, cleaned)
 
     def _sup_to_caret(match: re.Match[str]) -> str:
         inner = re.sub(r"<[^>]+>", "", match.group(1))
@@ -127,6 +156,72 @@ def html_to_plain(text: str) -> str:
     cleaned = html.unescape(cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+def maybe_unescape_escaped_html(text: str) -> str:
+    """Decode a double-escaped HTML fragment so tags can be sanitized.
+
+    Args:
+        text: Ingest HTML or an ``&lt;p&gt;...`` string.
+
+    Returns:
+        Original text when real tags are present; otherwise one unescape pass.
+    """
+    raw = str(text or "")
+    if "&lt;" not in raw.lower() and "&#60;" not in raw:
+        return raw
+    if _ESCAPED_HTML_RE.search(raw):
+        return raw
+    return html.unescape(raw)
+
+
+def math_span_html(latex: str, *, display: bool = False) -> str:
+    """Return a KaTeX-ready span for one TeX fragment.
+
+    Args:
+        latex: Unescaped TeX source.
+        display: When True, mark the span as display math.
+    """
+    cleaned = html.unescape(str(latex or "")).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if not cleaned:
+        return ""
+    escaped = html.escape(cleaned, quote=True)
+    visible = html.escape(cleaned)
+    cls = "math-latex math-display" if display else "math-latex"
+    return f'<span class="{cls}" data-latex="{escaped}">{visible}</span>'
+
+
+def _looks_like_math(latex: str) -> bool:
+    """Return True when a dollar-wrapped token is probably mathematics."""
+    text = str(latex or "").strip()
+    if not text:
+        return False
+    if "\\" in text or "^" in text or "_" in text:
+        return True
+    if re.search(r"[A-Za-z0-9].*[=+\-*/]", text) or re.search(r"[=+\-*/].*[A-Za-z0-9]", text):
+        return True
+    return bool(re.fullmatch(r"[A-Za-z](?:\([^)]*\))?", text))
+
+
+def _latex_from_math_match(match: re.Match[str]) -> tuple[str, bool]:
+    """Return ``(latex, is_display)`` from one :data:`_MATH_TOKEN_RE` match."""
+    display = match.group(1) is not None or match.group(2) is not None
+    for index in range(1, 6):
+        if match.group(index):
+            return str(match.group(index)), display
+    return "", display
+
+
+def _format_non_math_text(text: str) -> str:
+    """Escape prose and turn caret exponents into ``<sup>``."""
+    if not text:
+        return ""
+    escaped = html.escape(str(text))
+    escaped = _BOLD_RE.sub(r"<strong>\1</strong>", escaped)
+    escaped = _PAREN_EXP_RE.sub(r"(\1)<sup>\2</sup>", escaped)
+    escaped = _SIMPLE_EXP_RE.sub(r"\1<sup>\2</sup>", escaped)
+    return escaped
 
 
 def extract_image_src(raw_html: str) -> str:
@@ -198,8 +293,9 @@ def format_mc_html_fragment(
     except ImportError:
         from lms.bank_image_mirror import rewrite_remote_images_in_html
 
+    text = maybe_unescape_escaped_html(str(raw_html or ""))
     text = rewrite_remote_images_in_html(
-        str(raw_html or ""),
+        text,
         school=school,
         library_id=library_id,
         class_id=class_id,
@@ -218,14 +314,29 @@ def format_mc_html_fragment(
 
 
 def format_math_html(text: str) -> str:
-    """Escape plain text and render ``**bold**`` plus caret exponents as HTML."""
+    """Escape prose, wrap TeX, and render caret exponents as HTML.
+
+    Dollar / ``\\( \\)`` / ``\\[ \\]`` / bare ``\\frac`` / ``\\sqrt`` become
+    ``math-latex`` spans. Remaining ``x^2`` carets become ``<sup>``. HTML
+    entities are unescaped first so ``&lt;`` does not show as garbage.
+    """
     if not text:
         return ""
-    escaped = html.escape(str(text))
-    escaped = _BOLD_RE.sub(r"<strong>\1</strong>", escaped)
-    escaped = _PAREN_EXP_RE.sub(r"(\1)<sup>\2</sup>", escaped)
-    escaped = _SIMPLE_EXP_RE.sub(r"\1<sup>\2</sup>", escaped)
-    return escaped
+    raw = html.unescape(str(text))
+    parts: list[str] = []
+    last = 0
+    for match in _MATH_TOKEN_RE.finditer(raw):
+        parts.append(_format_non_math_text(raw[last : match.start()]))
+        latex, display = _latex_from_math_match(match)
+        is_dollar = match.group(4) is not None
+        if is_dollar and not _looks_like_math(latex):
+            parts.append(_format_non_math_text(match.group(0)))
+        else:
+            span = math_span_html(latex, display=display)
+            parts.append(span or _format_non_math_text(match.group(0)))
+        last = match.end()
+    parts.append(_format_non_math_text(raw[last:]))
+    return "".join(parts)
 
 
 def graph_image_for_builder_item(

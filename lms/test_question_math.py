@@ -37,6 +37,29 @@ class QuestionMathTests(unittest.TestCase):
         self.assertIn("(x − h)<sup>2</sup>", rendered)
         self.assertNotIn("^2", rendered)
 
+    def test_format_math_html_wraps_dollar_and_tex(self) -> None:
+        """Dollar / LaTeX delimiters become KaTeX-ready spans."""
+        rendered = format_math_html(r"Solve $x^2$ and \(\frac{1}{2}\) then \sqrt{96}")
+        self.assertIn('class="math-latex"', rendered)
+        self.assertIn("data-latex=", rendered)
+        self.assertIn("x^2", rendered)
+        self.assertIn(r"\frac{1}{2}", rendered)
+        self.assertIn(r"\sqrt{96}", rendered)
+        self.assertNotIn("$x^2$", rendered)
+
+    def test_format_math_html_unescapes_entities(self) -> None:
+        """Double-escaped less-than does not stay as visible &lt;."""
+        rendered = format_math_html("Is x &lt; 5?")
+        self.assertIn("x &lt; 5", rendered)
+        self.assertNotIn("&amp;lt;", rendered)
+
+    def test_html_to_plain_keeps_math_span_latex(self) -> None:
+        """KaTeX spans round-trip to dollar TeX for editors and fingerprints."""
+        plain = html_to_plain(
+            '<p>Find <span class="math-latex" data-latex="x^2">x^2</span></p>'
+        )
+        self.assertEqual(plain, "Find $x^2$")
+
     def test_graph_image_for_sketch_item(self) -> None:
         """Sketch-related builder items receive a static graph asset."""
         url = graph_image_for_builder_item(
@@ -93,6 +116,21 @@ class BankMcDisplayTests(unittest.TestCase):
         self.assertIn('class="math-latex"', rendered)
         self.assertIn("data-latex=", rendered)
         self.assertNotIn("instructure.com", rendered)
+
+    def test_format_mc_html_fragment_dollar_tex_and_escaped_html(self) -> None:
+        """Ingest HTML with $TeX$ and escaped tags becomes readable math."""
+        raw = "&lt;p&gt;Find $x^2$ and \\(y=x\\)&lt;/p&gt;"
+        rendered = format_mc_html_fragment(raw)
+        self.assertIn('class="math-latex"', rendered)
+        self.assertIn("data-latex=", rendered)
+        self.assertIn("Find", rendered)
+        self.assertNotIn("&lt;p&gt;", rendered)
+
+    def test_format_mc_html_does_not_double_wrap_math_span(self) -> None:
+        """Existing KaTeX spans are left as a single span."""
+        raw = '<p>Find <span class="math-latex" data-latex="x^2">x^2</span></p>'
+        rendered = format_mc_html_fragment(raw)
+        self.assertEqual(rendered.count("math-latex"), 1)
 
     def test_format_mc_html_fragment_preserves_table(self) -> None:
         """Table HTML survives sanitization for live MC display."""

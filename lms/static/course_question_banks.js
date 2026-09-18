@@ -1,4 +1,4 @@
-import { api, escapeHtml } from "/static/common.js";
+import { api, escapeHtml, renderLiveQuestionMath } from "/static/common.js";
 
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -274,6 +274,7 @@ function paintDetail() {
     </div>
     <div class="bank-mode-controls">${modeControls}${addBtn}</div>
   </header>${body}`;
+  void renderLiveQuestionMath(detail);
 }
 
 /**

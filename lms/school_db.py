@@ -5342,9 +5342,16 @@ class SchoolDB(LovesDB):
             normalized["bank_id"] = int(row["bank_id"])
             normalized["bank_title"] = str(row["bank_title"] or "")
             normalized["question_title"] = str(row["title"] or "")
+            normalized["edited_in_lms"] = overlay is not None
             if skip_reason:
                 normalized["skip_reason"] = skip_reason
             all_items.append(normalized)
+        try:
+            from bank_dedupe import select_canonical_questions
+        except ImportError:
+            from lms.bank_dedupe import select_canonical_questions
+
+        all_items, _dropped = select_canonical_questions(all_items)
         total = len(all_items)
         if needle:
             filtered_items = [

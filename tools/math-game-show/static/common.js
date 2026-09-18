@@ -333,8 +333,82 @@ export function closeLiveSessionOverlay() {
  * @param {unknown} value
  * @returns {string}
  */
+const KATEX_VERSION = "0.16.22";
+const KATEX_CDN = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist`;
+
+/**
+ * Load KaTeX once so staff and student surfaces share one renderer.
+ * @returns {Promise<unknown>}
+ */
+function loadKatex() {
+  if (globalThis.katex) return Promise.resolve(globalThis.katex);
+  if (globalThis.__llovesKatexPromise) return globalThis.__llovesKatexPromise;
+  globalThis.__llovesKatexPromise = new Promise((resolve) => {
+    if (!document.querySelector('link[data-lloves-katex]')) {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = `${KATEX_CDN}/katex.min.css`;
+      css.setAttribute("data-lloves-katex", "1");
+      document.head.appendChild(css);
+    }
+    const script = document.createElement("script");
+    script.src = `${KATEX_CDN}/katex.min.js`;
+    script.async = true;
+    script.onload = () => resolve(globalThis.katex || null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+  return globalThis.__llovesKatexPromise;
+}
+
+/**
+ * Wrap dollar-delimited TeX that survived HTML escaping.
+ * @param {string} html
+ * @returns {string}
+ */
+function wrapDollarMath(html) {
+  return String(html || "").replace(
+    /(?<!\\)\$(?!\$)((?:\\.|[^$])+?)(?<!\\)\$(?!\$)/g,
+    (_all, latex) => {
+      const inner = String(latex || "").trim();
+      if (!inner) return _all;
+      if (!/[\\^_A-Za-z=+\-*/]/.test(inner)) return _all;
+      return `<span class="math-latex" data-latex="${inner}"></span>`;
+    }
+  );
+}
+
 export function formatQuestionHtml(value) {
-  let html = escapeHtml(value);
+  const raw = String(value ?? "");
+  const pieces = [];
+  let last = 0;
+  const token =
+    /\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|(?<!\\)\$(?!\$)((?:\\.|[^$])+?)(?<!\\)\$(?!\$)/gs;
+  let match;
+  while ((match = token.exec(raw))) {
+    pieces.push(_formatPlainQuestionChunk(raw.slice(last, match.index)));
+    const latex = String(match[1] || match[2] || match[3] || match[4] || "").trim();
+    const isDollar = Boolean(match[4]);
+    if (isDollar && !/[\\^_A-Za-z=+\-*/]/.test(latex)) {
+      pieces.push(_formatPlainQuestionChunk(match[0]));
+    } else {
+      pieces.push(
+        `<span class="math-latex" data-latex="${escapeHtml(latex)}"></span>`
+      );
+    }
+    last = match.index + match[0].length;
+  }
+  pieces.push(_formatPlainQuestionChunk(raw.slice(last)));
+  return pieces.join("");
+}
+
+/**
+ * Escape prose and turn caret exponents into superscripts.
+ * @param {string} chunk
+ * @returns {string}
+ */
+function _formatPlainQuestionChunk(chunk) {
+  let html = escapeHtml(chunk);
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\(([^)]+)\)\^(\d+)/g, "($1)<sup>$2</sup>");
   html = html.replace(/([a-zA-Z])\^(\d+)/g, "$1<sup>$2</sup>");
@@ -392,20 +466,42 @@ export function questionImageHtml(imageUrl, opts = {}) {
  */
 export async function renderLiveQuestionMath(root) {
   if (!(root instanceof Element)) return;
+  wrapBareDollarMath(root);
   const nodes = root.querySelectorAll(".math-latex[data-latex]");
   if (!nodes.length) return;
-  const katex = globalThis.katex;
+  const katex = await loadKatex();
   nodes.forEach((el) => {
+    if (el.querySelector(".katex")) return;
     const latex = String(el.getAttribute("data-latex") || "").trim();
     if (!latex) return;
+    const display = el.classList.contains("math-display");
     if (katex && typeof katex.render === "function") {
       try {
-        katex.render(latex, el, { throwOnError: false, displayMode: false });
+        katex.render(latex, el, { throwOnError: false, displayMode: display });
         return;
       } catch {
         /* fall through to plain text */
       }
     }
     el.textContent = latex;
+  });
+}
+
+/**
+ * Convert leftover ``$...$`` text nodes under a live question root.
+ * @param {Element} root
+ */
+function wrapBareDollarMath(root) {
+  const hosts = root.querySelectorAll(
+    ".live-question-html, .bank-q-stem, .prompt-title, .prompt-choice"
+  );
+  const targets = hosts.length ? hosts : [root];
+  targets.forEach((host) => {
+    if (!(host instanceof Element)) return;
+    if (host.querySelector(".math-latex")) return;
+    const html = host.innerHTML;
+    if (!html || !html.includes("$")) return;
+    const next = wrapDollarMath(html);
+    if (next !== html) host.innerHTML = next;
   });
 }
