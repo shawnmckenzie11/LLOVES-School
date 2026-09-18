@@ -92,6 +92,7 @@ from live_media import (  # noqa: E402
 from live_class_packs import live_class_registry  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
+from live_prompt_feedback import public_feedback_fragment  # noqa: E402
 from minds_on import is_minds_on_payload  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
@@ -4187,11 +4188,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "awarded_points": saved.get("awarded_points"),
             "updated_at": saved.get("updated_at"),
         }
+        fragment = public_feedback_fragment(
+            target_payload, saved.get("response") or response
+        )
+        if fragment:
+            my_response["feedback"] = fragment
         body: dict[str, Any] = {
             "ok": True,
             "ack": True,
             "my_response": my_response,
         }
+        if fragment:
+            body["feedback"] = fragment
         try:
             teacher = school.live_session_teacher_state_payload(live_session_id)
         except KeyError:

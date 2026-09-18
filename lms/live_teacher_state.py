@@ -31,7 +31,15 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.teams_spark import TEAMS_SPARK_PROMPT_REF
 
-STAGES: tuple[str, ...] = ("join", "teams", "meet", "round", "play")
+STAGES: tuple[str, ...] = (
+    "join",
+    "teams",
+    "meet",
+    "round",
+    "play",
+    "round_3",
+    "summary",
+)
 MEET_ACTIONS: tuple[str, ...] = ("next", "skip_c", "clear")
 MEET_WONDER_CUES: tuple[str, ...] = (CUE_MEET_OPEN, CUE_MEET_CLEAR)
 ROUNDS: tuple[str, ...] = ("minds_on", "action", "consolidation")

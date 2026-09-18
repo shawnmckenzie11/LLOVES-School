@@ -4819,36 +4819,50 @@ class GameShowDB:
                     """,
                     (game_id, target_id),
                 ).fetchone()
-                if member is None:
-                    raise KeyError(f"student {target_id} is not on a live team")
-                self._credit_student(session_id, target_id, amount, score_bucket)
-                team = dict(
-                    self.conn.execute(
-                        "SELECT * FROM game_teams WHERE id = ?",
-                        (member["team_id"],),
-                    ).fetchone()
-                )
                 student = self.conn.execute(
                     "SELECT first_name FROM students WHERE id = ?",
                     (target_id,),
                 ).fetchone()
                 first_name = str(student["first_name"] if student else "").strip()
                 signed = f"+{amount}" if amount > 0 else str(amount)
-                default_label = (
-                    f"{first_name} {signed}".strip() or f"{team['name']} {signed}"
-                )
-                last_event = {
-                    "kind": "student",
-                    "student_id": target_id,
-                    "first_name": first_name,
-                    "team_id": int(team["id"]),
-                    "team_name": team["name"],
-                    "amount": amount,
-                    "team_rule": None,
-                    "celebrate": amount > 0,
-                    "label": action_label or default_label,
-                    "action_label": action_label,
-                }
+                if member is None:
+                    self._credit_student(session_id, target_id, amount, score_bucket)
+                    default_label = f"{first_name} {signed}".strip() or signed
+                    last_event = {
+                        "kind": "student",
+                        "student_id": target_id,
+                        "first_name": first_name,
+                        "team_id": None,
+                        "team_name": "",
+                        "amount": amount,
+                        "team_rule": None,
+                        "celebrate": amount > 0,
+                        "label": action_label or default_label,
+                        "action_label": action_label,
+                    }
+                else:
+                    self._credit_student(session_id, target_id, amount, score_bucket)
+                    team = dict(
+                        self.conn.execute(
+                            "SELECT * FROM game_teams WHERE id = ?",
+                            (member["team_id"],),
+                        ).fetchone()
+                    )
+                    default_label = (
+                        f"{first_name} {signed}".strip() or f"{team['name']} {signed}"
+                    )
+                    last_event = {
+                        "kind": "student",
+                        "student_id": target_id,
+                        "first_name": first_name,
+                        "team_id": int(team["id"]),
+                        "team_name": team["name"],
+                        "amount": amount,
+                        "team_rule": None,
+                        "celebrate": amount > 0,
+                        "label": action_label or default_label,
+                        "action_label": action_label,
+                    }
                 self._insert_event(
                     session_id=session_id,
                     game_id=game_id,

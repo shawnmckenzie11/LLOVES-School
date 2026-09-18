@@ -13,6 +13,7 @@ from typing import Any
 CHOICE_LETTERS = "ABCDEFGH"
 TEACHER_ONLY_FIELDS = (
     "key",
+    "correct_answer",
     "cement",
     "soft_key",
     "teacher_key",

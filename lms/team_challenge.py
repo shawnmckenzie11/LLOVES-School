@@ -93,6 +93,20 @@ def live_class_seed_media(
         live_slot: ``C1`` / ``C2`` / ``C3``.
     """
     url = team_challenge_media_url(ontario_code, live_module, live_slot)
+    title = ""
+    stem = ""
+    if not url:
+        slot = normalize_live_slot(live_slot)
+        if slot == "C2":
+            return None
+        try:
+            from live_class_metadata import load_live_class_metadata
+        except ImportError:
+            from lms.live_class_metadata import load_live_class_metadata
+        media = (load_live_class_metadata(ontario_code, live_module, live_slot).get("media") or {})
+        url = str(media.get("file") or "").strip()
+        title = str(media.get("title") or "").strip()
+        stem = title
     if not url:
         return None
     if uses_c1_real_slice(ontario_code, live_module, live_slot):
@@ -107,7 +121,7 @@ def live_class_seed_media(
             "title": "Nested Square-Root Range",
             "stem": MCR3U_M1C1_TEAM_CHALLENGE_QUESTION,
         }
-    return {"url": url, "title": "", "stem": ""}
+    return {"url": url, "title": title, "stem": stem}
 
 
 def lesson_key_for(live_module: str, live_slot: str) -> str:

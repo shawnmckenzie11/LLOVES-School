@@ -9137,6 +9137,8 @@ class SchoolDB(LovesDB):
             "meet": 2,
             "round": 3,
             "play": 4,
+            "round_3": 5,
+            "summary": 6,
         }
         with self._lock:
             for index, placement in enumerate(placements):
@@ -12442,12 +12444,11 @@ class SchoolDB(LovesDB):
                 continue
             if self._session_playlist_item_removed(session_id, question_id):
                 continue
-            if (
-                metadata_question_ids
-                and question_id not in metadata_question_ids
-                and not self._engine_ride_item_id(question_id, payload)
-            ):
-                continue
+            if question_id not in metadata_question_ids:
+                if metadata.get("schema_version") == SCHEMA_V2:
+                    continue
+                if not self._engine_ride_item_id(question_id, payload):
+                    continue
             choices = payload.get("choices") or []
             key = str(
                 payload.get("key")
@@ -13178,7 +13179,7 @@ class SchoolDB(LovesDB):
         wanted = str(stage or "").strip().lower()
         leftover = {"minds_on", "minds-on"} if wanted == "join" else set()
         for item in self.list_live_session_items(session_id):
-            if str(item.get("status") or "") != "active":
+            if str(item.get("status") or "") not in {"active", "closed"}:
                 continue
             item_stage = str(item.get("stage") or "").strip().lower()
             if item_stage and wanted and item_stage != wanted:
@@ -13257,12 +13258,6 @@ class SchoolDB(LovesDB):
             published = self._published_stage_catalogue_prompt(session_id, "join")
             if published is not None:
                 return published
-            if (
-                mc_poll_closed(teacher)
-                and spark is not None
-                and self.schema_v2_owns_live_stage_questions(session_id, "join")
-            ):
-                return self._student_visible_prompt(session_id, spark)
             if self._session_playlist_item_removed(session_id, "minds_on"):
                 return (
                     None
@@ -13571,12 +13566,7 @@ class SchoolDB(LovesDB):
         if is_minds_on_payload(raw_payload) and stage != "join":
             return empty
         if is_teams_spark_payload(raw_payload) and stage != "teams":
-            if not (
-                stage == "join"
-                and mc_poll_closed(teacher)
-                and self.schema_v2_owns_live_stage_questions(session_id, "join")
-            ):
-                return empty
+            return empty
         if is_meet_team_payload(raw_payload) and not meet_live and stage != "meet":
             return empty
         if is_cons_payload(raw_payload):
@@ -13929,7 +13919,9 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
             self._persist_live_slot(session_id, slot)
             waiting_room = not self._session_left_waiting_room(session_id)
-            if waiting_room:
+            if waiting_room and not self.schema_v2_owns_live_stage_questions(
+                session_id, "join"
+            ):
                 self.ensure_waiting_room_minds_on(session_id)
             elif challenge is not None:
                 teacher = self.live_session_teacher_state_payload(session_id)
@@ -14642,7 +14634,8 @@ class SchoolDB(LovesDB):
             if "cue_id" not in kwargs:
                 payload["cue_id"] = CUE_TEAMS_SPARK
         if new_stage == "join" and prev_stage != "join":
-            self.activate_join_minds_on(session_id)
+            if not self.schema_v2_owns_live_stage_questions(session_id, "join"):
+                self.activate_join_minds_on(session_id)
         if leaving_teams and new_stage != "join":
             self.clear_teams_spark(session_id)
         if leaving_teams and new_stage not in {"join", "teams"}:
