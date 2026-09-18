@@ -11061,6 +11061,7 @@ class SchoolDB(LovesDB):
                 return self.set_live_session_active_media(
                     session_id,
                     merge=True,
+                    url=seed["url"],
                     title=wanted_title,
                     stem=wanted_stem,
                     caption=wanted_caption,
