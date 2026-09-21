@@ -5,15 +5,6 @@ import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
-/**
- * Format a minted title or stem the same way catalogue question HTML is formatted.
- * @param {unknown} value
- * @returns {string}
- */
-function formatPromptHtml(value) {
-  return formatQuestionHtml(value);
-}
-
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
 const promptPollTotals = document.getElementById("prompt-poll-totals");
