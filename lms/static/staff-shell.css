@@ -4614,12 +4614,24 @@ body.staff-shell .prompt-choice .live-question-html img,
 
 /* KaTeX / bank equation spans in live MC HTML */
 .live-question-html .math-latex,
+.bank-q-preview .math-latex,
+.bank-q-choices .math-latex,
+.bank-q-eq-preview .math-latex,
 .prompt-title .math-latex,
 .prompt-choice .math-latex {
-  display: inline-block;
-  vertical-align: middle;
+  display: inline;
+  vertical-align: baseline;
+}
+.live-question-html .math-display,
+.bank-q-stem .math-display,
+.bank-q-eq-preview .math-display {
+  display: block;
+  margin: 0.35rem 0;
 }
 .live-question-html .katex,
+.bank-q-preview .katex,
+.bank-q-choices .katex,
+.bank-q-eq-preview .katex,
 .prompt-title .katex,
 .prompt-choice .katex {
   font-size: 1.05em;
@@ -4685,6 +4697,11 @@ body.staff-shell .bank-q-stem-btn {
 }
 body.staff-shell .bank-q-preview {
   flex: 1 1 12rem;
+}
+body.staff-shell .bank-q-eq-preview {
+  min-height: 1.4rem;
+  padding: 0.35rem 0.15rem 0;
+  color: #0f172a;
 }
 body.staff-shell .bank-q-chip {
   font-size: 0.72rem;

@@ -175,6 +175,66 @@ def maybe_unescape_escaped_html(text: str) -> str:
     return html.unescape(raw)
 
 
+_DOUBLE_TEX_CMD_RE = re.compile(
+    r"\\\\(frac|dfrac|tfrac|sqrt|left|right|cdot|times|div|pm|"
+    r"leq|geq|neq|approx|sin|cos|tan|ln|log|sum|int|infty|pi|"
+    r"theta|alpha|beta|gamma)"
+)
+_DISPLAY_BRACKET_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
+_INLINE_PAREN_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
+_ASCII_FRAC_RE = re.compile(r"(?<![A-Za-z\\])(\d+)\s*/\s*(\d+)(?![A-Za-z0-9])")
+
+
+def collapse_double_tex(text: str) -> str:
+    """Collapse one extra backslash on common TeX commands.
+
+    Args:
+        text: Stem, option, or inner TeX that may contain ``\\\\frac``.
+
+    Returns:
+        The same text with ``\\\\frac`` reduced to ``\\frac`` once.
+    """
+    return _DOUBLE_TEX_CMD_RE.sub(r"\\\1", str(text or ""))
+
+
+def prefer_tex_fractions(latex: str) -> str:
+    """Turn simple ASCII fractions into ``\\frac`` inside math.
+
+    Args:
+        latex: Inner TeX (already inside ``$...$`` or equivalent).
+    """
+    return _ASCII_FRAC_RE.sub(r"\\frac{\1}{\2}", str(latex or ""))
+
+
+def normalize_house_tex(text: str) -> str:
+    """Convert TeX delimiters to house style ``$...$`` / ``$$...$$``.
+
+    Also collapses doubled TeX commands and prefers ``\\frac`` over ``1/2``
+    inside math. Prose outside delimiters is unchanged.
+
+    Args:
+        text: Teacher or ingest text that may mix delimiter styles.
+    """
+    raw = collapse_double_tex(str(text or ""))
+    raw = _DISPLAY_BRACKET_RE.sub(lambda match: f"$${match.group(1)}$$", raw)
+    raw = _INLINE_PAREN_RE.sub(lambda match: f"${match.group(1)}$", raw)
+
+    def _rewrite_display(match: re.Match[str]) -> str:
+        return f"$${prefer_tex_fractions(match.group(1))}$$"
+
+    def _rewrite_inline(match: re.Match[str]) -> str:
+        return f"${prefer_tex_fractions(match.group(1))}$"
+
+    raw = re.sub(r"\$\$(.+?)\$\$", _rewrite_display, raw, flags=re.DOTALL)
+    raw = re.sub(
+        r"(?<!\$)\$(?!\$)((?:\\.|[^$])+?)(?<!\$)\$(?!\$)",
+        _rewrite_inline,
+        raw,
+        flags=re.DOTALL,
+    )
+    return raw
+
+
 def math_span_html(latex: str, *, display: bool = False) -> str:
     """Return a KaTeX-ready span for one TeX fragment.
 
@@ -183,6 +243,8 @@ def math_span_html(latex: str, *, display: bool = False) -> str:
         display: When True, mark the span as display math.
     """
     cleaned = html.unescape(str(latex or "")).strip()
+    cleaned = collapse_double_tex(cleaned)
+    cleaned = prefer_tex_fractions(cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned)
     if not cleaned:
         return ""
@@ -190,18 +252,6 @@ def math_span_html(latex: str, *, display: bool = False) -> str:
     visible = html.escape(cleaned)
     cls = "math-latex math-display" if display else "math-latex"
     return f'<span class="{cls}" data-latex="{escaped}">{visible}</span>'
-
-
-def _looks_like_math(latex: str) -> bool:
-    """Return True when a dollar-wrapped token is probably mathematics."""
-    text = str(latex or "").strip()
-    if not text:
-        return False
-    if "\\" in text or "^" in text or "_" in text:
-        return True
-    if re.search(r"[A-Za-z0-9].*[=+\-*/]", text) or re.search(r"[=+\-*/].*[A-Za-z0-9]", text):
-        return True
-    return bool(re.fullmatch(r"[A-Za-z](?:\([^)]*\))?", text))
 
 
 def _latex_from_math_match(match: re.Match[str]) -> tuple[str, bool]:
@@ -316,24 +366,22 @@ def format_mc_html_fragment(
 def format_math_html(text: str) -> str:
     """Escape prose, wrap TeX, and render caret exponents as HTML.
 
-    Dollar / ``\\( \\)`` / ``\\[ \\]`` / bare ``\\frac`` / ``\\sqrt`` become
-    ``math-latex`` spans. Remaining ``x^2`` carets become ``<sup>``. HTML
-    entities are unescaped first so ``&lt;`` does not show as garbage.
+    House style is ``$...$`` / ``$$...$$``. ``\\( \\)`` / ``\\[ \\]`` convert
+    first; doubled TeX backslashes collapse once. Dollar / bare ``\\frac`` /
+    ``\\sqrt`` become ``math-latex`` spans. Remaining ``x^2`` carets become
+    ``<sup>``. HTML entities are unescaped first so ``&lt;`` does not show
+    as garbage.
     """
     if not text:
         return ""
-    raw = html.unescape(str(text))
+    raw = normalize_house_tex(html.unescape(str(text)))
     parts: list[str] = []
     last = 0
     for match in _MATH_TOKEN_RE.finditer(raw):
         parts.append(_format_non_math_text(raw[last : match.start()]))
         latex, display = _latex_from_math_match(match)
-        is_dollar = match.group(4) is not None
-        if is_dollar and not _looks_like_math(latex):
-            parts.append(_format_non_math_text(match.group(0)))
-        else:
-            span = math_span_html(latex, display=display)
-            parts.append(span or _format_non_math_text(match.group(0)))
+        span = math_span_html(latex, display=display)
+        parts.append(span or _format_non_math_text(match.group(0)))
         last = match.end()
     parts.append(_format_non_math_text(raw[last:]))
     return "".join(parts)
@@ -386,8 +434,10 @@ def enrich_live_mc_display(
     library_id: int | None = None,
 ) -> dict[str, Any]:
     """Attach ``text_html``, ``options_html``, and resolved image metadata."""
-    text = str(live_mc.get("text") or "")
-    options = live_mc.get("options") or []
+    text = normalize_house_tex(str(live_mc.get("text") or ""))
+    live_mc["text"] = text
+    options = [normalize_house_tex(str(option)) for option in (live_mc.get("options") or [])]
+    live_mc["options"] = options
     rich_stem = str(live_mc.pop("_rich_stem_html", "") or "")
     rich_options = live_mc.pop("_rich_option_htmls", None) or []
     render_kwargs = {

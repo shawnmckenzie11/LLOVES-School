@@ -20,6 +20,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from bank_dedupe import (  # noqa: E402
+    apply_visible_bank_question_counts,
     library_canonical_ids,
     normalize_question_text,
     question_fingerprint,
@@ -165,6 +166,19 @@ class BankDedupeLibraryTests(unittest.TestCase):
         self.assertEqual(quiz_views, [])
         self.assertEqual([row["id"] for row in test_views], [keep])
         self.assertEqual([row["id"] for row in extra_views], [extra])
+        counted = apply_visible_bank_question_counts(
+            self.school,
+            self.mcf,
+            [
+                {"id": quiz, "question_count": 1},
+                {"id": test, "question_count": 1},
+                {"id": unique, "question_count": 1},
+            ],
+        )
+        by_id = {int(row["id"]): int(row["question_count"]) for row in counted}
+        self.assertEqual(by_id[quiz], 0)
+        self.assertEqual(by_id[test], 1)
+        self.assertEqual(by_id[unique], 1)
 
     def test_mcr3u_does_not_collapse_against_mcf3m(self) -> None:
         """The same stem in MCR3U is a different library, so it stays."""
@@ -198,6 +212,35 @@ class BankDedupeLibraryTests(unittest.TestCase):
             {"id": 2, "stem_plain": "Pick one", "options": ["Beta", "Alpha"]}
         )
         self.assertEqual(a, b)
+
+    def test_near_duplicate_frac_and_punctuation(self) -> None:
+        """``\\frac{1}{2}``, ``1/2``, and a trailing period share a key."""
+        a = normalize_question_text(r"Find $\frac{1}{2}$.")
+        b = normalize_question_text("Find 1/2")
+        self.assertEqual(a, b)
+
+    def test_prefer_better_tex_as_canonical(self) -> None:
+        """When stems match after normalize, keep the richer TeX copy."""
+        kept, dropped = select_canonical_questions(
+            [
+                {
+                    "id": 1,
+                    "stem_plain": "Find 1/2",
+                    "stem_html": "<p>Find 1/2</p>",
+                    "options": ["A", "B"],
+                    "bank_title": "Module 1 Extra",
+                },
+                {
+                    "id": 2,
+                    "stem_plain": r"Find $\frac{1}{2}$",
+                    "stem_html": r"<p>Find $\frac{1}{2}$</p>",
+                    "options": ["A", "B"],
+                    "bank_title": "Module 1 Extra",
+                },
+            ]
+        )
+        self.assertEqual([row["id"] for row in kept], [2])
+        self.assertEqual(dropped[0]["duplicate_of"], 2)
 
 
 if __name__ == "__main__":

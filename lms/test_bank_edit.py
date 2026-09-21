@@ -24,9 +24,11 @@ from bank_edit import (  # noqa: E402
     REMOVE_FROM_BANK_TITLE,
     SAVE_TOAST,
     WONDER_COPY,
+    preview_stem_html,
     sanitize_bank_html,
     serialize_staff_question,
     truncate_stem,
+    truncate_stem_preserving_math,
 )
 
 
@@ -61,6 +63,20 @@ class BankEditHelperTests(unittest.TestCase):
         preview = truncate_stem(long, limit=140)
         self.assertEqual(len(preview), 141)
         self.assertTrue(preview.endswith("…"))
+
+    def test_preview_stem_html_wraps_tex(self) -> None:
+        """Browse stems keep KaTeX-ready spans instead of raw ``$\\frac$``."""
+        html = preview_stem_html(r"Evaluate $\frac{1}{2}$ of the set")
+        self.assertIn("math-latex", html)
+        self.assertIn(r"\frac{1}{2}", html)
+        self.assertNotIn(r"$\frac", html)
+
+    def test_truncate_stem_preserving_math_does_not_split_dollars(self) -> None:
+        """A cut that lands inside ``$...$`` extends to the closing dollar."""
+        stem = "Prefix " + ("word " * 20) + r"$x^2$ and more after that"
+        clipped = truncate_stem_preserving_math(stem, limit=len("Prefix " + ("word " * 20) + "$x"))
+        self.assertIn("$x^2$", clipped)
+        self.assertEqual(clipped.count("$"), 2)
 
     def test_sanitize_strips_script_and_keeps_table(self) -> None:
         """Teacher HTML is rebuilt through the MC sanitizer."""
@@ -109,6 +125,7 @@ class BankEditHelperTests(unittest.TestCase):
         self.assertFalse(view["authored_in_lms"])
         self.assertEqual(view["item_type"], "multiple_choice_question")
         self.assertEqual(view["stem_plain"], "Edited stem")
+        self.assertIn("Edited stem", view["stem_preview_html"])
         self.assertEqual(view["choices"][1]["text"], "Beta")
         self.assertTrue(view["choices"][1]["correct"])
 

@@ -17,6 +17,7 @@ from question_math import (  # noqa: E402
     format_mc_html_fragment,
     graph_image_for_builder_item,
     html_to_plain,
+    normalize_house_tex,
     resolve_bank_image_url,
 )
 
@@ -46,6 +47,34 @@ class QuestionMathTests(unittest.TestCase):
         self.assertIn(r"\frac{1}{2}", rendered)
         self.assertIn(r"\sqrt{96}", rendered)
         self.assertNotIn("$x^2$", rendered)
+
+    def test_format_math_html_wraps_dollar_numeric_option(self) -> None:
+        """A bare ``$8$`` choice is still TeX, not leftover dollar signs."""
+        rendered = format_math_html("$8$")
+        self.assertIn('data-latex="8"', rendered)
+        self.assertNotIn("$8$", rendered)
+
+    def test_format_math_html_collapses_double_backslash_frac(self) -> None:
+        """One extra TeX backslash is stripped before wrapping."""
+        rendered = format_math_html(r"Find \\frac{1}{2}")
+        self.assertIn(r"\frac{1}{2}", rendered)
+        self.assertNotIn(r"\\frac", rendered)
+
+    def test_format_math_html_prefers_tex_fraction_inside_dollars(self) -> None:
+        """ASCII ``1/2`` inside math becomes ``\\frac``."""
+        rendered = format_math_html(r"Compute $1/2$")
+        self.assertIn(r"\frac{1}{2}", rendered)
+
+    def test_normalize_house_tex_converts_parens_to_dollars(self) -> None:
+        """``\\(...\\)`` / ``\\[...\\]`` become house ``$`` / ``$$``."""
+        self.assertEqual(normalize_house_tex(r"Find \(\frac{1}{2}\)"), r"Find $\frac{1}{2}$")
+        self.assertIn("$$", normalize_house_tex(r"\[x^2\]"))
+
+    def test_format_math_html_houses_paren_delimiters(self) -> None:
+        """Display wrapping runs after house-style conversion."""
+        rendered = format_math_html(r"Find \(\frac{1}{2}\)")
+        self.assertIn('data-latex="\\frac{1}{2}"', rendered)
+        self.assertNotIn(r"\(", rendered)
 
     def test_format_math_html_unescapes_entities(self) -> None:
         """Double-escaped less-than does not stay as visible &lt;."""

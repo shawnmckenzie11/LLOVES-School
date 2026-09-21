@@ -27,11 +27,15 @@ try:
         REGISTERED_ARTIFACT_IDS,
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
+        MATCH_CHALLENGE_TOAST,
         apply_artifact_teacher_flags,
         artifact_prompt_payload,
+        artifact_question_label,
         artifact_snapshot_matches,
         format_artifact_answer,
         is_artifact_payload,
+        is_match_challenge_item,
+        match_challenge_title,
         public_artifact_media,
         student_artifact_payload,
     )
@@ -136,11 +140,15 @@ except ImportError:  # ``python3 lms/app.py`` package import
         REGISTERED_ARTIFACT_IDS,
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
+        MATCH_CHALLENGE_TOAST,
         apply_artifact_teacher_flags,
         artifact_prompt_payload,
+        artifact_question_label,
         artifact_snapshot_matches,
         format_artifact_answer,
         is_artifact_payload,
+        is_match_challenge_item,
+        match_challenge_title,
         public_artifact_media,
         student_artifact_payload,
     )
@@ -11164,6 +11172,54 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return self._prompt_row_to_dict(row) if row else {}
 
+    def _count_page_artifact_mints(
+        self,
+        class_id: int,
+        module_key: str,
+        slot_key: str,
+        stage_key: str,
+        page_number: int,
+    ) -> int:
+        """Count minted Artifact challenges on one live-class page.
+
+        Caller must hold ``self._lock``. Counts playlist rows whose JSON is
+        an Artifact match challenge so titles increment as Match challenge N.
+
+        Args:
+            class_id: Offering class id.
+            module_key: Live module (``M1``).
+            slot_key: Live slot (``C2`` / ``C3``).
+            stage_key: Stage (``play``).
+            page_number: Deck page number.
+
+        Returns:
+            Existing match-challenge count on that page.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT item_json
+            FROM class_live_playlist_placements
+            WHERE class_id = ? AND module = ? AND slot = ?
+              AND stage = ? AND page_number = ?
+            """,
+            (
+                int(class_id),
+                str(module_key),
+                str(slot_key),
+                str(stage_key),
+                int(page_number),
+            ),
+        ).fetchall()
+        count = 0
+        for row in rows:
+            try:
+                stored = json.loads(row["item_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if is_match_challenge_item(stored):
+                count += 1
+        return count
+
     def mint_live_artifact(
         self,
         session_id: int,
@@ -11196,7 +11252,8 @@ class SchoolDB(LovesDB):
             accuracy_margin: Match band ``0.10`` or ``0.20`` (default 10%).
 
         Returns:
-            ``{prompt, live_item, question_cards, active_media}``.
+            ``{prompt, live_item, question_cards, active_media, first_mint, toast}``.
+            ``toast`` is staff-only (never written onto ``active_media``).
 
         Raises:
             KeyError: If the live session is missing.
@@ -11260,23 +11317,38 @@ class SchoolDB(LovesDB):
         stem = str(payload.get("stem") or TRANSFORMATIONS_STEM)
         item_id = f"artifact-match-{uuid.uuid4().hex}"
         placement_key = f"class:{int(class_id)}:artifact:{uuid.uuid4().hex}"
-        item_payload = {
-            **payload,
-            "id": item_id,
-            "item_id": item_id,
-            "item_type": "question",
-            "type": ARTIFACT_KIND,
-            "kind": ARTIFACT_KIND,
-            "text": stem,
-            "prompt": stem,
-            "stage": stage_key,
-            "page_number": int(page_number),
-            "publish_modes": ["individual"],
-            "response_mode": "individual",
-            "import_source": "artifact",
-            "placement_key": placement_key,
-        }
         with self._lock:
+            match_index = (
+                self._count_page_artifact_mints(
+                    class_id,
+                    module_key,
+                    slot_key,
+                    stage_key,
+                    int(page_number),
+                )
+                + 1
+            )
+            title = match_challenge_title(match_index)
+            first_mint = match_index == 1
+            item_payload = {
+                **payload,
+                "id": item_id,
+                "item_id": item_id,
+                "item_type": "question",
+                "type": ARTIFACT_KIND,
+                "kind": ARTIFACT_KIND,
+                "title": title,
+                "text": title,
+                "prompt": stem,
+                "stem": stem,
+                "match_index": match_index,
+                "stage": stage_key,
+                "page_number": int(page_number),
+                "publish_modes": ["individual"],
+                "response_mode": "individual",
+                "import_source": "artifact",
+                "placement_key": placement_key,
+            }
             existing = self.conn.execute(
                 """
                 SELECT MAX(sort_order) AS max_order
@@ -11341,6 +11413,11 @@ class SchoolDB(LovesDB):
             )
             prompt_payload["item_id"] = item_id
             prompt_payload["page_number"] = int(page_number)
+            prompt_payload["title"] = title
+            prompt_payload["text"] = title
+            prompt_payload["prompt"] = stem
+            prompt_payload["stem"] = stem
+            prompt_payload["match_index"] = match_index
             prompt = self.set_live_session_prompt(
                 session_id,
                 slide_index=int(prompt.get("slide_index") or (20000 + int(published["id"]))),
@@ -11364,6 +11441,8 @@ class SchoolDB(LovesDB):
             "url": media_url,
             "artifact": frozen,
             "merge": False,
+            "toast": "",
+            "toast_key": "",
         }
         if slot_key == "C2":
             media_kwargs["challenge"] = "C2"
@@ -11396,6 +11475,9 @@ class SchoolDB(LovesDB):
             "question_cards": self.live_session_question_cards(session_id),
             "live_items": self.list_live_session_items(session_id),
             "active_media": media,
+            "first_mint": first_mint,
+            "toast": MATCH_CHALLENGE_TOAST if first_mint else "",
+            "match_index": match_index,
         }
 
     def record_artifact_slider_preview(
@@ -13089,12 +13171,10 @@ class SchoolDB(LovesDB):
                     **question,
                     "id": question_id,
                     "type": kind,
-                    "text": str(
-                        payload.get("prompt")
-                        or payload.get("question")
-                        or question.get("text")
-                        or ""
-                    ).strip(),
+                    "text": artifact_question_label(
+                        payload,
+                        str(question.get("text") or payload.get("question") or ""),
+                    ),
                     "options": [str(item) for item in options],
                     "correct_answer": key or None,
                     "prompt_id": int(prompt_id)
@@ -13223,9 +13303,9 @@ class SchoolDB(LovesDB):
                     "type": self._live_question_type(
                         prompt.get("kind"), {**payload, "key": key}
                     ),
-                    "text": str(
-                        payload.get("prompt") or payload.get("question") or ""
-                    ).strip(),
+                    "text": artifact_question_label(
+                        payload, str(payload.get("question") or "")
+                    ),
                     "options": [str(item) for item in choices],
                     "correct_answer": key or None,
                     "page_number": page_number,
