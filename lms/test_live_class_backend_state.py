@@ -2029,6 +2029,87 @@ class StudentStateLoadTests(unittest.TestCase):
             thread.join()
         self.assertEqual(errors, [])
 
+    def test_idle_sixteen_by_twenty_waves_zero_500(self) -> None:
+        """N=16 idle waves match the ops bar: 0/320 HTTP 500s.
+
+        Baseline on tip ``01392ce`` was 12/320 (3.75%). Each wave is one
+        simultaneous poll from every attendee, with no seq/stamp so the
+        server builds a full snapshot instead of the unchanged short-circuit.
+        A staff heavy ``/state`` rides along and must stay a real 200.
+        """
+
+        cohort = self.clients[:16]
+        self.assertEqual(len(cohort), 16)
+        tokens = {
+            str(row.get("codename") or ""): str(row.get("visit_token") or "")
+            for row in self.school.list_live_session_attendees(self.session_id)
+        }
+        failures: list[str] = []
+        stubs = 0
+        student_200 = 0
+        staff_bad = 0
+        lock = threading.Lock()
+
+        for wave in range(20):
+            barrier = threading.Barrier(17)
+
+            def hit_student(name: str, client: Any) -> None:
+                """One idle full snapshot for this attendee."""
+
+                barrier.wait(timeout=30)
+                rv = client.get(
+                    "/api/student/state",
+                    headers={"X-Student-Visit-Token": tokens.get(name, "")},
+                )
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    nonlocal student_200, stubs
+                    if rv.status_code == 200:
+                        student_200 += 1
+                    if body.get("error") == "state unavailable":
+                        stubs += 1
+                    if rv.status_code != 200:
+                        failures.append(
+                            f"wave {wave} {name} {rv.status_code} "
+                            f"{rv.get_data(as_text=True)[:240]}"
+                        )
+
+            def hit_staff() -> None:
+                """Staff heavy poll in the same wave must not 500 or stub."""
+
+                barrier.wait(timeout=30)
+                rv = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    nonlocal staff_bad
+                    if (
+                        rv.status_code != 200
+                        or not body.get("ok")
+                        or body.get("error") == "state unavailable"
+                        or body.get("light")
+                        or int(body.get("count") or 0) < 16
+                    ):
+                        staff_bad += 1
+                        failures.append(
+                            f"wave {wave} staff {rv.status_code} "
+                            f"count={body.get('count')} error={body.get('error')}"
+                        )
+
+            threads = [threading.Thread(target=hit_staff)]
+            threads.extend(
+                threading.Thread(target=hit_student, args=(name, client))
+                for name, client in cohort
+            )
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual(student_200, 320, failures[:6])
+        self.assertEqual(failures, [], failures[:6])
+        self.assertEqual(stubs, 0)
+        self.assertEqual(staff_bad, 0)
+
 
 class LiveBackendSchemaTests(unittest.TestCase):
     """Verify new lifecycle schema creation is migration-safe and idempotent."""
