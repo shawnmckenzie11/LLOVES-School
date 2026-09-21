@@ -3249,6 +3249,15 @@ function paintGameShowWelcome(payload) {
 }
 
 /**
+ * Show or hide the calm Reconnecting… strip without wiping the last frame.
+ * @param {boolean} visible
+ */
+function setStudentReconnectBanner(visible) {
+  const el = document.getElementById("student-reconnect");
+  if (el instanceof HTMLElement) el.hidden = !visible;
+}
+
+/**
  * Fetch and paint /api/student/state.
  */
 async function tick() {
@@ -3258,10 +3267,15 @@ async function tick() {
     if (lastPollStamp) params.set("stamp", lastPollStamp);
     const qs = params.toString() ? `?${params}` : "";
     const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
+    if (!res.ok) {
+      setStudentReconnectBanner(true);
+      return;
+    }
     const data = await res.json();
     if (data.unchanged) {
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
+      setStudentReconnectBanner(false);
       return;
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
@@ -3318,10 +3332,15 @@ async function tick() {
     if (![...activePaneDrags].some((el) => el.classList.contains("student-live-card"))) {
       paintLifecycleQuestionStack(data);
     }
+    setStudentReconnectBanner(false);
   } catch (_err) {
-    /* keep last paint */
+    setStudentReconnectBanner(true);
   }
 }
+
+document.getElementById("student-reconnect-retry")?.addEventListener("click", () => {
+  void tick();
+});
 
 document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissSurface = event.target.closest("[data-dismiss-surface]");

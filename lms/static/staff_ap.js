@@ -3081,10 +3081,20 @@ function optimisticTeacherState(body) {
 }
 
 /**
+ * Show or hide the calm Reconnecting… strip without touching the deck.
+ * @param {boolean} visible
+ */
+function setLiveReconnectBanner(visible) {
+  const el = $("live-reconnect");
+  if (el instanceof HTMLElement) el.hidden = !visible;
+}
+
+/**
  * Fetch live-session state and auto-mark present attendees on the roster.
  * Interval ticks skip when a poll is already in flight. Light polls omit
  * cards and scoreboard until ``state_seq`` moves. A failed full snapshot
- * retries once with ``?light=1`` so attendees keep updating.
+ * retries once with ``?light=1`` so attendees keep updating. Poll failure
+ * keeps the last calm frame and shows Reconnecting… / Retry.
  * @param {{full?: boolean, force?: boolean}} [opts]
  */
 async function pollLiveSessionAttendees(opts = {}) {
@@ -3105,6 +3115,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload = await api(`/api/live-sessions/${id}/state?light=1`);
     }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
+      setLiveReconnectBanner(false);
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
       return;
@@ -3181,12 +3192,13 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload?.state_seq ?? payload?.teacher_state?.state_seq
     );
     staffStateNeedsFull = false;
+    setLiveReconnectBanner(false);
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
       sessionPollInFlight = false;
       return pollLiveSessionAttendees({ full: true, force: true });
     }
   } catch (_) {
-    /* keep polling */
+    setLiveReconnectBanner(true);
   } finally {
     sessionPollInFlight = false;
   }
@@ -3200,6 +3212,10 @@ function startLiveSessionPolling() {
   pollLiveSessionAttendees();
   syncLiveSessionPolling();
 }
+
+$("live-reconnect-retry")?.addEventListener("click", () => {
+  void pollLiveSessionAttendees({ full: true, force: true });
+});
 
 /**
  * postMessage body for the teacher Real-slice iframe (peel X updates both).
