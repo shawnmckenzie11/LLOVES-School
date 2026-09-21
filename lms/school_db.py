@@ -725,18 +725,34 @@ SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 
 def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Wait on writers instead of failing immediately under class load.
+    """Keep one sqlite file usable by the school and game-show connections.
+
+    Fly alc is a single machine with ``lloves.sqlite`` on the volume. School
+    tables and Math Game Show tables are two connections on that file.
+    Python's legacy isolation mode starts a transaction on UPDATE/INSERT and
+    holds the reserved lock until ``commit()``. The other connection then
+    raises ``database is locked`` on ``GET /api/student/state`` and
+    ``POST /api/student/heartbeat`` while an Artifact is open. Autocommit
+    drops that lock at the end of each statement. WAL lets a poll read
+    during a heartbeat write. ``busy_timeout`` covers a second process
+    (a one-off script), not a second Fly machine — the volume mounts once.
 
     Args:
         conn: Open sqlite connection.
 
     Returns:
-        The same connection after busy-timeout and WAL are set.
+        The same connection after autocommit, busy-timeout, and WAL are set.
     """
+    conn.isolation_level = None
+    if hasattr(conn, "autocommit"):
+        conn.autocommit = True
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    # WAL's recommended companion. A statement no longer fsyncs the whole
+    # file, so a heartbeat write does not sit on the reserved lock.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -1010,7 +1026,10 @@ class LovesDB:
         self._sweep_at: dict[int, float] = {}
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(
-            str(db_path), check_same_thread=False, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000
+            str(db_path),
+            check_same_thread=False,
+            timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+            isolation_level=None,
         )
         configure_sqlite_connection(self.conn)
         self.conn.executescript(SCHEMA)
@@ -4755,7 +4774,10 @@ class SchoolDB(LovesDB):
         mod = importlib.util.module_from_spec(spec)
         sys.modules.setdefault("mgs_db", mod)
         spec.loader.exec_module(mod)
-        self.game = mod.GameShowDB(path, store)
+        # One lock for both connections. Two gunicorn threads must not use
+        # the shared file at once: a school write and a game write otherwise
+        # raise "database is locked" on the live-class polls.
+        self.game = mod.GameShowDB(path, store, lock=self._lock)
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[
@@ -14295,24 +14317,11 @@ class SchoolDB(LovesDB):
             team_id: Assigned team id.
         """
         try:
-            state = self.game.game_state(int(class_id))
-        except Exception:  # noqa: BLE001
+            index = self.game.team_membership_index(int(class_id))
+        except (TypeError, ValueError, sqlite3.Error):
             return []
-        out: list[int] = []
-        for team in state.get("teams") or []:
-            try:
-                if int(team.get("id") or 0) != int(team_id):
-                    continue
-            except (TypeError, ValueError):
-                continue
-            if str(team.get("name") or "") == "Class":
-                continue
-            for member in team.get("members") or []:
-                try:
-                    out.append(int(member.get("id")))
-                except (TypeError, ValueError):
-                    continue
-        return out
+        members = (index.get("by_team") or {}).get(int(team_id)) or []
+        return [int(sid) for sid in members]
 
     def _copy_group_question_response(
         self,
@@ -14514,13 +14523,12 @@ class SchoolDB(LovesDB):
             "poll_closed": poll_closed,
             "question_view": questions_mode,
         }
-        empty.update(
-            self.student_live_items_payload(
-                session_id,
-                student_id,
-                participant_uuid=participant_uuid,
-            )
+        items_payload = self.student_live_items_payload(
+            session_id,
+            student_id,
+            participant_uuid=participant_uuid,
         )
+        empty.update(items_payload)
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
         if questions_mode == "none" and not meet_live:
@@ -14635,13 +14643,7 @@ class SchoolDB(LovesDB):
         )
         if draft:
             out["group_draft"] = draft
-        out.update(
-            self.student_live_items_payload(
-                session_id,
-                student_id,
-                participant_uuid=participant_uuid,
-            )
-        )
+        out.update(items_payload)
         if is_artifact_payload(raw_payload) and student_id not in (None, ""):
             status = self.artifact_group_q_status(
                 session_id, int(student_id), prompt
@@ -15118,10 +15120,11 @@ class SchoolDB(LovesDB):
             "label": "—",
         }
         try:
-            state = self.game.game_state(int(class_id))
-        except Exception:  # noqa: BLE001 — no open game is idle
+            game = self.game.open_game_round_fields(int(class_id)) or {}
+        except (TypeError, ValueError, sqlite3.Error):
             return idle
-        game = state.get("game") or {}
+        if not game:
+            return idle
         ends_at_ms = game.get("round_ends_at_ms")
         paused = bool(game.get("timer_paused"))
         remaining = game.get("round_remaining_sec")
@@ -15206,7 +15209,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             row = self.conn.execute(
                 """
-                SELECT teacher_state_json
+                SELECT teacher_state_json, class_id
                 FROM live_class_sessions
                 WHERE id = ?
                 """,
@@ -15224,7 +15227,12 @@ class SchoolDB(LovesDB):
             if isinstance(parsed, dict):
                 stored = parsed
         state = public_teacher_state(stored)
-        teams_exist = bool(self._named_teams_for_live_session(session_id))
+        # Existence only. A full game_state here ran on every teacher-state
+        # read, and Artifact open reads that blob dozens of times per student.
+        try:
+            teams_exist = self.game.class_has_named_teams(int(row["class_id"]))
+        except (TypeError, ValueError, sqlite3.Error):
+            teams_exist = False
         if teams_exist and (
             "groups_configured" not in stored
             or bool(stored.get("groups_configured"))
@@ -15453,19 +15461,14 @@ class SchoolDB(LovesDB):
             student_id: Roster id.
         """
         try:
-            state = self.game.game_state(int(class_id))
-        except Exception:  # noqa: BLE001
+            index = self.game.team_membership_index(int(class_id))
+        except (TypeError, ValueError, sqlite3.Error):
             return None
-        for team in state.get("teams") or []:
-            if str(team.get("name") or "") == "Class":
-                continue
-            for member in team.get("members") or []:
-                try:
-                    if int(member.get("id")) == int(student_id):
-                        return int(team.get("id") or 0) or None
-                except (TypeError, ValueError):
-                    continue
-        return None
+        team_id = (index.get("by_student") or {}).get(int(student_id))
+        try:
+            return int(team_id) if team_id else None
+        except (TypeError, ValueError):
+            return None
 
     def apply_live_canvas_presence(
         self,

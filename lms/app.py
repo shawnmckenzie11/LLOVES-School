@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import sys
 import threading
 from datetime import date, timedelta
@@ -206,6 +207,29 @@ def _json_error(exc: BaseException):
     if isinstance(exc, ValueError):
         return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _artifact_busy(action: str):
+    """JSON retry when an Artifact open path fails under class load.
+
+    Call from an ``except`` block so the traceback is logged. The body is
+    JSON. Flask's default HTML 500 says the server is overloaded, which is
+    what teacher and student browsers showed when Artifact open raised.
+
+    Args:
+        action: Short label such as ``mint`` or ``preview``.
+
+    Returns:
+        HTTP 503 ``{ok: false, retry: true}``.
+    """
+    logger.exception("live artifact %s failed", action)
+    return jsonify(
+        {
+            "ok": False,
+            "error": "Artifact is busy — try again.",
+            "retry": True,
+        }
+    ), 503
 
 
 def _wants_json() -> bool:
@@ -3701,7 +3725,22 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         token = visit_token_from_request()
         if token:
-            attendee = school.touch_live_session_heartbeat(token)
+            try:
+                attendee = school.touch_live_session_heartbeat(token)
+            except sqlite3.OperationalError as exc:
+                # Same lock the heartbeat route can see. JSON keeps the last
+                # painted Artifact frame; the portal shows Reconnecting… / Retry.
+                if "locked" not in str(exc).lower() or not as_json:
+                    raise
+                logger.exception("student /state sqlite lock")
+                return jsonify(
+                    {
+                        "ok": True,
+                        "error": "state unavailable",
+                        "status": "waiting",
+                        "retry": True,
+                    }
+                )
             if attendee is not None:
                 return None
             return _ended_student_response(as_json=as_json)
@@ -4216,12 +4255,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if prompt is None or not is_artifact_payload(payload):
             return jsonify({"ok": False, "error": "No artifact prompt."}), 409
         sid = int(student_id) if student_id not in (None, "") else None
-        school.record_artifact_slider_preview(
-            live_session_id, sid, prompt_id, params
-        )
-        status = school.artifact_group_q_status(
-            live_session_id, sid, prompt, params=params
-        )
+        try:
+            school.record_artifact_slider_preview(
+                live_session_id, sid, prompt_id, params
+            )
+            status = school.artifact_group_q_status(
+                live_session_id, sid, prompt, params=params
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        except Exception:
+            return _artifact_busy("preview")
         return jsonify(
             {
                 "ok": True,
@@ -4798,24 +4842,26 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 group_q=body.get("group_q"),
                 accuracy_margin=body.get("accuracy_margin"),
             )
+            return jsonify(
+                {
+                    "ok": True,
+                    "prompt": minted.get("prompt"),
+                    "live_item": minted.get("live_item"),
+                    "live_items": minted.get("live_items") or [],
+                    "question_cards": minted.get("question_cards") or [],
+                    "active_media": minted.get("active_media"),
+                    "first_mint": bool(minted.get("first_mint")),
+                    "toast": str(minted.get("toast") or ""),
+                    "match_index": int(minted.get("match_index") or 0),
+                    "teacher_state": school.live_session_teacher_state_payload(
+                        session_id
+                    ),
+                }
+            )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        return jsonify(
-            {
-                "ok": True,
-                "prompt": minted.get("prompt"),
-                "live_item": minted.get("live_item"),
-                "live_items": minted.get("live_items") or [],
-                "question_cards": minted.get("question_cards") or [],
-                "active_media": minted.get("active_media"),
-                "first_mint": bool(minted.get("first_mint")),
-                "toast": str(minted.get("toast") or ""),
-                "match_index": int(minted.get("match_index") or 0),
-                "teacher_state": school.live_session_teacher_state_payload(
-                    session_id
-                ),
-            }
-        )
+        except Exception:
+            return _artifact_busy("mint")
 
     @app.route(
         "/api/live-sessions/<int:session_id>/active-media",
@@ -4844,10 +4890,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         if request.method == "GET":
-            live_slot = school.session_live_slot(session_id)
-            school.ensure_live_class_media(session_id)
-            pack = cons_catalog(live_slot)
-            return jsonify(
+            try:
+                live_slot = school.session_live_slot(session_id)
+                school.ensure_live_class_media(session_id)
+                pack = cons_catalog(live_slot)
+                return jsonify(
                 {
                     "ok": True,
                     "active_media": school.live_session_active_media_payload(
@@ -4902,7 +4949,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         for item in pack
                     ],
                 }
-            )
+                )
+            except Exception:
+                return _artifact_busy("media-read")
         body = request.get_json(silent=True) or {}
         clear = body.get("clear", False)
         if isinstance(clear, str):
@@ -4974,21 +5023,23 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["artifact"] = body.get("artifact")
         try:
             media = school.set_live_session_active_media(session_id, **kwargs)
+            if "artifact" in body:
+                school.sync_artifact_teacher_flags(session_id, body.get("artifact"))
+            return jsonify(
+                {
+                    "ok": True,
+                    "active_media": media,
+                    "live_slot": school.session_live_slot(session_id),
+                    "text_ride": school.session_text_ride(session_id),
+                    "teacher_state": school.live_session_teacher_state_payload(
+                        session_id
+                    ),
+                }
+            )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        if "artifact" in body:
-            school.sync_artifact_teacher_flags(session_id, body.get("artifact"))
-        return jsonify(
-            {
-                "ok": True,
-                "active_media": media,
-                "live_slot": school.session_live_slot(session_id),
-                "text_ride": school.session_text_ride(session_id),
-                "teacher_state": school.live_session_teacher_state_payload(
-                    session_id
-                ),
-            }
-        )
+        except Exception:
+            return _artifact_busy("media-write")
 
     @app.route(
         "/api/live-sessions/<int:session_id>/teacher-state",

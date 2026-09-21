@@ -628,6 +628,11 @@ class StudentPortalTests(unittest.TestCase):
         )
         self.assertNotIn('addEventListener("pagehide"', text)
         self.assertIn("/api/student/heartbeat", text)
+        self.assertIn("lloves-live-link", text)
+        self.assertIn("lloves-live-retry", text)
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("lloves-live-link", portal)
+        self.assertIn("setStudentReconnectBanner(!ok)", portal)
         self.student.post(
             "/auth/student-code",
             data={"code": self.session_code, "name": "Maple"},

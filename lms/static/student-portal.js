@@ -3257,6 +3257,12 @@ function setStudentReconnectBanner(visible) {
   if (el instanceof HTMLElement) el.hidden = !visible;
 }
 
+if (window.__llovesLiveLinkOk === false) setStudentReconnectBanner(true);
+document.addEventListener("lloves-live-link", (event) => {
+  const ok = Boolean(event.detail && event.detail.ok);
+  setStudentReconnectBanner(!ok);
+});
+
 /**
  * Fetch and paint /api/student/state.
  */
@@ -3343,6 +3349,7 @@ async function tick() {
 }
 
 document.getElementById("student-reconnect-retry")?.addEventListener("click", () => {
+  document.dispatchEvent(new CustomEvent("lloves-live-retry"));
   void tick();
 });
 
