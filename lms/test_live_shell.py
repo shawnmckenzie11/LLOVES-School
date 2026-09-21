@@ -2213,7 +2213,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("if (!wantFull) throw", js)
         self.assertIn("hasOwnProperty.call(payload || {}, \"active_media\")", js)
         self.assertIn("function setLiveReconnectBanner(", js)
+        self.assertIn("bindReconnectBanner", js)
+        self.assertIn("/static/live_reconnect.js", js)
         self.assertIn("Reconnecting…", js)
+        self.assertIn("Still reconnecting — Retry", js)
         self.assertIn("setLiveReconnectBanner(true)", js)
         self.assertIn('payload?.error === "state unavailable"', js)
         cards = js.split("async function refreshLiveQuestionCards(")[1].split(
@@ -2226,6 +2229,8 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn("id=\"live-reconnect\"", course)
         self.assertIn("live-reconnect-retry", course)
+        self.assertIn("data-reconnect-stage=\"brief\"", course)
+        self.assertIn("live-reconnect-copy", course)
         self.assertIn("function teacherStateNeedsQuestionRefresh(", js)
         self.assertNotIn("lastLiveItems = payload.live_metadata.items", js)
         handler = js.split('$("live-run-as-group")')[1].split(
@@ -2250,8 +2255,12 @@ class LiveShellTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("function setStudentReconnectBanner(", js)
+        self.assertIn("bindReconnectBanner", js)
+        self.assertIn("/static/live_reconnect.js", js)
         self.assertIn("Reconnecting…", home)
+        self.assertIn("Still reconnecting — Retry", js)
         self.assertIn("student-reconnect-retry", home)
+        self.assertIn("data-reconnect-stage=\"brief\"", home)
         tick = js.split("async function tick()")[1].split(
             "document.getElementById(\"live-response\")"
         )[0]
@@ -2259,6 +2268,35 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("setStudentReconnectBanner(true)", tick)
         self.assertIn("setStudentReconnectBanner(false)", tick)
         self.assertNotIn("innerHTML = \"\"", tick.split("if (data.celebrate)")[0])
+
+    def test_reconnect_copy_upgrades_from_brief_to_sticky(self) -> None:
+        """Brief Reconnecting… upgrades to Still reconnecting — Retry if it sticks."""
+
+        helper = (LMS_DIR / "static" / "live_reconnect.js").read_text(encoding="utf-8")
+        self.assertIn('RECONNECT_COPY_BRIEF = "Reconnecting…"', helper)
+        self.assertIn(
+            'RECONNECT_COPY_STICKY = "Still reconnecting — Retry"', helper
+        )
+        self.assertIn("RECONNECT_BRIEF_MS = 2500", helper)
+        self.assertIn("if (timer != null) return", helper)
+        staff_css = (LMS_DIR / "static" / "staff-shell.css").read_text(
+            encoding="utf-8"
+        )
+        student_css = (LMS_DIR / "static" / "student-portal.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('data-reconnect-stage="brief"', staff_css)
+        self.assertIn('data-reconnect-stage="brief"', student_css)
+        node = LMS_DIR / "test_live_reconnect.mjs"
+        result = subprocess.run(
+            ["node", str(node)],
+            cwd=str(LMS_DIR),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("ok two-stage reconnect", result.stdout)
 
     def test_playlist_move_options_list_every_rail_page(self) -> None:
         """Relocate options use 1-based rail index plus page name for every page."""

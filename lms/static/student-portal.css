@@ -218,6 +218,11 @@ body.student-home .student-chrome-top {
   cursor: pointer;
 }
 
+.student-home .live-reconnect-retry[hidden],
+.student-home .live-reconnect[data-reconnect-stage="brief"] .live-reconnect-retry {
+  display: none !important;
+}
+
 body.student-home .student-chrome-bottom {
   border-top: 1px solid #1e3348;
   padding-bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));

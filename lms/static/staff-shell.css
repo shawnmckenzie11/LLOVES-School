@@ -830,6 +830,10 @@ body.staff-shell .live-reconnect-retry {
   font-weight: 700;
   cursor: pointer;
 }
+body.staff-shell .live-reconnect-retry[hidden],
+body.staff-shell .live-reconnect[data-reconnect-stage="brief"] .live-reconnect-retry {
+  display: none !important;
+}
 body.staff-shell .ap-add-next-round {
   margin-top: 0.75rem;
   padding: 0.75rem;

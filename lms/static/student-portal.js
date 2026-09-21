@@ -4,6 +4,7 @@
 import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
+import { bindReconnectBanner } from "/static/live_reconnect.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -3248,13 +3249,19 @@ function paintGameShowWelcome(payload) {
   gameShowWelcomeEl.hidden = false;
 }
 
+const studentReconnect = bindReconnectBanner({
+  root: document.getElementById("student-reconnect"),
+  retry: document.getElementById("student-reconnect-retry"),
+});
+
 /**
- * Show or hide the calm Reconnecting… strip without wiping the last frame.
+ * Show or hide the two-stage reconnect strip without wiping the last frame.
+ * Brief: Reconnecting…  Sticky: Still reconnecting — Retry.
  * @param {boolean} visible
  */
 function setStudentReconnectBanner(visible) {
-  const el = document.getElementById("student-reconnect");
-  if (el instanceof HTMLElement) el.hidden = !visible;
+  if (visible) studentReconnect.show();
+  else studentReconnect.hide();
 }
 
 /**

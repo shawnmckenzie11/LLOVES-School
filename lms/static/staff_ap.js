@@ -34,6 +34,7 @@ import {
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
+import { bindReconnectBanner } from "/static/live_reconnect.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -3089,13 +3090,19 @@ function optimisticTeacherState(body) {
   return { ...teacherState, ...body };
 }
 
+const liveReconnect = bindReconnectBanner({
+  root: $("live-reconnect"),
+  retry: $("live-reconnect-retry"),
+});
+
 /**
- * Show or hide the calm Reconnecting… strip without touching the deck.
+ * Show or hide the two-stage reconnect strip without touching the deck.
+ * Brief: Reconnecting…  Sticky: Still reconnecting — Retry.
  * @param {boolean} visible
  */
 function setLiveReconnectBanner(visible) {
-  const el = $("live-reconnect");
-  if (el instanceof HTMLElement) el.hidden = !visible;
+  if (visible) liveReconnect.show();
+  else liveReconnect.hide();
 }
 
 /**

@@ -133,9 +133,9 @@
          data-allow-media-swap="{{ '1' if allow_media_url_swap else '0' }}"
          data-ontario-code="{{ cls.ontario_code or cls.course_code or '' }}">
       <div id="ap-overlay-error" class="error" hidden></div>
-      <p id="live-reconnect" class="live-reconnect" hidden role="status">
+      <p id="live-reconnect" class="live-reconnect" hidden role="status" data-reconnect-stage="brief">
         <span class="live-reconnect-copy">Reconnecting…</span>
-        <button type="button" class="live-reconnect-retry" id="live-reconnect-retry">Retry</button>
+        <button type="button" class="live-reconnect-retry" id="live-reconnect-retry" hidden>Retry</button>
       </p>
 
       <header class="live-header" id="live-header">
