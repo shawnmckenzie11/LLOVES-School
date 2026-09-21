@@ -2067,7 +2067,7 @@ function paintLifecycleQuestionStack(payload) {
           String(content.stem || content.prompt || "").trim() &&
           String(content.stem || content.prompt || "").trim() !==
             String(content.title || "").trim()
-            ? `<p class="student-live-stem">${formatPromptHtml(
+            ? `<p class="student-live-stem">${formatQuestionHtml(
                 content.stem || content.prompt
               )}</p>`
             : ""
@@ -2381,13 +2381,13 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   const kind = String(prompt.kind);
   const mintedTitle = String(data.title || "").trim();
   const title = mintedTitle
-    ? formatPromptHtml(mintedTitle)
+    ? formatQuestionHtml(mintedTitle)
     : lifecyclePromptHtml(data);
   const mintedStem =
     mintedTitle &&
     String(data.stem || data.prompt || "").trim() &&
     String(data.stem || data.prompt || "").trim() !== mintedTitle
-      ? `<p class="student-live-stem">${formatPromptHtml(
+      ? `<p class="student-live-stem">${formatQuestionHtml(
           data.stem || data.prompt
         )}</p>`
       : "";
