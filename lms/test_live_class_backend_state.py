@@ -1787,6 +1787,7 @@ class LiveSessionStateLoadTests(unittest.TestCase):
                 "path": Path("/tmp/deck"),
                 "score": float("nan"),
                 "nested": [{"raw": b"xyz"}],
+                7: 0,
             }
         )
         json.dumps(cleaned)
@@ -1794,6 +1795,7 @@ class LiveSessionStateLoadTests(unittest.TestCase):
         self.assertEqual(cleaned["path"], "/tmp/deck")
         self.assertIsNone(cleaned["score"])
         self.assertIsNone(cleaned["nested"][0]["raw"])
+        self.assertEqual(cleaned[7], 0)
 
     def test_heavy_state_http_with_seventeen_attendees(self) -> None:
         """Full /state stays 200 and JSON when N≈17 are present."""

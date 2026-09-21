@@ -844,10 +844,16 @@ def json_safe(value: Any, *, _depth: int = 0) -> Any:
     if isinstance(value, sqlite3.Row):
         return json_safe(dict(value), _depth=_depth + 1)
     if isinstance(value, dict):
-        return {
-            str(key): json_safe(item, _depth=_depth + 1)
-            for key, item in value.items()
-        }
+        out: dict[Any, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, int) and not isinstance(key, bool):
+                out_key: Any = int(key)
+            elif isinstance(key, str):
+                out_key = key
+            else:
+                out_key = str(key)
+            out[out_key] = json_safe(item, _depth=_depth + 1)
+        return out
     if isinstance(value, (list, tuple, set, frozenset)):
         return [json_safe(item, _depth=_depth + 1) for item in value]
     try:
