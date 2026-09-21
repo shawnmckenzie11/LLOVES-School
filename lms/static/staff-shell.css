@@ -802,6 +802,34 @@ body.staff-shell .ap-break-banner {
   color: #92400e;
   font-weight: 700;
 }
+body.staff-shell .live-reconnect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.65rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+body.staff-shell .live-reconnect[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-reconnect-retry {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #d97706;
+  border-radius: 6px;
+  background: #fff;
+  color: #92400e;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
 body.staff-shell .ap-add-next-round {
   margin-top: 0.75rem;
   padding: 0.75rem;

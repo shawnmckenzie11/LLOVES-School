@@ -1587,20 +1587,29 @@ function playlistMovePageOptions(currentPageIndex) {
 async function refreshLiveQuestionCards() {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
-  const snapshot = await api(`/api/live-sessions/${id}/state`);
-  if (snapshot?.live_metadata) {
-    lastLiveMetadata = snapshot.live_metadata;
+  try {
+    const snapshot = await api(`/api/live-sessions/${id}/state`);
+    if (snapshot?.error === "state unavailable") {
+      setLiveReconnectBanner(true);
+      return;
+    }
+    if (snapshot?.live_metadata) {
+      lastLiveMetadata = snapshot.live_metadata;
+    }
+    if (Array.isArray(snapshot?.live_items)) {
+      lastLiveItems = snapshot.live_items;
+    }
+    if (Array.isArray(snapshot?.question_cards)) {
+      lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
+    }
+    if (Array.isArray(snapshot?.active_questions)) {
+      lastActiveQuestions = snapshot.active_questions;
+    }
+    paintLiveQuestionCards();
+    setLiveReconnectBanner(false);
+  } catch (_) {
+    setLiveReconnectBanner(true);
   }
-  if (Array.isArray(snapshot?.live_items)) {
-    lastLiveItems = snapshot.live_items;
-  }
-  if (Array.isArray(snapshot?.question_cards)) {
-    lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
-  }
-  if (Array.isArray(snapshot?.active_questions)) {
-    lastActiveQuestions = snapshot.active_questions;
-  }
-  paintLiveQuestionCards();
 }
 
 /**
@@ -3081,9 +3090,20 @@ function optimisticTeacherState(body) {
 }
 
 /**
+ * Show or hide the calm Reconnecting… strip without touching the deck.
+ * @param {boolean} visible
+ */
+function setLiveReconnectBanner(visible) {
+  const el = $("live-reconnect");
+  if (el instanceof HTMLElement) el.hidden = !visible;
+}
+
+/**
  * Fetch live-session state and auto-mark present attendees on the roster.
  * Interval ticks skip when a poll is already in flight. Light polls omit
- * cards and scoreboard until ``state_seq`` moves.
+ * cards and scoreboard until ``state_seq`` moves. A failed full snapshot
+ * retries once with ``?light=1`` so attendees keep updating. Poll failure
+ * keeps the last calm frame and shows Reconnecting… / Retry.
  * @param {{full?: boolean, force?: boolean}} [opts]
  */
 async function pollLiveSessionAttendees(opts = {}) {
@@ -3096,8 +3116,19 @@ async function pollLiveSessionAttendees(opts = {}) {
   const prevSeq = Number(teacherState.state_seq);
   try {
     const qs = wantFull ? "" : "?light=1";
-    const payload = await api(`/api/live-sessions/${id}/state${qs}`);
+    let payload;
+    try {
+      payload = await api(`/api/live-sessions/${id}/state${qs}`);
+    } catch (err) {
+      if (!wantFull) throw err;
+      payload = await api(`/api/live-sessions/${id}/state?light=1`);
+    }
+    if (payload?.error === "state unavailable") {
+      setLiveReconnectBanner(true);
+      return;
+    }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
+      setLiveReconnectBanner(false);
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
       return;
@@ -3157,7 +3188,10 @@ async function pollLiveSessionAttendees(opts = {}) {
       const media = payload?.active_media || payload?.session?.active_media;
       paintActiveMediaStatus(media);
       paintQuestionArtifact(media);
-    } else if (wantFull) {
+    } else if (
+      wantFull &&
+      Object.prototype.hasOwnProperty.call(payload || {}, "active_media")
+    ) {
       if (liveClassSeedMedia()) paintActiveMediaStatus(null);
       else paintQuestionArtifact(null);
     }
@@ -3171,12 +3205,13 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload?.state_seq ?? payload?.teacher_state?.state_seq
     );
     staffStateNeedsFull = false;
+    setLiveReconnectBanner(false);
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
       sessionPollInFlight = false;
       return pollLiveSessionAttendees({ full: true, force: true });
     }
   } catch (_) {
-    /* keep polling */
+    setLiveReconnectBanner(true);
   } finally {
     sessionPollInFlight = false;
   }
@@ -3190,6 +3225,10 @@ function startLiveSessionPolling() {
   pollLiveSessionAttendees();
   syncLiveSessionPolling();
 }
+
+$("live-reconnect-retry")?.addEventListener("click", () => {
+  void pollLiveSessionAttendees({ full: true, force: true });
+});
 
 /**
  * postMessage body for the teacher Real-slice iframe (peel X updates both).

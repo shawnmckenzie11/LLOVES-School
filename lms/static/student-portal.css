@@ -186,6 +186,38 @@ body.student-home .student-chrome-top {
   display: none !important;
 }
 
+.student-home .live-reconnect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0.45rem 0 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(245, 197, 24, 0.55);
+  border-radius: 6px;
+  background: rgba(245, 197, 24, 0.12);
+  color: #f5c518;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.student-home .live-reconnect[hidden] {
+  display: none !important;
+}
+
+.student-home .live-reconnect-retry {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid rgba(245, 197, 24, 0.7);
+  border-radius: 5px;
+  background: transparent;
+  color: #f5c518;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 body.student-home .student-chrome-bottom {
   border-top: 1px solid #1e3348;
   padding-bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));

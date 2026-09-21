@@ -710,7 +710,7 @@ async function fetchJson(url) {
  * @returns {Promise<{missing: boolean, payload?: any}>}
  */
 async function fetchLiveSessionState() {
-  const response = await fetch(`/api/live-sessions/${sessionId}/state`, {
+  const response = await fetch(`/api/live-sessions/${sessionId}/state?light=1`, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });

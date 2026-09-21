@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
@@ -22,6 +23,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from live_class_metadata import load_live_class_metadata
 from minds_on import is_minds_on_payload  # noqa: E402
+from school_db import json_safe  # noqa: E402
 from teams_spark import TEAMS_SPARK_SLIDE_INDEX  # noqa: E402
 
 
@@ -1168,6 +1170,7 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertIn("teacher_state", light)
         self.assertIn("mc_tally", light)
         self.assertIn("state_seq", light)
+        self.assertIn("groups", light)
         self.assertNotIn("question_cards", light)
         self.assertNotIn("live_metadata", light)
         self.assertNotIn("career_totals", light)
@@ -1681,6 +1684,171 @@ class LiveBackendApiGuardTests(unittest.TestCase):
             path, json={"publish_mode": "individual"}
         )
         self.assertEqual(ended.status_code, 409, ended.get_json())
+
+
+LOAD_CODENAMES = [
+    "Aspen",
+    "Birch",
+    "Cedar",
+    "Maple",
+    "Oak",
+    "Pine",
+    "Spruce",
+    "Willow",
+    "Elm",
+    "Ash",
+    "Beech",
+    "Fir",
+    "Hemlock",
+    "Larch",
+    "Poplar",
+    "Redwood",
+    "Sequoia",
+]
+
+
+class LiveSessionStateLoadTests(unittest.TestCase):
+    """Heavy /state stays 200 under a full class and builder failures."""
+
+    def setUp(self) -> None:
+        """Create a 17-student MCF3M class, live session, and staff login."""
+
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.client = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=LOAD_CODENAMES,
+            offering_id=int(self.offering["id"]),
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        self.class_id = int(created["id"])
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.session_id = int(live["id"])
+        with self.school.game._lock:
+            self.students = [
+                dict(row)
+                for row in self.school.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ?
+                    ORDER BY id ASC
+                    """,
+                    (self.class_id,),
+                ).fetchall()
+            ]
+        self.school.game.begin_game(self.class_id)
+        for student in self.students:
+            self.school.join_live_class_session(
+                self.session_id,
+                int(student["id"]),
+                codename=str(student["codename"]),
+            )
+
+    def tearDown(self) -> None:
+        """Close sqlite handles and remove temporary files."""
+
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_json_safe_encodes_sets_paths_and_nan(self) -> None:
+        """Non-JSON leftovers become lists, strings, or null."""
+
+        cleaned = json_safe(
+            {
+                "tags": {"a", "b"},
+                "path": Path("/tmp/deck"),
+                "score": float("nan"),
+                "nested": [{"raw": b"xyz"}],
+                7: 0,
+            }
+        )
+        json.dumps(cleaned)
+        self.assertEqual(sorted(cleaned["tags"]), ["a", "b"])
+        self.assertEqual(cleaned["path"], "/tmp/deck")
+        self.assertIsNone(cleaned["score"])
+        self.assertIsNone(cleaned["nested"][0]["raw"])
+        self.assertEqual(cleaned[7], 0)
+
+    def test_heavy_state_http_with_seventeen_attendees(self) -> None:
+        """Full /state stays 200 and JSON when N≈17 are present."""
+
+        light = self.client.get(f"/api/live-sessions/{self.session_id}/state?light=1")
+        self.assertEqual(light.status_code, 200, light.get_data(as_text=True)[:500])
+        light_body = light.get_json()
+        self.assertTrue(light_body["ok"])
+        self.assertTrue(light_body["light"])
+        self.assertEqual(light_body["count"], 17)
+        self.assertEqual(len(light_body["attendees"]), 17)
+
+        for _ in range(5):
+            heavy = self.client.get(f"/api/live-sessions/{self.session_id}/state")
+            self.assertEqual(heavy.status_code, 200, heavy.get_data(as_text=True)[:800])
+            body = heavy.get_json()
+            self.assertTrue(body["ok"])
+            self.assertFalse(body["light"])
+            self.assertEqual(body["count"], 17)
+            self.assertIn("question_cards", body)
+            self.assertIn("class_list", body)
+            self.assertIn("live_metadata", body)
+            self.assertEqual(len(body["class_list"]), 17)
+            json.dumps(body)
+
+    def test_heavy_state_stays_200_when_cards_raise(self) -> None:
+        """A question-card crash degrades that slice instead of 500ing."""
+
+        def boom(_session_id: int) -> list[dict[str, Any]]:
+            raise RuntimeError("cards exploded")
+
+        self.school.live_session_question_cards = boom  # type: ignore[method-assign]
+        rv = self.client.get(f"/api/live-sessions/{self.session_id}/state")
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:800])
+        body = rv.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["question_cards"], [])
+        self.assertEqual(body["count"], 17)
+        self.assertIn("class_list", body)
+
+    def test_heavy_state_stays_200_when_field_is_not_json(self) -> None:
+        """A Path/set heavy field is sanitized so jsonify cannot 500."""
+
+        self.school.class_deck_revision = lambda *_args, **_kwargs: {  # type: ignore[method-assign]
+            Path("/tmp/rev"),
+            float("inf"),
+        }
+        rv = self.client.get(f"/api/live-sessions/{self.session_id}/state")
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:800])
+        body = rv.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIsInstance(body["deck_revision"], list)
+        json.dumps(body)
 
 
 class LiveBackendSchemaTests(unittest.TestCase):

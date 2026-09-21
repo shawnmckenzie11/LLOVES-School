@@ -2173,6 +2173,7 @@ class LiveShellTests(unittest.TestCase):
             REPO_ROOT / "tools" / "math-game-show" / "static" / "live_session_overlay.js"
         ).read_text(encoding="utf-8")
         self.assertIn("function fetchLiveSessionState(", overlay)
+        self.assertIn("/state?light=1", overlay)
         self.assertIn("response.status === 404", overlay)
         self.assertIn("function dismissOverlayWindow(", overlay)
         tick = overlay.split("async function tick()")[1].split(
@@ -2209,6 +2210,22 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("staffStateNeedsFull", js)
         self.assertIn("optimisticTeacherState(", js)
         self.assertIn("?light=1", js)
+        self.assertIn("if (!wantFull) throw", js)
+        self.assertIn("hasOwnProperty.call(payload || {}, \"active_media\")", js)
+        self.assertIn("function setLiveReconnectBanner(", js)
+        self.assertIn("Reconnecting…", js)
+        self.assertIn("setLiveReconnectBanner(true)", js)
+        self.assertIn('payload?.error === "state unavailable"', js)
+        cards = js.split("async function refreshLiveQuestionCards(")[1].split(
+          "function questionCardsFromMetadata("
+        )[0]
+        self.assertIn("setLiveReconnectBanner(true)", cards)
+        self.assertNotIn("lastQuestionCards = []", cards)
+        course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("id=\"live-reconnect\"", course)
+        self.assertIn("live-reconnect-retry", course)
         self.assertIn("function teacherStateNeedsQuestionRefresh(", js)
         self.assertNotIn("lastLiveItems = payload.live_metadata.items", js)
         handler = js.split('$("live-run-as-group")')[1].split(
@@ -2224,6 +2241,24 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("teacherStateNeedsQuestionRefresh(body)", patch)
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", patch)
+
+    def test_student_poll_keeps_last_frame_and_shows_reconnect(self) -> None:
+        """Failed student /state keeps the last paint and shows Reconnecting…."""
+
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function setStudentReconnectBanner(", js)
+        self.assertIn("Reconnecting…", home)
+        self.assertIn("student-reconnect-retry", home)
+        tick = js.split("async function tick()")[1].split(
+            "document.getElementById(\"live-response\")"
+        )[0]
+        self.assertIn("if (!res.ok)", tick)
+        self.assertIn("setStudentReconnectBanner(true)", tick)
+        self.assertIn("setStudentReconnectBanner(false)", tick)
+        self.assertNotIn("innerHTML = \"\"", tick.split("if (data.celebrate)")[0])
 
     def test_playlist_move_options_list_every_rail_page(self) -> None:
         """Relocate options use 1-based rail index plus page name for every page."""

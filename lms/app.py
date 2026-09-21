@@ -76,7 +76,7 @@ from local_dev_seed import (  # noqa: E402
     local_dev_login_enabled,
     seed_local_dev_school,
 )
-from school_db import STAFF_2FA_MODE_LABELS, SchoolDB  # noqa: E402
+from school_db import STAFF_2FA_MODE_LABELS, SchoolDB, json_safe  # noqa: E402
 from artifact import (  # noqa: E402
     C2_TRANSFORM_MEDIA_URL,
     TRANSFORMATIONS_ARTIFACT_ID,
@@ -4606,12 +4606,45 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         ]
         return jsonify({"ok": True, "sessions": sessions})
 
+    def _degraded_live_session_state(session_row: dict[str, Any]) -> dict[str, Any]:
+        """Return a minimal light snapshot when /state builders fail.
+
+        Args:
+            session_row: ``live_class_sessions`` row already authorized.
+
+        Returns:
+            JSON-safe light payload so staff/overlay polls stay 200.
+        """
+        phase = "ended" if session_row.get("status") == "ended" else "live"
+        return json_safe(
+            {
+                "session": session_row,
+                "code": session_row.get("session_code"),
+                "count": 0,
+                "attendees": [],
+                "phase": phase,
+                "teacher_state": session_row.get("teacher_state") or {},
+                "allow_unmatched_guests": bool(
+                    int(session_row.get("allow_unmatched_guests") or 0)
+                ),
+                "mc_tally": None,
+                "lifecycle_response_counts": {},
+                "state_seq": int(
+                    (session_row.get("teacher_state") or {}).get("state_seq") or 0
+                ),
+                "light": True,
+                "groups": [],
+                "error": "state unavailable",
+            }
+        )
+
     @app.route("/api/live-sessions/<int:session_id>/state")
     @login_required
     def api_live_session_state(session_id: int):
         """Return code, attendee count, roster, and phase for one live session.
 
         ``?light=1`` omits cards, metadata, and scoreboard for interval polls.
+        Heavy builder failures degrade to light (or a stub) instead of 500.
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
@@ -4627,6 +4660,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             state = school.get_live_session_state(session_id, light=light)
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
+        except Exception:
+            logger.exception(
+                "live session %s /state failed light=%s", session_id, light
+            )
+            if not light:
+                try:
+                    state = school.get_live_session_state(session_id, light=True)
+                except Exception:
+                    logger.exception(
+                        "live session %s light /state fallback failed", session_id
+                    )
+                    state = _degraded_live_session_state(session_row)
+            else:
+                state = _degraded_live_session_state(session_row)
         return jsonify({"ok": True, **state})
 
     @app.route("/api/live-sessions/<int:session_id>/guests", methods=["POST"])
