@@ -5,6 +5,15 @@ import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
+/**
+ * Format a minted title or stem the same way catalogue question HTML is formatted.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatPromptHtml(value) {
+  return formatQuestionHtml(value);
+}
+
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
 const promptPollTotals = document.getElementById("prompt-poll-totals");
@@ -1914,6 +1923,20 @@ function isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) {
   return stage !== "join" || hasPublishedJoinCatalogue;
 }
 
+/**
+ * True when a lifecycle row is a minted Artifact match challenge.
+ * Those cards stay visible even if the stored stage lags the rail page.
+ * @param {any} item
+ * @returns {boolean}
+ */
+function isArtifactLifecycleItem(item) {
+  const itemId = String(item?.item_id || item?.content?.item_id || "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (itemId.startsWith("artifact-match-")) return true;
+  return lifecycleAnswerKind(item) === "artifact";
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   const grabbedCard = [...activePaneDrags].find((el) =>
@@ -1958,6 +1981,9 @@ function paintLifecycleQuestionStack(payload) {
       stage !== "meet"
     ) {
       return false;
+    }
+    if (isArtifactLifecycleItem(item)) {
+      return status === "active" || status === "closed";
     }
     if (status === "active") {
       return !itemStage || !stage || itemStage === stage;

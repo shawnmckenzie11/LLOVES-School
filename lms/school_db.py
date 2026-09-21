@@ -9861,9 +9861,11 @@ class SchoolDB(LovesDB):
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
         item_type = str(
             question.get("item_type")
-            or ("question" if item.get("kind") in {"poll", "mc", "numeric"} else "")
+            or ("question" if item.get("kind") in {"poll", "mc", "numeric", ARTIFACT_KIND} else "")
         )
-        if item_type != "question":
+        if item_type != "question" and not (
+            is_artifact_payload(question) or is_artifact_payload(item)
+        ):
             return None
         item_id = str(item.get("item_id") or item.get("placement_key") or "")
         prompt_kind = self._question_answer_kind(item)
@@ -10816,6 +10818,48 @@ class SchoolDB(LovesDB):
             "tally": tally,
         }
 
+    def _student_public_item_payload(
+        self,
+        raw_payload: Any,
+        *,
+        class_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Strip teacher keys, remirror bank graphs, and rewrite image URLs.
+
+        Staff cards rehydrate leftover Canvas/Instructure ``<img>`` srcs onto
+        ``/staff/class/{id}/module-files/...``. The student portal CSP is
+        ``img-src 'self'``, so remote Canvas URLs never paint. This applies
+        the same remirror, then rewrites staff paths to the student twin
+        ``/api/classes/{id}/module-files/...``.
+
+        Args:
+            raw_payload: Stored prompt or playlist item JSON.
+            class_id: Owning class, used to remirror and resolve pack files.
+        """
+        try:
+            from question_math import rewrite_student_prompt_images
+        except ImportError:
+            from lms.question_math import rewrite_student_prompt_images
+
+        payload = raw_payload if isinstance(raw_payload, dict) else {}
+        item_token = str(payload.get("id") or payload.get("item_id") or "")
+        is_bank = (
+            str(payload.get("import_source") or "") == "module_bank"
+            or bool(payload.get("source_question_id"))
+            or item_token.startswith("bank-import-")
+        )
+        if class_id not in (None, "") and is_bank:
+            library_id = self._class_library_id(int(class_id))
+            if library_id is not None:
+                payload = self.rehydrate_module_bank_item(
+                    int(class_id), int(library_id), payload
+                )
+        if is_artifact_payload(payload):
+            cleaned = student_artifact_payload(payload)
+        else:
+            cleaned = strip_teacher_prompt_fields(payload)
+        return rewrite_student_prompt_images(cleaned)
+
     def student_live_items_payload(
         self,
         session_id: int,
@@ -11000,20 +11044,16 @@ class SchoolDB(LovesDB):
                     "show_live_results": bool(item["show_live_results"]),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
-                    "content": (
-                        student_artifact_payload(raw_payload)
-                        if is_artifact_payload(raw_payload)
-                        else strip_teacher_prompt_fields(raw_payload)
+                    "content": self._student_public_item_payload(
+                        raw_payload, class_id=session_row.get("class_id")
                     ),
                     "prompt": (
                         {
                             "id": int(prompt["id"]),
                             "slide_index": int(prompt["slide_index"]),
                             "kind": str(prompt["kind"]),
-                            "payload": (
-                                student_artifact_payload(raw_payload)
-                                if is_artifact_payload(raw_payload)
-                                else strip_teacher_prompt_fields(raw_payload)
+                            "payload": self._student_public_item_payload(
+                                raw_payload, class_id=session_row.get("class_id")
                             ),
                         }
                         if prompt is not None
@@ -11466,9 +11506,16 @@ class SchoolDB(LovesDB):
             )
         teacher = self.live_session_teacher_state_payload(session_id)
         view = dict(teacher.get("student_view") or {})
-        if view.get("questions") != "student":
-            view["questions"] = "student"
-            self.set_live_session_teacher_state(session_id, student_view=view)
+        frames = dict(teacher.get("student_frames") or {})
+        view["questions"] = "student"
+        view["media"] = "student"
+        frames["questions"] = True
+        frames["media"] = True
+        self.set_live_session_teacher_state(
+            session_id,
+            student_view=view,
+            student_frames=frames,
+        )
         return {
             "prompt": prompt or {},
             "live_item": published,
@@ -14385,7 +14432,13 @@ class SchoolDB(LovesDB):
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
         if questions_mode == "none" and not meet_live:
-            return empty
+            has_artifact = any(
+                is_artifact_payload(row.get("content") or {})
+                or str((row.get("prompt") or {}).get("kind") or "") == ARTIFACT_KIND
+                for row in empty.get("active_questions") or []
+            )
+            if not has_artifact:
+                return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty
         raw_payload = dict(prompt.get("payload") or {})
@@ -14443,10 +14496,11 @@ class SchoolDB(LovesDB):
             )
             if fragment:
                 my_response["feedback"] = fragment
-        if is_artifact_payload(raw_payload):
-            cleaned = student_artifact_payload(raw_payload)
-        else:
-            cleaned = strip_teacher_prompt_fields(raw_payload)
+        prompt_session = self.get_live_session(session_id)
+        cleaned = self._student_public_item_payload(
+            raw_payload,
+            class_id=(prompt_session or {}).get("class_id"),
+        )
         if is_teams_spark_payload(raw_payload):
             ui = teacher.get("mc_ui") if isinstance((teacher or {}).get("mc_ui"), dict) else {}
             revealed = bool(ui.get("reveal") and ui.get("reveal_to_students"))

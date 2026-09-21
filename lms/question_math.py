@@ -312,6 +312,66 @@ def resolve_bank_image_url(image_src: str, *, class_id: int | None = None) -> st
     return src
 
 
+_STAFF_MODULE_FILES_RE = re.compile(r"/staff/class/(\d+)/module-files/")
+_STUDENT_IMAGE_STRING_KEYS = (
+    "image_url",
+    "image_src",
+    "stimulus",
+    "text_html",
+    "stem_html",
+)
+_STUDENT_IMAGE_LIST_KEYS = (
+    "options_html",
+    "options_image_urls",
+)
+
+
+def student_visible_bank_image_url(url: str) -> str:
+    """Rewrite staff-only module-file URLs to the student-accessible twin.
+
+    Bank imports resolve graphs to ``/staff/class/{id}/module-files/...``.
+    Students cannot GET that staff route. The twin
+    ``/api/classes/{id}/module-files/...`` serves the same library blobs
+    to live-session students (same auth pattern as live-question-images).
+    """
+    return _STAFF_MODULE_FILES_RE.sub(
+        r"/api/classes/\1/module-files/",
+        str(url or ""),
+    )
+
+
+def rewrite_student_prompt_images(payload: Any) -> dict[str, Any]:
+    """Copy a prompt payload with staff module-file image URLs rewritten.
+
+    Rewrites ``image_url``, stem/option HTML, and nested ``items`` so
+    published bank questions keep the same graph the staff card shows.
+
+    Args:
+        payload: Student-facing prompt JSON (already stripped of keys).
+    """
+    if not isinstance(payload, dict):
+        return {}
+    out = dict(payload)
+    for key in _STUDENT_IMAGE_STRING_KEYS:
+        value = out.get(key)
+        if isinstance(value, str) and value:
+            out[key] = student_visible_bank_image_url(value)
+    for key in _STUDENT_IMAGE_LIST_KEYS:
+        value = out.get(key)
+        if isinstance(value, list):
+            out[key] = [
+                student_visible_bank_image_url(item) if isinstance(item, str) else item
+                for item in value
+            ]
+    items = out.get("items")
+    if isinstance(items, list):
+        out["items"] = [
+            rewrite_student_prompt_images(item) if isinstance(item, dict) else item
+            for item in items
+        ]
+    return out
+
+
 def _resolve_ingest_html(raw_html: str, *, class_id: int | None) -> str:
     """Rewrite IMSCC file tokens inside one HTML fragment."""
 
@@ -464,7 +524,23 @@ def enrich_live_mc_display(
 
     hero_src = str(live_mc.get("image_src") or live_mc.get("image_url") or "").strip()
     if hero_src:
+        try:
+            from bank_image_mirror import is_remote_bank_image_url, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import (
+                is_remote_bank_image_url,
+                mirror_bank_image_url,
+            )
+        if (
+            school is not None
+            and library_id is not None
+            and is_remote_bank_image_url(hero_src)
+        ):
+            relpath = mirror_bank_image_url(school, int(library_id), hero_src)
+            if relpath:
+                hero_src = relpath
         hero_src = resolve_bank_image_url(hero_src, class_id=class_id)
+        live_mc["image_src"] = hero_src
     if hero_src and _stem_image_is_hero(rich_stem, text, live_mc["text_html"], hero_src):
         live_mc["image_url"] = hero_src
     else:

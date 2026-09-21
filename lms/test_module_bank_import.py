@@ -20,7 +20,14 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from content_store import ContentBlobStore  # noqa: E402
 from school_db import _now  # noqa: E402
+
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
+    b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def _insert_bank(
@@ -51,6 +58,7 @@ def _insert_mc_question(
     title: str,
     stem: str,
     correct_index: int = 0,
+    extra_payload: dict[str, Any] | None = None,
 ) -> int:
     """Insert one multiple-choice question row for tests."""
     choices = [
@@ -64,6 +72,8 @@ def _insert_mc_question(
         "choices": choices,
         "correct_ids": [choices[correct_index]["id"]],
     }
+    if extra_payload:
+        payload.update(extra_payload)
     cur = school.conn.execute(
         """
         INSERT INTO questions (
@@ -164,6 +174,144 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertEqual(len(imported), 1)
         self.assertEqual(imported[0]["text"], "Factor x squared minus one")
         self.assertEqual(imported[0]["correct_answer"], "A")
+
+    def test_student_payload_rewrites_staff_bank_image_urls(self) -> None:
+        """Published bank graphs leave the staff-only module-files path."""
+        question_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-graph",
+            title="Graph",
+            stem=(
+                '<p>Refer to the graph.</p>'
+                '<img src="$IMS-CC-FILEBASE$/diagram.png">'
+            ),
+        )
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_id,
+            library_id=self.library_id,
+            page_number=1,
+            stage="round",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(imported["id"])
+        )
+        with self.school.game._lock:
+            student = self.school.game.conn.execute(
+                "SELECT id FROM students WHERE class_id = ? ORDER BY id ASC",
+                (self.class_id,),
+            ).fetchone()
+        student_id = int(student["id"])
+        self.school.join_live_class_session(
+            self.session_id, student_id, codename="Maple"
+        )
+        payload = self.school.student_live_items_payload(
+            self.session_id, student_id
+        )
+        content = (payload.get("active_questions") or [{}])[0].get("content") or {}
+        blob = json.dumps(content)
+        staff_root = f"/staff/class/{self.class_id}/module-files/"
+        student_root = f"/api/classes/{self.class_id}/module-files/"
+        self.assertIn("<img", str(content.get("text_html") or ""))
+        self.assertIn(student_root, blob)
+        self.assertNotIn(staff_root, blob)
+
+    def test_student_payload_remirrors_leftover_canvas_images(self) -> None:
+        """Stored Instructure imgs remirror onto the student module-files URL."""
+        remote = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "70463/files/188452/download?verifier=test"
+        )
+        question_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-canvas-graph",
+            title="Canvas graph",
+            stem=f'<p>Refer to the graph.</p><img src="{remote}">',
+        )
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_id,
+            library_id=self.library_id,
+            page_number=1,
+            stage="round",
+        )
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        stored = store.put_bytes(
+            _TINY_PNG, filename="web_resources/diagram.png", mime="image/png"
+        )
+        try:
+            from bank_image_mirror import ensure_bank_image_cache_schema
+        except ImportError:
+            from lms.bank_image_mirror import ensure_bank_image_cache_schema
+        ensure_bank_image_cache_schema(self.school)
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                self.library_id,
+                "web_resources/diagram.png",
+                stored.sha256,
+                _now(),
+            ),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO bank_image_cache (
+                library_id, source_url, relpath, blob_sha, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                self.library_id,
+                remote,
+                "web_resources/diagram.png",
+                stored.sha256,
+                _now(),
+            ),
+        )
+        self.school.conn.commit()
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(imported["id"])
+        )
+        with self.school.game._lock:
+            student = self.school.game.conn.execute(
+                "SELECT id FROM students WHERE class_id = ? ORDER BY id ASC",
+                (self.class_id,),
+            ).fetchone()
+        student_id = int(student["id"])
+        self.school.join_live_class_session(
+            self.session_id, student_id, codename="Maple"
+        )
+        payload = self.school.student_live_items_payload(
+            self.session_id, student_id
+        )
+        content = (payload.get("active_questions") or [{}])[0].get("content") or {}
+        blob = json.dumps(content)
+        self.assertIn(
+            f"/api/classes/{self.class_id}/module-files/web_resources/diagram.png",
+            blob,
+        )
+        self.assertNotIn("instructure.com", blob)
+        self.assertNotIn(f"/staff/class/{self.class_id}/module-files/", blob)
 
     def test_import_creates_lifecycle_row_on_active_session(self) -> None:
         """Import during an active session seeds a new lifecycle placement."""
@@ -824,6 +972,108 @@ class ModuleBankImportApiTests(unittest.TestCase):
             for row in (body.get("live_metadata") or {}).get("questions") or []
         ]
         self.assertIn(str(item.get("id") or ""), ids)
+
+    def _put_library_png(self, relpath: str = "web_resources/diagram.png") -> None:
+        """Store one PNG in the class library blob store for image-route tests."""
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        stored = store.put_bytes(_TINY_PNG, filename=relpath, mime="image/png")
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, relpath, stored.sha256, _now()),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO module_outlines (
+                library_id, import_key, title, position, created_at
+            ) VALUES (?, 'mod1', 'Module 1', 1, ?)
+            """,
+            (self.library_id, _now()),
+        )
+        self.school.conn.commit()
+
+    def _join_maple_student(self) -> Any:
+        """Return a student test client after Maple joins the live session."""
+        live = self.school.get_live_session(self.session_id)
+        assert live is not None
+        student = self.app.test_client()
+        join = student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertEqual(join.status_code, 302, join.headers.get("Location"))
+        student.post("/student/mood", data={"mood": "good"})
+        student.post("/student/character", data={"character": "fox"})
+        return student
+
+    def test_student_can_get_rewritten_bank_module_file(self) -> None:
+        """Student GET of the rewritten module-files URL returns the graph."""
+        self._put_library_png()
+        question_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-graph-http",
+            title="Graph HTTP",
+            stem=(
+                '<p>Refer to the graph.</p>'
+                '<img src="$IMS-CC-FILEBASE$/diagram.png">'
+            ),
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C2", stage="round"
+        )
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_id,
+            library_id=self.library_id,
+            page_number=1,
+            stage="round",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(imported["id"])
+        )
+        student = self._join_maple_student()
+        state = student.get("/api/student/state").get_json() or {}
+        cards = state.get("active_questions") or []
+        self.assertTrue(cards, state)
+        blob = json.dumps(cards[0].get("content") or {})
+        public_url = (
+            f"/api/classes/{self.class_id}/module-files/web_resources/diagram.png"
+        )
+        self.assertIn(public_url, blob)
+        self.assertNotIn(f"/staff/class/{self.class_id}/module-files/", blob)
+        rv = student.get(public_url)
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.get_data(), _TINY_PNG)
+        blocked = student.get(
+            f"/staff/class/{self.class_id}/module-files/web_resources/diagram.png"
+        )
+        self.assertIn(blocked.status_code, {302, 403})
+        anon = self.app.test_client()
+        self.assertEqual(anon.get(public_url).status_code, 403)
+
+    def test_student_can_get_live_question_image(self) -> None:
+        """Staff-authored live-question-images are GET-able by the student."""
+        stored = self.school.store_live_question_image(
+            self.class_id, _TINY_PNG, filename="graph.png"
+        )
+        student = self._join_maple_student()
+        rv = student.get(stored["image_url"])
+        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.get_data(), _TINY_PNG)
+        anon = self.app.test_client()
+        self.assertEqual(anon.get(stored["image_url"]).status_code, 403)
 
 
 if __name__ == "__main__":

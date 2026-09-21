@@ -1464,6 +1464,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("function namedScoreboardTeams(", js)
         self.assertIn("function promptAsLifecycleItem(", js)
         self.assertIn("function isLeftoverJoinMindsOnCard(", js)
+        self.assertIn("function isArtifactLifecycleItem(", js)
+        self.assertIn("function formatPromptHtml(", js)
         self.assertIn("data-live-prompt-id", js)
         self.assertIn("promptIdFromCard", js)
         self.assertIn(".student-team-distribution", css)
