@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import sys
 import threading
 from datetime import date, timedelta
@@ -3724,7 +3725,22 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         token = visit_token_from_request()
         if token:
-            attendee = school.touch_live_session_heartbeat(token)
+            try:
+                attendee = school.touch_live_session_heartbeat(token)
+            except sqlite3.OperationalError as exc:
+                # Same lock the heartbeat route can see. JSON keeps the last
+                # painted Artifact frame; the portal shows Reconnecting… / Retry.
+                if "locked" not in str(exc).lower() or not as_json:
+                    raise
+                logger.exception("student /state sqlite lock")
+                return jsonify(
+                    {
+                        "ok": True,
+                        "error": "state unavailable",
+                        "status": "waiting",
+                        "retry": True,
+                    }
+                )
             if attendee is not None:
                 return None
             return _ended_student_response(as_json=as_json)

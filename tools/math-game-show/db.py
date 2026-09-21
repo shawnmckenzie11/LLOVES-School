@@ -655,31 +655,59 @@ def parse_codename_column_csv(text: str) -> list[str]:
 class GameShowDB:
     """Thread-safe SQLite access for classes, sessions, and live games."""
 
-    def __init__(self, db_path: Path, data_dir: Path) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        data_dir: Path,
+        lock: threading.RLock | None = None,
+    ) -> None:
         """Open (or create) the app database.
 
         Args:
             db_path: Path to ``app.sqlite``.
             data_dir: Root for uploads and JSONL logs.
+            lock: Process lock shared with the school connection when both
+                open the same LLOVES file. Standalone Game Show keeps its own.
         """
         self.db_path = db_path
         self.data_dir = data_dir
         self.logs_dir = data_dir / "logs"
         self.uploads_dir = data_dir / "uploads"
-        self._lock = threading.RLock()
+        self._lock = lock if lock is not None else threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA busy_timeout=30000")
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode = WAL")
+        self.conn = sqlite3.connect(
+            str(db_path),
+            check_same_thread=False,
+            timeout=30,
+            isolation_level=None,
+        )
+        self._configure_sqlite(self.conn)
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.commit()
         # Short stampede cache: class id → (monotonic time, membership index).
         self._team_index_cache: dict[int, tuple[float, dict[str, Any]]] = {}
+
+    def _configure_sqlite(self, conn: sqlite3.Connection) -> None:
+        """Autocommit + WAL so this connection cannot pin the shared file.
+
+        LLOVES opens a second connection (school tables) on the same path.
+        A legacy implicit transaction here makes student ``/state`` and
+        heartbeat raise ``database is locked``.
+
+        Args:
+            conn: Connection just opened on ``db_path``.
+        """
+        conn.isolation_level = None
+        if hasattr(conn, "autocommit"):
+            conn.autocommit = True
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL").fetchone()
+        conn.execute("PRAGMA synchronous = NORMAL")
 
     def _migrate(self) -> None:
         """Add columns introduced after the first schema.

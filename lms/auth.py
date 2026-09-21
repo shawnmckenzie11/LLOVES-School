@@ -1040,10 +1040,23 @@ def register_auth_routes(app: Flask) -> None:
 
         from student_portal import visit_token_from_request
 
+        import sqlite3
+
         token = visit_token_from_request()
         if not token:
             return jsonify({"ok": False, "error": "Missing visit token."}), 401
-        attendee = school_db().touch_live_session_heartbeat(token)
+        try:
+            attendee = school_db().touch_live_session_heartbeat(token)
+        except sqlite3.OperationalError as exc:
+            # Last resort if a writer still holds the file. The student page
+            # keeps the last frame and shows Reconnecting… / Retry. It must
+            # not receive Flask's HTML 500 ("server overloaded").
+            if "locked" not in str(exc).lower():
+                raise
+            current_app.logger.exception("student heartbeat sqlite lock")
+            return jsonify(
+                {"ok": False, "error": "Reconnecting…", "retry": True}
+            ), 503
         if attendee is None:
             return jsonify({"ok": False, "error": "Session ended.", "redirect": url_for("landing")}), 401
         return jsonify({"ok": True, "present": True})

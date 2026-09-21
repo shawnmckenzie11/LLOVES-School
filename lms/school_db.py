@@ -725,18 +725,34 @@ SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 
 def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Wait on writers instead of failing immediately under class load.
+    """Keep one sqlite file usable by the school and game-show connections.
+
+    Fly alc is a single machine with ``lloves.sqlite`` on the volume. School
+    tables and Math Game Show tables are two connections on that file.
+    Python's legacy isolation mode starts a transaction on UPDATE/INSERT and
+    holds the reserved lock until ``commit()``. The other connection then
+    raises ``database is locked`` on ``GET /api/student/state`` and
+    ``POST /api/student/heartbeat`` while an Artifact is open. Autocommit
+    drops that lock at the end of each statement. WAL lets a poll read
+    during a heartbeat write. ``busy_timeout`` covers a second process
+    (a one-off script), not a second Fly machine — the volume mounts once.
 
     Args:
         conn: Open sqlite connection.
 
     Returns:
-        The same connection after busy-timeout and WAL are set.
+        The same connection after autocommit, busy-timeout, and WAL are set.
     """
+    conn.isolation_level = None
+    if hasattr(conn, "autocommit"):
+        conn.autocommit = True
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    # WAL's recommended companion. A statement no longer fsyncs the whole
+    # file, so a heartbeat write does not sit on the reserved lock.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -1010,7 +1026,10 @@ class LovesDB:
         self._sweep_at: dict[int, float] = {}
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(
-            str(db_path), check_same_thread=False, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000
+            str(db_path),
+            check_same_thread=False,
+            timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+            isolation_level=None,
         )
         configure_sqlite_connection(self.conn)
         self.conn.executescript(SCHEMA)
@@ -4755,7 +4774,10 @@ class SchoolDB(LovesDB):
         mod = importlib.util.module_from_spec(spec)
         sys.modules.setdefault("mgs_db", mod)
         spec.loader.exec_module(mod)
-        self.game = mod.GameShowDB(path, store)
+        # One lock for both connections. Two gunicorn threads must not use
+        # the shared file at once: a school write and a game write otherwise
+        # raise "database is locked" on the live-class polls.
+        self.game = mod.GameShowDB(path, store, lock=self._lock)
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[

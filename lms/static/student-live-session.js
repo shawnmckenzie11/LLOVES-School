@@ -24,7 +24,20 @@
   }
 
   /**
+   * Tell the live page the link dropped or recovered.
+   * The portal keeps the last painted frame and toggles Reconnecting… / Retry.
+   * @param {boolean} ok
+   */
+  function noteLink(ok) {
+    window.__llovesLiveLinkOk = ok;
+    document.dispatchEvent(
+      new CustomEvent("lloves-live-link", { detail: { ok: ok } })
+    );
+  }
+
+  /**
    * POST a presence heartbeat for this tab's attendee.
+   * A failed beat does not navigate. The home page stays on the last frame.
    */
   function sendHeartbeat() {
     var url = "/api/student/heartbeat";
@@ -49,12 +62,19 @@
         credentials: "same-origin",
         headers: headers,
         body: body,
-      });
+      })
+        .then(function (res) {
+          noteLink(res.ok);
+        })
+        .catch(function () {
+          noteLink(false);
+        });
     } catch (_err2) {
-      /* ignore */
+      noteLink(false);
     }
   }
 
+  document.addEventListener("lloves-live-retry", sendHeartbeat);
   sendHeartbeat();
   window.setInterval(sendHeartbeat, HEARTBEAT_MS);
   document.addEventListener("visibilitychange", function () {
