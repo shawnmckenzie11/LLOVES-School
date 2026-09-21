@@ -84,6 +84,10 @@ const dismissedPromptIds = new Set();
 const dockedLiveCardKeys = new Set();
 /** Question cards closed with × — removed from the student view, not docked. */
 const dismissedLiveCardKeys = new Set();
+/** Floating panes currently following a held pointer. Do not remount or hide. */
+const activePaneDrags = new Set();
+/** Original parent/sibling so Reset can put a reparented card back. */
+const paneHomes = new WeakMap();
 /** Unsaved per-card answers preserved across state polls. */
 const liveCardDrafts = new Map();
 /** In-flight lifecycle submit keys (`itemId:action`) to block double posts. */
@@ -778,7 +782,62 @@ function paintStudentSlides(payload) {
 }
 
 /**
+ * True while a pane is pinned to a held pointer.
+ * @param {HTMLElement | null} pane
+ * @returns {boolean}
+ */
+function paneIsBeingGrabbed(pane) {
+  return pane instanceof HTMLElement && activePaneDrags.has(pane);
+}
+
+/**
+ * Remember where a card lived before it was lifted onto the workspace.
+ * @param {HTMLElement} pane
+ */
+function rememberPaneHome(pane) {
+  if (paneHomes.has(pane)) return;
+  paneHomes.set(pane, { parent: pane.parentElement, next: pane.nextSibling });
+}
+
+/**
+ * Put a Reset pane back in the question stack (or wherever it started).
+ * @param {HTMLElement} pane
+ */
+function restorePaneHome(pane) {
+  const home = paneHomes.get(pane);
+  paneHomes.delete(pane);
+  if (!home?.parent || home.parent === pane.parentElement) return;
+  if (home.next && home.next.parentNode === home.parent) {
+    home.parent.insertBefore(pane, home.next);
+  } else {
+    home.parent.appendChild(pane);
+  }
+}
+
+/**
+ * Clamp a floated box so it stays inside the student workspace.
+ * @param {DOMRect} hostRect
+ * @param {number} left
+ * @param {number} top
+ * @param {number} width
+ * @param {number} height
+ * @returns {{left: number, top: number}}
+ */
+function clampPaneToHost(hostRect, left, top, width, height) {
+  const maxLeft = Math.max(0, hostRect.width - Math.min(width, hostRect.width));
+  const maxTop = Math.max(0, hostRect.height - Math.min(height, hostRect.height));
+  return {
+    left: Math.max(0, Math.min(maxLeft, left)),
+    top: Math.max(0, Math.min(maxTop, top)),
+  };
+}
+
+/**
  * Float a projected pane at its current position inside the student workspace.
+ *
+ * Question cards live in a narrow absolute stack. Reparent onto `#live-response`
+ * so left/top match the host and the card cannot jump off-workspace.
+ *
  * @param {HTMLElement} pane
  * @param {HTMLElement} host
  * @returns {{hostRect: DOMRect, paneRect: DOMRect}}
@@ -786,11 +845,25 @@ function paintStudentSlides(payload) {
 function floatPaneAtCurrentPosition(pane, host) {
   const hostRect = host.getBoundingClientRect();
   const paneRect = pane.getBoundingClientRect();
+  const width = Math.max(1, paneRect.width);
+  const height = Math.max(1, paneRect.height);
+  if (pane.parentElement !== host) {
+    rememberPaneHome(pane);
+    host.appendChild(pane);
+  }
+  pane.hidden = false;
   pane.classList.add("is-floating");
-  pane.style.left = `${paneRect.left - hostRect.left}px`;
-  pane.style.top = `${paneRect.top - hostRect.top}px`;
-  pane.style.width = `${paneRect.width}px`;
-  pane.style.height = `${paneRect.height}px`;
+  const placed = clampPaneToHost(
+    hostRect,
+    paneRect.left - hostRect.left,
+    paneRect.top - hostRect.top,
+    width,
+    height
+  );
+  pane.style.left = `${placed.left}px`;
+  pane.style.top = `${placed.top}px`;
+  pane.style.width = `${width}px`;
+  pane.style.height = `${height}px`;
   return { hostRect, paneRect };
 }
 
@@ -800,18 +873,22 @@ function floatPaneAtCurrentPosition(pane, host) {
  */
 function bindFloatingPane(pane) {
   if (!(pane instanceof HTMLElement)) return;
+  if (pane.dataset.paneBound === "1") return;
   const host = document.getElementById("live-response");
   const handle = pane.querySelector("[data-pane-drag]");
   const resizeHandle = pane.querySelector("[data-pane-resize]");
   const reset = pane.querySelector("[data-pane-reset]");
   if (!(host instanceof HTMLElement) || !(handle instanceof HTMLElement)) return;
+  pane.dataset.paneBound = "1";
   let drag = null;
   let resizeDrag = null;
   const resetPane = () => {
-    pane.classList.remove("is-floating");
+    activePaneDrags.delete(pane);
+    pane.classList.remove("is-floating", "is-pane-dragging");
     for (const prop of ["left", "top", "width", "height"]) {
       pane.style.removeProperty(prop);
     }
+    restorePaneHome(pane);
   };
   reset?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -819,46 +896,63 @@ function bindFloatingPane(pane) {
   });
   handle.addEventListener("pointerdown", (event) => {
     if (window.innerWidth < 720 || event.target.closest("button")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const paneRect = pane.getBoundingClientRect();
     drag = {
+      pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      left: 0,
-      top: 0,
+      grabX: event.clientX - paneRect.left,
+      grabY: event.clientY - paneRect.top,
       pending: true,
     };
     handle.setPointerCapture(event.pointerId);
   });
-  handle.addEventListener("pointermove", (event) => {
-    if (!drag) return;
+  /**
+   * Follow the pointer once the grab clears the ~4px click threshold.
+   * @param {PointerEvent} event
+   */
+  const onPanePointerMove = (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
     if (drag.pending) {
       if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
-      const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+      floatPaneAtCurrentPosition(pane, host);
       drag.pending = false;
-      drag.left = paneRect.left - hostRect.left;
-      drag.top = paneRect.top - hostRect.top;
-      drag.x = event.clientX;
-      drag.y = event.clientY;
+      pane.classList.add("is-pane-dragging");
+      activePaneDrags.add(pane);
     }
     const hostRect = host.getBoundingClientRect();
-    const width = pane.offsetWidth;
-    const height = pane.offsetHeight;
-    const left = Math.max(
-      0,
-      Math.min(hostRect.width - Math.min(width, hostRect.width), drag.left + event.clientX - drag.x)
+    const width = Math.max(1, pane.offsetWidth || pane.getBoundingClientRect().width);
+    const height = Math.max(1, pane.offsetHeight || pane.getBoundingClientRect().height);
+    const placed = clampPaneToHost(
+      hostRect,
+      event.clientX - hostRect.left - drag.grabX,
+      event.clientY - hostRect.top - drag.grabY,
+      width,
+      height
     );
-    const top = Math.max(
-      0,
-      Math.min(hostRect.height - Math.min(height, hostRect.height), drag.top + event.clientY - drag.y)
-    );
-    pane.style.left = `${left}px`;
-    pane.style.top = `${top}px`;
-  });
+    pane.hidden = false;
+    pane.style.left = `${placed.left}px`;
+    pane.style.top = `${placed.top}px`;
+  };
+  handle.addEventListener("pointermove", onPanePointerMove);
+  /**
+   * Drop the grab. A click (still pending) must not undock, hide, or float.
+   * pointercancel also keeps the pane visible.
+   * @param {PointerEvent} event
+   */
   const endDrag = (event) => {
-    if (!drag) return;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const wasPending = drag.pending;
     drag = null;
+    pane.classList.remove("is-pane-dragging");
+    activePaneDrags.delete(pane);
     if (handle.hasPointerCapture(event.pointerId)) {
       handle.releasePointerCapture(event.pointerId);
     }
+    if (wasPending) return;
+    pane.hidden = false;
   };
   handle.addEventListener("pointerup", endDrag);
   handle.addEventListener("pointercancel", endDrag);
@@ -924,20 +1018,27 @@ function applyTeacherProjection(payload) {
   }
   if (canvasPane) {
     const docked = dockedLiveCardKeys.has("surface:canvas");
-    canvasPane.hidden = !proj.canvas || docked;
+    if (!paneIsBeingGrabbed(canvasPane)) {
+      canvasPane.hidden = !proj.canvas || docked;
+    }
     canvasPane.classList.toggle("is-readonly", proj.canvas && proj.canvasAlign === "teacher");
     if (canvasLock) canvasLock.hidden = true;
   }
   if (mediaPane) {
     mediaPane.classList.remove("is-locked");
     if (mediaLock) mediaLock.hidden = true;
-    if (!proj.media || dockedLiveCardKeys.has("surface:media")) {
+    if (
+      !paneIsBeingGrabbed(mediaPane) &&
+      (!proj.media || dockedLiveCardKeys.has("surface:media"))
+    ) {
       mediaPane.hidden = true;
       unmountStudentMedia();
     }
   }
   if (slidesPane) {
-    slidesPane.hidden = !proj.slides || dockedLiveCardKeys.has("surface:slides");
+    if (!paneIsBeingGrabbed(slidesPane)) {
+      slidesPane.hidden = !proj.slides || dockedLiveCardKeys.has("surface:slides");
+    }
     if (proj.slides && !dockedLiveCardKeys.has("surface:slides")) paintStudentSlides(payload);
   }
   return proj;
@@ -1162,7 +1263,7 @@ function paintMedia(payload) {
     }
   }
   if (!mediaPane || !mediaFrame) return;
-  if (dockedLiveCardKeys.has("surface:media")) {
+  if (dockedLiveCardKeys.has("surface:media") && !paneIsBeingGrabbed(mediaPane)) {
     mediaPane.hidden = true;
     return;
   }
@@ -1587,11 +1688,12 @@ function lifecycleAnswerControls(item, action, initial = null) {
     const keys = Array.isArray(content.slider_keys) ? content.slider_keys : ["a", "h", "k"];
     const snapshot = content.snapshot && typeof content.snapshot === "object" ? content.snapshot : {};
     const showMeters = Boolean(content.hot_cold_visible);
+    const accuracyMargin = artifactAccuracyMargin(content);
     const meters = showMeters
       ? keys
           .map((key) => {
             const target = Number(snapshot[key] ?? 0);
-            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}" data-accuracy-margin="${accuracyMargin}">
           <span class="hot-cold-key">${escapeText(key)}</span>
           <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
         </div>`;
@@ -1792,6 +1894,13 @@ function isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) {
 
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
+  const grabbedCard = [...activePaneDrags].find((el) =>
+    el instanceof HTMLElement && el.classList.contains("student-live-card")
+  );
+  if (grabbedCard) {
+    liveQuestionStack.hidden = false;
+    return;
+  }
   let active = Array.isArray(payload?.active_questions)
     ? payload.active_questions
     : [];
@@ -1838,7 +1947,20 @@ function paintLifecycleQuestionStack(payload) {
     return !dismissedLiveCardKeys.has(key) && !dockedLiveCardKeys.has(key);
   });
   paintQuestionDock(all, payload);
-  liveQuestionStackBody.innerHTML = visible
+  const floatingCards = new Map();
+  document.querySelectorAll(".student-live-card.is-floating").forEach((card) => {
+    const key = card instanceof HTMLElement ? card.dataset.liveCardKey || "" : "";
+    if (key) floatingCards.set(key, card);
+  });
+  const visibleKeys = new Set(visible.map((item) => liveCardDockKey(item)));
+  floatingCards.forEach((card, key) => {
+    if (!visibleKeys.has(key) && !paneIsBeingGrabbed(card)) {
+      card.remove();
+      floatingCards.delete(key);
+    }
+  });
+  const stacked = visible.filter((item) => !floatingCards.has(liveCardDockKey(item)));
+  liveQuestionStackBody.innerHTML = stacked
     .map((item) => {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
@@ -1900,9 +2022,12 @@ function paintLifecycleQuestionStack(payload) {
     .join("");
   void renderLiveQuestionMath(liveQuestionStackBody);
   visible.forEach((item, index) => {
-    const card = liveQuestionStackBody.querySelector(
-      `[data-live-card-key="${CSS.escape(liveCardDockKey(item))}"]`
-    );
+    const key = liveCardDockKey(item);
+    const card =
+      floatingCards.get(key) ||
+      liveQuestionStackBody.querySelector(
+        `[data-live-card-key="${CSS.escape(key)}"]`
+      );
     if (card instanceof HTMLElement) {
       card.style.setProperty("--live-card-offset", String(index));
       bindFloatingPane(card);
@@ -2260,11 +2385,12 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     const keys = Array.isArray(data.slider_keys) ? data.slider_keys : ["a", "h", "k"];
     const snapshot = data.snapshot && typeof data.snapshot === "object" ? data.snapshot : {};
     const showMeters = Boolean(data.hot_cold_visible);
+    const accuracyMargin = artifactAccuracyMargin(data);
     const meters = showMeters
       ? keys
           .map((key) => {
             const target = Number(snapshot[key] ?? 0);
-            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}">
+            return `<div class="hot-cold-row" data-meter="${escapeText(key)}" data-target="${escapeText(target)}" data-accuracy-margin="${accuracyMargin}">
           <span class="hot-cold-key">${escapeText(key)}</span>
           <span class="hot-cold-track"><span class="hot-cold-fill"></span></span>
         </div>`;
@@ -2402,18 +2528,33 @@ function wirePromptControls(prompt) {
 }
 
 /**
+ * Artifact match band from a minted payload. Only 10% or 20%.
+ * @param {any} content
+ * @returns {number}
+ */
+function artifactAccuracyMargin(content) {
+  const raw = content && typeof content === "object" ? content.accuracy_margin : 0.1;
+  const number = Number(raw);
+  return Math.abs(number - 0.2) < 0.001 ? 0.2 : 0.1;
+}
+
+/**
  * Live hot/cold chrome for one Artifact slider. Silent — no chatter.
  * @param {string} key
  * @param {number} student
  * @param {number} target
+ * @param {number} [margin]
  */
-function paintHotColdMeter(key, student, target) {
-  const roots = [promptShell, liveQuestionStack].filter(Boolean);
+function paintHotColdMeter(key, student, target, margin) {
+  const host = document.getElementById("live-response");
+  const roots = host ? [host] : [promptShell, liveQuestionStack].filter(Boolean);
   for (const root of roots) {
     root.querySelectorAll(`[data-meter="${key}"]`).forEach((row) => {
       const fill = row.querySelector(".hot-cold-fill");
       if (!(fill instanceof HTMLElement)) return;
-      const allowed = 0.1 * Math.max(Math.abs(target), 1);
+      const rowMargin = Number(row.getAttribute("data-accuracy-margin") || margin || 0.1);
+      const allowed =
+        (Math.abs(rowMargin - 0.2) < 0.001 ? 0.2 : 0.1) * Math.max(Math.abs(target), 1);
       const err = Math.abs(Number(student) - Number(target));
       row.classList.remove(
         "is-cold",
@@ -2559,7 +2700,8 @@ function applyArtifactPreview(sliders) {
   });
   lastArtifactSliders = next;
   postArtifactSliderPreview(lastArtifactSliders);
-  const roots = [promptShell, liveQuestionStack].filter(Boolean);
+  const host = document.getElementById("live-response");
+  const roots = host ? [host] : [promptShell, liveQuestionStack].filter(Boolean);
   if (!roots.length) return;
   roots.forEach((root) => {
     root.querySelectorAll("[data-meter]").forEach((row) => {
@@ -3092,21 +3234,88 @@ async function tick() {
     } else if (!data.prompt) {
       paintPrompt(data);
     }
-    paintLifecycleQuestionStack(data);
+    if (![...activePaneDrags].some((el) => el.classList.contains("student-live-card"))) {
+      paintLifecycleQuestionStack(data);
+    }
   } catch (_err) {
     /* keep last paint */
   }
 }
 
 document.getElementById("live-response")?.addEventListener("click", (event) => {
-  const dismiss = event.target.closest("[data-dismiss-surface]");
-  if (!(dismiss instanceof HTMLButtonElement)) return;
-  event.preventDefault();
-  dockedLiveCardKeys.add(`surface:${dismiss.dataset.dismissSurface || ""}`);
-  if (lastStudentPayload) {
-    applyTeacherProjection(lastStudentPayload);
-    paintMedia(lastStudentPayload);
-    paintLifecycleQuestionStack(lastStudentPayload);
+  const dismissSurface = event.target.closest("[data-dismiss-surface]");
+  if (dismissSurface instanceof HTMLButtonElement) {
+    event.preventDefault();
+    dockedLiveCardKeys.add(`surface:${dismissSurface.dataset.dismissSurface || ""}`);
+    if (lastStudentPayload) {
+      applyTeacherProjection(lastStudentPayload);
+      paintMedia(lastStudentPayload);
+      paintLifecycleQuestionStack(lastStudentPayload);
+    }
+    return;
+  }
+  if (
+    event.target.closest("[data-pane-drag]") &&
+    !event.target.closest("button")
+  ) {
+    event.preventDefault();
+    return;
+  }
+  const choice = event.target.closest("[data-live-choice]");
+  if (choice instanceof HTMLButtonElement) {
+    const controls = choice.closest(".student-live-answer-controls");
+    controls?.querySelectorAll("[data-live-choice]").forEach((button) => {
+      button.classList.toggle("is-selected", button === choice);
+    });
+    const card = choice.closest("[data-live-card-id]");
+    const action = controls?.getAttribute("data-live-action") || "individual";
+    if (card instanceof HTMLElement) {
+      liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, {
+        choice: choice.getAttribute("data-live-choice") || "",
+      });
+    }
+    return;
+  }
+  const dismissCard = event.target.closest("[data-dismiss-live-card]");
+  if (dismissCard instanceof HTMLButtonElement) {
+    event.stopPropagation();
+    dismissedLiveCardKeys.add(dismissCard.dataset.dismissLiveCard || "");
+    const floating = dismissCard.closest(".student-live-card");
+    if (floating instanceof HTMLElement && floating.classList.contains("is-floating")) {
+      floating.remove();
+    }
+    paintLifecycleQuestionStack(lastStudentPayload || {});
+    return;
+  }
+  const submit = event.target.closest("[data-live-submit]");
+  const card = submit?.closest("[data-live-card-id]");
+  if (!(submit instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
+  if (submit.disabled) return;
+  submit.disabled = true;
+  submitLifecycleAnswer(card, submit.dataset.liveSubmit || "individual")
+    .catch((err) => {
+      let note = card.querySelector(".student-live-submit-error");
+      if (!note) {
+        note = document.createElement("p");
+        note.className = "student-live-submit-error";
+        card.appendChild(note);
+      }
+      note.textContent = err instanceof Error ? err.message : "Could not submit.";
+      submit.disabled = false;
+    });
+});
+document.getElementById("live-response")?.addEventListener("input", (event) => {
+  const field = event.target;
+  const card = field.closest?.("[data-live-card-id]");
+  const controls = field.closest?.("[data-live-action]");
+  if (!(card instanceof HTMLElement) || !(controls instanceof HTMLElement)) return;
+  const key = `${Number(card.dataset.liveCardId)}:${
+    controls.dataset.liveAction || "individual"
+  }`;
+  if (field instanceof HTMLInputElement) {
+    liveCardDrafts.set(key, { value: field.value });
+  } else if (field instanceof HTMLTextAreaElement) {
+    liveCardDrafts.set(key, { text: field.value });
   }
 });
 
@@ -3119,62 +3328,6 @@ if (studentQuestionDock) {
       applyTeacherProjection(lastStudentPayload);
       paintMedia(lastStudentPayload);
       paintLifecycleQuestionStack(lastStudentPayload);
-    }
-  });
-}
-if (liveQuestionStack) {
-  liveQuestionStack.addEventListener("click", (event) => {
-    const choice = event.target.closest("[data-live-choice]");
-    if (choice instanceof HTMLButtonElement) {
-      const controls = choice.closest(".student-live-answer-controls");
-      controls?.querySelectorAll("[data-live-choice]").forEach((button) => {
-        button.classList.toggle("is-selected", button === choice);
-      });
-      const card = choice.closest("[data-live-card-id]");
-      const action = controls?.getAttribute("data-live-action") || "individual";
-      if (card instanceof HTMLElement) {
-        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, {
-          choice: choice.getAttribute("data-live-choice") || "",
-        });
-      }
-      return;
-    }
-    const dismiss = event.target.closest("[data-dismiss-live-card]");
-    if (dismiss instanceof HTMLButtonElement) {
-      event.stopPropagation();
-      dismissedLiveCardKeys.add(dismiss.dataset.dismissLiveCard || "");
-      paintLifecycleQuestionStack(lastStudentPayload || {});
-      return;
-    }
-    const submit = event.target.closest("[data-live-submit]");
-    const card = submit?.closest("[data-live-card-id]");
-    if (!(submit instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
-    if (submit.disabled) return;
-    submit.disabled = true;
-    submitLifecycleAnswer(card, submit.dataset.liveSubmit || "individual")
-      .catch((err) => {
-        let note = card.querySelector(".student-live-submit-error");
-        if (!note) {
-          note = document.createElement("p");
-          note.className = "student-live-submit-error";
-          card.appendChild(note);
-        }
-        note.textContent = err instanceof Error ? err.message : "Could not submit.";
-        submit.disabled = false;
-      });
-  });
-  liveQuestionStack.addEventListener("input", (event) => {
-    const field = event.target;
-    const card = field.closest?.("[data-live-card-id]");
-    const controls = field.closest?.("[data-live-action]");
-    if (!(card instanceof HTMLElement) || !(controls instanceof HTMLElement)) return;
-    const key = `${Number(card.dataset.liveCardId)}:${
-      controls.dataset.liveAction || "individual"
-    }`;
-    if (field instanceof HTMLInputElement) {
-      liveCardDrafts.set(key, { value: field.value });
-    } else if (field instanceof HTMLTextAreaElement) {
-      liveCardDrafts.set(key, { text: field.value });
     }
   });
 }

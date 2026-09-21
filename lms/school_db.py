@@ -11175,6 +11175,7 @@ class SchoolDB(LovesDB):
         slide_index: int | None = None,
         hot_cold_visible: Any = None,
         group_q: Any = None,
+        accuracy_margin: Any = None,
     ) -> dict[str, Any]:
         """Mint a fresh Artifact Question on the current live-class page.
 
@@ -11192,6 +11193,7 @@ class SchoolDB(LovesDB):
             slide_index: Optional page number override.
             hot_cold_visible: Students see slider heat hints when true.
             group_q: Submit waits for every teammate to match when groups run.
+            accuracy_margin: Match band ``0.10`` or ``0.20`` (default 10%).
 
         Returns:
             ``{prompt, live_item, question_cards, active_media}``.
@@ -11253,6 +11255,7 @@ class SchoolDB(LovesDB):
             slide_index=int(page_number),
             hot_cold_visible=hot_cold_visible,
             group_q=group_q,
+            accuracy_margin=accuracy_margin,
         )
         stem = str(payload.get("stem") or TRANSFORMATIONS_STEM)
         item_id = f"artifact-match-{uuid.uuid4().hex}"
@@ -11353,6 +11356,7 @@ class SchoolDB(LovesDB):
                 "target_mode": payload["target_mode"],
                 "hot_cold_visible": payload.get("hot_cold_visible"),
                 "group_q": payload.get("group_q"),
+                "accuracy_margin": payload.get("accuracy_margin"),
             }
         )
         media_url = str(payload.get("media_url") or C2_TRANSFORM_MEDIA_URL)
@@ -11528,7 +11532,7 @@ class SchoolDB(LovesDB):
     def sync_artifact_teacher_flags(
         self, session_id: int, artifact: Any
     ) -> None:
-        """Copy Show hot/cold and Group Q from media onto the active prompt.
+        """Copy Show hot/cold, Group Q, and accuracy from media onto the prompt.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11536,7 +11540,11 @@ class SchoolDB(LovesDB):
         """
         if not isinstance(artifact, dict):
             return
-        if artifact.get("hot_cold_visible") is None and artifact.get("group_q") is None:
+        if (
+            artifact.get("hot_cold_visible") is None
+            and artifact.get("group_q") is None
+            and artifact.get("accuracy_margin") is None
+        ):
             return
         prompt = self.get_active_live_prompt(session_id)
         if prompt is None:
@@ -11548,6 +11556,7 @@ class SchoolDB(LovesDB):
             dict(payload),
             hot_cold_visible=artifact.get("hot_cold_visible"),
             group_q=artifact.get("group_q"),
+            accuracy_margin=artifact.get("accuracy_margin"),
         )
         self.set_live_session_prompt(
             session_id,

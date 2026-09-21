@@ -101,7 +101,8 @@
       border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
     .teacher-bar.is-on { display: flex; }
-    .teacher-bar label {
+    .teacher-bar label,
+    .acc-toggle {
       display: flex;
       align-items: center;
       gap: 0.3rem;
@@ -154,6 +155,11 @@
         <button type="button" id="t-random">Random</button>
         <label for="t-hot-cold"><input id="t-hot-cold" type="checkbox"> Show hot/cold sliders</label>
         <label for="t-group-q"><input id="t-group-q" type="checkbox"> Group Q</label>
+        <span class="acc-toggle" role="group" aria-label="Artifact accuracy">
+          Accuracy
+          <button type="button" class="mode-btn is-on" id="t-acc-10" data-accuracy-margin="0.10">10%</button>
+          <button type="button" class="mode-btn" id="t-acc-20" data-accuracy-margin="0.20">20%</button>
+        </span>
         <button type="button" class="mode-btn is-on" id="mode-graph" data-mode="graph">Show graph</button>
         <button type="button" class="mode-btn" id="mode-equation" data-mode="equation">Show equation</button>
         <button type="button" class="mint-btn" id="mint">Make match challenge</button>
@@ -180,6 +186,8 @@
   const randomBtn = document.getElementById("t-random");
   const hotColdBox = document.getElementById("t-hot-cold");
   const groupQBox = document.getElementById("t-group-q");
+  const accTenBtn = document.getElementById("t-acc-10");
+  const accTwentyBtn = document.getElementById("t-acc-20");
   const mintBtn = document.getElementById("mint");
   const modeGraph = document.getElementById("mode-graph");
   const modeEquation = document.getElementById("mode-equation");
@@ -198,6 +206,7 @@
     studentPlay: false,
     hotColdVisible: false,
     groupQ: false,
+    accuracyMargin: 0.10,
   };
 
   /**
@@ -231,14 +240,24 @@
   }
 
   /**
+   * Normalize a minted accuracy band to 0.10 or 0.20.
+   * @param {unknown} raw
+   * @returns {number}
+   */
+  function accuracyMarginOf(raw) {
+    const number = Number(raw);
+    return Math.abs(number - 0.2) < 0.001 ? 0.2 : 0.1;
+  }
+
+  /**
    * Hot/cold band for one slider versus the minted target.
-   * Red is within 10% of max(|target|, 1); then orange, yellow, blue.
+   * Red is within the teacher accuracy band of max(|target|, 1).
    * @param {number} student
    * @param {number} target
    * @returns {string}
    */
   function heatClass(student, target) {
-    const allowed = 0.1 * Math.max(Math.abs(target), 1);
+    const allowed = accuracyMarginOf(state.accuracyMargin) * Math.max(Math.abs(target), 1);
     const err = Math.abs(Number(student) - Number(target));
     if (err <= allowed) return "is-hc-hot";
     if (err <= allowed * 2.5) return "is-hc-very";
@@ -288,6 +307,8 @@
     if (groupQBox instanceof HTMLInputElement) {
       groupQBox.checked = Boolean(state.groupQ);
     }
+    accTenBtn?.classList.toggle("is-on", accuracyMarginOf(state.accuracyMargin) === 0.1);
+    accTwentyBtn?.classList.toggle("is-on", accuracyMarginOf(state.accuracyMargin) === 0.2);
     applySliderHeat();
     dock.classList.add("is-on");
     dock.classList.toggle("is-student", !teacherMode);
@@ -426,6 +447,7 @@
           type: "artifact-teacher-flags",
           hot_cold_visible: Boolean(state.hotColdVisible),
           group_q: Boolean(state.groupQ),
+          accuracy_margin: accuracyMarginOf(state.accuracyMargin),
         },
         window.location.origin
       );
@@ -478,6 +500,7 @@
           target_mode: state.targetMode,
           hot_cold_visible: Boolean(state.hotColdVisible),
           group_q: Boolean(state.groupQ),
+          accuracy_margin: accuracyMarginOf(state.accuracyMargin),
         },
         window.location.origin
       );
@@ -501,6 +524,16 @@
   });
   groupQBox?.addEventListener("change", () => {
     state.groupQ = Boolean(groupQBox.checked);
+    postTeacherFlags();
+  });
+  accTenBtn?.addEventListener("click", () => {
+    state.accuracyMargin = 0.10;
+    syncOutputs();
+    postTeacherFlags();
+  });
+  accTwentyBtn?.addEventListener("click", () => {
+    state.accuracyMargin = 0.20;
+    syncOutputs();
     postTeacherFlags();
   });
   modeGraph.addEventListener("click", () => {
@@ -535,6 +568,9 @@
       }
       if (typeof data.artifact.group_q === "boolean") {
         state.groupQ = data.artifact.group_q;
+      }
+      if (data.artifact.accuracy_margin != null) {
+        state.accuracyMargin = accuracyMarginOf(data.artifact.accuracy_margin);
       }
     }
     if (!teacherMode && typeof data.student_play === "boolean") {

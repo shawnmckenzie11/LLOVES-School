@@ -4723,6 +4723,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 slide_index=slide_index,
                 hot_cold_visible=body.get("hot_cold_visible"),
                 group_q=body.get("group_q"),
+                accuracy_margin=body.get("accuracy_margin"),
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)

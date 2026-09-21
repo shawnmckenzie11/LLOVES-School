@@ -388,6 +388,7 @@ body.student-home.has-media .student-live-response {
   text-transform: uppercase;
   cursor: grab;
   touch-action: none;
+  user-select: none;
 }
 
 .student-pane-bar:active {
@@ -1560,7 +1561,13 @@ body.student-home.is-waiting-room .student-wait {
     position: absolute;
     margin: 0;
     flex: none;
+    z-index: 12;
     box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.35);
+  }
+
+  .student-floating-pane.is-pane-dragging {
+    z-index: 24;
+    pointer-events: auto;
   }
 
   .student-pane-resize {

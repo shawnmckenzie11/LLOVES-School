@@ -28,6 +28,7 @@ from artifact import (
     format_vertex_equation,
     grade_parent_snapshot,
     grade_transform_snapshot,
+    normalize_accuracy_margin,
     parent_transformations_prompt_payload,
     slider_margin,
     transformations_prompt_payload,
@@ -75,6 +76,33 @@ class TransformGradeTests(unittest.TestCase):
         self.assertFalse(result["match"], result)
         self.assertFalse(result["per_key"]["a"]["match"])
         self.assertTrue(result["per_key"]["h"]["match"])
+
+    def test_normalize_accuracy_margin_is_ten_or_twenty(self) -> None:
+        """Only 10% and 20% are legal; everything else snaps to 10%."""
+        self.assertEqual(normalize_accuracy_margin(None), 0.10)
+        self.assertEqual(normalize_accuracy_margin(0.10), 0.10)
+        self.assertEqual(normalize_accuracy_margin("20%"), 0.20)
+        self.assertEqual(normalize_accuracy_margin(20), 0.20)
+        self.assertEqual(normalize_accuracy_margin(0.15), 0.10)
+
+    def test_grade_twenty_percent_band(self) -> None:
+        """A miss at 10% can still match when the teacher chose 20%."""
+        target = {"a": 3.0, "h": 5.0, "k": -1.0}
+        near = {"a": 3.45, "h": 5.0, "k": -1.0}
+        tight = grade_transform_snapshot(near, target, margin=0.10)
+        wide = grade_transform_snapshot(near, target, margin=0.20)
+        self.assertFalse(tight["match"], tight)
+        self.assertTrue(wide["match"], wide)
+        self.assertAlmostEqual(tight["per_key"]["a"]["allowed"], 0.30)
+        self.assertAlmostEqual(wide["per_key"]["a"]["allowed"], 0.60)
+        payload_20 = transformations_prompt_payload(
+            snapshot=target, accuracy_margin=0.20
+        )
+        self.assertEqual(payload_20["accuracy_margin"], 0.20)
+        self.assertTrue(artifact_snapshot_matches(payload_20, {"params": near}))
+        payload_10 = transformations_prompt_payload(snapshot=target)
+        self.assertEqual(payload_10["accuracy_margin"], 0.10)
+        self.assertFalse(artifact_snapshot_matches(payload_10, {"params": near}))
 
     def test_feedback_leads(self) -> None:
         """Wonder copy: Matched. / Not yet — watch the meters."""
@@ -186,6 +214,9 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertIn('<button type="button" id="t-random">', body)
         self.assertIn("Show hot/cold sliders", body)
         self.assertIn("Group Q", body)
+        self.assertIn('id="t-acc-10"', body)
+        self.assertIn('id="t-acc-20"', body)
+        self.assertIn("accuracy_margin", body)
         self.assertIn("a(x − h)² + k", body)
         self.assertIn("Show graph", body)
         self.assertIn("Show equation", body)
@@ -356,7 +387,7 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(teacher["live_slot"], "C3")
 
     def test_mint_teacher_flags_reach_student_prompt(self) -> None:
-        """Show hot/cold and Group Q land on the prompt; snapshot stays as today."""
+        """Show hot/cold, Group Q, and 20% accuracy land on the prompt."""
         minted = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/artifacts",
             json={
@@ -365,25 +396,31 @@ class ArtifactMintChannelTests(unittest.TestCase):
                 "target_mode": "graph",
                 "hot_cold_visible": True,
                 "group_q": True,
+                "accuracy_margin": 0.20,
             },
         )
         self.assertEqual(minted.status_code, 200, minted.get_json())
         payload = minted.get_json()["prompt"]["payload"]
         self.assertTrue(payload["hot_cold_visible"])
         self.assertTrue(payload["group_q"])
+        self.assertEqual(payload["accuracy_margin"], 0.20)
         student = self.student.get("/api/student/live-prompt").get_json()
         facing = student["prompt"]["payload"]
         self.assertTrue(facing["hot_cold_visible"])
         self.assertTrue(facing["group_q"])
+        self.assertEqual(facing["accuracy_margin"], 0.20)
         self.assertIn("snapshot", facing)
         self.assertNotIn("cement", facing)
+        media_art = minted.get_json()["active_media"].get("artifact") or {}
+        self.assertEqual(media_art.get("accuracy_margin"), 0.20)
         patched = self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/active-media",
             json={
                 "artifact": {
-                    **(minted.get_json()["active_media"].get("artifact") or {}),
+                    **media_art,
                     "hot_cold_visible": False,
                     "group_q": False,
+                    "accuracy_margin": 0.10,
                 }
             },
         )
@@ -392,6 +429,7 @@ class ArtifactMintChannelTests(unittest.TestCase):
         assert after is not None
         self.assertFalse(after["payload"]["hot_cold_visible"])
         self.assertFalse(after["payload"]["group_q"])
+        self.assertEqual(after["payload"]["accuracy_margin"], 0.10)
 
 
 class ParentArtifactTests(unittest.TestCase):
@@ -523,6 +561,9 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertIn('<button type="button" id="t-random">', body)
         self.assertIn("Show hot/cold sliders", body)
         self.assertIn("Group Q", body)
+        self.assertIn('id="t-acc-10"', body)
+        self.assertIn('id="t-acc-20"', body)
+        self.assertIn("accuracy_margin", body)
         self.assertIn('name="parent"', body)
         self.assertIn('value="quadratic"', body)
         self.assertIn(">a<", body)
@@ -812,11 +853,14 @@ class ArtifactStaffJsTests(unittest.TestCase):
         self.assertIn("function mintArtifactFromMedia(", js)
         self.assertIn("function patchArtifactTeacherFlags(", js)
         self.assertIn("artifact-teacher-flags", js)
+        self.assertIn("accuracy_margin", js)
         student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
             encoding="utf-8"
         )
         self.assertIn("content.hot_cold_visible", student_js)
         self.assertIn("data.hot_cold_visible", student_js)
+        self.assertIn("function artifactAccuracyMargin(", student_js)
+        self.assertIn("data-accuracy-margin", student_js)
         self.assertIn("is-hc-very", student_js)
         self.assertIn("function artifactGroupsRunning(", student_js)
         self.assertIn("function artifactGroupQLocked(", student_js)

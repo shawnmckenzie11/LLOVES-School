@@ -3531,6 +3531,7 @@ async function mintArtifactFromMedia(data) {
       slide_index: currentLivePageNumber(),
       hot_cold_visible: Boolean(data.hot_cold_visible),
       group_q: Boolean(data.group_q),
+      accuracy_margin: data.accuracy_margin,
     }),
   });
   paintActiveMediaStatus(res.active_media);
@@ -3549,7 +3550,7 @@ async function mintArtifactFromMedia(data) {
 }
 
 /**
- * Merge Show hot/cold and Group Q onto the current Artifact media blob.
+ * Merge Show hot/cold, Group Q, and accuracy onto the Artifact media blob.
  * @param {Record<string, unknown>} data
  */
 async function patchArtifactTeacherFlags(data) {
@@ -3559,6 +3560,7 @@ async function patchArtifactTeacherFlags(data) {
     ...((lastActiveMedia && lastActiveMedia.artifact) || {}),
     hot_cold_visible: Boolean(data.hot_cold_visible),
     group_q: Boolean(data.group_q),
+    accuracy_margin: data.accuracy_margin,
   };
   return postActiveMedia({ artifact });
 }
