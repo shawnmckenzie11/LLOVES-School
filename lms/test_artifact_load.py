@@ -33,6 +33,7 @@ if str(LMS_DIR) not in sys.path:
 
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
+import school_db as school_db_mod  # noqa: E402
 from app import create_app  # noqa: E402
 from artifact import C2_TRANSFORM_MEDIA_URL, TRANSFORMATIONS_ARTIFACT_ID  # noqa: E402
 
@@ -161,12 +162,20 @@ class ArtifactGroupLoadTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _mint(self, *, snapshot: dict[str, float], mode: str = "graph") -> Any:
-        """POST one Group Q Artifact mint.
+    def _mint(
+        self,
+        *,
+        snapshot: dict[str, float],
+        mode: str = "graph",
+        group_q: bool = True,
+    ) -> Any:
+        """POST one Artifact mint.
 
         Args:
             snapshot: Teacher slider values.
             mode: ``graph`` or ``equation``.
+            group_q: When True, submit waits for teammates. The alc incident
+                minted Match challenges with this flag false.
         """
         return self.staff.post(
             f"/api/live-sessions/{self.session_id}/artifacts",
@@ -174,7 +183,7 @@ class ArtifactGroupLoadTests(unittest.TestCase):
                 "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
                 "snapshot": snapshot,
                 "target_mode": mode,
-                "group_q": True,
+                "group_q": group_q,
                 "hot_cold_visible": True,
             },
         )
@@ -408,19 +417,39 @@ class ArtifactGroupLoadTests(unittest.TestCase):
         self.school.game.conn.execute("PRAGMA busy_timeout=30000")
 
     def test_artifact_open_state_and_heartbeat_have_zero_sqlite_locks(self) -> None:
-        """N=12, Artifact open, 2 threads: state + heartbeat, 0 sqlite locks.
+        """N=12 Artifact polls hit ``_resume_live_attendee`` with 0 sqlite locks.
 
-        Reproduces the alc shape (SID 11, m1c2-transforms, N≈12) against the
-        same two connections production uses. A locked file used to become
-        Flask's HTML 500 ("server overloaded").
+        Ops stack (session 11, v148): ``GET /api/student/state`` and
+        ``POST /api/student/heartbeat`` both call ``touch_live_session_heartbeat``
+        → ``_resume_live_attendee`` while ``m1c2-transforms`` is on screen.
+        The 20s freshness skip is turned off so every poll takes that UPDATE.
         """
         self.assertIs(self.school._lock, self.school.game._lock)
         journal = self.school.conn.execute("PRAGMA journal_mode").fetchone()
         self.assertEqual(str(journal[0]).lower(), "wal")
-        minted = self._mint(snapshot={"a": 2, "h": 1, "k": -1})
+        minted = self._mint(snapshot={"a": 2, "h": 1, "k": -1}, group_q=False)
         self.assertEqual(minted.status_code, 200, minted.get_data(as_text=True)[:400])
-        media_url = (minted.get_json().get("active_media") or {}).get("url")
+        minted_body = minted.get_json()
+        prompt_payload = (minted_body.get("prompt") or {}).get("payload") or {}
+        self.assertIs(prompt_payload.get("group_q"), False)
+        self.assertEqual(
+            prompt_payload.get("artifact_id"), TRANSFORMATIONS_ARTIFACT_ID
+        )
+        media_url = (minted_body.get("active_media") or {}).get("url")
         self.assertEqual(media_url, C2_TRANSFORM_MEDIA_URL)
+        resume_calls = {"n": 0}
+        resume_lock = threading.Lock()
+        original_resume = self.school._resume_live_attendee
+
+        def _count_resume(existing: dict[str, Any], name: str = "") -> dict[str, Any]:
+            """Count the UPDATE Fly logged, then run the real resume."""
+            with resume_lock:
+                resume_calls["n"] += 1
+            return original_resume(existing, name=name)
+
+        self.school._resume_live_attendee = _count_resume  # type: ignore[method-assign]
+        previous_write_window = school_db_mod.LIVE_HEARTBEAT_WRITE_SECONDS
+        school_db_mod.LIVE_HEARTBEAT_WRITE_SECONDS = 0
         cohort = self.clients[:INCIDENT_CLASS]
         gate = threading.Semaphore(GUNICORN_THREADS)
         lock = threading.Lock()
@@ -532,16 +561,24 @@ class ArtifactGroupLoadTests(unittest.TestCase):
                 for thread in threads:
                     thread.join()
         finally:
+            school_db_mod.LIVE_HEARTBEAT_WRITE_SECONDS = previous_write_window
+            self.school._resume_live_attendee = original_resume  # type: ignore[method-assign]
             for target in loggers:
                 target.removeHandler(handler)
             self.app.logger.setLevel(original_level)
         wall_ms = (time.perf_counter() - wall_started) * 1000
+        resume_writes = int(resume_calls["n"])
         school_txn = bool(self.school.conn.in_transaction)
         game_txn = bool(self.school.game.conn.in_transaction)
         if school_txn or game_txn:
             errors.append(f"open transaction school={school_txn} game={game_txn}")
         errors.extend(f"sqlite lock log: {line}" for line in lock_logs)
-        passed = not errors and not lock_logs
+        polls = int(codes.get("state:200", 0) + codes.get("heartbeat:200", 0))
+        if resume_writes < polls:
+            errors.append(
+                f"resume writes {resume_writes} < state+heartbeat 200s {polls}"
+            )
+        passed = not errors and not lock_logs and resume_writes >= polls
         markdown = _sqlite_report(
             wall_ms=wall_ms,
             codes=codes,
@@ -551,12 +588,20 @@ class ArtifactGroupLoadTests(unittest.TestCase):
             passed=passed,
             school_txn=school_txn,
             game_txn=game_txn,
+            resume_writes=resume_writes,
         )
         summary = [
             f"verdict={'PASS' if passed else 'FAIL'}",
-            f"repro=artifact {C2_TRANSFORM_MEDIA_URL} + N={INCIDENT_CLASS} "
-            f"x {INCIDENT_WAVES} waves of GET /api/student/state + "
-            f"POST /api/student/heartbeat + media, in-flight={GUNICORN_THREADS}",
+            "stack=GET /api/student/state -> student_state -> "
+            "_require_active_live_attendee -> touch_live_session_heartbeat -> "
+            "_resume_live_attendee",
+            "stack=POST /api/student/heartbeat -> touch_live_session_heartbeat -> "
+            "_resume_live_attendee",
+            f"artifact={TRANSFORMATIONS_ARTIFACT_ID} media={C2_TRANSFORM_MEDIA_URL} "
+            "group_q=false",
+            f"repro=N={INCIDENT_CLASS} x {INCIDENT_WAVES} waves, "
+            f"in-flight={GUNICORN_THREADS}, heartbeat write window forced to 0s",
+            f"resume_writes={resume_writes}",
             f"wall_ms={wall_ms:.1f}",
             f"sqlite_lock_logs={len(lock_logs)}",
             f"errors={len(errors)}",
@@ -588,6 +633,7 @@ class ArtifactGroupLoadTests(unittest.TestCase):
         self.assertNotIn("state:500", codes)
         self.assertNotIn("heartbeat:500", codes)
         self.assertNotIn("heartbeat:503", codes)
+        self.assertGreaterEqual(resume_writes, polls)
 
 
 def _report_markdown(
@@ -694,6 +740,7 @@ def _sqlite_report(
     passed: bool,
     school_txn: bool,
     game_txn: bool,
+    resume_writes: int,
 ) -> str:
     """Build the ops log for the sqlite-lock incident shape.
 
@@ -706,6 +753,7 @@ def _sqlite_report(
         passed: True when the bar was met.
         school_txn: School connection left inside a transaction.
         game_txn: Game connection left inside a transaction.
+        resume_writes: Calls to ``_resume_live_attendee`` during the waves.
 
     Returns:
         Markdown report with repro steps, N, timings, and PASS counts.
@@ -732,22 +780,28 @@ python3 -m unittest discover -s lms -p 'test_artifact_load.py' -v
 
 Writes this file and `lc-qa/artifact-load-sqlite.log`.
 
-## Repro (alc incident shape)
+## Repro (alc incident note)
 
-1. Tip under test was v148 / `1849339` (includes #115 and #116). Fly app `lloves-lms` is still SQLite: `LLOVES_DB=/data/lloves.sqlite` on volume `lloves_data`. One machine, gunicorn 1 worker / 2 threads, shared-cpu-1x / 1 GB. There is no Postgres service in `fly.toml`.
-2. Live session, Artifact `m1c2-transforms` open (`{C2_TRANSFORM_MEDIA_URL}`).
-3. N={INCIDENT_CLASS} students (incident was N≈12, SID 11). Each wave, two at a time: `GET /api/student/state`, `POST /api/student/heartbeat`, and the media file. {INCIDENT_WAVES} waves. One staff `GET /state` per wave.
-4. Pass bar: 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions on either connection.
+Source: `lc-qa/incident-alc-artifact-overload-2026-09-21.md`. Session **11**, class 8, v148 / `1849339`, N=12 still in, Artifact prompts 16–18.
 
-The incident note `lc-qa/incident-alc-artifact-overload-2026-09-21.md` is not in this repo. The shape above is the Ops log: sqlite locked on those two routes while the Artifact was open. Not OOM.
+Fly stack, both routes, same write:
+
+1. `GET /api/student/state` → `student_state` → `_require_active_live_attendee` → `touch_live_session_heartbeat` → `_resume_live_attendee` (`UPDATE live_session_attendees`)
+2. `POST /api/student/heartbeat` → `touch_live_session_heartbeat` → `_resume_live_attendee`
+
+Artifact on screen: `{TRANSFORMATIONS_ARTIFACT_ID}` at `{C2_TRANSFORM_MEDIA_URL}`. Incident payloads had **`group_q: false`** (individual Match challenges). `live_group_members` / `live_group_responses` were 0. This run mints the same way.
+
+The 20s heartbeat skip is forced to 0 so every poll takes that UPDATE. Production only writes when the last beat is older than 20s; the class still reached this line.
+
+Pass bar: resume writes cover every state and heartbeat 200, 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions.
 
 ## Why not Postgres
 
-Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across polls.
+Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across the resume UPDATE.
 
 ## Cause
 
-School tables and Math Game Show tables are two connections on one file. Python's legacy isolation begins a transaction on UPDATE and keeps the reserved lock until `commit()`. A heartbeat or student `/state` write on the school connection then makes the game connection (or the other thread) raise `sqlite3.OperationalError: database is locked`. Flask renders that as Internal Server Error / “the server is overloaded”. #115 and #116 did not cover this pair.
+`_resume_live_attendee` writes `last_heartbeat_at` on the school connection. Student `/state` and heartbeat both call it while other work uses the game-show connection on the same file. Legacy isolation kept that UPDATE’s reserved lock until `commit()`, so the other connection raised `sqlite3.OperationalError: database is locked`. Flask rendered Internal Server Error / “the server is overloaded”. Not OOM. #115 and #116 did not cover this write.
 
 ## Fix
 
@@ -766,6 +820,7 @@ School tables and Math Game Show tables are two connections on one file. Python'
 | In-flight cap | {GUNICORN_THREADS} |
 | Wall | {wall_ms:.0f} ms |
 | sqlite lock logs | {len(lock_logs)} |
+| `_resume_live_attendee` writes | {resume_writes} |
 | school in_transaction | {school_txn} |
 | game in_transaction | {game_txn} |
 | HTTP | {code_line} |

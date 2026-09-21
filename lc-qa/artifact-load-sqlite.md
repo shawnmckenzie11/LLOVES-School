@@ -8,22 +8,28 @@ python3 -m unittest discover -s lms -p 'test_artifact_load.py' -v
 
 Writes this file and `lc-qa/artifact-load-sqlite.log`.
 
-## Repro (alc incident shape)
+## Repro (alc incident note)
 
-1. Tip under test was v148 / `1849339` (includes #115 and #116). Fly app `lloves-lms` is still SQLite: `LLOVES_DB=/data/lloves.sqlite` on volume `lloves_data`. One machine, gunicorn 1 worker / 2 threads, shared-cpu-1x / 1 GB. There is no Postgres service in `fly.toml`.
-2. Live session, Artifact `m1c2-transforms` open (`/static/live-media/m1c2-transforms.html`).
-3. N=12 students (incident was N≈12, SID 11). Each wave, two at a time: `GET /api/student/state`, `POST /api/student/heartbeat`, and the media file. 4 waves. One staff `GET /state` per wave.
-4. Pass bar: 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions on either connection.
+Source: `lc-qa/incident-alc-artifact-overload-2026-09-21.md`. Session **11**, class 8, v148 / `1849339`, N=12 still in, Artifact prompts 16–18.
 
-The incident note `lc-qa/incident-alc-artifact-overload-2026-09-21.md` is not in this repo. The shape above is the Ops log: sqlite locked on those two routes while the Artifact was open. Not OOM.
+Fly stack, both routes, same write:
+
+1. `GET /api/student/state` → `student_state` → `_require_active_live_attendee` → `touch_live_session_heartbeat` → `_resume_live_attendee` (`UPDATE live_session_attendees`)
+2. `POST /api/student/heartbeat` → `touch_live_session_heartbeat` → `_resume_live_attendee`
+
+Artifact on screen: `mcf3m-m1-c2-transformations` at `/static/live-media/m1c2-transforms.html`. Incident payloads had **`group_q: false`** (individual Match challenges). `live_group_members` / `live_group_responses` were 0. This run mints the same way.
+
+The 20s heartbeat skip is forced to 0 so every poll takes that UPDATE. Production only writes when the last beat is older than 20s; the class still reached this line.
+
+Pass bar: resume writes cover every state and heartbeat 200, 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions.
 
 ## Why not Postgres
 
-Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across polls.
+Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across the resume UPDATE.
 
 ## Cause
 
-School tables and Math Game Show tables are two connections on one file. Python's legacy isolation begins a transaction on UPDATE and keeps the reserved lock until `commit()`. A heartbeat or student `/state` write on the school connection then makes the game connection (or the other thread) raise `sqlite3.OperationalError: database is locked`. Flask renders that as Internal Server Error / “the server is overloaded”. #115 and #116 did not cover this pair.
+`_resume_live_attendee` writes `last_heartbeat_at` on the school connection. Student `/state` and heartbeat both call it while other work uses the game-show connection on the same file. Legacy isolation kept that UPDATE’s reserved lock until `commit()`, so the other connection raised `sqlite3.OperationalError: database is locked`. Flask rendered Internal Server Error / “the server is overloaded”. Not OOM. #115 and #116 did not cover this write.
 
 ## Fix
 
@@ -40,18 +46,19 @@ School tables and Math Game Show tables are two connections on one file. Python'
 | Class | 12 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 556 ms |
+| Wall | 555 ms |
 | sqlite lock logs | 0 |
+| `_resume_live_attendee` writes | 96 |
 | school in_transaction | False |
 | game in_transaction | False |
 | HTTP | heartbeat:200=48, media:200=48, staff-state:200=4, state:200=48 |
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 48 | 1 | 2 | 2 |
-| media | 48 | 1 | 2 | 5 |
-| staff-state | 4 | 12 | 13 | 22 |
-| state | 48 | 18 | 20 | 22 |
+| heartbeat | 48 | 2 | 3 | 5 |
+| media | 48 | 1 | 1 | 3 |
+| staff-state | 4 | 12 | 13 | 13 |
+| state | 48 | 17 | 19 | 22 |
 
 ### Errors
 
