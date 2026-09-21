@@ -13,7 +13,9 @@ and ``lc-qa/artifact-load-latest.log``.
 
 from __future__ import annotations
 
+import logging
 import os
+import sqlite3
 import statistics
 import sys
 import tempfile
@@ -45,6 +47,11 @@ STUDENT_GAME_STATE_BUDGET = 4
 WAVE_GAME_STATE_BUDGET = 80
 REPORT_MD = REPO_ROOT / "lc-qa" / "artifact-load-latest.md"
 REPORT_LOG = REPO_ROOT / "lc-qa" / "artifact-load-latest.log"
+SQLITE_MD = REPO_ROOT / "lc-qa" / "artifact-load-sqlite.md"
+SQLITE_LOG = REPO_ROOT / "lc-qa" / "artifact-load-sqlite.log"
+# Ops incident on alc: SID 11, about 12 students, Artifact m1c2-transforms open.
+INCIDENT_CLASS = 12
+INCIDENT_WAVES = 4
 CODENAMES = [f"S{index:02d}" for index in range(CLASS_SIZE)]
 
 
@@ -363,6 +370,225 @@ class ArtifactGroupLoadTests(unittest.TestCase):
         self.assertNotIn("state:500", codes)
         self.assertNotIn("mint:500", codes)
 
+    def test_school_write_does_not_reserve_the_game_connection(self) -> None:
+        """A school UPDATE must not leave the reserved lock for the game connection.
+
+        That pair is ``database is locked`` on student ``/state`` and heartbeat.
+        Legacy isolation kept the lock until ``commit()``. Autocommit ends it
+        with the statement. The busy timeout is shortened so a regression
+        fails in under a second instead of hanging for 30s.
+        """
+        self.school.conn.execute("PRAGMA busy_timeout=400")
+        self.school.game.conn.execute("PRAGMA busy_timeout=400")
+        self.school.conn.execute(
+            """
+            UPDATE live_class_sessions
+            SET session_code = session_code
+            WHERE id = ?
+            """,
+            (self.session_id,),
+        )
+        self.assertFalse(
+            self.school.conn.in_transaction,
+            "school write still holds a transaction",
+        )
+        started = time.perf_counter()
+        self.school.game.conn.execute(
+            """
+            UPDATE classes
+            SET course_code = course_code
+            WHERE id = ?
+            """,
+            (self.class_id,),
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        self.assertFalse(self.school.game.conn.in_transaction)
+        self.assertLess(elapsed_ms, 1000, "game write waited on a school lock")
+        self.school.conn.execute("PRAGMA busy_timeout=30000")
+        self.school.game.conn.execute("PRAGMA busy_timeout=30000")
+
+    def test_artifact_open_state_and_heartbeat_have_zero_sqlite_locks(self) -> None:
+        """N=12, Artifact open, 2 threads: state + heartbeat, 0 sqlite locks.
+
+        Reproduces the alc shape (SID 11, m1c2-transforms, N≈12) against the
+        same two connections production uses. A locked file used to become
+        Flask's HTML 500 ("server overloaded").
+        """
+        self.assertIs(self.school._lock, self.school.game._lock)
+        journal = self.school.conn.execute("PRAGMA journal_mode").fetchone()
+        self.assertEqual(str(journal[0]).lower(), "wal")
+        minted = self._mint(snapshot={"a": 2, "h": 1, "k": -1})
+        self.assertEqual(minted.status_code, 200, minted.get_data(as_text=True)[:400])
+        media_url = (minted.get_json().get("active_media") or {}).get("url")
+        self.assertEqual(media_url, C2_TRANSFORM_MEDIA_URL)
+        cohort = self.clients[:INCIDENT_CLASS]
+        gate = threading.Semaphore(GUNICORN_THREADS)
+        lock = threading.Lock()
+        errors: list[str] = []
+        rows: list[str] = []
+        codes: Counter[str] = Counter()
+        latencies: dict[str, list[float]] = {}
+        lock_logs: list[str] = []
+
+        class _LockCatch(logging.Handler):
+            """Record log lines that still say the sqlite file is locked."""
+
+            def emit(self, record: logging.LogRecord) -> None:
+                """Keep a locked-database line, including its traceback."""
+                text = record.getMessage()
+                exc = record.exc_info[1] if record.exc_info else None
+                blob = f"{text} {exc or ''}"
+                if "locked" in blob.lower():
+                    lock_logs.append(blob[:240])
+
+        handler = _LockCatch()
+        # Flask's app.logger name is the import name. Catch both.
+        loggers = [self.app.logger, logging.getLogger()]
+        for target in loggers:
+            target.addHandler(handler)
+        original_level = self.app.logger.level
+        self.app.logger.setLevel(logging.ERROR)
+
+        def record(label: str, rv: Any, started: float) -> None:
+            """Store one timed response. Locks, 5xx, and HTML 500s fail the bar."""
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            text = rv.get_data(as_text=True)
+            body = rv.get_json(silent=True) or {}
+            line = f"{label}\t{rv.status_code}\t{elapsed_ms:.1f}ms"
+            with lock:
+                codes[f"{label}:{rv.status_code}"] += 1
+                latencies.setdefault(label, []).append(elapsed_ms)
+                rows.append(line)
+                if (
+                    rv.status_code >= 500
+                    or "Internal Server Error" in text
+                    or "server overloaded" in text.lower()
+                    or "database is locked" in text.lower()
+                    or body.get("error") in {"state unavailable", "Reconnecting…"}
+                ):
+                    errors.append(f"{line} {text[:240]}")
+
+        def run(label: str, fn: Any) -> None:
+            """Hold one of the two gunicorn slots, then call the route."""
+            gate.acquire()
+            started = time.perf_counter()
+            try:
+                record(label, fn(), started)
+            except Exception as exc:  # noqa: BLE001 — the log must show the crash
+                with lock:
+                    errors.append(f"{label} EXC {exc!r}")
+                    if "locked" in str(exc).lower():
+                        lock_logs.append(repr(exc))
+            finally:
+                gate.release()
+
+        wall_started = time.perf_counter()
+        try:
+            for _wave in range(INCIDENT_WAVES):
+                threads: list[threading.Thread] = []
+                for _name, client in cohort:
+                    threads.append(
+                        threading.Thread(
+                            target=run,
+                            args=(
+                                "state",
+                                lambda client=client: client.get("/api/student/state"),
+                            ),
+                        )
+                    )
+                    threads.append(
+                        threading.Thread(
+                            target=run,
+                            args=(
+                                "heartbeat",
+                                lambda client=client: client.post(
+                                    "/api/student/heartbeat"
+                                ),
+                            ),
+                        )
+                    )
+                    threads.append(
+                        threading.Thread(
+                            target=run,
+                            args=(
+                                "media",
+                                lambda client=client: client.get(C2_TRANSFORM_MEDIA_URL),
+                            ),
+                        )
+                    )
+                threads.append(
+                    threading.Thread(
+                        target=run,
+                        args=(
+                            "staff-state",
+                            lambda: self.staff.get(
+                                f"/api/live-sessions/{self.session_id}/state"
+                            ),
+                        ),
+                    )
+                )
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+        finally:
+            for target in loggers:
+                target.removeHandler(handler)
+            self.app.logger.setLevel(original_level)
+        wall_ms = (time.perf_counter() - wall_started) * 1000
+        school_txn = bool(self.school.conn.in_transaction)
+        game_txn = bool(self.school.game.conn.in_transaction)
+        if school_txn or game_txn:
+            errors.append(f"open transaction school={school_txn} game={game_txn}")
+        errors.extend(f"sqlite lock log: {line}" for line in lock_logs)
+        passed = not errors and not lock_logs
+        markdown = _sqlite_report(
+            wall_ms=wall_ms,
+            codes=codes,
+            latencies=latencies,
+            errors=errors,
+            lock_logs=lock_logs,
+            passed=passed,
+            school_txn=school_txn,
+            game_txn=game_txn,
+        )
+        summary = [
+            f"verdict={'PASS' if passed else 'FAIL'}",
+            f"repro=artifact {C2_TRANSFORM_MEDIA_URL} + N={INCIDENT_CLASS} "
+            f"x {INCIDENT_WAVES} waves of GET /api/student/state + "
+            f"POST /api/student/heartbeat + media, in-flight={GUNICORN_THREADS}",
+            f"wall_ms={wall_ms:.1f}",
+            f"sqlite_lock_logs={len(lock_logs)}",
+            f"errors={len(errors)}",
+            f"in_transaction school={school_txn} game={game_txn}",
+            "codes " + " ".join(
+                f"{key}={count}" for key, count in sorted(codes.items())
+            ),
+        ]
+        for label, values in sorted(latencies.items()):
+            ordered = sorted(values)
+            p95 = ordered[max(0, int(len(ordered) * 0.95) - 1)]
+            summary.append(
+                f"{label} n={len(values)} med={statistics.median(values):.1f}ms "
+                f"p95={p95:.1f}ms max={max(values):.1f}ms"
+            )
+        log_text = "\n".join(summary + ["---"] + rows) + "\n"
+        SQLITE_MD.parent.mkdir(parents=True, exist_ok=True)
+        SQLITE_MD.write_text(markdown, encoding="utf-8")
+        SQLITE_LOG.write_text(log_text, encoding="utf-8")
+        self.assertEqual(errors, [], errors[:6])
+        self.assertEqual(lock_logs, [])
+        self.assertFalse(school_txn)
+        self.assertFalse(game_txn)
+        per_wave = INCIDENT_CLASS
+        self.assertEqual(codes["state:200"], per_wave * INCIDENT_WAVES)
+        self.assertEqual(codes["heartbeat:200"], per_wave * INCIDENT_WAVES)
+        self.assertEqual(codes["media:200"], per_wave * INCIDENT_WAVES)
+        self.assertEqual(codes["staff-state:200"], INCIDENT_WAVES)
+        self.assertNotIn("state:500", codes)
+        self.assertNotIn("heartbeat:500", codes)
+        self.assertNotIn("heartbeat:503", codes)
+
 
 def _report_markdown(
     *,
@@ -454,6 +680,113 @@ Group Q team checks and the session timer used the same full rebuild.
 - Staff heavy `/state` is still the #115 path (field isolation, 200). This test rides one heavy staff poll in the same wave and expects 200.
 - The 0.5s membership cache can lag a team edit by one student poll. Artifact open does not edit teams.
 - Not smoked on Fly. Re-run this test on tip `:8787` only if you want the same protocol against the dev server; the in-process bar above is the regression lock.
+- The sqlite lock bar is `lc-qa/artifact-load-sqlite.md` (N=12 state + heartbeat).
+"""
+
+
+def _sqlite_report(
+    *,
+    wall_ms: float,
+    codes: Counter[str],
+    latencies: dict[str, list[float]],
+    errors: list[str],
+    lock_logs: list[str],
+    passed: bool,
+    school_txn: bool,
+    game_txn: bool,
+) -> str:
+    """Build the ops log for the sqlite-lock incident shape.
+
+    Args:
+        wall_ms: Wall time for every wave.
+        codes: ``label:status`` counts.
+        latencies: Milliseconds by label.
+        errors: Failure lines.
+        lock_logs: Logged ``database is locked`` lines.
+        passed: True when the bar was met.
+        school_txn: School connection left inside a transaction.
+        game_txn: Game connection left inside a transaction.
+
+    Returns:
+        Markdown report with repro steps, N, timings, and PASS counts.
+    """
+    latency_rows = []
+    for label, values in sorted(latencies.items()):
+        ordered = sorted(values)
+        p95 = ordered[max(0, int(len(ordered) * 0.95) - 1)]
+        latency_rows.append(
+            f"| {label} | {len(values)} | {statistics.median(values):.0f} | "
+            f"{p95:.0f} | {max(values):.0f} |"
+        )
+    code_line = ", ".join(f"{key}={count}" for key, count in sorted(codes.items()))
+    error_block = "\n".join(f"- {line}" for line in errors[:12]) or "- none"
+    lock_block = "\n".join(f"- {line}" for line in lock_logs[:8]) or "- none"
+    verdict = "PASS" if passed else "FAIL"
+    return f"""# Artifact sqlite lock ({verdict})
+
+Re-run:
+
+```bash
+python3 -m unittest discover -s lms -p 'test_artifact_load.py' -v
+```
+
+Writes this file and `lc-qa/artifact-load-sqlite.log`.
+
+## Repro (alc incident shape)
+
+1. Tip under test was v148 / `1849339` (includes #115 and #116). Fly app `lloves-lms` is still SQLite: `LLOVES_DB=/data/lloves.sqlite` on volume `lloves_data`. One machine, gunicorn 1 worker / 2 threads, shared-cpu-1x / 1 GB. There is no Postgres service in `fly.toml`.
+2. Live session, Artifact `m1c2-transforms` open (`{C2_TRANSFORM_MEDIA_URL}`).
+3. N={INCIDENT_CLASS} students (incident was N≈12, SID 11). Each wave, two at a time: `GET /api/student/state`, `POST /api/student/heartbeat`, and the media file. {INCIDENT_WAVES} waves. One staff `GET /state` per wave.
+4. Pass bar: 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions on either connection.
+
+The incident note `lc-qa/incident-alc-artifact-overload-2026-09-21.md` is not in this repo. The shape above is the Ops log: sqlite locked on those two routes while the Artifact was open. Not OOM.
+
+## Why not Postgres
+
+Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across polls.
+
+## Cause
+
+School tables and Math Game Show tables are two connections on one file. Python's legacy isolation begins a transaction on UPDATE and keeps the reserved lock until `commit()`. A heartbeat or student `/state` write on the school connection then makes the game connection (or the other thread) raise `sqlite3.OperationalError: database is locked`. Flask renders that as Internal Server Error / “the server is overloaded”. #115 and #116 did not cover this pair.
+
+## Fix
+
+- Both connections use autocommit, so a statement releases the write lock when it returns.
+- Both connections share one process lock, so the two gunicorn threads do not interleave one connection.
+- WAL + `busy_timeout` stay. `synchronous=NORMAL` is the WAL companion so a heartbeat fsync does not sit on the lock.
+- If a lock still escapes, heartbeat returns JSON 503 `retry: true` and student `/state` returns the reconnect stub. The student page keeps the last Artifact frame and shows Reconnecting… / Retry. This run expects those branches not to fire.
+
+## This run
+
+| | |
+|---|---|
+| Verdict | **{verdict}** |
+| Class | {INCIDENT_CLASS} students |
+| Waves | {INCIDENT_WAVES} |
+| In-flight cap | {GUNICORN_THREADS} |
+| Wall | {wall_ms:.0f} ms |
+| sqlite lock logs | {len(lock_logs)} |
+| school in_transaction | {school_txn} |
+| game in_transaction | {game_txn} |
+| HTTP | {code_line} |
+
+| Path | n | med ms | p95 ms | max ms |
+|---|---:|---:|---:|---:|
+{chr(10).join(latency_rows)}
+
+### Errors
+
+{error_block}
+
+### Lock logs
+
+{lock_block}
+
+## Residual
+
+- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 2 threads). Not smoked on Fly.
+- A second process on the same file can still wait on `busy_timeout` (30s). Production runs one gunicorn worker.
+- The 0.5s team-membership cache can lag a team edit by one poll.
 """
 
 
