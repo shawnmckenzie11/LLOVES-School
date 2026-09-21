@@ -678,6 +678,8 @@ class GameShowDB:
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.commit()
+        # Short stampede cache: class id → (monotonic time, membership index).
+        self._team_index_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 
     def _migrate(self) -> None:
         """Add columns introduced after the first schema.
@@ -2028,6 +2030,140 @@ class GameShowDB:
         if row is None:
             return 0
         return int(row["n"])
+
+    def team_membership_index(self, class_id: int) -> dict[str, Any]:
+        """Named-team membership for the open game, without a full ``game_state``.
+
+        Live polls used to call ``game_state`` (roster, scores, career totals,
+        moods) just to learn who shares a team. Artifact Group Q and teacher
+        state do that on every read, so a class opening one Artifact rebuilt
+        the game hundreds of times and pegged the single Fly worker.
+
+        The result is cached for half a second so one poll wave shares a read.
+        Membership edits show up on the next poll.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            ``has_named`` plus ``by_student`` (roster id → team id) and
+            ``by_team`` (team id → roster ids). The Class bucket is omitted.
+            Empty when no open game or no named team exists.
+        """
+        key = int(class_id)
+        now = time.monotonic()
+        hit = self._team_index_cache.get(key)
+        if hit is not None and now - hit[0] < 0.5:
+            return hit[1]
+        built = self._load_team_membership_index(key)
+        # Do not cache an empty index. Setup reads teacher state before
+        # assign_teams; a cached miss would hide the new teams for 0.5s and
+        # Group Q would think the student has no team.
+        if built.get("has_named"):
+            self._team_index_cache[key] = (now, built)
+        else:
+            self._team_index_cache.pop(key, None)
+        return built
+
+    def class_has_named_teams(self, class_id: int) -> bool:
+        """True when the open game has a team other than Class.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        try:
+            return bool(self.team_membership_index(int(class_id)).get("has_named"))
+        except (TypeError, ValueError, sqlite3.Error):
+            return False
+
+    def _load_team_membership_index(self, class_id: int) -> dict[str, Any]:
+        """Read team rows and memberships under one lock.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            The index dict described by ``team_membership_index``.
+        """
+        empty: dict[str, Any] = {
+            "has_named": False,
+            "by_student": {},
+            "by_team": {},
+        }
+        with self._lock:
+            game = self.conn.execute(
+                """
+                SELECT id FROM games
+                WHERE class_id = ? AND status != 'ended'
+                """,
+                (int(class_id),),
+            ).fetchone()
+            if game is None:
+                return empty
+            game_id = int(game["id"])
+            teams = self.conn.execute(
+                """
+                SELECT id, name FROM game_teams
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+            named = [
+                int(row["id"])
+                for row in teams
+                if str(row["name"] or "") != "Class"
+            ]
+            if not named:
+                return empty
+            members = self.conn.execute(
+                """
+                SELECT student_id, team_id FROM game_memberships
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+        named_set = set(named)
+        by_student: dict[int, int] = {}
+        by_team: dict[int, list[int]] = {tid: [] for tid in named}
+        for row in members:
+            try:
+                sid = int(row["student_id"])
+                tid = int(row["team_id"])
+            except (TypeError, ValueError):
+                continue
+            if tid not in named_set:
+                continue
+            by_student[sid] = tid
+            by_team[tid].append(sid)
+        for tid in by_team:
+            by_team[tid].sort()
+        return {"has_named": True, "by_student": by_student, "by_team": by_team}
+
+    def open_game_round_fields(self, class_id: int) -> dict[str, Any] | None:
+        """Timer fields for the open game without building ``game_state``.
+
+        Student polls attach a SessionTimer snapshot on every tick. That used
+        to load the full roster just to read the clock.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            ``_round_fields`` dict, or ``None`` when no open game exists.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT status, overlay_phase, current_round, rounds_json,
+                       round_started_at, round_duration_sec
+                FROM games
+                WHERE class_id = ? AND status != 'ended'
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._round_fields(dict(row))
 
     def career_totals(self, class_id: int) -> dict[int, float]:
         """Sum credited individual scores per student (all columns).
@@ -3562,6 +3698,7 @@ class GameShowDB:
             )
             self._clear_team_name_poll_unlocked(game_id)
             self.conn.commit()
+        self._team_index_cache.pop(int(class_id), None)
         return self.game_state(class_id)
 
     def rename_teams(
