@@ -3551,6 +3551,9 @@ async function mintArtifactFromMedia(data) {
       parent: data.parent || null,
       page_number: currentLivePageNumber(),
       slide_index: currentLivePageNumber(),
+      hot_cold_visible: Boolean(data.hot_cold_visible),
+      group_q: Boolean(data.group_q),
+      accuracy_margin: data.accuracy_margin,
     }),
   });
   paintActiveMediaStatus(res.active_media);
@@ -3572,6 +3575,22 @@ async function mintArtifactFromMedia(data) {
 }
 
 /**
+ * Merge Show hot/cold, Group Q, and accuracy onto the Artifact media blob.
+ * @param {Record<string, unknown>} data
+ */
+async function patchArtifactTeacherFlags(data) {
+  const id = liveSessionId || readLiveSessionId();
+  if (!id) return;
+  const artifact = {
+    ...((lastActiveMedia && lastActiveMedia.artifact) || {}),
+    hot_cold_visible: Boolean(data.hot_cold_visible),
+    group_q: Boolean(data.group_q),
+    accuracy_margin: data.accuracy_margin,
+  };
+  return postActiveMedia({ artifact });
+}
+
+/**
  * Bind iframe → session patches. Artifact mint and C1 peel tools live in-frame.
  */
 function bindActiveMediaControls() {
@@ -3586,6 +3605,15 @@ function bindActiveMediaControls() {
         data.source === "lloves-mcr3u-m1c3-parents")
     ) {
       mintArtifactFromMedia(data).catch((err) => showError("#ap-overlay-error", err));
+      return;
+    }
+    if (
+      data &&
+      data.type === "artifact-teacher-flags" &&
+      (data.source === "lloves-m1c2-transforms" ||
+        data.source === "lloves-mcr3u-m1c3-parents")
+    ) {
+      patchArtifactTeacherFlags(data).catch((err) => showError("#ap-overlay-error", err));
       return;
     }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;

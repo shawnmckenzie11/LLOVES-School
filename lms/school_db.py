@@ -28,10 +28,11 @@ try:
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
         MATCH_CHALLENGE_TOAST,
+        apply_artifact_teacher_flags,
         artifact_prompt_payload,
         artifact_question_label,
+        artifact_snapshot_matches,
         format_artifact_answer,
-        grade_transform_snapshot,
         is_artifact_payload,
         is_match_challenge_item,
         match_challenge_title,
@@ -140,10 +141,11 @@ except ImportError:  # ``python3 lms/app.py`` package import
         TRANSFORMATIONS_ARTIFACT_ID,
         TRANSFORMATIONS_STEM,
         MATCH_CHALLENGE_TOAST,
+        apply_artifact_teacher_flags,
         artifact_prompt_payload,
         artifact_question_label,
+        artifact_snapshot_matches,
         format_artifact_answer,
-        grade_transform_snapshot,
         is_artifact_payload,
         is_match_challenge_item,
         match_challenge_title,
@@ -4662,6 +4664,7 @@ class SchoolDB(LovesDB):
         sys.modules.setdefault("mgs_db", mod)
         spec.loader.exec_module(mod)
         self.game = mod.GameShowDB(path, store)
+        self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[
             tuple[int, str, str, str, str], dict[str, Any]
@@ -11029,6 +11032,15 @@ class SchoolDB(LovesDB):
                     else None,
                 }
             )
+            if (
+                is_artifact_payload(raw_payload)
+                and student_id not in (None, "")
+                and prompt is not None
+            ):
+                status_q = self.artifact_group_q_status(
+                    session_id, int(student_id), prompt
+                )
+                public_items[-1]["group_q_ready"] = status_q["ready"]
         return {
             "active_questions": [
                 row
@@ -11217,6 +11229,9 @@ class SchoolDB(LovesDB):
         target_mode: Any = "graph",
         parent: dict[str, Any] | None = None,
         slide_index: int | None = None,
+        hot_cold_visible: Any = None,
+        group_q: Any = None,
+        accuracy_margin: Any = None,
     ) -> dict[str, Any]:
         """Mint a fresh Artifact Question on the current live-class page.
 
@@ -11232,6 +11247,9 @@ class SchoolDB(LovesDB):
             target_mode: ``graph`` or ``equation``.
             parent: Optional parent-function override.
             slide_index: Optional page number override.
+            hot_cold_visible: Students see slider heat hints when true.
+            group_q: Submit waits for every teammate to match when groups run.
+            accuracy_margin: Match band ``0.10`` or ``0.20`` (default 10%).
 
         Returns:
             ``{prompt, live_item, question_cards, active_media, first_mint, toast}``.
@@ -11292,6 +11310,9 @@ class SchoolDB(LovesDB):
             target_mode=target_mode,
             parent=parent,
             slide_index=int(page_number),
+            hot_cold_visible=hot_cold_visible,
+            group_q=group_q,
+            accuracy_margin=accuracy_margin,
         )
         stem = str(payload.get("stem") or TRANSFORMATIONS_STEM)
         item_id = f"artifact-match-{uuid.uuid4().hex}"
@@ -11410,6 +11431,9 @@ class SchoolDB(LovesDB):
                 "parent": payload["parent"],
                 "snapshot": payload["snapshot"],
                 "target_mode": payload["target_mode"],
+                "hot_cold_visible": payload.get("hot_cold_visible"),
+                "group_q": payload.get("group_q"),
+                "accuracy_margin": payload.get("accuracy_margin"),
             }
         )
         media_url = str(payload.get("media_url") or C2_TRANSFORM_MEDIA_URL)
@@ -11456,6 +11480,173 @@ class SchoolDB(LovesDB):
             "match_index": match_index,
         }
 
+    def record_artifact_slider_preview(
+        self,
+        session_id: int,
+        student_id: int | None,
+        prompt_id: int,
+        params: Any,
+    ) -> None:
+        """Store one student's live Artifact sliders for Group Q.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+            prompt_id: ``live_session_prompts.id``.
+            params: Slider dict (and parent kind when used), or a response
+                with nested ``params``.
+        """
+        if student_id in (None, "") or prompt_id in (None, ""):
+            return
+        posted = params if isinstance(params, dict) else {}
+        raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+        if not isinstance(raw, dict):
+            return
+        with self._lock:
+            self._artifact_slider_previews[
+                (int(session_id), int(prompt_id), int(student_id))
+            ] = dict(raw)
+
+    def artifact_group_q_status(
+        self,
+        session_id: int,
+        student_id: int | None,
+        prompt: dict[str, Any] | None,
+        params: Any = None,
+    ) -> dict[str, Any]:
+        """Return whether Group Q still needs every teammate to match.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id of the student asking or submitting.
+            prompt: Live-prompt row with payload + id.
+            params: Optional current sliders; recorded before the check so
+                submit can count this student's live value.
+
+        Returns:
+            ``{needed, ready, matched, members}``. ``needed`` is False and
+            ``ready`` is True unless the prompt has Group Q, the teacher is
+            running as group, and the student has a named team.
+        """
+        empty = {"needed": False, "ready": True, "matched": True, "members": []}
+        if not isinstance(prompt, dict):
+            return empty
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        if not is_artifact_payload(payload):
+            return empty
+        prompt_id = prompt.get("id")
+        if params is not None and student_id not in (None, "") and prompt_id not in (
+            None,
+            "",
+        ):
+            self.record_artifact_slider_preview(
+                session_id, student_id, int(prompt_id), params
+            )
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return empty
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return empty
+        team_id = None
+        if student_id not in (None, ""):
+            team_id = self.student_team_id_for_class(
+                int(session_row["class_id"]), int(student_id)
+            )
+        if not (
+            bool(payload.get("group_q"))
+            and bool(teacher.get("run_as_group"))
+            and team_id not in (None, 0)
+        ):
+            return empty
+        teammate_ids = self._teammate_ids_for_class(
+            int(session_row["class_id"]), int(team_id)
+        )
+        with self._lock:
+            previews = dict(self._artifact_slider_previews)
+        members: list[dict[str, Any]] = []
+        all_ok = True
+        self_matched = False
+        for tid in teammate_ids:
+            preview = previews.get((int(session_id), int(prompt_id), int(tid)))
+            hit = bool(
+                preview is not None and artifact_snapshot_matches(payload, preview)
+            )
+            members.append({"student_id": int(tid), "matched": hit})
+            if not hit:
+                all_ok = False
+            if student_id not in (None, "") and int(tid) == int(student_id):
+                self_matched = hit
+        return {
+            "needed": True,
+            "ready": all_ok,
+            "matched": self_matched,
+            "members": members,
+        }
+
+    def _reject_artifact_group_q_if_blocked(
+        self,
+        session_id: int,
+        student_id: int | None,
+        prompt: dict[str, Any],
+        response: Any,
+    ) -> None:
+        """Raise when Group Q is on and teammates are not all matched.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id of the student submitting.
+            prompt: Live-prompt row.
+            response: Posted answer JSON.
+
+        Raises:
+            ValueError: If every teammate must match and at least one does not.
+        """
+        posted = response if isinstance(response, dict) else {}
+        params = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+        status = self.artifact_group_q_status(
+            session_id, student_id, prompt, params=params
+        )
+        if status.get("needed") and not status.get("ready"):
+            raise ValueError("Wait for every teammate to match.")
+
+    def sync_artifact_teacher_flags(
+        self, session_id: int, artifact: Any
+    ) -> None:
+        """Copy Show hot/cold, Group Q, and accuracy from media onto the prompt.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            artifact: Posted artifact object (flags + optional snapshot).
+        """
+        if not isinstance(artifact, dict):
+            return
+        if (
+            artifact.get("hot_cold_visible") is None
+            and artifact.get("group_q") is None
+            and artifact.get("accuracy_margin") is None
+        ):
+            return
+        prompt = self.get_active_live_prompt(session_id)
+        if prompt is None:
+            return
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        if not is_artifact_payload(payload):
+            return
+        updated = apply_artifact_teacher_flags(
+            dict(payload),
+            hot_cold_visible=artifact.get("hot_cold_visible"),
+            group_q=artifact.get("group_q"),
+            accuracy_margin=artifact.get("accuracy_margin"),
+        )
+        self.set_live_session_prompt(
+            session_id,
+            slide_index=int(prompt.get("slide_index") or 0),
+            kind=str(prompt.get("kind") or ARTIFACT_KIND),
+            payload=updated,
+            activate=True,
+        )
 
     def clear_active_live_prompt(self, session_id: int) -> None:
         """Deactivate every prompt for a live session (idle shell).
@@ -12532,6 +12723,12 @@ class SchoolDB(LovesDB):
         if prompt is None:
             raise KeyError(f"prompt {prompt_id}")
         prompt_row = self._prompt_row_to_dict(prompt)
+        self._reject_artifact_group_q_if_blocked(
+            int(prompt_row["live_session_id"]),
+            sid,
+            prompt_row,
+            response,
+        )
         with self._lock:
             lifecycle = self.conn.execute(
                 """
@@ -13262,14 +13459,10 @@ class SchoolDB(LovesDB):
         if is_artifact_payload(body):
             posted = {"params": value} if not isinstance(value, dict) else value
             if not isinstance(posted.get("params"), dict) and any(
-                key in posted for key in ("a", "h", "k")
+                key in posted for key in ("a", "h", "k", "d", "c")
             ):
                 posted = {"params": posted}
-            result = grade_transform_snapshot(
-                posted.get("params") if isinstance(posted.get("params"), dict) else posted,
-                body.get("snapshot"),
-            )
-            return bool(result["match"])
+            return artifact_snapshot_matches(body, posted)
         if raw_key and value not in (None, ""):
             try:
                 return self._numeric_within_tolerance(
@@ -14303,6 +14496,11 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         )
+        if is_artifact_payload(raw_payload) and student_id not in (None, ""):
+            status = self.artifact_group_q_status(
+                session_id, int(student_id), prompt
+            )
+            out["group_q_ready"] = status["ready"]
         return out
 
     def live_session_active_media_payload(

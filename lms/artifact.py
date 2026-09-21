@@ -42,8 +42,66 @@ TRANSFORM_RANGES: dict[str, tuple[float, float]] = {
 TARGET_MODES = frozenset({"graph", "equation"})
 GRADE_RELATIVE_MARGIN = 0.10
 GRADE_ABS_FLOOR = 1.0
+ALLOWED_ACCURACY_MARGINS = (0.10, 0.20)
 LEAD_MATCH = "Matched."
 LEAD_MISS = "Not yet — watch the meters."
+def normalize_accuracy_margin(raw: Any) -> float:
+    """Return ``0.10`` or ``0.20``. Missing or unknown values default to 10%.
+
+    Accepts ``0.1`` / ``0.10`` / ``10`` / ``"10%"`` and the 20% equivalents.
+
+    Args:
+        raw: Posted accuracy field from mint, media, or a prompt payload.
+    """
+    if raw is None or raw == "":
+        return GRADE_RELATIVE_MARGIN
+    if isinstance(raw, str):
+        text = raw.strip().rstrip("%")
+        try:
+            raw = float(text)
+        except ValueError:
+            return GRADE_RELATIVE_MARGIN
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return GRADE_RELATIVE_MARGIN
+    if number != number or number in (float("inf"), float("-inf")):
+        return GRADE_RELATIVE_MARGIN
+    if number > 1:
+        number = number / 100.0
+    if abs(number - 0.20) < 0.001:
+        return 0.20
+    return GRADE_RELATIVE_MARGIN
+
+
+def apply_artifact_teacher_flags(
+    payload: dict[str, Any],
+    *,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
+    accuracy_margin: Any = None,
+) -> dict[str, Any]:
+    """Attach Show hot/cold, Group Q, and accuracy-band flags to an Artifact.
+
+    Args:
+        payload: Prompt or media artifact dict.
+        hot_cold_visible: When true, students see slider heat hints.
+        group_q: When true, Submit waits for every teammate to match.
+        accuracy_margin: Match band ``0.10`` or ``0.20`` (default 10%).
+    """
+    if hot_cold_visible is not None:
+        payload["hot_cold_visible"] = bool(hot_cold_visible)
+    if group_q is not None:
+        payload["group_q"] = bool(group_q)
+    if accuracy_margin is not None:
+        payload["accuracy_margin"] = normalize_accuracy_margin(accuracy_margin)
+    else:
+        payload["accuracy_margin"] = normalize_accuracy_margin(
+            payload.get("accuracy_margin")
+        )
+    return payload
+
+
 MATCH_CHALLENGE_TOAST = "Match challenge added."
 PARENT_FUNCTION_LABEL = "Parent function"
 ARTIFACT_SLIDE_BASE = 800
@@ -216,18 +274,23 @@ def format_vertex_equation(params: dict[str, float]) -> str:
     return f"f(x)={core}{tail}"
 
 
-def slider_margin(target: float, key: str) -> float:
-    """Return the ±10% allowed error for one slider.
+def slider_margin(
+    target: float, key: str, margin: float = GRADE_RELATIVE_MARGIN
+) -> float:
+    """Return the allowed error for one slider.
 
-    Uses 10% of ``|target|``, with a floor of 1 so a zero (or tiny) target
-    is still reachable: ``|student − target| ≤ 0.10 × max(|target|, 1)``.
+    Uses ``margin`` of ``|target|``, with a floor of 1 so a zero (or tiny)
+    target is still reachable:
+    ``|student − target| ≤ margin × max(|target|, 1)``.
 
     Args:
         target: Teacher snapshot value.
         key: ``a``, ``h``, or ``k`` (reserved for range-aware callers).
+        margin: Relative band, ``0.10`` or ``0.20`` (default 10%).
     """
     _ = key
-    return GRADE_RELATIVE_MARGIN * max(abs(float(target)), GRADE_ABS_FLOOR)
+    rel = normalize_accuracy_margin(margin)
+    return rel * max(abs(float(target)), GRADE_ABS_FLOOR)
 
 
 def grade_transform_snapshot(
@@ -241,19 +304,19 @@ def grade_transform_snapshot(
     Args:
         student: Posted ``{a, h, k}``.
         target: Stored snapshot ``{a, h, k}``.
-        margin: Relative tolerance (default ±10%).
+        margin: Relative tolerance (default ±10%, or ±20% when minted).
 
     Returns:
         ``{match, per_key, student, target}``. ``match`` is True when every
-        slider is inside its ±10% band.
+        slider is inside its accuracy band.
     """
-    _ = margin
+    rel = normalize_accuracy_margin(margin)
     got = normalize_transform_params(student)
     want = normalize_transform_params(target)
     per_key: dict[str, dict[str, float | bool]] = {}
     ok = True
     for key in TRANSFORM_KEYS:
-        allowed = slider_margin(want[key], key)
+        allowed = slider_margin(want[key], key, rel)
         delta = abs(got[key] - want[key])
         hit = delta <= allowed + 1e-9
         per_key[key] = {
@@ -459,6 +522,7 @@ def grade_parent_snapshot(
     *,
     parent: Any = None,
     target_parent: Any = None,
+    margin: float = GRADE_RELATIVE_MARGIN,
 ) -> dict[str, Any]:
     """Auto-check parent radio plus ``a, k, d, c`` sliders.
 
@@ -467,6 +531,7 @@ def grade_parent_snapshot(
         target: Stored snapshot ``{a, k, d, c}``.
         parent: Posted parent kind when not inside ``student``.
         target_parent: Teacher parent kind.
+        margin: Relative tolerance (default ±10%, or ±20% when minted).
 
     Returns:
         ``{match, parent_match, per_key, student, target, parent}``.
@@ -485,10 +550,11 @@ def grade_parent_snapshot(
     parent_match = got_parent == want_parent
     got = normalize_parent_params(posted)
     want = normalize_parent_params(target)
+    rel = normalize_accuracy_margin(margin)
     per_key: dict[str, dict[str, float | bool]] = {}
     ok = parent_match
     for key in PARENT_TRANSFORM_KEYS:
-        allowed = slider_margin(want[key], key)
+        allowed = slider_margin(want[key], key, rel)
         delta = abs(got[key] - want[key])
         hit = delta <= allowed + 1e-9
         per_key[key] = {
@@ -511,6 +577,45 @@ def grade_parent_snapshot(
     }
 
 
+def artifact_snapshot_matches(payload: Any, student: Any) -> bool:
+    """True when posted sliders match the minted Artifact snapshot.
+
+    Parent Artifacts require the posted parent kind plus ``a, k, d, c``.
+    Vertex-form Artifacts grade ``a, h, k``.
+
+    Args:
+        payload: Live-prompt payload with teacher snapshot.
+        student: Posted ``params`` or full response JSON.
+
+    Returns:
+        True when every required field is inside the minted accuracy band.
+    """
+    if not is_artifact_payload(payload):
+        return False
+    snapshot = payload.get("snapshot") if isinstance(payload, dict) else None
+    posted = student if isinstance(student, dict) else {}
+    raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
+    margin = normalize_accuracy_margin(
+        payload.get("accuracy_margin") if isinstance(payload, dict) else None
+    )
+    if is_parent_transformations_artifact(payload):
+        parent = None
+        if isinstance(payload, dict):
+            parent = (
+                (payload.get("parent") or {}).get("kind")
+                if isinstance(payload.get("parent"), dict)
+                else payload.get("parent")
+            )
+        return bool(
+            grade_parent_snapshot(
+                raw, snapshot, target_parent=parent, margin=margin
+            )["match"]
+        )
+    if is_transformations_artifact(payload):
+        return bool(grade_transform_snapshot(raw, snapshot, margin=margin)["match"])
+    return False
+
+
 def artifact_feedback_fragment(payload: Any, response: Any) -> dict[str, Any] | None:
     """Student-safe match / miss line for an Artifact submit.
 
@@ -524,25 +629,12 @@ def artifact_feedback_fragment(payload: Any, response: Any) -> dict[str, Any] | 
     """
     if not is_artifact_payload(payload):
         return None
-    snapshot = (payload or {}).get("snapshot") if isinstance(payload, dict) else None
-    posted = response if isinstance(response, dict) else {}
-    raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
-    if is_parent_transformations_artifact(payload):
-        parent = None
-        if isinstance(payload, dict):
-            parent = (payload.get("parent") or {}).get("kind") if isinstance(
-                payload.get("parent"), dict
-            ) else payload.get("parent")
-        result = grade_parent_snapshot(
-            raw,
-            snapshot,
-            target_parent=parent,
-        )
-    elif is_transformations_artifact(payload):
-        result = grade_transform_snapshot(raw, snapshot)
-    else:
+    if not (
+        is_parent_transformations_artifact(payload)
+        or is_transformations_artifact(payload)
+    ):
         return None
-    match = bool(result["match"])
+    match = artifact_snapshot_matches(payload, response)
     lead = LEAD_MATCH if match else LEAD_MISS
     return {
         "text": lead,
@@ -558,6 +650,9 @@ def transformations_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
+    accuracy_margin: Any = None,
 ) -> dict[str, Any]:
     """Build the live-prompt payload stored on the current page.
 
@@ -566,6 +661,9 @@ def transformations_prompt_payload(
         target_mode: ``graph`` (frozen target curve) or ``equation``.
         parent: Optional parent-function override.
         slide_index: Page index this question is minted onto.
+        hot_cold_visible: Students see slider heat hints when true.
+        group_q: Submit waits for every teammate to match.
+        accuracy_margin: Match band ``0.10`` or ``0.20``.
 
     Returns:
         Staff payload including the snapshot (student GET strips nothing
@@ -575,7 +673,7 @@ def transformations_prompt_payload(
     mode = normalize_target_mode(target_mode)
     parent_fn = dict(parent) if isinstance(parent, dict) else dict(TRANSFORMATIONS_PARENT)
     equation = format_vertex_equation(params)
-    return {
+    payload = {
         "kind": ARTIFACT_KIND,
         "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
         "channel": ARTIFACT_CHANNEL,
@@ -591,7 +689,16 @@ def transformations_prompt_payload(
         "slide_index": int(slide_index),
         "ephemeral": False,
         "durable_store": True,
+        "hot_cold_visible": False,
+        "group_q": False,
+        "accuracy_margin": GRADE_RELATIVE_MARGIN,
     }
+    return apply_artifact_teacher_flags(
+        payload,
+        hot_cold_visible=hot_cold_visible,
+        group_q=group_q,
+        accuracy_margin=accuracy_margin,
+    )
 
 
 def parent_transformations_prompt_payload(
@@ -600,6 +707,9 @@ def parent_transformations_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | str | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
+    accuracy_margin: Any = None,
 ) -> dict[str, Any]:
     """Build the MCR3U M1 C3 parent-function Artifact prompt.
 
@@ -608,6 +718,9 @@ def parent_transformations_prompt_payload(
         target_mode: ``graph`` (frozen target curve) or ``equation``.
         parent: Parent kind or ``{kind, ...}`` object.
         slide_index: Page index this question is minted onto.
+        hot_cold_visible: Students see slider heat hints when true.
+        group_q: Submit waits for every teammate to match.
+        accuracy_margin: Match band ``0.10`` or ``0.20``.
     """
     params = normalize_parent_params(snapshot)
     mode = normalize_target_mode(target_mode)
@@ -618,7 +731,7 @@ def parent_transformations_prompt_payload(
         else posted.get("parent") or posted.get("kind")
     )
     equation = format_parent_equation(parent_fn["kind"], params)
-    return {
+    payload = {
         "kind": ARTIFACT_KIND,
         "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
         "channel": ARTIFACT_CHANNEL,
@@ -637,7 +750,16 @@ def parent_transformations_prompt_payload(
         "slide_index": int(slide_index),
         "ephemeral": False,
         "durable_store": True,
+        "hot_cold_visible": False,
+        "group_q": False,
+        "accuracy_margin": GRADE_RELATIVE_MARGIN,
     }
+    return apply_artifact_teacher_flags(
+        payload,
+        hot_cold_visible=hot_cold_visible,
+        group_q=group_q,
+        accuracy_margin=accuracy_margin,
+    )
 
 
 def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -676,7 +798,12 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 payload.get("equation")
                 or format_parent_equation(parent_fn["kind"], snapshot)
             )
-        return out
+        return apply_artifact_teacher_flags(
+            out,
+            hot_cold_visible=payload.get("hot_cold_visible"),
+            group_q=payload.get("group_q"),
+            accuracy_margin=payload.get("accuracy_margin"),
+        )
     title = str(payload.get("title") or "").strip()
     out = {
         "kind": ARTIFACT_KIND,
@@ -699,7 +826,12 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
             payload.get("equation")
             or format_vertex_equation(out["snapshot"])
         )
-    return out
+    return apply_artifact_teacher_flags(
+        out,
+        hot_cold_visible=payload.get("hot_cold_visible"),
+        group_q=payload.get("group_q"),
+        accuracy_margin=payload.get("accuracy_margin"),
+    )
 
 
 def format_artifact_answer(response: Any) -> str:
@@ -761,20 +893,30 @@ def public_artifact_media(payload: dict[str, Any] | None) -> dict[str, Any] | No
             mode = normalize_target_mode(payload.get("target_mode"))
         except ValueError:
             return None
-        return {
-            "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
-            "parent": parent_fn,
+        return apply_artifact_teacher_flags(
+            {
+                "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+                "parent": parent_fn,
+                "snapshot": snapshot,
+                "target_mode": mode,
+                "equation": format_parent_equation(parent_fn["kind"], snapshot),
+            },
+            hot_cold_visible=payload.get("hot_cold_visible"),
+            group_q=payload.get("group_q"),
+            accuracy_margin=payload.get("accuracy_margin"),
+        )
+    return apply_artifact_teacher_flags(
+        {
+            "artifact_id": artifact_id,
+            "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),
             "snapshot": snapshot,
             "target_mode": mode,
-            "equation": format_parent_equation(parent_fn["kind"], snapshot),
-        }
-    return {
-        "artifact_id": artifact_id,
-        "parent": payload.get("parent") or dict(TRANSFORMATIONS_PARENT),
-        "snapshot": snapshot,
-        "target_mode": mode,
-        "equation": format_vertex_equation(snapshot),
-    }
+            "equation": format_vertex_equation(snapshot),
+        },
+        hot_cold_visible=payload.get("hot_cold_visible"),
+        group_q=payload.get("group_q"),
+        accuracy_margin=payload.get("accuracy_margin"),
+    )
 
 
 def default_c2_transform_media() -> dict[str, Any]:
@@ -864,6 +1006,9 @@ def artifact_prompt_payload(
     target_mode: Any = "graph",
     parent: dict[str, Any] | None = None,
     slide_index: int = ARTIFACT_SLIDE_BASE,
+    hot_cold_visible: Any = None,
+    group_q: Any = None,
+    accuracy_margin: Any = None,
 ) -> dict[str, Any]:
     """Build the stored prompt for a registered Artifact.
 
@@ -873,6 +1018,9 @@ def artifact_prompt_payload(
         target_mode: ``graph`` or ``equation``.
         parent: Optional parent-function override.
         slide_index: Page index this question is minted onto.
+        hot_cold_visible: Students see slider heat hints when true.
+        group_q: Submit waits for every teammate to match.
+        accuracy_margin: Match band ``0.10`` or ``0.20``.
 
     Raises:
         ValueError: Unknown artifact id.
@@ -884,6 +1032,9 @@ def artifact_prompt_payload(
             target_mode=target_mode,
             parent=parent,
             slide_index=slide_index,
+            hot_cold_visible=hot_cold_visible,
+            group_q=group_q,
+            accuracy_margin=accuracy_margin,
         )
     if wanted == TRANSFORMATIONS_ARTIFACT_ID:
         return transformations_prompt_payload(
@@ -891,5 +1042,8 @@ def artifact_prompt_payload(
             target_mode=target_mode,
             parent=parent,
             slide_index=slide_index,
+            hot_cold_visible=hot_cold_visible,
+            group_q=group_q,
+            accuracy_margin=accuracy_margin,
         )
     raise ValueError(f"unknown artifact: {wanted}")

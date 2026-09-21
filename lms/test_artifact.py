@@ -27,10 +27,12 @@ from artifact import (
     TRANSFORMATIONS_STEM,
     match_challenge_title,
     artifact_feedback_fragment,
+    artifact_snapshot_matches,
     format_artifact_answer,
     format_vertex_equation,
     grade_parent_snapshot,
     grade_transform_snapshot,
+    normalize_accuracy_margin,
     parent_transformations_prompt_payload,
     slider_margin,
     transformations_prompt_payload,
@@ -78,6 +80,33 @@ class TransformGradeTests(unittest.TestCase):
         self.assertFalse(result["match"], result)
         self.assertFalse(result["per_key"]["a"]["match"])
         self.assertTrue(result["per_key"]["h"]["match"])
+
+    def test_normalize_accuracy_margin_is_ten_or_twenty(self) -> None:
+        """Only 10% and 20% are legal; everything else snaps to 10%."""
+        self.assertEqual(normalize_accuracy_margin(None), 0.10)
+        self.assertEqual(normalize_accuracy_margin(0.10), 0.10)
+        self.assertEqual(normalize_accuracy_margin("20%"), 0.20)
+        self.assertEqual(normalize_accuracy_margin(20), 0.20)
+        self.assertEqual(normalize_accuracy_margin(0.15), 0.10)
+
+    def test_grade_twenty_percent_band(self) -> None:
+        """A miss at 10% can still match when the teacher chose 20%."""
+        target = {"a": 3.0, "h": 5.0, "k": -1.0}
+        near = {"a": 3.45, "h": 5.0, "k": -1.0}
+        tight = grade_transform_snapshot(near, target, margin=0.10)
+        wide = grade_transform_snapshot(near, target, margin=0.20)
+        self.assertFalse(tight["match"], tight)
+        self.assertTrue(wide["match"], wide)
+        self.assertAlmostEqual(tight["per_key"]["a"]["allowed"], 0.30)
+        self.assertAlmostEqual(wide["per_key"]["a"]["allowed"], 0.60)
+        payload_20 = transformations_prompt_payload(
+            snapshot=target, accuracy_margin=0.20
+        )
+        self.assertEqual(payload_20["accuracy_margin"], 0.20)
+        self.assertTrue(artifact_snapshot_matches(payload_20, {"params": near}))
+        payload_10 = transformations_prompt_payload(snapshot=target)
+        self.assertEqual(payload_10["accuracy_margin"], 0.10)
+        self.assertFalse(artifact_snapshot_matches(payload_10, {"params": near}))
 
     def test_match_challenge_title_increments(self) -> None:
         """Locked minted titles are Match challenge N."""
@@ -192,10 +221,17 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
         self.assertIn("Make match challenge", body)
-        self.assertIn("Random", body)
+        self.assertIn('<button type="button" id="t-random">', body)
+        self.assertIn("Show hot/cold sliders", body)
+        self.assertIn("Group Q", body)
+        self.assertIn('id="t-acc-10"', body)
+        self.assertIn('id="t-acc-20"', body)
+        self.assertIn("accuracy_margin", body)
+        self.assertIn("a(x − h)² + k", body)
         self.assertIn("Show graph", body)
         self.assertIn("Show equation", body)
         self.assertIn("lloves-m1c2-transforms", body)
+        self.assertIn("artifact-teacher-flags", body)
         self.assertEqual(rv.headers.get("X-Frame-Options"), "SAMEORIGIN")
         path = LMS_DIR / "static" / "live-media" / "m1c2-transforms.html"
         self.assertTrue(path.is_file())
@@ -383,6 +419,51 @@ class ArtifactMintChannelTests(unittest.TestCase):
         teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
         self.assertEqual(teacher["live_slot"], "C3")
 
+    def test_mint_teacher_flags_reach_student_prompt(self) -> None:
+        """Show hot/cold, Group Q, and 20% accuracy land on the prompt."""
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 3, "h": 5, "k": -1},
+                "target_mode": "graph",
+                "hot_cold_visible": True,
+                "group_q": True,
+                "accuracy_margin": 0.20,
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        payload = minted.get_json()["prompt"]["payload"]
+        self.assertTrue(payload["hot_cold_visible"])
+        self.assertTrue(payload["group_q"])
+        self.assertEqual(payload["accuracy_margin"], 0.20)
+        student = self.student.get("/api/student/live-prompt").get_json()
+        facing = student["prompt"]["payload"]
+        self.assertTrue(facing["hot_cold_visible"])
+        self.assertTrue(facing["group_q"])
+        self.assertEqual(facing["accuracy_margin"], 0.20)
+        self.assertIn("snapshot", facing)
+        self.assertNotIn("cement", facing)
+        media_art = minted.get_json()["active_media"].get("artifact") or {}
+        self.assertEqual(media_art.get("accuracy_margin"), 0.20)
+        patched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={
+                "artifact": {
+                    **media_art,
+                    "hot_cold_visible": False,
+                    "group_q": False,
+                    "accuracy_margin": 0.10,
+                }
+            },
+        )
+        self.assertEqual(patched.status_code, 200, patched.get_json())
+        after = self.school.get_active_live_prompt(self.live_session_id)
+        assert after is not None
+        self.assertFalse(after["payload"]["hot_cold_visible"])
+        self.assertFalse(after["payload"]["group_q"])
+        self.assertEqual(after["payload"]["accuracy_margin"], 0.10)
+
 
 class ParentArtifactTests(unittest.TestCase):
     """MCR3U M1 C3 parent-function Artifact grade + mint."""
@@ -421,6 +502,27 @@ class ParentArtifactTests(unittest.TestCase):
         self.assertIn("parent=abs", format_artifact_answer(
             {"params": {"parent": "abs", "a": 2, "k": -1, "d": 3, "c": -2}}
         ))
+
+    def test_artifact_snapshot_matches_requires_parent_and_sliders(self) -> None:
+        """Parent kind and sliders must both hit for a parent Artifact match."""
+        payload = parent_transformations_prompt_payload(
+            snapshot={"a": 2, "k": -1, "d": 3, "c": -2},
+            parent={"kind": "quadratic"},
+        )
+        hit = {"parent": "quadratic", "a": 2, "k": -1, "d": 3, "c": -2}
+        self.assertTrue(artifact_snapshot_matches(payload, {"params": hit}))
+        self.assertFalse(
+            artifact_snapshot_matches(
+                payload,
+                {"params": {"parent": "linear", "a": 2, "k": -1, "d": 3, "c": -2}},
+            )
+        )
+        self.assertFalse(
+            artifact_snapshot_matches(
+                payload,
+                {"params": {"parent": "quadratic", "a": 0.2, "k": -1, "d": 3, "c": -2}},
+            )
+        )
 
 
 class Mcr3uParentMintTests(unittest.TestCase):
@@ -492,6 +594,12 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
         self.assertIn("Make match challenge", body)
+        self.assertIn('<button type="button" id="t-random">', body)
+        self.assertIn("Show hot/cold sliders", body)
+        self.assertIn("Group Q", body)
+        self.assertIn('id="t-acc-10"', body)
+        self.assertIn('id="t-acc-20"', body)
+        self.assertIn("accuracy_margin", body)
         self.assertIn(PARENT_FUNCTION_LABEL, body)
         self.assertIn('id="parents-heading"', body)
         self.assertNotIn('"toast"', body)
@@ -502,7 +610,12 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertIn('value="reciprocal"', body)
         self.assertNotIn('value="abs"', body)
         self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", body)
+        self.assertIn(">a<", body)
+        self.assertIn(">k<", body)
+        self.assertIn(">d<", body)
+        self.assertIn(">c<", body)
         self.assertIn("lloves-mcr3u-m1c3-parents", body)
+        self.assertIn("artifact-teacher-flags", body)
         self.assertIn(PARENT_TRANSFORMATIONS_ARTIFACT_ID, body)
         rv.close()
 
@@ -565,6 +678,217 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertTrue(any("parent=" in str(row.get("answer") or "") for row in answers))
 
 
+class ArtifactGroupQTests(unittest.TestCase):
+    """Group Q waits until every teammate matches the Artifact snapshot."""
+
+    def setUp(self) -> None:
+        """Isolated MCF3M class with two rostered students on one team."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.maple = self.app.test_client()
+        self.birch = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.staff.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.staff.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": self.offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple", "Birch", "Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.class_id = int(created.get_json()["class"]["id"])
+        run = self.staff.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(run.status_code, 302)
+        live = self.school.get_active_live_session_for_class(self.class_id)
+        assert live is not None
+        self.session_code = str(live["session_code"])
+        self.live_session_id = int(live["id"])
+        self.maple.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.maple.post("/student/mood", data={"mood": "good"})
+        self.maple.post("/student/character", data={"character": "fox"})
+        self.birch.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": "Birch"},
+            follow_redirects=False,
+        )
+        self.birch.post("/student/mood", data={"mood": "good"})
+        self.birch.post("/student/character", data={"character": "owl"})
+        self.maple_id = int(
+            self.school.game.find_student_by_codename(self.class_id, "Maple")["id"]
+        )
+        self.birch_id = int(
+            self.school.game.find_student_by_codename(self.class_id, "Birch")["id"]
+        )
+        self.cedar_id = int(
+            self.school.game.find_student_by_codename(self.class_id, "Cedar")["id"]
+        )
+        self.school.game.begin_game(self.class_id)
+        self.school.setup_live_session_groups(
+            self.live_session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=[self.maple_id, self.birch_id, self.cedar_id],
+            assignments=[
+                {"student_id": self.maple_id, "team_index": 0},
+                {"student_id": self.birch_id, "team_index": 0},
+                {"student_id": self.cedar_id, "team_index": 1},
+            ],
+        )
+
+    def tearDown(self) -> None:
+        """Close db and temp dir."""
+        self.school.close()
+        self.tmp.cleanup()
+
+    def _mint_group_q(self) -> dict:
+        """Mint a C2 Artifact with Group Q on."""
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "h": 1, "k": -1},
+                "target_mode": "graph",
+                "hot_cold_visible": True,
+                "group_q": True,
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        return minted.get_json()
+
+    def test_group_q_waits_for_teammate_previews(self) -> None:
+        """Missing preview is not a match; both matching sliders unlock submit."""
+        body = self._mint_group_q()
+        prompt = body["prompt"]
+        prompt_id = int(prompt["id"])
+        hit = {"a": 2.0, "h": 1.0, "k": -1.0}
+        miss = {"a": 0.2, "h": 0.0, "k": 4.0}
+        idle = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, prompt
+        )
+        self.assertTrue(idle["needed"])
+        self.assertFalse(idle["ready"])
+        self.assertFalse(idle["matched"])
+        self.assertEqual(len(idle["members"]), 2)
+        self.assertTrue(all(not row["matched"] for row in idle["members"]))
+        maple_only = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, prompt, params=hit
+        )
+        self.assertTrue(maple_only["needed"])
+        self.assertTrue(maple_only["matched"])
+        self.assertFalse(maple_only["ready"])
+        blocked = self.maple.post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": prompt_id, "response": {"params": hit}},
+        )
+        self.assertEqual(blocked.status_code, 400, blocked.get_json())
+        self.assertIn("teammate", str(blocked.get_json().get("error") or "").lower())
+        preview = self.birch.post(
+            "/api/student/live-prompt/artifact-preview",
+            json={"prompt_id": prompt_id, "params": hit},
+        )
+        self.assertEqual(preview.status_code, 200, preview.get_json())
+        self.assertTrue(preview.get_json()["needed"])
+        self.assertTrue(preview.get_json()["group_q_ready"])
+        ready = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, prompt, params=hit
+        )
+        self.assertTrue(ready["ready"])
+        saved = self.maple.post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": prompt_id, "response": {"params": hit}},
+        )
+        self.assertEqual(saved.status_code, 200, saved.get_json())
+        self.assertEqual(saved.get_json()["feedback"]["lead"], LEAD_MATCH)
+        student = self.maple.get("/api/student/live-prompt").get_json()
+        self.assertTrue(student.get("group_q_ready"))
+        cards = student.get("active_questions") or []
+        artifact_cards = [
+            row for row in cards if str((row.get("content") or {}).get("kind")) == "artifact"
+        ]
+        self.assertTrue(artifact_cards)
+        self.assertTrue(artifact_cards[0].get("group_q_ready"))
+        wrong = self.school.artifact_group_q_status(
+            self.live_session_id, self.birch_id, prompt, params=miss
+        )
+        self.assertFalse(wrong["ready"])
+        self.assertFalse(wrong["matched"])
+        no_flag = dict(prompt)
+        no_flag["payload"] = dict(prompt["payload"])
+        no_flag["payload"]["group_q"] = False
+        skipped = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, no_flag, params=hit
+        )
+        self.assertFalse(skipped["needed"])
+        self.assertTrue(skipped["ready"])
+        missing = self.maple.post(
+            "/api/student/live-prompt/artifact-preview",
+            json={"prompt_id": 0, "params": hit},
+        )
+        self.assertEqual(missing.status_code, 409)
+
+    def test_parent_group_q_requires_function_type(self) -> None:
+        """Parent Group Q does not match when a teammate picks the wrong kind."""
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "k": -1, "d": 3, "c": 1},
+                "target_mode": "graph",
+                "parent": {"kind": "sqrt"},
+                "group_q": True,
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        prompt = minted.get_json()["prompt"]
+        hit = {"parent": "sqrt", "a": 2, "k": -1, "d": 3, "c": 1}
+        wrong_parent = {"parent": "linear", "a": 2, "k": -1, "d": 3, "c": 1}
+        self.school.record_artifact_slider_preview(
+            self.live_session_id, self.maple_id, int(prompt["id"]), hit
+        )
+        self.school.record_artifact_slider_preview(
+            self.live_session_id, self.birch_id, int(prompt["id"]), wrong_parent
+        )
+        status = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, prompt
+        )
+        self.assertTrue(status["needed"])
+        self.assertFalse(status["ready"])
+        birch_row = next(
+            row for row in status["members"] if int(row["student_id"]) == self.birch_id
+        )
+        self.assertFalse(birch_row["matched"])
+
+
 class ArtifactStaffJsTests(unittest.TestCase):
     """Teacher JS still seeds and paints the C2 Transformations Artifact."""
 
@@ -577,8 +901,36 @@ class ArtifactStaffJsTests(unittest.TestCase):
         self.assertIn('ontario === "MCF3M" && module === "M1" && slot === "C3"', js)
         self.assertIn("lloves-mcr3u-m1c3-parents", js)
         self.assertIn("function mintArtifactFromMedia(", js)
+        self.assertIn("function patchArtifactTeacherFlags(", js)
+        self.assertIn("artifact-teacher-flags", js)
+        self.assertIn("accuracy_margin", js)
         self.assertIn("function showStaffMintToast(", js)
         self.assertIn("live-mint-toast", js)
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("content.hot_cold_visible", student_js)
+        self.assertIn("data.hot_cold_visible", student_js)
+        self.assertIn("function artifactAccuracyMargin(", student_js)
+        self.assertIn("data-accuracy-margin", student_js)
+        self.assertIn("is-hc-very", student_js)
+        self.assertIn("function artifactGroupsRunning(", student_js)
+        self.assertIn("function artifactGroupQLocked(", student_js)
+        self.assertIn("function syncArtifactGroupQLock(", student_js)
+        self.assertIn('data-group-q="1"', student_js)
+        lifecycle = student_js.split("if (kind === \"artifact\") {")[1].split(
+            "const value = current === \"—\" ? \"\" : current;"
+        )[0]
+        self.assertIn("disabled", lifecycle)
+        shell = student_js.split("} else if (kind === \"artifact\") {")[1].split(
+            "} else if (kind === \"share\""
+        )[0]
+        self.assertIn("disabled", shell)
+        self.assertIn("id=\"prompt-artifact-submit\"", shell)
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn("is-hc-cold", css)
+        self.assertIn("#fde047", css)
+        self.assertIn("#ef4444", css)
         mint = js.split("async function mintArtifactFromMedia(")[1].split(
             "function bindActiveMediaControls("
         )[0]
