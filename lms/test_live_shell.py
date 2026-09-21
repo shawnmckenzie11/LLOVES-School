@@ -2215,6 +2215,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function setLiveReconnectBanner(", js)
         self.assertIn("Reconnecting…", js)
         self.assertIn("setLiveReconnectBanner(true)", js)
+        self.assertIn('payload?.error === "state unavailable"', js)
+        cards = js.split("async function refreshLiveQuestionCards(")[1].split(
+          "function questionCardsFromMetadata("
+        )[0]
+        self.assertIn("setLiveReconnectBanner(true)", cards)
+        self.assertNotIn("lastQuestionCards = []", cards)
         course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
             encoding="utf-8"
         )

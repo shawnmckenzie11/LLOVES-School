@@ -1587,20 +1587,29 @@ function playlistMovePageOptions(currentPageIndex) {
 async function refreshLiveQuestionCards() {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
-  const snapshot = await api(`/api/live-sessions/${id}/state`);
-  if (snapshot?.live_metadata) {
-    lastLiveMetadata = snapshot.live_metadata;
+  try {
+    const snapshot = await api(`/api/live-sessions/${id}/state`);
+    if (snapshot?.error === "state unavailable") {
+      setLiveReconnectBanner(true);
+      return;
+    }
+    if (snapshot?.live_metadata) {
+      lastLiveMetadata = snapshot.live_metadata;
+    }
+    if (Array.isArray(snapshot?.live_items)) {
+      lastLiveItems = snapshot.live_items;
+    }
+    if (Array.isArray(snapshot?.question_cards)) {
+      lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
+    }
+    if (Array.isArray(snapshot?.active_questions)) {
+      lastActiveQuestions = snapshot.active_questions;
+    }
+    paintLiveQuestionCards();
+    setLiveReconnectBanner(false);
+  } catch (_) {
+    setLiveReconnectBanner(true);
   }
-  if (Array.isArray(snapshot?.live_items)) {
-    lastLiveItems = snapshot.live_items;
-  }
-  if (Array.isArray(snapshot?.question_cards)) {
-    lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
-  }
-  if (Array.isArray(snapshot?.active_questions)) {
-    lastActiveQuestions = snapshot.active_questions;
-  }
-  paintLiveQuestionCards();
 }
 
 /**
@@ -3113,6 +3122,10 @@ async function pollLiveSessionAttendees(opts = {}) {
     } catch (err) {
       if (!wantFull) throw err;
       payload = await api(`/api/live-sessions/${id}/state?light=1`);
+    }
+    if (payload?.error === "state unavailable") {
+      setLiveReconnectBanner(true);
+      return;
     }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       setLiveReconnectBanner(false);
