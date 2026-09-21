@@ -1452,6 +1452,34 @@ class GameShowDB:
             """,
             (int(game_id), int(team_id), int(student_id)),
         )
+        self._forget_team_index(game_id=int(game_id))
+
+    def _forget_team_index(
+        self, *, class_id: int | None = None, game_id: int | None = None
+    ) -> None:
+        """Drop the half-second membership cache after a team edit.
+
+        Polls share one cached index. A late joiner inserted in that window
+        must be visible to the next ``student_team_id_for_class`` read, or
+        Group Voting treats them as teamless.
+
+        Args:
+            class_id: Classes primary key when the caller has it.
+            game_id: Game id used to resolve the class when ``class_id`` is omitted.
+        """
+        resolved = class_id
+        if resolved is None and game_id is not None:
+            row = self.conn.execute(
+                "SELECT class_id FROM games WHERE id = ?",
+                (int(game_id),),
+            ).fetchone()
+            if row is None:
+                return
+            resolved = int(row["class_id"])
+        if resolved is None:
+            self._team_index_cache.clear()
+            return
+        self._team_index_cache.pop(int(resolved), None)
 
     def admit_late_joiner(
         self,
@@ -1569,6 +1597,7 @@ class GameShowDB:
                 (game_id, team_id, int(student_id)),
             )
             self.conn.commit()
+            self._forget_team_index(class_id=int(class_id))
         return self.game_state(class_id)
 
     def get_mood(

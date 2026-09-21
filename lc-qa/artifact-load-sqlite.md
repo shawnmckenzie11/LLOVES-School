@@ -46,7 +46,7 @@ Postgres would be a second source of truth and a service this app does not run. 
 | Class | 12 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 555 ms |
+| Wall | 665 ms |
 | sqlite lock logs | 0 |
 | `_resume_live_attendee` writes | 96 |
 | school in_transaction | False |
@@ -55,10 +55,10 @@ Postgres would be a second source of truth and a service this app does not run. 
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 48 | 2 | 3 | 5 |
-| media | 48 | 1 | 1 | 3 |
-| staff-state | 4 | 12 | 13 | 13 |
-| state | 48 | 17 | 19 | 22 |
+| heartbeat | 48 | 2 | 4 | 6 |
+| media | 48 | 1 | 1 | 2 |
+| staff-state | 4 | 12 | 13 | 15 |
+| state | 48 | 21 | 26 | 30 |
 
 ### Errors
 
