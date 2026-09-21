@@ -3083,7 +3083,8 @@ function optimisticTeacherState(body) {
 /**
  * Fetch live-session state and auto-mark present attendees on the roster.
  * Interval ticks skip when a poll is already in flight. Light polls omit
- * cards and scoreboard until ``state_seq`` moves.
+ * cards and scoreboard until ``state_seq`` moves. A failed full snapshot
+ * retries once with ``?light=1`` so attendees keep updating.
  * @param {{full?: boolean, force?: boolean}} [opts]
  */
 async function pollLiveSessionAttendees(opts = {}) {
@@ -3096,7 +3097,13 @@ async function pollLiveSessionAttendees(opts = {}) {
   const prevSeq = Number(teacherState.state_seq);
   try {
     const qs = wantFull ? "" : "?light=1";
-    const payload = await api(`/api/live-sessions/${id}/state${qs}`);
+    let payload;
+    try {
+      payload = await api(`/api/live-sessions/${id}/state${qs}`);
+    } catch (err) {
+      if (!wantFull) throw err;
+      payload = await api(`/api/live-sessions/${id}/state?light=1`);
+    }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
@@ -3157,7 +3164,10 @@ async function pollLiveSessionAttendees(opts = {}) {
       const media = payload?.active_media || payload?.session?.active_media;
       paintActiveMediaStatus(media);
       paintQuestionArtifact(media);
-    } else if (wantFull) {
+    } else if (
+      wantFull &&
+      Object.prototype.hasOwnProperty.call(payload || {}, "active_media")
+    ) {
       if (liveClassSeedMedia()) paintActiveMediaStatus(null);
       else paintQuestionArtifact(null);
     }

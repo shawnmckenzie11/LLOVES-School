@@ -2173,6 +2173,7 @@ class LiveShellTests(unittest.TestCase):
             REPO_ROOT / "tools" / "math-game-show" / "static" / "live_session_overlay.js"
         ).read_text(encoding="utf-8")
         self.assertIn("function fetchLiveSessionState(", overlay)
+        self.assertIn("/state?light=1", overlay)
         self.assertIn("response.status === 404", overlay)
         self.assertIn("function dismissOverlayWindow(", overlay)
         tick = overlay.split("async function tick()")[1].split(
@@ -2209,6 +2210,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("staffStateNeedsFull", js)
         self.assertIn("optimisticTeacherState(", js)
         self.assertIn("?light=1", js)
+        self.assertIn("if (!wantFull) throw", js)
+        self.assertIn("hasOwnProperty.call(payload || {}, \"active_media\")", js)
         self.assertIn("function teacherStateNeedsQuestionRefresh(", js)
         self.assertNotIn("lastLiveItems = payload.live_metadata.items", js)
         handler = js.split('$("live-run-as-group")')[1].split(

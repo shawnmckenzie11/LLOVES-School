@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import shutil
@@ -13,8 +14,11 @@ import time
 import uuid
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 try:
     from codes import generate_live_access_code
@@ -797,6 +801,88 @@ def _parse_iso_datetime(raw: Any) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def json_safe(value: Any, *, _depth: int = 0) -> Any:
+    """Return a JSON-encodable copy of ``value``.
+
+    Flask ``jsonify`` 500s on sets, bytes, Path, NaN/Inf, and other
+    leftovers a live-session builder may attach. Walk the payload and
+    stringify or drop those so ``GET /state`` cannot fail-fast after a
+    successful snapshot build.
+
+    Args:
+        value: Arbitrary payload fragment.
+        _depth: Recursion guard for nested structures.
+
+    Returns:
+        A value ``json.dumps`` can encode.
+    """
+    if _depth > 32:
+        return None
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return int(value)
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return value
+    if isinstance(value, Decimal):
+        try:
+            return json_safe(float(value), _depth=_depth + 1)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return None
+    if isinstance(value, sqlite3.Row):
+        return json_safe(dict(value), _depth=_depth + 1)
+    if isinstance(value, dict):
+        return {
+            str(key): json_safe(item, _depth=_depth + 1)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [json_safe(item, _depth=_depth + 1) for item in value]
+    try:
+        json.dumps(value)
+    except TypeError:
+        return None
+    return value
+
+
+def live_state_field(
+    session_id: int, name: str, builder: Callable[[], Any], default: Any
+) -> Any:
+    """Return one ``/state`` field, or ``default`` when the builder raises.
+
+    Heavy snapshots assemble many independent slices. One card/metadata
+    failure must not 500 the whole poll under a full class.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+        name: Field name for logs.
+        builder: Zero-arg callable that returns the field.
+        default: Value used when ``builder`` raises.
+
+    Returns:
+        Builder result or ``default``.
+    """
+    try:
+        return builder()
+    except Exception:
+        logger.exception(
+            "live session %s /state field %s failed",
+            session_id,
+            name,
+        )
+        return default
 
 
 def public_live_attendee(row: dict[str, Any]) -> dict[str, Any]:
@@ -17456,8 +17542,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Return overlay/IT state for one live session.
 
-        Light polls return attendees and teacher chrome only. Full snapshots
-        seed missing placements once, then list lifecycle rows.
+        Light polls return attendees, teacher chrome, and groups. Full
+        snapshots seed missing placements once, then list lifecycle rows.
+        Each heavy field is isolated so one builder failure degrades that
+        slice instead of 500ing the poll.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -17506,60 +17594,145 @@ class SchoolDB(LovesDB):
             "lifecycle_response_counts": self.lifecycle_response_counts(session_id),
             "state_seq": int(teacher_state.get("state_seq") or 0),
             "light": bool(light),
+            "groups": live_state_field(
+                session_id,
+                "groups",
+                lambda: self.live_group_projection(session_id),
+                [],
+            ),
         }
         if light:
-            return payload
+            return json_safe(payload)
         is_active = session_row.get("status") == "active"
         if is_active:
-            self.ensure_live_session_items_if_stale(session_id)
+            live_state_field(
+                session_id,
+                "ensure_items",
+                lambda: self.ensure_live_session_items_if_stale(session_id),
+                [],
+            )
+        class_id = int(session_row["class_id"])
         payload.update(
             {
-                "active_media": self.live_session_active_media_payload(session_id),
-                "teams_spark": self.staff_teams_spark_payload(session_id),
-                "join_prompt": (
-                    None
-                    if self._session_playlist_item_removed(session_id, "minds_on")
-                    else self._prompt_at_slide(
-                        session_id, int(MINDS_ON_SLIDE_INDEX)
-                    )
+                "active_media": live_state_field(
+                    session_id,
+                    "active_media",
+                    lambda: self.live_session_active_media_payload(session_id),
+                    None,
                 ),
-                "active_prompt": self.get_active_live_prompt(session_id),
-                "active_questions": (
-                    self.list_active_live_questions(session_id) if is_active else []
+                "teams_spark": live_state_field(
+                    session_id,
+                    "teams_spark",
+                    lambda: self.staff_teams_spark_payload(session_id),
+                    None,
                 ),
-                "live_items": (
-                    self.list_live_session_items(session_id) if is_active else []
+                "join_prompt": live_state_field(
+                    session_id,
+                    "join_prompt",
+                    lambda: (
+                        None
+                        if self._session_playlist_item_removed(session_id, "minds_on")
+                        else self._prompt_at_slide(
+                            session_id, int(MINDS_ON_SLIDE_INDEX)
+                        )
+                    ),
+                    None,
                 ),
-                "live_metadata": self.live_class_metadata_for_session(session_id),
-                "deck_revision": self.class_deck_revision(
-                    int(session_row["class_id"]),
-                    str(teacher_state.get("live_module") or "M1"),
-                    str(teacher_state.get("live_slot") or "C1"),
+                "active_prompt": live_state_field(
+                    session_id,
+                    "active_prompt",
+                    lambda: self.get_active_live_prompt(session_id),
+                    None,
                 ),
-                "question_cards": (
-                    self.live_session_question_cards(session_id) if is_active else []
+                "active_questions": live_state_field(
+                    session_id,
+                    "active_questions",
+                    lambda: (
+                        self.list_active_live_questions(session_id)
+                        if is_active
+                        else []
+                    ),
+                    [],
                 ),
-                "class_list": self.live_class_roster_projection(session_id),
-                "groups": self.live_group_projection(session_id),
-                "scoreboard": self.live_scoreboard_projection(session_id),
-                "canvas_sync": self.live_session_canvas_view(
-                    session_id, as_teacher=True
+                "live_items": live_state_field(
+                    session_id,
+                    "live_items",
+                    lambda: (
+                        self.list_live_session_items(session_id) if is_active else []
+                    ),
+                    [],
                 ),
-                "game_points": {
-                    str(sid): int(n)
-                    for sid, n in self.live_awarded_session_points(
-                        int(session_row["class_id"])
-                    ).items()
-                },
-                "career_totals": {
-                    str(sid): float(n)
-                    for sid, n in (
-                        self.game.career_totals(int(session_row["class_id"])) or {}
-                    ).items()
-                },
+                "live_metadata": live_state_field(
+                    session_id,
+                    "live_metadata",
+                    lambda: self.live_class_metadata_for_session(session_id),
+                    {},
+                ),
+                "deck_revision": live_state_field(
+                    session_id,
+                    "deck_revision",
+                    lambda: self.class_deck_revision(
+                        class_id,
+                        str(teacher_state.get("live_module") or "M1"),
+                        str(teacher_state.get("live_slot") or "C1"),
+                    ),
+                    "",
+                ),
+                "question_cards": live_state_field(
+                    session_id,
+                    "question_cards",
+                    lambda: (
+                        self.live_session_question_cards(session_id)
+                        if is_active
+                        else []
+                    ),
+                    [],
+                ),
+                "class_list": live_state_field(
+                    session_id,
+                    "class_list",
+                    lambda: self.live_class_roster_projection(session_id),
+                    [],
+                ),
+                "scoreboard": live_state_field(
+                    session_id,
+                    "scoreboard",
+                    lambda: self.live_scoreboard_projection(session_id),
+                    None,
+                ),
+                "canvas_sync": live_state_field(
+                    session_id,
+                    "canvas_sync",
+                    lambda: self.live_session_canvas_view(
+                        session_id, as_teacher=True
+                    ),
+                    {},
+                ),
+                "game_points": live_state_field(
+                    session_id,
+                    "game_points",
+                    lambda: {
+                        str(sid): int(n)
+                        for sid, n in self.live_awarded_session_points(
+                            class_id
+                        ).items()
+                    },
+                    {},
+                ),
+                "career_totals": live_state_field(
+                    session_id,
+                    "career_totals",
+                    lambda: {
+                        str(sid): float(n)
+                        for sid, n in (
+                            self.game.career_totals(class_id) or {}
+                        ).items()
+                    },
+                    {},
+                ),
             }
         )
-        return payload
+        return json_safe(payload)
 
     def has_active_live_sessions(self) -> bool:
         """True when at least one live class session is currently joinable."""
