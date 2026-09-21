@@ -4009,40 +4009,32 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _student_advance()
         live_session_id = int(ctx["live_session_id"])
         pid = str(ctx.get("participant_uuid") or "")
-        if unmatched:
-            payload = school.guest_student_live_payload(
-                codename=str(ctx.get("codename") or ""),
-                class_id=class_id,
+        try:
+            payload = json_safe(
+                school.assemble_student_live_payload(
+                    live_session_id,
+                    class_id,
+                    int(student_id) if student_id not in (None, "") else None,
+                    participant_uuid=pid,
+                    codename=str(ctx.get("codename") or ""),
+                    unmatched=unmatched,
+                )
             )
-        else:
-            payload = school.game.student_live_payload(class_id, int(student_id))
-        prompt_frag = school.student_live_prompt_payload(
-            live_session_id,
-            int(student_id) if student_id not in (None, "") else None,
-            participant_uuid=pid,
-        )
-        payload.update(prompt_frag)
-        payload["active_media"] = school.live_session_active_media_payload(
-            live_session_id
-        )
-        payload["teacher_state"] = school.live_session_teacher_state_payload(
-            live_session_id
-        )
-        school.apply_student_live_group_projection(payload, live_session_id)
-        payload["live_metadata"] = (
-            school.student_live_class_metadata_for_session(live_session_id)
-        )
-        payload["canvas_sync"] = school.live_session_canvas_view(
-            live_session_id,
-            student_id=int(student_id) if student_id not in (None, "") else None,
-        )
-        school.apply_student_end_overlay(
-            payload,
-            live_session_id,
-            class_id,
-            int(student_id) if student_id not in (None, "") else None,
-            pid,
-        )
+        except Exception:
+            logger.exception(
+                "student home payload failed session=%s", live_session_id
+            )
+            payload = {
+                "ok": True,
+                "status": "waiting",
+                "scoring": False,
+                "waiting_room": True,
+                "error": "state unavailable",
+                "me": {
+                    "codename": str(ctx.get("codename") or ""),
+                    "points": 0,
+                },
+            }
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
         return render_template(
@@ -4118,60 +4110,50 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             (ctx or {}).get("live_session_id") or session["student_live_session_id"]
         )
-        unchanged = school.student_live_poll_unchanged(
-            live_session_id,
-            int(class_id),
-            request.args.get("seq"),
-            request.args.get("stamp"),
-        )
-        if unchanged is not None:
-            return jsonify(unchanged)
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
-        if unmatched:
-            payload = school.guest_student_live_payload(
-                codename=str((ctx or {}).get("codename") or session.get("student_codename") or ""),
-                class_id=int(class_id),
-            )
-        else:
-            payload = school.game.student_live_payload(class_id, int(student_id))
-        payload.update(
-            school.student_live_prompt_payload(
+        try:
+            unchanged = school.student_live_poll_unchanged(
                 live_session_id,
+                int(class_id),
+                request.args.get("seq"),
+                request.args.get("stamp"),
+            )
+            if unchanged is not None:
+                return jsonify(unchanged)
+            payload = school.assemble_student_live_payload(
+                live_session_id,
+                int(class_id),
                 int(student_id) if student_id not in (None, "") else None,
                 participant_uuid=pid,
+                codename=str(
+                    (ctx or {}).get("codename")
+                    or session.get("student_codename")
+                    or ""
+                ),
+                unmatched=unmatched,
             )
-        )
-        payload["active_media"] = school.live_session_active_media_payload(
-            live_session_id
-        )
-        payload["teacher_state"] = school.live_session_teacher_state_payload(
-            live_session_id
-        )
-        school.apply_student_live_group_projection(payload, live_session_id)
-        payload["live_metadata"] = (
-            school.student_live_class_metadata_for_session(live_session_id)
-        )
-        payload["canvas_sync"] = school.live_session_canvas_view(
-            live_session_id,
-            student_id=int(student_id) if student_id not in (None, "") else None,
-        )
-        payload["display_time"] = school.live_session_display_time(int(class_id))
-        school.apply_student_end_overlay(
-            payload,
-            live_session_id,
-            int(class_id),
-            int(student_id) if student_id not in (None, "") else None,
-            pid,
-        )
+            payload["display_time"] = school.live_session_display_time(int(class_id))
+            payload["stamp"] = school.live_student_poll_stamp(
+                live_session_id, int(class_id)
+            )
+            payload["state_seq"] = int(
+                (payload.get("teacher_state") or {}).get("state_seq") or 0
+            )
+            payload = json_safe(payload)
+        except Exception:
+            logger.exception(
+                "student /state failed session=%s", live_session_id
+            )
+            return jsonify(
+                {
+                    "ok": True,
+                    "error": "state unavailable",
+                    "status": "waiting",
+                }
+            )
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
-        payload["stamp"] = school.live_student_poll_stamp(
-            live_session_id, int(class_id)
-        )
-        payload["state_seq"] = int(
-            (payload.get("teacher_state") or {}).get("state_seq") or 0
-        )
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")

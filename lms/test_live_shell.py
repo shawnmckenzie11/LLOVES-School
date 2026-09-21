@@ -2256,6 +2256,7 @@ class LiveShellTests(unittest.TestCase):
             "document.getElementById(\"live-response\")"
         )[0]
         self.assertIn("if (!res.ok)", tick)
+        self.assertIn('data.error === "state unavailable"', tick)
         self.assertIn("setStudentReconnectBanner(true)", tick)
         self.assertIn("setStudentReconnectBanner(false)", tick)
         self.assertNotIn("innerHTML = \"\"", tick.split("if (data.celebrate)")[0])

@@ -8,7 +8,9 @@ import os
 import sqlite3
 import sys
 import tempfile
+import threading
 import unittest
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -1849,6 +1851,264 @@ class LiveSessionStateLoadTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIsInstance(body["deck_revision"], list)
         json.dumps(body)
+
+
+class StudentStateLoadTests(unittest.TestCase):
+    """Student ``/api/student/state`` stays 200 under a full class."""
+
+    def setUp(self) -> None:
+        """Create a 17-student class and one logged-in client per attendee."""
+
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+        )
+        self.app.config["PROPAGATE_EXCEPTIONS"] = False
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.staff.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        created = self.school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=LOAD_CODENAMES,
+            offering_id=int(self.offering["id"]),
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        self.class_id = int(created["id"])
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.session_id = int(live["id"])
+        self.session_code = str(live["session_code"])
+        self.school.game.begin_game(self.class_id)
+        self.clients: list[tuple[str, Any]] = []
+        for name in LOAD_CODENAMES:
+            client = self.app.test_client()
+            joined = client.post(
+                "/auth/student-code",
+                data={"code": self.session_code, "name": name},
+                follow_redirects=False,
+            )
+            self.assertEqual(joined.status_code, 302, joined.get_data(as_text=True)[:400])
+            client.post("/student/mood", data={"mood": "good"})
+            client.post("/student/character", data={"character": "fox"})
+            self.clients.append((name, client))
+
+    def tearDown(self) -> None:
+        """Close sqlite handles and remove temporary files."""
+
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_concurrent_student_state_stays_200(self) -> None:
+        """N≈17 student polls and a staff heavy poll stay 200 with a real deck."""
+
+        codes: Counter[int] = Counter()
+        errors: list[str] = []
+        lock = threading.Lock()
+
+        def hit_student(name: str, client: Any) -> None:
+            """Poll one attendee several times and record non-200 bodies."""
+
+            for _ in range(4):
+                rv = client.get("/api/student/state")
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    codes[rv.status_code] += 1
+                if rv.status_code != 200 or body.get("error") == "state unavailable":
+                    with lock:
+                        errors.append(
+                            f"{name} {rv.status_code} {rv.get_data(as_text=True)[:500]}"
+                        )
+                    continue
+                if body.get("unchanged"):
+                    continue
+                if (body.get("me") or {}).get("codename") != name:
+                    with lock:
+                        errors.append(f"{name} me={body.get('me')}")
+                if "live_metadata" not in body or "teacher_state" not in body:
+                    with lock:
+                        errors.append(f"{name} missing deck keys {sorted(body)[:12]}")
+
+        def hit_staff() -> None:
+            """Staff heavy /state must stay 200 while students poll."""
+
+            for _ in range(6):
+                rv = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    codes[1000 + rv.status_code] += 1
+                if rv.status_code != 200 or not body.get("ok"):
+                    with lock:
+                        errors.append(
+                            f"staff {rv.status_code} {rv.get_data(as_text=True)[:400]}"
+                        )
+                    continue
+                if body.get("error") == "state unavailable":
+                    with lock:
+                        errors.append("staff degraded to stub")
+                    continue
+                if body.get("count") != 17:
+                    with lock:
+                        errors.append(f"staff count {body.get('count')}")
+
+        threads = [threading.Thread(target=hit_staff)]
+        threads.extend(
+            threading.Thread(target=hit_student, args=(name, client))
+            for name, client in self.clients
+        )
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [], errors[:4])
+        self.assertEqual(codes[200], 17 * 4)
+        self.assertEqual(codes[1200], 6)
+        self.assertNotIn(500, codes)
+
+    def test_metadata_failure_returns_reconnect_stub(self) -> None:
+        """A metadata crash is a 200 stub, not a partial deck wipe."""
+
+        def boom(_session_id: int) -> dict[str, Any]:
+            raise TypeError("'NoneType' object is not subscriptable")
+
+        self.school.student_live_class_metadata_for_session = boom  # type: ignore[method-assign]
+        name, client = self.clients[0]
+        rv = client.get("/api/student/state")
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:500])
+        body = rv.get_json()
+        self.assertEqual(body.get("error"), "state unavailable")
+        self.assertNotIn("me", body)
+        self.assertNotIn("live_metadata", body)
+        self.assertNotIn("prompt", body)
+        json.dumps(body)
+        self.assertTrue(name)
+
+    def test_student_count_cursor_survives_concurrent_get_class(self) -> None:
+        """Roster counts stay readable while other threads use the game connection."""
+
+        errors: list[str] = []
+        lock = threading.Lock()
+
+        def hammer() -> None:
+            """Call get_class, which counts students after releasing its own query."""
+
+            try:
+                for _ in range(40):
+                    row = self.school.game.get_class(self.class_id)
+                    if int(row["student_count"]) != 17:
+                        raise AssertionError(row.get("student_count"))
+            except Exception as exc:  # noqa: BLE001 — record the race
+                with lock:
+                    errors.append(repr(exc))
+
+        threads = [threading.Thread(target=hammer) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+
+    def test_idle_sixteen_by_twenty_waves_zero_500(self) -> None:
+        """N=16 idle waves match the ops bar: 0/320 HTTP 500s.
+
+        Baseline on tip ``01392ce`` was 12/320 (3.75%). Each wave is one
+        simultaneous poll from every attendee, with no seq/stamp so the
+        server builds a full snapshot instead of the unchanged short-circuit.
+        A staff heavy ``/state`` rides along and must stay a real 200.
+        """
+
+        cohort = self.clients[:16]
+        self.assertEqual(len(cohort), 16)
+        tokens = {
+            str(row.get("codename") or ""): str(row.get("visit_token") or "")
+            for row in self.school.list_live_session_attendees(self.session_id)
+        }
+        failures: list[str] = []
+        stubs = 0
+        student_200 = 0
+        staff_bad = 0
+        lock = threading.Lock()
+
+        for wave in range(20):
+            barrier = threading.Barrier(17)
+
+            def hit_student(name: str, client: Any) -> None:
+                """One idle full snapshot for this attendee."""
+
+                barrier.wait(timeout=30)
+                rv = client.get(
+                    "/api/student/state",
+                    headers={"X-Student-Visit-Token": tokens.get(name, "")},
+                )
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    nonlocal student_200, stubs
+                    if rv.status_code == 200:
+                        student_200 += 1
+                    if body.get("error") == "state unavailable":
+                        stubs += 1
+                    if rv.status_code != 200:
+                        failures.append(
+                            f"wave {wave} {name} {rv.status_code} "
+                            f"{rv.get_data(as_text=True)[:240]}"
+                        )
+
+            def hit_staff() -> None:
+                """Staff heavy poll in the same wave must not 500 or stub."""
+
+                barrier.wait(timeout=30)
+                rv = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+                body = rv.get_json(silent=True) or {}
+                with lock:
+                    nonlocal staff_bad
+                    if (
+                        rv.status_code != 200
+                        or not body.get("ok")
+                        or body.get("error") == "state unavailable"
+                        or body.get("light")
+                        or int(body.get("count") or 0) < 16
+                    ):
+                        staff_bad += 1
+                        failures.append(
+                            f"wave {wave} staff {rv.status_code} "
+                            f"count={body.get('count')} error={body.get('error')}"
+                        )
+
+            threads = [threading.Thread(target=hit_staff)]
+            threads.extend(
+                threading.Thread(target=hit_student, args=(name, client))
+                for name, client in cohort
+            )
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual(student_200, 320, failures[:6])
+        self.assertEqual(failures, [], failures[:6])
+        self.assertEqual(stubs, 0)
+        self.assertEqual(staff_bad, 0)
 
 
 class LiveBackendSchemaTests(unittest.TestCase):

@@ -17856,6 +17856,71 @@ class SchoolDB(LovesDB):
                     item["label"] = f"{item['label']} ({counters[key]})"
         return payload
 
+    def assemble_student_live_payload(
+        self,
+        live_session_id: int,
+        class_id: int,
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+        codename: str = "",
+        unmatched: bool = False,
+    ) -> dict[str, Any]:
+        """Build the student home / ``/api/student/state`` snapshot.
+
+        Callers catch exceptions and return a reconnect stub. A partial
+        snapshot (empty metadata, missing ``me``) would clear the painted
+        deck, so this method does not substitute empty slices.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Roster id, or ``None`` for an unmatched guest.
+            participant_uuid: Live-session person key.
+            codename: Display name for a guest payload.
+            unmatched: True when the attendee is not on the roster.
+
+        Returns:
+            Student live payload without poll stamp or display time.
+        """
+        sid = int(student_id) if student_id not in (None, "") else None
+        if unmatched or sid is None:
+            payload = self.guest_student_live_payload(
+                codename=codename,
+                class_id=int(class_id),
+            )
+        else:
+            payload = self.game.student_live_payload(int(class_id), sid)
+        payload.update(
+            self.student_live_prompt_payload(
+                int(live_session_id),
+                sid,
+                participant_uuid=participant_uuid,
+            )
+        )
+        payload["active_media"] = self.live_session_active_media_payload(
+            int(live_session_id)
+        )
+        payload["teacher_state"] = self.live_session_teacher_state_payload(
+            int(live_session_id)
+        )
+        self.apply_student_live_group_projection(payload, int(live_session_id))
+        payload["live_metadata"] = self.student_live_class_metadata_for_session(
+            int(live_session_id)
+        )
+        payload["canvas_sync"] = self.live_session_canvas_view(
+            int(live_session_id),
+            student_id=sid,
+        )
+        self.apply_student_end_overlay(
+            payload,
+            int(live_session_id),
+            int(class_id),
+            sid,
+            participant_uuid,
+        )
+        return payload
+
     def guest_student_live_payload(
         self, *, codename: str, class_id: int
     ) -> dict[str, Any]:
