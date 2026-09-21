@@ -3272,6 +3272,10 @@ async function tick() {
       return;
     }
     const data = await res.json();
+    if (data && data.error === "state unavailable") {
+      setStudentReconnectBanner(true);
+      return;
+    }
     if (data.unchanged) {
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);

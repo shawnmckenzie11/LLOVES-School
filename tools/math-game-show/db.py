@@ -2008,12 +2008,25 @@ class GameShowDB:
     def _student_count(self, class_id: int) -> int:
         """Count roster rows for a class.
 
+        Live polls share this connection across threads. The COUNT must
+        hold ``self._lock`` for execute and fetch: an unlocked cursor is
+        clobbered by the next query and ``fetchone()`` returns ``None``,
+        which 500s ``GET /api/student/state`` while staff ``/state`` only
+        drops a slice.
+
         Args:
             class_id: Classes primary key.
+
+        Returns:
+            Roster size. ``0`` when the cursor was lost anyway.
         """
-        row = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM students WHERE class_id = ?", (class_id,)
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM students WHERE class_id = ?",
+                (int(class_id),),
+            ).fetchone()
+        if row is None:
+            return 0
         return int(row["n"])
 
     def career_totals(self, class_id: int) -> dict[int, float]:
