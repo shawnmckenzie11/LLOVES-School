@@ -324,6 +324,57 @@ class ArtifactMintChannelTests(unittest.TestCase):
         assert active is not None
         self.assertEqual(active["kind"], ARTIFACT_KIND)
 
+    def test_play_mint_projects_student_card_and_media(self) -> None:
+        """Make match challenge on PLAY shows the student card plus iframe."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="play",
+            page_id="round_2",
+        )
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": -2, "h": 3, "k": 1},
+                "target_mode": "graph",
+                "slide_index": 5,
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        item_id = str(minted.get_json()["prompt"]["payload"]["item_id"])
+        stored = {
+            str(row.get("item_id") or ""): row
+            for row in self.school.list_live_session_items(self.live_session_id)
+        }
+        self.assertEqual(stored[item_id]["status"], "active")
+        self.assertIsNotNone(stored[item_id].get("prompt_id"))
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual((teacher.get("student_view") or {}).get("questions"), "student")
+        self.assertEqual((teacher.get("student_view") or {}).get("media"), "student")
+        self.assertTrue((teacher.get("student_frames") or {}).get("questions"))
+        self.assertTrue((teacher.get("student_frames") or {}).get("media"))
+        student = self.student.get("/api/student/state").get_json()
+        active_q = student.get("active_questions") or []
+        self.assertTrue(
+            any(
+                str((row.get("content") or {}).get("item_id") or row.get("item_id") or "")
+                == item_id
+                for row in active_q
+            ),
+            active_q,
+        )
+        self.assertEqual(student.get("prompt", {}).get("kind"), ARTIFACT_KIND)
+        self.assertEqual(
+            str((student.get("active_media") or {}).get("url") or ""),
+            C2_TRANSFORM_MEDIA_URL,
+        )
+        self.assertEqual(
+            (student.get("teacher_state") or {}).get("student_view", {}).get("media"),
+            "student",
+        )
+
     def test_each_mint_creates_a_new_question_card(self) -> None:
         """A second Make match challenge does not overwrite the first prompt."""
         first = self.staff.post(
@@ -492,8 +543,8 @@ class ParentArtifactTests(unittest.TestCase):
         self.assertEqual(payload["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
         self.assertEqual(payload["slider_keys"], ["a", "k", "d", "c"])
         self.assertEqual([row["kind"] for row in payload["parent_choices"]], [row["kind"] for row in PARENT_CHOICES])
-        self.assertEqual(len(payload["parent_choices"]), 4)
-        self.assertNotIn("abs", [row["kind"] for row in payload["parent_choices"]])
+        self.assertEqual(len(payload["parent_choices"]), 5)
+        self.assertIn("abs", [row["kind"] for row in payload["parent_choices"]])
         fb = artifact_feedback_fragment(
             payload, {"params": {"parent": "abs", "a": 2, "k": -1, "d": 3, "c": -2}}
         )
@@ -608,8 +659,8 @@ class Mcr3uParentMintTests(unittest.TestCase):
         self.assertIn('value="quadratic"', body)
         self.assertIn('value="sqrt"', body)
         self.assertIn('value="reciprocal"', body)
-        self.assertNotIn('value="abs"', body)
-        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", body)
+        self.assertIn('value="abs"', body)
+        self.assertIn("grid-template-columns: repeat(5, minmax(0, 1fr))", body)
         self.assertIn(">a<", body)
         self.assertIn(">k<", body)
         self.assertIn(">d<", body)
@@ -649,7 +700,11 @@ class Mcr3uParentMintTests(unittest.TestCase):
         student = self.student.get("/api/student/live-prompt").get_json()
         self.assertEqual(student["prompt"]["payload"]["artifact_id"], PARENT_TRANSFORMATIONS_ARTIFACT_ID)
         self.assertEqual(student["prompt"]["payload"]["title"], "Match challenge 1")
-        self.assertEqual(len(student["prompt"]["payload"]["parent_choices"]), 4)
+        self.assertEqual(len(student["prompt"]["payload"]["parent_choices"]), 5)
+        self.assertIn(
+            "abs",
+            [row["kind"] for row in student["prompt"]["payload"]["parent_choices"]],
+        )
         hit = self.student.post(
             "/api/student/live-prompt/response",
             json={
@@ -909,6 +964,8 @@ class ArtifactStaffJsTests(unittest.TestCase):
         student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
             encoding="utf-8"
         )
+        self.assertIn("function isArtifactLifecycleItem(", student_js)
+        self.assertIn("artifact-match-", student_js)
         self.assertIn("content.hot_cold_visible", student_js)
         self.assertIn("data.hot_cold_visible", student_js)
         self.assertIn("function artifactAccuracyMargin(", student_js)

@@ -3605,24 +3605,63 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
 
+    def _can_access_class_live_asset(class_id: int) -> bool:
+        """Return True when class staff or a bound live student may fetch assets.
+
+        ``@login_required`` is staff-only, so image ``<img>`` tags from the
+        student portal must use this check instead. Visit-token cookies and
+        Flask student session both resolve through ``_student_live_context``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        user = current_user()
+        if user is not None and school.teacher_owns_class(
+            int(user["id"]), int(class_id)
+        ):
+            return True
+        ctx = _student_live_context()
+        return bool(ctx and int(ctx.get("class_id") or 0) == int(class_id))
+
     @app.route(
         "/api/classes/<int:class_id>/live-question-images/<path:filename>"
     )
-    @login_required
     def serve_live_question_image(class_id: int, filename: str):
         """Serve one staff-authored live question image to class participants."""
-        user = current_user()
-        assert user is not None
-        allowed = school.teacher_owns_class(int(user["id"]), int(class_id))
-        if not allowed:
-            ctx = _student_live_context()
-            allowed = bool(ctx and int(ctx.get("class_id") or 0) == int(class_id))
-        if not allowed:
+        if not _can_access_class_live_asset(class_id):
             abort(403)
         path = school.live_question_image_path(int(class_id), filename)
         if path is None:
             abort(404)
         return send_from_directory(path.parent, path.name)
+
+    @app.route("/api/classes/<int:class_id>/module-files/<path:rel>")
+    def serve_class_module_file(class_id: int, rel: str):
+        """Serve one pack or mirrored bank image to class participants.
+
+        Twin of ``/staff/class/<id>/module-files/<rel>``. Bank imports store
+        staff URLs; student payloads rewrite them here so the same library
+        blob is visible on the student card.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            rel: Cartridge-relative path such as ``web_resources/graph.png``.
+        """
+        if not _can_access_class_live_asset(class_id):
+            abort(403)
+        try:
+            cls = school.enrich_class(school.game.get_class(class_id))
+        except KeyError:
+            abort(404)
+        library_id, _error = _ready_library(school, cls)
+        if not library_id:
+            abort(404)
+        target = library_file_path(school, school.data_dir, int(library_id), rel)
+        if target is None:
+            abort(404)
+        return send_from_directory(
+            target.parent, target.name, download_name=Path(rel).name
+        )
 
     def _ended_student_response(*, as_json: bool = False):
         """Clear student keys + rejoin cookie and return to the landing page."""

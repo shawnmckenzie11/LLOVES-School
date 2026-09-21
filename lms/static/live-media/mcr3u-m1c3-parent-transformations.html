@@ -73,7 +73,7 @@
     .parents-heading { margin-top: 0.15rem; }
     .parents {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 0.3rem;
     }
     .parents label {
@@ -179,6 +179,7 @@
       <div class="parents" role="radiogroup" aria-labelledby="parents-heading">
         <label><input type="radio" name="parent" value="linear" checked> Linear</label>
         <label><input type="radio" name="parent" value="quadratic"> Quadratic</label>
+        <label><input type="radio" name="parent" value="abs"> Abs value</label>
         <label><input type="radio" name="parent" value="sqrt"> Square root</label>
         <label><input type="radio" name="parent" value="reciprocal"> Reciprocal</label>
       </div>
@@ -233,6 +234,7 @@
   const PARENTS = {
     linear: { label: "x", symbol: "x" },
     quadratic: { label: "x²", symbol: "x²" },
+    abs: { label: "|x|", symbol: "|x|" },
     sqrt: { label: "√x", symbol: "√x" },
     reciprocal: { label: "1/x", symbol: "1/x" },
   };

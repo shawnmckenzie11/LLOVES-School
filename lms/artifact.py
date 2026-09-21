@@ -110,11 +110,11 @@ C3_PARENT_MEDIA_URL = "/static/live-media/mcr3u-m1c3-parent-transformations.html
 PARENT_KINDS = frozenset(
     {"linear", "quadratic", "abs", "sqrt", "reciprocal"}
 )
-# MCR3U M1 C2 curator playlist (domain/range of x², √x, 1/x) plus the
-# identity parent from that media. Cap is 3–5; abs is grade-only leftover.
+# MCR3U M1 C3 parent radios. Cap is 3–5; abs sits with the other four.
 PARENT_CHOICES: tuple[dict[str, str], ...] = (
     {"kind": "linear", "label": "Linear", "symbol": "x"},
     {"kind": "quadratic", "label": "Quadratic", "symbol": "x²"},
+    {"kind": "abs", "label": "Abs value", "symbol": "|x|"},
     {"kind": "sqrt", "label": "Square root", "symbol": "√x"},
     {"kind": "reciprocal", "label": "Reciprocal", "symbol": "1/x"},
 )
@@ -368,7 +368,7 @@ def normalize_parent_kind(raw: Any) -> str:
 
 
 def parent_choice_list() -> list[dict[str, str]]:
-    """Return the MCR3U M1 C3 radio set (MD/Curator, four parents).
+    """Return the MCR3U M1 C3 radio set (five parents, including abs).
 
     Returns:
         Copies of ``PARENT_CHOICES`` for prompt JSON.
@@ -773,10 +773,13 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
         parent_fn = parent_function_dict(payload.get("parent"))
         snapshot = normalize_parent_params(payload.get("snapshot"))
         title = str(payload.get("title") or "").strip()
+        item_id = str(payload.get("item_id") or payload.get("id") or "").strip()
         out = {
             "kind": ARTIFACT_KIND,
             "artifact_id": PARENT_TRANSFORMATIONS_ARTIFACT_ID,
             "channel": ARTIFACT_CHANNEL,
+            "item_id": item_id,
+            "item_type": "question",
             "title": title,
             "text": title or PARENT_TRANSFORMATIONS_STEM,
             "prompt": PARENT_TRANSFORMATIONS_STEM,
@@ -805,10 +808,13 @@ def student_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
             accuracy_margin=payload.get("accuracy_margin"),
         )
     title = str(payload.get("title") or "").strip()
+    item_id = str(payload.get("item_id") or payload.get("id") or "").strip()
     out = {
         "kind": ARTIFACT_KIND,
         "artifact_id": str(payload.get("artifact_id") or TRANSFORMATIONS_ARTIFACT_ID),
         "channel": ARTIFACT_CHANNEL,
+        "item_id": item_id,
+        "item_type": "question",
         "title": title,
         "text": title or TRANSFORMATIONS_STEM,
         "prompt": TRANSFORMATIONS_STEM,

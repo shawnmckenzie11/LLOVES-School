@@ -19,6 +19,8 @@ from question_math import (  # noqa: E402
     html_to_plain,
     normalize_house_tex,
     resolve_bank_image_url,
+    rewrite_student_prompt_images,
+    student_visible_bank_image_url,
 )
 
 
@@ -228,6 +230,38 @@ class BankMcDisplayTests(unittest.TestCase):
         assert live is not None and err is None
         self.assertIn("<table>", live["text_html"])
         self.assertIn("Hours", live["text_html"])
+
+    def test_student_visible_bank_image_url_rewrites_staff_path(self) -> None:
+        """Staff module-file URLs become the student-accessible twin."""
+        staff = "/staff/class/9/module-files/web_resources/diagram.png"
+        self.assertEqual(
+            student_visible_bank_image_url(staff),
+            "/api/classes/9/module-files/web_resources/diagram.png",
+        )
+        self.assertEqual(
+            student_visible_bank_image_url("/static/bank-graphs/parabola-grid.svg"),
+            "/static/bank-graphs/parabola-grid.svg",
+        )
+
+    def test_rewrite_student_prompt_images_covers_stem_and_options(self) -> None:
+        """Hero, stem HTML, and option images all leave the staff path."""
+        staff = "/staff/class/4/module-files/web_resources/g.png"
+        rewritten = rewrite_student_prompt_images(
+            {
+                "image_url": staff,
+                "text_html": f'<p>Refer to the graph.</p><img src="{staff}">',
+                "options_html": [f'<img src="{staff}">', "B"],
+                "options_image_urls": [staff, ""],
+                "key": "A",
+            }
+        )
+        public = "/api/classes/4/module-files/web_resources/g.png"
+        self.assertEqual(rewritten["image_url"], public)
+        self.assertIn(public, rewritten["text_html"])
+        self.assertNotIn("/staff/class/", rewritten["text_html"])
+        self.assertEqual(rewritten["options_html"][0], f'<img src="{public}">')
+        self.assertEqual(rewritten["options_image_urls"][0], public)
+        self.assertEqual(rewritten["key"], "A")
 
 
 if __name__ == "__main__":
