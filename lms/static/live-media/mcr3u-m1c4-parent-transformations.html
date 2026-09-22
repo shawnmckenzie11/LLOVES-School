@@ -103,6 +103,7 @@
       font-weight: 650;
     }
     #multi-toggle {
+      display: none;
       appearance: none;
       border: 1px solid var(--line);
       background: transparent;
@@ -114,15 +115,18 @@
       padding: 0.28rem 0.7rem;
       cursor: pointer;
     }
+    #multi-toggle.is-on { display: inline-block; }
     #multi-toggle[aria-pressed="true"] {
       background: var(--gold);
       color: #1a1400;
     }
+    .dock.is-student #multi-toggle { display: none !important; }
     .parents {
       display: flex;
       flex-wrap: wrap;
       gap: 0.35rem 0.7rem;
     }
+    .parents[hidden] { display: none !important; }
     .parents label {
       display: flex;
       align-items: center;
@@ -196,6 +200,13 @@
   const multiBtn = document.getElementById("multi-toggle");
   const singleBox = document.getElementById("parents-single");
   const multiBox = document.getElementById("parents-multi");
+  const dock = document.querySelector(".dock");
+  const query = new URLSearchParams(location.search);
+  const role = (query.get("role") || "").toLowerCase();
+  const embedded = window.parent !== window;
+  // Staff Play appends ?role=teacher. Student Play embeds this file with no role.
+  // ?role=student keeps radios when the file is opened in a tab.
+  const teacherMode = role === "teacher" || (!embedded && role !== "student");
   const inputA = document.getElementById("p-a");
   const inputK = document.getElementById("p-k");
   const inputD = document.getElementById("p-d");
@@ -379,10 +390,31 @@
   }
 
   /**
+   * Show Multiple parents only on the teacher Play mount.
+   * Students stay on the single-parent radios.
+   */
+  function applyAudience() {
+    if (dock) dock.classList.toggle("is-student", !teacherMode);
+    multiBtn.classList.toggle("is-on", teacherMode);
+    if (teacherMode) return;
+    state.multi = false;
+    multiBtn.setAttribute("aria-pressed", "false");
+    multiBtn.textContent = "Multiple parents";
+    multiBox.hidden = true;
+    singleBox.hidden = false;
+  }
+
+  /**
    * Turn multiple parents on or off and keep the visible set coherent.
+   * Students cannot enter checkbox mode.
    * @param {boolean} enabled
    */
   function setMulti(enabled) {
+    if (!teacherMode) {
+      applyAudience();
+      readControls();
+      return;
+    }
     state.multi = Boolean(enabled);
     multiBtn.setAttribute("aria-pressed", state.multi ? "true" : "false");
     multiBtn.textContent = state.multi ? "Multiple parents on" : "Multiple parents";
@@ -541,12 +573,16 @@
   [inputA, inputK, inputD, inputC].forEach((slider) => {
     ["input", "change"].forEach((evt) => slider.addEventListener(evt, readControls));
   });
-  multiBtn.addEventListener("click", () => setMulti(!state.multi));
+  multiBtn.addEventListener("click", () => {
+    if (!teacherMode) return;
+    setMulti(!state.multi);
+  });
   window.addEventListener("resize", () => {
     resize();
     draw();
   });
 
+  applyAudience();
   resize();
   readControls();
 })();
