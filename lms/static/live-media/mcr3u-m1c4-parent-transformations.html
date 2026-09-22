@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCR3U M1 C4 · parent transformations</title>
+  <style>
+    :root {
+      --bg: #070b14;
+      --ink: #e8eef8;
+      --muted: #8fa3bb;
+      --gold: #f5c518;
+      --panel: rgba(10, 18, 32, 0.9);
+      --line: rgba(245, 197, 24, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom, 0px));
+    }
+    .eq-stack {
+      align-self: flex-start;
+      max-width: min(42rem, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem 0.5rem;
+    }
+    .eq-general {
+      margin: 0;
+      color: var(--gold);
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(1rem, 2.6vw, 1.28rem);
+      font-weight: 650;
+    }
+    .eq-live {
+      margin-top: 0.28rem;
+      color: #fff;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(0.88rem, 2.1vw, 1.05rem);
+    }
+    .eq-line {
+      margin: 0.12rem 0 0;
+      color: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+    }
+    .swatch {
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 2px;
+      flex: 0 0 auto;
+      transform: translateY(0.05rem);
+    }
+    .who {
+      color: #d5deee;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      font-size: 0.78em;
+      min-width: 5.6rem;
+    }
+    .dock {
+      pointer-events: auto;
+      align-self: stretch;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.65rem 0.75rem 0.7rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .dock-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem 0.8rem;
+    }
+    .dock h2 {
+      margin: 0;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    #multi-toggle {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--gold);
+      border-radius: 999px;
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 650;
+      padding: 0.28rem 0.7rem;
+      cursor: pointer;
+    }
+    #multi-toggle[aria-pressed="true"] {
+      background: var(--gold);
+      color: #1a1400;
+    }
+    .parents {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.7rem;
+    }
+    .parents label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: #c5d0dc;
+      cursor: pointer;
+    }
+    .parents input { accent-color: var(--gold); margin: 0; }
+    .sliders { display: grid; gap: 0.35rem; }
+    label.slide {
+      display: grid;
+      grid-template-columns: 1.15rem minmax(0, 1fr) 2.6rem;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #c5d0dc;
+    }
+    label.slide span {
+      font-family: "IBM Plex Serif", Georgia, serif;
+      color: var(--gold);
+    }
+    label.slide output {
+      font-family: ui-monospace, "IBM Plex Mono", monospace;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] { width: 100%; accent-color: var(--gold); }
+  </style>
+</head>
+<body>
+  <canvas id="plot" aria-label="Two-dimensional parent function transformations"></canvas>
+  <div class="hud">
+    <div class="eq-stack" aria-live="polite">
+      <p class="eq-general" id="eq-general">y = a*f[k(x - d)] + c</p>
+      <div class="eq-live" id="eq-live"></div>
+    </div>
+    <section class="dock" aria-label="Transformation controls">
+      <div class="dock-head">
+        <h2>Parent function</h2>
+        <button type="button" id="multi-toggle" aria-pressed="false">Multiple parents</button>
+      </div>
+      <div class="parents" id="parents-single" role="radiogroup" aria-label="Parent function">
+        <label><input type="radio" name="parent" value="linear" checked> Linear</label>
+        <label><input type="radio" name="parent" value="quadratic"> Quadratic</label>
+        <label><input type="radio" name="parent" value="abs"> Abs value</label>
+        <label><input type="radio" name="parent" value="sqrt"> Square root</label>
+        <label><input type="radio" name="parent" value="reciprocal"> Reciprocal</label>
+      </div>
+      <div class="parents" id="parents-multi" role="group" aria-label="Parent functions" hidden>
+        <label><input type="checkbox" name="parents" value="linear"> Linear</label>
+        <label><input type="checkbox" name="parents" value="quadratic"> Quadratic</label>
+        <label><input type="checkbox" name="parents" value="abs"> Abs value</label>
+        <label><input type="checkbox" name="parents" value="sqrt"> Square root</label>
+        <label><input type="checkbox" name="parents" value="reciprocal"> Reciprocal</label>
+      </div>
+      <div class="sliders">
+        <label class="slide"><span>a</span><input id="p-a" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-a">1.00</output></label>
+        <label class="slide"><span>k</span><input id="p-k" type="range" min="-3" max="3" step="0.1" value="1"><output id="o-k">1.00</output></label>
+        <label class="slide"><span>d</span><input id="p-d" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-d">0.00</output></label>
+        <label class="slide"><span>c</span><input id="p-c" type="range" min="-6" max="6" step="0.1" value="0"><output id="o-c">0.00</output></label>
+      </div>
+    </section>
+  </div>
+  <script>
+(function () {
+  const GOLD = "#f5c518";
+  const canvas = document.getElementById("plot");
+  const ctx = canvas.getContext("2d");
+  const liveEl = document.getElementById("eq-live");
+  const multiBtn = document.getElementById("multi-toggle");
+  const singleBox = document.getElementById("parents-single");
+  const multiBox = document.getElementById("parents-multi");
+  const inputA = document.getElementById("p-a");
+  const inputK = document.getElementById("p-k");
+  const inputD = document.getElementById("p-d");
+  const inputC = document.getElementById("p-c");
+  const outA = document.getElementById("o-a");
+  const outK = document.getElementById("o-k");
+  const outD = document.getElementById("o-d");
+  const outC = document.getElementById("o-c");
+  const X_MIN = -8;
+  const X_MAX = 8;
+  const Y_MIN = -8;
+  const Y_MAX = 8;
+  const PARENTS = {
+    linear: { label: "Linear", symbol: "x", color: GOLD },
+    quadratic: { label: "Quadratic", symbol: "x²", color: "#7ec8ff" },
+    abs: { label: "Abs value", symbol: "|x|", color: "#c9a0ff" },
+    sqrt: { label: "Square root", symbol: "√x", color: "#8ee0a4" },
+    reciprocal: { label: "Reciprocal", symbol: "1/x", color: "#ff9b7a" },
+  };
+  const ORDER = ["linear", "quadratic", "abs", "sqrt", "reciprocal"];
+
+  const state = {
+    multi: false,
+    parents: ["linear"],
+    a: 1,
+    k: 1,
+    d: 0,
+    c: 0,
+  };
+
+  /**
+   * Format a slider value to two decimals.
+   * @param {number} n
+   * @returns {string}
+   */
+  function fmt(n) {
+    const v = Math.round(Number(n) * 100) / 100;
+    return v.toFixed(2);
+  }
+
+  /**
+   * Parent y-value, or NaN where the parent is undefined.
+   * @param {string} kind
+   * @param {number} t
+   * @returns {number}
+   */
+  function parentValue(kind, t) {
+    if (kind === "linear") return t;
+    if (kind === "quadratic") return t * t;
+    if (kind === "abs") return Math.abs(t);
+    if (kind === "sqrt") return t < 0 ? NaN : Math.sqrt(t);
+    if (kind === "reciprocal") return Math.abs(t) < 1e-6 ? NaN : 1 / t;
+    return NaN;
+  }
+
+  /**
+   * Transformed y = a f(k(x − d)) + c for one parent.
+   * @param {string} kind
+   * @param {number} x
+   * @returns {number}
+   */
+  function transformedY(kind, x) {
+    const inner = state.k * (x - state.d);
+    const base = parentValue(kind, inner);
+    if (!Number.isFinite(base)) return NaN;
+    return state.a * base + state.c;
+  }
+
+  /**
+   * Inside of f: k(x − d) with the live slider numbers.
+   * @returns {string}
+   */
+  function innerText() {
+    const d = state.d;
+    const xPart = d < 0
+      ? "x + " + fmt(Math.abs(d))
+      : "x − " + fmt(d);
+    return fmt(state.k) + "(" + xPart + ")";
+  }
+
+  /**
+   * White, parent-specific equation that follows a, k, d, and c.
+   * @param {string} kind
+   * @returns {string}
+   */
+  function liveEquation(kind) {
+    const inner = innerText();
+    let body = inner;
+    if (kind === "quadratic") body = "(" + inner + ")²";
+    else if (kind === "abs") body = "|" + inner + "|";
+    else if (kind === "sqrt") body = "√(" + inner + ")";
+    else if (kind === "reciprocal") body = "1/(" + inner + ")";
+    return "y = " + fmt(state.a) + "·" + body + " + " + fmt(state.c);
+  }
+
+  /**
+   * Paint one white equation line per displayed parent.
+   */
+  function paintEquations() {
+    liveEl.replaceChildren();
+    const shown = state.parents.filter((kind) => PARENTS[kind]);
+    if (!shown.length) {
+      const empty = document.createElement("p");
+      empty.className = "eq-line";
+      empty.textContent = "Select a parent function.";
+      liveEl.appendChild(empty);
+      return;
+    }
+    for (const kind of shown) {
+      const line = document.createElement("p");
+      line.className = "eq-line";
+      const swatch = document.createElement("span");
+      swatch.className = "swatch";
+      swatch.style.background = state.multi ? PARENTS[kind].color : GOLD;
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = PARENTS[kind].label;
+      const eq = document.createElement("span");
+      eq.textContent = liveEquation(kind);
+      line.append(swatch, who, eq);
+      liveEl.appendChild(line);
+    }
+  }
+
+  /**
+   * Map math x to canvas pixels.
+   * @param {number} x
+   * @param {number} width
+   * @returns {number}
+   */
+  function toX(x, width) {
+    return ((x - X_MIN) / (X_MAX - X_MIN)) * width;
+  }
+
+  /**
+   * Map math y to canvas pixels (y-up).
+   * @param {number} y
+   * @param {number} height
+   * @returns {number}
+   */
+  function toY(y, height) {
+    return height - ((y - Y_MIN) / (Y_MAX - Y_MIN)) * height;
+  }
+
+  /**
+   * Read the single-parent radio.
+   * @returns {string}
+   */
+  function selectedRadio() {
+    const picked = document.querySelector('#parents-single input[name="parent"]:checked');
+    return picked instanceof HTMLInputElement ? picked.value : "linear";
+  }
+
+  /**
+   * Read checked multi-parent boxes in catalogue order.
+   * @returns {string[]}
+   */
+  function selectedChecks() {
+    const picked = [];
+    document.querySelectorAll('#parents-multi input[name="parents"]').forEach((node) => {
+      if (node instanceof HTMLInputElement && node.checked) picked.push(node.value);
+    });
+    return ORDER.filter((kind) => picked.includes(kind));
+  }
+
+  /**
+   * Read radios or checkboxes and sliders, then redraw.
+   */
+  function readControls() {
+    state.parents = state.multi ? selectedChecks() : [selectedRadio()];
+    state.a = Number(inputA.value);
+    state.k = Number(inputK.value);
+    state.d = Number(inputD.value);
+    state.c = Number(inputC.value);
+    outA.textContent = fmt(state.a);
+    outK.textContent = fmt(state.k);
+    outD.textContent = fmt(state.d);
+    outC.textContent = fmt(state.c);
+    paintEquations();
+    draw();
+  }
+
+  /**
+   * Turn multiple parents on or off and keep the visible set coherent.
+   * @param {boolean} enabled
+   */
+  function setMulti(enabled) {
+    state.multi = Boolean(enabled);
+    multiBtn.setAttribute("aria-pressed", state.multi ? "true" : "false");
+    multiBtn.textContent = state.multi ? "Multiple parents on" : "Multiple parents";
+    if (state.multi) {
+      const current = selectedRadio();
+      document.querySelectorAll('#parents-multi input[name="parents"]').forEach((node) => {
+        if (node instanceof HTMLInputElement) node.checked = node.value === current;
+      });
+      singleBox.hidden = true;
+      multiBox.hidden = false;
+    } else {
+      const keep = selectedChecks()[0] || selectedRadio();
+      document.querySelectorAll('#parents-single input[name="parent"]').forEach((node) => {
+        if (node instanceof HTMLInputElement) node.checked = node.value === keep;
+      });
+      multiBox.hidden = true;
+      singleBox.hidden = false;
+    }
+    readControls();
+  }
+
+  /**
+   * Size the canvas to the current CSS box.
+   */
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * dpr));
+    canvas.height = Math.max(1, Math.floor(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /**
+   * Draw numbered axes and the transformed parent curve(s).
+   */
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.7);
+    g.addColorStop(0, "#122038");
+    g.addColorStop(1, "#070b14");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = "rgba(180, 198, 220, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let n = X_MIN; n <= X_MAX; n += 1) {
+      const px = toX(n, w);
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, h);
+    }
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) {
+      const py = toY(n, h);
+      ctx.moveTo(0, py);
+      ctx.lineTo(w, py);
+    }
+    ctx.stroke();
+
+    const originX = toX(0, w);
+    const originY = toY(0, h);
+    ctx.strokeStyle = "rgba(210, 220, 235, 0.92)";
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(0, originY);
+    ctx.lineTo(w, originY);
+    ctx.moveTo(originX, 0);
+    ctx.lineTo(originX, h);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(210, 220, 235, 0.88)";
+    ctx.font = "11px 'IBM Plex Sans', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (let n = X_MIN; n <= X_MAX; n += 1) {
+      if (n === 0) continue;
+      const px = toX(n, w);
+      ctx.beginPath();
+      ctx.moveTo(px, originY - 4);
+      ctx.lineTo(px, originY + 4);
+      ctx.stroke();
+      ctx.fillText(String(n), px, originY + 6);
+    }
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let n = Y_MIN; n <= Y_MAX; n += 1) {
+      if (n === 0) continue;
+      const py = toY(n, h);
+      ctx.beginPath();
+      ctx.moveTo(originX - 4, py);
+      ctx.lineTo(originX + 4, py);
+      ctx.stroke();
+      ctx.fillText(String(n), originX - 6, py);
+    }
+    ctx.textAlign = "left";
+    ctx.fillText("x", w - 14, originY - 12);
+    ctx.fillText("y", originX + 8, 12);
+
+    /**
+     * Stroke one sampled curve, breaking at undefined points.
+     * @param {(x: number) => number} fn
+     * @param {string} color
+     * @param {number} width
+     */
+    function strokeFn(fn, color, width) {
+      const steps = 720;
+      ctx.beginPath();
+      let drawing = false;
+      let lastY = NaN;
+      for (let i = 0; i <= steps; i += 1) {
+        const x = X_MIN + (i / steps) * (X_MAX - X_MIN);
+        const y = fn(x);
+        if (!Number.isFinite(y) || y < Y_MIN - 2 || y > Y_MAX + 2) {
+          drawing = false;
+          lastY = NaN;
+          continue;
+        }
+        if (Number.isFinite(lastY) && Math.abs(y - lastY) > 8) {
+          drawing = false;
+        }
+        const px = toX(x, w);
+        const py = toY(y, h);
+        if (!drawing) {
+          ctx.moveTo(px, py);
+          drawing = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+        lastY = y;
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+
+    const shown = state.parents.filter((kind) => PARENTS[kind]);
+    if (!state.multi && shown.length === 1) {
+      strokeFn((x) => parentValue(shown[0], x), "rgba(143, 163, 187, 0.45)", 1.6);
+      strokeFn((x) => transformedY(shown[0], x), GOLD, 3);
+      return;
+    }
+    for (const kind of shown) {
+      strokeFn((x) => transformedY(kind, x), PARENTS[kind].color, 2.6);
+    }
+  }
+
+  document.querySelectorAll('#parents-single input[name="parent"]').forEach((radio) => {
+    radio.addEventListener("change", readControls);
+  });
+  document.querySelectorAll('#parents-multi input[name="parents"]').forEach((box) => {
+    box.addEventListener("change", readControls);
+  });
+  [inputA, inputK, inputD, inputC].forEach((slider) => {
+    ["input", "change"].forEach((evt) => slider.addEventListener(evt, readControls));
+  });
+  multiBtn.addEventListener("click", () => setMulti(!state.multi));
+  window.addEventListener("resize", () => {
+    resize();
+    draw();
+  });
+
+  resize();
+  readControls();
+})();
+  </script>
+</body>
+</html>

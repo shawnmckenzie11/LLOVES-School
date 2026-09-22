@@ -1520,6 +1520,18 @@ body.staff-shell table.ls-live-lessons td {
   padding: 0.4rem 0.55rem;
   border-bottom: 1px solid #dbe4ee;
   font-size: 0.88rem;
+  vertical-align: top;
+}
+body.staff-shell table.ls-live-lessons .ls-scan-line {
+  margin: 0 0 0.25rem;
+}
+body.staff-shell table.ls-live-lessons details summary {
+  cursor: pointer;
+  color: #1d4e89;
+}
+body.staff-shell table.ls-live-lessons details ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
 }
 body.staff-shell .live-stage-rail {
   display: flex;

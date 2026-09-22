@@ -717,12 +717,191 @@ def questions_for_stage(metadata: Any, stage: Any) -> list[dict[str, Any]]:
 
 
 
-def list_live_lesson_summaries(course: Any, *, root: Path | None = None) -> list[dict[str, Any]]:
+def _clip_scan_text(raw: Any, limit: int = 140) -> str:
+    """Return one line of scan text, clipped so the inventory stays readable.
+
+    Args:
+        raw: Stem, title, or other teacher-facing string.
+        limit: Maximum characters including the ellipsis.
+    """
+
+    text = " ".join(str(raw or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _question_rows_for_summary(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return deduped questions from merged live-lesson metadata.
+
+    The ``questions`` list is the source of truth after class add/remove
+    overlays. Item rows are only a fallback when that list was never built.
+
+    Args:
+        meta: Normalized live-class metadata, optionally class-merged.
+    """
+
+    questions = meta.get("questions")
+    if isinstance(questions, list):
+        source = [row for row in questions if isinstance(row, dict)]
+    else:
+        items = meta.get("items") if isinstance(meta.get("items"), list) else []
+        source = [
+            row
+            for row in items
+            if isinstance(row, dict)
+            and str(row.get("item_type") or "").strip().lower() == "question"
+        ]
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for row in source:
+        key = str(row.get("id") or row.get("item_id") or row.get("ref") or "").strip()
+        if key:
+            if key in seen:
+                continue
+            seen.add(key)
+        rows.append(row)
+    return rows
+
+
+def _media_rows_for_summary(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return media items, or the legacy single media slot when items omit it.
+
+    Args:
+        meta: Normalized live-class metadata.
+    """
+
+    items = meta.get("items") if isinstance(meta.get("items"), list) else []
+    rows = [
+        row
+        for row in items
+        if isinstance(row, dict)
+        and str(row.get("item_type") or "").strip().lower() == "media"
+    ]
+    if rows:
+        return rows
+    media = meta.get("media")
+    if isinstance(media, dict) and (
+        media.get("file") or media.get("title") or media.get("pack_label")
+    ):
+        return [media]
+    return []
+
+
+def _pack_role(item: dict[str, Any]) -> str:
+    """Return ``questions_artifact`` or ``exploratory_media`` for one pack.
+
+    Args:
+        item: Resolved media catalogue row.
+    """
+
+    role = str(item.get("pack_role") or "").strip().lower()
+    if role in {"questions_artifact", "exploratory_media"}:
+        return role
+    blob = " ".join(
+        str(item.get(key) or "")
+        for key in ("pack_label", "title", "file", "id")
+    ).lower()
+    if "artifact" in blob:
+        return "questions_artifact"
+    return "exploratory_media"
+
+
+def _pack_label(item: dict[str, Any]) -> str:
+    """Return a teacher-facing pack name, never a bare filename when titled.
+
+    Args:
+        item: Resolved media catalogue row.
+    """
+
+    label = str(item.get("pack_label") or item.get("title") or "").strip()
+    if label:
+        return label
+    file_name = Path(str(item.get("file") or item.get("url") or "")).stem
+    pretty = file_name.replace("-", " ").replace("_", " ").strip()
+    return pretty or "Media"
+
+
+def summarize_live_lesson(
+    meta: dict[str, Any],
+    *,
+    module: Any = "",
+    slot: Any = "",
+) -> dict[str, Any]:
+    """Summarize one live lesson for the Lesson Slides inventory.
+
+    Question counts come from the merged question list (seed plus class
+    add/remove). Media and artifact labels describe the pack. ``questions``
+    holds short stems so a teacher can scan without opening the lesson.
+
+    Args:
+        meta: Normalized, optionally class-merged live-class metadata.
+        module: Module token such as ``M1`` when metadata omits it.
+        slot: Live-class token such as ``C2`` when metadata omits it.
+    """
+
+    question_rows = _question_rows_for_summary(meta)
+    media_rows = _media_rows_for_summary(meta)
+    media_labels: list[str] = []
+    artifact_labels: list[str] = []
+    media_file = ""
+    for item in media_rows:
+        label = _pack_label(item)
+        file_name = Path(str(item.get("file") or item.get("url") or "")).name
+        if _pack_role(item) == "questions_artifact":
+            if label not in artifact_labels:
+                artifact_labels.append(label)
+        elif label not in media_labels:
+            media_labels.append(label)
+        if not media_file and file_name:
+            media_file = file_name
+    pages = meta.get("pages") if isinstance(meta.get("pages"), list) else []
+    question_count = len(question_rows)
+    question_word = "question" if question_count == 1 else "questions"
+    scan_parts = [f"{question_count} {question_word}"]
+    if media_labels:
+        scan_parts.append("Media: " + "; ".join(media_labels))
+    if artifact_labels:
+        scan_parts.append("Artifact: " + "; ".join(artifact_labels))
+    return {
+        "course": normalize_course_code(meta.get("course")),
+        "module": str(meta.get("module") or module),
+        "live_class": str(meta.get("live_class") or slot),
+        "page_count": len(pages) or len(default_math_pages()),
+        "question_count": question_count,
+        "questions": [
+            {
+                "id": str(row.get("id") or ""),
+                "text": _clip_scan_text(
+                    row.get("text")
+                    or row.get("prompt")
+                    or row.get("title")
+                    or row.get("id")
+                ),
+            }
+            for row in question_rows
+        ],
+        "media_file": media_file,
+        "media_label": "; ".join(media_labels),
+        "artifact_label": "; ".join(artifact_labels),
+        "scan": " · ".join(scan_parts),
+    }
+
+
+def list_live_lesson_summaries(
+    course: Any,
+    *,
+    root: Path | None = None,
+    metadata_for: Any = None,
+) -> list[dict[str, Any]]:
     """Return saved live-lesson files for a course, grouped by module and class.
 
     Args:
-        course: Course code such as MCF3M.
+        course: Course code such as MCR3U.
         root: Optional metadata root. Defaults to the live-class seed tree.
+        metadata_for: Optional ``(module, slot) -> metadata`` callback. When
+            it returns a dict, that class-merged document is summarized so
+            added and removed questions change the inventory count.
     """
 
     course_code = normalize_course_code(course)
@@ -734,36 +913,11 @@ def list_live_lesson_summaries(course: Any, *, root: Path | None = None) -> list
         module = path.parent.name
         slot = path.stem
         meta = load_live_class_metadata(course_code, module, slot, root=root)
-        items = meta.get("items") if isinstance(meta.get("items"), list) else []
-        questions = [
-            item
-            for item in items
-            if str(item.get("item_type") or "") == "question"
-        ]
-        if not questions:
-            questions = meta.get("questions") if isinstance(meta.get("questions"), list) else []
-        media = next(
-            (
-                item
-                for item in items
-                if str(item.get("item_type") or "") == "media"
-            ),
-            None,
-        )
-        media_file = ""
-        if isinstance(media, dict):
-            media_file = Path(str(media.get("file") or media.get("id") or "")).name
-        pages = meta.get("pages") if isinstance(meta.get("pages"), list) else []
-        rows.append(
-            {
-                "course": course_code,
-                "module": str(meta.get("module") or module),
-                "live_class": str(meta.get("live_class") or slot),
-                "page_count": len(pages) or len(default_math_pages()),
-                "question_count": len(questions),
-                "media_file": media_file,
-            }
-        )
+        if metadata_for is not None:
+            merged = metadata_for(module, slot)
+            if isinstance(merged, dict):
+                meta = merged
+        rows.append(summarize_live_lesson(meta, module=module, slot=slot))
     return rows
 
 

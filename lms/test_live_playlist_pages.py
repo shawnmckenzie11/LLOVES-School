@@ -347,6 +347,96 @@ class LivePlaylistPageApiTests(unittest.TestCase):
             str((denied.get_json() or {}).get("error") or ""),
         )
 
+    def test_mcr3u_lesson_slides_inventory_tracks_edits(self) -> None:
+        """MCR3U Lesson Slides counts follow class edits and name C2/C3/C4 packs."""
+
+        from live_class_metadata import list_live_lesson_summaries
+
+        def merged(module: str, slot: str) -> dict[str, Any]:
+            """Load this class's merged MCR3U playlist."""
+            return self.school.live_class_metadata_for_class_lesson(
+                self.class_id, module, slot, fresh=True
+            )
+
+        def lesson(slot: str) -> dict[str, Any]:
+            """Return one M1 summary after class overlays."""
+            rows = list_live_lesson_summaries("MCR3U", metadata_for=merged)
+            return next(
+                row
+                for row in rows
+                if row["module"] == "M1" and row["live_class"] == slot
+            )
+
+        before = lesson("C2")
+        base = int(before["question_count"])
+        self.assertIn("Exploratory media", before["media_label"])
+        self.assertEqual(before["artifact_label"], "")
+        self.school.remove_class_playlist_item(
+            self.class_id, "M1", "C2", "evaluate-f2"
+        )
+        removed = lesson("C2")
+        self.assertEqual(removed["question_count"], base - 1)
+        self.assertNotIn(
+            "evaluate-f2",
+            [str(row.get("id") or "") for row in removed["questions"]],
+        )
+        seed = next(
+            row
+            for row in list_live_lesson_summaries("MCR3U")
+            if row["module"] == "M1" and row["live_class"] == "C2"
+        )
+        self.assertEqual(seed["question_count"], base)
+        self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="numeric",
+            text="MCR3U inventory probe",
+            page_number=4,
+            stage="round",
+            correct_answer="4",
+        )
+        added = lesson("C2")
+        self.assertEqual(added["question_count"], base)
+        self.assertTrue(
+            any("inventory probe" in str(row.get("text") or "") for row in added["questions"])
+        )
+        self.assertIn("Questions Artifact", lesson("C3")["artifact_label"])
+        self.assertEqual(lesson("C3")["media_label"], "")
+        self.assertIn("multiple parents", lesson("C4")["media_label"])
+
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        rv = client.get(f"/api/classes/{self.class_id}/live-lessons")
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        body = rv.get_json() or {}
+        self.assertEqual(body.get("course"), "MCR3U")
+        api_c2 = next(
+            row
+            for row in body.get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C2"
+        )
+        self.assertEqual(api_c2["question_count"], base)
+        self.assertIn("Exploratory media", api_c2["media_label"])
+        self.assertIn("inventory probe", api_c2["scan"] + " ".join(
+            str(row.get("text") or "") for row in api_c2.get("questions") or []
+        ))
+        api_c4 = next(
+            row
+            for row in body.get("lessons") or []
+            if row.get("module") == "M1" and row.get("live_class") == "C4"
+        )
+        self.assertIn("mcr3u-m1c4-parent-transformations.html", api_c4["media_file"])
+
 
 if __name__ == "__main__":
     unittest.main()

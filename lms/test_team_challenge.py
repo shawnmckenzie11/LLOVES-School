@@ -47,6 +47,16 @@ class TeamChallengeResolveTests(unittest.TestCase):
         self.assertEqual(seed["url"], MCR3U_M1C1_MEDIA_URL)
         self.assertIn("inputs", seed["stem"].lower())
         self.assertEqual(team_challenge_media_url("MCR3U", "M1", "C2"), "")
+        c2 = live_class_seed_media("MCR3U", "M1", "C2")
+        self.assertIsNotNone(c2)
+        assert c2 is not None
+        self.assertIn("mcr3u-m1c2-parent-transformations.html", c2["url"])
+        self.assertIn("Exploratory media", c2["title"])
+        c4 = live_class_seed_media("MCR3U", "M1", "C4")
+        self.assertIsNotNone(c4)
+        assert c4 is not None
+        self.assertIn("mcr3u-m1c4-parent-transformations.html", c4["url"])
+        self.assertIn("multi-parent", c4["title"])
 
 
 class TeamChallengeLiveApiTests(unittest.TestCase):

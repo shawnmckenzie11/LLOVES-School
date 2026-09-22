@@ -113,7 +113,7 @@ async function loadLiveLessons() {
   if (!res.ok || !lessons.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 5;
+    td.colSpan = 7;
     td.textContent = "No saved live lesson files yet.";
     tr.appendChild(td);
     body.appendChild(tr);
@@ -121,20 +121,51 @@ async function loadLiveLessons() {
   }
   for (const lesson of lessons) {
     const tr = document.createElement("tr");
-    const cells = [
+    const plain = [
       lesson.module || "",
       lesson.live_class || "",
       lesson.page_count ?? "",
       lesson.question_count ?? "",
-      lesson.media_file || "",
+      lesson.media_label || "—",
+      lesson.artifact_label || "—",
     ];
-    for (const value of cells) {
+    for (const value of plain) {
       const td = document.createElement("td");
       td.textContent = String(value);
       tr.appendChild(td);
     }
+    tr.appendChild(scanCell(lesson));
     body.appendChild(tr);
   }
+}
+
+/**
+ * Scan cell: one-line pack summary plus question stems, no lesson open.
+ * @param {Record<string, unknown>} lesson
+ * @returns {HTMLTableCellElement}
+ */
+function scanCell(lesson) {
+  const td = document.createElement("td");
+  const line = document.createElement("p");
+  line.className = "ls-scan-line";
+  line.textContent = String(lesson.scan || "");
+  td.appendChild(line);
+  const questions = Array.isArray(lesson.questions) ? lesson.questions : [];
+  if (!questions.length) return td;
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Stems";
+  details.appendChild(summary);
+  const list = document.createElement("ul");
+  for (const question of questions) {
+    const item = document.createElement("li");
+    const text = String(question?.text || question?.id || "").trim();
+    item.textContent = text;
+    list.appendChild(item);
+  }
+  details.appendChild(list);
+  td.appendChild(details);
+  return td;
 }
 
 /**
