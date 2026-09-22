@@ -13,77 +13,138 @@ from typing import Any
 COURSE_WIDE_WARMUP_BANK_KEY = "course-wide-warmups"
 COURSE_WIDE_WARMUP_BANK_TITLE = "Course Wide warmups"
 COURSE_SCOPE_TOKENS = frozenset({"course", "course-wide", "coursewide", "all"})
+# Course Wide search unions confirmed banks on M1–M8. Confirming every
+# module lets that union see these rows. Process Kind still hides them.
+COURSE_WIDE_WARMUP_CONFIRM_MODULES = (1, 2, 3, 4, 5, 6, 7, 8)
 
-# Shawn's icebreaker list. Choice rows import as unkeyed multiple choice.
-# Open rows import as polls (students type).
+# Bank-curator locked pack. Pick-a-side rows are unkeyed choices.
+# Opinion and trivia are open polls. Prediction-ranking is group submit.
 _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
     {
         "import_key": "warmup-aisle-window",
         "title": "Aisle or window",
-        "stem": "Aisle or window: which seat do you pick?",
-        "options": ["Aisle", "Window"],
+        "category": "pick-a-side",
+        "stem": "Aisle seat or window seat — pick one and defend it in one sentence.",
+        "options": ["Aisle seat", "Window seat"],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-text-call",
         "title": "Text or call",
-        "stem": "Text or call: how do you reach a friend?",
-        "options": ["Text", "Call"],
+        "category": "pick-a-side",
+        "stem": "Texting or calling forever — pick one, no going back.",
+        "options": ["Texting", "Calling"],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-beach-cabin",
         "title": "Beach or cabin",
-        "stem": "Beach or cabin: where is the better long weekend?",
-        "options": ["Beach", "Cabin"],
+        "category": "pick-a-side",
+        "stem": "Beach vacation or mountain cabin?",
+        "options": ["Beach vacation", "Mountain cabin"],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-overrated-food",
         "title": "Most overrated food",
-        "stem": "Which food is overrated?",
-        "options": ["Pineapple on pizza", "Raisins", "Decaf coffee", "Kale"],
+        "category": "opinion",
+        "stem": "What's the most overrated food that everyone else seems to love?",
+        "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-rule-differs",
         "title": "A rule that should differ",
-        "stem": "What rule should work differently than it does?",
+        "category": "opinion",
+        "stem": "Name a rule (school, home, or the world) that should honestly just be different.",
         "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-confident-opinion",
         "title": "Unimportant confident opinion",
-        "stem": "What unimportant opinion do you hold with complete confidence?",
+        "category": "opinion",
+        "stem": "What's your most confident opinion about something completely unimportant?",
         "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-useless-skill",
         "title": "Weirdly useless skill",
-        "stem": "What useless skill are you weirdly proud of?",
+        "category": "trivia-about-you",
+        "stem": "What's something you're weirdly good at that has almost no real-world use?",
         "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-group-mascot",
         "title": "Group mascot",
-        "stem": "If this group had a mascot, what would it be?",
+        "category": "trivia-about-you",
+        "stem": "If your group had a mascot right now, what would it be?",
         "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-laughed-too-hard",
         "title": "Laughed too hard",
-        "stem": "When did you last laugh too hard?",
+        "category": "trivia-about-you",
+        "stem": "What's the last thing that made you laugh way harder than it should have?",
         "options": [],
+        "response_mode": "individual",
     },
     {
         "import_key": "warmup-fraction-never",
         "title": "Fraction who never did X",
-        "stem": "What fraction of this class has never done something the rest of us have?",
-        "options": ["Almost none", "About a quarter", "About half", "Most of us"],
+        "category": "prediction-ranking",
+        "stem": "As a group, guess: what fraction of the class has never ridden a roller coaster? (Teacher swaps X.)",
+        "options": [],
+        "response_mode": "group_consensus",
+        "answer_shape": "one fraction + one-line why",
     },
     {
         "import_key": "warmup-rank-annoyances",
         "title": "Rank three annoyances",
-        "stem": "Rank three small annoyances from most annoying to least.",
+        "category": "prediction-ranking",
+        "stem": "Rank most→least annoying: slow wifi · wet socks · someone chewing loudly. Group must agree on one order.",
         "options": [],
+        "response_mode": "group_consensus",
+        "answer_shape": "one ranking + one-line why",
     },
 )
+
+
+# Short stems shipped before the bank-curator pack. Same titles, so a title
+# check alone will not refresh them. Teacher edits are not in this set.
+_RETIRED_COURSE_WARMUP_STEMS = frozenset(
+    {
+        "Aisle or window: which seat do you pick?",
+        "Text or call: how do you reach a friend?",
+        "Beach or cabin: where is the better long weekend?",
+        "Which food is overrated?",
+        "What rule should work differently than it does?",
+        "What unimportant opinion do you hold with complete confidence?",
+        "What useless skill are you weirdly proud of?",
+        "If this group had a mascot, what would it be?",
+        "When did you last laugh too hard?",
+        "What fraction of this class has never done something the rest of us have?",
+        "Rank three small annoyances from most annoying to least.",
+    }
+)
+
+
+def course_warmup_stem_is_retired(payload: Any) -> bool:
+    """True when a stored warmup still has a pre-curator stem.
+
+    Args:
+        payload: Parsed ``questions.payload_json``.
+
+    Returns:
+        True for the short stems replaced by the locked pack.
+    """
+    if not isinstance(payload, dict):
+        return False
+    stem = str(payload.get("stem_html") or payload.get("text") or "").strip()
+    return stem in _RETIRED_COURSE_WARMUP_STEMS
 
 
 def locked_course_warmup_titles() -> tuple[str, ...]:
@@ -115,21 +176,37 @@ def course_wide_warmup_payload(spec: dict[str, Any]) -> dict[str, Any]:
         spec: One catalogue row from ``course_wide_warmup_catalogue``.
 
     Returns:
-        ``payload_json`` object tagged ``kind=warmup`` and ``bank_scope=course``.
+        ``payload_json`` tagged ``kind=warmup``, ``tags=["warmup"]``, and
+        ``bank_scope=course``.
     """
     options = [str(opt).strip() for opt in (spec.get("options") or []) if str(opt).strip()]
     choices = [
         {"id": chr(ord("a") + index), "html": option, "text": option}
         for index, option in enumerate(options)
     ]
-    return {
+    category = str(spec.get("category") or "").strip()
+    response_mode = str(spec.get("response_mode") or "individual").strip().lower()
+    if response_mode != "group_consensus":
+        response_mode = "individual"
+    payload: dict[str, Any] = {
         "kind": "warmup",
+        "tags": ["warmup"],
         "bank_scope": "course",
+        "category": category,
+        "module_hint": f"COURSE/{category}" if category else "COURSE",
+        "expectation_codes": [],
         "stem_html": str(spec.get("stem") or "").strip(),
         "points_possible": 0,
         "choices": choices,
         "type": "mc" if choices else "poll",
+        "response_mode": response_mode,
     }
+    shape = str(spec.get("answer_shape") or "").strip()
+    if shape:
+        payload["answer_shape"] = shape
+    if response_mode == "group_consensus":
+        payload["publish_modes"] = ["individual", "group_consensus"]
+    return payload
 
 
 def is_course_scoped_warmup(payload: Any) -> bool:
@@ -185,6 +262,17 @@ def normalize_course_warmup(
         if text:
             options.append(text)
     kind = "mc" if options else "poll"
+    response_mode = str(blob.get("response_mode") or "individual").strip().lower()
+    if response_mode != "group_consensus":
+        response_mode = "individual"
+    publish_modes = blob.get("publish_modes")
+    if not isinstance(publish_modes, list) or not publish_modes:
+        publish_modes = (
+            ["individual", "group_consensus"]
+            if response_mode == "group_consensus"
+            else ["individual"]
+        )
+    category = str(blob.get("category") or "").strip()
     return {
         "type": kind,
         "text": stem,
@@ -194,6 +282,12 @@ def normalize_course_warmup(
         "points": 0,
         "kind": "warmup",
         "bank_scope": "course",
+        "category": category,
+        "module_hint": str(blob.get("module_hint") or (f"COURSE/{category}" if category else "")),
+        "expectation_codes": [],
+        "answer_shape": str(blob.get("answer_shape") or "").strip(),
+        "response_mode": response_mode,
+        "publish_modes": [str(mode) for mode in publish_modes],
         "question_id": int(question_id),
         "bank_id": int(bank_id),
         "bank_title": str(bank_title or COURSE_WIDE_WARMUP_BANK_TITLE),

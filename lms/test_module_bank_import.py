@@ -842,29 +842,40 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertIn(source_id, module_ids)
 
     def test_course_wide_warmups_stay_out_of_module_import(self) -> None:
-        """Course Wide icebreakers list under course scope and not M1."""
+        """Kind=Warmup lists the locked stems; Process Kind hides them."""
 
         seeded = self.school.seed_course_wide_warmups(self.library_id)
         self.assertEqual(seeded["count"], 11)
         again = self.school.seed_course_wide_warmups(self.library_id)
         self.assertEqual(again["question_ids"], seeded["question_ids"])
-        self.school._ensure_module_bank_link(
-            self.library_id, 1, int(seeded["bank_id"])
+        for module_number in range(1, 9):
+            linked = {
+                int(row["bank_id"])
+                for row in self.school.list_module_bank_links(
+                    self.library_id, module_number
+                )
+            }
+            self.assertIn(int(seeded["bank_id"]), linked)
+        hidden = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
+        hidden_ids = {int(row.get("question_id") or 0) for row in hidden["items"]}
+        for question_id in seeded["question_ids"]:
+            self.assertNotIn(question_id, hidden_ids)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
         )
-        course = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
-        stems = " ".join(str(row.get("text") or "") for row in course["items"]).lower()
+        stems = " ".join(str(row.get("text") or "") for row in course["items"])
         for needle in (
-            "aisle or window",
-            "text or call",
-            "beach or cabin",
-            "overrated",
-            "rule should work differently",
-            "unimportant opinion",
-            "useless skill",
-            "mascot",
-            "laugh too hard",
-            "fraction of this class",
-            "rank three",
+            "Aisle seat or window seat — pick one and defend it in one sentence.",
+            "Texting or calling forever — pick one, no going back.",
+            "Beach vacation or mountain cabin?",
+            "What's the most overrated food that everyone else seems to love?",
+            "that should honestly just be different.",
+            "something completely unimportant?",
+            "weirdly good at that has almost no real-world use?",
+            "If your group had a mascot right now, what would it be?",
+            "laugh way harder than it should have?",
+            "never ridden a roller coaster? (Teacher swaps X.)",
+            "slow wifi · wet socks · someone chewing loudly.",
         ):
             self.assertIn(needle, stems)
         self.assertEqual(str(course["items"][0].get("kind")), "warmup")
@@ -898,7 +909,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         }
         for question_id in seeded["question_ids"]:
             self.assertNotIn(question_id, module_default)
-            self.assertNotIn(question_id, module_warmup)
+            self.assertIn(question_id, module_warmup)
         standard = self.school.search_bank_scope_mcs(
             self.library_id, "course", 1, "", kind="standard"
         )
@@ -910,7 +921,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         aisle = next(
             row
             for row in course["items"]
-            if "aisle or window" in str(row.get("text") or "").lower()
+            if "aisle seat or window seat" in str(row.get("text") or "").lower()
         )
         placed = self.school.import_mc_to_class_playlist(
             self.class_id,
@@ -923,7 +934,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
         item = placed["item"]
         self.assertEqual(item.get("type"), "mc")
-        self.assertEqual(item.get("options"), ["Aisle", "Window"])
+        self.assertEqual(item.get("options"), ["Aisle seat", "Window seat"])
         self.assertFalse(item.get("key"))
         self.assertFalse(item.get("correct_answer"))
         self.assertEqual(item.get("kind"), "warmup")
@@ -957,7 +968,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             str(row.get("question_title") or "") for row in module["items"]
         }
         for title in locked:
-            self.assertNotIn(title, module_titles)
+            self.assertIn(title, module_titles)
         mcf = self.school.create_library("MCF3M", origin="upload")
         mcf_hits = self.school.search_bank_scope_mcs(
             int(mcf["id"]), "course", 1, "", kind="warmup"
@@ -1136,7 +1147,7 @@ class ModuleBankImportApiTests(unittest.TestCase):
             for row in module_body.get("items") or []
         }
         for title in locked:
-            self.assertNotIn(title, module_titles)
+            self.assertIn(title, module_titles)
 
     def test_import_mc_api(self) -> None:
         """POST import-mc persists placement and returns item payload."""
