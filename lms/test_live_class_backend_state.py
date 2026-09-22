@@ -2147,6 +2147,75 @@ class LiveBackendStateTests(unittest.TestCase):
                 int(numeric_item["id"]),
                 publish_mode="group_submit",
             )
+        with self.assertRaisesRegex(ValueError, "multiple choice only"):
+            self.school.publish_live_session_item(
+                self.session_id,
+                int(numeric_item["id"]),
+                publish_mode="group submit",
+            )
+
+    def test_group_submit_spaced_alias_publishes(self) -> None:
+        """``group submit`` is the same Group MC publish as ``group_submit``.
+
+        The page error ``publish mode is not supported: group submit`` was
+        the whitelist rejecting the spaced token before the group-submit
+        branch. Groups already configured must publish and turn run-as-groups
+        on.
+        """
+
+        self._begin_and_join(4)
+        self._setup_groups()
+        self.school.set_live_session_teacher_state(
+            self.session_id, run_as_group=False
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group submit",
+        )
+        self.assertEqual(published["response_mode"], "group_submit")
+        self.assertEqual(published["publish_mode"], "group_submit")
+        self.assertEqual(published["status"], "active")
+        self.assertTrue(
+            self.school.live_session_teacher_state_payload(self.session_id)[
+                "run_as_group"
+            ]
+        )
+        q_two = next(row for row in items if row["item_id"] == "q-two")
+        hyphen = self.school.publish_live_session_item(
+            self.session_id,
+            int(q_two["id"]),
+            publish_mode="group-submit",
+        )
+        self.assertEqual(hyphen["response_mode"], "group_submit")
+        self.assertEqual(hyphen["publish_mode"], "group_submit")
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        again = client.post(
+            f"/api/live-sessions/{self.session_id}/items/{int(group_item['id'])}/publish",
+            json={"publish_mode": "Group Submit"},
+        )
+        self.assertEqual(again.status_code, 200, again.get_json())
+        body = again.get_json()
+        self.assertEqual(body["item"]["publish_mode"], "group_submit")
+        self.assertEqual(body["item"]["response_mode"], "group_submit")
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        publish_fn = staff_js.split("async function publishLifecycleItem(")[1].split(
+            "async function closeLifecycleItem("
+        )[0]
+        self.assertIn("selectedPublishMode(liveItemId)", publish_fn)
+        self.assertIn('return "group_submit"', staff_js)
 
 
 class LiveBackendApiGuardTests(unittest.TestCase):
