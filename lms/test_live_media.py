@@ -349,7 +349,7 @@ class LiveMediaHelperTests(unittest.TestCase):
             apply_active_media_update(None, cons_item="C1-CONS-1")
 
     def test_production_seed_locks_real_slice_url(self) -> None:
-        """Without LOCAL_DEV/testing, only the seed Real-slice URL may be set."""
+        """Without LOCAL_DEV/testing, only registered live-media URLs may be set."""
         with mock.patch.dict(os.environ, {"LOCAL_DEV_LOGIN": ""}, clear=False):
             self.assertFalse(live_media_url_swap_allowed(testing=False))
         self.assertTrue(live_media_url_swap_allowed(testing=True))
@@ -366,6 +366,13 @@ class LiveMediaHelperTests(unittest.TestCase):
         )
         assert locked is not None
         self.assertEqual(locked["url"], DEFAULT_LIVE_MEDIA_URL)
+        c4 = apply_active_media_update(
+            None,
+            url="/static/live-media/mcr3u-m1c4-parent-transformations.html",
+            allow_url_swap=False,
+        )
+        assert c4 is not None
+        self.assertIn("mcr3u-m1c4-parent-transformations.html", c4["url"])
 
 
 class LiveMediaChannelTests(unittest.TestCase):
@@ -1195,7 +1202,10 @@ class Mcr3uSlotMediaCopyTests(unittest.TestCase):
         seeded = self.school.ensure_live_class_media(self.live_session_id)
         self.assertIsNotNone(seeded)
         assert seeded is not None
-        self.assertEqual(seeded.get("stem"), "Parent transformations")
+        self.assertEqual(
+            seeded.get("stem"),
+            "Questions Artifact: transformations on parent functions",
+        )
         self.assertNotEqual(seeded.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)
         overlay = self.school.get_class_live_media_copy(self.class_id, "M1", "C3")
         self.assertNotEqual(overlay.get("stem"), MCR3U_M1C1_TEAM_CHALLENGE_QUESTION)

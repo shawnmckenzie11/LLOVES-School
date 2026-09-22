@@ -12,6 +12,7 @@ from lms.live_class_metadata import (
     PUBLISH_MODES,
     RESPONSE_MODES,
     STAGE_ORDER,
+    list_live_lesson_summaries,
     load_live_class_metadata,
     load_live_item_catalogue,
     metadata_path,
@@ -632,6 +633,51 @@ class LiveClassMetadataTests(unittest.TestCase):
                 self.assertEqual(row["default_status"], "inactive")
                 self.assertEqual(row["response_mode"], "individual")
                 self.assertNotIn("feedback_id", row)
+
+
+    def test_mcr3u_m1_inventory_labels_and_c4_media(self) -> None:
+        """MCR3U M1 C2 is exploratory media, C3 is the questions Artifact, C4 is multi-parent."""
+
+        rows = {
+            row["live_class"]: row
+            for row in list_live_lesson_summaries("MCR3U")
+            if row["module"] == "M1"
+        }
+        c2 = rows["C2"]
+        c3 = rows["C3"]
+        c4 = rows["C4"]
+        self.assertIn(
+            "Exploratory media: transformations on parent functions",
+            c2["media_label"],
+        )
+        self.assertEqual(c2["artifact_label"], "")
+        self.assertGreaterEqual(c2["question_count"], 1)
+        self.assertTrue(c2["questions"])
+        self.assertIn("Questions Artifact: transformations on parent functions", c3["artifact_label"])
+        self.assertEqual(c3["media_label"], "")
+        self.assertIn("multiple parents", c4["media_label"])
+        self.assertEqual(c4["artifact_label"], "")
+        self.assertEqual(c4["media_file"], "mcr3u-m1c4-parent-transformations.html")
+        self.assertIn("Media:", c2["scan"])
+        self.assertIn("Artifact:", c3["scan"])
+        meta = load_live_class_metadata("MCR3U", "M1", "C4")
+        self.assertEqual(
+            meta["media"]["file"],
+            "/static/live-media/mcr3u-m1c4-parent-transformations.html",
+        )
+        self.assertEqual(meta["media"]["stage"], "play")
+        html = (
+            Path(__file__).resolve().parent
+            / "static"
+            / "live-media"
+            / "mcr3u-m1c4-parent-transformations.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("y = a*f[k(x - d)] + c", html)
+        self.assertIn('id="multi-toggle"', html)
+        self.assertIn('id="eq-live"', html)
+        self.assertIn('id="eq-general"', html)
+        self.assertIn("MCR3U", html)
+        self.assertNotIn("MCF3M", html)
 
 
 if __name__ == "__main__":

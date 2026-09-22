@@ -101,6 +101,7 @@ ALLOWED_SEED_MEDIA_URLS = frozenset(
         C2_TRANSFORM_MEDIA_URL,
         C3_PARENT_MEDIA_URL,
         "/static/live-media/mcr3u-m1c2-parent-transformations.html",
+        "/static/live-media/mcr3u-m1c4-parent-transformations.html",
         "/static/live-media/mcr3u-m1c1-sqrt.html",
     }
 )

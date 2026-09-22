@@ -5794,14 +5794,33 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         course = str(
             (offering or {}).get("ontario_code") or cls.get("ontario_code") or "MCF3M"
         ).upper()
+
+        def merged_lesson(module: str, slot: str) -> dict | None:
+            """Return class-merged metadata so inventory counts follow edits.
+
+            Args:
+                module: Module token such as ``M1``.
+                slot: Live slot such as ``C2``.
+            """
+            try:
+                return school.live_class_metadata_for_class_lesson(
+                    class_id, module, slot, fresh=True
+                )
+            except KeyError:
+                return None
+
         if request.method == "GET":
-            return jsonify(
+            response = jsonify(
                 {
                     "ok": True,
                     "course": course,
-                    "lessons": list_live_lesson_summaries(course),
+                    "lessons": list_live_lesson_summaries(
+                        course, metadata_for=merged_lesson
+                    ),
                 }
             )
+            response.headers["Cache-Control"] = "no-store"
+            return response
         body = request.get_json(silent=True) or {}
         parsed = parse_live_lesson_code(body.get("code") or body.get("as") or "")
         if parsed:
@@ -5825,7 +5844,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "module": module,
                 "live_class": slot,
                 "path": str(path),
-                "lessons": list_live_lesson_summaries(course),
+                "lessons": list_live_lesson_summaries(
+                    course, metadata_for=merged_lesson
+                ),
             }
         )
 

@@ -103,7 +103,10 @@ def live_class_seed_media(
     stem = ""
     if not url:
         slot = normalize_live_slot(live_slot)
-        if slot == "C2":
+        code = str(ontario_code or "").strip().upper()
+        # Other courses keep the generic C2 transforms seed on the client.
+        # MCR3U C2 is playlist media (exploratory parent functions).
+        if slot == "C2" and code != "MCR3U":
             return None
         try:
             from live_class_metadata import load_live_class_metadata

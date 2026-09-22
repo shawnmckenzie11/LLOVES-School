@@ -3373,14 +3373,17 @@ function usesC1RealSlice() {
 
 /**
  * True when this live slot should seed the C2 Transformations Artifact.
- * All C2 slots seed Transformations. MCF3M M1 C3 reuses the same iframe.
+ * Non-MCR3U C2 slots seed that iframe. MCF3M M1 C3 reuses it.
+ * MCR3U uses the playlist media file (exploratory parents on M1 C2, the
+ * questions Artifact on M1 C3, multi-parent media on M1 C4).
  * @returns {boolean}
  */
 function usesC2Transforms() {
-  const slot = String(teacherState.live_slot || textRideSlot || "C1").toUpperCase();
-  if (slot === "C2") return true;
   const ontario = String(root?.dataset.ontarioCode || "").toUpperCase();
   const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || textRideSlot || "C1").toUpperCase();
+  if (ontario === "MCR3U") return false;
+  if (slot === "C2") return true;
   return ontario === "MCF3M" && module === "M1" && slot === "C3";
 }
 

@@ -26,6 +26,17 @@
         "individual"
       ],
       "response_mode": "individual"
+    },
+    {
+      "ref": "live-class/MCR3U/M1/C4/media/parent-transformations",
+      "stage": "play",
+      "page_number": 5,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
     }
   ],
   "pages": [

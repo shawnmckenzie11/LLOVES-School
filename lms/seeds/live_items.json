@@ -793,7 +793,9 @@
       "item_type": "media",
       "id": "parent-transformations",
       "file": "/static/live-media/mcr3u-m1c3-parent-transformations.html",
-      "title": "Parent transformations",
+      "title": "Questions Artifact: transformations on parent functions",
+      "pack_role": "questions_artifact",
+      "pack_label": "Questions Artifact: transformations on parent functions",
       "shared_across_rounds": true,
       "capabilities": {
         "publish_modes": [
@@ -813,7 +815,31 @@
       "item_type": "media",
       "id": "parent-transformations",
       "file": "/static/live-media/mcr3u-m1c2-parent-transformations.html",
-      "title": "Parent transformations",
+      "title": "Exploratory media: transformations on parent functions",
+      "pack_role": "exploratory_media",
+      "pack_label": "Exploratory media: transformations on parent functions",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "live-class/MCR3U/M1/C4/media/parent-transformations": {
+      "scope": "live_class",
+      "course": "MCR3U",
+      "module": "M1",
+      "live_class": "C4",
+      "item_type": "media",
+      "id": "parent-transformations",
+      "file": "/static/live-media/mcr3u-m1c4-parent-transformations.html",
+      "title": "Exploratory media: multi-parent transformations",
+      "pack_role": "exploratory_media",
+      "pack_label": "Exploratory media: transformations on parent functions (multiple parents)",
       "shared_across_rounds": true,
       "capabilities": {
         "publish_modes": [
