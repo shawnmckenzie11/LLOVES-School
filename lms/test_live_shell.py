@@ -294,10 +294,60 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Save to card", js)
         self.assertIn("data-save-to-card", js)
         self.assertIn("function setLifecycleSaveToCard(", js)
+        self.assertIn("function liveQuestionControlStrip(", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
         self.assertIn("Individual in Group", js)
         self.assertIn("Reveal answers", js)
         self.assertNotIn("lloves-scoreboard-", js)
+
+    def test_prepublish_strip_groups_show_live_results(self) -> None:
+        """Inactive chrome shows grouped Show Live Results before Publish.
+
+        Mobbin order is A Persist, B Visibility, C Lifecycle. (Re)move stays
+        in the card head. Tablet CSS wraps that strip to two rows.
+        """
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        strip = js.split("function liveQuestionControlStrip(")[1].split(
+            "function paintLiveQuestionCards("
+        )[0]
+        persist_at = strip.index('data-live-q-group="persist"')
+        visibility_at = strip.index('data-live-q-group="visibility"')
+        lifecycle_at = strip.index('data-live-q-group="lifecycle"')
+        self.assertLess(persist_at, visibility_at)
+        self.assertLess(visibility_at, lifecycle_at)
+        self.assertLess(strip.index("Save to card"), strip.index("Show Live Results"))
+        self.assertLess(strip.index("Show Live Results"), lifecycle_at)
+        self.assertIn("A Persist", strip)
+        self.assertIn("B Visibility", strip)
+        self.assertIn("C Lifecycle", strip)
+        self.assertIn("data-live-results-toggle", strip)
+        self.assertNotIn("data-open-relocate-dialog", strip)
+        inactive = strip.split("lifecycleBody = parts.publishHtml")[0]
+        self.assertNotIn('status === "active"', inactive.split("let lifecycleBody")[-1])
+        paint = js.split("function paintLiveQuestionCards(")[1].split(
+            "function individualLifecycleResultsHtml("
+        )[0]
+        self.assertNotIn('status === "inactive" ? publish', paint)
+        self.assertIn("liveQuestionControlStrip(", paint)
+        head = paint.split("live-question-card-head")[1].split(
+            "live-question-card-actions"
+        )[0]
+        self.assertIn("relocateButton", head)
+        actions = paint.split("live-question-card-actions")[1].split("</article>")[0]
+        self.assertIn("controlStrip", actions)
+        self.assertNotIn("relocateButton", actions)
+        publish_fn = js.split("async function publishLifecycleItem(")[1].split(
+            "async function closeLifecycleItem("
+        )[0]
+        self.assertIn("publish_mode: publishMode", publish_fn)
+        self.assertNotIn("show_live_results", publish_fn)
+        tablet = css.split("@media (max-width: 1024px)")[1].split("@media")[0]
+        self.assertIn(".live-q-strip", tablet)
+        self.assertIn("grid-template-rows: auto auto", tablet)
+        self.assertIn('data-live-q-group="lifecycle"', tablet)
+        self.assertIn("grid-column: 1 / -1", tablet)
 
     def test_keyed_numeric_enables_select_correct(self) -> None:
         """Staff JS enables Select correct when a numeric card has a singular key."""
