@@ -15891,16 +15891,20 @@ class SchoolDB(LovesDB):
         return False
 
     def _current_student_page_number(self, session_id: int) -> int | None:
-        """Return the teacher's current question-binding page, if the deck has one.
+        """Return the teacher's explicit question-binding page, if one is set.
 
-        Schema-v1 sessions and unit fixtures without stored ``page_number``
-        values return None so callers keep stage-only filtering.
+        ``page_id`` must be stored. Inferring a page from stage alone hid
+        published bank imports that sit on a different page than the first
+        page of that stage. Schema-v1 sessions and an empty ``page_id``
+        return None so callers keep stage-only filtering.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
+            if not str(teacher.get("page_id") or "").strip():
+                return None
             metadata = self.live_class_metadata_for_session(session_id)
         except (KeyError, TypeError, ValueError, sqlite3.Error):
             return None
