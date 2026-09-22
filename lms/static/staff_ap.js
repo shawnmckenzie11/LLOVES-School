@@ -2012,6 +2012,77 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
+ * Render the per-question strip in Mobbin group order.
+ *
+ * A Persist is Save to card. B Visibility is Show Live Results and stays
+ * visible on an inactive card so the teacher can arm it before Publish.
+ * C Lifecycle is Publish, Reveal, or Close. (Re)move stays in the card
+ * head and is not part of this strip. Tablet CSS wraps the strip to at
+ * most two rows. The checkbox values are the boolean columns; Publish
+ * does not clear them.
+ *
+ * @param {{
+ *   liveItemId: number,
+ *   card: any,
+ *   status: string,
+ *   publishHtml: string,
+ *   revealHtml: string,
+ *   pointsHtml: string,
+ *   closeHtml: string,
+ *   closedCopy: string,
+ * }} parts
+ * @returns {string} Strip HTML, or "" when the row has no lifecycle id.
+ */
+function liveQuestionControlStrip(parts) {
+  const liveItemId = Number(parts?.liveItemId) || 0;
+  if (!liveItemId) return "";
+  const card = parts.card || {};
+  const status = String(parts.status || "inactive").toLowerCase();
+  const closed = status === "closed";
+  const active = status === "active";
+  const persist = closed
+    ? ""
+    : `<div class="live-q-group" data-live-q-group="persist" role="group" aria-label="A Persist">
+        <span class="live-q-group-kicker">A Persist</span>
+        <label class="live-result-toggle">
+          <input type="checkbox" data-save-to-card="${liveItemId}" ${
+            card.save_to_card ? "checked" : ""
+          }>
+          <span>Save to card</span>
+        </label>
+      </div>`;
+  const visibility = closed
+    ? ""
+    : `<div class="live-q-group" data-live-q-group="visibility" role="group" aria-label="B Visibility">
+        <span class="live-q-group-kicker">B Visibility</span>
+        <label class="live-result-toggle">
+          <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
+            card.show_live_results !== false ? "checked" : ""
+          }>
+          <span>Show Live Results</span>
+        </label>
+      </div>`;
+  let lifecycleBody = "";
+  if (active) {
+    lifecycleBody = parts.revealHtml
+      ? `${parts.revealHtml}${parts.closeHtml || ""}`
+      : `${parts.pointsHtml || ""}${parts.closeHtml || ""}`;
+  } else if (closed) {
+    lifecycleBody = `${parts.pointsHtml || ""}${parts.closedCopy || ""}`;
+  } else {
+    lifecycleBody = parts.publishHtml || "";
+  }
+  const lifecycle = lifecycleBody
+    ? `<div class="live-q-group" data-live-q-group="lifecycle" role="group" aria-label="C Lifecycle">
+        <span class="live-q-group-kicker">C Lifecycle</span>
+        <div class="live-q-group-actions">${lifecycleBody}</div>
+      </div>`
+    : "";
+  if (!persist && !visibility && !lifecycle) return "";
+  return `<div class="live-q-strip" data-live-q-strip="1">${persist}${visibility}${lifecycle}</div>`;
+}
+
+/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
@@ -2157,32 +2228,26 @@ function paintLiveQuestionCards() {
             playlistItemId
           )}" aria-label="Move or remove question">(Re)move</button>`
         : "";
-      const questionToggles =
-        !liveItemId || !onStage || closed
-          ? ""
-          : `<label class="live-result-toggle">
-            <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
-              card.show_live_results !== false ? "checked" : ""
-            }>
-            <span>Show Live Results</span>
-          </label>
-          <label class="live-result-toggle">
-            <input type="checkbox" data-save-to-card="${liveItemId}" ${
-              card.save_to_card ? "checked" : ""
-            }>
-            <span>Save to card</span>
-          </label>`;
-      const activeActions = active
-        ? `${questionToggles}
-          ${
-            card.response_mode === "group_consensus"
-              ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
-              : pointsButton
-          }
-          <button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
-        : closed
-          ? `${pointsButton}<span class="live-closed-copy">Final results</span>`
-          : questionToggles;
+      const revealHtml =
+        active && card.response_mode === "group_consensus"
+          ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
+          : "";
+      const closeHtml =
+        active && liveItemId
+          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
+          : "";
+      const controlStrip = onStage
+        ? liveQuestionControlStrip({
+            liveItemId,
+            card,
+            status,
+            publishHtml: publish,
+            revealHtml,
+            pointsHtml: pointsButton,
+            closeHtml,
+            closedCopy: `<span class="live-closed-copy">Final results</span>`,
+          })
+        : "";
       return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
         item.id || card.item_id || card.id
       )}" data-live-item-id="${liveItemId}">
@@ -2214,7 +2279,7 @@ function paintLiveQuestionCards() {
           ${progress}
         </div>
         <div class="live-question-card-actions">
-          ${onStage ? (status === "inactive" ? publish : activeActions) : ""}
+          ${controlStrip}
         </div>
       </article>`;
     })

@@ -2553,7 +2553,7 @@ body.staff-shell .live-question-list {
 }
 body.staff-shell .live-question-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(13rem, auto);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--live-border);
@@ -2602,11 +2602,47 @@ body.staff-shell .live-question-card-options {
   font-size: 0.82rem;
 }
 body.staff-shell .live-question-card-actions {
+  display: block;
+}
+body.staff-shell .live-q-strip {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, auto) minmax(0, 1fr);
+  gap: 0.45rem 0.65rem;
+  align-items: stretch;
+}
+body.staff-shell .live-q-group {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+body.staff-shell .live-q-group-kicker {
+  color: #64748b;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+body.staff-shell .live-q-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* Tablet: Persist + Visibility on row 1, Lifecycle on row 2 (≤2 wrap rows). */
+@media (max-width: 1024px) {
+  body.staff-shell .live-q-strip {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+  body.staff-shell .live-q-group[data-live-q-group="lifecycle"] {
+    grid-column: 1 / -1;
+  }
 }
 body.staff-shell .live-question-card-actions .live-student-view-field {
   flex-direction: column;
