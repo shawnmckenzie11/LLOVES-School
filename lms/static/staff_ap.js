@@ -2541,17 +2541,57 @@ function adoptLiveItem(item) {
 }
 
 /**
+ * Fold spaces and hyphens so Group submission matches ``group_submit``.
+ * A bare ``group`` stays bare for the numeric consensus alias.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function canonicalPublishMode(raw) {
+  const token = String(raw || "individual")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (token === "group submit" || token === "group submission") return "group_submit";
+  if (token === "group consensus") return "group_consensus";
+  if (token === "group shared") return "group_shared";
+  if (token === "individual in group") return "individual_in_group";
+  return token.replace(/ /g, "_");
+}
+
+/**
+ * Read the mode for one card. Multiple choice uses the pressed Submission
+ * button so a stray publish-mode control cannot override Group.
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function selectedPublishMode(liveItemId) {
+  const card = document.querySelector(
+    `.live-question-card[data-live-item-id="${liveItemId}"]`
+  );
+  const pressed = card?.querySelector(
+    'button[data-submission-value][aria-pressed="true"]'
+  );
+  if (pressed instanceof HTMLButtonElement) {
+    return canonicalPublishMode(pressed.getAttribute("data-submission-value"));
+  }
+  const root = card instanceof HTMLElement ? card : document;
+  const control = root.querySelector(`[data-publish-live-mode="${liveItemId}"]`);
+  const raw =
+    control instanceof HTMLSelectElement || control instanceof HTMLInputElement
+      ? control.value
+      : groupSubmissionIntent.get(Number(liveItemId)) || "individual";
+  return canonicalPublishMode(raw);
+}
+
+/**
  * Publish one inactive question using its selected supported mode.
  * @param {number} liveItemId
  */
 async function publishLifecycleItem(liveItemId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId) return;
-  const control = document.querySelector(`[data-publish-live-mode="${liveItemId}"]`);
-  const publishMode =
-    control instanceof HTMLSelectElement || control instanceof HTMLInputElement
-      ? control.value
-      : "individual";
+  const publishMode = selectedPublishMode(liveItemId);
   if (
     publishMode === "group_submit" &&
     teacherState.groups_configured &&

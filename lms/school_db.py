@@ -10983,6 +10983,33 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return prompt
 
+    @staticmethod
+    def _canonicalize_publish_mode(raw: Any) -> str:
+        """Fold spacing so Group submission matches the stored publish token.
+
+        The Submission switch posts ``group_submit``. A label-shaped token
+        such as ``group submit`` or ``group-submit`` is the same mode. A
+        bare ``group`` stays bare so numeric items can still alias it to
+        consensus.
+
+        Args:
+            raw: Requested ``publish_mode`` from the teacher client.
+
+        Returns:
+            A lowercase token using underscores between words.
+        """
+        token = str(raw or "individual").strip().lower()
+        token = token.replace("-", " ").replace("_", " ")
+        token = " ".join(token.split())
+        aliases = {
+            "group submit": "group_submit",
+            "group submission": "group_submit",
+            "group consensus": "group_consensus",
+            "group shared": "group_shared",
+            "individual in group": "individual_in_group",
+        }
+        return aliases.get(token, token.replace(" ", "_"))
+
     def publish_live_session_item(
         self,
         session_id: int,
@@ -10996,14 +11023,15 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             placement_or_item: Placement key, unique item id, or lifecycle id.
             publish_mode: ``individual``, catalogue group consensus, or
-                ``group_submit`` (multiple-choice shared answer). ``group``
+                ``group_submit`` (multiple-choice shared answer). Spaced
+                and hyphenated forms of that token are accepted. ``group``
                 remains the numeric consensus alias.
         """
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
         if item["status"] == "closed":
             raise ValueError("Closed items cannot be republished.")
-        mode = str(publish_mode or "individual").strip().lower()
+        mode = self._canonicalize_publish_mode(publish_mode)
         if mode == "group_submit":
             self._require_group_mc_publish(session_id, item)
             response_mode = "group_submit"
