@@ -125,6 +125,21 @@ class LocalDevSeedTests(unittest.TestCase):
         maple = self.school.game.find_student_by_codename(int(row["id"]), "Maple")
         self.assertIsNotNone(maple)
 
+    def test_demo_library_lists_course_wide_warmups(self) -> None:
+        """Import Course Wide has the icebreakers; Module 1 math import does not."""
+        shawn = self.school.get_user_by_email(LOCAL_DEV_SHAWN_EMAIL)
+        assert shawn is not None
+        classes = self.school.list_staff_classes(int(shawn["id"]))
+        class_id = int(classes[0]["id"])
+        offering = self.school.get_offering(int(classes[0]["offering_id"]))
+        library_id = int(offering["library_id"])
+        course = self.school.search_bank_scope_mcs(library_id, "course", 1, "aisle")
+        self.assertTrue(course["items"])
+        self.assertIn("aisle", str(course["items"][0].get("text") or "").lower())
+        module = self.school.search_bank_scope_mcs(library_id, "M1", 1, "aisle")
+        self.assertEqual(module["items"], [])
+        self.assertGreater(class_id, 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -135,10 +135,39 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         "created_class": created_class,
         "picker_emails": list(LOCAL_DEV_PICKER_EMAILS),
     }
+    library_id = _ensure_local_dev_library(school, int(offering["id"]))
+    summary["library_id"] = library_id
     bank_seed = _seed_existing_mcf3m_builder_banks(school)
     if bank_seed is not None:
         summary["bank_seed"] = bank_seed
+    summary["warmup_seed"] = school.seed_course_wide_warmups(library_id)
     return summary
+
+
+def _ensure_local_dev_library(school: Any, offering_id: int) -> int:
+    """Attach an MCF3M content library so Course Wide Import has a bank.
+
+    Leaves an offering that already points at a pack alone. Otherwise reuses
+    the newest MCF3M library, or creates an upload library with no cartridge.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        offering_id: ``course_offerings.id`` for the demo section.
+
+    Returns:
+        ``content_libraries.id`` now attached to the offering.
+    """
+    offering = school.get_offering(int(offering_id)) or {}
+    existing = offering.get("library_id")
+    if existing:
+        return int(existing)
+    latest = school.latest_library_for_code(LOCAL_DEV_COURSE)
+    if latest:
+        school.attach_library(int(offering_id), int(latest["id"]))
+        return int(latest["id"])
+    created = school.create_library(LOCAL_DEV_COURSE, origin="upload")
+    school.attach_library(int(offering_id), int(created["id"]))
+    return int(created["id"])
 
 
 def _seed_existing_mcf3m_builder_banks(school: Any) -> dict[str, Any] | None:
