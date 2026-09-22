@@ -94,12 +94,12 @@ Those writes use **Postgres** when either secret is a postgres URL:
 
 Sqlite on `lloves_data` stays the catalogue (users, rosters, packs, prompts, grades). `/health` reports `live_presence`: `postgres`, `postgres-down`, or `sqlite`.
 
-**alc today:** `fly.toml` does not set either secret. Until one is set, the running image keeps the sqlite hot path (WAL + autocommit). Confirmed from the repo; this change does not call Fly.
+**alc:** `fly.toml` does not set either secret. Until one is on the machine, the running image keeps the sqlite hot path (WAL + autocommit).
 
-Attach (Shawn, not an agent — `fly mpg attach` restarts the app):
+Attach with Actions → **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`). Merge does not run that job. The job creates `lloves-live` (Basic, `yyz`) when missing, `fly mpg attach` sets `DATABASE_URL`, then a restart-only secret deploy if `/health` is still not `postgres`. Basic is paid. If the token cannot authorize the charge, the job prints this and stops:
 
 ```bash
-fly mpg create --name lloves-live --region yyz --plan basic
+fly mpg create --name lloves-live --org <org> --region yyz --plan basic --pg-major-version 16 --volume-size 10
 fly mpg attach <cluster-id> --app lloves-lms
 curl -s https://alc.mckenzian.com/health
 # "live_presence": "postgres"
