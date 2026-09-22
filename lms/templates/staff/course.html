@@ -569,67 +569,82 @@
           <h2 id="live-add-question-title" class="live-pane-title">Add New question</h2>
           <button type="button" class="secondary live-q-btn" data-live-add-question-close aria-label="Close">Close</button>
         </header>
-        <fieldset class="live-add-page-kinds">
-          <legend class="live-relocate-move-field">Type</legend>
-          <label><input type="radio" name="live-add-q-type" value="mc" checked> Multiple choice</label>
-          <label><input type="radio" name="live-add-q-type" value="numeric"> Numeric</label>
-          <label><input type="radio" name="live-add-q-type" value="poll"> Poll</label>
-        </fieldset>
-        <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>
-        <textarea id="live-add-q-text" rows="3" maxlength="2000" required></textarea>
-        <fieldset class="live-add-q-equation-block">
-          <legend class="live-relocate-move-field">Equation (optional, shown below the question)</legend>
-          <p class="hint compact">Separate from the question text. Insert LaTeX, then check the preview.</p>
-          <div class="live-add-q-eq-toolbar" role="group" aria-label="Equation shortcuts">
-            <button type="button" class="secondary live-q-btn" data-eq-insert="\frac{a}{b}">frac</button>
-            <button type="button" class="secondary live-q-btn" data-eq-insert="\sqrt{}">sqrt</button>
-            <button type="button" class="secondary live-q-btn" data-eq-insert="^{}">^</button>
-            <button type="button" class="secondary live-q-btn" data-eq-insert="_{}">_</button>
+        <div class="live-add-q-body">
+          <fieldset class="live-add-page-kinds live-add-q-type live-add-q-side">
+            <legend class="live-relocate-move-field">Type</legend>
+            <label><input type="radio" name="live-add-q-type" value="mc" checked> Multiple choice</label>
+            <label><input type="radio" name="live-add-q-type" value="numeric"> Numeric</label>
+            <label><input type="radio" name="live-add-q-type" value="poll"> Poll</label>
+          </fieldset>
+          <div class="live-add-q-stem live-add-q-main">
+            <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>
+            <textarea id="live-add-q-text" rows="3" maxlength="2000" required></textarea>
           </div>
-          <label class="live-relocate-move-field" for="live-add-q-equation">LaTeX</label>
-          <textarea id="live-add-q-equation" rows="2" maxlength="1000" placeholder="e.g. y = x^2"></textarea>
-          <p class="live-relocate-move-field">Preview</p>
-          <div id="live-add-q-equation-preview" class="live-add-q-equation-preview" aria-live="polite"></div>
-        </fieldset>
-        <label class="live-relocate-move-field" for="live-add-q-image">Image (optional)</label>
-        <input id="live-add-q-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
-        <div id="live-add-q-mc-fields" class="live-add-q-type-fields">
-          <p class="live-relocate-section-label">Four options — mark the correct one</p>
-          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="0" checked> <input id="live-add-q-opt-0" type="text" maxlength="240" placeholder="A"></label>
-          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="1"> <input id="live-add-q-opt-1" type="text" maxlength="240" placeholder="B"></label>
-          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="2"> <input id="live-add-q-opt-2" type="text" maxlength="240" placeholder="C"></label>
-          <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
-        </div>
-        <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
-          <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>
-          <input id="live-add-q-numeric-answer" type="text" inputmode="decimal">
-          <div class="live-add-q-tolerance-row">
-            <label class="live-relocate-move-field" for="live-add-q-tolerance">Error margin</label>
-            <input id="live-add-q-tolerance" type="text" inputmode="decimal" value="0">
-            <select id="live-add-q-tolerance-kind" aria-label="Tolerance kind">
-              <option value="absolute">Absolute</option>
-              <option value="percent">Percent</option>
-            </select>
+          <fieldset class="live-add-q-equation-block live-add-q-main">
+            <legend class="live-relocate-move-field">Equation (optional, shown below the question)</legend>
+            <p class="hint compact">Separate from the question text. Insert LaTeX, then check the preview.</p>
+            <div class="live-add-q-eq-toolbar" role="group" aria-label="Equation shortcuts">
+              <button type="button" class="secondary live-q-btn" data-eq-insert="\frac{a}{b}">frac</button>
+              <button type="button" class="secondary live-q-btn" data-eq-insert="\sqrt{}">sqrt</button>
+              <button type="button" class="secondary live-q-btn" data-eq-insert="^{}">^</button>
+              <button type="button" class="secondary live-q-btn" data-eq-insert="_{}">_</button>
+            </div>
+            <label class="live-relocate-move-field" for="live-add-q-equation">LaTeX</label>
+            <textarea id="live-add-q-equation" rows="2" maxlength="1000" placeholder="e.g. y = x^2"></textarea>
+            <p class="live-relocate-move-field">Preview</p>
+            <div id="live-add-q-equation-preview" class="live-add-q-equation-preview" aria-live="polite"></div>
+          </fieldset>
+          <div class="live-add-q-fields live-add-q-side">
+            <div id="live-add-q-mc-fields" class="live-add-q-type-fields">
+              <p class="live-relocate-section-label">Four options — mark the correct one</p>
+              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="0" checked> <input id="live-add-q-opt-0" type="text" maxlength="240" placeholder="A"></label>
+              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="1"> <input id="live-add-q-opt-1" type="text" maxlength="240" placeholder="B"></label>
+              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="2"> <input id="live-add-q-opt-2" type="text" maxlength="240" placeholder="C"></label>
+              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
+            </div>
+            <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
+              <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>
+              <input id="live-add-q-numeric-answer" type="text" inputmode="decimal">
+              <div class="live-add-q-tolerance-row">
+                <label class="live-relocate-move-field" for="live-add-q-tolerance">Error margin</label>
+                <input id="live-add-q-tolerance" type="text" inputmode="decimal" value="0">
+                <select id="live-add-q-tolerance-kind" aria-label="Tolerance kind">
+                  <option value="absolute">Absolute</option>
+                  <option value="percent">Percent</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="live-add-q-image live-add-q-main">
+            <label class="live-relocate-move-field" for="live-add-q-image">Image (optional)</label>
+            <input id="live-add-q-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+          </div>
+          <div class="live-add-q-save live-add-q-side">
+            <label class="live-add-q-bank">
+              <input id="live-add-q-save-bank" type="checkbox"> Save to bank
+            </label>
+            <label id="live-add-q-bank-scope" class="live-add-q-bank-scope" for="live-add-q-bank-scope-select" hidden>
+              <span class="live-relocate-move-field">Bank scope</span>
+              <select id="live-add-q-bank-scope-select" disabled>
+                <option value="M1">Module 1</option>
+                <option value="M2">Module 2</option>
+                <option value="M3">Module 3</option>
+                <option value="M4">Module 4</option>
+                <option value="M5">Module 5</option>
+                <option value="M6">Module 6</option>
+                <option value="M7">Module 7</option>
+                <option value="M8">Module 8</option>
+                <option value="course">Course Wide</option>
+              </select>
+            </label>
+            <p id="live-add-q-bank-scope-hint" class="hint compact" hidden>Using Module 1 — set live module if wrong.</p>
           </div>
         </div>
-        <label class="live-add-q-bank">
-          <input id="live-add-q-save-bank" type="checkbox"> Save to bank
-        </label>
-        <fieldset id="live-add-q-bank-scope" class="live-add-page-kinds" hidden>
-          <legend class="live-relocate-move-field">Save to bank in</legend>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M1" checked> Module 1</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M2"> Module 2</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M3"> Module 3</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M4"> Module 4</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M5"> Module 5</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M6"> Module 6</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M7"> Module 7</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="M8"> Module 8</label>
-          <label><input type="radio" name="live-add-q-bank-scope" value="course"> Course Wide</label>
-        </fieldset>
-        <p id="live-add-q-error" class="error compact" hidden></p>
-        <div class="live-relocate-move-row">
-          <button type="submit" class="live-q-btn" id="live-add-q-submit">Add to this page</button>
+        <div class="live-add-q-footer">
+          <p id="live-add-q-error" class="error compact" hidden></p>
+          <div class="live-relocate-move-row">
+            <button type="submit" class="live-q-btn" id="live-add-q-submit">Add to this page</button>
+          </div>
         </div>
       </form>
     </dialog>
