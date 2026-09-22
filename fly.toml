@@ -19,6 +19,9 @@ primary_region = 'yyz'
 [env]
   FLASK_ENV = 'production'
   IT_EMAILS = 'solutions@mckenzian.com'
+  # Live heartbeat / Artifact polls use Postgres when LIVE_DATABASE_URL or a
+  # postgres DATABASE_URL is set (fly mpg attach). Unset → sqlite. See
+  # lms/LIVE_PRESENCE.md. This file does not set that secret.
   GOOGLE_REDIRECT_URI = 'https://alc.mckenzian.com/auth/google/callback'
   PUBLIC_APP_URL = 'https://alc.mckenzian.com'
 

@@ -1013,17 +1013,32 @@ def section_code(ontario_code: str, section_index: Any = 1) -> str:
 class LovesDB:
     """School-level sqlite (users, semesters, offerings) on the shared LMS file."""
 
-    def __init__(self, db_path: Path, *, it_email: str = IT_EMAIL_DEFAULT) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        it_email: str = IT_EMAIL_DEFAULT,
+        live_database_url: str | None = None,
+        live_presence_schema: str | None = None,
+    ) -> None:
         """Open the school database and seed catalog + IT user.
 
         Args:
             db_path: Shared sqlite path (same file as Math Game Show).
             it_email: Bootstrap IT Google email.
+            live_database_url: Postgres URL for live presence. ``None`` reads
+                ``LIVE_DATABASE_URL`` / postgres ``DATABASE_URL``. ``""``
+                forces the sqlite hot path.
+            live_presence_schema: Optional Postgres schema for tests.
         """
         self.db_path = db_path
         self.it_email = it_email.lower().strip()
         self._lock = threading.RLock()
         self._sweep_at: dict[int, float] = {}
+        self.presence = None
+        self.hot_sqlite_writes = 0
+        self._live_database_url = live_database_url
+        self._live_presence_schema = live_presence_schema
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(
             str(db_path),
@@ -1053,11 +1068,117 @@ class LovesDB:
         self._seed()
         self._seed_live_class_features()
         self.conn.commit()
+        self._attach_live_presence()
 
     def close(self) -> None:
-        """Close the sqlite connection."""
+        """Close the sqlite connection and the presence pool."""
+        presence = getattr(self, "presence", None)
+        if presence is not None:
+            presence.close()
+            self.presence = None
         with self._lock:
             self.conn.close()
+
+    def _attach_live_presence(self) -> None:
+        """Attach Postgres when a live-presence URL is configured.
+
+        Active sqlite sessions are copied once so an in-flight class keeps
+        its attendees. Later heartbeats do not UPDATE sqlite.
+        """
+        from live_presence import (
+            LivePresenceStore,
+            LivePresenceUnavailable,
+            resolve_live_database_url,
+        )
+
+        url = resolve_live_database_url(self._live_database_url)
+        if not url:
+            self.presence = None
+            return
+        try:
+            store = LivePresenceStore(url, schema=self._live_presence_schema)
+            store.backfill_active(self.conn)
+        except (LivePresenceUnavailable, OSError) as exc:
+            logger.error("live presence postgres refused: %s", exc)
+            raise
+        self.presence = store
+        logger.info("live presence store=postgres")
+
+    def live_presence_status(self) -> str:
+        """Report which store serves live heartbeat writes.
+
+        Returns:
+            ``postgres`` when the pool answers, ``postgres-down`` when a URL
+            is set but ``SELECT 1`` failed, or ``sqlite`` when no URL is set.
+        """
+        presence = self.presence
+        if presence is None:
+            return "sqlite"
+        if presence.ping():
+            return "postgres"
+        return "postgres-down"
+
+    def _mirror_presence_session(self, session_row: dict[str, Any] | None) -> None:
+        """Copy one live session's status into Postgres.
+
+        Args:
+            session_row: ``live_class_sessions`` mapping, or ``None``.
+        """
+        if self.presence is None or not session_row:
+            return
+        try:
+            self.presence.upsert_session(session_row)
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable
+
+            if not isinstance(exc, LivePresenceUnavailable):
+                raise
+            logger.exception("live presence session mirror failed")
+
+    def _mirror_presence_attendee(self, row: dict[str, Any] | None) -> None:
+        """Copy one attendee into Postgres after a sqlite join insert.
+
+        Args:
+            row: ``live_session_attendees`` mapping, or empty.
+        """
+        if self.presence is None or not row or not row.get("id"):
+            return
+        try:
+            session_row = self.get_live_session(int(row["live_session_id"]))
+            self._mirror_presence_session(session_row)
+            self.presence.upsert_attendee(row)
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable
+
+            if not isinstance(exc, LivePresenceUnavailable):
+                raise
+            logger.exception("live presence attendee mirror failed")
+
+    def _apply_presence(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Overlay Postgres heartbeat fields onto a sqlite attendee row.
+
+        Args:
+            row: Sqlite attendee mapping.
+
+        Returns:
+            The same mapping, with presence columns replaced when Postgres
+            has the attendee.
+        """
+        if self.presence is None or not row or row.get("id") in (None, ""):
+            return row
+        fresh = self.presence.get_by_id(int(row["id"]))
+        if fresh is None:
+            return row
+        for key in (
+            "last_heartbeat_at",
+            "left_at",
+            "visit_token",
+            "codename",
+            "unmatched",
+            "participant_uuid",
+        ):
+            row[key] = fresh.get(key)
+        return row
 
     def _ensure_tenant_and_audit_schema(self) -> None:
         """Add tenant + audit tables/columns on DBs created before this schema.
@@ -4746,6 +4867,8 @@ class SchoolDB(LovesDB):
         data_dir: Path | None = None,
         *,
         it_email: str = IT_EMAIL_DEFAULT,
+        live_database_url: str | None = None,
+        live_presence_schema: str | None = None,
     ) -> None:
         """Open school + game-show tables.
 
@@ -4753,6 +4876,9 @@ class SchoolDB(LovesDB):
             db_path: Shared sqlite file.
             data_dir: Uploads/logs for Game Show.
             it_email: Bootstrap IT account.
+            live_database_url: Postgres URL for live presence. ``None`` reads
+                the environment. ``""`` keeps heartbeats on sqlite.
+            live_presence_schema: Optional Postgres schema for tests.
         """
         import sys
 
@@ -4763,7 +4889,12 @@ class SchoolDB(LovesDB):
 
         path = Path(db_path or DEFAULT_DB_PATH)
         store = Path(data_dir or path.parent)
-        super().__init__(path, it_email=it_email)
+        super().__init__(
+            path,
+            it_email=it_email,
+            live_database_url=live_database_url,
+            live_presence_schema=live_presence_schema,
+        )
         if str(MGS_DIR) not in sys.path:
             sys.path.append(str(MGS_DIR))
         import importlib.util
@@ -8846,12 +8977,17 @@ class SchoolDB(LovesDB):
             SELECT * FROM live_session_attendees
             WHERE live_session_id = ?
         """
-        if present_only:
+        # Postgres is the presence source of truth. Sqlite ``left_at`` lags
+        # heartbeats, so filter after the overlay.
+        if present_only and self.presence is None:
             sql += " AND left_at IS NULL"
         sql += " ORDER BY joined_at ASC, id ASC"
         with self._lock:
             rows = self.conn.execute(sql, (int(session_id),)).fetchall()
-        return [dict(row) for row in rows]
+        people = [self._apply_presence(dict(row)) for row in rows]
+        if present_only and self.presence is not None:
+            people = [row for row in people if not row.get("left_at")]
+        return people
 
     def sweep_stale_live_attendees(
         self, session_id: int, *, except_token: str = ""
@@ -8865,6 +9001,13 @@ class SchoolDB(LovesDB):
         Returns:
             Number of attendees marked left.
         """
+        if self.presence is not None:
+            return self.presence.sweep(
+                int(session_id),
+                except_token=except_token,
+                stale_s=LIVE_HEARTBEAT_STALE_SECONDS,
+                min_interval_s=LIVE_SWEEP_MIN_INTERVAL_SECONDS,
+            )
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return 0
@@ -8898,6 +9041,7 @@ class SchoolDB(LovesDB):
                     age = (now - last).total_seconds()
                     if age < LIVE_HEARTBEAT_STALE_SECONDS:
                         continue
+                    self.hot_sqlite_writes += 1
                     self.conn.execute(
                         """
                         UPDATE live_session_attendees
@@ -9067,7 +9211,9 @@ class SchoolDB(LovesDB):
                 """,
                 (new_token,),
             ).fetchone()
-        return dict(row) if row else {}
+        stored = dict(row) if row else {}
+        self._mirror_presence_attendee(stored)
+        return stored
 
     def _attendee_by_visit_token(self, token: str) -> dict[str, Any] | None:
         """Return an attendee row for a rejoin token, ignoring left/ended.
@@ -9087,7 +9233,9 @@ class SchoolDB(LovesDB):
                 """,
                 (cleaned,),
             ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        return self._apply_presence(dict(row))
 
     def _guest_attendee_by_codename(
         self, session_id: int, name: str
@@ -9113,7 +9261,9 @@ class SchoolDB(LovesDB):
                 """,
                 (int(session_id), needle),
             ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        return self._apply_presence(dict(row))
 
     def _resume_live_attendee(
         self, existing: dict[str, Any], *, name: str = ""
@@ -9129,6 +9279,17 @@ class SchoolDB(LovesDB):
         token = str(existing.get("visit_token") or "").strip()
         if not token:
             token = secrets.token_urlsafe(24)
+        if self.presence is not None:
+            payload = dict(existing)
+            payload["codename"] = display
+            payload["visit_token"] = token
+            payload["left_at"] = None
+            payload["last_heartbeat_at"] = now
+            self._mirror_presence_session(
+                self.get_live_session(int(existing["live_session_id"]))
+            )
+            return self.presence.upsert_attendee(payload)
+        self.hot_sqlite_writes += 1
         with self._lock:
             self.conn.execute(
                 """
@@ -9167,7 +9328,9 @@ class SchoolDB(LovesDB):
                 """,
                 (int(session_id), int(student_id)),
             ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        return self._apply_presence(dict(row))
 
     def student_is_active_live_attendee(
         self,
@@ -9202,6 +9365,64 @@ class SchoolDB(LovesDB):
             return False
         return True
 
+    def _touch_live_presence(self, token: str) -> dict[str, Any] | None:
+        """Refresh one attendee in Postgres. Does not UPDATE sqlite.
+
+        A token that exists only in sqlite (join raced the mirror) is copied
+        once, then the write stays on Postgres. Ended celebrating sessions
+        stay readable without a heartbeat write, matching the sqlite path.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+
+        Returns:
+            Attendee row, or ``None`` when the session is closed.
+        """
+        assert self.presence is not None
+        looked = self.presence.get_by_token(token)
+        if looked is None:
+            sqlite_row = self._sqlite_attendee_by_token(token)
+            if sqlite_row is None:
+                return None
+            self._mirror_presence_attendee(sqlite_row)
+            looked = self.presence.get_by_token(token)
+            if looked is None:
+                return None
+        status = str(looked.get("session_status") or "")
+        if status == "active":
+            return self.presence.resume_if_stale(
+                looked,
+                write_window_s=LIVE_HEARTBEAT_WRITE_SECONDS,
+                stale_s=LIVE_HEARTBEAT_STALE_SECONDS,
+                sweep_interval_s=LIVE_SWEEP_MIN_INTERVAL_SECONDS,
+            )
+        if status == "ended" and self.session_is_celebrating(
+            int(looked["live_session_id"])
+        ):
+            looked.pop("session_status", None)
+            return looked
+        return None
+
+    def _sqlite_attendee_by_token(self, token: str) -> dict[str, Any] | None:
+        """Read one attendee from sqlite without the presence overlay.
+
+        Args:
+            token: ``visit_token``.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def touch_live_session_heartbeat(self, token: str) -> dict[str, Any] | None:
         """Refresh heartbeat and re-admit a still-active session attendee.
 
@@ -9211,6 +9432,8 @@ class SchoolDB(LovesDB):
         Returns:
             Updated attendee row, or ``None`` when the token/session is invalid.
         """
+        if self.presence is not None:
+            return self._touch_live_presence(token)
         attendee = self._attendee_by_visit_token(token)
         if attendee is None:
             return None
@@ -16149,7 +16372,11 @@ class SchoolDB(LovesDB):
                 ).fetchone()
             else:
                 return None
-        return dict(row) if row else None
+        stored = dict(row) if row else None
+        if stored is not None and self.presence is not None:
+            self.presence.mark_left(int(stored["id"]), now)
+            stored = self._apply_presence(stored)
+        return stored
 
     def clear_attendee_moods_and_characters(self, session_id: int) -> int:
         """Wipe mood check-ins and character picks for session attendees.
@@ -16235,6 +16462,11 @@ class SchoolDB(LovesDB):
             return None
         if session_row.get("status") == "ended":
             self.cleanup_live_session_response_data(session_id)
+            if self.presence is not None:
+                self.presence.mark_session_ended(
+                    int(session_id),
+                    str(session_row.get("ended_at") or _now()),
+                )
             return self.get_live_session(session_id)
         self.cleanup_live_session_response_data(session_id)
         now = _now()
@@ -16256,6 +16488,8 @@ class SchoolDB(LovesDB):
                 (now, int(session_id)),
             )
             self.conn.commit()
+        if self.presence is not None:
+            self.presence.mark_session_ended(int(session_id), now)
         return self.get_live_session(session_id)
 
     def end_live_class_session(
@@ -17417,6 +17651,7 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
+        self._mirror_presence_session(session_row)
         self._write_teacher_state(session_id, public_teacher_state(None))
         if live_module is not None or live_slot is not None:
             self.set_live_session_teacher_state(
@@ -17463,7 +17698,10 @@ class SchoolDB(LovesDB):
                 str(item.get("ontario_code") or ""),
                 item.get("section_index"),
             )
-            item["attendee_count"] = int(item.get("attendee_count") or 0)
+            if self.presence is not None:
+                item["attendee_count"] = self.presence.present_count(int(item["id"]))
+            else:
+                item["attendee_count"] = int(item.get("attendee_count") or 0)
             payload.append(item)
         return payload
 
