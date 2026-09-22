@@ -5700,21 +5700,35 @@ class SchoolDB(LovesDB):
             from course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 is_course_scoped_warmup,
+                normalize_course_warmup,
             )
         except ImportError:
             from lms.course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 is_course_scoped_warmup,
+                normalize_course_warmup,
             )
 
         for row in rows:
-            if str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY:
-                continue
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
-            if is_course_scoped_warmup(payload):
+            course_warmup = (
+                str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
+                or is_course_scoped_warmup(payload)
+            )
+            if course_warmup:
+                normalized = normalize_course_warmup(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                if normalized is None:
+                    continue
+                all_items.append(normalized)
                 continue
             overlay = None
             if row["stem_text"] is not None:
@@ -5774,8 +5788,11 @@ class SchoolDB(LovesDB):
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
         """Insert or refresh the Course Wide warmup bank for one library.
 
-        The bank is not linked to modules 1–8, so math-unit Import cannot
-        list these icebreakers. Re-running updates stems in place.
+        Confirms the bank on modules 1–8 so Course Wide search (that union)
+        can see it when Kind is Warmup. Rows stay
+        ``multiple_choice_question`` so open polls survive the search
+        filter; normalization does not invent a key. Process Kind still
+        hides them. Re-running updates stems in place.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -5787,6 +5804,7 @@ class SchoolDB(LovesDB):
             from course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 COURSE_WIDE_WARMUP_BANK_TITLE,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULES,
                 course_wide_warmup_catalogue,
                 course_wide_warmup_payload,
                 warmup_settings_json,
@@ -5795,6 +5813,7 @@ class SchoolDB(LovesDB):
             from lms.course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 COURSE_WIDE_WARMUP_BANK_TITLE,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULES,
                 course_wide_warmup_catalogue,
                 course_wide_warmup_payload,
                 warmup_settings_json,
@@ -5841,11 +5860,9 @@ class SchoolDB(LovesDB):
                 encoded = json.dumps(payload)
                 title = str(spec.get("title") or "")
                 import_key = str(spec.get("import_key") or "")
-                item_type = (
-                    "multiple_choice_question"
-                    if payload.get("choices")
-                    else "essay_question"
-                )
+                # Open polls have no choices. Store them as MC rows so
+                # confirmed-bank search (item_type filter) can return them.
+                item_type = "multiple_choice_question"
                 existing = self.conn.execute(
                     """
                     SELECT id FROM questions
@@ -5875,13 +5892,15 @@ class SchoolDB(LovesDB):
                         (item_type, title, encoded, question_id),
                     )
                     question_ids.append(question_id)
-            self.conn.execute(
-                """
-                DELETE FROM course_module_bank_links
-                WHERE library_id = ? AND bank_id = ?
-                """,
-                (int(library_id), bank_id),
-            )
+            for module_number in COURSE_WIDE_WARMUP_CONFIRM_MODULES:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO course_module_bank_links (
+                        library_id, module_number, bank_id, confirmed_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (int(library_id), int(module_number), bank_id, _now()),
+                )
             self.conn.commit()
         return {
             "bank_id": bank_id,
@@ -5911,32 +5930,6 @@ class SchoolDB(LovesDB):
         code = str(library.get("ontario_code") or "").strip().upper()
         if code not in {"MCF3M", "MCR3U"}:
             return None
-        try:
-            from course_warmup_seed import (
-                COURSE_WIDE_WARMUP_BANK_KEY,
-                locked_course_warmup_titles,
-            )
-        except ImportError:
-            from lms.course_warmup_seed import (
-                COURSE_WIDE_WARMUP_BANK_KEY,
-                locked_course_warmup_titles,
-            )
-
-        wanted = list(locked_course_warmup_titles())
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT q.title
-                FROM questions q
-                JOIN question_banks b ON b.id = q.bank_id
-                WHERE b.library_id = ? AND b.import_key = ?
-                ORDER BY q.id
-                """,
-                (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
-            ).fetchall()
-        have = [str(row["title"] or "") for row in rows]
-        if have == wanted:
-            return {"count": len(have), "refreshed": False}
         return self.seed_course_wide_warmups(int(library_id))
 
     def _course_wide_warmup_items(
@@ -6006,11 +5999,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
-        ``course`` unions modules 1–8 and prepends the Course Wide warmup
-        bank, seeding that bank for MCF3M and MCR3U when the locked titles
-        are missing. A module token searches that module only. Module search
-        never returns Course Wide warmups. On course scope, those warmups are
-        included when ``kind`` is empty or ``warmup``.
+        ``course`` unions confirmed banks on modules 1–8. Kind ``warmup``
+        seeds the Course Wide bank for MCF3M and MCR3U when the locked
+        titles are missing. A module token searches that module only.
+        Process Kind drops warmup-tagged icebreakers.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -6019,9 +6011,8 @@ class SchoolDB(LovesDB):
             query: Optional stem/options substring filter.
             limit: Maximum rows to return (capped at 500).
             class_id: Class id for image URL resolution.
-            kind: ``standard``, ``contest``, or ``warmup``. Empty excludes
-                module-tagged warmups. Course scope still includes the Course
-                Wide warmup bank unless kind is ``standard`` or ``contest``.
+            kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
+                process picks and drops warmup-tagged icebreakers.
 
         Returns:
             Dict with ``items``, ``total``, and ``filtered``.
@@ -6031,10 +6022,7 @@ class SchoolDB(LovesDB):
         )
         token = str(bank_scope or "").strip().lower()
         wanted_kind = str(kind or "").strip().lower()
-        if token in {"course", "course-wide", "coursewide", "all"} and wanted_kind in {
-            "",
-            "warmup",
-        }:
+        if token in {"course", "course-wide", "coursewide", "all"} and wanted_kind == "warmup":
             self.ensure_course_wide_warmup_bank(int(library_id))
         if len(numbers) == 1 and token not in {
             "course",
@@ -6065,29 +6053,6 @@ class SchoolDB(LovesDB):
                 if question_id and question_id not in merged:
                     merged[question_id] = item
         all_items = list(merged.values())
-        wanted = str(kind or "").strip().lower()
-        if wanted in {"", "warmup"}:
-            warmups = self._course_wide_warmup_items(
-                int(library_id), class_id=class_id
-            )
-            warmup_ids = [int(item.get("question_id") or 0) for item in warmups]
-            for item in warmups:
-                question_id = int(item.get("question_id") or 0)
-                if question_id and question_id not in merged:
-                    merged[question_id] = item
-            ordered: list[dict[str, Any]] = []
-            seen: set[int] = set()
-            for question_id in warmup_ids:
-                row = merged.get(question_id)
-                if row is None or question_id in seen:
-                    continue
-                seen.add(question_id)
-                ordered.append(row)
-            for question_id, row in merged.items():
-                if question_id in seen:
-                    continue
-                ordered.append(row)
-            all_items = ordered
         total = len(all_items)
         needle = str(query or "").strip().lower()
         if needle:
@@ -8162,6 +8127,16 @@ class SchoolDB(LovesDB):
                 sort_order = max(1, int(order))
             item_id = f"bank-import-{int(question_id)}"
             placement_key = f"class:{int(class_id)}:import:{uuid.uuid4().hex}"
+            response_mode = str(normalized.get("response_mode") or "individual").strip().lower()
+            if response_mode != "group_consensus":
+                response_mode = "individual"
+            raw_modes = normalized.get("publish_modes")
+            if isinstance(raw_modes, list) and raw_modes:
+                publish_modes = [str(mode) for mode in raw_modes if str(mode).strip()]
+            else:
+                publish_modes = ["individual"]
+                if response_mode == "group_consensus":
+                    publish_modes.append("group_consensus")
             item_payload = {
                 **normalized,
                 "id": item_id,
@@ -8170,8 +8145,8 @@ class SchoolDB(LovesDB):
                 "page_number": page,
                 "order": sort_order,
                 "placement_key": placement_key,
-                "publish_modes": ["individual"],
-                "response_mode": "individual",
+                "publish_modes": publish_modes,
+                "response_mode": response_mode,
                 "bank_title": str(row["bank_title"] or ""),
                 "question_title": str(row["title"] or ""),
                 "import_source": "module_bank",
