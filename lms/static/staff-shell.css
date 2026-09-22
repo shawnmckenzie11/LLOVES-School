@@ -2648,6 +2648,12 @@ body.staff-shell .live-publish-split {
 body.staff-shell .live-publish-split.has-modes {
   grid-template-columns: minmax(0, 1fr) minmax(9rem, auto);
 }
+body.staff-shell .live-question-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
 body.staff-shell .live-result-toggle {
   display: inline-flex;
   align-items: center;

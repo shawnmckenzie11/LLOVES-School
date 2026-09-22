@@ -11074,8 +11074,11 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Update Show Live Results and/or Save to card for one item.
 
-        Either flag may be omitted. Save to card is also written onto the
-        class deck so a later publish or a new session keeps the choice.
+        Either flag may be omitted. The two columns are the data contract:
+        teacher menu labels and grouping stay in staff chrome and will follow
+        ``mobbin-sites/`` when that controls-menu IA is stamped. Do not store
+        menu copy in sqlite. Save to card is also written onto the class deck
+        so a later publish or a new session keeps the choice.
 
         Args:
             session_id: ``live_class_sessions.id``.

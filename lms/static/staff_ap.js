@@ -2012,6 +2012,35 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
+ * Interim per-question controls until the Mobbin menu is stamped.
+ *
+ * Wonder is restacking the full teacher controls menu and will bundle
+ * Save to card with Show Live Results before publish. That IA lands under
+ * mobbin-sites/ (repo path once stamped). Until then these two checkboxes
+ * are stopgap chrome only. Persistence stays the boolean columns
+ * show_live_results and save_to_card — menu labels and order are not stored.
+ *
+ * @param {number} liveItemId Lifecycle row id. Empty when the row is missing.
+ * @param {any} card Question card merged with its lifecycle row.
+ * @returns {string} HTML for the interim control group, or "" without an id.
+ */
+function interimQuestionControlMenu(liveItemId, card) {
+  if (!liveItemId) return "";
+  const resultsChecked = card?.show_live_results !== false ? "checked" : "";
+  const saveChecked = card?.save_to_card ? "checked" : "";
+  return `<div class="live-question-controls" data-interim-controls="1">
+    <label class="live-result-toggle">
+      <input type="checkbox" data-live-results-toggle="${liveItemId}" ${resultsChecked}>
+      <span>Show Live Results</span>
+    </label>
+    <label class="live-result-toggle">
+      <input type="checkbox" data-save-to-card="${liveItemId}" ${saveChecked}>
+      <span>Save to card</span>
+    </label>
+  </div>`;
+}
+
+/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
@@ -2157,23 +2186,10 @@ function paintLiveQuestionCards() {
             playlistItemId
           )}" aria-label="Move or remove question">(Re)move</button>`
         : "";
-      const questionToggles =
-        !liveItemId || !onStage || closed
-          ? ""
-          : `<label class="live-result-toggle">
-            <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
-              card.show_live_results !== false ? "checked" : ""
-            }>
-            <span>Show Live Results</span>
-          </label>
-          <label class="live-result-toggle">
-            <input type="checkbox" data-save-to-card="${liveItemId}" ${
-              card.save_to_card ? "checked" : ""
-            }>
-            <span>Save to card</span>
-          </label>`;
+      const questionControls =
+        !onStage || closed ? "" : interimQuestionControlMenu(liveItemId, card);
       const activeActions = active
-        ? `${questionToggles}
+        ? `${questionControls}
           ${
             card.response_mode === "group_consensus"
               ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
@@ -2182,7 +2198,7 @@ function paintLiveQuestionCards() {
           <button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
         : closed
           ? `${pointsButton}<span class="live-closed-copy">Final results</span>`
-          : questionToggles;
+          : questionControls;
       return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
         item.id || card.item_id || card.id
       )}" data-live-item-id="${liveItemId}">
@@ -2214,7 +2230,13 @@ function paintLiveQuestionCards() {
           ${progress}
         </div>
         <div class="live-question-card-actions">
-          ${onStage ? (status === "inactive" ? publish : activeActions) : ""}
+          ${
+            onStage
+              ? status === "inactive"
+                ? `${questionControls}${publish}`
+                : activeActions
+              : ""
+          }
         </div>
       </article>`;
     })

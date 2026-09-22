@@ -5313,7 +5313,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_live_item_settings(session_id: int, live_item_id: int):
-        """Update one item's Show Live Results setting."""
+        """Update one item's live-results or save-to-card flag.
+
+        Both keys are independent booleans. Menu labels are staff chrome.
+        """
 
         _row, error = _active_owned_live_session(session_id)
         if error is not None:
