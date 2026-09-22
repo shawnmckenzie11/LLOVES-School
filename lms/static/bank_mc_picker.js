@@ -252,8 +252,11 @@ export async function mountBankMcPicker(opts) {
   function paintList(items) {
     if (!(listEl instanceof HTMLElement)) return;
     if (!items.length) {
-      listEl.innerHTML =
-        moduleNumber === "course"
+      const courseWarmupHint =
+        moduleNumber === "course" && !String(kindFilter || "");
+      listEl.innerHTML = courseWarmupHint
+        ? `<li class="hint">No process questions in Course Wide. Set Kind to Warmup for icebreakers.</li>`
+        : moduleNumber === "course"
           ? `<li class="hint">No Course Wide questions match.</li>`
           : `<li class="hint">No MCs found. Confirm module banks first.</li>`;
       return;

@@ -126,14 +126,18 @@ class LocalDevSeedTests(unittest.TestCase):
         self.assertIsNotNone(maple)
 
     def test_demo_library_lists_course_wide_warmups(self) -> None:
-        """Import Course Wide has the icebreakers; Module 1 math import does not."""
+        """Course Wide + Kind Warmup lists icebreakers; Process Kind hides them."""
         shawn = self.school.get_user_by_email(LOCAL_DEV_SHAWN_EMAIL)
         assert shawn is not None
         classes = self.school.list_staff_classes(int(shawn["id"]))
         class_id = int(classes[0]["id"])
         offering = self.school.get_offering(int(classes[0]["offering_id"]))
         library_id = int(offering["library_id"])
-        course = self.school.search_bank_scope_mcs(library_id, "course", 1, "aisle seat")
+        hidden = self.school.search_bank_scope_mcs(library_id, "course", 1, "aisle seat")
+        self.assertEqual(hidden["items"], [])
+        course = self.school.search_bank_scope_mcs(
+            library_id, "course", 1, "aisle seat", kind="warmup"
+        )
         self.assertTrue(course["items"])
         self.assertIn(
             "Aisle seat or window seat",
@@ -144,8 +148,12 @@ class LocalDevSeedTests(unittest.TestCase):
         self.assertEqual(module["items"], [])
         mcr = self.school.latest_library_for_code("MCR3U")
         self.assertIsNotNone(mcr)
-        mcr_hits = self.school.search_bank_scope_mcs(
+        mcr_hidden = self.school.search_bank_scope_mcs(
             int(mcr["id"]), "course", 1, "roller coaster"
+        )
+        self.assertEqual(mcr_hidden["items"], [])
+        mcr_hits = self.school.search_bank_scope_mcs(
+            int(mcr["id"]), "course", 1, "roller coaster", kind="warmup"
         )
         self.assertEqual(len(mcr_hits["items"]), 1)
         self.assertEqual(mcr_hits["items"][0].get("category"), "prediction-ranking")

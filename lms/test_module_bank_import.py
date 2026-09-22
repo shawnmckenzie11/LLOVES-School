@@ -842,16 +842,33 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertIn(source_id, module_ids)
 
     def test_course_wide_warmups_stay_out_of_module_import(self) -> None:
-        """Course Wide icebreakers list under course scope and not M1."""
+        """Kind=Warmup on Course Wide lists icebreakers; Process hides them."""
 
         seeded = self.school.seed_course_wide_warmups(self.library_id)
         self.assertEqual(seeded["count"], 11)
+        self.assertEqual(seeded["confirmed_module"], 1)
         again = self.school.seed_course_wide_warmups(self.library_id)
         self.assertEqual(again["question_ids"], seeded["question_ids"])
-        self.school._ensure_module_bank_link(
-            self.library_id, 1, int(seeded["bank_id"])
+        linked = {
+            int(row["bank_id"])
+            for row in self.school.list_module_bank_links(self.library_id, 1)
+        }
+        self.assertIn(int(seeded["bank_id"]), linked)
+        stored_row = self.school.conn.execute(
+            "SELECT item_type, payload_json FROM questions WHERE id = ?",
+            (int(seeded["question_ids"][0]),),
+        ).fetchone()
+        stored_payload = json.loads(stored_row["payload_json"])
+        self.assertEqual(stored_row["item_type"], "multiple_choice_question")
+        self.assertEqual(stored_payload.get("kind"), "warmup")
+        self.assertIn("warmup", stored_payload.get("tags") or [])
+        hidden = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
+        hidden_ids = {int(row.get("question_id") or 0) for row in hidden["items"]}
+        for question_id in seeded["question_ids"]:
+            self.assertNotIn(question_id, hidden_ids)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
         )
-        course = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
         stems = " ".join(str(row.get("text") or "") for row in course["items"])
         for needle in (
             "Aisle seat or window seat — pick one and defend it in one sentence.",
@@ -907,9 +924,16 @@ class ModuleBankImportMergeTests(unittest.TestCase):
                 self.library_id, 1, "", kind="warmup"
             )["items"]
         }
+        module2_warmup = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 2, "", kind="warmup"
+            )["items"]
+        }
         for question_id in seeded["question_ids"]:
             self.assertNotIn(question_id, module_default)
-            self.assertNotIn(question_id, module_warmup)
+            self.assertIn(question_id, module_warmup)
+            self.assertNotIn(question_id, module2_warmup)
         standard = self.school.search_bank_scope_mcs(
             self.library_id, "course", 1, "", kind="standard"
         )

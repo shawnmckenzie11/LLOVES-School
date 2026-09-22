@@ -5653,21 +5653,35 @@ class SchoolDB(LovesDB):
             from course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 is_course_scoped_warmup,
+                normalize_course_warmup,
             )
         except ImportError:
             from lms.course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 is_course_scoped_warmup,
+                normalize_course_warmup,
             )
 
         for row in rows:
-            if str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY:
-                continue
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
-            if is_course_scoped_warmup(payload):
+            course_warmup = (
+                str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
+                or is_course_scoped_warmup(payload)
+            )
+            if course_warmup:
+                normalized = normalize_course_warmup(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                if normalized is None:
+                    continue
+                all_items.append(normalized)
                 continue
             overlay = None
             if row["stem_text"] is not None:
@@ -5727,19 +5741,23 @@ class SchoolDB(LovesDB):
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
         """Insert or refresh the Course Wide warmup bank for one library.
 
-        The bank is not linked to modules 1–8, so math-unit Import cannot
-        list these icebreakers. Re-running updates stems in place.
+        Confirms the bank on module 1 so Course Wide search (the M1–M8
+        union) can see it. Rows stay ``multiple_choice_question`` so that
+        search includes open polls; normalization does not invent a key.
+        Default Kind still hides them. Re-running updates stems in place.
 
         Args:
             library_id: ``content_libraries.id``.
 
         Returns:
-            Summary with ``bank_id``, ``question_ids``, and ``count``.
+            Summary with ``bank_id``, ``question_ids``, ``count``, and
+            ``confirmed_module``.
         """
         try:
             from course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 COURSE_WIDE_WARMUP_BANK_TITLE,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULE,
                 course_wide_warmup_catalogue,
                 course_wide_warmup_payload,
                 warmup_settings_json,
@@ -5748,6 +5766,7 @@ class SchoolDB(LovesDB):
             from lms.course_warmup_seed import (
                 COURSE_WIDE_WARMUP_BANK_KEY,
                 COURSE_WIDE_WARMUP_BANK_TITLE,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULE,
                 course_wide_warmup_catalogue,
                 course_wide_warmup_payload,
                 warmup_settings_json,
@@ -5794,11 +5813,10 @@ class SchoolDB(LovesDB):
                 encoded = json.dumps(payload)
                 title = str(spec.get("title") or "")
                 import_key = str(spec.get("import_key") or "")
-                item_type = (
-                    "multiple_choice_question"
-                    if payload.get("choices")
-                    else "essay_question"
-                )
+                # Open polls have no choices. Store them as MC rows so
+                # confirmed-bank search (item_type filter) can return them.
+                # ``normalize_course_warmup`` keeps those prompts as polls.
+                item_type = "multiple_choice_question"
                 existing = self.conn.execute(
                     """
                     SELECT id FROM questions
@@ -5830,10 +5848,16 @@ class SchoolDB(LovesDB):
                     question_ids.append(question_id)
             self.conn.execute(
                 """
-                DELETE FROM course_module_bank_links
-                WHERE library_id = ? AND bank_id = ?
+                INSERT OR IGNORE INTO course_module_bank_links (
+                    library_id, module_number, bank_id, confirmed_at
+                ) VALUES (?, ?, ?, ?)
                 """,
-                (int(library_id), bank_id),
+                (
+                    int(library_id),
+                    int(COURSE_WIDE_WARMUP_CONFIRM_MODULE),
+                    bank_id,
+                    _now(),
+                ),
             )
             self.conn.commit()
         library = self.get_library(int(library_id)) or {}
@@ -5845,6 +5869,7 @@ class SchoolDB(LovesDB):
             "question_ids": question_ids,
             "count": len(question_ids),
             "ontario_code": code,
+            "confirmed_module": int(COURSE_WIDE_WARMUP_CONFIRM_MODULE),
         }
 
     def _upsert_course_warmup_live_problems(self, ontario_code: str) -> None:
@@ -5882,6 +5907,9 @@ class SchoolDB(LovesDB):
         self, library_id: int, *, class_id: int | None = None
     ) -> list[dict[str, Any]]:
         """Return normalized Course Wide warmups for one library.
+
+        Import search does not call this. Course Wide results come from
+        confirmed module banks plus the Kind filter.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -5945,10 +5973,9 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
-        ``course`` unions modules 1–8 and prepends the Course Wide warmup
-        bank. A module token searches that module only. Module search never
-        returns Course Wide warmups. On course scope, those warmups are
-        included when ``kind`` is empty or ``warmup``.
+        ``course`` unions confirmed banks on modules 1–8. A module token
+        searches that module only. Warmup rows appear only when ``kind`` is
+        ``warmup`` and the bank is confirmed on at least one of those modules.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -5957,9 +5984,8 @@ class SchoolDB(LovesDB):
             query: Optional stem/options substring filter.
             limit: Maximum rows to return (capped at 500).
             class_id: Class id for image URL resolution.
-            kind: ``standard``, ``contest``, or ``warmup``. Empty excludes
-                module-tagged warmups. Course scope still includes the Course
-                Wide warmup bank unless kind is ``standard`` or ``contest``.
+            kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
+                process picks and drops warmup-tagged icebreakers.
 
         Returns:
             Dict with ``items``, ``total``, and ``filtered``.
@@ -5997,29 +6023,6 @@ class SchoolDB(LovesDB):
                 if question_id and question_id not in merged:
                     merged[question_id] = item
         all_items = list(merged.values())
-        wanted = str(kind or "").strip().lower()
-        if wanted in {"", "warmup"}:
-            warmups = self._course_wide_warmup_items(
-                int(library_id), class_id=class_id
-            )
-            warmup_ids = [int(item.get("question_id") or 0) for item in warmups]
-            for item in warmups:
-                question_id = int(item.get("question_id") or 0)
-                if question_id and question_id not in merged:
-                    merged[question_id] = item
-            ordered: list[dict[str, Any]] = []
-            seen: set[int] = set()
-            for question_id in warmup_ids:
-                row = merged.get(question_id)
-                if row is None or question_id in seen:
-                    continue
-                seen.add(question_id)
-                ordered.append(row)
-            for question_id, row in merged.items():
-                if question_id in seen:
-                    continue
-                ordered.append(row)
-            all_items = ordered
         total = len(all_items)
         needle = str(query or "").strip().lower()
         if needle:

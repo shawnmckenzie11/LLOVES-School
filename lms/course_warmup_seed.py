@@ -14,6 +14,9 @@ COURSE_WIDE_WARMUP_BANK_KEY = "course-wide-warmups"
 COURSE_WIDE_WARMUP_BANK_TITLE = "Course Wide warmups"
 COURSE_WIDE_WARMUP_COURSES = ("MCF3M", "MCR3U")
 COURSE_SCOPE_TOKENS = frozenset({"course", "course-wide", "coursewide", "all"})
+# Course Wide search unions confirmed banks on M1–M8. One link is enough
+# for that union. Default Kind still hides these rows.
+COURSE_WIDE_WARMUP_CONFIRM_MODULE = 1
 
 # Locked pack. Choice rows are pick-a-side. Open rows are polls.
 # prediction-ranking is group-submit practice.
@@ -142,7 +145,8 @@ def course_wide_warmup_payload(spec: dict[str, Any]) -> dict[str, Any]:
         spec: One catalogue row from ``course_wide_warmup_catalogue``.
 
     Returns:
-        ``payload_json`` tagged ``kind=warmup`` and ``bank_scope=course``.
+        ``payload_json`` tagged ``kind=warmup``, ``tags=["warmup"]``, and
+        ``bank_scope=course``.
     """
     options = [str(opt).strip() for opt in (spec.get("options") or []) if str(opt).strip()]
     choices = [
@@ -155,6 +159,7 @@ def course_wide_warmup_payload(spec: dict[str, Any]) -> dict[str, Any]:
         response_mode = "individual"
     payload: dict[str, Any] = {
         "kind": "warmup",
+        "tags": ["warmup"],
         "bank_scope": "course",
         "category": category,
         "module_hint": str(spec.get("module_hint") or f"COURSE/{category}"),
