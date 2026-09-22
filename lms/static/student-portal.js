@@ -1933,6 +1933,124 @@ function isArtifactLifecycleItem(item) {
   return lifecycleAnswerKind(item) === "artifact";
 }
 
+/**
+ * Shared MC card: drafting until choice and why are both present.
+ * @param {any} item
+ * @returns {string}
+ */
+function studentGroupCardHtml(item) {
+  const status = String(item?.status || "active");
+  if (status === "closed") {
+    const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
+    if (!rows.length) return "";
+    return `<table class="group-reveal-board">
+      <caption>Group answers</caption>
+      <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
+      <tbody>${rows
+        .map((row) => {
+          const missed = Boolean(row.missed);
+          return `<tr class="${missed ? "is-missed" : ""}">
+            <th>${escapeText(row.team_name || "Group")}</th>
+            <td>${missed ? "" : escapeText(row.answer || "")}</td>
+            <td>${missed ? "" : escapeText(row.why || "")}</td>
+          </tr>`;
+        })
+        .join("")}</tbody>
+    </table>`;
+  }
+  const group = item?.group_submit || {};
+  const content = item?.content || item?.prompt?.payload || {};
+  const choices = liveChoiceLabels(content);
+  const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
+  const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
+  const choice = draft.choice != null ? String(draft.choice) : String(group.choice || "");
+  const why = draft.why != null ? String(draft.why) : String(group.why || "");
+  const ready = Boolean(choice) && why.trim().length > 0;
+  const last = String(group.last_submitter || "").trim();
+  return `<div class="student-group-card" data-live-action="group">
+    <p class="student-group-phase" data-group-phase>${ready ? "Ready" : "Drafting"}</p>
+    <div class="student-live-answer-controls" data-live-action="group">
+      ${choices
+        .map((label, index) => {
+          const optionBody = String(optionsHtml[index] || "").trim()
+            ? `<span class="live-question-html">${optionsHtml[index]}</span>`
+            : escapeText(label);
+          return `<button type="button" class="prompt-choice${
+            String(label) === choice ? " is-selected" : ""
+          }" data-live-choice="${escapeText(label)}">${optionBody}</button>`;
+        })
+        .join("")}
+      <label class="group-submit-why">Why
+        <textarea data-group-why rows="2" maxlength="500">${escapeText(why)}</textarea>
+      </label>
+      <button type="button" class="prompt-submit" data-live-submit="group"${
+        ready ? "" : " disabled"
+      }>Submit for team</button>
+    </div>
+    ${last ? `<p class="group-submit-last">Last submitted by ${escapeText(last)}</p>` : ""}
+  </div>`;
+}
+
+/**
+ * Enable Submit only when the shared choice and why are both present.
+ * @param {HTMLElement} card
+ */
+function syncGroupSubmitGate(card) {
+  const choice = card.querySelector("[data-live-choice].is-selected");
+  const why = card.querySelector("[data-group-why]");
+  const ready =
+    choice instanceof HTMLButtonElement &&
+    why instanceof HTMLTextAreaElement &&
+    why.value.trim().length > 0;
+  const phase = card.querySelector("[data-group-phase]");
+  if (phase) phase.textContent = ready ? "Ready" : "Drafting";
+  const submit = card.querySelector('[data-live-submit="group"]');
+  if (submit instanceof HTMLButtonElement) submit.disabled = !ready;
+}
+
+/** @type {Map<number, number>} */
+const groupDraftTimers = new Map();
+
+/**
+ * Persist the shared draft without a submit acknowledgement.
+ * @param {HTMLElement} card
+ */
+async function postGroupDraft(card) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  if (!itemId) return;
+  const selected = card.querySelector("[data-live-choice].is-selected");
+  const why = card.querySelector("[data-group-why]");
+  const res = await fetch(
+    `/api/student/live-items/${itemId}/group-draft`,
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
+        why: why instanceof HTMLTextAreaElement ? why.value : "",
+      }),
+    })
+  );
+  if (!res.ok) return;
+}
+
+/**
+ * Debounce shared-draft writes while the team is still editing.
+ * @param {HTMLElement} card
+ */
+function queueGroupDraft(card) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  const prev = groupDraftTimers.get(itemId);
+  if (prev) window.clearTimeout(prev);
+  groupDraftTimers.set(
+    itemId,
+    window.setTimeout(() => {
+      void postGroupDraft(card);
+    }, 250)
+  );
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   const grabbedCard = [...activePaneDrags].find((el) =>
@@ -2017,15 +2135,16 @@ function paintLifecycleQuestionStack(payload) {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
       const groupMode = item.response_mode === "group_consensus";
+      const groupSubmit = item.response_mode === "group_submit";
       const individualControls =
-        !groupMode && !item.my_response && item.can_submit
+        !groupMode && !groupSubmit && !item.my_response && item.can_submit
           ? lifecycleAnswerControls(
               item,
               "individual",
               liveCardDrafts.get(`${Number(item.id)}:individual`)
             )
           : "";
-      const ownLabel = !groupMode
+      const ownLabel = !groupMode && !groupSubmit
         ? item.my_response
           ? liveAnswerLabel(item.my_response.response)
           : String(payload?.meet_chip || "").trim()
@@ -2039,11 +2158,13 @@ function paintLifecycleQuestionStack(payload) {
               item.group_consensus?.has_voted
           ));
       const results =
-        !showResults
+        groupSubmit
           ? ""
-          : groupMode
-            ? lifecycleClassConsensusHtml(item.results)
-            : lifecycleResultsHtml(item.results);
+          : !showResults
+            ? ""
+            : groupMode
+              ? lifecycleClassConsensusHtml(item.results)
+              : lifecycleResultsHtml(item.results);
       const dockKey = liveCardDockKey(item);
       return `<article class="student-live-card student-floating-pane is-${escapeText(status)}" data-live-card-id="${Number(
         item.id
@@ -2084,9 +2205,11 @@ function paintLifecycleQuestionStack(payload) {
         }
         ${lifecycleEquationHtml(content)}
         ${
-          groupMode
-            ? lifecycleConsensusHtml(item)
-            : individualControls
+          groupSubmit
+            ? studentGroupCardHtml(item)
+            : groupMode
+              ? lifecycleConsensusHtml(item)
+              : individualControls
         }
         ${results}
       </article>`;
@@ -2239,6 +2362,13 @@ async function submitLifecycleAnswer(card, action) {
     } else if (action === "team") {
       url = `/api/student/live-items/${itemId}/team-answer`;
       body = { response };
+    } else if (action === "group") {
+      const whyEl = card.querySelector("[data-group-why]");
+      url = `/api/student/live-items/${itemId}/group-submit`;
+      body = {
+        choice: response.choice,
+        why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
+      };
     }
     const res = await fetch(
       url,
@@ -3450,9 +3580,18 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     const card = choice.closest("[data-live-card-id]");
     const action = controls?.getAttribute("data-live-action") || "individual";
     if (card instanceof HTMLElement) {
-      liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, {
+      const whyEl = card.querySelector("[data-group-why]");
+      const next = {
         choice: choice.getAttribute("data-live-choice") || "",
-      });
+      };
+      if (action === "group" && whyEl instanceof HTMLTextAreaElement) {
+        next.why = whyEl.value;
+        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:group`, next);
+        syncGroupSubmitGate(card);
+        queueGroupDraft(card);
+      } else {
+        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, next);
+      }
     }
     return;
   }
@@ -3520,6 +3659,16 @@ document.getElementById("live-response")?.addEventListener("input", (event) => {
   const key = `${Number(card.dataset.liveCardId)}:${
     controls.dataset.liveAction || "individual"
   }`;
+  if (field instanceof HTMLTextAreaElement && field.hasAttribute("data-group-why")) {
+    const selected = card.querySelector("[data-live-choice].is-selected");
+    liveCardDrafts.set(key, {
+      choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
+      why: field.value,
+    });
+    syncGroupSubmitGate(card);
+    queueGroupDraft(card);
+    return;
+  }
   if (field instanceof HTMLInputElement) {
     liveCardDrafts.set(key, { value: field.value });
   } else if (field instanceof HTMLTextAreaElement) {

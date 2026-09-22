@@ -532,6 +532,10 @@ CREATE TABLE IF NOT EXISTS live_group_responses (
     awarded_points REAL,
     voting_ended_at TEXT,
     finalized_at TEXT,
+    why_text TEXT NOT NULL DEFAULT '',
+    submit_count INTEGER NOT NULL DEFAULT 0,
+    last_submitter_student_id INTEGER,
+    submitter_ids_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(live_item_id, team_id)
@@ -2046,6 +2050,10 @@ class LovesDB:
                 awarded_points REAL,
                 voting_ended_at TEXT,
                 finalized_at TEXT,
+                why_text TEXT NOT NULL DEFAULT '',
+                submit_count INTEGER NOT NULL DEFAULT 0,
+                last_submitter_student_id INTEGER,
+                submitter_ids_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(live_item_id, team_id)
@@ -2054,7 +2062,41 @@ class LovesDB:
                 ON live_group_responses(live_item_id, status, team_id);
             """
         )
+        self._ensure_group_submit_columns()
         self.conn.commit()
+
+    def _ensure_group_submit_columns(self) -> None:
+        """Add shared-answer columns used by multiple-choice group submit.
+
+        Existing consensus rows keep their vote columns. Group submit stores
+        the shared draft in ``why_text`` / ``proposed_answer_json`` and the
+        last submitted snapshot in ``final_answer_json``.
+        """
+
+        cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(live_group_responses)")
+        }
+        if "why_text" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN why_text TEXT NOT NULL DEFAULT ''"
+            )
+        if "submit_count" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN submit_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_submitter_student_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN last_submitter_student_id INTEGER"
+            )
+        if "submitter_ids_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN submitter_ids_json TEXT NOT NULL DEFAULT '[]'"
+            )
 
     def _ensure_save_to_card_columns(self) -> None:
         """Add the per-question Save to card flag on existing databases.
@@ -10953,30 +10995,36 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             placement_or_item: Placement key, unique item id, or lifecycle id.
-            publish_mode: ``individual`` or an explicitly supported group mode.
+            publish_mode: ``individual``, catalogue group consensus, or
+                ``group_submit`` (multiple-choice shared answer). ``group``
+                remains the numeric consensus alias.
         """
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
         if item["status"] == "closed":
             raise ValueError("Closed items cannot be republished.")
         mode = str(publish_mode or "individual").strip().lower()
-        if mode in {"group", "individual_in_group"}:
-            mode = "group_consensus"
-        supported = self._question_publish_modes(item.get("item") or {})
-        if mode not in supported:
-            raise ValueError(f"publish mode is not supported: {mode}")
-        response_mode = (
-            "group_consensus" if mode == "group_consensus" else "individual"
-        )
-        if response_mode == "group_consensus":
-            teacher = self.live_session_teacher_state_payload(session_id)
-            if not (
-                teacher.get("groups_configured")
-                and teacher.get("run_as_group")
-            ):
-                raise ValueError(
-                    "Set up groups and enable Run as Group before publishing."
-                )
+        if mode == "group_submit":
+            self._require_group_mc_publish(session_id, item)
+            response_mode = "group_submit"
+        else:
+            if mode in {"group", "individual_in_group"}:
+                mode = "group_consensus"
+            supported = self._question_publish_modes(item.get("item") or {})
+            if mode not in supported:
+                raise ValueError(f"publish mode is not supported: {mode}")
+            response_mode = (
+                "group_consensus" if mode == "group_consensus" else "individual"
+            )
+            if response_mode == "group_consensus":
+                teacher = self.live_session_teacher_state_payload(session_id)
+                if not (
+                    teacher.get("groups_configured")
+                    and teacher.get("run_as_group")
+                ):
+                    raise ValueError(
+                        "Set up groups and enable Run as Group before publishing."
+                    )
         prompt = self._ensure_prompt_for_live_item(item)
         now = _now()
         with self._lock:
@@ -11015,6 +11063,8 @@ class SchoolDB(LovesDB):
                 self.clear_active_live_prompt(session_id)
         if response_mode == "group_consensus":
             self._initialize_group_consensus(published)
+        elif response_mode == "group_submit":
+            self._initialize_group_submit(published)
         return self.get_live_session_item(session_id, int(item["id"]))
 
     def close_live_session_item(
@@ -11314,6 +11364,475 @@ class SchoolDB(LovesDB):
                         (live_item_id, team_id, student_id, now),
                     )
             self.conn.commit()
+
+    def _require_group_mc_publish(self, session_id: int, item: dict[str, Any]) -> None:
+        """Allow group submit on multiple choice and turn Run as groups on.
+
+        Submission = Group is the only switch. Numeric and open items stay
+        on the existing consensus alias. Groups must already exist; this
+        does not create them.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row about to be published.
+
+        Raises:
+            ValueError: The item is not multiple choice, or groups are not set up.
+        """
+
+        if self._question_answer_kind(item) != "mc":
+            raise ValueError("Group submission is multiple choice only.")
+        teacher = self.live_session_teacher_state_payload(session_id)
+        if not teacher.get("groups_configured"):
+            raise ValueError("Set up groups before Group submission.")
+        if not teacher.get("run_as_group"):
+            self.set_live_session_teacher_state(session_id, run_as_group=True)
+
+    def _initialize_group_submit(self, item: dict[str, Any]) -> None:
+        """Snapshot teams into a shared drafting row for one MC question.
+
+        Args:
+            item: Published lifecycle row with ``response_mode`` ``group_submit``.
+        """
+
+        live_item_id = int(item["id"])
+        session_id = int(item["live_session_id"])
+        now = _now()
+        with self._lock:
+            for team in self._named_teams_for_live_session(session_id):
+                team_id = int(team["id"])
+                self.conn.execute(
+                    """
+                    INSERT INTO live_group_responses (
+                        live_item_id, team_id, status, vote_summary_json,
+                        proposed_answer_json, final_answer_json,
+                        finalizer_student_id, awarded_points, voting_ended_at,
+                        finalized_at, why_text, submit_count, submitter_ids_json,
+                        created_at, updated_at
+                    ) VALUES (?, ?, 'drafting', '[]', NULL, NULL,
+                              NULL, NULL, NULL, NULL, '', 0, '[]', ?, ?)
+                    ON CONFLICT(live_item_id, team_id) DO NOTHING
+                    """,
+                    (live_item_id, team_id, now, now),
+                )
+                for student_id in self._active_team_member_ids(session_id, team_id):
+                    self.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO live_group_members (
+                            live_item_id, team_id, student_id, joined_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (live_item_id, team_id, student_id, now),
+                    )
+            self.conn.commit()
+
+    @staticmethod
+    def _mc_option_labels(item: dict[str, Any]) -> list[str]:
+        """Return authored multiple-choice labels for one lifecycle item.
+
+        Args:
+            item: Lifecycle row with a nested catalogue ``item``.
+        """
+
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        options = question.get("options") or []
+        labels: list[str] = []
+        for option in options:
+            if isinstance(option, dict):
+                text = str(option.get("text") or option.get("label") or "").strip()
+            else:
+                text = str(option or "").strip()
+            if text:
+                labels.append(text)
+        return labels
+
+    @staticmethod
+    def _group_submitter_ids(row: dict[str, Any]) -> list[int]:
+        """Return submitter roster ids stored on one group-submit row.
+
+        Args:
+            row: Normalized ``live_group_responses`` row.
+        """
+
+        raw = row.get("submitter_ids_json") or "[]"
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            parsed = []
+        ids: list[int] = []
+        for value in parsed or []:
+            try:
+                ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
+    def _roster_codename(self, class_id: int, student_id: int) -> str:
+        """Return a roster codename for a soft last-submitter line.
+
+        Args:
+            class_id: Game-show class id.
+            student_id: Roster ``students.id``.
+        """
+
+        try:
+            student = self.game.get_student(int(class_id), int(student_id))
+        except Exception:  # noqa: BLE001 - missing roster stays blank
+            return ""
+        if not isinstance(student, dict):
+            return ""
+        return str(student.get("codename") or student.get("first_name") or "").strip()
+
+    def _require_group_submit_member(
+        self, item: dict[str, Any], student_id: int | None
+    ) -> int:
+        """Return the snapshotted team id for a student on an open group MC.
+
+        Args:
+            item: Lifecycle row.
+            student_id: Roster id.
+
+        Raises:
+            ValueError: The question is closed, not group submit, or the
+                student was not on a team when it was published.
+        """
+
+        if student_id in (None, ""):
+            raise ValueError("Roster student required")
+        if str(item.get("response_mode") or "") != "group_submit":
+            raise ValueError("This question is not a group submission.")
+        if str(item.get("status") or "") != "active":
+            raise ValueError("This item is not accepting responses.")
+        session_row = self.get_live_session(int(item["live_session_id"]))
+        if session_row is None:
+            raise KeyError(f"live session {item.get('live_session_id')}")
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            raise ValueError("Join a group before submitting.")
+        with self._lock:
+            member = self.conn.execute(
+                """
+                SELECT 1 FROM live_group_members
+                WHERE live_item_id = ? AND team_id = ? AND student_id = ?
+                """,
+                (int(item["id"]), int(team_id), int(student_id)),
+            ).fetchone()
+        if member is None:
+            raise ValueError("Join a group before submitting.")
+        if self._group_response_row(int(item["id"]), int(team_id)) is None:
+            raise ValueError("This group is not on the question.")
+        return int(team_id)
+
+    def _group_draft_choice(self, row: dict[str, Any]) -> str:
+        """Return the shared draft choice, ignoring an unsent blank.
+
+        Args:
+            row: Normalized group response row.
+        """
+
+        proposed = row.get("proposed_answer")
+        if isinstance(proposed, dict) and proposed.get("value") not in (None, ""):
+            return str(proposed["value"]).strip()
+        return ""
+
+    def student_group_submit_state(
+        self, item: dict[str, Any], student_id: int | None
+    ) -> dict[str, Any] | None:
+        """Return this student's shared MC card without other groups' answers.
+
+        Args:
+            item: Lifecycle row whose ``response_mode`` is ``group_submit``.
+            student_id: Roster id. Guests and non-members get ``None``.
+        """
+
+        if student_id in (None, "") or str(item.get("response_mode") or "") != "group_submit":
+            return None
+        session_row = self.get_live_session(int(item["live_session_id"]))
+        if session_row is None:
+            return None
+        try:
+            team_id = self._require_group_submit_member(item, student_id)
+        except ValueError:
+            return None
+        row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+        choice = self._group_draft_choice(row)
+        why = str(row.get("why_text") or "")
+        ready = bool(choice) and bool(why.strip())
+        teams = {
+            int(team["id"]): team
+            for team in self._named_teams_for_live_session(int(item["live_session_id"]))
+        }
+        last_id = row.get("last_submitter_student_id")
+        last_name = ""
+        if last_id not in (None, ""):
+            last_name = self._roster_codename(int(session_row["class_id"]), int(last_id))
+        return {
+            "team_id": int(team_id),
+            "team_name": str((teams.get(int(team_id)) or {}).get("name") or ""),
+            "choice": choice,
+            "why": why,
+            "phase": "ready" if ready else "drafting",
+            "submitted": int(row.get("submit_count") or 0) > 0,
+            "last_submitter": last_name,
+            "can_submit": str(item.get("status") or "") == "active" and ready,
+        }
+
+    def save_group_mc_draft(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        *,
+        choice: Any,
+        why: Any,
+    ) -> dict[str, Any]:
+        """Store the team's shared choice and why. Does not submit.
+
+        Ready is choice plus a non-empty why. A previous submit stays
+        submitted until the next explicit submit; the draft can still change.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id of the editor.
+            choice: Shared multiple-choice label.
+            why: Shared why line.
+
+        Returns:
+            The public group-submit card for this student.
+        """
+
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        team_id = self._require_group_submit_member(item, student_id)
+        choice_text = str(choice or "").strip()[:500]
+        why_text = str(why or "").strip()[:500]
+        labels = self._mc_option_labels(item)
+        if choice_text and labels and choice_text not in labels:
+            raise ValueError("Choose one of the options.")
+        row = self._group_response_row(int(item["id"]), team_id) or {}
+        submit_count = int(row.get("submit_count") or 0)
+        ready = bool(choice_text) and bool(why_text)
+        if submit_count > 0:
+            status = "submitted"
+        elif ready:
+            status = "ready"
+        else:
+            status = "drafting"
+        proposed = (
+            json.dumps({"kind": "choice", "value": choice_text})
+            if choice_text
+            else None
+        )
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = ?, proposed_answer_json = ?, why_text = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (status, proposed, why_text, now, int(item["id"]), team_id),
+            )
+            self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def submit_group_mc_answer(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        *,
+        choice: Any,
+        why: Any,
+    ) -> dict[str, Any]:
+        """Submit the shared MC answer for the student's team.
+
+        The ready-gate rejects a missing choice or an empty why. Re-submits
+        increment the count and flag a repeat submitter. No celebration cue
+        is written.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id of the person pressing Submit.
+            choice: Shared multiple-choice label.
+            why: Shared why line.
+
+        Returns:
+            The public group-submit card. No delight copy.
+        """
+
+        self.save_group_mc_draft(
+            session_id,
+            live_item_id,
+            student_id,
+            choice=choice,
+            why=why,
+        )
+        item = self.get_live_session_item(session_id, live_item_id)
+        team_id = self._require_group_submit_member(item, student_id)
+        row = self._group_response_row(int(item["id"]), team_id) or {}
+        choice_text = self._group_draft_choice(row)
+        why_text = str(row.get("why_text") or "").strip()
+        if not choice_text or not why_text:
+            raise ValueError("Add a shared answer and a why before submitting.")
+        ids = self._group_submitter_ids(row)
+        ids.append(int(student_id))
+        final = {"kind": "choice", "value": choice_text, "why": why_text}
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'submitted',
+                    final_answer_json = ?,
+                    submit_count = COALESCE(submit_count, 0) + 1,
+                    last_submitter_student_id = ?,
+                    submitter_ids_json = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (
+                    json.dumps(final),
+                    int(student_id),
+                    json.dumps(ids),
+                    now,
+                    int(item["id"]),
+                    team_id,
+                ),
+            )
+            self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def _iter_group_submit_teams(
+        self, session_id: int, item: dict[str, Any]
+    ) -> list[tuple[int, str, dict[str, Any]]]:
+        """Return every named team plus its group-submit row, if any.
+
+        Teams with no row are included so a miss stays a blank reveal row.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row.
+        """
+
+        named = self._named_teams_for_live_session(session_id)
+        order = [int(team["id"]) for team in named]
+        names = {
+            int(team["id"]): str(team.get("name") or f"Team {team['id']}")
+            for team in named
+        }
+        with self._lock:
+            extra = self.conn.execute(
+                """
+                SELECT team_id FROM live_group_responses
+                WHERE live_item_id = ?
+                ORDER BY team_id ASC
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+        for row in extra:
+            team_id = int(row["team_id"])
+            if team_id not in names:
+                order.append(team_id)
+                names[team_id] = f"Team {team_id}"
+        packed: list[tuple[int, str, dict[str, Any]]] = []
+        for team_id in order:
+            state = self._group_response_row(int(item["id"]), team_id) or {}
+            packed.append((team_id, names[team_id], state))
+        return packed
+
+    def group_submit_reveal_rows(
+        self, session_id: int, live_item_id: int
+    ) -> list[dict[str, Any]]:
+        """Return one compare row per group. A miss is a blank answer.
+
+        Draft text is not copied into a team that never submitted.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+        """
+
+        item = self.get_live_session_item(session_id, live_item_id)
+        rows: list[dict[str, Any]] = []
+        for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
+            final = state.get("final_answer")
+            submitted = int(state.get("submit_count") or 0) > 0 and isinstance(final, dict)
+            answer = str(final.get("value") or "").strip() if submitted else ""
+            why = str(final.get("why") or "").strip() if submitted else ""
+            missed = not submitted or not answer
+            rows.append(
+                {
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "answer": "" if missed else answer,
+                    "why": "" if missed else why,
+                    "missed": missed,
+                }
+            )
+        return rows
+
+    def group_submit_teacher_view(
+        self, session_id: int, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Return staff status, submitter log, and reveal rows.
+
+        The status board is waiting or submitted only. Answers are omitted
+        until the item is closed, and then only on ``reveal``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row.
+        """
+
+        session_row = self.get_live_session(session_id)
+        class_id = int(session_row["class_id"]) if session_row else 0
+        revealed = str(item.get("status") or "") == "closed"
+        status_board: list[dict[str, Any]] = []
+        submitter_log: list[dict[str, Any]] = []
+        for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
+            count = int(state.get("submit_count") or 0)
+            ids = self._group_submitter_ids(state)
+            last_id = state.get("last_submitter_student_id")
+            last_name = ""
+            if last_id not in (None, "") and class_id:
+                last_name = self._roster_codename(class_id, int(last_id))
+            final = state.get("final_answer") if isinstance(state.get("final_answer"), dict) else {}
+            repeat = bool(last_id not in (None, "")) and ids.count(int(last_id)) > 1
+            status_board.append(
+                {
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "submitted": count > 0,
+                }
+            )
+            submitter_log.append(
+                {
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "last_submitter": last_name,
+                    "resubmit_count": max(0, count - 1),
+                    "no_submit_at_reveal": revealed and count == 0,
+                    "repeat_submitter": repeat,
+                    "why_present": bool(str(final.get("why") or "").strip()) if count else False,
+                }
+            )
+        view: dict[str, Any] = {
+            "item": item,
+            "response_mode": "group_submit",
+            "status_board": status_board,
+            "submitter_log": submitter_log,
+            "response_count": sum(1 for row in status_board if row["submitted"]),
+            "eligible_count": len(status_board),
+        }
+        if revealed:
+            view["reveal"] = self.group_submit_reveal_rows(session_id, int(item["id"]))
+        return view
 
     @staticmethod
     def _normalize_group_answer(response: Any) -> dict[str, Any]:
@@ -11929,6 +12448,8 @@ class SchoolDB(LovesDB):
 
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
+        if item["response_mode"] == "group_submit":
+            return self.group_submit_teacher_view(session_id, item)
         if item["response_mode"] == "group_consensus":
             summary = self.teacher_group_consensus_summary(
                 session_id, int(item["id"])
@@ -12090,8 +12611,13 @@ class SchoolDB(LovesDB):
             prior = None
             my_response = None
             group_state = None
+            group_submit_state = None
             if item["response_mode"] == "group_consensus":
                 group_state = self.student_group_consensus_state(
+                    item, student_id
+                )
+            elif item["response_mode"] == "group_submit":
+                group_submit_state = self.student_group_submit_state(
                     item, student_id
                 )
             elif prompt is not None:
@@ -12140,7 +12666,14 @@ class SchoolDB(LovesDB):
                 )
             )
             results = None
-            if (
+            if status == "closed" and item["response_mode"] == "group_submit":
+                results = {
+                    "reveal": self.group_submit_reveal_rows(
+                        session_id, int(item["id"])
+                    ),
+                    "phase": "final",
+                }
+            elif (
                 include_results
                 and item["response_mode"] == "individual"
                 and prompt is not None
@@ -12231,6 +12764,7 @@ class SchoolDB(LovesDB):
                     ),
                     "my_response": my_response,
                     "group_consensus": group_state,
+                    "group_submit": group_submit_state,
                     "can_submit": prompt is not None
                     and status == "active"
                     and stage_matches
@@ -13979,6 +14513,8 @@ class SchoolDB(LovesDB):
                 raise ValueError("This item is not accepting responses.")
             if str(lifecycle["response_mode"] or "") == "group_consensus":
                 raise ValueError("Use the private group-vote endpoint.")
+            if str(lifecycle["response_mode"] or "") == "group_submit":
+                raise ValueError("Use the group submit endpoint.")
         payload = prompt_row.get("payload") or {}
         if (
             str(prompt_row.get("kind") or "").strip().lower() == "numeric"

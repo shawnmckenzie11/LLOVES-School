@@ -2012,6 +2012,83 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
+ * Per-card Submission choice before publish. Group is the one switch.
+ * @type {Map<number, "individual"|"group_submit">}
+ */
+const groupSubmissionIntent = new Map();
+
+/**
+ * True for a keyed multiple-choice card. Numeric and open stays off this path.
+ * @param {any} item
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveQuestionIsMultipleChoice(item, card) {
+  if (liveQuestionIsOpenEnded(item, card)) return false;
+  const type = String(item?.type || card?.type || "").toLowerCase();
+  return type === "mc";
+}
+
+/**
+ * Teacher status is waiting or a check. Answers stay off until reveal.
+ * @param {any} result
+ * @param {boolean} revealed
+ * @returns {string}
+ */
+function groupSubmitTeacherHtml(result, revealed) {
+  const board = Array.isArray(result?.status_board) ? result.status_board : [];
+  const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
+  const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
+  const statusHtml = board.length
+    ? `<ul class="group-status-board" aria-label="Group status">${board
+        .map((row) => {
+          const mark = row.submitted ? "✓" : "Waiting";
+          return `<li><span>${escapeHtml(row.team_name || "Group")}</span><span>${mark}</span></li>`;
+        })
+        .join("")}</ul>`
+    : `<p class="hint compact">Groups appear here after publish.</p>`;
+  const logHtml = `<details class="group-submitter-log">
+      <summary>Submitter log</summary>
+      <table>
+        <thead><tr><th>Group</th><th>Last submitter</th><th>Re-submits</th><th>No submit at reveal</th><th>Repeat submitter</th><th>Why</th></tr></thead>
+        <tbody>${
+          log.length
+            ? log
+                .map(
+                  (row) => `<tr>
+              <td>${escapeHtml(row.team_name || "")}</td>
+              <td>${escapeHtml(row.last_submitter || "")}</td>
+              <td>${Number(row.resubmit_count) || 0}</td>
+              <td>${row.no_submit_at_reveal ? "Yes" : "No"}</td>
+              <td>${row.repeat_submitter ? "Yes" : "No"}</td>
+              <td>${row.why_present ? "Yes" : "No"}</td>
+            </tr>`
+                )
+                .join("")
+            : `<tr><td colspan="6"></td></tr>`
+        }</tbody>
+      </table>
+    </details>`;
+  const revealHtml = reveal.length
+    ? `<table class="group-reveal-board">
+        <caption>Group answers</caption>
+        <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
+        <tbody>${reveal
+          .map((row) => {
+            const missed = Boolean(row.missed);
+            return `<tr class="${missed ? "is-missed" : ""}">
+              <th>${escapeHtml(row.team_name || "Group")}</th>
+              <td>${missed ? "" : escapeHtml(row.answer || "")}</td>
+              <td>${missed ? "" : escapeHtml(row.why || "")}</td>
+            </tr>`;
+          })
+          .join("")}</tbody>
+      </table>`
+    : "";
+  return `<div class="group-submit-teacher">${statusHtml}${logHtml}${revealHtml}</div>`;
+}
+
+/**
  * Render the per-question strip in Mobbin group order.
  *
  * A Persist is Save to card. B Visibility is Show Live Results and stays
@@ -2159,15 +2236,25 @@ function paintLiveQuestionCards() {
           ? item.capabilities.publish_modes
           : ["individual"];
       const openEnded = liveQuestionIsOpenEnded(item, card);
+      const multipleChoice = liveQuestionIsMultipleChoice(item, card);
+      const intent = groupSubmissionIntent.get(liveItemId);
+      const groupChrome =
+        multipleChoice &&
+        (card.response_mode === "group_submit" ||
+          (status !== "active" && status !== "closed" && intent === "group_submit"));
       const canGroup =
+        !multipleChoice &&
         Boolean(teacherState.groups_configured) &&
         Boolean(teacherState.run_as_group) &&
         (openEnded || publishModes.includes("group_consensus"));
       const showGroupBadge =
-        openEnded || card.response_mode === "group_consensus";
+        groupChrome ||
+        card.response_mode === "group_submit" ||
+        card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
-      const resultHtml =
-        card.response_mode === "group_consensus"
+      const resultHtml = groupChrome
+        ? groupSubmitTeacherHtml(result, closed)
+        : card.response_mode === "group_consensus"
           ? groupConsensusResultsHtml(result)
           : individualLifecycleResultsHtml(result?.tally);
       const tally = lastMcTally;
@@ -2186,13 +2273,34 @@ function paintLiveQuestionCards() {
       );
       const eligible = Number(result?.eligible_count ?? result?.tally?.present ?? 0);
       const onStage = String(card.stage || "") === String(teacherState.stage || "");
+      const groupBoard = Array.isArray(result?.status_board) ? result.status_board : [];
+      const groupDone = groupBoard.filter((row) => row.submitted).length;
       const progress =
-        onStage && (active || closed)
-          ? `<p class="live-question-progress">${answered} / ${Math.max(eligible, answered)} answered</p>`
-          : "";
+        onStage && groupChrome && (active || closed)
+          ? `<p class="live-question-progress">${groupDone} / ${groupBoard.length} groups</p>`
+          : onStage && (active || closed)
+            ? `<p class="live-question-progress">${answered} / ${Math.max(eligible, answered)} answered</p>`
+            : "";
+      const submissionValue =
+        card.response_mode === "group_submit" || intent === "group_submit"
+          ? "group_submit"
+          : "individual";
+      const groupStub = multipleChoice
+        ? ""
+        : `<span class="live-group-submit-stub" hidden>Group submission is multiple choice only.</span>`;
       const publish = !liveItemId || !onStage
         ? ""
-        : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
+        : multipleChoice
+          ? `<div class="live-publish-split has-modes">
+            <div class="live-submission-switch" role="group" aria-label="Submission">
+              <span>Submission</span>
+              <button type="button" class="live-submission-choice${submissionValue === "individual" ? " is-on" : ""}" data-submission-mode="${liveItemId}" data-submission-value="individual" aria-pressed="${submissionValue === "individual" ? "true" : "false"}">Individual</button>
+              <button type="button" class="live-submission-choice${submissionValue === "group_submit" ? " is-on" : ""}" data-submission-mode="${liveItemId}" data-submission-value="group_submit" aria-pressed="${submissionValue === "group_submit" ? "true" : "false"}">Group</button>
+              <input type="hidden" data-publish-live-mode="${liveItemId}" value="${submissionValue}">
+            </div>
+            <button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>
+          </div>`
+          : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
             <button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>
             ${
               canGroup
@@ -2204,9 +2312,10 @@ function paintLiveQuestionCards() {
                   </select>`
                 : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
             }
+            ${groupStub}
           </div>`;
       const pointsButton =
-        card.response_mode === "group_consensus"
+        card.response_mode === "group_consensus" || groupChrome
           ? ""
           : `<button type="button" class="secondary live-q-btn" data-view-responses="${promptId}" data-question-title="${escapeHtml(
               item.title || item.text || card.text
@@ -2225,11 +2334,13 @@ function paintLiveQuestionCards() {
           )}" aria-label="Move or remove question">(Re)move</button>`
         : "";
       const revealHtml =
-        active && card.response_mode === "group_consensus"
-          ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
-          : "";
+        active && groupChrome
+          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
+          : active && card.response_mode === "group_consensus"
+            ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
+            : "";
       const closeHtml =
-        active && liveItemId
+        active && liveItemId && !groupChrome
           ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
           : "";
       const controlStrip = onStage
@@ -2441,6 +2552,15 @@ async function publishLifecycleItem(liveItemId) {
     control instanceof HTMLSelectElement || control instanceof HTMLInputElement
       ? control.value
       : "individual";
+  if (
+    publishMode === "group_submit" &&
+    teacherState.groups_configured &&
+    !teacherState.run_as_group
+  ) {
+    teacherState.run_as_group = true;
+    teacherState.teams_mode = "teams";
+    await patchTeacherState({ run_as_group: true }, { silent: true });
+  }
   const result = await api(
     `/api/live-sessions/${sessionId}/items/${liveItemId}/publish`,
     {
@@ -7199,6 +7319,31 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
       .then(() => paintLiveSlotPicks())
       .catch((err) => showError("#ap-overlay-error", err));
   });
+});
+
+$("live-question-list")?.addEventListener("click", async (event) => {
+  const submission = event.target.closest("button[data-submission-value]");
+  if (submission instanceof HTMLButtonElement) {
+    const id = Number(submission.dataset.submissionMode) || 0;
+    const value =
+      submission.dataset.submissionValue === "group_submit" ? "group_submit" : "individual";
+    groupSubmissionIntent.set(id, value);
+    try {
+      if (
+        value === "group_submit" &&
+        teacherState.groups_configured &&
+        !teacherState.run_as_group
+      ) {
+        teacherState.run_as_group = true;
+        teacherState.teams_mode = "teams";
+        await patchTeacherState({ run_as_group: true }, { silent: true });
+      }
+    } catch (err) {
+      showError("#ap-overlay-error", err);
+    }
+    paintLiveQuestionCards();
+    return;
+  }
 });
 
 $("live-question-list")?.addEventListener("change", async (event) => {

@@ -1733,6 +1733,189 @@ class LiveBackendStateTests(unittest.TestCase):
         assert prompt is not None
         self.assertEqual(prompt["payload"].get("choices"), ["Red", "Blue"])
 
+    def test_group_mc_ready_gate_one_switch_and_blank_miss(self) -> None:
+        """Group MC is one switch, gated on why, and a miss stays blank."""
+
+        self._begin_and_join(4)
+        self._setup_groups()
+        self.school.set_live_session_teacher_state(
+            self.session_id, run_as_group=False
+        )
+        self.assertFalse(
+            self.school.live_session_teacher_state_payload(self.session_id)[
+                "run_as_group"
+            ]
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group_submit",
+        )
+        self.assertEqual(published["response_mode"], "group_submit")
+        self.assertEqual(published["publish_mode"], "group_submit")
+        self.assertTrue(
+            self.school.live_session_teacher_state_payload(self.session_id)[
+                "run_as_group"
+            ]
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        with self.assertRaisesRegex(ValueError, "group submit"):
+            self.school.submit_live_prompt_response(
+                int(prompt["id"]), self.student_ids[0], {"choice": "A"}
+            )
+        drafting = self.school.save_group_mc_draft(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="  ",
+        )
+        self.assertEqual(drafting["phase"], "drafting")
+        self.assertFalse(drafting["can_submit"])
+        with self.assertRaisesRegex(ValueError, "why"):
+            self.school.submit_group_mc_answer(
+                self.session_id,
+                int(published["id"]),
+                self.student_ids[0],
+                choice="A",
+                why="",
+            )
+        submitted = self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="because the graph rises",
+        )
+        self.assertEqual(submitted["phase"], "ready")
+        self.assertEqual(submitted["last_submitter"], "Aspen")
+        self.assertNotIn("celebrate", submitted)
+        self.assertFalse(
+            self.school.live_session_teacher_state_payload(self.session_id).get(
+                "celebrate"
+            )
+        )
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="because the graph rises",
+        )
+        open_view = self.school.live_session_item_results(
+            self.session_id, int(published["id"])
+        )
+        self.assertNotIn("reveal", open_view)
+        self.assertTrue(open_view["status_board"])
+        for row in open_view["status_board"]:
+            self.assertEqual(set(row), {"team_id", "team_name", "submitted"})
+        student_payload = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        card = next(
+            row
+            for row in student_payload["active_questions"]
+            if row["item_id"] == "q-one"
+        )
+        self.assertIsNone(card["results"])
+        self.assertNotIn("submitter_log", card)
+        self.assertNotIn("resubmit_count", card["group_submit"])
+        self.school.close_live_session_item(self.session_id, int(published["id"]))
+        closed_view = self.school.live_session_item_results(
+            self.session_id, int(published["id"])
+        )
+        reveal = closed_view["reveal"]
+        misses = [row for row in reveal if row["missed"]]
+        hits = [row for row in reveal if not row["missed"]]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["answer"], "A")
+        self.assertIn("rises", hits[0]["why"])
+        self.assertTrue(misses)
+        for row in misses:
+            self.assertEqual(row["answer"], "")
+            self.assertEqual(row["why"], "")
+        aspen = next(
+            row
+            for row in closed_view["submitter_log"]
+            if row["last_submitter"] == "Aspen"
+        )
+        self.assertEqual(aspen["resubmit_count"], 1)
+        self.assertTrue(aspen["repeat_submitter"])
+        self.assertTrue(aspen["why_present"])
+        missed_log = next(
+            row for row in closed_view["submitter_log"] if row["no_submit_at_reveal"]
+        )
+        self.assertFalse(missed_log["why_present"])
+        closed_student = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        closed_card = next(
+            row
+            for row in closed_student["closed_results"]
+            if row["item_id"] == "q-one"
+        )
+        self.assertNotIn("submitter_log", closed_card)
+        self.assertTrue(closed_card["results"]["reveal"])
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('aria-label="Submission"', staff_js)
+        self.assertIn("group_submit", staff_js)
+        self.assertIn("Group submission is multiple choice only.", staff_js)
+        self.assertIn("Submit for team", student_js)
+        self.assertIn("data-group-phase", student_js)
+        self.assertNotIn("data-group-agree", student_js)
+        self.assertNotIn("huddle-timer", student_js)
+
+    def test_group_submit_rejects_numeric(self) -> None:
+        """Numeric items keep the consensus alias and cannot use group submit."""
+
+        def numeric_fixture() -> dict[str, Any]:
+            """Return the shared fixture plus an integer-only numeric item."""
+
+            data = metadata_fixture()
+            numeric = {
+                "id": "q-numeric",
+                "ref": "test/question/q-numeric",
+                "item_type": "question",
+                "stage": "round",
+                "page_number": 1,
+                "order": 3,
+                "type": "numeric",
+                "text": "Type an integer",
+                "options": [],
+                "integer_only": True,
+                "default_status": "inactive",
+                "publish_modes": ["individual"],
+                "response_mode": "individual",
+            }
+            questions = [*data["questions"], numeric]
+            media = next(
+                row for row in data["items"] if row.get("item_type") == "media"
+            )
+            return {**data, "questions": questions, "items": [*questions, media]}
+
+        self.school.live_class_metadata_for_session = (
+            lambda _session_id: numeric_fixture()
+        )
+        self._begin_and_join(4)
+        self._setup_groups()
+        numeric_item = next(
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if row["item_id"] == "q-numeric"
+        )
+        with self.assertRaisesRegex(ValueError, "multiple choice only"):
+            self.school.publish_live_session_item(
+                self.session_id,
+                int(numeric_item["id"]),
+                publish_mode="group_submit",
+            )
+
 
 class LiveBackendApiGuardTests(unittest.TestCase):
     """Verify ownership and active-session guards on new publish APIs."""
