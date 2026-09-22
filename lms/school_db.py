@@ -11070,7 +11070,11 @@ class SchoolDB(LovesDB):
     def close_live_session_item(
         self, session_id: int, placement_or_item: str | int
     ) -> dict[str, Any]:
-        """Close one active item, locking submissions and freezing results."""
+        """Close one active item, locking submissions and freezing results.
+
+        The facing prompt for this item is deactivated so students do not
+        keep a typeable copy after Close.
+        """
 
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
@@ -11089,7 +11093,12 @@ class SchoolDB(LovesDB):
                 (now, now, int(item["id"])),
             )
             self.conn.commit()
-        return self.get_live_session_item(session_id, int(item["id"]))
+        closed = self.get_live_session_item(session_id, int(item["id"]))
+        active_prompt = self.get_active_live_prompt(session_id)
+        linked = self._lifecycle_item_for_prompt(session_id, active_prompt)
+        if linked is not None and int(linked.get("id") or 0) == int(closed["id"]):
+            self.clear_active_live_prompt(session_id)
+        return closed
 
     @staticmethod
     def _coerce_settings_flag(value: Any, field: str) -> bool:
@@ -12676,6 +12685,7 @@ class SchoolDB(LovesDB):
             }
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "").strip().lower()
+        current_page = self._current_student_page_number(session_id)
         deck_ids = [
             self._playlist_row_item_id(row)
             for row in (
@@ -12710,6 +12720,10 @@ class SchoolDB(LovesDB):
                 ):
                     continue
             if self._session_playlist_item_removed(session_id, item_id_raw):
+                continue
+            if not saved and not self._student_item_on_current_page(
+                session_id, row, current_page=current_page
+            ):
                 continue
             item_id = item_id_raw.strip().lower().replace("-", "_")
             item_stage = str(row.get("stage") or "").strip().lower()
@@ -12913,24 +12927,29 @@ class SchoolDB(LovesDB):
                     session_id, int(student_id), prompt
                 )
                 public_items[-1]["group_q_ready"] = status_q["ready"]
+        facing = [
+            row
+            for row in public_items
+            if self._student_row_is_facing(
+                session_id, row, stage=stage, current_page=current_page
+            )
+        ]
+        facing_ids = {int(row["id"]) for row in facing}
+        saved_cards: list[dict[str, Any]] = []
+        for row in public_items:
+            if not row.get("save_to_card") or int(row["id"]) in facing_ids:
+                continue
+            parked = dict(row)
+            if str(parked.get("status") or "") == "active":
+                parked["can_submit"] = False
+                parked["parked"] = True
+            saved_cards.append(parked)
         return {
-            "active_questions": [
-                row
-                for row in public_items
-                if row["status"] == "active" and row.get("prompt") is not None
-            ],
+            "active_questions": facing,
             "closed_results": [
                 row for row in public_items if row["status"] == "closed"
             ],
-            "saved_cards": [
-                row
-                for row in public_items
-                if row.get("save_to_card")
-                and (
-                    row["status"] != "active"
-                    or str(row.get("stage") or "").strip().lower() != stage
-                )
-            ],
+            "saved_cards": saved_cards,
             "live_items": public_items,
         }
 
@@ -14161,14 +14180,12 @@ class SchoolDB(LovesDB):
             return None
         if self._session_playlist_item_removed(session_id, "teams-spark"):
             return None
+        spark_live = self._lifecycle_item_is_active(session_id, "teams_spark")
         active = self.get_active_live_prompt(session_id)
         if active and self._welcome_c2_is_current(active.get("payload")):
-            if self._lifecycle_item_is_published(session_id, "teams_spark"):
+            if spark_live:
                 return None
-        return self._write_welcome_c2(
-            session_id,
-            activate=self._lifecycle_item_is_published(session_id, "teams_spark"),
-        )
+        return self._write_welcome_c2(session_id, activate=spark_live)
 
     def clear_teams_spark(self, session_id: int) -> None:
         """Deactivate the TEAMS shared spark when leaving TEAMS.
@@ -15128,6 +15145,11 @@ class SchoolDB(LovesDB):
                     )
                     if lifecycle is not None
                     else True,
+                    "save_to_card": bool(
+                        lifecycle.get("save_to_card")
+                        if lifecycle is not None
+                        else question.get("save_to_card")
+                    ),
                     "student_view": visibility,
                     "active": (
                         lifecycle.get("status") == "active"
@@ -15221,7 +15243,6 @@ class SchoolDB(LovesDB):
                 wanted_page is not None
                 and prompt_page is not None
                 and prompt_page != wanted_page
-                and not engine_ride
             ):
                 continue
             cards.append(
@@ -15852,14 +15873,147 @@ class SchoolDB(LovesDB):
                 return True
         return False
 
+    def _lifecycle_item_is_active(self, session_id: int, item_id: str) -> bool:
+        """True when a lifecycle row for ``item_id`` is status ``active``.
+
+        Closed rows stay in the results list. They must not re-activate
+        the student prompt channel.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item_id: Playlist or engine-ride id.
+        """
+        for item in self.list_live_session_items(session_id):
+            if not self._same_live_item_id(item.get("item_id"), item_id):
+                continue
+            if str(item.get("status") or "") == "active":
+                return True
+        return False
+
+    def _current_student_page_number(self, session_id: int) -> int | None:
+        """Return the teacher's explicit question-binding page, if one is set.
+
+        ``page_id`` must be stored. Inferring a page from stage alone hid
+        published bank imports that sit on a different page than the first
+        page of that stage. Schema-v1 sessions and an empty ``page_id``
+        return None so callers keep stage-only filtering.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            if not str(teacher.get("page_id") or "").strip():
+                return None
+            metadata = self.live_class_metadata_for_session(session_id)
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return None
+        return self._page_number_for_deck_page(
+            self._current_deck_page(metadata, teacher)
+        )
+
+    def _student_item_on_current_page(
+        self,
+        session_id: int,
+        item: dict[str, Any] | None,
+        *,
+        current_page: int | None = None,
+    ) -> bool:
+        """True when ``item`` is bound to the teacher's current deck page.
+
+        Rows with no ``page_number`` stay visible. Save to card bypasses
+        this check at the call site so a kept card survives a page change.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row or metadata question.
+            current_page: Teacher page when the caller already resolved it.
+        """
+        if current_page is None:
+            current_page = self._current_student_page_number(session_id)
+        if current_page is None or not isinstance(item, dict):
+            return True
+        raw = item.get("page_number")
+        if raw in (None, ""):
+            return True
+        try:
+            return int(raw) == int(current_page)
+        except (TypeError, ValueError):
+            return True
+
+    def _student_row_is_facing(
+        self,
+        session_id: int,
+        row: dict[str, Any],
+        *,
+        stage: str,
+        current_page: int | None,
+    ) -> bool:
+        """True when this public row is a live question the student should answer.
+
+        A page mismatch always parks the row. A stage mismatch parks it only
+        when Save to card is on, so a kept card leaves the live list.
+        Published questions with no deck page stay live even if their stored
+        stage differs from the teacher rail (schema-v1 and unit fixtures).
+        Closed and inactive rows are never facing.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            row: One ``student_live_items_payload`` public row.
+            stage: Teacher stage, already lowercased.
+            current_page: Teacher deck page, or None when pages are unset.
+        """
+        if str(row.get("status") or "") != "active" or row.get("prompt") is None:
+            return False
+        if not self._student_item_on_current_page(
+            session_id, row, current_page=current_page
+        ):
+            return False
+        if row.get("save_to_card"):
+            item_stage = str(row.get("stage") or "").strip().lower()
+            if item_stage and stage and item_stage != stage:
+                return False
+        return True
+
+    def _metadata_question_page(self, session_id: int, item_id: str) -> int | None:
+        """Return the deck page_number for one catalogue item id.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item_id: Playlist or engine-ride id.
+        """
+        token = str(item_id or "").strip()
+        if not token:
+            return None
+        try:
+            metadata = self.live_class_metadata_for_session(session_id)
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return None
+        rows = list(metadata.get("questions") or []) + list(metadata.get("items") or [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if not self._same_live_item_id(row.get("id") or row.get("item_id"), token):
+                continue
+            raw = row.get("page_number")
+            if raw in (None, ""):
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def _student_visible_prompt(
         self, session_id: int, prompt: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        """Return ``prompt`` only when students may see it.
+        """Return ``prompt`` only when students may type an answer.
 
-        When a matching ``live_session_items`` row exists, it must be
-        student-visible (``active`` or ``closed``). Prompts with no
-        lifecycle row keep the legacy staff-set ``/prompts`` path.
+        A matching lifecycle row must be ``active`` and on the teacher's
+        current deck page. Closed rows stay in ``closed_results`` and are
+        not the facing prompt. Prompts with no lifecycle row keep the
+        legacy staff-set ``/prompts`` path, including an inactive
+        waiting-room Minds-On row, unless that item is bound to another page.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -15869,7 +16023,11 @@ class SchoolDB(LovesDB):
             return None
         item = self._lifecycle_item_for_prompt(session_id, prompt)
         if item is not None:
-            return prompt if self._live_item_is_student_visible(item) else None
+            if str(item.get("status") or "") != "active":
+                return None
+            if not self._student_item_on_current_page(session_id, item):
+                return None
+            return prompt
         payload = (
             prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
         )
@@ -15881,7 +16039,7 @@ class SchoolDB(LovesDB):
                 or (is_minds_on_payload(payload) and self._session_playlist_item_removed(session_id, "minds_on"))
             ):
                 return None
-            if self._lifecycle_item_is_published(session_id, ride_id):
+            if self._lifecycle_item_is_active(session_id, ride_id):
                 return prompt
             try:
                 teacher = self.live_session_teacher_state_payload(session_id)
@@ -15890,6 +16048,19 @@ class SchoolDB(LovesDB):
                 stage = ""
             if self.schema_v2_owns_live_stage_questions(session_id, stage or None):
                 return None
+        ride_token = str(
+            (prompt.get("payload") or {}).get("item_id")
+            or (prompt.get("payload") or {}).get("pack")
+            or ""
+        ).strip() if isinstance(prompt.get("payload"), dict) else ""
+        meta_page = self._metadata_question_page(session_id, ride_token)
+        current_page = self._current_student_page_number(session_id)
+        if (
+            meta_page is not None
+            and current_page is not None
+            and meta_page != current_page
+        ):
+            return None
         return prompt
 
     def _student_may_see_tally(
@@ -15958,6 +16129,44 @@ class SchoolDB(LovesDB):
                 return prompt
         return None
 
+    def _facing_stage_catalogue_prompt(
+        self, session_id: int, stage: str
+    ) -> dict[str, Any] | None:
+        """Return the active catalogue prompt on the teacher's current page.
+
+        Closed items stay in ``closed_results``. An active item on another
+        page is not the typeable student prompt.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            stage: Current teacher stage.
+        """
+        wanted = str(stage or "").strip().lower()
+        current_page = self._current_student_page_number(session_id)
+        leftover = {"minds_on", "minds-on"} if wanted == "join" else set()
+        for item in self.list_live_session_items(session_id):
+            if str(item.get("status") or "") != "active":
+                continue
+            if not self._student_item_on_current_page(
+                session_id, item, current_page=current_page
+            ):
+                continue
+            item_stage = str(item.get("stage") or "").strip().lower()
+            if item_stage and wanted and item_stage != wanted:
+                continue
+            item_id = str(item.get("item_id") or "").strip().lower().replace("_", "-")
+            if item_id in leftover or item_id.replace("-", "_") in {
+                token.replace("-", "_") for token in leftover
+            }:
+                continue
+            kind = str(item.get("kind") or "").strip().lower()
+            if kind in {"media", "whiteboard", "slides"}:
+                continue
+            prompt = self._prompt_for_live_item(item)
+            if prompt is not None:
+                return prompt
+        return None
+
     def _student_stage_prompt(
         self,
         session_id: int,
@@ -16009,7 +16218,7 @@ class SchoolDB(LovesDB):
                 if is_meet_team_payload((active_meet or {}).get("payload")):
                     self.clear_active_live_prompt(session_id)
                     active_meet = None
-                published_meet = self._published_stage_catalogue_prompt(
+                published_meet = self._facing_stage_catalogue_prompt(
                     session_id, "meet"
                 )
                 if published_meet is not None:
@@ -16027,7 +16236,7 @@ class SchoolDB(LovesDB):
         if active and is_cons_payload(active.get("payload")):
             return self._student_visible_prompt(session_id, active)
         if stage == "join":
-            published = self._published_stage_catalogue_prompt(session_id, "join")
+            published = self._facing_stage_catalogue_prompt(session_id, "join")
             if published is not None:
                 return published
             if self._session_playlist_item_removed(session_id, "minds_on"):
@@ -16039,7 +16248,7 @@ class SchoolDB(LovesDB):
             return self._student_visible_prompt(session_id, minds or active)
         if stage == "teams":
             self.ensure_teams_spark(session_id)
-            published = self._published_stage_catalogue_prompt(session_id, "teams")
+            published = self._facing_stage_catalogue_prompt(session_id, "teams")
             if published is not None:
                 return published
             return self._student_visible_prompt(
@@ -16047,7 +16256,7 @@ class SchoolDB(LovesDB):
                 self._prompt_at_slide(session_id, int(TEAMS_SPARK_SLIDE_INDEX))
                 or spark,
             )
-        published = self._published_stage_catalogue_prompt(session_id, stage)
+        published = self._facing_stage_catalogue_prompt(session_id, stage)
         if published is not None:
             return published
         return self._student_visible_prompt(session_id, active)
@@ -19274,6 +19483,9 @@ class SchoolDB(LovesDB):
     def live_student_poll_stamp(self, session_id: int, class_id: int) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
+        Includes prompt active flags, item counts, and Save to card so a
+        close, unpublish, or checkbox change cannot keep a stale student frame.
+
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
@@ -19290,9 +19502,29 @@ class SchoolDB(LovesDB):
                     WHERE live_session_id = ?
                   ), 0) AS prompt_max,
                   COALESCE((
+                    SELECT SUM(active) FROM live_session_prompts
+                    WHERE live_session_id = ?
+                  ), 0) AS prompt_active,
+                  COALESCE((
+                    SELECT MAX(updated_at) FROM live_session_prompts
+                    WHERE live_session_id = ?
+                  ), '') AS prompt_rev,
+                  COALESCE((
                     SELECT COUNT(*) FROM live_session_items
                     WHERE live_session_id = ? AND status = 'active'
                   ), 0) AS active_n,
+                  COALESCE((
+                    SELECT COUNT(*) FROM live_session_items
+                    WHERE live_session_id = ?
+                  ), 0) AS item_n,
+                  COALESCE((
+                    SELECT SUM(save_to_card) FROM live_session_items
+                    WHERE live_session_id = ?
+                  ), 0) AS save_n,
+                  COALESCE((
+                    SELECT MAX(updated_at) FROM live_session_items
+                    WHERE live_session_id = ?
+                  ), '') AS item_rev,
                   COALESCE((
                     SELECT MAX(id) FROM live_session_items
                     WHERE live_session_id = ?
@@ -19303,7 +19535,17 @@ class SchoolDB(LovesDB):
                     WHERE p.live_session_id = ?
                   ), 0) AS response_max
                 """,
-                (int(session_id), int(session_id), int(session_id), int(session_id)),
+                (
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                    int(session_id),
+                ),
             ).fetchone()
         event_max = 0
         try:
@@ -19316,10 +19558,18 @@ class SchoolDB(LovesDB):
         except (TypeError, ValueError, sqlite3.Error):
             event_max = 0
         prompt_max = int(row["prompt_max"] if row is not None else 0)
+        prompt_active = int(row["prompt_active"] if row is not None else 0)
+        prompt_rev = str(row["prompt_rev"] if row is not None else "")
         active_n = int(row["active_n"] if row is not None else 0)
+        item_n = int(row["item_n"] if row is not None else 0)
+        save_n = int(row["save_n"] if row is not None else 0)
+        item_rev = str(row["item_rev"] if row is not None else "")
         item_max = int(row["item_max"] if row is not None else 0)
         response_max = int(row["response_max"] if row is not None else 0)
-        return f"{seq}:{prompt_max}:{active_n}:{item_max}:{response_max}:{event_max}"
+        return (
+            f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
+            f"{item_max}:{response_max}:{event_max}:{prompt_rev}:{item_rev}"
+        )
 
     def student_live_poll_unchanged(
         self, session_id: int, class_id: int, seq: Any, stamp: Any
