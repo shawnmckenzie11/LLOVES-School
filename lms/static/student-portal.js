@@ -946,7 +946,12 @@ function bindFloatingPane(pane) {
   handle.addEventListener("pointerup", endDrag);
   handle.addEventListener("pointercancel", endDrag);
   resizeHandle?.addEventListener("pointerdown", (event) => {
-    if (window.innerWidth < 720) return;
+    if (
+      window.innerWidth < 720 &&
+      !pane.classList.contains("student-live-card")
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
@@ -1943,6 +1948,7 @@ function paintLifecycleQuestionStack(payload) {
   const closed = Array.isArray(payload?.closed_results)
     ? payload.closed_results
     : [];
+  const saved = Array.isArray(payload?.saved_cards) ? payload.saved_cards : [];
   const legacy = promptAsLifecycleItem(payload);
   const welcomeOn = hasGameShowWelcome(payload);
   if (
@@ -1954,7 +1960,11 @@ function paintLifecycleQuestionStack(payload) {
   }
   const stage = String(payload?.teacher_state?.stage || "").toLowerCase();
   const hasPublishedJoinCatalogue = publishedJoinCatalogueActive(payload);
-  const all = [...active, ...closed].filter((item) => {
+  const seenCardIds = new Set();
+  const all = [...active, ...closed, ...saved].filter((item) => {
+    const cardId = Number(item?.id) || 0;
+    if (cardId && seenCardIds.has(cardId)) return false;
+    if (cardId) seenCardIds.add(cardId);
     const kind = String(
       item?.content?.item_type || item?.item_type || item?.kind || ""
     ).toLowerCase();
@@ -1964,18 +1974,21 @@ function paintLifecycleQuestionStack(payload) {
     const itemId = String(item?.item_id || item?.content?.item_id || "")
       .toLowerCase()
       .replace(/_/g, "-");
-    if (isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue)) {
+    const keepSaved = Boolean(item?.save_to_card);
+    if (isLeftoverJoinMindsOnCard(item, stage, hasPublishedJoinCatalogue) && !keepSaved) {
       return false;
     }
     if (
+      !keepSaved &&
       ["meet-team", "meet-a", "meet-b", "meet-c"].includes(itemId) &&
       stage !== "meet"
     ) {
       return false;
     }
     if (isArtifactLifecycleItem(item)) {
-      return status === "active" || status === "closed";
+      return status === "active" || status === "closed" || keepSaved;
     }
+    if (keepSaved) return true;
     if (status === "active") {
       return !itemStage || !stage || itemStage === stage;
     }
@@ -2037,7 +2050,13 @@ function paintLifecycleQuestionStack(payload) {
       )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(status)}" data-live-card-key="${escapeText(dockKey)}">
         <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
           <span>Question</span>
-          <span class="student-live-card-status">${status === "closed" ? "Results" : "Active"}</span>
+          <span class="student-live-card-status">${
+            status === "closed"
+              ? "Results"
+              : item.save_to_card && status !== "active"
+                ? "Saved"
+                : "Active"
+          }</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
           <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
         </div>
@@ -2177,22 +2196,38 @@ async function submitLifecycleAnswer(card, action) {
   if (liveSubmitInFlight.has(flightKey)) return;
   liveSubmitInFlight.add(flightKey);
   const promptIdFromCard = Number(card.dataset.livePromptId) || 0;
-  const item =
-    (lastStudentPayload?.active_questions || []).find(
-      (row) => Number(row.id) === itemId
-    ) ||
-    (lastStudentPayload?.active_questions || []).find(
-      (row) => Number(row?.prompt?.id) === promptIdFromCard
-    ) ||
-    (Number(lastStudentPayload?.prompt?.id) === itemId
-      ? promptAsLifecycleItem(lastStudentPayload)
-      : null);
+  const pools = [
+    lastStudentPayload?.active_questions,
+    lastStudentPayload?.closed_results,
+    lastStudentPayload?.saved_cards,
+    lastStudentPayload?.live_items,
+  ];
+  let item = null;
+  for (const pool of pools) {
+    if (item || !Array.isArray(pool)) continue;
+    item =
+      pool.find((row) => Number(row.id) === itemId) ||
+      pool.find((row) => Number(row?.prompt?.id) === promptIdFromCard) ||
+      null;
+  }
+  if (!item && Number(lastStudentPayload?.prompt?.id) === itemId) {
+    item = promptAsLifecycleItem(lastStudentPayload);
+  }
   const response = lifecycleAnswerFromCard(card);
   try {
-    if (!response) return;
+    if (!response) {
+      const numeric = card.querySelector("[data-live-value]");
+      throw new Error(
+        numeric
+          ? "Enter a number before submitting."
+          : "Choose an answer before submitting."
+      );
+    }
     if (!item) {
       const promptId = promptIdFromCard || Number(lastStudentPayload?.prompt?.id) || itemId;
-      if (!promptId) return;
+      if (!promptId) {
+        throw new Error("This question is not open for answers.");
+      }
       await submitResponse(promptId, response);
       return;
     }
@@ -2555,42 +2590,8 @@ function wirePromptControls(prompt) {
       }
     });
   });
-  const mcSubmit = root.querySelector("#prompt-mc-submit");
-  if (mcSubmit) {
-    mcSubmit.addEventListener("click", () => {
-      const selected = root.querySelector(".prompt-choice.is-selected");
-      const choice = selected && selected.getAttribute("data-choice");
-      if (!choice) return;
-      submitResponse(prompt.id, { choice });
-    });
-  }
-  const numSubmit = root.querySelector("#prompt-numeric-submit");
-  if (numSubmit) {
-    numSubmit.addEventListener("click", () => {
-      const input = root.querySelector("#prompt-numeric-input");
-      const raw = input && "value" in input ? String(input.value).trim() : "";
-      if (raw === "") return;
-      const number = Number(raw);
-      if (!Number.isFinite(number)) return;
-      if (integerOnly && !Number.isInteger(number)) return;
-      submitResponse(prompt.id, { value: integerOnly ? Math.trunc(number) : number });
-    });
-  }
-  const shareSubmit = root.querySelector("#prompt-share-submit");
-  if (shareSubmit) {
-    shareSubmit.addEventListener("click", () => {
-      const input = root.querySelector("#prompt-share-input");
-      const text = input && "value" in input ? String(input.value) : "";
-      submitResponse(prompt.id, { text });
-    });
-  }
-  const artifactSubmit = root.querySelector("#prompt-artifact-submit");
-  if (artifactSubmit) {
-    artifactSubmit.addEventListener("click", () => {
-      if (artifactSubmit.disabled) return;
-      submitResponse(prompt.id, { params: { ...lastArtifactSliders } });
-    });
-  }
+  root.dataset.promptId = String(prompt?.id || "");
+  root.dataset.integerOnly = integerOnly ? "1" : "";
   root.querySelectorAll("[data-artifact-parent]").forEach((radio) => {
     radio.addEventListener("change", () => {
       if (!(radio instanceof HTMLInputElement) || !radio.checked) return;
@@ -2979,6 +2980,63 @@ function hideFeedbackPanel() {
  * @param {number} promptId
  * @param {Record<string, unknown>} response
  */
+/**
+ * Show a submit failure on the legacy prompt shell.
+ * @param {string} message
+ */
+function showPromptSubmitError(message) {
+  const root = promptShell?.querySelector(".prompt-controls") || promptShell;
+  if (!(root instanceof HTMLElement)) return;
+  let note = root.querySelector(".student-live-submit-error");
+  if (!(note instanceof HTMLElement)) {
+    note = document.createElement("p");
+    note.className = "student-live-submit-error";
+    root.appendChild(note);
+  }
+  note.textContent = message;
+}
+
+/**
+ * Read the legacy prompt shell and POST its answer.
+ * @param {HTMLButtonElement} button
+ */
+async function submitPromptShellAnswer(button) {
+  const root = button.closest(".prompt-controls");
+  const promptId = Number(root?.dataset.promptId || lastStudentPayload?.prompt?.id) || 0;
+  if (!promptId) {
+    throw new Error("This question is not open for answers.");
+  }
+  if (button.id === "prompt-mc-submit") {
+    const selected = root?.querySelector(".prompt-choice.is-selected");
+    const choice = selected && selected.getAttribute("data-choice");
+    if (!choice) throw new Error("Choose an answer before submitting.");
+    await submitResponse(promptId, { choice });
+    return;
+  }
+  if (button.id === "prompt-numeric-submit") {
+    const input = root?.querySelector("#prompt-numeric-input");
+    const raw = input && "value" in input ? String(input.value).trim() : "";
+    if (raw === "") throw new Error("Enter a number before submitting.");
+    const number = Number(raw);
+    if (!Number.isFinite(number)) throw new Error("Enter a number before submitting.");
+    const integerOnly = root?.dataset.integerOnly === "1";
+    if (integerOnly && !Number.isInteger(number)) {
+      throw new Error("Enter a whole number before submitting.");
+    }
+    await submitResponse(promptId, { value: integerOnly ? Math.trunc(number) : number });
+    return;
+  }
+  if (button.id === "prompt-share-submit") {
+    const input = root?.querySelector("#prompt-share-input");
+    const text = input && "value" in input ? String(input.value) : "";
+    await submitResponse(promptId, { text });
+    return;
+  }
+  if (button.id === "prompt-artifact-submit") {
+    await submitResponse(promptId, { params: { ...lastArtifactSliders } });
+  }
+}
+
 async function submitResponse(promptId, response, { draft = false } = {}) {
   try {
     const res = await fetch(
@@ -2990,10 +3048,20 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
         body: JSON.stringify({ prompt_id: promptId, response, draft }),
       })
     );
-    const data = await res.json();
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_err) {
+      if (draft) return;
+      throw new Error("Could not submit that answer.");
+    }
     if (data.redirect) {
       location.href = data.redirect;
       return;
+    }
+    if (!res.ok || data.ok === false) {
+      if (draft) return;
+      throw new Error(data.error || "Could not submit that answer.");
     }
     if (data.ok && data.draft) {
       return;
@@ -3016,8 +3084,9 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
       hideFeedbackPanel();
       await tick();
     }
-  } catch (_err) {
-    /* keep UI; next poll retries */
+  } catch (err) {
+    if (draft) return;
+    throw err;
   }
 }
 
@@ -3409,6 +3478,20 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
       ?.querySelectorAll(".artifact-parent")
       .forEach((label) => {
         label.classList.toggle("is-on", label.contains(parentPick));
+      });
+    return;
+  }
+  const promptSubmit = event.target.closest(
+    "#prompt-mc-submit, #prompt-numeric-submit, #prompt-share-submit, #prompt-artifact-submit"
+  );
+  if (promptSubmit instanceof HTMLButtonElement) {
+    event.preventDefault();
+    if (promptSubmit.disabled) return;
+    promptSubmit.disabled = true;
+    submitPromptShellAnswer(promptSubmit)
+      .catch((err) => {
+        showPromptSubmitError(err instanceof Error ? err.message : "Could not submit.");
+        promptSubmit.disabled = false;
       });
     return;
   }

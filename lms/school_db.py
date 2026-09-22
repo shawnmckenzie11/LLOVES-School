@@ -1063,6 +1063,7 @@ class LovesDB:
         self._ensure_live_session_schema()
         self._ensure_live_session_identity_schema()
         self._ensure_live_item_schema()
+        self._ensure_save_to_card_columns()
         self._ensure_live_class_feature_schema()
         self._ensure_access_request_schema()
         self._seed()
@@ -1696,6 +1697,7 @@ class LovesDB:
                 slot TEXT NOT NULL,
                 item_id TEXT NOT NULL,
                 removed INTEGER NOT NULL DEFAULT 0,
+                save_to_card INTEGER NOT NULL DEFAULT 0,
                 page_number INTEGER,
                 stage TEXT,
                 sort_order INTEGER,
@@ -1999,6 +2001,7 @@ class LovesDB:
                 publish_mode TEXT NOT NULL DEFAULT 'individual',
                 response_mode TEXT NOT NULL DEFAULT 'individual',
                 show_live_results INTEGER NOT NULL DEFAULT 1,
+                save_to_card INTEGER NOT NULL DEFAULT 0,
                 published_at TEXT,
                 closed_at TEXT,
                 created_at TEXT NOT NULL,
@@ -2051,6 +2054,41 @@ class LovesDB:
                 ON live_group_responses(live_item_id, status, team_id);
             """
         )
+        self.conn.commit()
+
+    def _ensure_save_to_card_columns(self) -> None:
+        """Add the per-question Save to card flag on existing databases.
+
+        Fresh installs get the column from ``CREATE TABLE``. Older sqlite
+        files need ``ALTER TABLE`` so the flag survives publish and a new
+        live session.
+        """
+        item_cols = {
+            str(row[1])
+            for row in self.conn.execute(
+                "PRAGMA table_info(live_session_items)"
+            ).fetchall()
+        }
+        if "save_to_card" not in item_cols:
+            self.conn.execute(
+                """
+                ALTER TABLE live_session_items
+                ADD COLUMN save_to_card INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        override_cols = {
+            str(row[1])
+            for row in self.conn.execute(
+                "PRAGMA table_info(class_live_playlist_item_overrides)"
+            ).fetchall()
+        }
+        if "save_to_card" not in override_cols:
+            self.conn.execute(
+                """
+                ALTER TABLE class_live_playlist_item_overrides
+                ADD COLUMN save_to_card INTEGER NOT NULL DEFAULT 0
+                """
+            )
         self.conn.commit()
 
     def _rebuild_live_session_responses_identity(self) -> None:
@@ -6361,6 +6399,8 @@ class SchoolDB(LovesDB):
             if int(override.get("removed") or 0):
                 return None
             patched = dict(row)
+            if override.get("save_to_card") is not None:
+                patched["save_to_card"] = bool(int(override.get("save_to_card") or 0))
             stage = str(override.get("stage") or "").strip().lower()
             if stage:
                 patched["stage"] = stage
@@ -6504,6 +6544,47 @@ class SchoolDB(LovesDB):
                 continue
             self.close_live_session_item(session_id, int(row["id"]))
 
+    def _prompt_matches_removed_item(
+        self, payload: Any, item_ids: list[str]
+    ) -> bool:
+        """True when a prompt payload belongs to one removed deck item.
+
+        Args:
+            payload: Live prompt JSON.
+            item_ids: Item ids just dropped from the deck.
+        """
+        if not isinstance(payload, dict):
+            return False
+        prompt_item = str(payload.get("item_id") or payload.get("pack") or "").strip()
+        for token in item_ids:
+            if self._same_live_item_id(prompt_item, token):
+                return True
+            if self._engine_ride_item_id(token) and self._engine_ride_item_id(
+                token, payload
+            ):
+                return True
+        return False
+
+    def _clear_prompts_for_removed_items(
+        self, session_id: int, item_ids: list[str]
+    ) -> None:
+        """Deactivate prompts whose deck question was just removed.
+
+        A deleted lifecycle row is not enough. The active prompt channel
+        still paints that question on the student side until it is cleared.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item_ids: Item ids removed from ``live_session_items``.
+        """
+        tokens = [str(item_id or "").strip() for item_id in item_ids if str(item_id or "").strip()]
+        if not tokens:
+            return
+        active = self.get_active_live_prompt(session_id)
+        payload = (active or {}).get("payload") if isinstance((active or {}).get("payload"), dict) else {}
+        if self._prompt_matches_removed_item(payload, tokens):
+            self.clear_active_live_prompt(session_id)
+
     def _sync_playlist_change(
         self, class_id: int, module: str, slot: str
     ) -> None:
@@ -6527,22 +6608,26 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT id, placement_key, status
+                SELECT id, placement_key, item_id, kind, status
                 FROM live_session_items
                 WHERE live_session_id = ?
                 """,
                 (session_id,),
             ).fetchall()
+            removed_item_ids: list[str] = []
             for row in rows:
                 if str(row["placement_key"] or "") in expected:
                     continue
-                if str(row["status"] or "").strip().lower() != "inactive":
+                kind = str(row["kind"] or "").strip().lower()
+                if kind in {"media", "whiteboard", "slides"}:
                     continue
+                removed_item_ids.append(str(row["item_id"] or ""))
                 self.conn.execute(
                     "DELETE FROM live_session_items WHERE id = ?",
                     (int(row["id"]),),
                 )
             self.conn.commit()
+        self._clear_prompts_for_removed_items(session_id, removed_item_ids)
 
     def _upsert_playlist_item_override(
         self,
@@ -10107,6 +10192,7 @@ class SchoolDB(LovesDB):
         item["item"] = parsed if isinstance(parsed, dict) else {}
         item.pop("item_json", None)
         item["show_live_results"] = bool(item.get("show_live_results"))
+        item["save_to_card"] = bool(item.get("save_to_card"))
         item["sort_order"] = int(item.get("sort_order") or 0)
         item["page_number"] = (
             int(item["page_number"])
@@ -10444,14 +10530,15 @@ class SchoolDB(LovesDB):
                 )
                 prompt = prompt_by_item.get(item_id)
                 prompt_id = int(prompt["id"]) if prompt else None
+                save_to_card = 1 if question.get("save_to_card") else 0
                 self.conn.execute(
                     """
                     INSERT INTO live_session_items (
                         live_session_id, placement_key, item_id, stage,
                         page_number, sort_order, kind, item_json, prompt_id,
                         status, publish_mode, response_mode, show_live_results,
-                        published_at, closed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, 1,
+                        save_to_card, published_at, closed_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, 1, ?,
                               NULL, NULL, ?, ?)
                     ON CONFLICT(live_session_id, placement_key) DO UPDATE SET
                         item_id = excluded.item_id,
@@ -10482,6 +10569,7 @@ class SchoolDB(LovesDB):
                         prompt_id,
                         default_publish,
                         response_mode,
+                        save_to_card,
                         now,
                         now,
                     ),
@@ -10793,8 +10881,11 @@ class SchoolDB(LovesDB):
         if prompt_kind == "poll":
             payload.pop("key", None)
             payload.pop("correct_answer", None)
-            payload["options"] = []
-            payload["choices"] = []
+            kept_choices = list(
+                question.get("options") or question.get("choices") or []
+            )
+            payload["options"] = kept_choices
+            payload["choices"] = kept_choices
         else:
             self._attach_singular_answer_key(payload, question)
         if prompt_kind == "numeric":
@@ -10950,37 +11041,178 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return self.get_live_session_item(session_id, int(item["id"]))
 
+    @staticmethod
+    def _coerce_settings_flag(value: Any, field: str) -> bool:
+        """Parse a teacher checkbox into a boolean.
+
+        Args:
+            value: JSON boolean, int, or common string token.
+            field: Setting name used in the error message.
+
+        Returns:
+            The parsed flag.
+
+        Raises:
+            ValueError: When ``value`` is not a boolean token.
+        """
+        if isinstance(value, str):
+            token = value.strip().lower()
+            if token not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
+                raise ValueError(f"{field} must be a boolean")
+            return token in {"1", "true", "yes", "on"}
+        if isinstance(value, (bool, int)):
+            return bool(value)
+        raise ValueError(f"{field} must be a boolean")
+
     def update_live_session_item_settings(
         self,
         session_id: int,
         placement_or_item: str | int,
         *,
-        show_live_results: Any,
+        show_live_results: Any = None,
+        save_to_card: Any = None,
     ) -> dict[str, Any]:
-        """Update governed result visibility for one session item."""
+        """Update Show Live Results and/or Save to card for one item.
 
+        Either flag may be omitted. Save to card is also written onto the
+        class deck so a later publish or a new session keeps the choice.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, item id, or lifecycle id.
+            show_live_results: When set, student live tallies follow this flag.
+            save_to_card: When set, the student right panel keeps the card
+                after the beat. Default off.
+
+        Raises:
+            ValueError: When neither flag is present or a value is not boolean.
+        """
+        if show_live_results is None and save_to_card is None:
+            raise ValueError("show_live_results or save_to_card is required")
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
-        if isinstance(show_live_results, str):
-            token = show_live_results.strip().lower()
-            if token not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
-                raise ValueError("show_live_results must be a boolean")
-            visible = token in {"1", "true", "yes", "on"}
-        elif isinstance(show_live_results, (bool, int)):
-            visible = bool(show_live_results)
-        else:
-            raise ValueError("show_live_results must be a boolean")
+        assignments: list[str] = []
+        params: list[Any] = []
+        if show_live_results is not None:
+            visible = self._coerce_settings_flag(
+                show_live_results, "show_live_results"
+            )
+            assignments.append("show_live_results = ?")
+            params.append(1 if visible else 0)
+        save_flag: bool | None = None
+        if save_to_card is not None:
+            save_flag = self._coerce_settings_flag(save_to_card, "save_to_card")
+            assignments.append("save_to_card = ?")
+            params.append(1 if save_flag else 0)
+            question = item.get("item") if isinstance(item.get("item"), dict) else {}
+            question = dict(question)
+            question["save_to_card"] = bool(save_flag)
+            assignments.append("item_json = ?")
+            params.append(json.dumps(question))
+        params.extend([_now(), int(item["id"])])
         with self._lock:
             self.conn.execute(
-                """
+                f"""
                 UPDATE live_session_items
-                SET show_live_results = ?, updated_at = ?
+                SET {", ".join(assignments)}, updated_at = ?
                 WHERE id = ?
                 """,
-                (1 if visible else 0, _now(), int(item["id"])),
+                tuple(params),
             )
             self.conn.commit()
+        if save_flag is not None:
+            self._persist_save_to_card_on_deck(session_id, item, enabled=save_flag)
         return self.get_live_session_item(session_id, int(item["id"]))
+
+    def _persist_save_to_card_on_deck(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        *,
+        enabled: bool,
+    ) -> None:
+        """Store Save to card on the class deck for this live question.
+
+        Bank and staff placements keep the flag in ``item_json``. Seed and
+        engine-ride questions keep it on the playlist override row without
+        changing hide or move fields.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row being updated.
+            enabled: True when the card should stay on the student panel.
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return
+        class_id = int(session_row["class_id"])
+        module_key = str(teacher.get("live_module") or "M1").upper()
+        slot_key = str(teacher.get("live_slot") or "C1").upper()
+        item_id = str(item.get("item_id") or "").strip()
+        if not item_id:
+            return
+        flag = 1 if enabled else 0
+        stamp = _now()
+        if item_id.startswith("bank-import-") or item_id.startswith("staff-q-"):
+            with self._lock:
+                row = self.conn.execute(
+                    """
+                    SELECT item_json FROM class_live_playlist_placements
+                    WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
+                    """,
+                    (class_id, module_key, slot_key, item_id),
+                ).fetchone()
+                if row is None:
+                    return
+                try:
+                    payload = json.loads(row["item_json"] or "{}")
+                except json.JSONDecodeError:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                payload["save_to_card"] = bool(enabled)
+                self.conn.execute(
+                    """
+                    UPDATE class_live_playlist_placements
+                    SET item_json = ?
+                    WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
+                    """,
+                    (json.dumps(payload), class_id, module_key, slot_key, item_id),
+                )
+                self.conn.commit()
+            return
+        with self._lock:
+            existing = self.conn.execute(
+                """
+                SELECT id FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
+                """,
+                (class_id, module_key, slot_key, item_id),
+            ).fetchone()
+            if existing is None:
+                self.conn.execute(
+                    """
+                    INSERT INTO class_live_playlist_item_overrides (
+                        class_id, module, slot, item_id, removed, save_to_card,
+                        page_number, stage, sort_order, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?, ?)
+                    """,
+                    (class_id, module_key, slot_key, item_id, flag, stamp, stamp),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE class_live_playlist_item_overrides
+                    SET save_to_card = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (flag, stamp, int(existing["id"])),
+                )
+            self.conn.commit()
 
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
         """Return independently active question prompts in placement order."""
@@ -11742,11 +11974,19 @@ class SchoolDB(LovesDB):
             class_id: Owning class, used to remirror and resolve pack files.
         """
         try:
-            from question_math import rewrite_student_prompt_images
+            from question_math import (
+                clean_question_stem_fields,
+                rewrite_student_prompt_images,
+            )
         except ImportError:
-            from lms.question_math import rewrite_student_prompt_images
+            from lms.question_math import (
+                clean_question_stem_fields,
+                rewrite_student_prompt_images,
+            )
 
         payload = raw_payload if isinstance(raw_payload, dict) else {}
+        if payload:
+            payload = clean_question_stem_fields(dict(payload))
         item_token = str(payload.get("id") or payload.get("item_id") or "")
         is_bank = (
             str(payload.get("import_source") or "") == "module_bank"
@@ -11788,6 +12028,14 @@ class SchoolDB(LovesDB):
             }
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "").strip().lower()
+        deck_ids = [
+            self._playlist_row_item_id(row)
+            for row in (
+                self.live_class_metadata_for_session(session_id).get("questions")
+                or []
+            )
+            if isinstance(row, dict)
+        ]
         listed = list(self.list_live_session_items(session_id))
         has_published_join = any(
             str(row.get("status") or "") == "active"
@@ -11800,19 +12048,33 @@ class SchoolDB(LovesDB):
         )
         items = []
         for row in listed:
-            if row.get("status") not in {"active", "closed"}:
-                continue
-            item_id = str(row.get("item_id") or "").strip().lower().replace("-", "_")
-            item_stage = str(row.get("stage") or "").strip().lower()
-            if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
-                if stage != "teams":
+            saved = bool(row.get("save_to_card"))
+            status = str(row.get("status") or "")
+            if status not in {"active", "closed"}:
+                if not (saved and row.get("published_at")):
                     continue
-            if item_id in {"minds_on"} and (
-                stage != "join" or has_published_join
-            ):
+            kind = str(row.get("kind") or "").strip().lower()
+            item_id_raw = str(row.get("item_id") or "")
+            if kind not in {"media", "whiteboard", "slides"} and deck_ids:
+                if not any(
+                    self._same_live_item_id(item_id_raw, deck_id)
+                    for deck_id in deck_ids
+                ):
+                    continue
+            if self._session_playlist_item_removed(session_id, item_id_raw):
                 continue
-            if item_id in {"meet_team", "meet_a", "meet_b", "meet_c"} and stage != "meet":
-                continue
+            item_id = item_id_raw.strip().lower().replace("-", "_")
+            item_stage = str(row.get("stage") or "").strip().lower()
+            if not saved:
+                if item_id in {"teams_spark"} or item_stage == "teams" and item_id.endswith("spark"):
+                    if stage != "teams":
+                        continue
+                if item_id in {"minds_on"} and (
+                    stage != "join" or has_published_join
+                ):
+                    continue
+                if item_id in {"meet_team", "meet_a", "meet_b", "meet_c"} and stage != "meet":
+                    continue
             items.append(row)
         public_items: list[dict[str, Any]] = []
         for item in items:
@@ -11868,6 +12130,8 @@ class SchoolDB(LovesDB):
                                 "ephemeral": True,
                             }
             status = str(item["status"])
+            item_stage = str(item.get("stage") or "").strip().lower()
+            stage_matches = not item_stage or not stage or item_stage == stage
             include_results = status == "closed" or (
                 bool(item["show_live_results"])
                 and (
@@ -11947,6 +12211,7 @@ class SchoolDB(LovesDB):
                     "publish_mode": item["publish_mode"],
                     "response_mode": item["response_mode"],
                     "show_live_results": bool(item["show_live_results"]),
+                    "save_to_card": bool(item.get("save_to_card")),
                     "published_at": item.get("published_at"),
                     "closed_at": item.get("closed_at"),
                     "content": self._student_public_item_payload(
@@ -11968,6 +12233,7 @@ class SchoolDB(LovesDB):
                     "group_consensus": group_state,
                     "can_submit": prompt is not None
                     and status == "active"
+                    and stage_matches
                     and item["response_mode"] == "individual",
                     "results": results,
                     "results_phase": (
@@ -11994,6 +12260,15 @@ class SchoolDB(LovesDB):
             ],
             "closed_results": [
                 row for row in public_items if row["status"] == "closed"
+            ],
+            "saved_cards": [
+                row
+                for row in public_items
+                if row.get("save_to_card")
+                and (
+                    row["status"] != "active"
+                    or str(row.get("stage") or "").strip().lower() != stage
+                )
             ],
             "live_items": public_items,
         }
@@ -13223,6 +13498,8 @@ class SchoolDB(LovesDB):
             return None
         if str(teacher.get("stage") or "") != "teams":
             return None
+        if self._session_playlist_item_removed(session_id, "teams-spark"):
+            return None
         active = self.get_active_live_prompt(session_id)
         if active and self._welcome_c2_is_current(active.get("payload")):
             if self._lifecycle_item_is_published(session_id, "teams_spark"):
@@ -13326,6 +13603,8 @@ class SchoolDB(LovesDB):
         Returns:
             The active Meet prompt row, or None when the session is missing.
         """
+        if self._session_playlist_item_removed(session_id, "meet-team"):
+            return None
         step = current_meet_step(chain_state)
         active = self.get_active_live_prompt(session_id)
         payload = (active or {}).get("payload") or {}
@@ -13410,6 +13689,8 @@ class SchoolDB(LovesDB):
             The upserted prompt row, or ``None`` when the session is missing.
         """
         if self.get_live_session(session_id) is None:
+            return None
+        if self._session_playlist_item_removed(session_id, "meet-team"):
             return None
         state = public_meet_chain(chain_state) or new_meet_chain_state()
         payload = meet_payload_for_state(state) or meet_team_prompt_payload()
@@ -13889,8 +14170,40 @@ class SchoolDB(LovesDB):
             self.get_class_live_media_copy(int(class_id), key[2], key[3]),
         )
         merged["deck_revision"] = revision
+        merged = self._clean_metadata_question_stems(merged)
         self._live_metadata_cache[cache_key] = merged
         return deepcopy(merged)
+
+    def _clean_metadata_question_stems(
+        self, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Drop glued answer snapshots and formulas from deck question stems.
+
+        Args:
+            metadata: Merged live-lesson metadata.
+
+        Returns:
+            The same metadata dict with question stems cleaned.
+        """
+        try:
+            from question_math import clean_question_stem_fields
+        except ImportError:
+            from lms.question_math import clean_question_stem_fields
+        for key in ("questions", "items"):
+            cleaned_rows: list[Any] = []
+            for row in metadata.get(key) or []:
+                if not isinstance(row, dict):
+                    cleaned_rows.append(row)
+                    continue
+                item_type = str(
+                    row.get("item_type") or row.get("kind") or ""
+                ).strip().lower()
+                if key != "questions" and item_type not in {"question", "mc", "poll"}:
+                    cleaned_rows.append(row)
+                    continue
+                cleaned_rows.append(clean_question_stem_fields(dict(row)))
+            metadata[key] = cleaned_rows
+        return metadata
 
     def live_class_metadata_for_class_lesson(
         self, class_id: int, module: str, slot: str, *, fresh: bool = True
@@ -14899,6 +15212,12 @@ class SchoolDB(LovesDB):
         )
         ride_id = str(payload.get("item_id") or payload.get("pack") or "").strip()
         if self._engine_ride_item_id(ride_id, payload):
+            if (
+                (is_meet_team_payload(payload) and self._session_playlist_item_removed(session_id, "meet-team"))
+                or (is_teams_spark_payload(payload) and self._session_playlist_item_removed(session_id, "teams-spark"))
+                or (is_minds_on_payload(payload) and self._session_playlist_item_removed(session_id, "minds_on"))
+            ):
+                return None
             if self._lifecycle_item_is_published(session_id, ride_id):
                 return prompt
             try:
@@ -15022,6 +15341,17 @@ class SchoolDB(LovesDB):
                     if item_id == wanted:
                         return self._student_visible_prompt(session_id, row)
         if stage == "meet":
+            if self._session_playlist_item_removed(session_id, "meet-team"):
+                active_meet = self.get_active_live_prompt(session_id)
+                if is_meet_team_payload((active_meet or {}).get("payload")):
+                    self.clear_active_live_prompt(session_id)
+                    active_meet = None
+                published_meet = self._published_stage_catalogue_prompt(
+                    session_id, "meet"
+                )
+                if published_meet is not None:
+                    return published_meet
+                return self._student_visible_prompt(session_id, active_meet)
             return self._student_visible_prompt(
                 session_id, self.get_active_live_prompt(session_id)
             )
@@ -15278,7 +15608,7 @@ class SchoolDB(LovesDB):
         meet_state = public_meet_chain((teacher or {}).get("meet_chain"))
         meet_live = stage == "meet" and meet_state is not None
         if meet_live:
-            if (
+            if not self._session_playlist_item_removed(session_id, "meet-team") and (
                 self._lifecycle_item_is_published(session_id, "meet_team")
                 or self._published_stage_catalogue_prompt(session_id, "meet")
                 is not None
@@ -16369,8 +16699,13 @@ class SchoolDB(LovesDB):
         state = public_meet_chain(chain_state) or new_meet_chain_state()
         self.clear_waiting_room_minds_on(session_id)
         self.clear_teams_spark(session_id)
-        self.seed_meet_team_warmup(session_id, chain_state=state)
-        self.activate_meet_team_question(session_id)
+        if self._session_playlist_item_removed(session_id, "meet-team"):
+            active = self.get_active_live_prompt(session_id)
+            if is_meet_team_payload((active or {}).get("payload")):
+                self.clear_active_live_prompt(session_id)
+        else:
+            self.seed_meet_team_warmup(session_id, chain_state=state)
+            self.activate_meet_team_question(session_id)
         payload["meet_chain"] = state
         payload["prompt_ref"] = meet_prompt_ref_for(state)
         bind_meet_student_projection(payload)

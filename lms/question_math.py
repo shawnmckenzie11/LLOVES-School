@@ -32,6 +32,11 @@ _MATH_SPAN_RE = re.compile(
     r"<span\b[^>]*\bdata-latex\s*=\s*[\"']([^\"']*)[\"'][^>]*>.*?</span>",
     re.IGNORECASE | re.DOTALL,
 )
+_SNAPSHOT_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_SNAPSHOT_HOST_RE = re.compile(
+    r"i\.gyazo\.com|gyazo\.com|equatio-api\.texthelp\.com",
+    re.IGNORECASE,
+)
 _ESCAPED_HTML_RE = re.compile(r"<(?:[a-zA-Z/!])")
 _WEB_RES_RE = re.compile(
     r"""^(?:\.\./)+web_resources/""",
@@ -156,6 +161,180 @@ def html_to_plain(text: str) -> str:
     cleaned = html.unescape(cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+def _math_key(text: str) -> str:
+    """Normalize math text so a glued answer can be compared to an option.
+
+    Args:
+        text: Plain text, TeX, or a small HTML fragment.
+    """
+    raw = html_to_plain(str(text or ""))
+    raw = raw.replace("$", "")
+    return re.sub(r"\s+", "", raw).lower()
+
+
+def _answer_is_formula(text: str) -> bool:
+    """True when an option looks like an equation rather than a word label.
+
+    Args:
+        text: Correct-option text.
+    """
+    raw = str(text or "")
+    return any(token in raw for token in ("=", "^", "\\", "frac", "sqrt", "≤", "≥"))
+
+
+def _correct_option_text(question: dict[str, Any]) -> str:
+    """Return the correct option string for one MC payload, if it has one.
+
+    Args:
+        question: Catalogue or prompt payload with options and a key.
+    """
+    options = list(question.get("options") or question.get("choices") or [])
+    key = str(question.get("correct_answer") or question.get("key") or "").strip()
+    if not key:
+        return ""
+    if len(key) == 1 and key.upper() in "ABCDEFGH":
+        index = ord(key.upper()) - ord("A")
+        if 0 <= index < len(options):
+            return str(options[index] or "")
+    return key
+
+
+def _strip_trailing_formula(text: str, correct: str) -> str:
+    """Drop a trailing copy of ``correct`` when question words remain.
+
+    Args:
+        text: Stem plain text or HTML.
+        correct: Correct option text.
+    """
+    raw = str(text or "")
+    pieces = [re.escape(ch) for ch in re.sub(r"\s+", "", str(correct or "").replace("$", ""))]
+    if len(pieces) < 3 or not raw.strip():
+        return raw
+    pattern = r"(?:\s|\$)*" + r"(?:\s|\$)*".join(pieces) + r"\s*$"
+    updated = re.sub(pattern, "", raw, count=1, flags=re.IGNORECASE)
+    if updated == raw or not updated.strip():
+        return raw
+    removed = raw[len(updated):]
+    if "<" in removed:
+        return raw
+    return updated.strip()
+
+
+def _drop_snapshot_imgs(fragment: str) -> str:
+    """Remove Gyazo and EquatIO snapshot images from a stem fragment.
+
+    Args:
+        fragment: Stem HTML.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if _SNAPSHOT_HOST_RE.search(tag):
+            return ""
+        return tag
+
+    return _SNAPSHOT_IMG_RE.sub(replace, str(fragment or ""))
+
+
+def _drop_matching_math_spans(fragment: str, correct_key: str) -> str:
+    """Remove math spans whose TeX is the correct option.
+
+    Args:
+        fragment: Stem HTML.
+        correct_key: Normalized correct-option text.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        latex = html.unescape(match.group(1) or "")
+        if correct_key and _math_key(latex) == correct_key:
+            return ""
+        return match.group(0)
+
+    return _MATH_SPAN_RE.sub(replace, str(fragment or ""))
+
+
+def strip_glued_stem_relics(
+    stem_html: str,
+    stem_plain: str,
+    *,
+    correct_text: str = "",
+) -> tuple[str, str]:
+    """Remove answer snapshots and formula appendices glued onto a stem.
+
+    Gyazo and EquatIO snapshots are dropped. Equation spans and a trailing
+    plain-text copy are dropped only when they match the correct option and
+    question text remains. Graphs, tables, and in-stem math that is not the
+    answer stay. The function is idempotent.
+
+    Args:
+        stem_html: Rendered stem HTML. May be empty.
+        stem_plain: Plain stem text.
+        correct_text: Correct option text used to detect a glued answer.
+
+    Returns:
+        ``(html, plain)`` with relics removed.
+    """
+    html_out = str(stem_html or "")
+    plain_out = str(stem_plain or "")
+    correct_key = (
+        _math_key(correct_text) if _answer_is_formula(correct_text) else ""
+    )
+    if html_out:
+        stripped = _drop_snapshot_imgs(html_out)
+        if html_to_plain(stripped).strip():
+            html_out = stripped
+        if correct_key:
+            stripped = _drop_matching_math_spans(html_out, correct_key)
+            if html_to_plain(stripped).strip():
+                html_out = stripped
+        plain_from_html = html_to_plain(html_out)
+        if plain_from_html.strip():
+            plain_out = plain_from_html
+    if correct_key:
+        trimmed = _strip_trailing_formula(plain_out, correct_text)
+        if trimmed.strip() and trimmed != plain_out:
+            plain_out = trimmed
+        if html_out:
+            html_out = _strip_trailing_formula(html_out, correct_text)
+    return html_out, plain_out
+
+
+def clean_question_stem_fields(question: dict[str, Any]) -> dict[str, Any]:
+    """Strip glued answer snapshots and formulas from one question stem.
+
+    ``equation_latex`` is left in place so a staff equation under the stem
+    still renders separately from the question text.
+
+    Args:
+        question: Catalogue or prompt payload. Mutated and returned.
+
+    Returns:
+        The same dict with stem fields cleaned.
+    """
+    if not isinstance(question, dict):
+        return {}
+    correct = _correct_option_text(question)
+    text_html = str(question.get("text_html") or "")
+    if text_html:
+        cleaned_html, cleaned_plain = strip_glued_stem_relics(
+            text_html,
+            str(question.get("text") or question.get("prompt") or ""),
+            correct_text=correct,
+        )
+        if cleaned_html != text_html:
+            question["text_html"] = cleaned_html
+            if cleaned_plain and question.get("text"):
+                question["text"] = cleaned_plain
+    for key in ("text", "prompt", "stem", "question"):
+        current = question.get(key)
+        if not isinstance(current, str) or not current.strip():
+            continue
+        _html, updated = strip_glued_stem_relics("", current, correct_text=correct)
+        if updated.strip():
+            question[key] = updated
+    return question
 
 
 def maybe_unescape_escaped_html(text: str) -> str:
@@ -550,4 +729,5 @@ def enrich_live_mc_display(
             fallback = graph_image_for_builder_item(builder_id, text)
             if fallback:
                 live_mc["image_url"] = resolve_bank_image_url(fallback, class_id=class_id)
+    clean_question_stem_fields(live_mc)
     return live_mc

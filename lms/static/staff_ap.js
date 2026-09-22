@@ -2157,13 +2157,23 @@ function paintLiveQuestionCards() {
             playlistItemId
           )}" aria-label="Move or remove question">(Re)move</button>`
         : "";
-      const activeActions = active
-        ? `<label class="live-result-toggle">
+      const questionToggles =
+        !liveItemId || !onStage || closed
+          ? ""
+          : `<label class="live-result-toggle">
             <input type="checkbox" data-live-results-toggle="${liveItemId}" ${
-              card.show_live_results ? "checked" : ""
+              card.show_live_results !== false ? "checked" : ""
             }>
             <span>Show Live Results</span>
           </label>
+          <label class="live-result-toggle">
+            <input type="checkbox" data-save-to-card="${liveItemId}" ${
+              card.save_to_card ? "checked" : ""
+            }>
+            <span>Save to card</span>
+          </label>`;
+      const activeActions = active
+        ? `${questionToggles}
           ${
             card.response_mode === "group_consensus"
               ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
@@ -2172,7 +2182,7 @@ function paintLiveQuestionCards() {
           <button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Close</button>`
         : closed
           ? `${pointsButton}<span class="live-closed-copy">Final results</span>`
-          : "";
+          : questionToggles;
       return `<article class="live-question-card is-${status}" data-question-id="${escapeHtml(
         item.id || card.item_id || card.id
       )}" data-live-item-id="${liveItemId}">
@@ -2414,6 +2424,25 @@ async function setLifecycleResultsVisible(liveItemId, visible) {
     {
       method: "PATCH",
       body: JSON.stringify({ show_live_results: Boolean(visible) }),
+    }
+  );
+  adoptLiveItem(result?.item);
+  paintLiveQuestionCards();
+}
+
+/**
+ * Persist Save to card so the student panel keeps this question after the beat.
+ * @param {number} liveItemId
+ * @param {boolean} enabled
+ */
+async function setLifecycleSaveToCard(liveItemId, enabled) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ save_to_card: Boolean(enabled) }),
     }
   );
   adoptLiveItem(result?.item);
@@ -7118,6 +7147,18 @@ $("live-question-list")?.addEventListener("change", async (event) => {
       await setLifecycleResultsVisible(
         Number(resultToggle.dataset.liveResultsToggle) || 0,
         resultToggle.checked
+      );
+    } catch (err) {
+      showError("#ap-overlay-error", err);
+    }
+    return;
+  }
+  const saveToggle = event.target.closest("[data-save-to-card]");
+  if (saveToggle instanceof HTMLInputElement) {
+    try {
+      await setLifecycleSaveToCard(
+        Number(saveToggle.dataset.saveToCard) || 0,
+        saveToggle.checked
       );
     } catch (err) {
       showError("#ap-overlay-error", err);

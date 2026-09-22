@@ -4526,8 +4526,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     stored,
                     participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
                 )
-            except (KeyError, ValueError):
-                pass
+            except (KeyError, ValueError) as exc:
+                return _json_error(exc)
             recorded = school.record_meet_chain_pick(
                 live_session_id,
                 participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
@@ -5319,15 +5319,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if error is not None:
             return error
         body = request.get_json(silent=True) or {}
-        if "show_live_results" not in body:
+        has_results = "show_live_results" in body
+        has_save = "save_to_card" in body
+        if not has_results and not has_save:
             return jsonify(
-                {"ok": False, "error": "show_live_results is required"}
+                {
+                    "ok": False,
+                    "error": "show_live_results or save_to_card is required",
+                }
             ), 400
         try:
             item = school.update_live_session_item_settings(
                 session_id,
                 live_item_id,
-                show_live_results=body.get("show_live_results"),
+                show_live_results=body.get("show_live_results") if has_results else None,
+                save_to_card=body.get("save_to_card") if has_save else None,
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)

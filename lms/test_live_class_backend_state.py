@@ -1593,6 +1593,146 @@ class LiveBackendStateTests(unittest.TestCase):
             sum(int(c.get("count") or 0) for c in choices), 1
         )
 
+    def test_show_live_results_and_save_to_card_before_publish(self) -> None:
+        """Teacher can set both flags on an inactive card, and Save to card sticks."""
+
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C1",
+            stage="round",
+            student_view={"questions": "student"},
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        q1 = next(row for row in items if row["item_id"] == "q-one")
+        self.assertEqual(q1["status"], "inactive")
+        self.assertFalse(q1["save_to_card"])
+        hidden = self.school.update_live_session_item_settings(
+            self.session_id, int(q1["id"]), show_live_results=False
+        )
+        self.assertEqual(hidden["status"], "inactive")
+        self.assertFalse(hidden["show_live_results"])
+        saved = self.school.update_live_session_item_settings(
+            self.session_id, int(q1["id"]), save_to_card=True
+        )
+        self.assertTrue(saved["save_to_card"])
+        self.assertFalse(saved["show_live_results"])
+        overrides = self.school.list_class_playlist_item_overrides(
+            self.class_id, "M1", "C1"
+        )
+        self.assertTrue(
+            any(
+                row.get("item_id") == "q-one" and int(row.get("save_to_card") or 0) == 1
+                for row in overrides
+            )
+        )
+        published = self.school.publish_live_session_item(
+            self.session_id, int(q1["id"]), publish_mode="individual"
+        )
+        self.assertTrue(published["save_to_card"])
+        self.assertFalse(published["show_live_results"])
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="summary"
+        )
+        payload = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        card = next(
+            row for row in payload["saved_cards"] if row["item_id"] == "q-one"
+        )
+        self.assertTrue(card["save_to_card"])
+        self.assertFalse(card["can_submit"])
+
+    def test_removed_meet_team_does_not_return_for_students(self) -> None:
+        """Removing Meet from M1 C4 drops the teammate prompt for students."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C4",
+            stage="join",
+            student_view={"questions": "student"},
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        self.school.remove_class_playlist_item(
+            self.class_id, "M1", "C4", "meet-team"
+        )
+        self.school.set_live_session_teacher_state(self.session_id, stage="meet")
+        payload = self.school.student_live_prompt_payload(
+            self.session_id, self.student_ids[0]
+        )
+        blob = json.dumps(payload)
+        self.assertNotIn("teammate who", blob.lower())
+        for row in payload.get("live_items") or []:
+            self.assertNotEqual(
+                str(row.get("item_id") or "").replace("_", "-"), "meet-team"
+            )
+
+    def test_c4_join_submit_stores_a_response(self) -> None:
+        """M1 C4 page 1 (Join) Submit Answer stores the waiting-room choice."""
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C4",
+            stage="join",
+            student_view={"questions": "student"},
+        )
+        payload = self.school.student_live_prompt_payload(
+            self.session_id, self.student_ids[0]
+        )
+        prompt = payload.get("prompt") or {}
+        self.assertTrue(prompt.get("id"))
+        choices = (prompt.get("payload") or {}).get("choices") or []
+        self.assertTrue(choices)
+        self.school.submit_live_prompt_response(
+            int(prompt["id"]),
+            self.student_ids[0],
+            {"choice": choices[0]},
+        )
+        stored = self.school.get_live_prompt_response(
+            int(prompt["id"]), self.student_ids[0]
+        )
+        self.assertIsNotNone(stored)
+        self.assertEqual((stored or {}).get("response", {}).get("choice"), choices[0])
+
+    def test_poll_prompt_keeps_authored_choices(self) -> None:
+        """A poll publish keeps its options so Submit Answer has a choice to send."""
+
+        deck = metadata_fixture()
+        poll = {
+            "id": "q-poll",
+            "ref": "test/question/q-poll",
+            "item_type": "question",
+            "stage": "round",
+            "page_number": 1,
+            "order": 3,
+            "type": "poll",
+            "text": "Pick a colour",
+            "options": ["Red", "Blue"],
+            "default_status": "inactive",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+        }
+        deck["questions"] = [*deck["questions"], poll]
+        deck["items"] = [*deck["questions"], deck["items"][-1]]
+        self.school.live_class_metadata_for_session = lambda _session_id: deck
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            stage="round",
+            student_view={"questions": "student"},
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        row = next(item for item in items if item["item_id"] == "q-poll")
+        published = self.school.publish_live_session_item(
+            self.session_id, int(row["id"]), publish_mode="individual"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        self.assertEqual(prompt["payload"].get("choices"), ["Red", "Blue"])
+
 
 class LiveBackendApiGuardTests(unittest.TestCase):
     """Verify ownership and active-session guards on new publish APIs."""

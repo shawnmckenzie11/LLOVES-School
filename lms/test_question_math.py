@@ -231,6 +231,32 @@ class BankMcDisplayTests(unittest.TestCase):
         self.assertIn("<table>", live["text_html"])
         self.assertIn("Hours", live["text_html"])
 
+    def test_glued_answer_formula_and_snapshot_leave_the_stem(self) -> None:
+        """Answer snapshots and a matching formula appendix are not part of the stem."""
+        from question_math import clean_question_stem_fields
+
+        question = {
+            "text": "Which equation matches the graph? y=2^{x}+3",
+            "text_html": (
+                "<p>Which equation matches the graph?</p>"
+                '<img src="https://i.gyazo.com/snap.png" alt="snapshot">'
+                '<span class="math-latex" data-latex="y=2^{x}+3">y=2^{x}+3</span>'
+                "<table><tr><td>x</td><td>y</td></tr></table>"
+                '<img src="/static/bank-graphs/parabola-grid.svg" alt="graph">'
+            ),
+            "options": ["y=2^{x}+3", "y=2^{x}", "y=x^{2}", "y=|x|"],
+            "correct_answer": "A",
+            "equation_latex": "y=2^{x}+3",
+        }
+        clean_question_stem_fields(question)
+        self.assertIn("Which equation matches the graph?", question["text_html"])
+        self.assertNotIn("gyazo.com", question["text_html"])
+        self.assertNotIn("y=2^{x}+3", question["text_html"])
+        self.assertIn("<table>", question["text_html"])
+        self.assertIn("parabola-grid.svg", question["text_html"])
+        self.assertNotIn("y=2^{x}+3", question["text"])
+        self.assertEqual(question["equation_latex"], "y=2^{x}+3")
+
     def test_student_visible_bank_image_url_rewrites_staff_path(self) -> None:
         """Staff module-file URLs become the student-accessible twin."""
         staff = "/staff/class/9/module-files/web_resources/diagram.png"
