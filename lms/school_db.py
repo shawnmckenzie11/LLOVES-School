@@ -5525,6 +5525,75 @@ class SchoolDB(LovesDB):
                     parts.append(str(opt))
         return " ".join(parts).lower()
 
+    @staticmethod
+    def strip_equation_latex(raw: str) -> str:
+        """Return TeX with wrapping dollar signs removed.
+
+        Staff may paste ``$y=x^2$`` or ``$$y=x^2$$``. Storage keeps the inner
+        source so KaTeX receives raw ``equation_latex``.
+
+        Args:
+            raw: Equation field text.
+
+        Returns:
+            Trimmed TeX, or an empty string when nothing remains.
+        """
+        text = str(raw or "").strip()
+        return re.sub(r"^\$+|\$+$", "", text).strip()
+
+    @staticmethod
+    def _problem_kind_from_payload(payload: dict[str, Any]) -> str:
+        """Return ``warmup``, ``contest``, or ``standard`` when tagged.
+
+        Args:
+            payload: Question ``payload_json`` object.
+
+        Returns:
+            A live-problem kind, or ``""`` when the row is untagged.
+        """
+        if not isinstance(payload, dict):
+            return ""
+        allowed = {"warmup", "contest", "standard"}
+        for key in ("kind", "bank_kind", "problem_kind"):
+            token = str(payload.get(key) or "").strip().lower()
+            if token in allowed:
+                return token
+        raw_tags = payload.get("tags")
+        if raw_tags is None:
+            raw_tags = payload.get("tag")
+        tags: list[str]
+        if isinstance(raw_tags, str):
+            tags = [part.strip() for part in raw_tags.split(",")]
+        elif isinstance(raw_tags, list):
+            tags = [str(part or "") for part in raw_tags]
+        else:
+            tags = []
+        for tag in tags:
+            token = tag.strip().lower()
+            if token in allowed:
+                return token
+        return ""
+
+    @staticmethod
+    def _bank_mc_kind_visible(item: dict[str, Any], kind: str | None) -> bool:
+        """Keep math-process picks unless the teacher scopes kind to warmup.
+
+        Untagged rows stay in the default mix. An explicit ``standard``,
+        ``contest``, or ``warmup`` value keeps only that tag.
+
+        Args:
+            item: Normalized MC row. ``kind`` is set when the payload is tagged.
+            kind: Requested kind filter. Empty excludes warmup.
+
+        Returns:
+            True when the row belongs in this Import result.
+        """
+        tagged = str(item.get("kind") or "").strip().lower()
+        wanted = str(kind or "").strip().lower()
+        if wanted in {"warmup", "contest", "standard"}:
+            return tagged == wanted
+        return tagged != "warmup"
+
     def search_module_bank_mcs(
         self,
         library_id: int,
@@ -5533,6 +5602,7 @@ class SchoolDB(LovesDB):
         *,
         limit: int = 200,
         class_id: int | None = None,
+        kind: str | None = None,
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
@@ -5541,6 +5611,9 @@ class SchoolDB(LovesDB):
             module_number: One-based module index.
             query: Optional stem/options substring filter.
             limit: Maximum rows to return (capped at 500).
+            class_id: Class id for image URL resolution.
+            kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
+                process picks and drops warmup-tagged icebreakers.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count), and
@@ -5607,6 +5680,9 @@ class SchoolDB(LovesDB):
             normalized["edited_in_lms"] = overlay is not None
             if skip_reason:
                 normalized["skip_reason"] = skip_reason
+            problem_kind = self._problem_kind_from_payload(payload)
+            if problem_kind:
+                normalized["kind"] = problem_kind
             all_items.append(normalized)
         try:
             from bank_dedupe import select_canonical_questions
@@ -5614,6 +5690,9 @@ class SchoolDB(LovesDB):
             from lms.bank_dedupe import select_canonical_questions
 
         all_items, _dropped = select_canonical_questions(all_items)
+        all_items = [
+            item for item in all_items if self._bank_mc_kind_visible(item, kind)
+        ]
         total = len(all_items)
         if needle:
             filtered_items = [
@@ -5623,6 +5702,84 @@ class SchoolDB(LovesDB):
             ]
         else:
             filtered_items = all_items
+        return {
+            "items": filtered_items[:cap],
+            "total": total,
+            "filtered": len(filtered_items),
+        }
+
+    def search_bank_scope_mcs(
+        self,
+        library_id: int,
+        bank_scope: str,
+        current_module_number: int,
+        query: str = "",
+        *,
+        limit: int = 200,
+        class_id: int | None = None,
+        kind: str | None = None,
+    ) -> dict[str, Any]:
+        """Search importable MCs for one bank scope, deduped across modules.
+
+        ``course`` unions modules 1–8. A module token searches that module
+        only. Warmup-tagged rows stay out unless ``kind`` is ``warmup``.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            bank_scope: ``course``, ``module``, ``M2`` / ``2``, or similar.
+            current_module_number: Open live-lesson module, used for ``module``.
+            query: Optional stem/options substring filter.
+            limit: Maximum rows to return (capped at 500).
+            class_id: Class id for image URL resolution.
+            kind: ``standard``, ``contest``, or ``warmup``. Empty excludes warmup.
+
+        Returns:
+            Dict with ``items``, ``total``, and ``filtered``.
+        """
+        numbers = self._bank_scope_module_numbers(
+            bank_scope, int(current_module_number)
+        )
+        token = str(bank_scope or "").strip().lower()
+        if len(numbers) == 1 and token not in {
+            "course",
+            "course-wide",
+            "coursewide",
+            "all",
+        }:
+            return self.search_module_bank_mcs(
+                int(library_id),
+                int(numbers[0]),
+                query,
+                limit=limit,
+                class_id=class_id,
+                kind=kind,
+            )
+        merged: dict[int, dict[str, Any]] = {}
+        for number in numbers:
+            chunk = self.search_module_bank_mcs(
+                int(library_id),
+                int(number),
+                "",
+                limit=500,
+                class_id=class_id,
+                kind=kind,
+            )
+            for item in chunk.get("items") or []:
+                question_id = int(item.get("question_id") or 0)
+                if question_id and question_id not in merged:
+                    merged[question_id] = item
+        all_items = list(merged.values())
+        total = len(all_items)
+        needle = str(query or "").strip().lower()
+        if needle:
+            filtered_items = [
+                item
+                for item in all_items
+                if needle in self._module_bank_mc_search_haystack(item)
+            ]
+        else:
+            filtered_items = all_items
+        cap = max(1, min(int(limit), 500))
         return {
             "items": filtered_items[:cap],
             "total": total,
@@ -7845,13 +8002,13 @@ class SchoolDB(LovesDB):
     def _bank_scope_module_numbers(
         bank_scope: str, current_module_number: int
     ) -> list[int]:
-        """Resolve Save-to-bank radios into module numbers 1–8.
+        """Resolve a Bank scope value into module numbers 1–8.
 
         Accepts ``course`` / ``all`` (every module), ``module`` (current),
         ``M2`` / ``m2`` / ``2``. Unknown tokens fall back to the current module.
 
         Args:
-            bank_scope: Staff radio value.
+            bank_scope: Staff Bank scope value.
             current_module_number: Module number of the open live lesson.
 
         Returns:
@@ -8014,7 +8171,7 @@ class SchoolDB(LovesDB):
             page = max(1, int(page_number))
         except (TypeError, ValueError):
             page = 1
-        latex = str(equation or "").strip()
+        latex = self.strip_equation_latex(equation or "")
         image = str(image_url or "").strip()
         option_list = [str(opt or "").strip() for opt in (options or [])]
         item_payload: dict[str, Any] = {

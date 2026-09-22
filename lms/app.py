@@ -2994,7 +2994,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @staff_required
     def staff_module_bank_mc_search(class_id: int, module: str):
-        """Search normalized MCs within confirmed banks for one module."""
+        """Search normalized MCs for one module or Course Wide bank scope."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
@@ -3003,25 +3003,67 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             from bank_mc_normalize import parse_module_token
         except ImportError:
             from lms.bank_mc_normalize import parse_module_token
-        module_number = parse_module_token(str(module or "").strip().upper())
-        if module_number is None:
-            return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
+        query = str(request.args.get("q") or "").strip()
+        kind = str(request.args.get("kind") or "").strip().lower()
+        scope_arg = str(
+            request.args.get("bank_scope") or request.args.get("bankScope") or ""
+        ).strip().lower()
+        module_token = str(module or "").strip()
+        course_tokens = {"course", "course-wide", "coursewide", "all"}
+        course_scope = (
+            module_token.lower() in course_tokens or scope_arg in course_tokens
+        )
+        module_number = None
+        if not course_scope:
+            module_number = parse_module_token(module_token.upper())
+            if module_number is None:
+                return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
         cls = school.enrich_class(school.game.get_class(class_id))
         library_id, error = _ready_library(school, cls)
         if not library_id:
             return jsonify({"ok": False, "error": error or "No module pack"}), 404
-        query = str(request.args.get("q") or "").strip()
+        if course_scope:
+            result = school.search_bank_scope_mcs(
+                int(library_id),
+                "course",
+                1,
+                query,
+                class_id=int(class_id),
+                kind=kind,
+            )
+            items = result.get("items") or []
+            return jsonify(
+                {
+                    "ok": True,
+                    "module": "COURSE",
+                    "bank_scope": "course",
+                    "module_number": None,
+                    "library_id": int(library_id),
+                    "query": query,
+                    "kind": kind,
+                    "count": len(items),
+                    "total": int(result.get("total") or 0),
+                    "filtered": int(result.get("filtered") or 0),
+                    "items": items,
+                }
+            )
         result = school.search_module_bank_mcs(
-            int(library_id), int(module_number), query, class_id=int(class_id)
+            int(library_id),
+            int(module_number),
+            query,
+            class_id=int(class_id),
+            kind=kind,
         )
         items = result.get("items") or []
         return jsonify(
             {
                 "ok": True,
-                "module": str(module or "").strip().upper(),
+                "module": module_token.upper(),
+                "bank_scope": module_token.upper(),
                 "module_number": module_number,
                 "library_id": int(library_id),
                 "query": query,
+                "kind": kind,
                 "count": len(items),
                 "total": int(result.get("total") or 0),
                 "filtered": int(result.get("filtered") or 0),

@@ -42,17 +42,48 @@ function itemPreview(item) {
  */
 
 /**
+ * Normalize a Bank scope token to ``M1``–``M8`` or ``course``.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function normalizeBankScope(raw) {
+  const token = String(raw || "").trim();
+  if (token.toLowerCase() === "course") return "course";
+  const upper = token.toUpperCase();
+  return /^M[1-8]$/.test(upper) ? upper : "M1";
+}
+
+/**
+ * Option list for the shared Bank scope control.
+ * @param {string} selected
+ * @returns {string}
+ */
+function bankScopeOptionsHtml(selected) {
+  const current = normalizeBankScope(selected);
+  const modules = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
+    .map((token, index) => {
+      const picked = token === current ? " selected" : "";
+      return `<option value="${token}"${picked}>Module ${index + 1}</option>`;
+    })
+    .join("");
+  const coursePicked = current === "course" ? " selected" : "";
+  return `${modules}<option value="course"${coursePicked}>Course Wide</option>`;
+}
+
+/**
  * Fetch module-scoped MC search results with counts.
  * @param {number} classId
  * @param {string} moduleToken
  * @param {string} query
+ * @param {string} [kind] ``standard``, ``contest``, or ``warmup``. Empty excludes warmup.
  * @returns {Promise<ModuleMcSearchResult>}
  */
-async function searchModuleMcs(classId, moduleToken, query) {
-  const module = String(moduleToken || "M1").toUpperCase();
+async function searchModuleMcs(classId, moduleToken, query, kind) {
+  const scope = normalizeBankScope(moduleToken);
   const q = encodeURIComponent(String(query || "").trim());
+  const kindParam = encodeURIComponent(String(kind || "").trim().toLowerCase());
   const payload = await api(
-    `/api/staff/class/${classId}/module-banks/${module}/mc-search?q=${q}`
+    `/api/staff/class/${classId}/module-banks/${scope}/mc-search?q=${q}&kind=${kindParam}`
   );
   return {
     items: Array.isArray(payload?.items) ? payload.items : [],
@@ -121,27 +152,35 @@ export async function mountBankMcPicker(opts) {
   const mode = opts.mode === "browse" ? "browse" : "import";
   const onSelect = typeof opts.onSelect === "function" ? opts.onSelect : () => {};
   const showModuleSelector = Boolean(opts.showModuleSelector);
-  let moduleNumber = String(opts.moduleNumber || "M1").toUpperCase();
+  const showScope = mode === "import" || showModuleSelector;
+  const showKind = mode === "import";
+  let moduleNumber = normalizeBankScope(opts.moduleNumber || "M1");
+  let kindFilter = "";
 
   const shell = document.createElement("div");
   shell.className = "bank-mc-picker";
   shell.innerHTML = `
     <div class="bank-mc-picker-head">
       ${
-        showModuleSelector
-          ? `<label class="bank-mc-picker-module">Module
-              <select data-bank-mc-module aria-label="Module">
-                ${["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
-                  .map(
-                    (token) =>
-                      `<option value="${token}"${
-                        token === moduleNumber ? " selected" : ""
-                      }>${token}</option>`
-                  )
-                  .join("")}
+        showScope
+          ? `<label class="bank-mc-picker-module">Bank scope
+              <select data-bank-mc-module aria-label="Bank scope">
+                ${bankScopeOptionsHtml(moduleNumber)}
               </select>
             </label>`
           : `<p class="hint compact">Module ${escapeHtml(moduleNumber)} banks only</p>`
+      }
+      ${
+        showKind
+          ? `<label class="bank-mc-picker-kind">Kind
+              <select data-bank-mc-kind aria-label="Kind">
+                <option value="" selected>Process</option>
+                <option value="standard">Standard</option>
+                <option value="contest">Contest</option>
+                <option value="warmup">Warmup</option>
+              </select>
+            </label>`
+          : ""
       }
       <label class="bank-mc-picker-search">Search
         <input type="search" data-bank-mc-query placeholder="Stem or option text" autocomplete="off">
@@ -161,9 +200,9 @@ export async function mountBankMcPicker(opts) {
     modalRoot.className = "bank-mc-picker-modal";
     modalRoot.innerHTML = `
       <div class="bank-mc-picker-backdrop" data-bank-mc-close></div>
-      <div class="bank-mc-picker-dialog card" role="dialog" aria-label="Module bank MC picker">
+      <div class="bank-mc-picker-dialog card" role="dialog" aria-label="${mode === "import" ? "Import from bank" : "Module bank MCs"}">
         <header class="bank-mc-picker-titlebar">
-          <h3>${mode === "import" ? "Import from module bank" : "Module bank MCs"}</h3>
+          <h3>${mode === "import" ? "Import from bank" : "Module bank MCs"}</h3>
           <button type="button" class="secondary compact" data-bank-mc-close aria-label="Close">Close</button>
         </header>
       </div>
@@ -180,6 +219,7 @@ export async function mountBankMcPicker(opts) {
   const statusEl = shell.querySelector("[data-bank-mc-status]");
   const queryEl = shell.querySelector("[data-bank-mc-query]");
   const moduleEl = shell.querySelector("[data-bank-mc-module]");
+  const kindEl = shell.querySelector("[data-bank-mc-kind]");
 
   /**
    * Paint search hits into the list pane.
@@ -248,7 +288,10 @@ export async function mountBankMcPicker(opts) {
       statusEl.textContent = "Searching…";
     }
     try {
-      const bankStatus = await loadModuleBankStatus(classId, moduleNumber);
+      const bankStatus =
+        moduleNumber === "course"
+          ? null
+          : await loadModuleBankStatus(classId, moduleNumber);
       if (mode === "import" && bankStatus?.needs_confirmation) {
         const ids = moduleBankConfirmIds(bankStatus);
         if (ids.length) {
@@ -293,7 +336,14 @@ export async function mountBankMcPicker(opts) {
       }
       const queryValue =
         queryEl instanceof HTMLInputElement ? queryEl.value : "";
-      const search = await searchModuleMcs(classId, moduleNumber, queryValue);
+      const kindValue =
+        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter;
+      const search = await searchModuleMcs(
+        classId,
+        moduleNumber,
+        queryValue,
+        kindValue
+      );
       paintCount(search.total, search.filtered, queryValue);
       paintList(search.items);
     } catch (err) {
@@ -315,7 +365,13 @@ export async function mountBankMcPicker(opts) {
   });
   moduleEl?.addEventListener("change", () => {
     if (moduleEl instanceof HTMLSelectElement) {
-      moduleNumber = String(moduleEl.value || "M1").toUpperCase();
+      moduleNumber = normalizeBankScope(moduleEl.value);
+      refreshSearch().catch(() => {});
+    }
+  });
+  kindEl?.addEventListener("change", () => {
+    if (kindEl instanceof HTMLSelectElement) {
+      kindFilter = String(kindEl.value || "");
       refreshSearch().catch(() => {});
     }
   });
@@ -336,7 +392,8 @@ export async function mountBankMcPicker(opts) {
       const search = await searchModuleMcs(
         classId,
         moduleNumber,
-        queryEl instanceof HTMLInputElement ? queryEl.value : ""
+        queryEl instanceof HTMLInputElement ? queryEl.value : "",
+        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter
       );
       const picked = search.items.find((row) => Number(row.question_id) === qid);
       if (!picked) {

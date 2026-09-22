@@ -726,6 +726,121 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             [3],
         )
 
+    def test_add_staff_question_strips_wrapping_equation_dollars(self) -> None:
+        """Stored equation_latex is raw TeX without wrapping dollar signs."""
+
+        self.assertEqual(self.school.strip_equation_latex("  $y=x^2$  "), "y=x^2")
+        self.assertEqual(
+            self.school.strip_equation_latex(r"$$\frac{a}{b}$$"), r"\frac{a}{b}"
+        )
+        self.assertEqual(self.school.strip_equation_latex("y=x^2"), "y=x^2")
+        self.assertEqual(self.school.strip_equation_latex("$$"), "")
+        item = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="poll",
+            text="What does the graph show?",
+            page_number=1,
+            stage="round",
+            equation="$y = x^{2}$",
+        )["item"]
+        self.assertEqual(item.get("equation_latex"), "y = x^{2}")
+        self.assertNotIn("$", str(item.get("equation_latex") or ""))
+
+    def test_import_search_excludes_warmup_unless_scoped(self) -> None:
+        """Process Import hides warmup tags until kind is warmup."""
+
+        warmup_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-warmup",
+            title="Icebreaker",
+            stem="Notice and wonder about equal groups",
+            extra_payload={"kind": "warmup"},
+        )
+        tagged_warmup_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-warmup-tag",
+            title="Tagged opener",
+            stem="Rotating opener about attendance",
+            extra_payload={"tags": ["warmup"]},
+        )
+        contest_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-contest",
+            title="Contest",
+            stem="Ferris wheel first height",
+            extra_payload={"kind": "contest"},
+        )
+        standard_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-standard",
+            title="Standard",
+            stem="Equal-group factor pairs",
+            extra_payload={"kind": "standard"},
+        )
+        default_ids = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(self.library_id, 1, "")[
+                "items"
+            ]
+        }
+        self.assertNotIn(warmup_id, default_ids)
+        self.assertNotIn(tagged_warmup_id, default_ids)
+        self.assertIn(contest_id, default_ids)
+        self.assertIn(standard_id, default_ids)
+        self.assertIn(self.m1_q, default_ids)
+        warmup_ids = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 1, "", kind="warmup"
+            )["items"]
+        }
+        self.assertEqual(warmup_ids, {warmup_id, tagged_warmup_id})
+        contest_ids = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 1, "", kind="contest"
+            )["items"]
+        }
+        self.assertEqual(contest_ids, {contest_id})
+
+    def test_course_bank_scope_search_is_unique_across_modules(self) -> None:
+        """Course Wide search returns each linked question once."""
+
+        placed = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_type="mc",
+            text="Course scope dedupe MC",
+            page_number=1,
+            stage="join",
+            options=["W", "X", "Y", "Z"],
+            correct_index=1,
+            save_to_bank=True,
+            bank_scope="course",
+            library_id=self.library_id,
+        )
+        source_id = int(placed.get("source_question_id") or 0)
+        hits = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "Course scope dedupe"
+        )
+        ids = [int(row.get("question_id") or 0) for row in hits["items"]]
+        self.assertEqual(ids.count(source_id), 1)
+        self.assertEqual(hits["filtered"], 1)
+        module_only = self.school.search_bank_scope_mcs(
+            self.library_id, "M2", 1, "Course scope dedupe"
+        )
+        module_ids = [
+            int(row.get("question_id") or 0) for row in module_only["items"]
+        ]
+        self.assertIn(source_id, module_ids)
+
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""
 

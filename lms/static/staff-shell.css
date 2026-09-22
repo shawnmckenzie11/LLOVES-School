@@ -4314,9 +4314,9 @@ body.staff-shell .live-questions-head-actions {
   justify-content: flex-end;
 }
 body.staff-shell .live-add-question-card {
-  width: min(32rem, calc(100vw - 2rem));
-  max-height: min(86vh, 44rem);
-  overflow: auto;
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: 90vh;
+  overflow: hidden;
 }
 body.staff-shell .live-add-q-option {
   display: flex;
@@ -4331,11 +4331,27 @@ body.staff-shell .live-add-q-tolerance-row {
   grid-template-columns: 1fr 1fr;
   gap: 0.45rem;
 }
-body.staff-shell .live-add-q-bank {
+body.staff-shell .live-add-q-bank,
+body.staff-shell .live-add-q-bank-scope {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.78rem;
+}
+body.staff-shell .live-add-q-bank-scope {
+  margin-top: 0.35rem;
+}
+body.staff-shell .live-add-q-bank-scope select {
+  flex: 1 1 auto;
+  min-height: 2rem;
+  max-width: 16rem;
+}
+body.staff-shell #live-add-q-bank-scope[hidden],
+body.staff-shell #live-add-q-bank-scope-hint[hidden],
+body.staff-shell #live-add-q-numeric-fields[hidden],
+body.staff-shell #live-add-q-mc-fields[hidden],
+body.staff-shell #live-add-q-error[hidden] {
+  display: none;
 }
 body.staff-shell .live-add-q-equation-block {
   margin: 0;
@@ -4355,10 +4371,29 @@ body.staff-shell .live-add-q-equation-preview {
   border-radius: 8px;
   background: #fff;
 }
-body.staff-shell #live-add-q-bank-scope {
+body.staff-shell .live-add-q-body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0.95rem 0.35rem;
+}
+body.staff-shell .live-add-q-footer {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.95rem 0.85rem;
+  background: #eef2f7;
+}
+body.staff-shell .live-add-q-fields,
+body.staff-shell .live-add-q-save,
+body.staff-shell .live-add-q-stem,
+body.staff-shell .live-add-q-image {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+body.staff-shell #live-add-q-bank-scope-hint {
+  margin: 0.25rem 0 0;
 }
 body.staff-shell .live-import-mc-btn {
   font-size: 0.72rem;
@@ -4420,8 +4455,9 @@ body.staff-shell .bank-mc-picker-head {
   margin-bottom: 0.45rem;
 }
 body.staff-shell .bank-mc-picker-search,
-body.staff-shell .bank-mc-picker-module {
-  flex: 1 1 12rem;
+body.staff-shell .bank-mc-picker-module,
+body.staff-shell .bank-mc-picker-kind {
+  flex: 1 1 9rem;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -4512,6 +4548,36 @@ body.staff-shell .live-relocate-dialog-card {
   border: 1px solid #334155;
   border-radius: 10px;
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.32);
+}
+body.staff-shell .live-add-question-card.live-relocate-dialog-card {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: 90vh;
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
+}
+body.staff-shell .live-add-question-card > .live-relocate-head {
+  flex: 0 0 auto;
+  padding: 0.75rem 0.95rem 0.45rem;
+  background: #eef2f7;
+}
+@media (min-width: 721px) {
+  body.staff-shell .live-add-question-card.live-relocate-dialog-card {
+    width: min(52rem, calc(100vw - 2rem));
+  }
+  body.staff-shell .live-add-q-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    column-gap: 0.9rem;
+    row-gap: 0.45rem;
+    align-content: start;
+  }
+  body.staff-shell .live-add-q-main {
+    grid-column: 1;
+  }
+  body.staff-shell .live-add-q-side {
+    grid-column: 2;
+  }
 }
 body.staff-shell .live-relocate-head {
   display: flex;

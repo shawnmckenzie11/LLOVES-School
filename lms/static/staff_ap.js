@@ -7490,6 +7490,17 @@ function syncAddQuestionTypeFields() {
   if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
 }
 
+const EQ_RENDER_ERROR = "Couldn't render this equation — check the TeX.";
+
+/**
+ * Strip wrapping dollar signs so stored TeX matches the KaTeX span helper.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function stripEquationLatex(raw) {
+  return String(raw || "").trim().replace(/^\$+|\$+$/g, "").trim();
+}
+
 /**
  * Insert a LaTeX snippet into the Add New equation field.
  * @param {string} snippet
@@ -7508,29 +7519,48 @@ function insertAddQuestionLatex(snippet) {
 }
 
 /**
- * Typeset the Add New equation preview with staff KaTeX helpers.
+ * Typeset the Add New equation preview with the same KaTeX helper as live cards.
+ * @returns {Promise<void>}
  */
-function paintAddQuestionEquationPreview() {
+async function paintAddQuestionEquationPreview() {
   const field = $("live-add-q-equation");
   const preview = $("live-add-q-equation-preview");
   if (!(preview instanceof HTMLElement)) return;
-  const latex = field instanceof HTMLTextAreaElement ? field.value.trim() : "";
+  const latex = stripEquationLatex(
+    field instanceof HTMLTextAreaElement ? field.value : ""
+  );
   if (!latex) {
     preview.innerHTML = `<p class="hint compact">No equation yet.</p>`;
     return;
   }
   preview.innerHTML = liveQuestionEquationHtml({ equation_latex: latex }, {});
-  void renderLiveQuestionMath(preview);
+  await renderLiveQuestionMath(preview);
+  if (preview.querySelector(".katex-error")) {
+    preview.innerHTML = `<p class="error compact">${EQ_RENDER_ERROR}</p>`;
+  }
 }
 
 /**
- * Toggle bank-scope radios when Save to Bank is checked.
+ * True when the open live lesson has a module token M1–M8.
+ * @returns {boolean}
+ */
+function liveModuleScopeKnown() {
+  return /^M[1-8]$/.test(String(teacherState.live_module || "").trim().toUpperCase());
+}
+
+/**
+ * Show Bank scope only while Save to bank is checked.
  */
 function syncAddQuestionBankFields() {
   const save = $("live-add-q-save-bank");
   const scope = $("live-add-q-bank-scope");
-  if (scope instanceof HTMLElement) {
-    scope.hidden = !(save instanceof HTMLInputElement && save.checked);
+  const select = $("live-add-q-bank-scope-select");
+  const hint = $("live-add-q-bank-scope-hint");
+  const enabled = save instanceof HTMLInputElement && save.checked;
+  if (scope instanceof HTMLElement) scope.hidden = !enabled;
+  if (select instanceof HTMLSelectElement) select.disabled = !enabled;
+  if (hint instanceof HTMLElement) {
+    hint.hidden = !enabled || liveModuleScopeKnown();
   }
 }
 
@@ -7544,17 +7574,10 @@ function openAddQuestionDialog() {
   if (form instanceof HTMLFormElement) form.reset();
   const mc = document.querySelector('input[name="live-add-q-type"][value="mc"]');
   if (mc instanceof HTMLInputElement) mc.checked = true;
-  const currentModule = String(teacherState.live_module || "M1").toUpperCase();
-  const moduleRadio = document.querySelector(
-    `input[name="live-add-q-bank-scope"][value="${currentModule}"]`
-  );
-  if (moduleRadio instanceof HTMLInputElement) {
-    moduleRadio.checked = true;
-  } else {
-    const fallback = document.querySelector(
-      'input[name="live-add-q-bank-scope"][value="M1"]'
-    );
-    if (fallback instanceof HTMLInputElement) fallback.checked = true;
+  const select = $("live-add-q-bank-scope-select");
+  const currentModule = String(teacherState.live_module || "").trim().toUpperCase();
+  if (select instanceof HTMLSelectElement) {
+    select.value = /^M[1-8]$/.test(currentModule) ? currentModule : "M1";
   }
   if (err instanceof HTMLElement) {
     err.hidden = true;
@@ -7605,7 +7628,7 @@ async function submitAddQuestion() {
   const kind = String(selected?.value || "mc").toLowerCase();
   const text = String(($("live-add-q-text")?.value || "")).trim();
   if (!text) throw new Error("Question text required.");
-  const equation = String(($("live-add-q-equation")?.value || "")).trim();
+  const equation = stripEquationLatex($("live-add-q-equation")?.value || "");
   const imageInput = $("live-add-q-image");
   const imageFile =
     imageInput instanceof HTMLInputElement && imageInput.files?.[0]
@@ -7613,7 +7636,7 @@ async function submitAddQuestion() {
       : null;
   const imageUrl = imageFile ? await uploadLiveQuestionImage(imageFile) : "";
   const saveBank = $("live-add-q-save-bank");
-  const scope = document.querySelector('input[name="live-add-q-bank-scope"]:checked');
+  const scope = $("live-add-q-bank-scope-select");
   const body = {
     type: kind,
     text,
@@ -7622,7 +7645,11 @@ async function submitAddQuestion() {
     page_number: currentLivePageNumber(),
     stage: String(teacherState.stage || "round"),
     save_to_bank: Boolean(saveBank instanceof HTMLInputElement && saveBank.checked),
-    bank_scope: String(scope?.value || teacherState.live_module || "M1"),
+    bank_scope: String(
+      scope instanceof HTMLSelectElement && scope.value
+        ? scope.value
+        : teacherState.live_module || "M1"
+    ),
   };
   if (kind === "mc") {
     body.options = [0, 1, 2, 3].map((index) =>
