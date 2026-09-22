@@ -26,7 +26,7 @@ from app import create_app  # noqa: E402
 from live_class_metadata import load_live_class_metadata
 from minds_on import is_minds_on_payload  # noqa: E402
 from school_db import json_safe  # noqa: E402
-from teams_spark import TEAMS_SPARK_SLIDE_INDEX  # noqa: E402
+from teams_spark import TEAMS_SPARK_PROMPT, TEAMS_SPARK_SLIDE_INDEX  # noqa: E402
 
 
 def metadata_fixture() -> dict[str, Any]:
@@ -247,6 +247,134 @@ class LiveBackendStateTests(unittest.TestCase):
                 for row in after["active_questions"]
             )
         )
+
+    def test_mcr3u_c4_page2_spark_follows_teacher_publish(self) -> None:
+        """MCR3U M1 C4 page 2 does not leave a typeable integer prompt behind.
+
+        Closing the spark, or leaving Welcome while it is still active,
+        drops the facing student prompt. Save to card still keeps the
+        right-panel card when the teacher turns that flag on.
+        """
+
+        def mcr3u_c4(_session_id: int) -> dict[str, Any]:
+            """Bind the MCR3U M1 C4 deck even though the fixture class is MCF3M."""
+
+            return self.school._merged_live_class_metadata(
+                self.class_id, "MCR3U", "M1", "C4", fresh=True
+            )
+
+        self.school.live_class_metadata_for_session = mcr3u_c4
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C4",
+            stage="teams",
+            page_id="welcome",
+            student_view={
+                "questions": "student",
+                "media": "none",
+                "canvas": "none",
+                "slides": "none",
+            },
+        )
+        meta = self.school.live_class_metadata_for_session(self.session_id)
+        self.assertEqual(str(meta.get("course") or ""), "MCR3U")
+        self.school.ensure_live_session_items(self.session_id)
+        student_id = self.student_ids[0]
+        hidden = self.school.student_live_prompt_payload(self.session_id, student_id)
+        self.assertIsNone(hidden.get("prompt"))
+        self.assertNotIn(TEAMS_SPARK_PROMPT, json.dumps(hidden.get("prompt")))
+        item = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(item["id"]), publish_mode="individual"
+        )
+        shown = self.school.student_live_prompt_payload(self.session_id, student_id)
+        self.assertEqual(
+            (shown.get("prompt") or {}).get("payload", {}).get("prompt"),
+            TEAMS_SPARK_PROMPT,
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), save_to_card=True
+        )
+        self.school.set_live_session_teacher_state(self.session_id, page_id="round_1")
+        off_page = self.school.student_live_prompt_payload(self.session_id, student_id)
+        self.assertIsNone(off_page.get("prompt"))
+        self.assertFalse(
+            any(
+                str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+                for row in off_page.get("active_questions") or []
+            )
+        )
+        parked_live = next(
+            row
+            for row in off_page.get("saved_cards") or []
+            if str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+        )
+        self.assertTrue(parked_live.get("parked"))
+        self.assertFalse(parked_live.get("can_submit"))
+        self.assertFalse(
+            any(
+                str(row.get("id") or "").replace("_", "-") == "teams-spark"
+                for row in self.school.live_session_question_cards(self.session_id)
+            )
+        )
+        self.school.set_live_session_teacher_state(self.session_id, page_id="welcome")
+        self.school.close_live_session_item(self.session_id, int(item["id"]))
+        closed = self.school.student_live_prompt_payload(self.session_id, student_id)
+        self.assertIsNone(closed.get("prompt"))
+        self.assertFalse(
+            any(
+                str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+                and row.get("can_submit")
+                for row in (closed.get("active_questions") or [])
+                + (closed.get("closed_results") or [])
+            )
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="teams", page_id="welcome"
+        )
+        cards = self.school.live_session_question_cards(self.session_id)
+        spark_cards = [
+            row
+            for row in cards
+            if str(row.get("id") or "").replace("_", "-") == "teams-spark"
+        ]
+        self.assertTrue(spark_cards)
+        self.assertEqual(spark_cards[0]["status"], "closed")
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), save_to_card=True
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="meet", page_id="meet"
+        )
+        parked = self.school.student_live_prompt_payload(self.session_id, student_id)
+        self.assertNotEqual(
+            (parked.get("prompt") or {}).get("payload", {}).get("item_id"),
+            "teams-spark",
+        )
+        self.assertFalse(
+            any(
+                str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+                for row in parked.get("active_questions") or []
+            )
+        )
+        saved_spark = next(
+            row
+            for row in parked.get("saved_cards") or []
+            if str(row.get("item_id") or "").replace("_", "-") == "teams-spark"
+        )
+        self.assertTrue(saved_spark.get("save_to_card"))
+        self.assertFalse(saved_spark.get("can_submit"))
+        teacher_off_page = [
+            row
+            for row in self.school.live_session_question_cards(self.session_id)
+            if str(row.get("id") or "").replace("_", "-") == "teams-spark"
+        ]
+        self.assertEqual(teacher_off_page, [])
 
     def test_unpublished_catalogue_item_stays_off_student_until_publish(self) -> None:
         """A fixture catalogue question stays off the student prompt until Publish."""
@@ -1642,6 +1770,10 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         self.assertTrue(card["save_to_card"])
         self.assertFalse(card["can_submit"])
+        self.assertTrue(card.get("parked"))
+        self.assertFalse(
+            any(row.get("item_id") == "q-one" for row in payload["active_questions"])
+        )
 
     def test_removed_meet_team_does_not_return_for_students(self) -> None:
         """Removing Meet from M1 C4 drops the teammate prompt for students."""

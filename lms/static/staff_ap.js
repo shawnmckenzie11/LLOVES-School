@@ -312,6 +312,8 @@ let lastQuestionCards = [];
 let lastLiveMetadata = null;
 /** @type {any[]} */
 let lastLiveItems = [];
+/** Lifecycle id → Save to card the teacher just set. Stale polls must not flip it. */
+const saveToCardHold = new Map();
 /** @type {any[]} */
 let lastActiveQuestions = [];
 /** @type {any[]} */
@@ -1484,7 +1486,7 @@ function applyLiveMcImportPayload(payload) {
     lastLiveMetadata = payload.live_metadata;
   }
   if (Array.isArray(payload?.live_items)) {
-    lastLiveItems = payload.live_items;
+    lastLiveItems = absorbSaveToCardSnapshot(payload.live_items);
   }
   if (Array.isArray(payload?.question_cards)) {
     lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
@@ -1597,7 +1599,7 @@ async function refreshLiveQuestionCards() {
       lastLiveMetadata = snapshot.live_metadata;
     }
     if (Array.isArray(snapshot?.live_items)) {
-      lastLiveItems = snapshot.live_items;
+      lastLiveItems = absorbSaveToCardSnapshot(snapshot.live_items);
     }
     if (Array.isArray(snapshot?.question_cards)) {
       lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
@@ -2012,6 +2014,37 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
+ * Keep a teacher Save to card choice when a poll snapshot is older than the click.
+ * @param {any[]} items
+ * @returns {any[]}
+ */
+function absorbSaveToCardSnapshot(items) {
+  const rows = Array.isArray(items) ? items : [];
+  return rows.map((row) => {
+    const id = Number(row?.id) || 0;
+    if (!id || !saveToCardHold.has(id)) return row;
+    const held = Boolean(saveToCardHold.get(id));
+    if (Boolean(row?.save_to_card) === held) {
+      saveToCardHold.delete(id);
+      return row;
+    }
+    return { ...row, save_to_card: held };
+  });
+}
+
+/**
+ * Checkbox value for Save to card, preferring an in-flight teacher click.
+ * @param {any} card
+ * @param {number} liveItemId
+ * @returns {boolean}
+ */
+function cardSaveToCardChecked(card, liveItemId) {
+  const id = Number(liveItemId) || 0;
+  if (id && saveToCardHold.has(id)) return Boolean(saveToCardHold.get(id));
+  return Boolean(card?.save_to_card);
+}
+
+/**
  * Per-card Submission choice before publish. Group is the one switch.
  * @type {Map<number, "individual"|"group_submit">}
  */
@@ -2121,7 +2154,7 @@ function liveQuestionControlStrip(parts) {
         <span class="live-q-group-kicker">A Persist</span>
         <label class="live-result-toggle">
           <input type="checkbox" data-save-to-card="${liveItemId}" ${
-            card.save_to_card ? "checked" : ""
+            cardSaveToCardChecked(card, liveItemId) ? "checked" : ""
           }>
           <span>Save to card</span>
         </label>
@@ -2618,16 +2651,32 @@ async function setLifecycleResultsVisible(liveItemId, visible) {
  */
 async function setLifecycleSaveToCard(liveItemId, enabled) {
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || !liveItemId) return;
-  const result = await api(
-    `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ save_to_card: Boolean(enabled) }),
-    }
-  );
-  adoptLiveItem(result?.item);
+  const id = Number(liveItemId) || 0;
+  if (!sessionId || !id) return;
+  const flag = Boolean(enabled);
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  const previous = index >= 0 ? lastLiveItems[index] : null;
+  saveToCardHold.set(id, flag);
+  if (index >= 0) {
+    lastLiveItems[index] = { ...lastLiveItems[index], save_to_card: flag };
+  }
   paintLiveQuestionCards();
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ save_to_card: flag }),
+      }
+    );
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    saveToCardHold.delete(id);
+    if (previous) lastLiveItems[index] = previous;
+    throw err;
+  } finally {
+    paintLiveQuestionCards();
+  }
 }
 
 /**
@@ -3353,7 +3402,9 @@ async function pollLiveSessionAttendees(opts = {}) {
         overlayState.scoreboard = lastScoreboard;
       }
     }
-    if (Array.isArray(payload?.live_items)) lastLiveItems = payload.live_items;
+    if (Array.isArray(payload?.live_items)) {
+      lastLiveItems = absorbSaveToCardSnapshot(payload.live_items);
+    }
     if (Array.isArray(payload?.active_questions)) {
       lastActiveQuestions = payload.active_questions;
     }
@@ -3810,7 +3861,9 @@ async function mintArtifactFromMedia(data) {
   });
   paintActiveMediaStatus(res.active_media);
   if (res?.teacher_state) adoptTeacherState(res.teacher_state);
-  if (Array.isArray(res?.live_items)) lastLiveItems = res.live_items;
+  if (Array.isArray(res?.live_items)) {
+    lastLiveItems = absorbSaveToCardSnapshot(res.live_items);
+  }
   if (Array.isArray(res?.question_cards)) {
     lastQuestionCards = questionCardsFromMetadata(res.question_cards);
   }

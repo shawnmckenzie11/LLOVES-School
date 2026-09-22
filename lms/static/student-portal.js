@@ -1465,6 +1465,23 @@ function isTeamsSparkPrompt(payload) {
 }
 
 /**
+ * True when the teams spark prompt is not an active published question.
+ * Welcome used to paint "Type the integer…" from payload.prompt alone
+ * after the teacher closed it or left that page.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function unpublishedTeamsSparkPrompt(payload) {
+  if (!isTeamsSparkPrompt(payload)) return false;
+  const promptId = Number(payload?.prompt?.id) || 0;
+  return !(payload?.active_questions || []).some(
+    (item) =>
+      Number(item?.prompt?.id) === promptId &&
+      String(item?.status || "active").toLowerCase() === "active"
+  );
+}
+
+/**
  * Render placeholder widgets for mc / numeric / share prompts.
  * Waiting-room Minds-On paints the single MC on payload.prompt / choices.
  * JOIN→TEAMS unbinds Minds-On and binds the shared spark instead.
@@ -1934,6 +1951,19 @@ function isArtifactLifecycleItem(item) {
 }
 
 /**
+ * Badge for one student question card.
+ * A still-published question parked by Save to card reads Saved, not Active.
+ * @param {any} item
+ * @returns {string}
+ */
+function studentLiveCardBadge(item) {
+  const status = String(item?.status || "active").toLowerCase();
+  if (status === "closed") return "Results";
+  if (item?.parked || (item?.save_to_card && status !== "active")) return "Saved";
+  return "Active";
+}
+
+/**
  * Card beat inside Open: idle, drafting, ready, or submitted.
  * Submitted holds only while the draft still matches the last submit.
  * @param {string} choice
@@ -2126,6 +2156,7 @@ function paintLifecycleQuestionStack(payload) {
   const welcomeOn = hasGameShowWelcome(payload);
   if (
     legacy &&
+    !unpublishedTeamsSparkPrompt(payload) &&
     (welcomeOn || !active.length) &&
     !active.some((item) => Number(item?.prompt?.id || item?.id) === Number(legacy.prompt.id))
   ) {
@@ -2221,18 +2252,15 @@ function paintLifecycleQuestionStack(payload) {
               ? lifecycleClassConsensusHtml(item.results)
               : lifecycleResultsHtml(item.results);
       const dockKey = liveCardDockKey(item);
-      return `<article class="student-live-card student-floating-pane is-${escapeText(status)}" data-live-card-id="${Number(
+      const badge = studentLiveCardBadge(item);
+      const shown =
+        badge === "Saved" ? "saved" : badge === "Results" ? "closed" : status;
+      return `<article class="student-live-card student-floating-pane is-${escapeText(shown)}" data-live-card-id="${Number(
         item.id
-      )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(status)}" data-live-card-key="${escapeText(dockKey)}">
+      )}" data-live-prompt-id="${Number(item.prompt?.id) || 0}" data-live-card-status="${escapeText(shown)}" data-live-card-key="${escapeText(dockKey)}">
         <div class="student-pane-bar" data-pane-drag="${escapeText(dockKey)}">
           <span>Question</span>
-          <span class="student-live-card-status">${
-            status === "closed"
-              ? "Results"
-              : item.save_to_card && status !== "active"
-                ? "Saved"
-                : "Active"
-          }</span>
+          <span class="student-live-card-status">${badge}</span>
           <button type="button" data-pane-reset="${escapeText(dockKey)}">Reset</button>
           <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
         </div>
@@ -2453,6 +2481,9 @@ async function submitLifecycleAnswer(card, action) {
 
 function paintPrompt(payload) {
   if (!promptShell) return;
+  if (unpublishedTeamsSparkPrompt(payload)) {
+    payload = { ...payload, prompt: null };
+  }
   const welcomeOnly =
     Boolean(payload.game_show_welcome) &&
     !(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");

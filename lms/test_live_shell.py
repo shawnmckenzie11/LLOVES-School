@@ -294,6 +294,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("Save to card", js)
         self.assertIn("data-save-to-card", js)
         self.assertIn("function setLifecycleSaveToCard(", js)
+        self.assertIn("saveToCardHold", js)
+        self.assertIn("function absorbSaveToCardSnapshot(", js)
+        self.assertIn("function cardSaveToCardChecked(", js)
+        setter = js.split("async function setLifecycleSaveToCard(")[1].split(
+            "async function endLifecycleVoting("
+        )[0]
+        self.assertIn("saveToCardHold.set", setter)
+        self.assertIn("absorbSaveToCardSnapshot(", js)
         self.assertIn("function liveQuestionControlStrip(", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
         self.assertIn("Individual in Group", js)
