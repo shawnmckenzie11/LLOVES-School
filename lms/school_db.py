@@ -5836,11 +5836,47 @@ class SchoolDB(LovesDB):
                 (int(library_id), bank_id),
             )
             self.conn.commit()
+        library = self.get_library(int(library_id)) or {}
+        code = str(library.get("ontario_code") or "").strip().upper()
+        if code:
+            self._upsert_course_warmup_live_problems(code)
         return {
             "bank_id": bank_id,
             "question_ids": question_ids,
             "count": len(question_ids),
+            "ontario_code": code,
         }
+
+    def _upsert_course_warmup_live_problems(self, ontario_code: str) -> None:
+        """Store Course Wide warmups on ``live_problems`` for one course.
+
+        The table has no ``bank_scope`` column. Scope is ``module_hint``
+        ``COURSE/<category>``. Expectation codes stay empty.
+
+        Args:
+            ontario_code: ``MCF3M`` or ``MCR3U``.
+        """
+        try:
+            from course_warmup_seed import (
+                course_wide_warmup_catalogue,
+                course_wide_warmup_live_problem,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                course_wide_warmup_catalogue,
+                course_wide_warmup_live_problem,
+            )
+
+        code = str(ontario_code or "").strip().upper()
+        for index, spec in enumerate(course_wide_warmup_catalogue()):
+            payload = course_wide_warmup_live_problem(spec, code)
+            payload["sort_order"] = 800 + index
+            existing_id = self._live_problem_id_by_natural_key(
+                code, "warmup", str(payload.get("title") or "")
+            )
+            if existing_id is not None:
+                payload["id"] = existing_id
+            self.upsert_live_problem(payload)
 
     def _course_wide_warmup_items(
         self, library_id: int, *, class_id: int | None = None
@@ -8058,6 +8094,16 @@ class SchoolDB(LovesDB):
                 sort_order = max(1, int(order))
             item_id = f"bank-import-{int(question_id)}"
             placement_key = f"class:{int(class_id)}:import:{uuid.uuid4().hex}"
+            response_mode = str(normalized.get("response_mode") or "individual").strip().lower()
+            if response_mode != "group_consensus":
+                response_mode = "individual"
+            raw_modes = normalized.get("publish_modes")
+            if isinstance(raw_modes, list) and raw_modes:
+                publish_modes = [str(mode) for mode in raw_modes if str(mode).strip()]
+            else:
+                publish_modes = ["individual"]
+                if response_mode == "group_consensus":
+                    publish_modes.append("group_consensus")
             item_payload = {
                 **normalized,
                 "id": item_id,
@@ -8066,8 +8112,8 @@ class SchoolDB(LovesDB):
                 "page_number": page,
                 "order": sort_order,
                 "placement_key": placement_key,
-                "publish_modes": ["individual"],
-                "response_mode": "individual",
+                "publish_modes": publish_modes,
+                "response_mode": response_mode,
                 "bank_title": str(row["bank_title"] or ""),
                 "question_title": str(row["title"] or ""),
                 "import_source": "module_bank",

@@ -370,12 +370,14 @@ def _hint_has_lesson_key(row: dict[str, Any], lesson_key: str) -> bool:
 def _hint_has_strand(row: dict[str, Any], strand_key: str) -> bool:
     """True when the hint is this strand or starts with it (legacy ``A`` hints).
 
+    ``COURSE/...`` is the Course Wide warmup scope, not strand C.
+
     Args:
         row: Live-problem bank row.
         strand_key: ``A`` / ``B`` / ``C``.
     """
     parts = _module_hint_parts(row)
-    if not parts:
+    if not parts or parts[0] == "COURSE":
         return False
     return strand_key in parts or parts[0].startswith(strand_key)
 

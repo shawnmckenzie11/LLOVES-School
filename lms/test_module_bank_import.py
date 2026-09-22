@@ -852,23 +852,49 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             self.library_id, 1, int(seeded["bank_id"])
         )
         course = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
-        stems = " ".join(str(row.get("text") or "") for row in course["items"]).lower()
+        stems = " ".join(str(row.get("text") or "") for row in course["items"])
         for needle in (
-            "aisle or window",
-            "text or call",
-            "beach or cabin",
-            "overrated",
-            "rule should work differently",
-            "unimportant opinion",
-            "useless skill",
-            "mascot",
-            "laugh too hard",
-            "fraction of this class",
-            "rank three",
+            "Aisle seat or window seat — pick one and defend it in one sentence.",
+            "Texting or calling forever — pick one, no going back.",
+            "Beach vacation or mountain cabin?",
+            "What's the most overrated food that everyone else seems to love?",
+            "that should honestly just be different.",
+            "something completely unimportant?",
+            "weirdly good at that has almost no real-world use?",
+            "If your group had a mascot right now, what would it be?",
+            "laugh way harder than it should have?",
+            "never ridden a roller coaster? (Teacher swaps X.)",
+            "slow wifi · wet socks · someone chewing loudly.",
         ):
             self.assertIn(needle, stems)
-        self.assertEqual(str(course["items"][0].get("kind")), "warmup")
-        self.assertEqual(str(course["items"][0].get("bank_scope")), "course")
+        aisle = course["items"][0]
+        self.assertEqual(str(aisle.get("kind")), "warmup")
+        self.assertEqual(str(aisle.get("bank_scope")), "course")
+        self.assertEqual(str(aisle.get("category")), "pick-a-side")
+        self.assertEqual(str(aisle.get("module_hint")), "COURSE/pick-a-side")
+        self.assertEqual(aisle.get("expectation_codes"), [])
+        fraction = next(
+            row
+            for row in course["items"]
+            if "roller coaster" in str(row.get("text") or "")
+        )
+        self.assertEqual(fraction.get("category"), "prediction-ranking")
+        self.assertEqual(fraction.get("module_hint"), "COURSE/prediction-ranking")
+        self.assertEqual(fraction.get("response_mode"), "group_consensus")
+        self.assertEqual(fraction.get("answer_shape"), "one fraction + one-line why")
+        stored = self.school.list_live_problems(ontario_code="MCR3U", active_only=True)
+        hints = {str(row.get("module_hint") or "") for row in stored}
+        self.assertIn("COURSE/opinion", hints)
+        self.assertIn("COURSE/trivia-about-you", hints)
+        from live_class_slides import _hint_has_strand
+
+        self.assertFalse(
+            _hint_has_strand({"module_hint": "COURSE/pick-a-side"}, "C")
+        )
+        self.assertTrue(_hint_has_strand({"module_hint": "C/M1C1"}, "C"))
+        self.assertTrue(
+            all(row.get("expectation_codes") == [] for row in stored if str(row.get("module_hint") or "").startswith("COURSE/"))
+        )
         module_default = {
             int(row.get("question_id") or 0)
             for row in self.school.search_module_bank_mcs(self.library_id, 1, "")[
@@ -895,7 +921,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         aisle = next(
             row
             for row in course["items"]
-            if "aisle or window" in str(row.get("text") or "").lower()
+            if "Aisle seat or window seat" in str(row.get("text") or "")
         )
         placed = self.school.import_mc_to_class_playlist(
             self.class_id,
@@ -908,10 +934,29 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
         item = placed["item"]
         self.assertEqual(item.get("type"), "mc")
-        self.assertEqual(item.get("options"), ["Aisle", "Window"])
+        self.assertEqual(item.get("options"), ["Aisle seat", "Window seat"])
         self.assertFalse(item.get("key"))
         self.assertFalse(item.get("correct_answer"))
         self.assertEqual(item.get("kind"), "warmup")
+        self.assertEqual(item.get("module_hint"), "COURSE/pick-a-side")
+        ranked = self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M2",
+            "C1",
+            int(
+                next(
+                    row["question_id"]
+                    for row in course["items"]
+                    if "slow wifi" in str(row.get("text") or "")
+                )
+            ),
+            library_id=self.library_id,
+            page_number=1,
+            stage="join",
+        )["item"]
+        self.assertEqual(ranked.get("type"), "poll")
+        self.assertEqual(ranked.get("response_mode"), "group_consensus")
+        self.assertIn("group_consensus", ranked.get("publish_modes") or [])
 
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""

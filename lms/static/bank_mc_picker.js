@@ -264,11 +264,14 @@ export async function mountBankMcPicker(opts) {
         const label = questionFieldHtml(item, "text") || formatQuestionHtml(itemPreview(item));
         const warmup = String(item.kind || "") === "warmup";
         const optionList = Array.isArray(item.options) ? item.options : [];
+        const category = String(item.category || "").trim();
+        const shape = String(item.answer_shape || "").trim();
+        const warmupDetail = optionList.length
+          ? optionList.join(" / ")
+          : shape || "Open response";
         const meta = escapeHtml(
           warmup
-            ? `Warmup · ${
-                optionList.length ? optionList.join(" / ") : "Open response"
-              }`
+            ? `Warmup${category ? ` · ${category}` : ""} · ${warmupDetail}`
             : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
         );
         const action =

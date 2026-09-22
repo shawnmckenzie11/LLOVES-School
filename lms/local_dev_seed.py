@@ -140,8 +140,34 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
     bank_seed = _seed_existing_mcf3m_builder_banks(school)
     if bank_seed is not None:
         summary["bank_seed"] = bank_seed
-    summary["warmup_seed"] = school.seed_course_wide_warmups(library_id)
+    summary["warmup_seed"] = _seed_course_wide_warmup_copies(school)
     return summary
+
+
+def _seed_course_wide_warmup_copies(school: Any) -> list[dict[str, Any]]:
+    """Seed the locked warmup bank into MCF3M and MCR3U libraries.
+
+    Creates a library for a course that does not have one yet. Does not
+    attach the MCR3U copy to the MCF3M demo offering.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        One seed summary per course library.
+    """
+    try:
+        from course_warmup_seed import COURSE_WIDE_WARMUP_COURSES
+    except ImportError:
+        from lms.course_warmup_seed import COURSE_WIDE_WARMUP_COURSES
+
+    summaries: list[dict[str, Any]] = []
+    for code in COURSE_WIDE_WARMUP_COURSES:
+        library = school.latest_library_for_code(code)
+        if library is None:
+            library = school.create_library(code, origin="upload")
+        summaries.append(school.seed_course_wide_warmups(int(library["id"])))
+    return summaries
 
 
 def _ensure_local_dev_library(school: Any, offering_id: int) -> int:

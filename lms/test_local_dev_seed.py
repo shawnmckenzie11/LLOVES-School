@@ -133,11 +133,22 @@ class LocalDevSeedTests(unittest.TestCase):
         class_id = int(classes[0]["id"])
         offering = self.school.get_offering(int(classes[0]["offering_id"]))
         library_id = int(offering["library_id"])
-        course = self.school.search_bank_scope_mcs(library_id, "course", 1, "aisle")
+        course = self.school.search_bank_scope_mcs(library_id, "course", 1, "aisle seat")
         self.assertTrue(course["items"])
-        self.assertIn("aisle", str(course["items"][0].get("text") or "").lower())
+        self.assertIn(
+            "Aisle seat or window seat",
+            str(course["items"][0].get("text") or ""),
+        )
+        self.assertEqual(course["items"][0].get("module_hint"), "COURSE/pick-a-side")
         module = self.school.search_bank_scope_mcs(library_id, "M1", 1, "aisle")
         self.assertEqual(module["items"], [])
+        mcr = self.school.latest_library_for_code("MCR3U")
+        self.assertIsNotNone(mcr)
+        mcr_hits = self.school.search_bank_scope_mcs(
+            int(mcr["id"]), "course", 1, "roller coaster"
+        )
+        self.assertEqual(len(mcr_hits["items"]), 1)
+        self.assertEqual(mcr_hits["items"][0].get("category"), "prediction-ranking")
         self.assertGreater(class_id, 0)
 
 
