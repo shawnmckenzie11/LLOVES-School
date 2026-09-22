@@ -4507,6 +4507,11 @@ body.staff-shell .bank-mc-picker-text {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+body.staff-shell .bank-mc-picker-title {
+  display: block;
+  margin: 0 0 0.15rem;
+  font-weight: 650;
+}
 body.staff-shell .live-question-card-head {
   display: flex;
   align-items: flex-start;

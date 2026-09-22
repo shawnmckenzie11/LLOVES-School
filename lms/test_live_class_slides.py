@@ -289,6 +289,76 @@ class LiveClassSlidesTests(unittest.TestCase):
         if warmup is not None:
             self.assertFalse(str(warmup["module_hint"]).startswith("COURSE"))
 
+    def test_seed_drops_renamed_course_warmup_dupes(self) -> None:
+        """Re-seed keeps eleven COURSE warmups after the title rename."""
+        from live_problem_seed import RETIRED_COURSE_WARMUP_TITLES
+
+        locked = {
+            "Aisle or window",
+            "Text or call",
+            "Beach or cabin",
+            "Most overrated food",
+            "A rule that should differ",
+            "Unimportant confident opinion",
+            "Weirdly useless skill",
+            "Group mascot",
+            "Laughed too hard",
+            "Fraction who never did X",
+            "Rank three annoyances",
+        }
+        for code in ("MCF3M", "MCR3U"):
+            for title in RETIRED_COURSE_WARMUP_TITLES:
+                self.school.upsert_live_problem(
+                    {
+                        "ontario_code": code,
+                        "module_hint": "COURSE/pick-a-side",
+                        "kind": "warmup",
+                        "title": title,
+                        "stem_html": "<p>retired title</p>",
+                        "task_html": "<p>retired</p>",
+                        "diagram_note": "warmup_category:pick-a-side",
+                        "source": "original",
+                        "license": "original",
+                        "expectation_codes": [],
+                        "processes": ["communicating"],
+                        "sort_order": 10,
+                    }
+                )
+        self.school.upsert_live_problem(
+            {
+                "ontario_code": "MCF3M",
+                "module_hint": "A/M1C1",
+                "kind": "warmup",
+                "title": "Aisle or window seat",
+                "stem_html": "<p>lesson warmup stays</p>",
+                "task_html": "<p>stay</p>",
+                "diagram_note": "",
+                "source": "original",
+                "license": "original",
+                "expectation_codes": [],
+                "processes": ["communicating"],
+                "sort_order": 40,
+            }
+        )
+        self.school.seed_live_problems()
+        for code in ("MCF3M", "MCR3U"):
+            warmups = [
+                row
+                for row in self.school.list_live_problems(ontario_code=code)
+                if str(row["module_hint"]).startswith("COURSE/")
+            ]
+            self.assertEqual(len(warmups), 11)
+            self.assertEqual({row["title"] for row in warmups}, locked)
+            for title in RETIRED_COURSE_WARMUP_TITLES:
+                self.assertNotIn(title, {row["title"] for row in warmups})
+        lesson = [
+            row
+            for row in self.school.list_live_problems(ontario_code="MCF3M")
+            if row["title"] == "Aisle or window seat"
+        ]
+        self.assertEqual(len(lesson), 1)
+        self.assertEqual(lesson[0]["module_hint"], "A/M1C1")
+
     def test_timeline_y_of_n(self) -> None:
         """Live Class Y of N counts live placements inside the module."""
         placements = {

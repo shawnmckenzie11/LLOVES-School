@@ -869,6 +869,21 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             self.assertIn(needle, stems)
         self.assertEqual(str(course["items"][0].get("kind")), "warmup")
         self.assertEqual(str(course["items"][0].get("bank_scope")), "course")
+        from course_warmup_seed import locked_course_warmup_titles
+
+        warmup_titles = [
+            str(row.get("question_title") or "")
+            for row in course["items"]
+            if str(row.get("bank_scope") or "") == "course"
+        ]
+        self.assertEqual(warmup_titles, list(locked_course_warmup_titles()))
+        kind_warmup = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        self.assertEqual(
+            [str(row.get("question_title") or "") for row in kind_warmup["items"]],
+            list(locked_course_warmup_titles()),
+        )
         module_default = {
             int(row.get("question_id") or 0)
             for row in self.school.search_module_bank_mcs(self.library_id, 1, "")[
@@ -912,6 +927,86 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertFalse(item.get("key"))
         self.assertFalse(item.get("correct_answer"))
         self.assertEqual(item.get("kind"), "warmup")
+
+    def test_kind_warmup_seeds_locked_titles_from_live_problems(self) -> None:
+        """Course Wide Kind=Warmup lists the 11 titles when only live_problems exist."""
+        from course_warmup_seed import locked_course_warmup_titles
+        from live_problem_seed import course_wide_warmups
+
+        locked = list(locked_course_warmup_titles())
+        for code in ("MCF3M", "MCR3U"):
+            live_titles = [
+                str(row["title"])
+                for row in course_wide_warmups()
+                if row["ontario_code"] == code
+            ]
+            self.assertEqual(live_titles, locked)
+        self.assertEqual(self.school._course_wide_warmup_items(self.library_id), [])
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        self.assertEqual(
+            [str(row.get("question_title") or "") for row in course["items"]],
+            locked,
+        )
+        self.assertEqual(course["filtered"], 11)
+        module = self.school.search_bank_scope_mcs(
+            self.library_id, "M1", 1, "", kind="warmup"
+        )
+        module_titles = {
+            str(row.get("question_title") or "") for row in module["items"]
+        }
+        for title in locked:
+            self.assertNotIn(title, module_titles)
+        mcf = self.school.create_library("MCF3M", origin="upload")
+        mcf_hits = self.school.search_bank_scope_mcs(
+            int(mcf["id"]), "course", 1, "", kind="warmup"
+        )
+        self.assertEqual(
+            [str(row.get("question_title") or "") for row in mcf_hits["items"]],
+            locked,
+        )
+
+    def test_kind_warmup_rewrites_near_miss_titles(self) -> None:
+        """Course Wide search replaces the three 610899b short titles with the locked ones."""
+        from course_warmup_seed import COURSE_WIDE_WARMUP_BANK_KEY, locked_course_warmup_titles
+
+        near_miss = {
+            "warmup-overrated-food": "Overrated food",
+            "warmup-useless-skill": "Useless skill",
+            "warmup-fraction-never": "Fraction who never did it",
+        }
+        locked = list(locked_course_warmup_titles())
+        self.school.seed_course_wide_warmups(self.library_id)
+        for import_key, short_title in near_miss.items():
+            self.school.conn.execute(
+                """
+                UPDATE questions
+                SET title = ?
+                WHERE import_key = ?
+                  AND bank_id IN (
+                    SELECT id FROM question_banks
+                    WHERE library_id = ? AND import_key = ?
+                  )
+                """,
+                (short_title, import_key, self.library_id, COURSE_WIDE_WARMUP_BANK_KEY),
+            )
+        self.school.conn.commit()
+        stale = self.school._course_wide_warmup_items(self.library_id)
+        stale_titles = {str(row.get("question_title") or "") for row in stale}
+        for short_title in near_miss.values():
+            self.assertIn(short_title, stale_titles)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        titles = [str(row.get("question_title") or "") for row in course["items"]]
+        self.assertEqual(titles, locked)
+        self.assertEqual(course["filtered"], 11)
+        for short_title in near_miss.values():
+            self.assertNotIn(short_title, titles)
+        self.assertIn("Most overrated food", titles)
+        self.assertIn("Weirdly useless skill", titles)
+        self.assertIn("Fraction who never did X", titles)
 
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""
@@ -1013,6 +1108,35 @@ class ModuleBankImportApiTests(unittest.TestCase):
                 "code": self.school.get_user_by_email(email)["verification_code"]
             },
         )
+
+    def test_course_wide_warmup_kind_api_lists_locked_titles(self) -> None:
+        """GET Course Wide Kind=Warmup returns the 11 titles for an MCR3U class."""
+        from course_warmup_seed import locked_course_warmup_titles
+
+        locked = list(locked_course_warmup_titles())
+        rv = self.client.get(
+            f"/api/staff/class/{self.class_id}/module-banks/course/mc-search?kind=warmup"
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        body = rv.get_json() or {}
+        self.assertEqual(body.get("bank_scope"), "course")
+        self.assertEqual(body.get("kind"), "warmup")
+        self.assertEqual(body.get("count"), 11)
+        self.assertEqual(
+            [str(row.get("question_title") or "") for row in body.get("items") or []],
+            locked,
+        )
+        module = self.client.get(
+            f"/api/staff/class/{self.class_id}/module-banks/M1/mc-search?kind=warmup"
+        )
+        self.assertEqual(module.status_code, 200, module.get_json())
+        module_body = module.get_json() or {}
+        module_titles = {
+            str(row.get("question_title") or "")
+            for row in module_body.get("items") or []
+        }
+        for title in locked:
+            self.assertNotIn(title, module_titles)
 
     def test_import_mc_api(self) -> None:
         """POST import-mc persists placement and returns item payload."""

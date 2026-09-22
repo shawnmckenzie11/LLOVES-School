@@ -2422,7 +2422,8 @@ class LovesDB:
 
         Upserts by (``ontario_code``, ``kind``, ``title``) so existing databases
         pick up new lesson-keyed rows (e.g. M1C1) without wiping teacher-added
-        items that use other titles.
+        items that use other titles. Retired Course Wide warmup titles from the
+        rename are removed so each course keeps the locked eleven.
         """
         try:
             from live_problem_seed import default_live_problems
@@ -2439,6 +2440,52 @@ class LovesDB:
             if existing_id is not None:
                 payload["id"] = existing_id
             self.upsert_live_problem(payload)
+        self._drop_retired_course_warmups()
+
+    def _drop_retired_course_warmups(self) -> int:
+        """Remove COURSE warmup rows superseded by the locked icebreaker titles.
+
+        Renaming a seeded title inserts a new ``live_problems`` row and leaves
+        the old one, so MCF3M and MCR3U can show about twenty COURSE warmups
+        after a re-seed. Lesson-keyed warmups are left alone.
+
+        Returns:
+            Number of retired rows deleted.
+        """
+        try:
+            from live_problem_seed import RETIRED_COURSE_WARMUP_TITLES
+        except ImportError:
+            from lms.live_problem_seed import RETIRED_COURSE_WARMUP_TITLES
+
+        titles = tuple(RETIRED_COURSE_WARMUP_TITLES)
+        if not titles:
+            return 0
+        placeholders = ",".join("?" for _ in titles)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT id FROM live_problems
+                WHERE kind = 'warmup'
+                  AND module_hint LIKE 'COURSE/%'
+                  AND ontario_code IN ('MCF3M', 'MCR3U')
+                  AND title IN ({placeholders})
+                """,
+                titles,
+            ).fetchall()
+            ids = [int(row["id"]) for row in rows]
+            if not ids:
+                return 0
+            id_marks = ",".join("?" for _ in ids)
+            self.conn.execute(
+                f"DELETE FROM live_problem_processes WHERE problem_id IN ({id_marks})",
+                ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM live_problems WHERE id IN ({id_marks})",
+                ids,
+            )
+            self.conn.commit()
+        return len(ids)
 
     def _live_problem_id_by_natural_key(
         self, ontario_code: str, kind: str, title: str
@@ -5842,6 +5889,56 @@ class SchoolDB(LovesDB):
             "count": len(question_ids),
         }
 
+    def ensure_course_wide_warmup_bank(self, library_id: int) -> dict[str, Any] | None:
+        """Copy locked icebreakers into the Import bank for MCF3M and MCR3U.
+
+        ``seed_live_problems`` writes the eleven titles to ``live_problems``
+        (``module_hint`` ``COURSE/…``). Course Wide Import reads question
+        banks, so a library that only has those rows shows Kind=Warmup as 0.
+        This seeds the bank when the locked titles are missing or stale.
+        Module math search does not call it.
+
+        Args:
+            library_id: ``content_libraries.id``.
+
+        Returns:
+            Seed summary, or ``None`` when the library is missing or is not
+            MCF3M / MCR3U.
+        """
+        library = self.get_library(int(library_id))
+        if not library:
+            return None
+        code = str(library.get("ontario_code") or "").strip().upper()
+        if code not in {"MCF3M", "MCR3U"}:
+            return None
+        try:
+            from course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                locked_course_warmup_titles,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                locked_course_warmup_titles,
+            )
+
+        wanted = list(locked_course_warmup_titles())
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT q.title
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE b.library_id = ? AND b.import_key = ?
+                ORDER BY q.id
+                """,
+                (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
+            ).fetchall()
+        have = [str(row["title"] or "") for row in rows]
+        if have == wanted:
+            return {"count": len(have), "refreshed": False}
+        return self.seed_course_wide_warmups(int(library_id))
+
     def _course_wide_warmup_items(
         self, library_id: int, *, class_id: int | None = None
     ) -> list[dict[str, Any]]:
@@ -5910,8 +6007,9 @@ class SchoolDB(LovesDB):
         """Search importable MCs for one bank scope, deduped across modules.
 
         ``course`` unions modules 1–8 and prepends the Course Wide warmup
-        bank. A module token searches that module only. Module search never
-        returns Course Wide warmups. On course scope, those warmups are
+        bank, seeding that bank for MCF3M and MCR3U when the locked titles
+        are missing. A module token searches that module only. Module search
+        never returns Course Wide warmups. On course scope, those warmups are
         included when ``kind`` is empty or ``warmup``.
 
         Args:
@@ -5932,6 +6030,12 @@ class SchoolDB(LovesDB):
             bank_scope, int(current_module_number)
         )
         token = str(bank_scope or "").strip().lower()
+        wanted_kind = str(kind or "").strip().lower()
+        if token in {"course", "course-wide", "coursewide", "all"} and wanted_kind in {
+            "",
+            "warmup",
+        }:
+            self.ensure_course_wide_warmup_bank(int(library_id))
         if len(numbers) == 1 and token not in {
             "course",
             "course-wide",

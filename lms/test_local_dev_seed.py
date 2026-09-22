@@ -139,6 +139,24 @@ class LocalDevSeedTests(unittest.TestCase):
         module = self.school.search_bank_scope_mcs(library_id, "M1", 1, "aisle")
         self.assertEqual(module["items"], [])
         self.assertGreater(class_id, 0)
+        from course_warmup_seed import locked_course_warmup_titles
+
+        staff = self.app.test_client()
+        landed = staff.get(
+            f"/auth/google/callback?portal=staff&email={LOCAL_DEV_SHAWN_EMAIL}&name=Shawn",
+            follow_redirects=False,
+        )
+        self.assertEqual(landed.status_code, 302)
+        rv = staff.get(
+            f"/api/staff/class/{class_id}/module-banks/course/mc-search?kind=warmup"
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        body = rv.get_json() or {}
+        self.assertEqual(body.get("count"), 11)
+        self.assertEqual(
+            [str(row.get("question_title") or "") for row in body.get("items") or []],
+            list(locked_course_warmup_titles()),
+        )
 
 
 if __name__ == "__main__":

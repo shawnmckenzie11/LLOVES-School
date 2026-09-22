@@ -357,6 +357,20 @@ _ICEBREAKER_CATEGORIES: tuple[str, ...] = (
 )
 _ICEBREAKER_COURSES: tuple[str, ...] = ("MCF3M", "MCR3U")
 
+# Titles replaced in place by the locked eleven. Upsert keys on title, so a
+# database seeded before the rename keeps both the old row and the new one.
+RETIRED_COURSE_WARMUP_TITLES: tuple[str, ...] = (
+    "Aisle or window seat",
+    "Texting or calling",
+    "Beach or mountain cabin",
+    "A rule that should change",
+    "Confident opinion about nothing",
+    "Weirdly good at something useless",
+    "Group mascot right now",
+    "Laughed way too hard",
+    "Fraction who have never done X",
+)
+
 # One stem per prompt. Expanded per course by ``course_wide_warmups``.
 _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     {
