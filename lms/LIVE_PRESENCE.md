@@ -48,4 +48,4 @@ Basic Managed Postgres is a paid plan (2 shared vCPUs, 1 GB). Unmanaged `fly pos
 python3 -m unittest lms.test_live_presence_load -v
 ```
 
-`LIVE_PRESENCE_TEST_URL` defaults to `postgresql://lloves:lloves@127.0.0.1:5432/lloves_live`. CI starts Postgres 16 and sets that URL. The run writes `lc-qa/artifact-load-postgres.md` and `.log`.
+`LIVE_PRESENCE_TEST_URL` defaults to `postgresql://lloves:lloves@127.0.0.1:5432/lloves_live`. Feature-branch CI (`.github/workflows/ci.yml`) and the test job in Deploy (`.github/workflows/deploy.yml`) both start Postgres 16, wait until `pg_isready` succeeds, and set that URL. The suite does not export `LIVE_DATABASE_URL` or `DATABASE_URL`: those would attach Postgres to every `create_app()` and pull the sqlite heartbeat bars off sqlite. The run writes `lc-qa/artifact-load-postgres.md` and `.log`.

@@ -19,6 +19,28 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
+    # Same Postgres the feature-branch suite uses (ci.yml). The N=28
+    # Artifact load test dials LIVE_PRESENCE_TEST_URL, defaulting to
+    # postgresql://lloves:lloves@127.0.0.1:5432/lloves_live, and fails
+    # the job when CI is set and that server is down.
+    # Do not export LIVE_DATABASE_URL or DATABASE_URL on this job.
+    # Those attach Postgres to every create_app() that does not pass
+    # live_database_url="", which would move the sqlite heartbeat bars
+    # (#115–#117) off sqlite.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lloves
+          POSTGRES_PASSWORD: lloves
+          POSTGRES_DB: lloves_live
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lloves -d lloves_live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +55,7 @@ jobs:
       - name: Run tests
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
+          LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
         run: python -m unittest discover -s lms -p 'test_*.py' -v
 
   deploy:
