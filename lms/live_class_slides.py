@@ -392,6 +392,11 @@ def select_live_problems(
     Prefers rows whose ``module_hint`` contains ``lesson_key`` (e.g. ``A/M1C1``),
     then falls back to strand letter as before.
 
+    ``COURSE/…`` icebreakers stay in the bank for Import and category rotation.
+    They are not auto-picked: ``COURSE`` would otherwise match strand ``C``
+    (``startswith``), and courses with no lesson warmup would take the first
+    icebreaker.
+
     Args:
         problems: Active bank rows (with ``processes`` lists).
         strand: ``A`` / ``B`` / ``C`` (matched to ``module_hint``).
@@ -403,11 +408,16 @@ def select_live_problems(
     """
     strand_key = (strand or "A").upper()[:1]
     key = (lesson_key or "").replace(" ", "").upper()
+    lesson_rows = [
+        row
+        for row in problems
+        if (_module_hint_parts(row) or [""])[0] != "COURSE"
+    ]
 
     def _kind(kind: str) -> list[dict[str, Any]]:
         return [
             row
-            for row in problems
+            for row in lesson_rows
             if str(row.get("kind") or "") == kind and int(row.get("active") or 1)
         ]
 
