@@ -187,10 +187,17 @@ class LiveBankTabTests(unittest.TestCase):
             },
         )
         self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
+        question = saved.get_json()["question"]
+        self.assertEqual(question.get("title"), "Aisle or window")
+        self.assertFalse(question.get("correct_answers"))
+        self.assertTrue(
+            all(not choice.get("correct") for choice in question.get("choices") or [])
+        )
         again = self.school.search_bank_scope_mcs(
             self.library_id, "course", 1, "still a preference", kind="warmup"
         )["items"]
         self.assertTrue(again)
+        self.assertEqual(again[0].get("question_title"), "Aisle or window")
         self.assertEqual(again[0].get("kind"), "warmup")
         self.assertFalse(again[0].get("correct_answer"))
 

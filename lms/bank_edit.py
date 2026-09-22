@@ -434,6 +434,39 @@ def _stem_from_body(
     return stem_html, stem_plain
 
 
+def title_for_question_patch(
+    *,
+    stored_title: str,
+    stem_plain: str,
+    payload: dict[str, Any],
+) -> str:
+    """Choose the ``questions.title`` saved with a staff stem edit.
+
+    Course Wide warmups keep the locked catalogue title. Replacing that
+    title with the edited stem makes the next Course Wide search look
+    stale, reseed the original prompt, and drop the edit. Other questions
+    use the edited stem as the short title.
+
+    Args:
+        stored_title: Current ``questions.title``.
+        stem_plain: Plain stem from the PATCH body.
+        payload: Stored payload before the write.
+
+    Returns:
+        Title to persist.
+    """
+    try:
+        from course_warmup_seed import is_course_scoped_warmup
+    except ImportError:
+        from lms.course_warmup_seed import is_course_scoped_warmup
+
+    if is_course_scoped_warmup(payload):
+        locked = str(stored_title or "").strip()
+        if locked:
+            return locked[:120]
+    return (str(stem_plain or "")[:80] or str(stored_title or "Question")).strip() or "Question"
+
+
 def apply_staff_question_patch(
     school: Any,
     *,
@@ -444,6 +477,9 @@ def apply_staff_question_patch(
     class_id: int | None = None,
 ) -> dict[str, Any]:
     """Save one bank question. Imported ``item_type`` is never rewritten.
+
+    Course Wide warmups keep their locked title and do not gain an answer
+    key. A stem edit still updates the prompt text.
 
     Args:
         school: School database.
@@ -515,7 +551,11 @@ def apply_staff_question_patch(
         school.update_library_question_payload(
             int(library_id),
             int(question_id),
-            title=stem_plain[:80] or str(row.get("title") or "Question"),
+            title=title_for_question_patch(
+                stored_title=str(row.get("title") or ""),
+                stem_plain=stem_plain,
+                payload=stored,
+            ),
             payload=payload,
         )
     return serialize_staff_question(
