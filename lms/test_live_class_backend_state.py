@@ -1790,9 +1790,14 @@ class LiveBackendStateTests(unittest.TestCase):
             choice="A",
             why="because the graph rises",
         )
-        self.assertEqual(submitted["phase"], "ready")
+        self.assertEqual(submitted["phase"], "submitted")
+        self.assertFalse(submitted["can_submit"])
+        self.assertIn("Aspen", submitted["members"])
+        self.assertTrue(submitted["team_name"])
         self.assertEqual(submitted["last_submitter"], "Aspen")
+        self.assertEqual(submitted["submitted_choice"], "A")
         self.assertNotIn("celebrate", submitted)
+        self.assertNotIn("submitter_log", submitted)
         self.assertFalse(
             self.school.live_session_teacher_state_payload(self.session_id).get(
                 "celebrate"
@@ -1812,6 +1817,92 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertTrue(open_view["status_board"])
         for row in open_view["status_board"]:
             self.assertEqual(set(row), {"team_id", "team_name", "submitted"})
+        aspen_open = next(
+            row
+            for row in open_view["submitter_log"]
+            if row["last_submitter"] == "Aspen"
+        )
+        self.assertEqual(aspen_open["resubmit_count"], 0)
+        self.assertFalse(aspen_open["repeat_submitter"])
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                DELETE FROM live_group_members
+                WHERE live_item_id = ? AND student_id = ?
+                """,
+                (int(published["id"]), self.student_ids[0]),
+            )
+            self.school.conn.commit()
+        late = self.school.student_group_submit_state(
+            published, self.student_ids[0]
+        )
+        assert late is not None
+        self.assertEqual(late["choice"], "A")
+        self.assertEqual(late["phase"], "submitted")
+        edited = self.school.save_group_mc_draft(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="",
+        )
+        self.assertEqual(edited["phase"], "drafting")
+        self.assertFalse(edited["can_submit"])
+        still_in = self.school.live_session_item_results(
+            self.session_id, int(published["id"])
+        )
+        aspen_team = next(
+            row
+            for row in still_in["status_board"]
+            if row["team_name"] == submitted["team_name"]
+        )
+        self.assertTrue(aspen_team["submitted"])
+        self.assertNotIn("answer", aspen_team)
+        revised = self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="because the graph still rises",
+        )
+        self.assertEqual(revised["phase"], "submitted")
+        revised_view = self.school.live_session_item_results(
+            self.session_id, int(published["id"])
+        )
+        aspen_revised = next(
+            row
+            for row in revised_view["submitter_log"]
+            if row["last_submitter"] == "Aspen"
+        )
+        self.assertEqual(aspen_revised["resubmit_count"], 1)
+        self.assertFalse(aspen_revised["repeat_submitter"])
+        q_two = next(
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if row["item_id"] == "q-two"
+        )
+        second = self.school.publish_live_session_item(
+            self.session_id,
+            int(q_two["id"]),
+            publish_mode="group_submit",
+        )
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(second["id"]),
+            self.student_ids[0],
+            choice="B",
+            why="a second round",
+        )
+        second_view = self.school.live_session_item_results(
+            self.session_id, int(second["id"])
+        )
+        aspen_second = next(
+            row
+            for row in second_view["submitter_log"]
+            if row["last_submitter"] == "Aspen"
+        )
+        self.assertTrue(aspen_second["repeat_submitter"])
+        self.assertEqual(aspen_second["resubmit_count"], 0)
         student_payload = self.school.student_live_items_payload(
             self.session_id, self.student_ids[0]
         )
@@ -1823,6 +1914,8 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertIsNone(card["results"])
         self.assertNotIn("submitter_log", card)
         self.assertNotIn("resubmit_count", card["group_submit"])
+        self.assertEqual(card["group_submit"]["phase"], "submitted")
+        self.assertIn("Aspen", card["group_submit"]["members"])
         self.school.close_live_session_item(self.session_id, int(published["id"]))
         closed_view = self.school.live_session_item_results(
             self.session_id, int(published["id"])
@@ -1832,7 +1925,7 @@ class LiveBackendStateTests(unittest.TestCase):
         hits = [row for row in reveal if not row["missed"]]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["answer"], "A")
-        self.assertIn("rises", hits[0]["why"])
+        self.assertIn("still rises", hits[0]["why"])
         self.assertTrue(misses)
         for row in misses:
             self.assertEqual(row["answer"], "")
@@ -1859,6 +1952,9 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         self.assertNotIn("submitter_log", closed_card)
         self.assertTrue(closed_card["results"]["reveal"])
+        blank = next(row for row in closed_card["results"]["reveal"] if row["missed"])
+        self.assertEqual(blank["answer"], "")
+        self.assertEqual(blank["why"], "")
         staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
             encoding="utf-8"
@@ -1868,6 +1964,10 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertIn("Group submission is multiple choice only.", staff_js)
         self.assertIn("Submit for team", student_js)
         self.assertIn("data-group-phase", student_js)
+        self.assertIn("Submitted — waiting for other teams", student_js)
+        self.assertIn("Last submitter:", student_js)
+        self.assertIn("student-group-strip", student_js)
+        self.assertNotIn("Last submitted by", student_js)
         self.assertNotIn("data-group-agree", student_js)
         self.assertNotIn("huddle-timer", student_js)
 

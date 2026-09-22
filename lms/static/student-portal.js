@@ -1934,7 +1934,42 @@ function isArtifactLifecycleItem(item) {
 }
 
 /**
- * Shared MC card: drafting until choice and why are both present.
+ * Card beat inside Open: idle, drafting, ready, or submitted.
+ * Submitted holds only while the draft still matches the last submit.
+ * @param {string} choice
+ * @param {string} why
+ * @param {{submitted?: boolean, submittedChoice?: string, submittedWhy?: string}} snapshot
+ * @returns {"idle"|"drafting"|"ready"|"submitted"}
+ */
+function groupSubmitPhase(choice, why, snapshot) {
+  const picked = String(choice || "").trim();
+  const reason = String(why || "").trim();
+  const matches =
+    Boolean(snapshot?.submitted) &&
+    Boolean(picked) &&
+    Boolean(reason) &&
+    picked === String(snapshot.submittedChoice || "") &&
+    reason === String(snapshot.submittedWhy || "");
+  if (matches) return "submitted";
+  if (picked && reason) return "ready";
+  if (picked || reason) return "drafting";
+  return "idle";
+}
+
+/**
+ * Calm label for one group-submit beat. Waiting copy has no tick delight.
+ * @param {"idle"|"drafting"|"ready"|"submitted"} phase
+ * @returns {string}
+ */
+function groupSubmitPhaseLabel(phase) {
+  if (phase === "submitted") return "Submitted — waiting for other teams";
+  if (phase === "ready") return "Ready";
+  if (phase === "drafting") return "Drafting";
+  return "";
+}
+
+/**
+ * Shared MC card: team strip, Ready-gate, and a calm waiting beat.
  * @param {any} item
  * @returns {string}
  */
@@ -1965,10 +2000,23 @@ function studentGroupCardHtml(item) {
   const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
   const choice = draft.choice != null ? String(draft.choice) : String(group.choice || "");
   const why = draft.why != null ? String(draft.why) : String(group.why || "");
-  const ready = Boolean(choice) && why.trim().length > 0;
+  const phase = groupSubmitPhase(choice, why, {
+    submitted: Boolean(group.submitted),
+    submittedChoice: String(group.submitted_choice || ""),
+    submittedWhy: String(group.submitted_why || ""),
+  });
+  const members = Array.isArray(group.members)
+    ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const teamName = String(group.team_name || "").trim();
+  const strip = [teamName, ...members].filter(Boolean).join(" · ");
   const last = String(group.last_submitter || "").trim();
-  return `<div class="student-group-card" data-live-action="group">
-    <p class="student-group-phase" data-group-phase>${ready ? "Ready" : "Drafting"}</p>
+  return `<div class="student-group-card" data-live-action="group"
+      data-group-submitted="${group.submitted ? "1" : "0"}"
+      data-submitted-choice="${escapeText(group.submitted_choice || "")}"
+      data-submitted-why="${escapeText(group.submitted_why || "")}">
+    ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
+    <p class="student-group-phase" data-group-phase>${groupSubmitPhaseLabel(phase)}</p>
     <div class="student-live-answer-controls" data-live-action="group">
       ${choices
         .map((label, index) => {
@@ -1984,28 +2032,35 @@ function studentGroupCardHtml(item) {
         <textarea data-group-why rows="2" maxlength="500">${escapeText(why)}</textarea>
       </label>
       <button type="button" class="prompt-submit" data-live-submit="group"${
-        ready ? "" : " disabled"
+        phase === "ready" ? "" : " disabled"
       }>Submit for team</button>
     </div>
-    ${last ? `<p class="group-submit-last">Last submitted by ${escapeText(last)}</p>` : ""}
+    ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
   </div>`;
 }
 
 /**
- * Enable Submit only when the shared choice and why are both present.
+ * Enable Submit only at Ready. An unchanged submit stays in Waiting.
  * @param {HTMLElement} card
  */
 function syncGroupSubmitGate(card) {
+  const shell = card.querySelector(".student-group-card") || card;
   const choice = card.querySelector("[data-live-choice].is-selected");
   const why = card.querySelector("[data-group-why]");
-  const ready =
-    choice instanceof HTMLButtonElement &&
-    why instanceof HTMLTextAreaElement &&
-    why.value.trim().length > 0;
-  const phase = card.querySelector("[data-group-phase]");
-  if (phase) phase.textContent = ready ? "Ready" : "Drafting";
+  const choiceText =
+    choice instanceof HTMLButtonElement
+      ? choice.getAttribute("data-live-choice") || ""
+      : "";
+  const whyText = why instanceof HTMLTextAreaElement ? why.value : "";
+  const phase = groupSubmitPhase(choiceText, whyText, {
+    submitted: shell.dataset.groupSubmitted === "1",
+    submittedChoice: shell.dataset.submittedChoice || "",
+    submittedWhy: shell.dataset.submittedWhy || "",
+  });
+  const phaseEl = card.querySelector("[data-group-phase]");
+  if (phaseEl) phaseEl.textContent = groupSubmitPhaseLabel(phase);
   const submit = card.querySelector('[data-live-submit="group"]');
-  if (submit instanceof HTMLButtonElement) submit.disabled = !ready;
+  if (submit instanceof HTMLButtonElement) submit.disabled = phase !== "ready";
 }
 
 /** @type {Map<number, number>} */
@@ -2291,10 +2346,12 @@ function mergeLifecycleSubmitResponse(payload, item, data) {
       tally && Array.isArray(tally.choices) && tally.choices.length
         ? { kind: tally.kind || "mc", choices: tally.choices }
         : row.results;
+    const groupSubmit = data.group_submit || row.group_submit;
     return {
       ...row,
       my_response: myResponse || row.my_response,
-      can_submit: false,
+      group_submit: groupSubmit,
+      can_submit: groupSubmit ? Boolean(groupSubmit.can_submit) : false,
       results: results || row.results,
     };
   });

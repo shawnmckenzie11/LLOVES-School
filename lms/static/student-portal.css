@@ -1061,11 +1061,16 @@ body.student-home.is-live .student-live-response {
   opacity: 0.45;
 }
 
+.student-group-strip,
 .student-group-phase,
 .group-submit-last,
 .group-submit-why {
   margin: 0.35rem 0;
   font-size: 0.92rem;
+}
+
+.student-group-strip {
+  font-weight: 600;
 }
 
 .group-reveal-board {

@@ -11511,19 +11511,130 @@ class SchoolDB(LovesDB):
         )
         if team_id is None:
             raise ValueError("Join a group before submitting.")
-        with self._lock:
-            member = self.conn.execute(
-                """
-                SELECT 1 FROM live_group_members
-                WHERE live_item_id = ? AND team_id = ? AND student_id = ?
-                """,
-                (int(item["id"]), int(team_id), int(student_id)),
-            ).fetchone()
-        if member is None:
-            raise ValueError("Join a group before submitting.")
+        self._land_late_group_member(item, int(team_id), int(student_id))
         if self._group_response_row(int(item["id"]), int(team_id)) is None:
             raise ValueError("This group is not on the question.")
         return int(team_id)
+
+    def _land_late_group_member(
+        self, item: dict[str, Any], team_id: int, student_id: int
+    ) -> None:
+        """Attach a teammate who joined after publish onto the shared row.
+
+        Late joiners see the current draft or waiting state. They do not
+        start a private answer.
+
+        Args:
+            item: Open group-submit lifecycle row.
+            team_id: Current roster team.
+            student_id: Roster id.
+        """
+
+        now = _now()
+        live_item_id = int(item["id"])
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO live_group_responses (
+                    live_item_id, team_id, status, vote_summary_json,
+                    proposed_answer_json, final_answer_json,
+                    finalizer_student_id, awarded_points, voting_ended_at,
+                    finalized_at, why_text, submit_count, submitter_ids_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, 'drafting', '[]', NULL, NULL,
+                          NULL, NULL, NULL, NULL, '', 0, '[]', ?, ?)
+                ON CONFLICT(live_item_id, team_id) DO NOTHING
+                """,
+                (live_item_id, int(team_id), now, now),
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO live_group_members (
+                    live_item_id, team_id, student_id, joined_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (live_item_id, int(team_id), int(student_id), now),
+            )
+            self.conn.commit()
+
+    def _group_card_phase(self, row: dict[str, Any]) -> str:
+        """Return drafting, ready, or submitted for one shared MC row.
+
+        Submitted means the live draft still matches the last submit.
+        Editing the draft drops back to Drafting or Ready while Open.
+        The teacher check stays up from ``submit_count``, not this label.
+
+        Args:
+            row: Normalized ``live_group_responses`` row.
+        """
+
+        choice = self._group_draft_choice(row)
+        why = str(row.get("why_text") or "").strip()
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        matches = (
+            int(row.get("submit_count") or 0) > 0
+            and str(final.get("value") or "").strip() == choice
+            and str(final.get("why") or "").strip() == why
+            and bool(choice)
+            and bool(why)
+        )
+        if matches:
+            return "submitted"
+        if choice and why:
+            return "ready"
+        return "drafting"
+
+    def _team_member_names(
+        self, session_id: int, class_id: int, team_id: int
+    ) -> list[str]:
+        """Return present teammate codenames for the student team strip.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id.
+            team_id: Roster team id.
+        """
+
+        names: list[str] = []
+        for student_id in self._active_team_member_ids(session_id, int(team_id)):
+            name = self._roster_codename(int(class_id), int(student_id))
+            if name:
+                names.append(name)
+        return names
+
+    def _repeat_group_submitter(self, class_id: int, student_id: int) -> bool:
+        """True when this student has pressed Submit on more than one group item.
+
+        Same-item re-submits stay on the re-submit count. The repeat flag
+        is the cross-round coaching note, staff-only.
+
+        Args:
+            class_id: Game-show class id.
+            student_id: Roster id of the latest button press.
+        """
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT r.live_item_id, r.submitter_ids_json,
+                       r.last_submitter_student_id
+                FROM live_group_responses r
+                JOIN live_session_items i ON i.id = r.live_item_id
+                JOIN live_class_sessions s ON s.id = i.live_session_id
+                WHERE s.class_id = ? AND COALESCE(r.submit_count, 0) > 0
+                """,
+                (int(class_id),),
+            ).fetchall()
+        seen: set[int] = set()
+        target = int(student_id)
+        for row in rows:
+            ids = self._group_submitter_ids(
+                {"submitter_ids_json": row["submitter_ids_json"]}
+            )
+            last_id = row["last_submitter_student_id"]
+            if target in ids or (last_id not in (None, "") and int(last_id) == target):
+                seen.add(int(row["live_item_id"]))
+        return len(seen) >= 2
 
     def _group_draft_choice(self, row: dict[str, Any]) -> str:
         """Return the shared draft choice, ignoring an unsent blank.
@@ -11559,24 +11670,32 @@ class SchoolDB(LovesDB):
         row = self._group_response_row(int(item["id"]), int(team_id)) or {}
         choice = self._group_draft_choice(row)
         why = str(row.get("why_text") or "")
-        ready = bool(choice) and bool(why.strip())
+        phase = self._group_card_phase(row)
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
         teams = {
             int(team["id"]): team
             for team in self._named_teams_for_live_session(int(item["live_session_id"]))
         }
+        class_id = int(session_row["class_id"])
         last_id = row.get("last_submitter_student_id")
         last_name = ""
         if last_id not in (None, ""):
-            last_name = self._roster_codename(int(session_row["class_id"]), int(last_id))
+            last_name = self._roster_codename(class_id, int(last_id))
+        active = str(item.get("status") or "") == "active"
         return {
             "team_id": int(team_id),
             "team_name": str((teams.get(int(team_id)) or {}).get("name") or ""),
+            "members": self._team_member_names(
+                int(item["live_session_id"]), class_id, int(team_id)
+            ),
             "choice": choice,
             "why": why,
-            "phase": "ready" if ready else "drafting",
+            "submitted_choice": str(final.get("value") or "").strip(),
+            "submitted_why": str(final.get("why") or "").strip(),
+            "phase": phase,
             "submitted": int(row.get("submit_count") or 0) > 0,
             "last_submitter": last_name,
-            "can_submit": str(item.get("status") or "") == "active" and ready,
+            "can_submit": active and phase == "ready",
         }
 
     def save_group_mc_draft(
@@ -11613,14 +11732,12 @@ class SchoolDB(LovesDB):
         if choice_text and labels and choice_text not in labels:
             raise ValueError("Choose one of the options.")
         row = self._group_response_row(int(item["id"]), team_id) or {}
-        submit_count = int(row.get("submit_count") or 0)
-        ready = bool(choice_text) and bool(why_text)
-        if submit_count > 0:
-            status = "submitted"
-        elif ready:
-            status = "ready"
-        else:
-            status = "drafting"
+        preview = dict(row)
+        preview["proposed_answer"] = (
+            {"kind": "choice", "value": choice_text} if choice_text else None
+        )
+        preview["why_text"] = why_text
+        status = self._group_card_phase(preview)
         proposed = (
             json.dumps({"kind": "choice", "value": choice_text})
             if choice_text
@@ -11651,9 +11768,9 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Submit the shared MC answer for the student's team.
 
-        The ready-gate rejects a missing choice or an empty why. Re-submits
-        increment the count and flag a repeat submitter. No celebration cue
-        is written.
+        The ready-gate rejects a missing choice or an empty why. An unchanged
+        double-tap does not append another log line. A changed re-submit
+        overwrites the live answer and why. No celebration cue is written.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11680,6 +11797,13 @@ class SchoolDB(LovesDB):
         why_text = str(row.get("why_text") or "").strip()
         if not choice_text or not why_text:
             raise ValueError("Add a shared answer and a why before submitting.")
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        if (
+            int(row.get("submit_count") or 0) > 0
+            and str(final.get("value") or "").strip() == choice_text
+            and str(final.get("why") or "").strip() == why_text
+        ):
+            return self.student_group_submit_state(item, student_id) or {}
         ids = self._group_submitter_ids(row)
         ids.append(int(student_id))
         final = {"kind": "choice", "value": choice_text, "why": why_text}
@@ -11797,13 +11921,16 @@ class SchoolDB(LovesDB):
         submitter_log: list[dict[str, Any]] = []
         for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
             count = int(state.get("submit_count") or 0)
-            ids = self._group_submitter_ids(state)
             last_id = state.get("last_submitter_student_id")
             last_name = ""
             if last_id not in (None, "") and class_id:
                 last_name = self._roster_codename(class_id, int(last_id))
             final = state.get("final_answer") if isinstance(state.get("final_answer"), dict) else {}
-            repeat = bool(last_id not in (None, "")) and ids.count(int(last_id)) > 1
+            repeat = bool(
+                last_id not in (None, "")
+                and class_id
+                and self._repeat_group_submitter(class_id, int(last_id))
+            )
             status_board.append(
                 {
                     "team_id": team_id,
