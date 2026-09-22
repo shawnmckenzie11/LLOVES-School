@@ -82,9 +82,10 @@
     </div>
     <script type="module" src="/static/course_catalog.js"></script>
     {% elif tab == 'question-banks' %}
-    <div class="layout bank-browser" id="catalog-root"
+    <div class="layout bank-browser live-bank-browser" id="catalog-root"
          data-class-id="{{ cls.id }}"
          data-kind="question-banks"
+         data-live-bank="1"
          data-empty-banks="{{ bank_copy.empty_banks }}"
          data-edit-bank="{{ bank_copy.edit_bank }}"
          data-done="{{ bank_copy.done }}"
@@ -92,8 +93,39 @@
          data-remove-from-bank="{{ bank_copy.remove_from_bank }}"
          data-edited-in-lms="{{ bank_copy.edited_in_lms }}"
          data-save-toast="{{ bank_copy.save_toast }}">
+      <div class="live-bank-toolbar">
+        <label class="live-bank-field" for="live-bank-scope">Bank scope
+          <select id="live-bank-scope" aria-label="Bank scope">
+            <option value="M1" selected>Module 1</option>
+            <option value="M2">Module 2</option>
+            <option value="M3">Module 3</option>
+            <option value="M4">Module 4</option>
+            <option value="M5">Module 5</option>
+            <option value="M6">Module 6</option>
+            <option value="M7">Module 7</option>
+            <option value="M8">Module 8</option>
+            <option value="course">Course Wide</option>
+          </select>
+        </label>
+        <label class="live-bank-field" for="live-bank-kind">Kind
+          <select id="live-bank-kind" aria-label="Kind">
+            <option value="" selected>Process</option>
+            <option value="standard">Standard</option>
+            <option value="contest">Contest</option>
+            <option value="warmup">Warmup</option>
+          </select>
+        </label>
+        <label class="live-bank-field live-bank-search" for="live-bank-search">Search
+          <input id="live-bank-search" type="search" placeholder="Stem or option text" autocomplete="off">
+        </label>
+        <div class="live-bank-mode" role="group" aria-label="Browse or edit">
+          <button type="button" id="live-bank-browse" data-live-bank-mode="browse" data-bank-done aria-pressed="true">Browse</button>
+          <button type="button" id="live-bank-edit" data-live-bank-mode="edit" data-bank-edit aria-pressed="false" aria-label="Edit bank">Edit</button>
+        </div>
+        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. Process hides warmup.</p>
+      </div>
       <aside class="card module-nav-pane">
-        <div id="catalog-list">Loading question banks…</div>
+        <div id="catalog-list">Loading live bank…</div>
       </aside>
       <section class="card bank-detail" id="bank-detail">
         <p class="hint">{{ bank_copy.empty_banks }}</p>
@@ -570,11 +602,22 @@
           <button type="button" class="secondary live-q-btn" data-live-add-question-close aria-label="Close">Close</button>
         </header>
         <div class="live-add-q-body">
-          <fieldset class="live-add-page-kinds live-add-q-type live-add-q-side">
+          <fieldset class="live-add-q-type live-add-q-side live-add-type-chips">
             <legend class="live-relocate-move-field">Type</legend>
-            <label><input type="radio" name="live-add-q-type" value="mc" checked> Multiple choice</label>
-            <label><input type="radio" name="live-add-q-type" value="numeric"> Numeric</label>
-            <label><input type="radio" name="live-add-q-type" value="poll"> Poll</label>
+            <div class="live-add-type-chip-row" role="radiogroup" aria-label="Type">
+              <label class="live-add-type-chip">
+                <input type="radio" name="live-add-q-type" value="mc" checked>
+                <span>mc</span>
+              </label>
+              <label class="live-add-type-chip">
+                <input type="radio" name="live-add-q-type" value="numeric">
+                <span>numeric</span>
+              </label>
+              <label class="live-add-type-chip">
+                <input type="radio" name="live-add-q-type" value="poll">
+                <span>poll</span>
+              </label>
+            </div>
           </fieldset>
           <div class="live-add-q-stem live-add-q-main">
             <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>

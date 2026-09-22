@@ -105,6 +105,7 @@ from bank_edit import (  # noqa: E402
     delete_staff_bank_question,
     list_staff_bank_questions,
 )
+from live_bank import create_live_bank_question  # noqa: E402
 from question_math import format_mc_html_fragment  # noqa: E402
 from components import (  # noqa: E402
     blob_file_path,
@@ -2906,6 +2907,43 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except KeyError:
             return jsonify({"ok": False, "error": "Question not found"}), 404
         return jsonify({"ok": True})
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-bank/questions",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_live_bank_add_question(class_id: int):
+        """Add one untagged question to the live bank for a scope.
+
+        Writes the staff-authored bank only. Does not import onto a live
+        page and does not rewrite Course Wide warmup rows.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        scope = str(body.get("bank_scope") or body.get("bankScope") or "M1")
+        try:
+            question = create_live_bank_question(
+                school,
+                library_id=int(library_id),
+                bank_scope=scope,
+                body=body,
+                class_id=int(class_id),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Bank not found"}), 404
+        return jsonify({"ok": True, "question": question})
 
     @app.route("/api/staff/class/<int:class_id>/module-banks")
     @staff_required
