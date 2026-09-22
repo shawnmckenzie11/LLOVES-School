@@ -257,6 +257,23 @@ class BankMcDisplayTests(unittest.TestCase):
         self.assertNotIn("y=2^{x}+3", question["text"])
         self.assertEqual(question["equation_latex"], "y=2^{x}+3")
 
+    def test_house_inline_tex_is_not_stripped_as_an_answer_relic(self) -> None:
+        """Ingest house TeX stays when it is the question, not a pasted answer."""
+        from question_math import clean_question_stem_fields
+
+        question = {
+            "text": r"Find $\frac{1}{2}$",
+            "text_html": (
+                '<p>Find <span class="math-latex" data-latex="\\frac{1}{2}">'
+                r"$\frac{1}{2}$</span></p>"
+            ),
+            "options": [r"$\frac{1}{2}$", "$2$"],
+            "correct_answer": "A",
+        }
+        clean_question_stem_fields(question)
+        self.assertEqual(question["text"], r"Find $\frac{1}{2}$")
+        self.assertIn(r"\frac{1}{2}", question["text_html"])
+
     def test_student_visible_bank_image_url_rewrites_staff_path(self) -> None:
         """Staff module-file URLs become the student-accessible twin."""
         staff = "/staff/class/9/module-files/web_resources/diagram.png"

@@ -201,8 +201,37 @@ def _correct_option_text(question: dict[str, Any]) -> str:
     return key
 
 
+def _is_formula_appendix(prefix: str) -> bool:
+    """True when the text before a formula already finished the question.
+
+    House inline TeX such as ``Find $\\frac{1}{2}$`` is the question, not a
+    relic. A formula pasted after ``?``, ``.``, or ``!`` is an answer appendix.
+
+    Args:
+        prefix: Stem text that precedes the candidate formula.
+    """
+    head = re.sub(r"[\s$]+$", "", str(prefix or ""))
+    return bool(head) and head[-1] in "?.!"
+
+
+def _prefix_already_has_formula(prefix: str, correct_key: str) -> bool:
+    """True when this formula was already stated earlier in the stem.
+
+    Args:
+        prefix: Stem text before the candidate copy.
+        correct_key: Normalized correct-option text.
+    """
+    if not correct_key:
+        return False
+    return correct_key in _math_key(prefix)
+
+
 def _strip_trailing_formula(text: str, correct: str) -> str:
-    """Drop a trailing copy of ``correct`` when question words remain.
+    """Drop a trailing answer formula pasted after a finished question.
+
+    A single house-style ``$...$`` token that is the question itself stays.
+    The copy is removed only when question words remain and the formula sits
+    after sentence punctuation or repeats math already in the stem.
 
     Args:
         text: Stem plain text or HTML.
@@ -218,6 +247,12 @@ def _strip_trailing_formula(text: str, correct: str) -> str:
         return raw
     removed = raw[len(updated):]
     if "<" in removed:
+        return raw
+    correct_key = _math_key(correct)
+    if not (
+        _is_formula_appendix(updated)
+        or _prefix_already_has_formula(updated, correct_key)
+    ):
         return raw
     return updated.strip()
 
@@ -239,20 +274,30 @@ def _drop_snapshot_imgs(fragment: str) -> str:
 
 
 def _drop_matching_math_spans(fragment: str, correct_key: str) -> str:
-    """Remove math spans whose TeX is the correct option.
+    """Remove an answer-formula span pasted after a finished question.
+
+    House inline TeX stays when it is the question (``Find $\\frac{1}{2}$``).
+    A span is removed only when its TeX matches the correct option and the
+    text before it already ended the question or already contained that formula.
 
     Args:
         fragment: Stem HTML.
         correct_key: Normalized correct-option text.
     """
+    source = str(fragment or "")
 
     def replace(match: re.Match[str]) -> str:
         latex = html.unescape(match.group(1) or "")
-        if correct_key and _math_key(latex) == correct_key:
+        if not correct_key or _math_key(latex) != correct_key:
+            return match.group(0)
+        prefix = html_to_plain(source[: match.start()])
+        if _is_formula_appendix(prefix) or _prefix_already_has_formula(
+            prefix, correct_key
+        ):
             return ""
         return match.group(0)
 
-    return _MATH_SPAN_RE.sub(replace, str(fragment or ""))
+    return _MATH_SPAN_RE.sub(replace, source)
 
 
 def strip_glued_stem_relics(
@@ -263,10 +308,11 @@ def strip_glued_stem_relics(
 ) -> tuple[str, str]:
     """Remove answer snapshots and formula appendices glued onto a stem.
 
-    Gyazo and EquatIO snapshots are dropped. Equation spans and a trailing
-    plain-text copy are dropped only when they match the correct option and
-    question text remains. Graphs, tables, and in-stem math that is not the
-    answer stay. The function is idempotent.
+    Gyazo and EquatIO snapshots are dropped. A trailing formula or math span
+    is dropped only when it repeats the correct option after a finished
+    question. House-style inline TeX (``$\\frac{1}{2}$``) stays when it is
+    the question itself. Graphs, tables, and other in-stem math stay. The
+    function is idempotent.
 
     Args:
         stem_html: Rendered stem HTML. May be empty.
