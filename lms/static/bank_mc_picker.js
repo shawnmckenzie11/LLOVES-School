@@ -261,8 +261,14 @@ export async function mountBankMcPicker(opts) {
     listEl.innerHTML = items
       .map((item) => {
         const qid = Number(item.question_id || 0);
-        const label = questionFieldHtml(item, "text") || formatQuestionHtml(itemPreview(item));
+        const title = String(item.question_title || "").trim();
+        const stemLabel =
+          questionFieldHtml(item, "text") || formatQuestionHtml(itemPreview(item));
         const warmup = String(item.kind || "") === "warmup";
+        const label =
+          warmup && title
+            ? `<span class="bank-mc-picker-title">${escapeHtml(title)}</span>${stemLabel}`
+            : stemLabel;
         const optionList = Array.isArray(item.options) ? item.options : [];
         const meta = escapeHtml(
           warmup
@@ -276,7 +282,7 @@ export async function mountBankMcPicker(opts) {
             ? `<button type="button" data-bank-mc-select="${qid}">Import</button>`
             : `<button type="button" data-bank-mc-select="${qid}">Edit</button>`;
         const thumb = questionImageHtml(item.image_url, { variant: "thumb" });
-        return `<li class="bank-mc-picker-row">
+        return `<li class="bank-mc-picker-row" data-bank-mc-title="${escapeHtml(title)}">
           <div class="bank-mc-picker-row-main">
             ${thumb}
             <div class="bank-mc-picker-text live-question-html">${label}</div>

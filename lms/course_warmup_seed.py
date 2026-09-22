@@ -37,7 +37,7 @@ _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
     },
     {
         "import_key": "warmup-overrated-food",
-        "title": "Overrated food",
+        "title": "Most overrated food",
         "stem": "Which food is overrated?",
         "options": ["Pineapple on pizza", "Raisins", "Decaf coffee", "Kale"],
     },
@@ -55,7 +55,7 @@ _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
     },
     {
         "import_key": "warmup-useless-skill",
-        "title": "Useless skill",
+        "title": "Weirdly useless skill",
         "stem": "What useless skill are you weirdly proud of?",
         "options": [],
     },
@@ -73,7 +73,7 @@ _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
     },
     {
         "import_key": "warmup-fraction-never",
-        "title": "Fraction who never did it",
+        "title": "Fraction who never did X",
         "stem": "What fraction of this class has never done something the rest of us have?",
         "options": ["Almost none", "About a quarter", "About half", "Most of us"],
     },
@@ -84,6 +84,19 @@ _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
         "options": [],
     },
 )
+
+
+def locked_course_warmup_titles() -> tuple[str, ...]:
+    """Return the eleven Course Wide warmup titles, in catalogue order.
+
+    These match the ``live_problems`` icebreaker titles seeded for MCF3M and
+    MCR3U. Import lists this tuple when Bank scope is Course Wide and Kind
+    is Warmup.
+
+    Returns:
+        Locked title strings.
+    """
+    return tuple(str(row["title"]) for row in _COURSE_WIDE_WARMUP_SPECS)
 
 
 def course_wide_warmup_catalogue() -> list[dict[str, Any]]:
