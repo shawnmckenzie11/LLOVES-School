@@ -4746,6 +4746,104 @@ body.staff-shell .prompt-choice .live-question-html img,
 body.staff-shell .layout.bank-browser {
   align-items: stretch;
 }
+body.staff-shell .layout#catalog-root.live-bank-browser {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+body.staff-shell .live-bank-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.9rem;
+  align-items: flex-end;
+}
+body.staff-shell .live-bank-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 8rem;
+}
+body.staff-shell .live-bank-search {
+  flex: 1 1 12rem;
+}
+body.staff-shell .live-bank-note {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+body.staff-shell .live-bank-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 11rem;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+body.staff-shell .live-bank-mode button {
+  margin: 0;
+  min-height: 2rem;
+  border: 0;
+  border-right: 1px solid #cbd5e1;
+  border-radius: 0;
+  background: #fff;
+  font-weight: 700;
+}
+body.staff-shell .live-bank-mode button:last-child {
+  border-right: 0;
+}
+body.staff-shell .live-bank-mode button[aria-pressed="true"] {
+  background: #12202e;
+  color: #f8fafc;
+}
+body.staff-shell .live-add-type-chips {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+body.staff-shell .live-add-type-chip-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+body.staff-shell .live-add-type-chip {
+  position: relative;
+  display: flex;
+  margin: 0;
+  min-width: 0;
+  border-right: 1px solid #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+body.staff-shell .live-add-type-chip:last-child {
+  border-right: 0;
+}
+body.staff-shell .live-add-type-chip input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+body.staff-shell .live-add-type-chip span {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.28rem 0.15rem;
+  background: #fff;
+  text-align: center;
+}
+body.staff-shell .live-add-type-chip:has(input:checked) span {
+  background: #12202e;
+  color: #f8fafc;
+}
+body.staff-shell .live-add-type-chip:has(input:focus-visible) span {
+  outline: 2px solid #f5c518;
+  outline-offset: -2px;
+}
 body.staff-shell .bank-detail {
   min-height: 0;
   height: 100%;

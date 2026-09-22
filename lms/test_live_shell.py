@@ -175,6 +175,18 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="ap-media-stem"', html)
         self.assertIn('id="live-add-question-btn"', html)
         self.assertIn('id="live-add-question-dialog"', html)
+        type_row = html[
+            html.index('class="live-add-type-chip-row"') : html.index('id="live-add-q-text"')
+        ]
+        self.assertIn('name="live-add-q-type" value="mc" checked', type_row)
+        self.assertIn('name="live-add-q-type" value="numeric"', type_row)
+        self.assertIn('name="live-add-q-type" value="poll"', type_row)
+        self.assertIn(">mc</span>", type_row)
+        self.assertIn(">numeric</span>", type_row)
+        self.assertIn(">poll</span>", type_row)
+        self.assertNotIn('value="essay"', type_row)
+        self.assertNotIn("Multiple choice", type_row)
+        self.assertEqual(type_row.count('name="live-add-q-type"'), 3)
         self.assertIn('id="live-add-q-equation-preview"', html)
         self.assertIn('data-eq-insert="\\frac{a}{b}"', html)
         self.assertIn('id="live-add-q-bank-scope-select"', html)

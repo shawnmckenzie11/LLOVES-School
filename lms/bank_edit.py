@@ -158,6 +158,33 @@ def is_mc_item_type(item_type: str) -> bool:
     return str(item_type or "").strip().lower() in MC_ITEM_TYPES
 
 
+def payload_is_warmup(payload: dict[str, Any] | None) -> bool:
+    """Return True when a stored question payload is tagged warmup.
+
+    Matches Run Live Class Import: ``kind`` / ``bank_kind`` / ``problem_kind``
+    or a ``warmup`` tag. Course Wide icebreakers use ``kind=warmup``. This
+    does not invent a new question type.
+
+    Args:
+        payload: Parsed ``questions.payload_json``, or None.
+    """
+    if not isinstance(payload, dict):
+        return False
+    for key in ("kind", "bank_kind", "problem_kind"):
+        if str(payload.get(key) or "").strip().lower() == "warmup":
+            return True
+    raw_tags = payload.get("tags")
+    if raw_tags is None:
+        raw_tags = payload.get("tag")
+    if isinstance(raw_tags, str):
+        tags = [part.strip() for part in raw_tags.split(",")]
+    elif isinstance(raw_tags, list):
+        tags = [str(part or "") for part in raw_tags]
+    else:
+        tags = []
+    return any(tag.strip().lower() == "warmup" for tag in tags)
+
+
 def _overlay_dict(row: dict[str, Any] | None) -> dict[str, Any] | None:
     """Normalize a ``library_question_overlays`` row for serializers."""
     if not row:
@@ -430,16 +457,18 @@ def apply_staff_question_patch(
     if row is None or int(row["bank_id"]) != int(bank_id):
         raise KeyError(f"question {question_id}")
     item_type = str(row.get("item_type") or "")
+    stored = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    warmup = payload_is_warmup(stored)
     stem_html, stem_plain = _stem_from_body(
         body, class_id=class_id, school=school, library_id=int(library_id)
     )
     options = _parse_options(body)
     points = _parse_points(body)
     if is_mc_item_type(item_type):
-        if len(options) < 2:
+        if len(options) < 2 and not (warmup and not options):
             raise ValueError("at least two options required")
         correct = _parse_correct_answer(body, options)
-        if not correct:
+        if not correct and not warmup:
             raise ValueError("correct_answer required")
         school.upsert_library_question_overlay(
             int(library_id),
@@ -459,12 +488,13 @@ def apply_staff_question_patch(
             points=points,
         )
     import_key = str(row.get("import_key") or "")
-    if import_key.startswith("staff-q-"):
-        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
-        payload = dict(payload)
+    if warmup or import_key.startswith("staff-q-"):
+        payload = dict(stored)
         payload["stem_html"] = stem_html
+        if warmup:
+            payload["kind"] = "warmup"
         if options:
-            correct = _parse_correct_answer(body, options)
+            correct = "" if warmup else _parse_correct_answer(body, options)
             payload["choices"] = [
                 {
                     "id": _choice_letter(index),
@@ -474,10 +504,12 @@ def apply_staff_question_patch(
                         school=school,
                         library_id=int(library_id),
                     ),
-                    "correct": _choice_letter(index) == correct,
+                    "correct": (not warmup) and _choice_letter(index) == correct,
                 }
                 for index, option in enumerate(options)
             ]
+            if warmup:
+                payload["type"] = "mc"
         if points is not None:
             payload["points_possible"] = points
         school.update_library_question_payload(

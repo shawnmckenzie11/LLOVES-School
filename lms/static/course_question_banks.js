@@ -13,27 +13,24 @@ const list = document.getElementById("catalog-list");
 const detail = document.getElementById("bank-detail");
 const toast = document.getElementById("bank-toast");
 const removeDialog = document.getElementById("bank-remove-dialog");
+const scopeEl = document.getElementById("live-bank-scope");
+const kindEl = document.getElementById("live-bank-kind");
+const searchEl = document.getElementById("live-bank-search");
 
 /** @type {Record<string, unknown>[]} */
-let banks = [];
-/** @type {Record<string, unknown>[]} */
-let questions = [];
-/** @type {number | null} */
-let selectedBankId = null;
+let items = [];
+/** @type {Record<string, unknown> | null} */
+let selected = null;
+/** @type {Record<string, unknown> | null} */
+let editorQuestion = null;
 let editMode = false;
 /** @type {number | "new" | null} */
 let openEditorId = null;
-/** @type {number | "new" | null} */
+/** @type {number | null} */
 let pendingRemoveId = null;
 let toastTimer = 0;
-
-const ITEM_TYPE_LABELS = {
-  multiple_choice_question: "Multiple choice",
-  true_false_question: "True / false",
-  essay_question: "Essay",
-  short_answer_question: "Short answer",
-  numerical_question: "Numerical",
-};
+let searchTimer = 0;
+let loadToken = 0;
 
 /**
  * Escape text for HTML interpolation.
@@ -44,12 +41,14 @@ function escapeText(value) {
 }
 
 /**
- * Human label for a stored Canvas item type.
- * @param {unknown} itemType
+ * True when Import would treat the row as a warmup.
+ * @param {Record<string, unknown> | null | undefined} item
  */
-function itemTypeLabel(itemType) {
-  const key = String(itemType || "");
-  return ITEM_TYPE_LABELS[key] || key.replace(/_/g, " ") || "Question";
+function isWarmup(item) {
+  const kind = String(item?.kind || item?.payload?.kind || "").toLowerCase();
+  if (kind === "warmup") return true;
+  const tags = item?.payload?.tags;
+  return Array.isArray(tags) && tags.some((tag) => String(tag).toLowerCase() === "warmup");
 }
 
 /**
@@ -67,6 +66,21 @@ function showToast(message) {
 }
 
 /**
+ * Current bank scope token (``M1``–``M8`` or ``course``).
+ */
+function currentScope() {
+  const value = scopeEl instanceof HTMLSelectElement ? scopeEl.value : "M1";
+  return String(value || "M1");
+}
+
+/**
+ * Kind query shared with Import. Empty is Process (warmup hidden).
+ */
+function currentKind() {
+  return kindEl instanceof HTMLSelectElement ? String(kindEl.value || "") : "";
+}
+
+/**
  * Return option rows for the QuestionEditor.
  * @param {Record<string, unknown>} question
  */
@@ -80,11 +94,11 @@ function editorOptions(question) {
   while (rows.length < 2) {
     rows.push({
       text: "",
-      correct: rows.length === 0,
+      correct: !isWarmup(question) && rows.length === 0,
       letter: String.fromCharCode(65 + rows.length),
     });
   }
-  if (!rows.some((row) => row.correct)) rows[0].correct = true;
+  if (!isWarmup(question) && !rows.some((row) => row.correct)) rows[0].correct = true;
   return rows;
 }
 
@@ -103,103 +117,113 @@ function readEditor(card) {
     .map((input) => (input instanceof HTMLInputElement ? input.value.trim() : ""))
     .filter(Boolean);
   const checked = card.querySelector("[data-bank-correct]:checked");
-  const correctIndex = checked instanceof HTMLInputElement ? Number(checked.value) : 0;
+  const correctIndex = checked instanceof HTMLInputElement ? Number(checked.value) : -1;
   const pointsInput = card.querySelector("[data-bank-points]");
   const pointsRaw =
     pointsInput instanceof HTMLInputElement ? pointsInput.value.trim() : "";
+  const typeEl = card.querySelector("[data-bank-new-type]");
+  const type = typeEl instanceof HTMLSelectElement ? typeEl.value : "mc";
+  const numericEl = card.querySelector("[data-bank-numeric]");
+  const numeric =
+    numericEl instanceof HTMLInputElement ? numericEl.value.trim() : "";
   return {
     stem_text: stem,
     options,
-    correct_answer: String.fromCharCode(65 + (Number.isFinite(correctIndex) ? correctIndex : 0)),
+    correct_answer:
+      type === "numeric"
+        ? numeric
+        : correctIndex >= 0
+          ? String.fromCharCode(65 + correctIndex)
+          : "",
     points: pointsRaw === "" ? null : Number(pointsRaw),
+    type,
   };
 }
 
 /**
- * Render the left-hand bank list.
+ * Render one read-only peek for the selected live-bank row.
+ * @param {Record<string, unknown>} item
  */
-function paintBanks() {
-  if (!list) return;
-  if (!banks.length) {
-    list.innerHTML = `<p class="hint">${escapeText(EMPTY_BANKS)}</p>`;
-    return;
-  }
-  let html = '<ul class="nav-list bank-nav-list">';
-  for (const bank of banks) {
-    const n = Number(bank.question_count || 0);
-    const on = Number(bank.id) === Number(selectedBankId) ? " is-on" : "";
-    html += `<li>
-      <button type="button" class="bank-nav-btn${on}" data-bank-id="${Number(bank.id)}">
-        ${escapeText(bank.title || "Untitled bank")}
-        <span class="hint">(${n} question${n === 1 ? "" : "s"})</span>
-      </button>
-    </li>`;
-  }
-  html += "</ul>";
-  list.innerHTML = html;
-}
-
-/**
- * Render one read-only peek for an expanded question.
- * @param {Record<string, unknown>} question
- */
-function peekHtml(question) {
-  const choices = Array.isArray(question.choices) ? question.choices : [];
-  const choiceBits = choices
+function peekHtml(item) {
+  const options = Array.isArray(item.options) ? item.options : [];
+  const choiceBits = options
     .map((choice) => {
-      const mark = choice.correct ? "✓" : "○";
-      return `<li class="${choice.correct ? "is-correct" : ""}">${mark} ${
-        choice.html || escapeText(choice.text || "")
-      }</li>`;
+      const text = typeof choice === "string" ? choice : String(choice?.text || "");
+      return `<li>${escapeText(text)}</li>`;
     })
     .join("");
-  const answers = Array.isArray(question.correct_answers)
-    ? question.correct_answers.filter(Boolean)
-    : [];
+  const key = String(item.correct_answer || "").trim();
+  const warmup = isWarmup(item);
   return `<div class="bank-q-peek">
-    <div class="bank-q-stem live-question-html">${question.stem_html || escapeText(question.stem_plain || "")}</div>
+    <div class="bank-q-stem live-question-html">${formatQuestionHtml(String(item.text || item.question_title || ""))}</div>
     ${choiceBits ? `<ul class="bank-q-choices">${choiceBits}</ul>` : ""}
     ${
-      !choiceBits && answers.length
-        ? `<p class="hint compact">Accepted: ${escapeText(answers.join(", "))}</p>`
-        : ""
+      warmup
+        ? `<p class="hint compact">Warmup — no answer key</p>`
+        : key
+          ? `<p class="hint compact">Answer ${escapeText(key)}</p>`
+          : ""
     }
   </div>`;
 }
 
 /**
- * Render the in-place QuestionEditor for one question.
+ * Render the in-place QuestionEditor for one stored question.
  * @param {Record<string, unknown>} question
  * @param {boolean} isNew
  */
 function editorHtml(question, isNew) {
-  const options = editorOptions(question);
-  const mc = String(question.item_type || "").includes("multiple_choice")
-    || String(question.item_type || "") === "true_false_question"
-    || isNew;
+  const warmup = isWarmup(question);
+  const newType = String(question.type || "mc");
+  const mc =
+    isNew
+      ? newType === "mc"
+      : String(question.item_type || "").includes("multiple_choice") ||
+        String(question.item_type || "") === "true_false_question" ||
+        (Array.isArray(question.choices) && question.choices.length > 0 && !warmup) ||
+        (warmup && Array.isArray(question.choices) && question.choices.length > 0);
+  const options = mc ? editorOptions(question) : [];
   const optionFields = mc
     ? `<fieldset class="bank-q-options">
-        <legend>Options</legend>
+        <legend>${warmup ? "Options — warmup has no key" : "Options"}</legend>
         ${options
-          .map(
-            (row, index) => `<label class="bank-q-option">
-              <input type="radio" name="bank-correct-${escapeText(question.id ?? "new")}" data-bank-correct value="${index}"${
-                row.correct ? " checked" : ""
-              }>
-              <span>${row.letter}</span>
+          .map((row, index) => {
+            const keyControl = warmup
+              ? `<span>${row.letter}</span>`
+              : `<input type="radio" name="bank-correct-${escapeText(question.id ?? "new")}" data-bank-correct value="${index}"${
+                  row.correct ? " checked" : ""
+                }><span>${row.letter}</span>`;
+            return `<label class="bank-q-option">${keyControl}
               <input type="text" data-bank-option maxlength="240" value="${escapeText(row.text)}">
-            </label>`
-          )
+            </label>`;
+          })
           .join("")}
       </fieldset>`
     : "";
+  const numericFields =
+    isNew && newType === "numeric"
+      ? `<label>Correct answer
+          <input data-bank-numeric type="text" inputmode="decimal" required>
+        </label>`
+      : "";
+  const typeFields = isNew
+    ? `<label>Type
+        <select data-bank-new-type aria-label="Type">
+          <option value="mc"${newType === "mc" ? " selected" : ""}>mc</option>
+          <option value="numeric"${newType === "numeric" ? " selected" : ""}>numeric</option>
+          <option value="poll"${newType === "poll" ? " selected" : ""}>poll</option>
+        </select>
+      </label>`
+    : "";
   return `<form class="bank-q-editor" data-bank-editor="${escapeText(question.id ?? "new")}">
+    ${typeFields}
     <label>Stem
-      <textarea data-bank-stem rows="4" required>${escapeText(question.stem_plain || "")}</textarea>
+      <textarea data-bank-stem rows="4" required>${escapeText(question.stem_plain || question.text || "")}</textarea>
     </label>
     <div class="bank-q-eq-preview live-question-html" data-bank-eq-preview></div>
     <p class="error compact" hidden data-bank-eq-error>${escapeText(EQ_ERROR)}</p>
     ${optionFields}
+    ${numericFields}
     <label>Points
       <input data-bank-points type="number" min="0" step="0.5" value="${escapeText(question.points ?? 1)}">
     </label>
@@ -215,76 +239,92 @@ function editorHtml(question, isNew) {
 }
 
 /**
- * Render the selected bank's questions (browse or edit).
+ * Paint Browse or Edit for the selected live-bank row.
  */
 function paintDetail() {
   if (!(detail instanceof HTMLElement)) return;
-  if (!selectedBankId) {
-    detail.innerHTML = `<p class="hint">Select a bank to browse questions.</p>`;
-    return;
-  }
-  const bank = banks.find((row) => Number(row.id) === Number(selectedBankId));
-  const title = String(bank?.title || "Question bank");
   const modeControls = editMode
-    ? `<button type="button" data-bank-done>${escapeText(DONE_LABEL)}</button>
-       <button type="button" class="secondary" data-bank-cancel>${escapeText(CANCEL_LABEL)}</button>`
-    : `<button type="button" data-bank-edit>${escapeText(EDIT_BANK)}</button>`;
-  const addBtn = editMode
     ? `<button type="button" class="secondary" data-bank-add>Add question</button>`
     : "";
-  let body = "";
-  if (!questions.length && openEditorId !== "new") {
-    body = `<p class="hint">This bank has no questions yet.</p>`;
-  } else {
-    body = '<ul class="bank-q-list">';
-    for (const question of questions) {
-      const qid = Number(question.id);
-      const expanded = detail.querySelector(`[data-bank-q="${qid}"]`)?.classList.contains("is-open");
-      const editing = editMode && openEditorId === qid;
-      const chip = question.edited_in_lms
-        ? `<span class="bank-q-chip">${escapeText(CHIP_COPY)}</span>`
-        : "";
-      const previewHtml = String(question.stem_preview_html || "").trim();
-      const preview = previewHtml
-        ? `<span class="bank-q-preview live-question-html">${previewHtml}</span>`
-        : `<span class="bank-q-preview">${escapeText(question.stem_preview || question.stem_plain || "Untitled")}</span>`;
-      body += `<li class="bank-q-row${expanded && !editing ? " is-open" : ""}" data-bank-q="${qid}">
-        <button type="button" class="bank-q-stem-btn" data-bank-expand="${qid}">
-          ${preview}
-          <span class="hint">${escapeText(itemTypeLabel(question.item_type))}</span>
-          ${chip}
-        </button>
-        ${
-          editMode
-            ? `<button type="button" class="secondary compact" data-bank-open-editor="${qid}">Edit</button>`
-            : ""
-        }
-        ${editing ? editorHtml(question, false) : `<div class="bank-q-peek-wrap">${peekHtml(question)}</div>`}
-      </li>`;
-    }
-    if (editMode && openEditorId === "new") {
-      body += `<li class="bank-q-row is-editing" data-bank-q="new">
-        ${editorHtml({ id: "new", item_type: "multiple_choice_question", choices: [
-          { text: "", correct: true },
-          { text: "", correct: false },
-          { text: "", correct: false },
-          { text: "", correct: false },
-        ], points: 1 }, true)}
-      </li>`;
-    }
-    body += "</ul>";
+  if (editMode && openEditorId === "new") {
+    detail.innerHTML = `<header class="bank-detail-head">
+      <div><h2>Add question</h2><p class="hint compact">${escapeText(EDIT_BANK)}</p></div>
+      <div class="bank-mode-controls">${modeControls}</div>
+    </header>${editorHtml({ id: "new", type: "mc", choices: [], points: 1 }, true)}`;
+    void renderLiveQuestionMath(detail);
+    return;
   }
+  if (!selected) {
+    detail.innerHTML = `<p class="hint">${escapeText(EMPTY_BANKS)}</p>`;
+    return;
+  }
+  const title = String(selected.question_title || selected.text || "Question");
+  const chip = selected.edited_in_lms
+    ? `<span class="bank-q-chip">${escapeText(CHIP_COPY)}</span>`
+    : "";
+  const body =
+    editMode && editorQuestion
+      ? editorHtml(editorQuestion, false)
+      : editMode
+        ? `<p class="hint">Loading editor…</p>`
+        : peekHtml(selected);
   detail.innerHTML = `<header class="bank-detail-head">
     <div>
       <h2>${escapeText(title)}</h2>
-      <p class="hint compact">${questions.length} question${questions.length === 1 ? "" : "s"}</p>
+      <p class="hint compact">${escapeText(String(selected.bank_title || "Live bank"))} ${chip}</p>
     </div>
-    <div class="bank-mode-controls">${modeControls}${addBtn}</div>
+    <div class="bank-mode-controls">${modeControls}</div>
   </header>${body}`;
   void renderLiveQuestionMath(detail);
   detail.querySelectorAll("[data-bank-editor]").forEach((form) => {
     if (form instanceof HTMLElement) void paintEditorMathPreview(form);
   });
+}
+
+/**
+ * Render the browse list for the current scope, kind, and search.
+ */
+function paintList() {
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = `<p class="hint">${escapeText(EMPTY_BANKS)}</p>`;
+    return;
+  }
+  let html = '<ul class="nav-list bank-nav-list">';
+  for (const item of items) {
+    const qid = Number(item.question_id || 0);
+    const on = Number(selected?.question_id) === qid ? " is-on" : "";
+    const previewHtml = String(item.stem_preview_html || "").trim();
+    const preview = String(item.text || item.question_title || "Untitled");
+    const kind = isWarmup(item) ? "Warmup" : String(item.type || "mc");
+    const previewMarkup = previewHtml
+      ? `<span class="bank-q-preview live-question-html">${previewHtml}</span>`
+      : `<span class="bank-q-preview">${escapeText(preview)}</span>`;
+    html += `<li>
+      <button type="button" class="bank-nav-btn${on}" data-live-bank-id="${qid}">
+        ${previewMarkup}
+        <span class="hint">${escapeText(kind)}</span>
+      </button>
+    </li>`;
+  }
+  html += "</ul>";
+  list.innerHTML = html;
+}
+
+/**
+ * Sync the Browse | Edit pressed state.
+ */
+function paintMode() {
+  const browse = document.getElementById("live-bank-browse");
+  const edit = document.getElementById("live-bank-edit");
+  if (browse instanceof HTMLButtonElement) {
+    browse.setAttribute("aria-pressed", editMode ? "false" : "true");
+    browse.title = DONE_LABEL;
+  }
+  if (edit instanceof HTMLButtonElement) {
+    edit.setAttribute("aria-pressed", editMode ? "true" : "false");
+    edit.setAttribute("aria-label", EDIT_BANK);
+  }
 }
 
 /**
@@ -331,39 +371,66 @@ async function paintEditorMathPreview(form) {
 }
 
 /**
- * Load the selected bank's questions from the staff API.
+ * Load the staff editor row for the selected live-bank question.
  */
-async function loadQuestions() {
-  if (!selectedBankId) {
-    questions = [];
+async function loadEditorQuestion() {
+  editorQuestion = null;
+  const bankId = Number(selected?.bank_id || 0);
+  const questionId = Number(selected?.question_id || 0);
+  if (!bankId || !questionId) {
     paintDetail();
     return;
   }
-  const data = await api(`/api/staff/class/${classId}/question-bank/${selectedBankId}`);
-  questions = Array.isArray(data.questions) ? data.questions : [];
+  const data = await api(`/api/staff/class/${classId}/question-bank/${bankId}`);
+  const questions = Array.isArray(data.questions) ? data.questions : [];
+  editorQuestion =
+    questions.find((row) => Number(row.id) === questionId) || null;
+  if (editorQuestion && isWarmup(selected)) {
+    editorQuestion.kind = "warmup";
+  }
   paintDetail();
 }
 
 /**
- * Load imported banks for this class.
+ * Load the live bank through the same mc-search Import uses.
  */
-async function loadBanks() {
-  const data = await api(`/api/staff/class/${classId}/components/question-banks`);
-  banks = Array.isArray(data.items) ? data.items : [];
-  if (!banks.length) {
-    selectedBankId = null;
-    questions = [];
-    paintBanks();
+async function loadLiveBank() {
+  const token = ++loadToken;
+  const scope = currentScope();
+  const kind = currentKind();
+  const query = searchEl instanceof HTMLInputElement ? searchEl.value.trim() : "";
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  if (kind) params.set("kind", kind);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  let data;
+  try {
+    data = await api(
+      `/api/staff/class/${classId}/module-banks/${encodeURIComponent(scope)}/mc-search${suffix}`
+    );
+  } catch (err) {
+    if (token !== loadToken) return;
+    items = [];
+    selected = null;
+    if (list) list.textContent = err instanceof Error ? err.message : String(err);
     if (detail instanceof HTMLElement) {
-      detail.innerHTML = `<p class="hint">${escapeText(data.message || EMPTY_BANKS)}</p>`;
+      detail.innerHTML = `<p class="hint">${escapeText(EMPTY_BANKS)}</p>`;
     }
     return;
   }
-  if (!banks.some((row) => Number(row.id) === Number(selectedBankId))) {
-    selectedBankId = Number(banks[0].id);
+  if (token !== loadToken) return;
+  items = Array.isArray(data.items) ? data.items : [];
+  const keep = Number(selected?.question_id || 0);
+  selected = items.find((row) => Number(row.question_id) === keep) || items[0] || null;
+  openEditorId = null;
+  paintList();
+  paintMode();
+  if (editMode && selected) {
+    await loadEditorQuestion();
+  } else {
+    editorQuestion = null;
+    paintDetail();
   }
-  paintBanks();
-  await loadQuestions();
 }
 
 /**
@@ -373,23 +440,29 @@ async function loadBanks() {
 async function saveEditor(form) {
   const body = readEditor(form);
   if (openEditorId === "new") {
-    const saved = await api(
-      `/api/staff/class/${classId}/question-bank/${selectedBankId}/questions`,
-      { method: "POST", body: JSON.stringify(body) }
-    );
+    await api(`/api/staff/class/${classId}/live-bank/questions`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...body,
+        bank_scope: currentScope(),
+      }),
+    });
     openEditorId = null;
-    await loadBanks();
+    editMode = false;
+    paintMode();
+    await loadLiveBank();
     showToast(TOAST_COPY);
-    return saved;
+    return;
   }
-  const saved = await api(
-    `/api/staff/class/${classId}/question-bank/${selectedBankId}/questions/${Number(openEditorId)}`,
+  const bankId = Number(selected?.bank_id || editorQuestion?.bank_id || 0);
+  const questionId = Number(openEditorId || selected?.question_id || 0);
+  await api(
+    `/api/staff/class/${classId}/question-bank/${bankId}/questions/${questionId}`,
     { method: "PATCH", body: JSON.stringify(body) }
   );
   openEditorId = null;
-  await loadBanks();
+  await loadLiveBank();
   showToast(TOAST_COPY);
-  return saved;
 }
 
 /**
@@ -398,11 +471,8 @@ async function saveEditor(form) {
  */
 function confirmRemove(questionId) {
   pendingRemoveId = questionId;
-  if (removeDialog instanceof HTMLDialogElement) {
-    if (typeof removeDialog.showModal === "function") {
-      removeDialog.showModal();
-      return;
-    }
+  if (removeDialog instanceof HTMLDialogElement && typeof removeDialog.showModal === "function") {
+    removeDialog.showModal();
   }
 }
 
@@ -411,60 +481,92 @@ function confirmRemove(questionId) {
  */
 async function removePending() {
   const questionId = Number(pendingRemoveId);
+  const bankId = Number(selected?.bank_id || editorQuestion?.bank_id || 0);
   pendingRemoveId = null;
-  if (!questionId || !selectedBankId) return;
+  if (!questionId || !bankId) return;
   await api(
-    `/api/staff/class/${classId}/question-bank/${selectedBankId}/questions/${questionId}`,
+    `/api/staff/class/${classId}/question-bank/${bankId}/questions/${questionId}`,
     { method: "DELETE" }
   );
   if (openEditorId === questionId) openEditorId = null;
-  await loadBanks();
+  selected = null;
+  await loadLiveBank();
 }
 
 list?.addEventListener("click", (event) => {
   const btn =
-    event.target instanceof Element ? event.target.closest("[data-bank-id]") : null;
+    event.target instanceof Element ? event.target.closest("[data-live-bank-id]") : null;
   if (!(btn instanceof HTMLElement)) return;
-  selectedBankId = Number(btn.dataset.bankId || 0) || null;
+  const qid = Number(btn.dataset.liveBankId || 0);
+  selected = items.find((row) => Number(row.question_id) === qid) || null;
+  openEditorId = qid || null;
+  paintList();
+  if (editMode) {
+    loadEditorQuestion().catch((err) => {
+      if (detail instanceof HTMLElement) {
+        detail.textContent = err instanceof Error ? err.message : String(err);
+      }
+    });
+  } else {
+    paintDetail();
+  }
+});
+
+document.getElementById("live-bank-browse")?.addEventListener("click", () => {
   editMode = false;
   openEditorId = null;
-  paintBanks();
-  loadQuestions().catch((err) => {
+  editorQuestion = null;
+  paintMode();
+  paintDetail();
+});
+
+document.getElementById("live-bank-edit")?.addEventListener("click", () => {
+  editMode = true;
+  openEditorId = Number(selected?.question_id || 0) || null;
+  paintMode();
+  loadEditorQuestion().catch((err) => {
     if (detail instanceof HTMLElement) {
       detail.textContent = err instanceof Error ? err.message : String(err);
     }
   });
 });
 
+scopeEl?.addEventListener("change", () => {
+  selected = null;
+  loadLiveBank().catch((err) => {
+    if (list) list.textContent = err instanceof Error ? err.message : String(err);
+  });
+});
+
+kindEl?.addEventListener("change", () => {
+  selected = null;
+  loadLiveBank().catch((err) => {
+    if (list) list.textContent = err instanceof Error ? err.message : String(err);
+  });
+});
+
+searchEl?.addEventListener("input", () => {
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    loadLiveBank().catch((err) => {
+      if (list) list.textContent = err instanceof Error ? err.message : String(err);
+    });
+  }, 200);
+});
+
 detail?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  if (target.closest("[data-bank-edit]")) {
-    editMode = true;
-    openEditorId = null;
-    paintDetail();
-    return;
-  }
-  if (target.closest("[data-bank-done]") || target.closest("[data-bank-cancel]")) {
-    editMode = false;
-    openEditorId = null;
-    paintDetail();
-    return;
-  }
   if (target.closest("[data-bank-add]")) {
     openEditorId = "new";
     paintDetail();
     detail.querySelector("[data-bank-stem]")?.focus();
     return;
   }
-  if (target.closest("[data-bank-cancel-new]")) {
+  if (target.closest("[data-bank-cancel-new]") || target.closest("[data-bank-done]")) {
     openEditorId = null;
-    paintDetail();
-    return;
-  }
-  const editorBtn = target.closest("[data-bank-open-editor]");
-  if (editorBtn instanceof HTMLElement) {
-    openEditorId = Number(editorBtn.getAttribute("data-bank-open-editor") || 0) || null;
+    editMode = false;
+    paintMode();
     paintDetail();
     return;
   }
@@ -472,15 +574,19 @@ detail?.addEventListener("click", (event) => {
   if (removeBtn instanceof HTMLElement) {
     event.preventDefault();
     confirmRemove(Number(removeBtn.getAttribute("data-bank-remove") || 0));
-    return;
   }
-  const expandBtn = target.closest("[data-bank-expand]");
-  if (expandBtn instanceof HTMLElement) {
-    const qid = Number(expandBtn.getAttribute("data-bank-expand") || 0);
-    if (editMode && openEditorId === qid) return;
-    const row = expandBtn.closest("[data-bank-q]");
-    row?.classList.toggle("is-open");
-  }
+});
+
+detail?.addEventListener("change", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!(target instanceof HTMLSelectElement) || !target.matches("[data-bank-new-type]")) return;
+  const form = target.closest("[data-bank-editor]");
+  if (!(form instanceof HTMLElement)) return;
+  const draft = readEditor(form);
+  detail.innerHTML = `<header class="bank-detail-head"><div><h2>Add question</h2></div></header>${editorHtml(
+    { id: "new", type: draft.type, stem_plain: draft.stem_text, points: draft.points ?? 1, choices: [] },
+    true
+  )}`;
 });
 
 detail?.addEventListener("input", (event) => {
@@ -521,6 +627,7 @@ removeDialog?.addEventListener("close", () => {
   }
 });
 
-loadBanks().catch((err) => {
+paintMode();
+loadLiveBank().catch((err) => {
   if (list) list.textContent = err instanceof Error ? err.message : String(err);
 });
