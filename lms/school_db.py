@@ -5613,7 +5613,8 @@ class SchoolDB(LovesDB):
             limit: Maximum rows to return (capped at 500).
             class_id: Class id for image URL resolution.
             kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
-                process picks and drops warmup-tagged icebreakers.
+                process picks and drops warmup-tagged icebreakers, including
+                Course Wide warmups.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count), and
@@ -5634,7 +5635,7 @@ class SchoolDB(LovesDB):
         params: list[Any] = [int(library_id), *bank_ids]
         sql = f"""
             SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
-                   b.title AS bank_title,
+                   b.title AS bank_title, b.import_key AS bank_import_key,
                    o.stem_text, o.options_json, o.correct_answer, o.points
             FROM questions q
             JOIN question_banks b ON b.id = q.bank_id
@@ -5648,11 +5649,26 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(sql, params).fetchall()
         all_items: list[dict[str, Any]] = []
+        try:
+            from course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                is_course_scoped_warmup,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                is_course_scoped_warmup,
+            )
+
         for row in rows:
+            if str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY:
+                continue
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
+            if is_course_scoped_warmup(payload):
+                continue
             overlay = None
             if row["stem_text"] is not None:
                 overlay = {
@@ -5708,6 +5724,178 @@ class SchoolDB(LovesDB):
             "filtered": len(filtered_items),
         }
 
+    def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
+        """Insert or refresh the Course Wide warmup bank for one library.
+
+        The bank is not linked to modules 1–8, so math-unit Import cannot
+        list these icebreakers. Re-running updates stems in place.
+
+        Args:
+            library_id: ``content_libraries.id``.
+
+        Returns:
+            Summary with ``bank_id``, ``question_ids``, and ``count``.
+        """
+        try:
+            from course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                COURSE_WIDE_WARMUP_BANK_TITLE,
+                course_wide_warmup_catalogue,
+                course_wide_warmup_payload,
+                warmup_settings_json,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                COURSE_WIDE_WARMUP_BANK_TITLE,
+                course_wide_warmup_catalogue,
+                course_wide_warmup_payload,
+                warmup_settings_json,
+            )
+
+        settings = warmup_settings_json()
+        with self._lock:
+            bank = self.conn.execute(
+                """
+                SELECT id FROM question_banks
+                WHERE library_id = ? AND import_key = ?
+                """,
+                (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
+            ).fetchone()
+            if bank is None:
+                cur = self.conn.execute(
+                    """
+                    INSERT INTO question_banks (
+                        library_id, import_key, title, settings_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(library_id),
+                        COURSE_WIDE_WARMUP_BANK_KEY,
+                        COURSE_WIDE_WARMUP_BANK_TITLE,
+                        settings,
+                        _now(),
+                    ),
+                )
+                bank_id = int(cur.lastrowid)
+            else:
+                bank_id = int(bank["id"])
+                self.conn.execute(
+                    """
+                    UPDATE question_banks
+                    SET title = ?, settings_json = ?
+                    WHERE id = ?
+                    """,
+                    (COURSE_WIDE_WARMUP_BANK_TITLE, settings, bank_id),
+                )
+            question_ids: list[int] = []
+            for spec in course_wide_warmup_catalogue():
+                payload = course_wide_warmup_payload(spec)
+                encoded = json.dumps(payload)
+                title = str(spec.get("title") or "")
+                import_key = str(spec.get("import_key") or "")
+                item_type = (
+                    "multiple_choice_question"
+                    if payload.get("choices")
+                    else "essay_question"
+                )
+                existing = self.conn.execute(
+                    """
+                    SELECT id FROM questions
+                    WHERE bank_id = ? AND import_key = ?
+                    """,
+                    (bank_id, import_key),
+                ).fetchone()
+                if existing is None:
+                    cur = self.conn.execute(
+                        """
+                        INSERT INTO questions (
+                            bank_id, import_key, item_type, title,
+                            payload_json, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (bank_id, import_key, item_type, title, encoded, _now()),
+                    )
+                    question_ids.append(int(cur.lastrowid))
+                else:
+                    question_id = int(existing["id"])
+                    self.conn.execute(
+                        """
+                        UPDATE questions
+                        SET item_type = ?, title = ?, payload_json = ?
+                        WHERE id = ?
+                        """,
+                        (item_type, title, encoded, question_id),
+                    )
+                    question_ids.append(question_id)
+            self.conn.execute(
+                """
+                DELETE FROM course_module_bank_links
+                WHERE library_id = ? AND bank_id = ?
+                """,
+                (int(library_id), bank_id),
+            )
+            self.conn.commit()
+        return {
+            "bank_id": bank_id,
+            "question_ids": question_ids,
+            "count": len(question_ids),
+        }
+
+    def _course_wide_warmup_items(
+        self, library_id: int, *, class_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return normalized Course Wide warmups for one library.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            class_id: Unused. Kept so callers can pass the live class id.
+
+        Returns:
+            Importable warmup rows in catalogue order.
+        """
+        del class_id
+        try:
+            from course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                normalize_course_warmup,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                normalize_course_warmup,
+            )
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT q.id, q.bank_id, q.title, q.payload_json,
+                       b.title AS bank_title
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE b.library_id = ? AND b.import_key = ?
+                ORDER BY q.id
+                """,
+                (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            normalized = normalize_course_warmup(
+                question_id=int(row["id"]),
+                bank_id=int(row["bank_id"]),
+                title=str(row["title"] or ""),
+                payload=payload,
+                bank_title=str(row["bank_title"] or ""),
+            )
+            if normalized is None:
+                continue
+            items.append(normalized)
+        return items
+
     def search_bank_scope_mcs(
         self,
         library_id: int,
@@ -5721,8 +5909,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
-        ``course`` unions modules 1–8. A module token searches that module
-        only. Warmup-tagged rows stay out unless ``kind`` is ``warmup``.
+        ``course`` unions modules 1–8 and prepends the Course Wide warmup
+        bank. A module token searches that module only. Module search never
+        returns Course Wide warmups. On course scope, those warmups are
+        included when ``kind`` is empty or ``warmup``.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -5731,7 +5921,9 @@ class SchoolDB(LovesDB):
             query: Optional stem/options substring filter.
             limit: Maximum rows to return (capped at 500).
             class_id: Class id for image URL resolution.
-            kind: ``standard``, ``contest``, or ``warmup``. Empty excludes warmup.
+            kind: ``standard``, ``contest``, or ``warmup``. Empty excludes
+                module-tagged warmups. Course scope still includes the Course
+                Wide warmup bank unless kind is ``standard`` or ``contest``.
 
         Returns:
             Dict with ``items``, ``total``, and ``filtered``.
@@ -5769,6 +5961,29 @@ class SchoolDB(LovesDB):
                 if question_id and question_id not in merged:
                     merged[question_id] = item
         all_items = list(merged.values())
+        wanted = str(kind or "").strip().lower()
+        if wanted in {"", "warmup"}:
+            warmups = self._course_wide_warmup_items(
+                int(library_id), class_id=class_id
+            )
+            warmup_ids = [int(item.get("question_id") or 0) for item in warmups]
+            for item in warmups:
+                question_id = int(item.get("question_id") or 0)
+                if question_id and question_id not in merged:
+                    merged[question_id] = item
+            ordered: list[dict[str, Any]] = []
+            seen: set[int] = set()
+            for question_id in warmup_ids:
+                row = merged.get(question_id)
+                if row is None or question_id in seen:
+                    continue
+                seen.add(question_id)
+                ordered.append(row)
+            for question_id, row in merged.items():
+                if question_id in seen:
+                    continue
+                ordered.append(row)
+            all_items = ordered
         total = len(all_items)
         needle = str(query or "").strip().lower()
         if needle:
@@ -7735,8 +7950,9 @@ class SchoolDB(LovesDB):
             Inserted placement row including parsed ``item`` payload.
 
         Raises:
-            KeyError: When the question is missing or not module-scoped.
-            ValueError: When the question cannot be normalized to one MC key.
+            KeyError: When the question is missing or not in this module's
+                banks. Course Wide warmups may be imported onto any module.
+            ValueError: When the question cannot be normalized.
         """
         try:
             from bank_mc_normalize import normalize_bank_mc, parse_module_token
@@ -7758,6 +7974,7 @@ class SchoolDB(LovesDB):
                 """
                 SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
                        b.title AS bank_title, b.library_id,
+                       b.import_key AS bank_import_key,
                        o.stem_text, o.options_json, o.correct_answer, o.points
                 FROM questions q
                 JOIN question_banks b ON b.id = q.bank_id
@@ -7769,9 +7986,25 @@ class SchoolDB(LovesDB):
             ).fetchone()
             if row is None:
                 raise KeyError(f"question {question_id}")
+            try:
+                from course_warmup_seed import (
+                    COURSE_WIDE_WARMUP_BANK_KEY,
+                    is_course_scoped_warmup,
+                    normalize_course_warmup,
+                )
+            except ImportError:
+                from lms.course_warmup_seed import (
+                    COURSE_WIDE_WARMUP_BANK_KEY,
+                    is_course_scoped_warmup,
+                    normalize_course_warmup,
+                )
+
             confirmed = self.list_module_bank_links(int(library_id), int(module_number))
             allowed_banks = {int(link["bank_id"]) for link in confirmed}
-            if int(row["bank_id"]) not in allowed_banks:
+            course_warmup_bank = (
+                str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
+            )
+            if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
                     f"question {question_id} is not in confirmed banks for {module_key}"
                 )
@@ -7787,16 +8020,26 @@ class SchoolDB(LovesDB):
                     "correct_answer": row["correct_answer"],
                     "points": row["points"],
                 }
-            normalized, skip_reason = normalize_bank_mc(
-                question_id=int(row["id"]),
-                bank_id=int(row["bank_id"]),
-                item_type=str(row["item_type"] or ""),
-                payload=payload,
-                overlay=overlay,
-                class_id=int(class_id),
-                school=self,
-                library_id=int(library_id),
-            )
+            if course_warmup_bank or is_course_scoped_warmup(payload):
+                normalized = normalize_course_warmup(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                skip_reason = None if normalized else "invalid_warmup"
+            else:
+                normalized, skip_reason = normalize_bank_mc(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    item_type=str(row["item_type"] or ""),
+                    payload=payload,
+                    overlay=overlay,
+                    class_id=int(class_id),
+                    school=self,
+                    library_id=int(library_id),
+                )
             if normalized is None:
                 raise ValueError(skip_reason or "invalid_mc")
             if order is None:

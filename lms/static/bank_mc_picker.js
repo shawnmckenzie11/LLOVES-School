@@ -234,8 +234,9 @@ export async function mountBankMcPicker(opts) {
   function paintCount(total, filtered, query) {
     if (!(countEl instanceof HTMLElement)) return;
     const q = String(query || "").trim();
+    const scopeLabel = moduleNumber === "course" ? "Course Wide" : "this module bank";
     if (!total) {
-      countEl.textContent = "0 questions in this module bank";
+      countEl.textContent = `0 questions in ${scopeLabel}`;
       return;
     }
     if (q) {
@@ -251,15 +252,24 @@ export async function mountBankMcPicker(opts) {
   function paintList(items) {
     if (!(listEl instanceof HTMLElement)) return;
     if (!items.length) {
-      listEl.innerHTML = `<li class="hint">No MCs found. Confirm module banks first.</li>`;
+      listEl.innerHTML =
+        moduleNumber === "course"
+          ? `<li class="hint">No Course Wide questions match.</li>`
+          : `<li class="hint">No MCs found. Confirm module banks first.</li>`;
       return;
     }
     listEl.innerHTML = items
       .map((item) => {
         const qid = Number(item.question_id || 0);
         const label = questionFieldHtml(item, "text") || formatQuestionHtml(itemPreview(item));
+        const warmup = String(item.kind || "") === "warmup";
+        const optionList = Array.isArray(item.options) ? item.options : [];
         const meta = escapeHtml(
-          `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
+          warmup
+            ? `Warmup · ${
+                optionList.length ? optionList.join(" / ") : "Open response"
+              }`
+            : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
         );
         const action =
           mode === "import"

@@ -841,6 +841,78 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         ]
         self.assertIn(source_id, module_ids)
 
+    def test_course_wide_warmups_stay_out_of_module_import(self) -> None:
+        """Course Wide icebreakers list under course scope and not M1."""
+
+        seeded = self.school.seed_course_wide_warmups(self.library_id)
+        self.assertEqual(seeded["count"], 11)
+        again = self.school.seed_course_wide_warmups(self.library_id)
+        self.assertEqual(again["question_ids"], seeded["question_ids"])
+        self.school._ensure_module_bank_link(
+            self.library_id, 1, int(seeded["bank_id"])
+        )
+        course = self.school.search_bank_scope_mcs(self.library_id, "course", 1, "")
+        stems = " ".join(str(row.get("text") or "") for row in course["items"]).lower()
+        for needle in (
+            "aisle or window",
+            "text or call",
+            "beach or cabin",
+            "overrated",
+            "rule should work differently",
+            "unimportant opinion",
+            "useless skill",
+            "mascot",
+            "laugh too hard",
+            "fraction of this class",
+            "rank three",
+        ):
+            self.assertIn(needle, stems)
+        self.assertEqual(str(course["items"][0].get("kind")), "warmup")
+        self.assertEqual(str(course["items"][0].get("bank_scope")), "course")
+        module_default = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(self.library_id, 1, "")[
+                "items"
+            ]
+        }
+        module_warmup = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 1, "", kind="warmup"
+            )["items"]
+        }
+        for question_id in seeded["question_ids"]:
+            self.assertNotIn(question_id, module_default)
+            self.assertNotIn(question_id, module_warmup)
+        standard = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="standard"
+        )
+        standard_ids = {
+            int(row.get("question_id") or 0) for row in standard["items"]
+        }
+        for question_id in seeded["question_ids"]:
+            self.assertNotIn(question_id, standard_ids)
+        aisle = next(
+            row
+            for row in course["items"]
+            if "aisle or window" in str(row.get("text") or "").lower()
+        )
+        placed = self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M2",
+            "C1",
+            int(aisle["question_id"]),
+            library_id=self.library_id,
+            page_number=1,
+            stage="join",
+        )
+        item = placed["item"]
+        self.assertEqual(item.get("type"), "mc")
+        self.assertEqual(item.get("options"), ["Aisle", "Window"])
+        self.assertFalse(item.get("key"))
+        self.assertFalse(item.get("correct_answer"))
+        self.assertEqual(item.get("kind"), "warmup")
+
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""
 
