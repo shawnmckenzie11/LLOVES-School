@@ -562,8 +562,9 @@ body.student-home.is-live .student-live-response {
 
 .question-frame {
   position: relative;
-  max-height: min(70dvh, 36rem);
+  max-height: min(88dvh, 52rem);
   min-height: 0;
+  overflow: auto;
 }
 
 .live-question-stack {
@@ -599,7 +600,7 @@ body.student-home.is-live .student-live-response {
 
 .student-live-card.student-floating-pane {
   width: min(22rem, calc(100% - 1.4rem));
-  max-height: min(70dvh, 36rem);
+  max-height: min(88dvh, 52rem);
   overflow: auto;
 }
 
@@ -608,7 +609,7 @@ body.student-home.is-live .student-live-response {
 }
 
 .student-live-card .student-pane-resize {
-  display: none;
+  display: block;
 }
 
 @media (min-width: 48rem) {
@@ -628,14 +629,14 @@ body.student-home.is-live .student-live-response {
 
 .student-live-card h2 {
   margin: 0.45rem 0 0.85rem;
-  font-size: 1.15rem;
+  font-size: 0.86rem;
   line-height: 1.35;
 }
 
 .student-live-stem {
   margin: -0.45rem 0 0.75rem;
   color: #c5d0dc;
-  font-size: 0.92rem;
+  font-size: 0.69rem;
   line-height: 1.4;
 }
 
@@ -814,7 +815,7 @@ body.student-home.is-live .student-live-response {
   border: 1px solid #1e3348;
   border-radius: 12px;
   padding: 0.9rem 1rem 1rem;
-  max-height: min(70dvh, 36rem);
+  max-height: min(88dvh, 52rem);
   overflow: auto;
 }
 
@@ -945,7 +946,7 @@ body.student-home.is-live .student-live-response {
 
 .prompt-title {
   margin: 0 0 0.85rem;
-  font-size: 1.15rem;
+  font-size: 0.86rem;
   font-weight: 650;
 }
 
@@ -1033,6 +1034,10 @@ body.student-home.is-live .student-live-response {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+.prompt-choice {
+  font-size: 0.75rem;
 }
 
 .prompt-submit {
