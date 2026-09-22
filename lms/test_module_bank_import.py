@@ -967,6 +967,47 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             locked,
         )
 
+    def test_kind_warmup_rewrites_near_miss_titles(self) -> None:
+        """Course Wide search replaces the three 610899b short titles with the locked ones."""
+        from course_warmup_seed import COURSE_WIDE_WARMUP_BANK_KEY, locked_course_warmup_titles
+
+        near_miss = {
+            "warmup-overrated-food": "Overrated food",
+            "warmup-useless-skill": "Useless skill",
+            "warmup-fraction-never": "Fraction who never did it",
+        }
+        locked = list(locked_course_warmup_titles())
+        self.school.seed_course_wide_warmups(self.library_id)
+        for import_key, short_title in near_miss.items():
+            self.school.conn.execute(
+                """
+                UPDATE questions
+                SET title = ?
+                WHERE import_key = ?
+                  AND bank_id IN (
+                    SELECT id FROM question_banks
+                    WHERE library_id = ? AND import_key = ?
+                  )
+                """,
+                (short_title, import_key, self.library_id, COURSE_WIDE_WARMUP_BANK_KEY),
+            )
+        self.school.conn.commit()
+        stale = self.school._course_wide_warmup_items(self.library_id)
+        stale_titles = {str(row.get("question_title") or "") for row in stale}
+        for short_title in near_miss.values():
+            self.assertIn(short_title, stale_titles)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        titles = [str(row.get("question_title") or "") for row in course["items"]]
+        self.assertEqual(titles, locked)
+        self.assertEqual(course["filtered"], 11)
+        for short_title in near_miss.values():
+            self.assertNotIn(short_title, titles)
+        self.assertIn("Most overrated food", titles)
+        self.assertIn("Weirdly useless skill", titles)
+        self.assertIn("Fraction who never did X", titles)
+
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""
 

@@ -8,9 +8,17 @@ Import → Course Wide → Kind=Warmup showed **0**.
 
 Root: Import `mc-search` reads catalogue question banks. `#124` / `#126` seeded `live_problems` only, so Kind=Warmup had nothing to list.
 
-## Tip drift (`610899b`)
+## Tip drift (`610899b`, port 8788)
 
-Teacher Import already returned **11 short titles** from the `#125` Course Wide warmup bank (`Overrated food`, `Useless skill`, `Fraction who never did it`, and the titles that already matched).
+Teacher Import already returned **11** catalogue rows. Eight titles match. Three near-misses fail the locked-title bar:
+
+| Seen | Locked source of truth |
+|---|---|
+| Overrated food | Most overrated food |
+| Useless skill | Weirdly useless skill |
+| Fraction who never did it | Fraction who never did X |
+
+Course Wide search rewrites those three `questions.title` values in place (same import keys) and still seeds the bank when a tip has no catalogue rows, so Kind=Warmup is 0 only until that search.
 
 `live_problems` was about **20 per course**. The title rename upserts on `(ontario_code, kind, title)`, so each renamed icebreaker left the old row beside the locked title. Nine retired titles × two courses on top of the locked eleven is twenty.
 
