@@ -2016,10 +2016,10 @@ function liveQuestionIsOpenEnded(item, card) {
  *
  * A Persist is Save to card. B Visibility is Show Live Results and stays
  * visible on an inactive card so the teacher can arm it before Publish.
- * C Lifecycle is Publish, Reveal, or Close. (Re)move stays in the card
- * head and is not part of this strip. Tablet CSS wraps the strip to at
- * most two rows. The checkbox values are the boolean columns; Publish
- * does not clear them.
+ * Both stay toggleable after Close. C Lifecycle is Publish while inactive,
+ * then Reveal or Responses and points, then Close. (Re)move stays in the
+ * card head. Tablet CSS wraps the strip to at most two rows; under 720px
+ * the groups stack in A→B→C order. Publish does not clear the booleans.
  *
  * @param {{
  *   liveItemId: number,
@@ -2040,9 +2040,7 @@ function liveQuestionControlStrip(parts) {
   const status = String(parts.status || "inactive").toLowerCase();
   const closed = status === "closed";
   const active = status === "active";
-  const persist = closed
-    ? ""
-    : `<div class="live-q-group" data-live-q-group="persist" role="group" aria-label="A Persist">
+  const persist = `<div class="live-q-group" data-live-q-group="persist" role="group" aria-label="A Persist">
         <span class="live-q-group-kicker">A Persist</span>
         <label class="live-result-toggle">
           <input type="checkbox" data-save-to-card="${liveItemId}" ${
@@ -2051,9 +2049,7 @@ function liveQuestionControlStrip(parts) {
           <span>Save to card</span>
         </label>
       </div>`;
-  const visibility = closed
-    ? ""
-    : `<div class="live-q-group" data-live-q-group="visibility" role="group" aria-label="B Visibility">
+  const visibility = `<div class="live-q-group" data-live-q-group="visibility" role="group" aria-label="B Visibility">
         <span class="live-q-group-kicker">B Visibility</span>
         <label class="live-result-toggle">
           <input type="checkbox" data-live-results-toggle="${liveItemId}" ${

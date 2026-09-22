@@ -2612,9 +2612,10 @@ body.staff-shell .live-q-strip {
 }
 body.staff-shell .live-q-group {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem 0.5rem;
   min-width: 0;
   padding: 0.35rem 0.5rem;
   border: 1px solid #e2e8f0;
@@ -2642,6 +2643,16 @@ body.staff-shell .live-q-group-actions {
   }
   body.staff-shell .live-q-group[data-live-q-group="lifecycle"] {
     grid-column: 1 / -1;
+  }
+}
+/* Under 720px the three groups stack, still left-aligned in A→B→C order. */
+@media (max-width: 719px) {
+  body.staff-shell .live-q-strip {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  body.staff-shell .live-q-group[data-live-q-group="lifecycle"] {
+    grid-column: auto;
   }
 }
 body.staff-shell .live-question-card-actions .live-student-view-field {
