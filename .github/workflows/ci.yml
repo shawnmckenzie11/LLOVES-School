@@ -11,6 +11,10 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
+    # Keep this Postgres block identical to the test job in deploy.yml.
+    # N=28 dials LIVE_PRESENCE_TEST_URL (not LIVE_DATABASE_URL). Do not
+    # export LIVE_DATABASE_URL or DATABASE_URL: those attach Postgres to
+    # every create_app() and move the sqlite heartbeat bars off sqlite.
     services:
       postgres:
         image: postgres:16
