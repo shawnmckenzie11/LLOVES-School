@@ -207,6 +207,87 @@ class LiveClassSlidesTests(unittest.TestCase):
         self.assertNotIn("stale stem", after[0]["stem_html"])
         self.assertIn("16 is his favourite", after[0]["stem_html"])
 
+    def test_course_wide_icebreaker_warmups(self) -> None:
+        """Eleven COURSE/<category> warmups upsert onto MCF3M and MCR3U."""
+        from live_problem_seed import COURSE_WIDE_WARMUPS
+
+        categories = {
+            "pick-a-side",
+            "opinion",
+            "trivia-about-you",
+            "prediction-ranking",
+        }
+        self.assertEqual(len(COURSE_WIDE_WARMUPS), 22)
+        titles = {
+            "Aisle or window seat",
+            "Texting or calling",
+            "Beach or mountain cabin",
+            "Most overrated food",
+            "A rule that should change",
+            "Confident opinion about nothing",
+            "Weirdly good at something useless",
+            "Group mascot right now",
+            "Laughed way too hard",
+            "Fraction who have never done X",
+            "Rank three annoyances",
+        }
+        for code in ("MCF3M", "MCR3U"):
+            bank = self.school.list_live_problems(ontario_code=code, active_only=True)
+            warmups = [
+                row
+                for row in bank
+                if str(row["module_hint"]).startswith("COURSE/")
+            ]
+            self.assertEqual({row["title"] for row in warmups}, titles)
+            self.assertEqual(len(warmups), 11)
+            for row in warmups:
+                slug = str(row["module_hint"]).split("/", 1)[1]
+                self.assertEqual(row["kind"], "warmup")
+                self.assertIn(slug, categories)
+                self.assertEqual(row["diagram_note"], f"warmup_category:{slug}")
+                self.assertEqual(row["source"], "original")
+                self.assertEqual(row["license"], "original")
+                self.assertEqual(row["expectation_codes"], [])
+                self.assertEqual(row["processes"], ["communicating"])
+                self.assertGreaterEqual(int(row["sort_order"]), 10)
+                self.assertLessEqual(int(row["sort_order"]), 30)
+                self.assertIn("<p>", row["stem_html"])
+            fraction = next(
+                row for row in warmups if row["title"] == "Fraction who have never done X"
+            )
+            self.assertIn("ridden a roller coaster", fraction["stem_html"])
+            self.assertIn("editable", fraction["task_html"])
+            ranked = next(
+                row for row in warmups if row["title"] == "Rank three annoyances"
+            )
+            self.assertIn("slow wifi", ranked["stem_html"])
+            self.assertIn("teacher-editable", ranked["task_html"])
+        before = [
+            row
+            for row in self.school.list_live_problems(ontario_code="MCF3M")
+            if row["title"] == "Aisle or window seat"
+        ]
+        self.assertEqual(len(before), 1)
+        self.school.seed_live_problems()
+        after = [
+            row
+            for row in self.school.list_live_problems(ontario_code="MCF3M")
+            if row["title"] == "Aisle or window seat"
+        ]
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0]["id"], before[0]["id"])
+        mcf = self.school.list_live_problems(ontario_code="MCF3M", active_only=True)
+        m1 = select_live_problems(mcf, strand="A", lesson_key="M1C1")
+        self.assertEqual(m1["warmup"]["module_hint"], "A/M1C1")
+        strand_c = select_live_problems(mcf, strand="C")
+        self.assertFalse(str(strand_c["warmup"]["module_hint"]).startswith("COURSE"))
+        mcr = self.school.list_live_problems(ontario_code="MCR3U", active_only=True)
+        mcr_pick = select_live_problems(mcr, strand="A", lesson_key="M1C1")
+        self.assertEqual(mcr_pick["contest"]["title"], "Nested Square-Root Range")
+        warmup = mcr_pick["warmup"]
+        if warmup is not None:
+            self.assertFalse(str(warmup["module_hint"]).startswith("COURSE"))
+
     def test_timeline_y_of_n(self) -> None:
         """Live Class Y of N counts live placements inside the module."""
         placements = {

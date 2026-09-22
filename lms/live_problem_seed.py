@@ -2,6 +2,10 @@
 
 Does not copy CEMC/Waterloo contest wording. Ministry stems come from
 ``lms/seeds/mcf3m_expectations.json`` ``examples`` arrays.
+
+Course-wide icebreakers (``COURSE_WIDE_WARMUPS``) are original room prompts,
+copied onto MCF3M and MCR3U. They are not Ministry examples and carry no
+expectation codes.
 """
 
 from __future__ import annotations
@@ -342,6 +346,176 @@ ORIGINAL_LESSON_ITEMS: list[dict[str, Any]] = [
 ]
 
 
+# Exact Import slugs. ``module_hint`` is ``COURSE/<category>``.
+_ICEBREAKER_CATEGORIES: tuple[str, ...] = (
+    "pick-a-side",
+    "opinion",
+    "trivia-about-you",
+    "prediction-ranking",
+)
+_ICEBREAKER_COURSES: tuple[str, ...] = ("MCF3M", "MCR3U")
+
+# One stem per prompt. Expanded per course by ``course_wide_warmups``.
+_ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
+    {
+        "category": "pick-a-side",
+        "title": "Aisle or window seat",
+        "stem_html": "<p>Aisle or window seat — defend it in one sentence.</p>",
+        "task_html": "<p>Pick a side — defend in one sentence.</p>",
+        "sort_order": 10,
+    },
+    {
+        "category": "pick-a-side",
+        "title": "Texting or calling",
+        "stem_html": (
+            "<p>Texting or calling, forever — pick one, no going back.</p>"
+        ),
+        "task_html": "<p>Pick a side — defend in one sentence.</p>",
+        "sort_order": 11,
+    },
+    {
+        "category": "pick-a-side",
+        "title": "Beach or mountain cabin",
+        "stem_html": "<p>Beach vacation or mountain cabin?</p>",
+        "task_html": "<p>Pick a side — defend in one sentence.</p>",
+        "sort_order": 12,
+    },
+    {
+        "category": "opinion",
+        "title": "Most overrated food",
+        "stem_html": (
+            "<p>Most overrated food that everyone else seems to love?</p>"
+        ),
+        "task_html": "<p>One answer from the group, in a sentence.</p>",
+        "sort_order": 13,
+    },
+    {
+        "category": "opinion",
+        "title": "A rule that should change",
+        "stem_html": "<p>A rule that should honestly just be different?</p>",
+        "task_html": "<p>Name the rule and the change in one sentence.</p>",
+        "sort_order": 14,
+    },
+    {
+        "category": "opinion",
+        "title": "Confident opinion about nothing",
+        "stem_html": (
+            "<p>Your most confident opinion about something completely unimportant?</p>"
+        ),
+        "task_html": "<p>One confident opinion, one sentence.</p>",
+        "sort_order": 15,
+    },
+    {
+        "category": "trivia-about-you",
+        "title": "Weirdly good at something useless",
+        "stem_html": (
+            "<p>Something you're weirdly good at that has no real-world use?</p>"
+        ),
+        "task_html": "<p>One answer from the group, in a sentence.</p>",
+        "sort_order": 16,
+    },
+    {
+        "category": "trivia-about-you",
+        "title": "Group mascot right now",
+        "stem_html": "<p>If your group had a mascot right now, what would it be?</p>",
+        "task_html": "<p>Agree on one mascot before you share it.</p>",
+        "sort_order": 17,
+    },
+    {
+        "category": "trivia-about-you",
+        "title": "Laughed way too hard",
+        "stem_html": (
+            "<p>Last thing that made you laugh way harder than it should have?</p>"
+        ),
+        "task_html": "<p>One answer from the group, in a sentence.</p>",
+        "sort_order": 18,
+    },
+    {
+        "category": "prediction-ranking",
+        "title": "Fraction who have never done X",
+        "stem_html": (
+            "<p>Guess as a group: what fraction of the class has never "
+            "ridden a roller coaster? Submit one number.</p>"
+        ),
+        "task_html": (
+            "<p>Group submit one answer + one-line why. "
+            "The “never done X” placeholder (ridden a roller coaster) is editable — "
+            "swap it before class.</p>"
+        ),
+        "sort_order": 19,
+    },
+    {
+        "category": "prediction-ranking",
+        "title": "Rank three annoyances",
+        "stem_html": (
+            "<p>Rank these three things from most to least annoying — "
+            "the group has to agree on the order before submitting: "
+            "slow wifi, wet socks, someone chewing loudly.</p>"
+        ),
+        "task_html": (
+            "<p>Group submit one answer + one-line why. "
+            "The three annoyances in the stem are teacher-editable.</p>"
+        ),
+        "sort_order": 20,
+    },
+)
+
+
+def course_wide_warmups() -> list[dict[str, Any]]:
+    """Copy icebreaker warmups onto each seeded course.
+
+    Titles match across courses. The upsert key is ``ontario_code`` + ``kind``
+    + ``title``, so MCF3M and MCR3U each keep their own row. ``module_hint``
+    is ``COURSE/<category>`` and ``diagram_note`` repeats
+    ``warmup_category:<category>`` for Import and rotation filters.
+    Sort orders sit in 10–30, ahead of lesson-keyed warmups.
+
+    Returns:
+        Rows for ``default_live_problems`` / ``SchoolDB.upsert_live_problem``.
+    """
+    known = set(PROCESS_KEYS)
+    allowed = set(_ICEBREAKER_CATEGORIES)
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for code in _ICEBREAKER_COURSES:
+        for item in _ICEBREAKER_ITEMS:
+            category = str(item["category"])
+            if category not in allowed:
+                raise ValueError(f"unknown warmup category {category}")
+            title = str(item["title"]).strip()
+            key = (code, "warmup", title)
+            if key in seen:
+                raise ValueError(f"duplicate live-problem key {key}")
+            seen.add(key)
+            processes = ["communicating"]
+            for process in processes:
+                if process not in known:
+                    raise ValueError(f"unknown process_key {process}")
+            sort_order = int(item["sort_order"])
+            if not 10 <= sort_order <= 30:
+                raise ValueError(f"icebreaker sort_order out of block: {sort_order}")
+            rows.append(
+                {
+                    "ontario_code": code,
+                    "module_hint": f"COURSE/{category}",
+                    "kind": "warmup",
+                    "title": title,
+                    "stem_html": str(item["stem_html"]),
+                    "task_html": str(item["task_html"]),
+                    "diagram_note": f"warmup_category:{category}",
+                    "source": "original",
+                    "license": "original",
+                    "expectation_codes": [],
+                    "processes": processes,
+                    "sort_order": sort_order,
+                }
+            )
+    return rows
+
+
+COURSE_WIDE_WARMUPS: list[dict[str, Any]] = course_wide_warmups()
+
+
 def _strand_processes(strand: str) -> list[str]:
     """Default supporting processes for a Ministry example in this strand.
 
@@ -426,12 +600,17 @@ def _escape_html(text: str) -> str:
 
 
 def default_live_problems(seed_path: Path | None = None) -> list[dict[str, Any]]:
-    """Return the starter bank: Ministry examples, lesson-keyed items, contest items.
+    """Return the starter bank: Ministry examples, icebreakers, lesson items, contests.
 
     Args:
         seed_path: Optional expectations JSON override.
     """
-    return ministry_example_problems(seed_path) + ORIGINAL_LESSON_ITEMS + ORIGINAL_CONTEST
+    return (
+        ministry_example_problems(seed_path)
+        + COURSE_WIDE_WARMUPS
+        + ORIGINAL_LESSON_ITEMS
+        + ORIGINAL_CONTEST
+    )
 
 
 def default_quick_phrases() -> list[dict[str, Any]]:
