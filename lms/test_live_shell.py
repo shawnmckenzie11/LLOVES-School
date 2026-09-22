@@ -329,7 +329,9 @@ class LiveShellTests(unittest.TestCase):
         paint = js.split("function paintLiveQuestionCards(")[1].split(
             "function individualLifecycleResultsHtml("
         )[0]
-        self.assertNotIn('status === "inactive" ? publish', paint)
+        self.assertNotIn('status === "inactive" ? publish', js)
+        self.assertNotIn("const persist = closed", strip)
+        self.assertNotIn("const visibility = closed", strip)
         self.assertIn("liveQuestionControlStrip(", paint)
         head = paint.split("live-question-card-head")[1].split(
             "live-question-card-actions"
@@ -348,6 +350,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("grid-template-rows: auto auto", tablet)
         self.assertIn('data-live-q-group="lifecycle"', tablet)
         self.assertIn("grid-column: 1 / -1", tablet)
+        narrow = css.split("@media (max-width: 719px)")[1].split("@media")[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", narrow)
+        self.assertIn("grid-column: auto", narrow)
 
     def test_keyed_numeric_enables_select_correct(self) -> None:
         """Staff JS enables Select correct when a numeric card has a singular key."""
