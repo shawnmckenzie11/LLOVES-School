@@ -346,7 +346,9 @@ ORIGINAL_LESSON_ITEMS: list[dict[str, Any]] = [
 ]
 
 
-# Exact Import slugs. ``module_hint`` is ``COURSE/<category>``.
+# Course Wide Import stand-in. ``live_problems`` has no ``bank_scope`` column yet,
+# so these are not filed as math A2/A3. Scope is ``module_hint`` ``COURSE/<category>``
+# and ``diagram_note`` ``warmup_category:<slug>`` until ``bank_scope=course`` exists.
 _ICEBREAKER_CATEGORIES: tuple[str, ...] = (
     "pick-a-side",
     "opinion",
@@ -359,14 +361,14 @@ _ICEBREAKER_COURSES: tuple[str, ...] = ("MCF3M", "MCR3U")
 _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     {
         "category": "pick-a-side",
-        "title": "Aisle or window seat",
+        "title": "Aisle or window",
         "stem_html": "<p>Aisle or window seat — defend it in one sentence.</p>",
         "task_html": "<p>Pick a side — defend in one sentence.</p>",
         "sort_order": 10,
     },
     {
         "category": "pick-a-side",
-        "title": "Texting or calling",
+        "title": "Text or call",
         "stem_html": (
             "<p>Texting or calling, forever — pick one, no going back.</p>"
         ),
@@ -375,7 +377,7 @@ _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     },
     {
         "category": "pick-a-side",
-        "title": "Beach or mountain cabin",
+        "title": "Beach or cabin",
         "stem_html": "<p>Beach vacation or mountain cabin?</p>",
         "task_html": "<p>Pick a side — defend in one sentence.</p>",
         "sort_order": 12,
@@ -391,14 +393,14 @@ _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     },
     {
         "category": "opinion",
-        "title": "A rule that should change",
+        "title": "A rule that should differ",
         "stem_html": "<p>A rule that should honestly just be different?</p>",
         "task_html": "<p>Name the rule and the change in one sentence.</p>",
         "sort_order": 14,
     },
     {
         "category": "opinion",
-        "title": "Confident opinion about nothing",
+        "title": "Unimportant confident opinion",
         "stem_html": (
             "<p>Your most confident opinion about something completely unimportant?</p>"
         ),
@@ -407,7 +409,7 @@ _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     },
     {
         "category": "trivia-about-you",
-        "title": "Weirdly good at something useless",
+        "title": "Weirdly useless skill",
         "stem_html": (
             "<p>Something you're weirdly good at that has no real-world use?</p>"
         ),
@@ -416,14 +418,14 @@ _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     },
     {
         "category": "trivia-about-you",
-        "title": "Group mascot right now",
+        "title": "Group mascot",
         "stem_html": "<p>If your group had a mascot right now, what would it be?</p>",
         "task_html": "<p>Agree on one mascot before you share it.</p>",
         "sort_order": 17,
     },
     {
         "category": "trivia-about-you",
-        "title": "Laughed way too hard",
+        "title": "Laughed too hard",
         "stem_html": (
             "<p>Last thing that made you laugh way harder than it should have?</p>"
         ),
@@ -432,7 +434,7 @@ _ICEBREAKER_ITEMS: tuple[dict[str, str | int], ...] = (
     },
     {
         "category": "prediction-ranking",
-        "title": "Fraction who have never done X",
+        "title": "Fraction who never did X",
         "stem_html": (
             "<p>Guess as a group: what fraction of the class has never "
             "ridden a roller coaster? Submit one number.</p>"
@@ -465,9 +467,11 @@ def course_wide_warmups() -> list[dict[str, Any]]:
     """Copy icebreaker warmups onto each seeded course.
 
     Titles match across courses. The upsert key is ``ontario_code`` + ``kind``
-    + ``title``, so MCF3M and MCR3U each keep their own row. ``module_hint``
-    is ``COURSE/<category>`` and ``diagram_note`` repeats
-    ``warmup_category:<category>`` for Import and rotation filters.
+    + ``title``, so MCF3M and MCR3U each keep their own row.
+
+    Intended Import scope is ``bank_scope=course`` (Course Wide), not math
+    A2/A3. Until that column exists, ``module_hint`` is ``COURSE/<category>``
+    and ``diagram_note`` is ``warmup_category:<category>``.
     Sort orders sit in 10–30, ahead of lesson-keyed warmups.
 
     Returns:
