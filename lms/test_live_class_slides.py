@@ -219,16 +219,16 @@ class LiveClassSlidesTests(unittest.TestCase):
         }
         self.assertEqual(len(COURSE_WIDE_WARMUPS), 22)
         titles = {
-            "Aisle or window seat",
-            "Texting or calling",
-            "Beach or mountain cabin",
+            "Aisle or window",
+            "Text or call",
+            "Beach or cabin",
             "Most overrated food",
-            "A rule that should change",
-            "Confident opinion about nothing",
-            "Weirdly good at something useless",
-            "Group mascot right now",
-            "Laughed way too hard",
-            "Fraction who have never done X",
+            "A rule that should differ",
+            "Unimportant confident opinion",
+            "Weirdly useless skill",
+            "Group mascot",
+            "Laughed too hard",
+            "Fraction who never did X",
             "Rank three annoyances",
         }
         for code in ("MCF3M", "MCR3U"):
@@ -248,12 +248,13 @@ class LiveClassSlidesTests(unittest.TestCase):
                 self.assertEqual(row["source"], "original")
                 self.assertEqual(row["license"], "original")
                 self.assertEqual(row["expectation_codes"], [])
+                self.assertFalse(str(row["module_hint"]).upper().startswith("A"))
                 self.assertEqual(row["processes"], ["communicating"])
                 self.assertGreaterEqual(int(row["sort_order"]), 10)
                 self.assertLessEqual(int(row["sort_order"]), 30)
                 self.assertIn("<p>", row["stem_html"])
             fraction = next(
-                row for row in warmups if row["title"] == "Fraction who have never done X"
+                row for row in warmups if row["title"] == "Fraction who never did X"
             )
             self.assertIn("ridden a roller coaster", fraction["stem_html"])
             self.assertIn("editable", fraction["task_html"])
@@ -265,14 +266,14 @@ class LiveClassSlidesTests(unittest.TestCase):
         before = [
             row
             for row in self.school.list_live_problems(ontario_code="MCF3M")
-            if row["title"] == "Aisle or window seat"
+            if row["title"] == "Aisle or window"
         ]
         self.assertEqual(len(before), 1)
         self.school.seed_live_problems()
         after = [
             row
             for row in self.school.list_live_problems(ontario_code="MCF3M")
-            if row["title"] == "Aisle or window seat"
+            if row["title"] == "Aisle or window"
         ]
         self.assertEqual(len(after), 1)
         self.assertEqual(after[0]["id"], before[0]["id"])
