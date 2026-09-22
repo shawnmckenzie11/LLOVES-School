@@ -1057,6 +1057,17 @@ def register_auth_routes(app: Flask) -> None:
             return jsonify(
                 {"ok": False, "error": "Reconnecting…", "retry": True}
             ), 503
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable
+
+            if not isinstance(exc, LivePresenceUnavailable):
+                raise
+            # Postgres blip. Same calm degrade as a sqlite lock: last frame
+            # stays up, client retries. Login routes do not use this path.
+            current_app.logger.exception("student heartbeat presence unavailable")
+            return jsonify(
+                {"ok": False, "error": "Reconnecting…", "retry": True}
+            ), 503
         if attendee is None:
             return jsonify({"ok": False, "error": "Session ended.", "redirect": url_for("landing")}), 401
         return jsonify({"ok": True, "present": True})

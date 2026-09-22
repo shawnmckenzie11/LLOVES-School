@@ -37,18 +37,18 @@ Group Q team checks and the session timer used the same full rebuild.
 | Verdict | **PASS** |
 | Class | 16 students + teacher |
 | In-flight cap | 2 (gunicorn threads) |
-| Wall | 229 ms |
+| Wall | 228 ms |
 | `game_state` calls | 35 (budget 80) |
 | HTTP | media:200=16, mint:200=1, preview:200=16, staff-media:200=1, staff-state:200=1, state:200=16 |
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| media | 16 | 1 | 1 | 2 |
-| mint | 1 | 43 | 43 | 43 |
+| media | 16 | 1 | 2 | 3 |
+| mint | 1 | 37 | 37 | 37 |
 | preview | 16 | 4 | 6 | 7 |
-| staff-media | 1 | 3 | 3 | 3 |
-| staff-state | 1 | 37 | 37 | 37 |
-| state | 16 | 17 | 18 | 19 |
+| staff-media | 1 | 6 | 6 | 6 |
+| staff-state | 1 | 33 | 33 | 33 |
+| state | 16 | 17 | 18 | 24 |
 
 ### Errors
 

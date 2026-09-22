@@ -23,9 +23,9 @@ The 20s heartbeat skip is forced to 0 so every poll takes that UPDATE. Productio
 
 Pass bar: resume writes cover every state and heartbeat 200, 0 `database is locked`, 0 HTTP 500, 0 “Internal Server Error” / “server overloaded”, 0 open transactions.
 
-## Why not Postgres
+## Sqlite belt
 
-Postgres would be a second source of truth and a service this app does not run. The file is already the live-class store, mounted on one machine. The durable fix is to stop the two connections from holding a reserved lock across the resume UPDATE.
+WAL, autocommit, and the shared process lock stay for a machine with no Postgres URL. Fly alc's poll writes belong in Postgres (`lms/LIVE_PRESENCE.md`, `lc-qa/artifact-load-postgres.md`). This N=12 run still proves the sqlite path does not 500 when that URL is unset.
 
 ## Cause
 
@@ -46,7 +46,7 @@ Postgres would be a second source of truth and a service this app does not run. 
 | Class | 12 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 665 ms |
+| Wall | 542 ms |
 | sqlite lock logs | 0 |
 | `_resume_live_attendee` writes | 96 |
 | school in_transaction | False |
@@ -55,10 +55,10 @@ Postgres would be a second source of truth and a service this app does not run. 
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 48 | 2 | 4 | 6 |
-| media | 48 | 1 | 1 | 2 |
-| staff-state | 4 | 12 | 13 | 15 |
-| state | 48 | 21 | 26 | 30 |
+| heartbeat | 48 | 1 | 3 | 3 |
+| media | 48 | 1 | 1 | 1 |
+| staff-state | 4 | 13 | 14 | 18 |
+| state | 48 | 17 | 18 | 22 |
 
 ### Errors
 

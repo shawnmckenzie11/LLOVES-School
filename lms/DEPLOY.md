@@ -81,6 +81,32 @@ curl -s https://alc.mckenzian.com/health
 fly certs check alc.mckenzian.com --app lloves-lms
 ```
 
+## Live presence Postgres (heartbeat / Artifact polls)
+
+Student `/api/student/state` and `/api/student/heartbeat` write attendee presence on every poll. That write used to take a lock on `/data/lloves.sqlite` and returned `database is locked` (HTML “server overloaded”) once a class was in the mid-20s with an Artifact open.
+
+Those writes use **Postgres** when either secret is a postgres URL:
+
+| Secret | When |
+|--------|------|
+| `LIVE_DATABASE_URL` | Preferred. Only the live poll store reads it. |
+| `DATABASE_URL` | Used when it starts with `postgres://` or `postgresql://`. This is what `fly mpg attach` sets. |
+
+Sqlite on `lloves_data` stays the catalogue (users, rosters, packs, prompts, grades). `/health` reports `live_presence`: `postgres`, `postgres-down`, or `sqlite`.
+
+**alc today:** `fly.toml` does not set either secret. Until one is set, the running image keeps the sqlite hot path (WAL + autocommit). Confirmed from the repo; this change does not call Fly.
+
+Attach (Shawn, not an agent — `fly mpg attach` restarts the app):
+
+```bash
+fly mpg create --name lloves-live --region yyz --plan basic
+fly mpg attach <cluster-id> --app lloves-lms
+curl -s https://alc.mckenzian.com/health
+# "live_presence": "postgres"
+```
+
+Startup copies **active** sqlite sessions into Postgres once. Heartbeats after that do not `UPDATE live_session_attendees`. Details: `lms/LIVE_PRESENCE.md`.
+
 ## Large module-pack uploads (any size the volume can hold)
 
 LLOVES does **not** enforce an app-level byte ceiling on Admin/IT `.imscc` uploads.

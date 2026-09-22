@@ -772,6 +772,8 @@ def create_app(
     db_path: Path | None = None,
     data_dir: Path | None = None,
     testing: bool = False,
+    live_database_url: str | None = None,
+    live_presence_schema: str | None = None,
 ) -> Flask:
     """Build the LLOVES Flask application.
 
@@ -779,6 +781,9 @@ def create_app(
         db_path: Override sqlite path (tests).
         data_dir: Override game-show uploads/logs directory.
         testing: Disable CSRF-adjacent secure cookies; used by tests.
+        live_database_url: Postgres URL for live heartbeat / presence.
+            ``None`` reads the environment. ``""`` forces sqlite.
+        live_presence_schema: Optional Postgres schema for tests.
     """
     app = Flask(
         __name__,
@@ -814,6 +819,8 @@ def create_app(
         db_file,
         store,
         it_email=it_email or DEFAULT_IT_EMAIL,
+        live_database_url=live_database_url,
+        live_presence_schema=live_presence_schema,
     )
     app.config["SCHOOL_DB"] = school
     app.config["DATA_DIR"] = store
@@ -1418,7 +1425,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/health")
     def health():
         """Fly / DNS liveness — no auth."""
-        return jsonify({"ok": True, "school": SCHOOL_SHORT})
+        return jsonify(
+            {
+                "ok": True,
+                "school": SCHOOL_SHORT,
+                "live_presence": school.live_presence_status(),
+            }
+        )
 
     @app.route("/it")
     @it_required
@@ -3733,6 +3746,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 if "locked" not in str(exc).lower() or not as_json:
                     raise
                 logger.exception("student /state sqlite lock")
+                return jsonify(
+                    {
+                        "ok": True,
+                        "error": "state unavailable",
+                        "status": "waiting",
+                        "retry": True,
+                    }
+                )
+            except Exception as exc:
+                from live_presence import LivePresenceUnavailable
+
+                if not isinstance(exc, LivePresenceUnavailable) or not as_json:
+                    raise
+                logger.exception("student /state presence unavailable")
                 return jsonify(
                     {
                         "ok": True,
