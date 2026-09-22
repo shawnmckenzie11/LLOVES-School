@@ -1933,6 +1933,179 @@ function isArtifactLifecycleItem(item) {
   return lifecycleAnswerKind(item) === "artifact";
 }
 
+/**
+ * Card beat inside Open: idle, drafting, ready, or submitted.
+ * Submitted holds only while the draft still matches the last submit.
+ * @param {string} choice
+ * @param {string} why
+ * @param {{submitted?: boolean, submittedChoice?: string, submittedWhy?: string}} snapshot
+ * @returns {"idle"|"drafting"|"ready"|"submitted"}
+ */
+function groupSubmitPhase(choice, why, snapshot) {
+  const picked = String(choice || "").trim();
+  const reason = String(why || "").trim();
+  const matches =
+    Boolean(snapshot?.submitted) &&
+    Boolean(picked) &&
+    Boolean(reason) &&
+    picked === String(snapshot.submittedChoice || "") &&
+    reason === String(snapshot.submittedWhy || "");
+  if (matches) return "submitted";
+  if (picked && reason) return "ready";
+  if (picked || reason) return "drafting";
+  return "idle";
+}
+
+/**
+ * Calm label for one group-submit beat. Waiting copy has no tick delight.
+ * @param {"idle"|"drafting"|"ready"|"submitted"} phase
+ * @returns {string}
+ */
+function groupSubmitPhaseLabel(phase) {
+  if (phase === "submitted") return "Submitted — waiting for other teams";
+  if (phase === "ready") return "Ready";
+  if (phase === "drafting") return "Drafting";
+  return "";
+}
+
+/**
+ * Shared MC card: team strip, Ready-gate, and a calm waiting beat.
+ * @param {any} item
+ * @returns {string}
+ */
+function studentGroupCardHtml(item) {
+  const status = String(item?.status || "active");
+  if (status === "closed") {
+    const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
+    if (!rows.length) return "";
+    return `<table class="group-reveal-board">
+      <caption>Group answers</caption>
+      <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
+      <tbody>${rows
+        .map((row) => {
+          const missed = Boolean(row.missed);
+          return `<tr class="${missed ? "is-missed" : ""}">
+            <th>${escapeText(row.team_name || "Group")}</th>
+            <td>${missed ? "" : escapeText(row.answer || "")}</td>
+            <td>${missed ? "" : escapeText(row.why || "")}</td>
+          </tr>`;
+        })
+        .join("")}</tbody>
+    </table>`;
+  }
+  const group = item?.group_submit || {};
+  const content = item?.content || item?.prompt?.payload || {};
+  const choices = liveChoiceLabels(content);
+  const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
+  const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
+  const choice = draft.choice != null ? String(draft.choice) : String(group.choice || "");
+  const why = draft.why != null ? String(draft.why) : String(group.why || "");
+  const phase = groupSubmitPhase(choice, why, {
+    submitted: Boolean(group.submitted),
+    submittedChoice: String(group.submitted_choice || ""),
+    submittedWhy: String(group.submitted_why || ""),
+  });
+  const members = Array.isArray(group.members)
+    ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const teamName = String(group.team_name || "").trim();
+  const strip = [teamName, ...members].filter(Boolean).join(" · ");
+  const last = String(group.last_submitter || "").trim();
+  return `<div class="student-group-card" data-live-action="group"
+      data-group-submitted="${group.submitted ? "1" : "0"}"
+      data-submitted-choice="${escapeText(group.submitted_choice || "")}"
+      data-submitted-why="${escapeText(group.submitted_why || "")}">
+    ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
+    <p class="student-group-phase" data-group-phase>${groupSubmitPhaseLabel(phase)}</p>
+    <div class="student-live-answer-controls" data-live-action="group">
+      ${choices
+        .map((label, index) => {
+          const optionBody = String(optionsHtml[index] || "").trim()
+            ? `<span class="live-question-html">${optionsHtml[index]}</span>`
+            : escapeText(label);
+          return `<button type="button" class="prompt-choice${
+            String(label) === choice ? " is-selected" : ""
+          }" data-live-choice="${escapeText(label)}">${optionBody}</button>`;
+        })
+        .join("")}
+      <label class="group-submit-why">Why
+        <textarea data-group-why rows="2" maxlength="500">${escapeText(why)}</textarea>
+      </label>
+      <button type="button" class="prompt-submit" data-live-submit="group"${
+        phase === "ready" ? "" : " disabled"
+      }>Submit for team</button>
+    </div>
+    ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
+  </div>`;
+}
+
+/**
+ * Enable Submit only at Ready. An unchanged submit stays in Waiting.
+ * @param {HTMLElement} card
+ */
+function syncGroupSubmitGate(card) {
+  const shell = card.querySelector(".student-group-card") || card;
+  const choice = card.querySelector("[data-live-choice].is-selected");
+  const why = card.querySelector("[data-group-why]");
+  const choiceText =
+    choice instanceof HTMLButtonElement
+      ? choice.getAttribute("data-live-choice") || ""
+      : "";
+  const whyText = why instanceof HTMLTextAreaElement ? why.value : "";
+  const phase = groupSubmitPhase(choiceText, whyText, {
+    submitted: shell.dataset.groupSubmitted === "1",
+    submittedChoice: shell.dataset.submittedChoice || "",
+    submittedWhy: shell.dataset.submittedWhy || "",
+  });
+  const phaseEl = card.querySelector("[data-group-phase]");
+  if (phaseEl) phaseEl.textContent = groupSubmitPhaseLabel(phase);
+  const submit = card.querySelector('[data-live-submit="group"]');
+  if (submit instanceof HTMLButtonElement) submit.disabled = phase !== "ready";
+}
+
+/** @type {Map<number, number>} */
+const groupDraftTimers = new Map();
+
+/**
+ * Persist the shared draft without a submit acknowledgement.
+ * @param {HTMLElement} card
+ */
+async function postGroupDraft(card) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  if (!itemId) return;
+  const selected = card.querySelector("[data-live-choice].is-selected");
+  const why = card.querySelector("[data-group-why]");
+  const res = await fetch(
+    `/api/student/live-items/${itemId}/group-draft`,
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
+        why: why instanceof HTMLTextAreaElement ? why.value : "",
+      }),
+    })
+  );
+  if (!res.ok) return;
+}
+
+/**
+ * Debounce shared-draft writes while the team is still editing.
+ * @param {HTMLElement} card
+ */
+function queueGroupDraft(card) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  const prev = groupDraftTimers.get(itemId);
+  if (prev) window.clearTimeout(prev);
+  groupDraftTimers.set(
+    itemId,
+    window.setTimeout(() => {
+      void postGroupDraft(card);
+    }, 250)
+  );
+}
+
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
   const grabbedCard = [...activePaneDrags].find((el) =>
@@ -2017,15 +2190,16 @@ function paintLifecycleQuestionStack(payload) {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
       const groupMode = item.response_mode === "group_consensus";
+      const groupSubmit = item.response_mode === "group_submit";
       const individualControls =
-        !groupMode && !item.my_response && item.can_submit
+        !groupMode && !groupSubmit && !item.my_response && item.can_submit
           ? lifecycleAnswerControls(
               item,
               "individual",
               liveCardDrafts.get(`${Number(item.id)}:individual`)
             )
           : "";
-      const ownLabel = !groupMode
+      const ownLabel = !groupMode && !groupSubmit
         ? item.my_response
           ? liveAnswerLabel(item.my_response.response)
           : String(payload?.meet_chip || "").trim()
@@ -2039,11 +2213,13 @@ function paintLifecycleQuestionStack(payload) {
               item.group_consensus?.has_voted
           ));
       const results =
-        !showResults
+        groupSubmit
           ? ""
-          : groupMode
-            ? lifecycleClassConsensusHtml(item.results)
-            : lifecycleResultsHtml(item.results);
+          : !showResults
+            ? ""
+            : groupMode
+              ? lifecycleClassConsensusHtml(item.results)
+              : lifecycleResultsHtml(item.results);
       const dockKey = liveCardDockKey(item);
       return `<article class="student-live-card student-floating-pane is-${escapeText(status)}" data-live-card-id="${Number(
         item.id
@@ -2084,9 +2260,11 @@ function paintLifecycleQuestionStack(payload) {
         }
         ${lifecycleEquationHtml(content)}
         ${
-          groupMode
-            ? lifecycleConsensusHtml(item)
-            : individualControls
+          groupSubmit
+            ? studentGroupCardHtml(item)
+            : groupMode
+              ? lifecycleConsensusHtml(item)
+              : individualControls
         }
         ${results}
       </article>`;
@@ -2168,10 +2346,12 @@ function mergeLifecycleSubmitResponse(payload, item, data) {
       tally && Array.isArray(tally.choices) && tally.choices.length
         ? { kind: tally.kind || "mc", choices: tally.choices }
         : row.results;
+    const groupSubmit = data.group_submit || row.group_submit;
     return {
       ...row,
       my_response: myResponse || row.my_response,
-      can_submit: false,
+      group_submit: groupSubmit,
+      can_submit: groupSubmit ? Boolean(groupSubmit.can_submit) : false,
       results: results || row.results,
     };
   });
@@ -2239,6 +2419,13 @@ async function submitLifecycleAnswer(card, action) {
     } else if (action === "team") {
       url = `/api/student/live-items/${itemId}/team-answer`;
       body = { response };
+    } else if (action === "group") {
+      const whyEl = card.querySelector("[data-group-why]");
+      url = `/api/student/live-items/${itemId}/group-submit`;
+      body = {
+        choice: response.choice,
+        why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
+      };
     }
     const res = await fetch(
       url,
@@ -3450,9 +3637,18 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     const card = choice.closest("[data-live-card-id]");
     const action = controls?.getAttribute("data-live-action") || "individual";
     if (card instanceof HTMLElement) {
-      liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, {
+      const whyEl = card.querySelector("[data-group-why]");
+      const next = {
         choice: choice.getAttribute("data-live-choice") || "",
-      });
+      };
+      if (action === "group" && whyEl instanceof HTMLTextAreaElement) {
+        next.why = whyEl.value;
+        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:group`, next);
+        syncGroupSubmitGate(card);
+        queueGroupDraft(card);
+      } else {
+        liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, next);
+      }
     }
     return;
   }
@@ -3520,6 +3716,16 @@ document.getElementById("live-response")?.addEventListener("input", (event) => {
   const key = `${Number(card.dataset.liveCardId)}:${
     controls.dataset.liveAction || "individual"
   }`;
+  if (field instanceof HTMLTextAreaElement && field.hasAttribute("data-group-why")) {
+    const selected = card.querySelector("[data-live-choice].is-selected");
+    liveCardDrafts.set(key, {
+      choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
+      why: field.value,
+    });
+    syncGroupSubmitGate(card);
+    queueGroupDraft(card);
+    return;
+  }
   if (field instanceof HTMLInputElement) {
     liveCardDrafts.set(key, { value: field.value });
   } else if (field instanceof HTMLTextAreaElement) {

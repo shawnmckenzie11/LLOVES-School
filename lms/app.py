@@ -4677,6 +4677,62 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify({"ok": True, "group_consensus": team})
 
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/group-draft",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_draft(live_item_id: int):
+        """Save the shared multiple-choice draft. Does not submit or celebrate."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            card = school.save_group_mc_draft(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                choice=body.get("choice"),
+                why=body.get("why"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/group-submit",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_submit(live_item_id: int):
+        """Submit the shared MC answer once choice and why are both present."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            card = school.submit_group_mc_answer(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                choice=body.get("choice"),
+                why=body.get("why"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
 

@@ -2738,6 +2738,50 @@ body.staff-shell .live-item-chart.is-histogram .live-item-chart-track {
   height: 1.3rem;
   border-radius: 2px 2px 0 0;
 }
+body.staff-shell .live-submission-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+body.staff-shell .live-submission-choice {
+  border: 1px solid #94a3b8;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
+  font: inherit;
+  font-weight: 700;
+}
+body.staff-shell .live-submission-choice.is-on {
+  border-color: #0f766e;
+  background: #ccfbf1;
+}
+body.staff-shell .group-status-board {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+body.staff-shell .group-status-board li,
+body.staff-shell .group-submitter-log table,
+body.staff-shell .group-reveal-board {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+body.staff-shell .group-status-board li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+}
+body.staff-shell .group-submitter-log,
+body.staff-shell .group-reveal-board {
+  margin-top: 0.45rem;
+}
+body.staff-shell .group-reveal-board .is-missed td {
+  min-height: 1.2rem;
+}
 body.staff-shell .live-consensus-teams {
   display: grid;
   gap: 0.35rem;
