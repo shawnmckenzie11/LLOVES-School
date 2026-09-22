@@ -1,0 +1,36 @@
+name: Attach live Postgres
+
+# Manual only. Merging this file does not attach Postgres and does not
+# run this job. Push to main still runs Deploy LLOVES LMS (deploy.yml).
+#
+# Run after merge, when a rolling restart of lloves-lms is acceptable:
+# Actions → Attach live Postgres → Run workflow.
+# Expect https://alc.mckenzian.com/health → "live_presence": "postgres".
+#
+# Uses the existing repository secret FLY_API_TOKEN. Does not mint a token,
+# does not flyctl deploy, and does not rewrite Google OAuth secrets.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: attach-live-postgres-lloves-lms
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    name: Attach Managed Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Attach lloves-live and require live_presence=postgres
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: bash .github/scripts/attach-live-postgres.sh

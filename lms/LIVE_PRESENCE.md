@@ -28,19 +28,21 @@ Connections use autocommit and `prepare_threshold=None` so Fly's PgBouncer trans
 
 On process start the store copies **active** `live_class_sessions` and their attendees from sqlite. A class already running survives the cutover. Heartbeats after that do not `UPDATE live_session_attendees`.
 
-## alc gap (no Fly change in this branch)
+## alc attach
 
-`fly.toml` does not set `LIVE_DATABASE_URL` or `DATABASE_URL`. This repo has no Fly Postgres app. `fly mpg attach` writes the secret **and restarts the machine**, so it is Shawn's step, not an agent deploy.
+`fly.toml` does not set `LIVE_DATABASE_URL` or `DATABASE_URL`. The postgres-capable image can be on the machine while `/health` still says `sqlite`.
+
+Attach is manual: Actions → **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`) → Run workflow. That job lists Managed Postgres, creates `lloves-live` in `yyz` on Basic when that name is missing, runs `fly mpg attach` so `DATABASE_URL` is a postgres URL, and rolls `lloves-lms` only when `/health` is not yet `postgres`. It fails unless `live_presence` is `postgres`.
+
+Merging the workflow file does not attach. Basic is a paid plan (2 shared vCPUs, 1 GB). Current `fly mpg create` does not prompt when `--name`, `--org`, `--region`, and `--plan` are set. If the token cannot authorize that charge, the job stops and prints:
 
 ```bash
-fly mpg create --name lloves-live --region yyz --plan basic
+fly mpg create --name lloves-live --org <org> --region yyz --plan basic --pg-major-version 16 --volume-size 10
 fly mpg attach <cluster-id> --app lloves-lms
 curl -s https://alc.mckenzian.com/health
 ```
 
-Expect `"live_presence": "postgres"`. Until that curl says so, alc is still the sqlite hot path (WAL, autocommit, shared process lock). Thursday's 9:15 / 10:40 / 2:00 ET classes do not get this store until both the image **and** the secret are on the machine.
-
-Basic Managed Postgres is a paid plan (2 shared vCPUs, 1 GB). Unmanaged `fly postgres attach` also sets `DATABASE_URL` if a cluster already exists.
+Expect `"live_presence": "postgres"`. Until that curl says so, alc is still the sqlite hot path (WAL, autocommit, shared process lock).
 
 ## Local / CI
 
