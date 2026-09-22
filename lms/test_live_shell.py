@@ -295,9 +295,16 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("data-save-to-card", js)
         self.assertIn("function setLifecycleSaveToCard(", js)
         self.assertIn("function interimQuestionControlMenu(", js)
+        self.assertIn("function interimQuestionControlPiece(", js)
+        self.assertIn("const INTERIM_QUESTION_CONTROL_ORDER = [", js)
         self.assertIn('data-interim-controls="1"', js)
+        self.assertIn('aria-label="Question controls"', js)
         self.assertIn("mobbin-sites/", js)
-        self.assertIn("${questionControls}${publish}", js)
+        order = js.split("const INTERIM_QUESTION_CONTROL_ORDER = [", 1)[1].split(
+            "];", 1
+        )[0]
+        self.assertLess(order.index('"show_live_results"'), order.index('"save_to_card"'))
+        self.assertLess(order.index('"save_to_card"'), order.index('"publish"'))
         self.assertIn("function groupConsensusResultsHtml(", js)
         self.assertIn("Individual in Group", js)
         self.assertIn("Reveal answers", js)
@@ -1332,7 +1339,11 @@ class LiveShellTests(unittest.TestCase):
         strip_enabled = js.split("function paintTeamsStripEnabled()")[1].split("function paintRoundStrip()")[0]
         self.assertIn("closeTeamsPops({ keepRename: true })", strip_enabled)
         self.assertIn("const pointsButton =", js)
-        self.assertIn("closed", js.split("const pointsButton =")[1].split("function individualLifecycleResultsHtml")[0])
+        piece = js.split("function interimQuestionControlPiece(")[1].split(
+            "function interimQuestionControlMenu("
+        )[0]
+        self.assertIn('id === "responses"', piece)
+        self.assertIn("!active && !closed", piece)
         self.assertIn("body.staff-shell .live-round-strip {", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn(

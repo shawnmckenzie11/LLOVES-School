@@ -2651,8 +2651,22 @@ body.staff-shell .live-publish-split.has-modes {
 body.staff-shell .live-question-controls {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+body.staff-shell .live-question-control-flags {
+  display: flex;
+  flex-direction: column;
   align-items: flex-start;
   gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.55rem;
+  background: #f8fafc;
+}
+body.staff-shell .live-question-controls .live-q-btn,
+body.staff-shell .live-question-controls .live-publish-split {
+  width: 100%;
 }
 body.staff-shell .live-result-toggle {
   display: inline-flex;
