@@ -31,3 +31,5 @@ The eleven locked icebreakers are stored two ways:
 7. Switch Bank scope to a module (M1–M8). Those eleven titles stay off the math list, including when Kind is Warmup.
 
 Same eleven titles for an MCR3U class whose offering has a content library. Kind left on Process hides warmup-tagged rows in a module search. Course Wide with Kind Warmup is the list above, not A2/A3 items.
+
+A database seeded before the title rename can hold about twenty `COURSE/` warmups per course (old title plus locked title). Restart/seed deletes the nine retired titles and leaves these eleven. See `lc-qa/ops-smoke-pr124-warmup-import-FAIL-2026-09-22.md`.

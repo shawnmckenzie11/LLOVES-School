@@ -2422,7 +2422,8 @@ class LovesDB:
 
         Upserts by (``ontario_code``, ``kind``, ``title``) so existing databases
         pick up new lesson-keyed rows (e.g. M1C1) without wiping teacher-added
-        items that use other titles.
+        items that use other titles. Retired Course Wide warmup titles from the
+        rename are removed so each course keeps the locked eleven.
         """
         try:
             from live_problem_seed import default_live_problems
@@ -2439,6 +2440,52 @@ class LovesDB:
             if existing_id is not None:
                 payload["id"] = existing_id
             self.upsert_live_problem(payload)
+        self._drop_retired_course_warmups()
+
+    def _drop_retired_course_warmups(self) -> int:
+        """Remove COURSE warmup rows superseded by the locked icebreaker titles.
+
+        Renaming a seeded title inserts a new ``live_problems`` row and leaves
+        the old one, so MCF3M and MCR3U can show about twenty COURSE warmups
+        after a re-seed. Lesson-keyed warmups are left alone.
+
+        Returns:
+            Number of retired rows deleted.
+        """
+        try:
+            from live_problem_seed import RETIRED_COURSE_WARMUP_TITLES
+        except ImportError:
+            from lms.live_problem_seed import RETIRED_COURSE_WARMUP_TITLES
+
+        titles = tuple(RETIRED_COURSE_WARMUP_TITLES)
+        if not titles:
+            return 0
+        placeholders = ",".join("?" for _ in titles)
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT id FROM live_problems
+                WHERE kind = 'warmup'
+                  AND module_hint LIKE 'COURSE/%'
+                  AND ontario_code IN ('MCF3M', 'MCR3U')
+                  AND title IN ({placeholders})
+                """,
+                titles,
+            ).fetchall()
+            ids = [int(row["id"]) for row in rows]
+            if not ids:
+                return 0
+            id_marks = ",".join("?" for _ in ids)
+            self.conn.execute(
+                f"DELETE FROM live_problem_processes WHERE problem_id IN ({id_marks})",
+                ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM live_problems WHERE id IN ({id_marks})",
+                ids,
+            )
+            self.conn.commit()
+        return len(ids)
 
     def _live_problem_id_by_natural_key(
         self, ontario_code: str, kind: str, title: str
