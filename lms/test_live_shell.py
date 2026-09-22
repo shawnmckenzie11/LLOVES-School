@@ -296,15 +296,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function setLifecycleSaveToCard(", js)
         self.assertIn("function interimQuestionControlMenu(", js)
         self.assertIn("function interimQuestionControlPiece(", js)
-        self.assertIn("const INTERIM_QUESTION_CONTROL_ORDER = [", js)
-        self.assertIn('data-interim-controls="1"', js)
-        self.assertIn('aria-label="Question controls"', js)
-        self.assertIn("mobbin-sites/", js)
-        order = js.split("const INTERIM_QUESTION_CONTROL_ORDER = [", 1)[1].split(
-            "];", 1
-        )[0]
-        self.assertLess(order.index('"show_live_results"'), order.index('"save_to_card"'))
-        self.assertLess(order.index('"save_to_card"'), order.index('"publish"'))
+        self.assertIn("const QCHROME_STRIP_GROUPS = [", js)
+        self.assertIn('data-qchrome-strip="1"', js)
+        self.assertIn('data-qchrome-group="${group.id}"', js)
+        self.assertIn("Add / stage this question first", js)
+        self.assertIn("teacher-live-q-chrome-ia-v0.md", js)
+        groups = js.split("const QCHROME_STRIP_GROUPS = [", 1)[1].split("];", 1)[0]
+        self.assertLess(groups.index('"persist"'), groups.index('"visibility"'))
+        self.assertLess(groups.index('"visibility"'), groups.index('"lifecycle"'))
+        self.assertLess(groups.index('"save_to_card"'), groups.index('"show_live_results"'))
+        self.assertLess(groups.index('"show_live_results"'), groups.index('"publish"'))
+        self.assertNotIn("relocate", groups)
         self.assertIn("function groupConsensusResultsHtml(", js)
         self.assertIn("Individual in Group", js)
         self.assertIn("Reveal answers", js)

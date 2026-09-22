@@ -2012,27 +2012,55 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
- * Interim order for the teacher per-question menu.
+ * Teacher per-question strip from mobbin-sites/teacher-live-q-chrome-ia-v0.md.
  *
- * Item 7. Mobbin will restack this menu and pack it with Save to card and
- * Show Live Results before publish. That note lands under mobbin-sites/.
- * Until then, restack by reordering this list only. Ids are chrome.
- * show_live_results and save_to_card stay boolean columns.
+ * A Persist, then B Visibility, then C Lifecycle. (Re)move stays in the
+ * card head. Ids are chrome. save_to_card and show_live_results stay
+ * boolean columns. Restack by editing this list.
  */
-const INTERIM_QUESTION_CONTROL_ORDER = [
-  "show_live_results",
-  "save_to_card",
-  "publish",
-  "reveal",
-  "responses",
-  "close",
-  "final",
+const QCHROME_STRIP_GROUPS = [
+  { id: "persist", label: "Persist", controls: ["save_to_card"] },
+  { id: "visibility", label: "Visibility", controls: ["show_live_results"] },
+  {
+    id: "lifecycle",
+    label: "Lifecycle",
+    controls: ["publish", "reveal", "responses", "close", "final"],
+  },
 ];
 
 /**
- * Render one interim menu row, or "" when it does not apply to this card.
+ * Render one Save to card or Show Live Results checkbox.
  *
- * @param {string} id Entry from INTERIM_QUESTION_CONTROL_ORDER.
+ * Both stay available before publish and after close. With no lifecycle
+ * row the box is disabled and the strip adds one calm hint.
+ *
+ * @param {string} id ``save_to_card`` or ``show_live_results``.
+ * @param {any} spec Card facts already computed for the paint pass.
+ * @returns {string}
+ */
+function qchromeFlagHtml(id, spec) {
+  const liveItemId = Number(spec.liveItemId) || 0;
+  const card = spec.card || {};
+  const missing = !liveItemId;
+  const disabled = missing ? "disabled" : "";
+  if (id === "save_to_card") {
+    const checked = !missing && card.save_to_card ? "checked" : "";
+    return `<label class="live-result-toggle">
+      <input type="checkbox" data-save-to-card="${liveItemId || ""}" ${checked} ${disabled}>
+      <span>Save to card</span>
+    </label>`;
+  }
+  const checked = missing || card.show_live_results === false ? "" : "checked";
+  return `<label class="live-result-toggle">
+    <input type="checkbox" data-live-results-toggle="${liveItemId || ""}" ${checked} ${disabled}>
+    <span>Show Live Results</span>
+  </label>`;
+}
+
+/**
+ * Render one strip control, or "" when it does not apply to this card.
+ *
+ * @param {string} id Control id from QCHROME_STRIP_GROUPS.
  * @param {any} spec Card facts already computed for the paint pass.
  * @returns {string}
  */
@@ -2043,22 +2071,10 @@ function interimQuestionControlPiece(id, spec) {
   const active = status === "active";
   const closed = status === "closed";
   const card = spec.card || {};
-  if (id === "show_live_results" || id === "save_to_card") {
-    if (!liveItemId || !onStage || closed) return "";
-    if (id === "show_live_results") {
-      const checked = card.show_live_results !== false ? "checked" : "";
-      return `<label class="live-result-toggle">
-        <input type="checkbox" data-live-results-toggle="${liveItemId}" ${checked}>
-        <span>Show Live Results</span>
-      </label>`;
-    }
-    const checked = card.save_to_card ? "checked" : "";
-    return `<label class="live-result-toggle">
-      <input type="checkbox" data-save-to-card="${liveItemId}" ${checked}>
-      <span>Save to card</span>
-    </label>`;
-  }
   if (!onStage) return "";
+  if (id === "save_to_card" || id === "show_live_results") {
+    return qchromeFlagHtml(id, spec);
+  }
   if (id === "publish") return status === "inactive" ? spec.publishHtml || "" : "";
   if (id === "reveal") {
     if (!active || card.response_mode !== "group_consensus" || !liveItemId) return "";
@@ -2080,37 +2096,31 @@ function interimQuestionControlPiece(id, spec) {
 }
 
 /**
- * Interim per-question menu until the Mobbin note is stamped.
+ * Render the A/B/C per-question strip.
  *
- * Checkboxes and buttons share one ordered list so a later restack does
- * not need a second pull request. Persistence is unchanged.
+ * Off-stage cards get no strip, matching the Publish gate. (Re)move is
+ * not included. Toggles do not add delight copy.
  *
  * @param {any} spec Card facts: liveItemId, card, status, onStage, publishHtml, responsesHtml.
- * @returns {string} Menu HTML, or "" when every row is hidden.
+ * @returns {string} Strip HTML, or "" when every control is hidden.
  */
 function interimQuestionControlMenu(spec) {
-  const chunks = [];
-  const flags = [];
-  const flushFlags = () => {
-    if (!flags.length) return;
-    chunks.push(
-      `<div class="live-question-control-flags">${flags.join("")}</div>`
+  if (!spec?.onStage) return "";
+  const groups = [];
+  for (const group of QCHROME_STRIP_GROUPS) {
+    const pieces = group.controls
+      .map((id) => interimQuestionControlPiece(id, spec))
+      .filter(Boolean);
+    if (!pieces.length) continue;
+    groups.push(
+      `<div class="live-qchrome-group" data-qchrome-group="${group.id}" role="group" aria-label="${group.label}">${pieces.join("")}</div>`
     );
-    flags.length = 0;
-  };
-  for (const id of INTERIM_QUESTION_CONTROL_ORDER) {
-    const piece = interimQuestionControlPiece(id, spec);
-    if (!piece) continue;
-    if (id === "show_live_results" || id === "save_to_card") {
-      flags.push(piece);
-    } else {
-      flushFlags();
-      chunks.push(piece);
-    }
   }
-  flushFlags();
-  if (!chunks.length) return "";
-  return `<div class="live-question-controls" data-interim-controls="1" role="group" aria-label="Question controls">${chunks.join("")}</div>`;
+  if (!groups.length) return "";
+  const hint = Number(spec.liveItemId)
+    ? ""
+    : `<p class="hint compact live-qchrome-hint">Add / stage this question first</p>`;
+  return `<div class="live-question-controls" data-qchrome-strip="1" role="group" aria-label="Question controls">${groups.join("")}${hint}</div>`;
 }
 
 /**

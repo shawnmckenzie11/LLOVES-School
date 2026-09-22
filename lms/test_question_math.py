@@ -274,6 +274,23 @@ class BankMcDisplayTests(unittest.TestCase):
         self.assertEqual(question["text"], r"Find $\frac{1}{2}$")
         self.assertIn(r"\frac{1}{2}", question["text_html"])
 
+    def test_locked_course_warmup_title_is_not_rewritten(self) -> None:
+        """Course Wide warmup locks stay intact when a formula looks glued on."""
+        from question_math import clean_question_stem_fields
+
+        stem = "Beach vacation or mountain cabin? y=2^{x}+3"
+        question = {
+            "title": "Beach or cabin",
+            "text": stem,
+            "text_html": f"<p>{stem}</p>",
+            "options": ["y=2^{x}+3", "Beach vacation"],
+            "correct_answer": "A",
+        }
+        clean_question_stem_fields(question)
+        self.assertEqual(question["title"], "Beach or cabin")
+        self.assertEqual(question["text"], stem)
+        self.assertIn("y=2^{x}+3", question["text_html"])
+
     def test_student_visible_bank_image_url_rewrites_staff_path(self) -> None:
         """Staff module-file URLs become the student-accessible twin."""
         staff = "/staff/class/9/module-files/web_resources/diagram.png"

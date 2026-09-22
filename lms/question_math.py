@@ -347,11 +347,34 @@ def strip_glued_stem_relics(
     return html_out, plain_out
 
 
+def _is_locked_course_warmup(question: dict[str, Any]) -> bool:
+    """True when the row is a locked Course Wide warmup title.
+
+    Stem cleanup must not rewrite those icebreaker titles or stems.
+    The lock lives in ``course_warmup_seed.locked_course_warmup_titles``.
+
+    Args:
+        question: Catalogue or prompt payload.
+
+    Returns:
+        True when ``title`` matches the locked pack.
+    """
+    title = str(question.get("title") or "").strip()
+    if not title:
+        return False
+    try:
+        from course_warmup_seed import locked_course_warmup_titles
+    except ImportError:
+        from lms.course_warmup_seed import locked_course_warmup_titles
+    return title in locked_course_warmup_titles()
+
+
 def clean_question_stem_fields(question: dict[str, Any]) -> dict[str, Any]:
     """Strip glued answer snapshots and formulas from one question stem.
 
     ``equation_latex`` is left in place so a staff equation under the stem
-    still renders separately from the question text.
+    still renders separately from the question text. Locked Course Wide
+    warmup titles are returned unchanged.
 
     Args:
         question: Catalogue or prompt payload. Mutated and returned.
@@ -361,6 +384,8 @@ def clean_question_stem_fields(question: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(question, dict):
         return {}
+    if _is_locked_course_warmup(question):
+        return question
     correct = _correct_option_text(question)
     text_html = str(question.get("text_html") or "")
     if text_html:
