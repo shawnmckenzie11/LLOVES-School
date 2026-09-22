@@ -113,6 +113,40 @@ _COURSE_WIDE_WARMUP_SPECS: tuple[dict[str, Any], ...] = (
 )
 
 
+# Short stems shipped before the bank-curator pack. Same titles, so a title
+# check alone will not refresh them. Teacher edits are not in this set.
+_RETIRED_COURSE_WARMUP_STEMS = frozenset(
+    {
+        "Aisle or window: which seat do you pick?",
+        "Text or call: how do you reach a friend?",
+        "Beach or cabin: where is the better long weekend?",
+        "Which food is overrated?",
+        "What rule should work differently than it does?",
+        "What unimportant opinion do you hold with complete confidence?",
+        "What useless skill are you weirdly proud of?",
+        "If this group had a mascot, what would it be?",
+        "When did you last laugh too hard?",
+        "What fraction of this class has never done something the rest of us have?",
+        "Rank three small annoyances from most annoying to least.",
+    }
+)
+
+
+def course_warmup_stem_is_retired(payload: Any) -> bool:
+    """True when a stored warmup still has a pre-curator stem.
+
+    Args:
+        payload: Parsed ``questions.payload_json``.
+
+    Returns:
+        True for the short stems replaced by the locked pack.
+    """
+    if not isinstance(payload, dict):
+        return False
+    stem = str(payload.get("stem_html") or payload.get("text") or "").strip()
+    return stem in _RETIRED_COURSE_WARMUP_STEMS
+
+
 def locked_course_warmup_titles() -> tuple[str, ...]:
     """Return the eleven Course Wide warmup titles, in catalogue order.
 

@@ -5930,7 +5930,96 @@ class SchoolDB(LovesDB):
         code = str(library.get("ontario_code") or "").strip().upper()
         if code not in {"MCF3M", "MCR3U"}:
             return None
-        return self.seed_course_wide_warmups(int(library_id))
+        try:
+            from course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULES,
+                course_warmup_stem_is_retired,
+                locked_course_warmup_titles,
+            )
+        except ImportError:
+            from lms.course_warmup_seed import (
+                COURSE_WIDE_WARMUP_BANK_KEY,
+                COURSE_WIDE_WARMUP_CONFIRM_MODULES,
+                course_warmup_stem_is_retired,
+                locked_course_warmup_titles,
+            )
+
+        wanted = list(locked_course_warmup_titles())
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT q.title, q.payload_json, b.id AS bank_id
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE b.library_id = ? AND b.import_key = ?
+                ORDER BY q.id
+                """,
+                (int(library_id), COURSE_WIDE_WARMUP_BANK_KEY),
+            ).fetchall()
+            linked = {
+                int(row["module_number"])
+                for row in self.conn.execute(
+                    """
+                    SELECT module_number FROM course_module_bank_links
+                    WHERE library_id = ? AND bank_id = (
+                        SELECT id FROM question_banks
+                        WHERE library_id = ? AND import_key = ?
+                    )
+                    """,
+                    (
+                        int(library_id),
+                        int(library_id),
+                        COURSE_WIDE_WARMUP_BANK_KEY,
+                    ),
+                ).fetchall()
+            }
+        have = [str(row["title"] or "") for row in rows]
+        retired = False
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if course_warmup_stem_is_retired(payload):
+                retired = True
+                break
+        # Known renames only. A teacher stem edit also changes the title, and
+        # that must not rebuild the catalogue over the edit.
+        near_miss_titles = {
+            "Overrated food",
+            "Useless skill",
+            "Fraction who never did it",
+        }
+        missing_locked = set(wanted) - set(have)
+        teacher_retitled = any(title not in set(wanted) for title in have)
+        needs_catalogue = (
+            not rows
+            or retired
+            or any(title in near_miss_titles for title in have)
+            or (bool(missing_locked) and not teacher_retitled)
+        )
+        if needs_catalogue:
+            return self.seed_course_wide_warmups(int(library_id))
+        missing = [
+            number
+            for number in COURSE_WIDE_WARMUP_CONFIRM_MODULES
+            if int(number) not in linked
+        ]
+        if missing and rows:
+            bank_id = int(rows[0]["bank_id"])
+            with self._lock:
+                for module_number in missing:
+                    self.conn.execute(
+                        """
+                        INSERT OR IGNORE INTO course_module_bank_links (
+                            library_id, module_number, bank_id, confirmed_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (int(library_id), int(module_number), bank_id, _now()),
+                    )
+                self.conn.commit()
+        return {"count": len(have), "refreshed": False}
 
     def _course_wide_warmup_items(
         self, library_id: int, *, class_id: int | None = None

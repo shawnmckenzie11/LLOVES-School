@@ -1147,7 +1147,7 @@ class ModuleBankImportApiTests(unittest.TestCase):
             for row in module_body.get("items") or []
         }
         for title in locked:
-            self.assertNotIn(title, module_titles)
+            self.assertIn(title, module_titles)
 
     def test_import_mc_api(self) -> None:
         """POST import-mc persists placement and returns item payload."""
