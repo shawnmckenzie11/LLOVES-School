@@ -676,6 +676,25 @@ class LiveClassMetadataTests(unittest.TestCase):
         self.assertIn('id="multi-toggle"', html)
         self.assertIn('id="eq-live"', html)
         self.assertIn('id="eq-general"', html)
+        self.assertIn("color: var(--gold)", html)
+        self.assertIn('class="eq-live"', html)
+        self.assertIn("teacherMode", html)
+        self.assertIn('role === "teacher"', html)
+        self.assertIn("#multi-toggle.is-on", html)
+        self.assertIn(".dock.is-student #multi-toggle", html)
+        self.assertIn(".parents[hidden]", html)
+        self.assertIn('id="parents-single"', html)
+        self.assertIn('type="radio"', html)
+        self.assertIn('id="parents-multi"', html)
+        self.assertIn('type="checkbox"', html)
+        self.assertRegex(
+            html,
+            r'id="parents-multi"[^>]*hidden',
+        )
+        self.assertNotRegex(
+            html,
+            r'id="parents-single"[^>]*\shidden',
+        )
         self.assertIn("MCR3U", html)
         self.assertNotIn("MCF3M", html)
 
