@@ -3491,6 +3491,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
+    if (payload?.canvas_sync) paintTeacherCanvas(payload.canvas_sync);
     if (Array.isArray(payload?.class_list)) adoptClassListRows(payload.class_list);
     if (Array.isArray(payload?.groups)) lastGroups = payload.groups;
     if (Object.prototype.hasOwnProperty.call(payload || {}, "scoreboard")) {
@@ -7668,31 +7669,81 @@ document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
   });
 });
 
+/** @type {ReturnType<typeof bindWhiteboard> | null} */
+let teacherBoard = null;
+
 /**
- * Ephemeral whiteboard: draw in memory; Frozen/team modes post a thin cursor.
+ * True when the published whiteboard is the shared group board.
+ * @returns {boolean}
+ */
+function whiteboardCollabOn() {
+  if (String(teacherState.canvas_align || "") === "team") return true;
+  const item = lifecycleItemForSurface("canvas");
+  return item?.status === "active" && item?.publish_mode === "group_shared";
+}
+
+/**
+ * Paint the session board. Collaborative publish replaces strokes and
+ * shows named cursors; text labels always follow the session blob.
+ * @param {any} view
+ */
+function paintTeacherCanvas(view) {
+  if (!teacherBoard || !view) return;
+  teacherBoard.importRemote(view, { collab: whiteboardCollabOn() });
+}
+
+/**
+ * Post one canvas tick. Text commits send ``text_id``; cursors omit it.
+ * @param {HTMLCanvasElement} canvas
+ * @param {{x: number, y: number}} p
+ * @param {{ended?: boolean, strokeId?: string, text?: {id: string, text: string}, cursorOnly?: boolean}} [extra]
+ */
+function postTeacherCanvas(canvas, p, extra = {}) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  const collab = whiteboardCollabOn();
+  const align = String(teacherState.canvas_align || "student");
+  const text = extra.text;
+  if (!text && !collab && align === "student") return;
+  if (!text && extra.cursorOnly && !collab) return;
+  const body = {
+    x: p.x / canvas.width,
+    y: p.y / canvas.height,
+  };
+  if (text) {
+    body.text_id = text.id;
+    body.text = text.text;
+  } else if (!extra.cursorOnly) {
+    body.point = [body.x, body.y];
+    body.stroke_id = extra.strokeId || undefined;
+    body.ended = Boolean(extra.ended);
+  }
+  api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+    .then((res) => {
+      if (res?.canvas_view) paintTeacherCanvas(res.canvas_view);
+    })
+    .catch(() => {});
+}
+
+/**
+ * Whiteboard drawing, text, and group collab (strokes + named cursors).
  */
 function bindEphemeralCanvas() {
   const canvas = $("live-canvas-stub");
   if (!(canvas instanceof HTMLCanvasElement)) return;
-  bindWhiteboard(canvas, {
+  teacherBoard = bindWhiteboard(canvas, {
     undoBtn: $("live-canvas-undo"),
     redoBtn: $("live-canvas-redo"),
     eraseBtn: $("live-canvas-erase"),
+    textBtn: $("live-canvas-text"),
+    cursorLayer: $("live-canvas-cursors"),
+    onCursor: (p) => postTeacherCanvas(canvas, p, { cursorOnly: true }),
+    onText: (label) => postTeacherCanvas(canvas, { x: label.x * canvas.width, y: label.y * canvas.height }, { text: label }),
     onPoint: (p, ended, strokeId) => {
-      const sessionId = liveSessionId || readLiveSessionId();
-      if (!sessionId) return;
-      const align = String(teacherState.canvas_align || "student");
-      if (align === "student") return;
-      api(`/api/live-sessions/${sessionId}/canvas-presence`, {
-        method: "POST",
-        body: JSON.stringify({
-          x: p.x / canvas.width,
-          y: p.y / canvas.height,
-          point: [p.x / canvas.width, p.y / canvas.height],
-          stroke_id: strokeId || undefined,
-          ended: Boolean(ended),
-        }),
-      }).catch(() => {});
+      postTeacherCanvas(canvas, p, { ended, strokeId });
     },
   });
 }

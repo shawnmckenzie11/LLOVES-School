@@ -545,13 +545,17 @@
                   <button type="button" data-surface-publish="canvas">Publish</button>
                   <button type="button" class="secondary" data-surface-close="canvas" disabled>Close</button>
                 </div>
-                <p class="hint compact">Ephemeral whiteboard. Nothing is saved.</p>
+                <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
                   <button type="button" id="live-canvas-undo">Undo</button>
                   <button type="button" id="live-canvas-redo">Redo</button>
                   <button type="button" id="live-canvas-erase">Erase</button>
+                  <button type="button" id="live-canvas-text" aria-pressed="false">Text</button>
                 </div>
-                <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
+                <div class="live-canvas-stage">
+                  <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
+                  <div id="live-canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
+                </div>
                 <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
               </section>
               <section id="slides-zone" class="live-content-slot" data-content-id="slides" data-slot="">

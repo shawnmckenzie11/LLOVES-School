@@ -64,9 +64,12 @@
         <button type="button" id="student-canvas-undo">Undo</button>
         <button type="button" id="student-canvas-redo">Redo</button>
         <button type="button" id="student-canvas-erase">Erase</button>
+        <button type="button" id="student-canvas-text" aria-pressed="false">Text</button>
       </div>
-      <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live whiteboard"></canvas>
-      <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
+      <div class="live-canvas-stage">
+        <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live whiteboard"></canvas>
+        <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
+      </div>
     </div>
     <div id="slides-pane" class="slides-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="slides">

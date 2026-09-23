@@ -483,10 +483,36 @@ body.student-home.has-media .student-live-response {
   touch-action: none;
 }
 
+.live-canvas-stage {
+  position: relative;
+  width: 100%;
+}
+.live-canvas-stage .canvas-cursors,
 .canvas-cursors {
   position: absolute;
-  inset: 0.85rem;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
+}
+.canvas-text-editor {
+  position: absolute;
+  z-index: 3;
+  min-width: 6rem;
+  max-width: calc(100% - 0.5rem);
+  margin: 0;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid #0f766e;
+  border-radius: 4px;
+  background: #fff;
+  color: #12202e;
+  font: 16px sans-serif;
+}
+.live-canvas-toolbar button[aria-pressed="true"] {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
 }
 
 .canvas-cursor-chip {
