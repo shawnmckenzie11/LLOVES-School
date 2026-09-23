@@ -330,15 +330,20 @@ const lifecycleResults = new Map();
 
 /**
  * Merge server-side per-item response counts into lifecycleResults.
+ * Individual-in-Group counts come from private votes. When that count
+ * moves, or the team feed is still missing, reload member answers.
  * @param {Record<string, number>|null|undefined} counts
  */
 function adoptLifecycleResponseCounts(counts) {
   if (!counts || typeof counts !== "object") return;
+  let refreshGroups = false;
   for (const [id, count] of Object.entries(counts)) {
     const liveItemId = Number(id);
     if (!liveItemId) continue;
     const n = Number(count) || 0;
     const prev = lifecycleResults.get(liveItemId) || {};
+    const seen = Object.prototype.hasOwnProperty.call(prev, "response_count");
+    const previous = Number(prev.response_count) || 0;
     lifecycleResults.set(liveItemId, {
       ...prev,
       response_count: n,
@@ -348,7 +353,14 @@ function adoptLifecycleResponseCounts(counts) {
         response_count: n,
       },
     });
+    const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId);
+    const groupMode =
+      String(row?.response_mode || prev.response_mode || "") === "group_consensus";
+    if (!groupMode) continue;
+    const missingTeams = !Array.isArray(prev.teams);
+    if (missingTeams || (seen && previous !== n)) refreshGroups = true;
   }
+  if (refreshGroups) void refreshLifecycleResults();
 }
 
 
@@ -2051,6 +2063,35 @@ function cardSaveToCardChecked(card, liveItemId) {
 const groupSubmissionIntent = new Map();
 
 /**
+ * Individual vs Individual in Group before Publish.
+ * Inactive repaints read this so the dropdown survives the staff poll.
+ * @type {Map<number, "individual"|"group_consensus">}
+ */
+const openPublishIntent = new Map();
+
+/**
+ * Mode shown on an open or numeric card.
+ * A teacher click wins over the catalogue default until Publish.
+ * @param {number} liveItemId
+ * @param {any} card
+ * @param {string} status
+ * @returns {"individual"|"group_consensus"}
+ */
+function openPublishModeSelection(liveItemId, card, status) {
+  const stored =
+    String(card?.response_mode || "") === "group_consensus"
+      ? "group_consensus"
+      : "individual";
+  if (status === "active" || status === "closed") {
+    openPublishIntent.delete(liveItemId);
+    return stored;
+  }
+  const held = openPublishIntent.get(liveItemId);
+  if (held === "group_consensus" || held === "individual") return held;
+  return stored;
+}
+
+/**
  * True for a keyed multiple-choice card. Numeric and open stays off this path.
  * @param {any} item
  * @param {any} card
@@ -2297,6 +2338,7 @@ function paintLiveQuestionCards() {
         tallyRef && cardRef && tallyRef === cardRef
           ? Number(tally?.response_count ?? tally?.responded ?? 0)
           : 0;
+      const openMode = openPublishModeSelection(liveItemId, card, status);
       const answered = Number(
         result?.response_count ??
           result?.tally?.responded ??
@@ -2312,7 +2354,12 @@ function paintLiveQuestionCards() {
         onStage && groupChrome && (active || closed)
           ? `<p class="live-question-progress">${groupDone} / ${groupBoard.length} groups</p>`
           : onStage && (active || closed)
-            ? `<p class="live-question-progress">${answered} / ${Math.max(eligible, answered)} answered</p>`
+            ? `<p class="live-question-progress">${answered} / ${Math.max(
+                eligible,
+                answered
+              )} ${
+                card.response_mode === "group_consensus" ? "responded" : "answered"
+              }</p>`
             : "";
       const submissionValue =
         card.response_mode === "group_submit" || intent === "group_submit"
@@ -2338,9 +2385,11 @@ function paintLiveQuestionCards() {
             ${
               canGroup
                 ? `<select data-publish-live-mode="${liveItemId}" aria-label="Publish mode">
-                    <option value="individual">Individual</option>
+                    <option value="individual"${
+                      openMode === "individual" ? " selected" : ""
+                    }>Individual</option>
                     <option value="group_consensus"${
-                      card.response_mode === "group_consensus" ? " selected" : ""
+                      openMode === "group_consensus" ? " selected" : ""
                     }>Individual in Group</option>
                   </select>`
                 : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
@@ -2502,10 +2551,14 @@ function groupConsensusResultsHtml(result) {
       </details>`;
       let body = "";
       if (status === "collecting_votes") {
+        const liveLine = answers.length
+          ? answers.map((value) => escapeHtml(value)).join(" · ")
+          : "Waiting";
         body = `<p class="live-consensus-team-name">${escapeHtml(
           team.team_name || "Team"
         )}</p>
         <p class="live-consensus-team-count">${responded}/${eligible} responded</p>
+        <p class="live-consensus-team-answers">${liveLine}</p>
         <p class="live-consensus-team-note">${
           responded === eligible && eligible > 0
             ? "Ready to discuss"
@@ -2761,8 +2814,12 @@ async function refreshLifecycleResults() {
       const type = String(
         row?.item?.item_type || row?.item?.type || row?.kind || ""
       ).toLowerCase();
+      const mode = String(row?.response_mode || "");
       return (
-        ["question", "poll", "mc"].includes(type) &&
+        (mode === "group_consensus" ||
+          ["question", "poll", "mc", "numeric", "text", "open", "share"].includes(
+            type
+          )) &&
         String(row.stage || "") === String(teacherState.stage || "") &&
         ["active", "closed"].includes(String(row.status || ""))
       );
@@ -7462,6 +7519,16 @@ $("live-question-list")?.addEventListener("change", async (event) => {
     } catch (err) {
       showError("#ap-overlay-error", err);
     }
+    return;
+  }
+  const publishMode = event.target.closest("select[data-publish-live-mode]");
+  if (publishMode instanceof HTMLSelectElement) {
+    const id = Number(publishMode.getAttribute("data-publish-live-mode")) || 0;
+    const value = canonicalPublishMode(publishMode.value);
+    openPublishIntent.set(
+      id,
+      value === "group_consensus" ? "group_consensus" : "individual"
+    );
     return;
   }
   const select = event.target.closest("select[data-question-view]");
