@@ -58,6 +58,7 @@ try:
     )
     from live_canvas import (
         apply_canvas_presence,
+        apply_canvas_text,
         canvas_view_for,
         cursor_color_for,
         public_canvas_sync,
@@ -171,6 +172,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.live_canvas import (
         apply_canvas_presence,
+        apply_canvas_text,
         canvas_view_for,
         cursor_color_for,
         public_canvas_sync,
@@ -10305,6 +10307,94 @@ class SchoolDB(LovesDB):
         return list(dict.fromkeys(modes))
 
     @staticmethod
+    def _with_whiteboard_publish_modes(question: dict[str, Any]) -> dict[str, Any]:
+        """Return a whiteboard placement that can publish to the group.
+
+        Shared-within-group is a catalogue capability. Bare session rows
+        used to omit it, so the option menu hid collaborative publish.
+
+        Args:
+            question: Placement or catalogue whiteboard dict.
+        """
+        body = dict(question)
+        modes: list[str] = []
+        sources = [body.get("publish_modes")]
+        caps = body.get("capabilities")
+        if isinstance(caps, dict):
+            sources.append(caps.get("publish_modes"))
+        for source in sources:
+            if not isinstance(source, list):
+                continue
+            for mode in source:
+                token = str(mode or "").strip().lower()
+                if token and token not in modes and token != "group_consensus":
+                    modes.append(token)
+        for token in ("individual", "group_shared"):
+            if token not in modes:
+                modes.append(token)
+        capability_rows = dict(caps) if isinstance(caps, dict) else {}
+        capability_rows["publish_modes"] = modes
+        body["item_type"] = "whiteboard"
+        body["type"] = body.get("type") or "whiteboard"
+        body["publish_modes"] = modes
+        body["capabilities"] = capability_rows
+        return body
+
+    def _placement_publish_modes(self, item: dict[str, Any]) -> list[str]:
+        """Return publish modes one lifecycle row is allowed to use.
+
+        Whiteboard rows always include ``group_shared``. Questions keep
+        the existing catalogue rules.
+
+        Args:
+            item: Lifecycle row with a nested ``item`` payload.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        kind = str(
+            item.get("kind") or question.get("item_type") or question.get("type") or ""
+        ).strip().lower()
+        if kind == "whiteboard":
+            enriched = self._with_whiteboard_publish_modes(question)
+            return list(enriched.get("publish_modes") or ["individual", "group_shared"])
+        return self._question_publish_modes(question)
+
+    def _sync_whiteboard_collab(self, session_id: int, publish_mode: str) -> None:
+        """Match canvas alignment to how the whiteboard was published.
+
+        Group-shared publication turns collaborative writing on
+        (``canvas_align`` team). Any other mode leaves unique boards.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            publish_mode: Stored publish token, or ``closed``.
+        """
+        mode = "team" if str(publish_mode or "") == "group_shared" else "none"
+        if mode == "none" and str(publish_mode or "") == "individual":
+            mode = "student"
+        self.set_live_session_teacher_state(
+            session_id, student_view={"canvas": mode}
+        )
+
+    def _whiteboard_collab_active(self, session_id: int) -> bool:
+        """True when the live whiteboard is published to the group.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT publish_mode FROM live_session_items
+                WHERE live_session_id = ? AND kind = 'whiteboard'
+                  AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(session_id),),
+            ).fetchone()
+        return bool(row and str(row["publish_mode"] or "") == "group_shared")
+
+    @staticmethod
     def _question_response_mode(question: dict[str, Any]) -> str:
         """Return ``individual`` or ``group_consensus`` metadata mode."""
 
@@ -10562,6 +10652,8 @@ class SchoolDB(LovesDB):
                     or question.get("kind")
                     or "question"
                 ).strip().lower()
+                if kind == "whiteboard":
+                    question = self._with_whiteboard_publish_modes(question)
                 response_mode = self._question_response_mode(question)
                 default_publish = (
                     "group_consensus"
@@ -11044,7 +11136,7 @@ class SchoolDB(LovesDB):
         else:
             if mode in {"group", "individual_in_group"}:
                 mode = "group_consensus"
-            supported = self._question_publish_modes(item.get("item") or {})
+            supported = self._placement_publish_modes(item)
             if mode not in supported:
                 raise ValueError(f"publish mode is not supported: {mode}")
             response_mode = (
@@ -11099,7 +11191,12 @@ class SchoolDB(LovesDB):
             self._initialize_group_consensus(published)
         elif response_mode == "group_submit":
             self._initialize_group_submit(published)
-        return self.get_live_session_item(session_id, int(item["id"]))
+        published = self.get_live_session_item(session_id, int(item["id"]))
+        if str(published.get("kind") or "") == "whiteboard":
+            self._sync_whiteboard_collab(
+                session_id, str(published.get("publish_mode") or "")
+            )
+        return published
 
     def close_live_session_item(
         self, session_id: int, placement_or_item: str | int
@@ -11132,6 +11229,8 @@ class SchoolDB(LovesDB):
         linked = self._lifecycle_item_for_prompt(session_id, active_prompt)
         if linked is not None and int(linked.get("id") or 0) == int(closed["id"]):
             self.clear_active_live_prompt(session_id)
+        if str(closed.get("kind") or "") == "whiteboard":
+            self._sync_whiteboard_collab(session_id, "closed")
         return closed
 
     @staticmethod
@@ -17536,14 +17635,16 @@ class SchoolDB(LovesDB):
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
+        if self._whiteboard_collab_active(session_id):
+            align = "team"
         publish = False
         bucket = "teacher"
         if align == "teacher" and as_teacher:
             publish = True
             bucket = "teacher"
-        elif align == "team" and not as_teacher and team_id is not None:
+        elif align == "team":
             publish = True
-            bucket = "team"
+            bucket = "teacher" if as_teacher else "team"
         color = cursor_color_for("teacher" if as_teacher else owner)
         blob = apply_canvas_presence(
             self.live_session_canvas_sync(session_id),
@@ -17558,6 +17659,56 @@ class SchoolDB(LovesDB):
             ended=ended,
             publish_stroke=publish and not ended,
             stroke_bucket=bucket,
+        )
+        return self._write_canvas_sync(session_id, blob)
+
+    def apply_live_canvas_text(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        name: str,
+        text_id: str,
+        text: str,
+        team_id: int | None = None,
+        x: Any = None,
+        y: Any = None,
+        as_teacher: bool = False,
+    ) -> dict[str, Any]:
+        """Persist one whiteboard text label for this live session.
+
+        Group-shared boards stamp the writer's team so the group sees
+        the label. Individual boards keep the label on that writer only.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            owner: ``teacher`` or roster id string.
+            name: Display name stored with the label.
+            text_id: Stable client id.
+            text: Label body. Empty deletes.
+            team_id: Team id when the writer is on a group.
+            x: Normalized x in 0–1.
+            y: Normalized y in 0–1.
+            as_teacher: True for the staff board.
+        """
+        collab = self._whiteboard_collab_active(session_id)
+        if not collab:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            collab = str(teacher.get("canvas_align") or "") == "team"
+        writer = "teacher" if as_teacher else str(owner)
+        stored_team = None
+        if collab and not as_teacher:
+            stored_team = int(team_id) if team_id not in (None, "") else 0
+        blob = apply_canvas_text(
+            self.live_session_canvas_sync(session_id),
+            owner=writer,
+            name=name,
+            text_id=text_id,
+            text=text,
+            x=x,
+            y=y,
+            color=cursor_color_for(writer),
+            team_id=stored_team,
         )
         return self._write_canvas_sync(session_id, blob)
 
@@ -17577,6 +17728,8 @@ class SchoolDB(LovesDB):
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
+        if self._whiteboard_collab_active(session_id):
+            align = "team"
         team_id = None
         if student_id not in (None, "") and not as_teacher:
             session_row = self.get_live_session(session_id)
@@ -17584,11 +17737,15 @@ class SchoolDB(LovesDB):
                 team_id = self.student_team_id_for_class(
                     int(session_row["class_id"]), int(student_id)
                 )
+        viewer = "teacher" if as_teacher else (
+            str(int(student_id)) if student_id not in (None, "") else ""
+        )
         return canvas_view_for(
             self.live_session_canvas_sync(session_id),
             align=align,
             team_id=team_id,
             include_all_teams=bool(as_teacher and align == "team"),
+            viewer=viewer,
         )
 
     def _mount_meet_chain(
@@ -19522,8 +19679,8 @@ class SchoolDB(LovesDB):
     def live_student_poll_stamp(self, session_id: int, class_id: int) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
-        Includes prompt active flags, item counts, and Save to card so a
-        close, unpublish, or checkbox change cannot keep a stale student frame.
+        Includes prompt active flags, item counts, Save to card, and the
+        whiteboard blob so a stroke or text edit cannot keep a stale frame.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -19605,9 +19762,21 @@ class SchoolDB(LovesDB):
         item_rev = str(row["item_rev"] if row is not None else "")
         item_max = int(row["item_max"] if row is not None else 0)
         response_max = int(row["response_max"] if row is not None else 0)
+        with self._lock:
+            canvas_row = self.conn.execute(
+                """
+                SELECT canvas_sync_json FROM live_class_sessions WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        raw_canvas = ""
+        if canvas_row is not None:
+            raw_canvas = str(canvas_row["canvas_sync_json"] or "")
+        canvas_rev = hashlib.sha1(raw_canvas.encode()).hexdigest()[:12]
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
-            f"{item_max}:{response_max}:{event_max}:{prompt_rev}:{item_rev}"
+            f"{item_max}:{response_max}:{event_max}:{prompt_rev}:{item_rev}:"
+            f"{canvas_rev}"
         )
 
     def student_live_poll_unchanged(
@@ -19704,6 +19873,12 @@ class SchoolDB(LovesDB):
             ),
         }
         if light:
+            payload["canvas_sync"] = live_state_field(
+                session_id,
+                "canvas_sync",
+                lambda: self.live_session_canvas_view(session_id, as_teacher=True),
+                {},
+            )
             return json_safe(payload)
         is_active = session_row.get("status") == "active"
         if is_active:

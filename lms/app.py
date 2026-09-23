@@ -4405,18 +4405,32 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         body = request.get_json(silent=True) or {}
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
         name = str(ctx.get("codename") or body.get("name") or student_id).strip()
-        blob = school.apply_live_canvas_presence(
-            live_session_id,
-            owner=str(int(student_id)),
-            name=name or str(student_id),
-            team_id=team_id,
-            x=body.get("x"),
-            y=body.get("y"),
-            stroke_id=str(body.get("stroke_id") or "") or None,
-            point=body.get("point"),
-            ended=bool(body.get("ended")),
-            as_teacher=False,
-        )
+        text_id = str(body.get("text_id") or "").strip()
+        if text_id:
+            blob = school.apply_live_canvas_text(
+                live_session_id,
+                owner=str(int(student_id)),
+                name=name or str(student_id),
+                text_id=text_id,
+                text=str(body.get("text") if body.get("text") is not None else ""),
+                team_id=team_id,
+                x=body.get("x"),
+                y=body.get("y"),
+                as_teacher=False,
+            )
+        else:
+            blob = school.apply_live_canvas_presence(
+                live_session_id,
+                owner=str(int(student_id)),
+                name=name or str(student_id),
+                team_id=team_id,
+                x=body.get("x"),
+                y=body.get("y"),
+                stroke_id=str(body.get("stroke_id") or "") or None,
+                point=body.get("point"),
+                ended=bool(body.get("ended")),
+                as_teacher=False,
+            )
         view = school.live_session_canvas_view(
             live_session_id, student_id=int(student_id)
         )
@@ -5535,19 +5549,33 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             team_id = school.student_team_id_for_class(
                 int(session_row["class_id"]), int(student_id)
             )
+        text_id = str(body.get("text_id") or "").strip()
         try:
-            blob = school.apply_live_canvas_presence(
-                session_id,
-                owner=owner,
-                name=name,
-                team_id=team_id,
-                x=body.get("x"),
-                y=body.get("y"),
-                stroke_id=str(body.get("stroke_id") or "") or None,
-                point=body.get("point"),
-                ended=bool(body.get("ended")),
-                as_teacher=as_teacher,
-            )
+            if text_id:
+                blob = school.apply_live_canvas_text(
+                    session_id,
+                    owner=owner,
+                    name=name,
+                    text_id=text_id,
+                    text=str(body.get("text") if body.get("text") is not None else ""),
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    as_teacher=as_teacher,
+                )
+            else:
+                blob = school.apply_live_canvas_presence(
+                    session_id,
+                    owner=owner,
+                    name=name,
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    stroke_id=str(body.get("stroke_id") or "") or None,
+                    point=body.get("point"),
+                    ended=bool(body.get("ended")),
+                    as_teacher=as_teacher,
+                )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         view = school.live_session_canvas_view(

@@ -28,11 +28,17 @@ CURSOR_COLORS: tuple[str, ...] = (
 MAX_STROKES = 80
 MAX_POINTS = 80
 MAX_CURSORS = 40
+MAX_TEXTS = 40
+MAX_TEXT_LEN = 240
 
 
 def default_canvas_sync() -> dict[str, Any]:
-    """Empty ephemeral canvas blob."""
-    return {"strokes": {"teacher": [], "teams": {}}, "cursors": {}}
+    """Empty ephemeral canvas blob.
+
+    Strokes and cursors stay on the live session. ``texts`` is the
+    whiteboard Text tool, also kept only for this session.
+    """
+    return {"strokes": {"teacher": [], "teams": {}}, "cursors": {}, "texts": []}
 
 
 def normalize_canvas_align(raw: Any) -> str:
@@ -157,10 +163,154 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
             "y": point[1],
             "team_id": team_n,
         }
+    texts: list[dict[str, Any]] = []
+    raw_texts = raw.get("texts") if isinstance(raw.get("texts"), list) else []
+    for item in raw_texts:
+        cleaned_text = _clean_text(item)
+        if cleaned_text is not None:
+            texts.append(cleaned_text)
+        if len(texts) >= MAX_TEXTS:
+            break
     base["strokes"]["teacher"] = teacher_strokes
     base["strokes"]["teams"] = teams
     base["cursors"] = cursors
+    base["texts"] = texts
     return base
+
+
+def _clean_text(raw: Any) -> dict[str, Any] | None:
+    """Keep one whiteboard text label in normalized coordinates.
+
+    Args:
+        raw: Posted or stored text object.
+    """
+    if not isinstance(raw, dict):
+        return None
+    text = str(raw.get("text") or "").replace("\r", "").strip()
+    if not text:
+        return None
+    point = _clean_point([raw.get("x"), raw.get("y")])
+    if point is None:
+        return None
+    text_id = str(raw.get("id") or "").strip()
+    if not text_id:
+        return None
+    owner = str(raw.get("owner") or "").strip() or "teacher"
+    team_id = raw.get("team_id")
+    try:
+        team_n = int(team_id) if team_id not in (None, "") else None
+    except (TypeError, ValueError):
+        team_n = None
+    return {
+        "id": text_id[:80],
+        "owner": owner,
+        "name": str(raw.get("name") or owner).strip() or owner,
+        "color": str(raw.get("color") or "").strip() or cursor_color_for(owner),
+        "x": point[0],
+        "y": point[1],
+        "team_id": team_n,
+        "text": text[:MAX_TEXT_LEN],
+    }
+
+
+def apply_canvas_text(
+    stored: Any,
+    *,
+    owner: str,
+    name: str,
+    text_id: str,
+    text: str,
+    x: Any = None,
+    y: Any = None,
+    color: str | None = None,
+    team_id: int | None = None,
+) -> dict[str, Any]:
+    """Insert, replace, or delete one session text label.
+
+    An empty ``text`` removes ``text_id``. Only the owning writer may
+    replace an existing label.
+
+    Args:
+        stored: Current canvas-sync blob.
+        owner: ``teacher`` or roster id string.
+        name: Display name stored with the label.
+        text_id: Stable id from the client.
+        text: Label body. Empty deletes.
+        x: Normalized x in 0–1.
+        y: Normalized y in 0–1.
+        color: Optional hex colour.
+        team_id: Team bucket when the board is shared within a group.
+
+    Returns:
+        Updated public canvas-sync blob.
+    """
+    blob = public_canvas_sync(stored)
+    key = str(owner or "teacher").strip() or "teacher"
+    sid = str(text_id or "").strip()
+    if not sid:
+        return blob
+    body = str(text or "").strip()
+    kept: list[dict[str, Any]] = []
+    replaced = False
+    for row in blob["texts"]:
+        if str(row.get("id") or "") != sid:
+            kept.append(row)
+            continue
+        if str(row.get("owner") or "") != key:
+            kept.append(row)
+            replaced = True
+            continue
+        replaced = True
+        if not body:
+            continue
+        point = _clean_point([x, y]) or [row["x"], row["y"]]
+        kept.append(
+            {
+                "id": sid[:80],
+                "owner": key,
+                "name": str(name or key).strip() or key,
+                "color": (color or "").strip() or str(row.get("color") or cursor_color_for(key)),
+                "x": point[0],
+                "y": point[1],
+                "team_id": team_id if team_id is not None else row.get("team_id"),
+                "text": body[:MAX_TEXT_LEN],
+            }
+        )
+    if not replaced and body:
+        point = _clean_point([x, y])
+        if point is not None:
+            kept.append(
+                {
+                    "id": sid[:80],
+                    "owner": key,
+                    "name": str(name or key).strip() or key,
+                    "color": (color or "").strip() or cursor_color_for(key),
+                    "x": point[0],
+                    "y": point[1],
+                    "team_id": team_id,
+                    "text": body[:MAX_TEXT_LEN],
+                }
+            )
+    blob["texts"] = kept[:MAX_TEXTS]
+    return public_canvas_sync(blob)
+
+
+def _mark_text_ownership(
+    rows: list[dict[str, Any]], viewer: str | None
+) -> list[dict[str, Any]]:
+    """Copy text rows and flag the ones this viewer may edit.
+
+    Args:
+        rows: Public text labels.
+        viewer: ``teacher`` or roster id string.
+    """
+    owner = str(viewer or "").strip()
+    marked: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["mine"] = bool(owner) and str(item.get("owner") or "") == owner
+        marked.append(item)
+    return marked
 
 
 def apply_canvas_presence(
@@ -224,8 +374,9 @@ def apply_canvas_presence(
     sid = str(stroke_id or "").strip()
     if not sid:
         return blob
-    if stroke_bucket == "team" and team_id is not None:
-        bucket = blob["strokes"]["teams"].setdefault(str(int(team_id)), [])
+    if stroke_bucket == "team":
+        team_key = str(int(team_id)) if team_id is not None else "shared"
+        bucket = blob["strokes"]["teams"].setdefault(team_key, [])
     else:
         bucket = blob["strokes"]["teacher"]
     target = None
@@ -255,34 +406,79 @@ def canvas_view_for(
     align: str,
     team_id: int | None = None,
     include_all_teams: bool = False,
+    viewer: str | None = None,
 ) -> dict[str, Any]:
-    """Filter strokes/cursors for one viewer.
+    """Filter strokes, cursors, and text for one viewer.
+
+    Team alignment is the collaborative board: group strokes, the
+    teacher's strokes, and named cursors. Individual alignment returns
+    only that viewer's text labels.
 
     Args:
         stored: Public or stored canvas-sync blob.
         align: ``teacher`` / ``student`` / ``team``.
         team_id: Viewer's team for shared-group mode.
         include_all_teams: Staff preview of every team bucket.
+        viewer: ``teacher`` or roster id. Used to flag editable text.
     """
     blob = public_canvas_sync(stored)
     mode = normalize_canvas_align(align)
+    texts = list(blob.get("texts") or [])
+    teacher_strokes = list(blob["strokes"].get("teacher") or [])
     if mode == "student":
-        return {"strokes": [], "cursors": []}
+        own = [
+            row
+            for row in texts
+            if viewer and str(row.get("owner") or "") == str(viewer)
+        ]
+        return {
+            "strokes": [],
+            "cursors": [],
+            "texts": _mark_text_ownership(own, viewer),
+        }
     if mode == "teacher":
         teacher_cursor = blob["cursors"].get("teacher")
+        own = [row for row in texts if str(row.get("owner") or "") == "teacher"]
         return {
-            "strokes": list(blob["strokes"].get("teacher") or []),
+            "strokes": teacher_strokes,
             "cursors": [teacher_cursor] if teacher_cursor else [],
+            "texts": _mark_text_ownership(own, viewer or "teacher"),
         }
     strokes: list[dict[str, Any]] = []
     cursors: list[dict[str, Any]] = []
+    visible_texts: list[dict[str, Any]] = []
     if include_all_teams:
+        strokes.extend(teacher_strokes)
         for rows in (blob["strokes"].get("teams") or {}).values():
             strokes.extend(rows)
         cursors.extend(blob["cursors"].values())
+        visible_texts = texts
     elif team_id is not None:
-        strokes.extend((blob["strokes"].get("teams") or {}).get(str(int(team_id))) or [])
+        strokes.extend(
+            (blob["strokes"].get("teams") or {}).get(str(int(team_id))) or []
+        )
+        strokes.extend(teacher_strokes)
         for row in blob["cursors"].values():
-            if row.get("team_id") == int(team_id):
+            if row.get("team_id") == int(team_id) or row.get("owner") == "teacher":
                 cursors.append(row)
-    return {"strokes": strokes, "cursors": cursors}
+        visible_texts = [
+            row
+            for row in texts
+            if row.get("team_id") == int(team_id) or row.get("owner") == "teacher"
+        ]
+    else:
+        strokes.extend((blob["strokes"].get("teams") or {}).get("shared") or [])
+        strokes.extend(teacher_strokes)
+        for row in blob["cursors"].values():
+            if row.get("team_id") in (None, "") or row.get("owner") == "teacher":
+                cursors.append(row)
+        visible_texts = [
+            row
+            for row in texts
+            if row.get("team_id") == 0 or row.get("owner") == "teacher"
+        ]
+    return {
+        "strokes": strokes,
+        "cursors": cursors,
+        "texts": _mark_text_ownership(visible_texts, viewer),
+    }

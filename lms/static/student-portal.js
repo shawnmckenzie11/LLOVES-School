@@ -663,44 +663,50 @@ function unmountStudentMedia() {
  * @returns {{media: boolean, canvas: boolean, unlockMedia: boolean}}
  */
 /**
- * Draw remote strokes from the thin canvas-sync view.
- * @param {any} view
+ * Post a student stroke, named cursor, or text label.
+ * @param {{x: number, y: number}} p
+ * @param {{ended?: boolean, strokeId?: string, text?: {id: string, text: string}, cursorOnly?: boolean, align?: string}} extra
  */
-function paintRemoteCanvas(view) {
+function postStudentCanvas(p, extra) {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
-  const ctx = studentCanvas.getContext("2d");
-  if (!ctx) return;
-  ctx.clearRect(0, 0, studentCanvas.width, studentCanvas.height);
-  const strokes = Array.isArray(view?.strokes) ? view.strokes : [];
-  strokes.forEach((stroke) => {
-    const points = Array.isArray(stroke.points) ? stroke.points : [];
-    if (!points.length) return;
-    ctx.beginPath();
-    points.forEach((pt, i) => {
-      const x = Number(pt[0]) * studentCanvas.width;
-      const y = Number(pt[1]) * studentCanvas.height;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = String(stroke.color || "#12202e");
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  });
-  if (!(canvasCursors instanceof HTMLElement)) return;
-  const cursors = Array.isArray(view?.cursors) ? view.cursors : [];
-  canvasCursors.innerHTML = cursors
-    .map((row) => {
-      const name = String(row.name || row.owner || "").replace(/[<>&]/g, "");
-      const color = String(row.color || "#0b3d91");
-      const left = Math.round(Number(row.x) * 1000) / 10;
-      const top = Math.round(Number(row.y) * 1000) / 10;
-      return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;color:${color}">${name}</span>`;
+  const align = String(extra.align || "student");
+  const text = extra.text;
+  if (!text && align !== "team") return;
+  const body = {
+    x: p.x / studentCanvas.width,
+    y: p.y / studentCanvas.height,
+  };
+  if (text) {
+    body.text_id = text.id;
+    body.text = text.text;
+    body.x = text.x;
+    body.y = text.y;
+  } else if (!extra.cursorOnly) {
+    body.point = [body.x, body.y];
+    body.stroke_id = extra.strokeId || undefined;
+    body.ended = Boolean(extra.ended);
+  }
+  fetch(
+    "/api/student/canvas-presence",
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
     })
-    .join("");
+  )
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      const view = data?.canvas_view || data?.canvas_sync;
+      if (view && typeof bindStudentCanvas.importRemote === "function") {
+        bindStudentCanvas.importRemote(view, align === "team");
+      }
+    })
+    .catch(() => {});
 }
 
 /**
- * Bind unique-per-student local drawing and team/teacher presence posts.
+ * Bind drawing, the Text tool, and group collab posts.
  */
 function bindStudentCanvas() {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
@@ -709,29 +715,30 @@ function bindStudentCanvas() {
     undoBtn: document.getElementById("student-canvas-undo"),
     redoBtn: document.getElementById("student-canvas-redo"),
     eraseBtn: document.getElementById("student-canvas-erase"),
+    textBtn: document.getElementById("student-canvas-text"),
+    cursorLayer: canvasCursors,
     canDraw: () => lastAlign !== "teacher" && !(canvasLock && !canvasLock.hidden),
+    onCursor: (p) => postStudentCanvas(p, { cursorOnly: true, align: lastAlign }),
+    onText: (label) =>
+      postStudentCanvas(
+        { x: label.x * studentCanvas.width, y: label.y * studentCanvas.height },
+        { text: label, align: lastAlign }
+      ),
     onPoint: (p, ended, strokeId) => {
-      if (lastAlign === "student" || lastAlign === "teacher") return;
-      fetch(
-        "/api/student/canvas-presence",
-        visitFetchInit({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({
-            x: p.x / studentCanvas.width,
-            y: p.y / studentCanvas.height,
-            point: [p.x / studentCanvas.width, p.y / studentCanvas.height],
-            stroke_id: strokeId || undefined,
-            ended: Boolean(ended),
-          }),
-        })
-      ).catch(() => {});
+      postStudentCanvas(p, { ended, strokeId, align: lastAlign });
     },
   });
   bindStudentCanvas.setAlign = (align) => {
     lastAlign = String(align || "student");
     board.setEnabled(lastAlign !== "teacher");
+    board.setCollab(lastAlign === "team");
+  };
+  /**
+   * @param {any} view
+   * @param {boolean} collab
+   */
+  bindStudentCanvas.importRemote = (view, collab) => {
+    board.importRemote(view, { collab });
   };
 }
 
@@ -744,9 +751,9 @@ function paintStudentCanvas(payload) {
   if (typeof bindStudentCanvas.setAlign === "function") {
     bindStudentCanvas.setAlign(proj.canvasAlign);
   }
-  if (!proj.canvas || !proj.unlockCanvas) return;
-  if (proj.canvasAlign === "student") return;
-  paintRemoteCanvas(payload.canvas_sync || payload.canvas_view || {});
+  if (typeof bindStudentCanvas.importRemote !== "function") return;
+  const view = payload.canvas_sync || payload.canvas_view || {};
+  bindStudentCanvas.importRemote(view, proj.canvasAlign === "team");
 }
 
 /**
