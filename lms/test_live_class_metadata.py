@@ -635,6 +635,37 @@ class LiveClassMetadataTests(unittest.TestCase):
                 self.assertNotIn("feedback_id", row)
 
 
+    def test_mcf3m_m1_c4_reuses_c3_transformations_media(self) -> None:
+        """MCF3M M1 C4 deck carries the same transformations media pack as C3."""
+
+        c3 = load_live_class_metadata("MCF3M", "M1", "C3")
+        c4 = load_live_class_metadata("MCF3M", "M1", "C4")
+        c3_media = next(
+            row for row in c3["items"] if row.get("item_type") == "media"
+        )
+        c4_media = next(
+            row for row in c4["items"] if row.get("item_type") == "media"
+        )
+        self.assertEqual(c4_media["file"], c3_media["file"])
+        self.assertEqual(c4_media["title"], c3_media["title"])
+        self.assertEqual(c4_media["page_number"], c3_media["page_number"])
+        self.assertEqual(c4_media["stage"], "play")
+        self.assertEqual(c4["media"]["file"], c3["media"]["file"])
+        self.assertEqual(
+            c4_media["file"],
+            "/static/live-media/m1c2-transforms.html",
+        )
+        self.assertTrue(
+            str(c4_media["ref"]).startswith("live-class/MCF3M/M1/C4/")
+        )
+        summary = next(
+            row
+            for row in list_live_lesson_summaries("MCF3M")
+            if row["module"] == "M1" and row["live_class"] == "C4"
+        )
+        self.assertIn("C2 Transformations", summary["media_label"])
+        self.assertEqual(summary["media_file"], "m1c2-transforms.html")
+
     def test_mcr3u_m1_inventory_labels_and_c4_media(self) -> None:
         """MCR3U M1 C2 is exploratory media, C3 is the questions Artifact, C4 is multi-parent."""
 
