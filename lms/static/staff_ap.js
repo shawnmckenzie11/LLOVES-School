@@ -3446,12 +3446,18 @@ function optimisticTeacherState(body) {
 }
 
 /**
- * Show or hide the calm Reconnecting… strip without touching the deck.
+ * Show or hide the live-state strip without touching the deck.
+ * A fault replaces the calm Reconnecting… line so a dead Meet is visible.
  * @param {boolean} visible
+ * @param {string} [message]
  */
-function setLiveReconnectBanner(visible) {
+function setLiveReconnectBanner(visible, message) {
   const el = $("live-reconnect");
   if (el instanceof HTMLElement) el.hidden = !visible;
+  const copy = el?.querySelector(".live-reconnect-copy");
+  if (copy) {
+    copy.textContent = message || "Reconnecting…";
+  }
 }
 
 /**
@@ -3479,14 +3485,15 @@ async function pollLiveSessionAttendees(opts = {}) {
       if (!wantFull) throw err;
       payload = await api(`/api/live-sessions/${id}/state?light=1`);
     }
-    if (payload?.error === "state unavailable") {
-      setLiveReconnectBanner(true);
-      return;
-    }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
-      setLiveReconnectBanner(false);
+      const fault = String(payload?.fault || "").trim();
+      setLiveReconnectBanner(Boolean(fault), fault);
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
+      return;
+    }
+    if (payload?.error === "state unavailable" || payload?.fault) {
+      setLiveReconnectBanner(true, String(payload?.fault || "").trim() || "Reconnecting…");
       return;
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
@@ -3570,7 +3577,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       return pollLiveSessionAttendees({ full: true, force: true });
     }
   } catch (_) {
-    setLiveReconnectBanner(true);
+    setLiveReconnectBanner(true, "Live class state failed. Retry, or end the Meet if it stays down.");
   } finally {
     sessionPollInFlight = false;
   }

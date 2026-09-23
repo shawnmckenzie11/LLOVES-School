@@ -18094,18 +18094,48 @@ class SchoolDB(LovesDB):
         """
         session_row = self._require_active_live_session(session_id)
         current = self.live_session_teacher_state_payload(session_id)
-        if current.get("groups_configured") or self._named_teams_for_live_session(
-            session_id
-        ):
+        class_id = int(session_row["class_id"])
+        if self._named_teams_for_live_session(session_id):
+            raise ValueError(
+                "Groups are already set up for this session; memberships are fixed."
+            )
+        if self.game.team_lock(class_id):
+            restored = self.game.restore_team_lock(class_id, create=False)
+            teams_now = self._named_teams_for_live_session(session_id)
+            if teams_now:
+                teacher = current
+                if not current.get("groups_configured") or not current.get(
+                    "run_as_group"
+                ):
+                    teacher = apply_teacher_state_update(
+                        current,
+                        groups_configured=True,
+                        run_as_group=True,
+                        **(
+                            {"scoreboard_visible": scoreboard_visible}
+                            if scoreboard_visible is not None
+                            else {}
+                        ),
+                    )
+                    teacher = self._write_teacher_state(session_id, teacher)
+                game = restored if isinstance(restored, dict) else self.game.game_state(
+                    class_id
+                )
+                return {"game": game, "teacher_state": teacher}
+            raise ValueError(
+                "Groups are already locked for this Meet. End Live Class "
+                "before assigning new teams."
+            )
+        if current.get("groups_configured"):
             raise ValueError(
                 "Groups are already set up for this session; memberships are fixed."
             )
         ids = sorted({int(value) for value in present_ids})
         if not ids:
             raise ValueError("Mark at least one student present.")
-        self.game.save_attendance(int(session_row["class_id"]), ids)
+        self.game.save_attendance(class_id, ids)
         game = self.game.assign_teams(
-            int(session_row["class_id"]),
+            class_id,
             int(n_teams),
             str(mode or "balanced"),
             assignments=assignments,
@@ -19545,14 +19575,17 @@ class SchoolDB(LovesDB):
             except Exception:  # noqa: BLE001 — no open game is fine
                 pass
         if celebrate:
-            return retry_if_db_locked(
+            result = retry_if_db_locked(
                 lambda: self.close_live_class_for_celebration(
                     int(class_id), winner=winner
                 )
             )
-        return retry_if_db_locked(
-            lambda: self.wipe_live_sessions_for_class(int(class_id))
-        )
+        else:
+            result = retry_if_db_locked(
+                lambda: self.wipe_live_sessions_for_class(int(class_id))
+            )
+        self.game.clear_team_lock(int(class_id))
+        return result
 
     def get_active_live_session_for_teacher(
         self, teacher_user_id: int
@@ -19599,6 +19632,74 @@ class SchoolDB(LovesDB):
                 ended.append(result)
         return ended
 
+    def _restore_live_team_lock(self, class_id: int, *, create: bool) -> bool:
+        """Best-effort restore of the locked team assignment.
+
+        A failure here must not take down ``/state`` or session mint.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            create: When True, rebuild an open game if the crash removed it.
+
+        Returns:
+            True when a saved assignment was written back onto the open game.
+        """
+        try:
+            restored = self.game.restore_team_lock(int(class_id), create=create)
+        except Exception:
+            logger.exception("live class %s team lock restore failed", class_id)
+            return False
+        return restored is not None
+
+    def _publish_restored_team_lock(self, session_id: int) -> None:
+        """Turn group projection on after a lock is written back.
+
+        A remint starts from an empty teacher shell. Teams in the game
+        tables stay invisible until ``groups_configured`` is set.
+
+        Args:
+            session_id: Active ``live_class_sessions.id``.
+        """
+        current = self.live_session_teacher_state_payload(int(session_id))
+        if current.get("groups_configured") and current.get("run_as_group"):
+            return
+        self.set_live_session_teacher_state(
+            int(session_id),
+            groups_configured=True,
+            run_as_group=True,
+        )
+
+    def begin_or_resume_live_game(
+        self,
+        class_id: int,
+        meeting_date: date | None = None,
+    ) -> dict[str, Any]:
+        """Open attendance, or keep the current game while a Meet is running.
+
+        ``begin_game`` discards an unfinished setup. That is correct for a
+        fresh game-show start and wrong while a live session is still on:
+        it would wipe the teams that Zoom breakouts are using. An active
+        session resumes the open game and puts the saved assignment back
+        if those rows were already dropped.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            meeting_date: Optional teacher-chosen meeting day for a new game.
+
+        Returns:
+            Game-state payload.
+        """
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is not None:
+            try:
+                self.game.game_state(int(class_id))
+            except KeyError:
+                self.game.begin_game(int(class_id), meeting_date=meeting_date)
+            if self._restore_live_team_lock(int(class_id), create=False):
+                self._publish_restored_team_lock(int(active["id"]))
+            return self.game.game_state(int(class_id))
+        return self.game.begin_game(int(class_id), meeting_date=meeting_date)
+
     def start_live_class_session(
         self,
         class_id: int,
@@ -19633,6 +19734,8 @@ class SchoolDB(LovesDB):
         existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
         if existing is not None:
             if int(existing["class_id"]) == int(class_id):
+                if self._restore_live_team_lock(int(class_id), create=False):
+                    self._publish_restored_team_lock(int(existing["id"]))
                 if live_module is not None or live_slot is not None:
                     self.set_live_session_teacher_state(
                         int(existing["id"]),
@@ -19688,6 +19791,8 @@ class SchoolDB(LovesDB):
         else:
             if not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
+        if self._restore_live_team_lock(int(class_id), create=True):
+            self._publish_restored_team_lock(session_id)
         return session_row
 
 
@@ -19902,6 +20007,11 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
+        if session_row.get("status") == "active":
+            if self._restore_live_team_lock(
+                int(session_row["class_id"]), create=False
+            ):
+                self._publish_restored_team_lock(session_id)
         self.sweep_stale_live_attendees(session_id)
         attendees = self.list_live_session_attendees(session_id)
         moods = self.game.today_moods(int(session_row["class_id"]))
@@ -19932,8 +20042,18 @@ class SchoolDB(LovesDB):
             "phase": phase,
             "teacher_state": teacher_state,
             "allow_unmatched_guests": session_public["allow_unmatched_guests"],
-            "mc_tally": self.live_session_mc_tally(session_id),
-            "lifecycle_response_counts": self.lifecycle_response_counts(session_id),
+            "mc_tally": live_state_field(
+                session_id,
+                "mc_tally",
+                lambda: self.live_session_mc_tally(session_id),
+                None,
+            ),
+            "lifecycle_response_counts": live_state_field(
+                session_id,
+                "lifecycle_response_counts",
+                lambda: self.lifecycle_response_counts(session_id),
+                {},
+            ),
             "state_seq": int(teacher_state.get("state_seq") or 0),
             "light": bool(light),
             "groups": live_state_field(
@@ -20226,6 +20346,9 @@ class SchoolDB(LovesDB):
             Student live payload without poll stamp or display time.
         """
         sid = int(student_id) if student_id not in (None, "") else None
+        session_row = self.get_live_session(int(live_session_id))
+        if session_row is not None and session_row.get("status") == "active":
+            self._restore_live_team_lock(int(class_id), create=False)
         if unmatched or sid is None:
             payload = self.guest_student_live_payload(
                 codename=codename,

@@ -4838,8 +4838,39 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "light": True,
                 "groups": [],
                 "error": "state unavailable",
+                "fault": (
+                    "Live class state failed. The Meet is still open — use Retry."
+                ),
             }
         )
+
+    def _missing_live_session_state(session_id: int) -> dict[str, Any]:
+        """Return a clean ended payload when the session row is gone.
+
+        Pollers must not 404/500-loop after a crash deletes the row.
+        The teacher shell stops polling and shows ``fault``.
+
+        Args:
+            session_id: Requested ``live_class_sessions.id``.
+        """
+        return {
+            "ok": True,
+            "phase": "ended",
+            "fault": (
+                "Live class state is gone. This Meet is no longer running."
+            ),
+            "session": {"id": int(session_id), "status": "ended"},
+            "code": None,
+            "count": 0,
+            "attendees": [],
+            "teacher_state": {},
+            "allow_unmatched_guests": False,
+            "mc_tally": None,
+            "lifecycle_response_counts": {},
+            "state_seq": 0,
+            "light": True,
+            "groups": [],
+        }
 
     @app.route("/api/live-sessions/<int:session_id>/state")
     @login_required
@@ -4851,7 +4882,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
-            return jsonify({"ok": False, "error": "Session not found"}), 404
+            return jsonify(_missing_live_session_state(session_id))
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         light = str(request.args.get("light") or "").strip().lower() in {
@@ -4862,7 +4893,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         try:
             state = school.get_live_session_state(session_id, light=light)
         except KeyError:
-            return jsonify({"ok": False, "error": "Session not found"}), 404
+            logger.exception(
+                "live session %s /state KeyError light=%s", session_id, light
+            )
+            fresh = school.get_live_session(session_id)
+            if fresh is None:
+                return jsonify(_missing_live_session_state(session_id))
+            state = _degraded_live_session_state(fresh)
         except Exception:
             logger.exception(
                 "live session %s /state failed light=%s", session_id, light
@@ -5716,7 +5753,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             meeting = _optional_date(body.get("meeting_date"))
             if meeting is not None and body.get("validate"):
                 _validate_log_date(class_id, meeting)
-            state = school.game.begin_game(class_id, meeting_date=meeting)
+            state = school.begin_or_resume_live_game(
+                class_id, meeting_date=meeting
+            )
             return jsonify({"ok": True, **state})
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
