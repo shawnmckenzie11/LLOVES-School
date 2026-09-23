@@ -526,6 +526,26 @@
         "dismissible": true
       }
     },
+    "live-class/MCF3M/M1/C4/media/transformations": {
+      "scope": "live_class",
+      "course": "MCF3M",
+      "module": "M1",
+      "live_class": "C4",
+      "item_type": "media",
+      "id": "transformations",
+      "file": "/static/live-media/m1c2-transforms.html",
+      "title": "C2 Transformations",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
     "live-class/MCF3M/M1/C3/question/minds-on": {
       "scope": "live_class",
       "course": "MCF3M",

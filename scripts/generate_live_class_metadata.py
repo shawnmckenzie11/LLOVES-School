@@ -28,6 +28,7 @@ AUTHORED_PATHS = {
     ("MCF3M", "M1", "C1"),
     ("MCF3M", "M1", "C2"),
     ("MCF3M", "M1", "C3"),
+    ("MCF3M", "M1", "C4"),
     ("MCR3U", "M1", "C1"),
     ("MCR3U", "M1", "C2"),
     ("MCR3U", "M1", "C3"),
