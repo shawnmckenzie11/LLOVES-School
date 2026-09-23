@@ -10894,9 +10894,15 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
             return prompt
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        lifecycle_kind = str(item.get("kind") or "").strip().lower()
         item_type = str(
             question.get("item_type")
-            or ("question" if item.get("kind") in {"poll", "mc", "numeric", ARTIFACT_KIND} else "")
+            or (
+                "question"
+                if lifecycle_kind
+                in {"question", "poll", "mc", "numeric", ARTIFACT_KIND}
+                else ""
+            )
         )
         if item_type != "question" and not (
             is_artifact_payload(question) or is_artifact_payload(item)
@@ -16553,12 +16559,17 @@ class SchoolDB(LovesDB):
         if stage == "teams":
             empty["game_show_welcome"] = self.student_game_show_welcome(session_id)
         if questions_mode == "none" and not meet_live:
+            active_rows = empty.get("active_questions") or []
             has_artifact = any(
                 is_artifact_payload(row.get("content") or {})
                 or str((row.get("prompt") or {}).get("kind") or "") == ARTIFACT_KIND
-                for row in empty.get("active_questions") or []
+                for row in active_rows
             )
-            if not has_artifact:
+            has_group_submit = any(
+                str(row.get("response_mode") or "") == "group_submit"
+                for row in active_rows
+            )
+            if not has_artifact and not has_group_submit:
                 return empty
         if prompt is None or prompt.get("kind") == "idle":
             return empty

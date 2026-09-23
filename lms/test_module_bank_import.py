@@ -1019,6 +1019,227 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertIn("Weirdly useless skill", titles)
         self.assertIn("Fraction who never did X", titles)
 
+    def _present_pair(self) -> tuple[int, int]:
+        """Join Maple and Birch and put them on two manual teams.
+
+        Group submission requires groups that already exist, and team
+        setup rejects a single team.
+
+        Returns:
+            Roster ids ``(maple, birch)``.
+        """
+        self.school.game.add_student(self.class_id, codename="Birch")
+        self.school.game.begin_game(self.class_id)
+        with self.school.game._lock:
+            rows = self.school.game.conn.execute(
+                "SELECT id FROM students WHERE class_id = ? ORDER BY id ASC",
+                (self.class_id,),
+            ).fetchall()
+        ids = [int(row["id"]) for row in rows]
+        self.assertGreaterEqual(len(ids), 2)
+        for student_id, name in zip(ids[:2], ("Maple", "Birch")):
+            self.school.join_live_class_session(
+                self.session_id, student_id, codename=name
+            )
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=ids[:2],
+            assignments=[
+                {"student_id": ids[0], "team_index": 0},
+                {"student_id": ids[1], "team_index": 1},
+            ],
+        )
+        return ids[0], ids[1]
+
+    def _publish_imported(
+        self, question_id: int, *, publish_mode: str
+    ) -> dict[str, Any]:
+        """Import one bank MC onto the round page and publish it.
+
+        Args:
+            question_id: ``questions.id`` already in the M1 bank.
+            publish_mode: Token passed to ``publish_live_session_item``.
+
+        Returns:
+            The published lifecycle row.
+        """
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            stage="round",
+            page_id="round_1",
+            live_module="M1",
+            live_slot="C2",
+        )
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            question_id,
+            library_id=self.library_id,
+            page_number=4,
+            stage="round",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+        )
+        return self.school.publish_live_session_item(
+            self.session_id,
+            int(imported["id"]),
+            publish_mode=publish_mode,
+        )
+
+    def test_math_bank_mc_group_submit_reaches_student_on_round(self) -> None:
+        """A bank math MC published Group is the student prompt on round.
+
+        Round leaves Questions view at none. That used to drop the facing
+        prompt, so the student live view stayed on the wait line. The spaced
+        ``group submit`` alias must still store ``group_submit``.
+        """
+        maple, _birch = self._present_pair()
+        published = self._publish_imported(self.m1_q, publish_mode="group submit")
+        self.assertEqual(published["publish_mode"], "group_submit")
+        self.assertEqual(published["response_mode"], "group_submit")
+        view = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(view["student_view"]["questions"], "none")
+        payload = self.school.student_live_prompt_payload(self.session_id, maple)
+        prompt = payload.get("prompt") or {}
+        body = prompt.get("payload") or {}
+        self.assertEqual(payload.get("question_view"), "none")
+        self.assertIsNotNone(payload.get("prompt"))
+        self.assertIn("Factor x squared minus one", str(body.get("prompt") or body.get("text") or ""))
+        self.assertTrue(body.get("choices") or body.get("options"))
+        card = next(
+            row
+            for row in payload.get("active_questions") or []
+            if row.get("item_id") == f"bank-import-{self.m1_q}"
+        )
+        self.assertEqual(card["response_mode"], "group_submit")
+        self.assertEqual((card.get("group_submit") or {}).get("phase"), "drafting")
+        state = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, maple
+        )
+        self.assertIsNotNone(state.get("prompt"))
+        self.assertTrue(
+            any(
+                row.get("item_id") == f"bank-import-{self.m1_q}"
+                and row.get("response_mode") == "group_submit"
+                for row in state.get("active_questions") or []
+            )
+        )
+
+    def test_individual_bank_mc_stays_on_student_round_stack(self) -> None:
+        """Individual bank MC still faces the student without a round prompt."""
+        maple, _birch = self._present_pair()
+        published = self._publish_imported(self.m1_q, publish_mode="individual")
+        self.assertEqual(published["response_mode"], "individual")
+        payload = self.school.student_live_prompt_payload(self.session_id, maple)
+        self.assertIsNone(payload.get("prompt"))
+        card = next(
+            row
+            for row in payload.get("active_questions") or []
+            if row.get("item_id") == f"bank-import-{self.m1_q}"
+        )
+        self.assertEqual(card["response_mode"], "individual")
+        self.assertIn(
+            "Factor x squared minus one",
+            str((card.get("content") or {}).get("text") or ""),
+        )
+
+    def test_icebreaker_group_submit_still_reaches_student(self) -> None:
+        """Course Wide warmup Group on join still publishes a student prompt."""
+        maple, _birch = self._present_pair()
+        seeded = self.school.seed_course_wide_warmups(self.library_id)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        aisle = next(
+            row
+            for row in course["items"]
+            if "aisle seat or window seat" in str(row.get("text") or "").lower()
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            stage="join",
+            page_id="join",
+            live_module="M1",
+            live_slot="C2",
+            student_view={"questions": "student"},
+        )
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            int(aisle["question_id"]),
+            library_id=self.library_id,
+            page_number=1,
+            stage="join",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{int(aisle['question_id'])}"
+        )
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(imported["id"]),
+            publish_mode="group_submit",
+        )
+        self.assertEqual(published["response_mode"], "group_submit")
+        self.assertIn(int(aisle["question_id"]), seeded["question_ids"])
+        payload = self.school.student_live_prompt_payload(self.session_id, maple)
+        prompt = payload.get("prompt") or {}
+        body = prompt.get("payload") or {}
+        self.assertIsNotNone(payload.get("prompt"))
+        self.assertIn("Aisle seat", str(body.get("prompt") or body.get("text") or ""))
+        card = next(
+            row
+            for row in payload.get("active_questions") or []
+            if row.get("response_mode") == "group_submit"
+        )
+        self.assertEqual(card["item_id"], f"bank-import-{int(aisle['question_id'])}")
+
+    def test_question_kind_without_item_type_still_links_prompt(self) -> None:
+        """Lifecycle kind question still links a prompt if item_type was dropped."""
+        self.school.import_mc_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C2",
+            self.m1_q,
+            library_id=self.library_id,
+            page_number=4,
+            stage="round",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        imported = next(
+            row
+            for row in items
+            if str(row.get("item_id") or "") == f"bank-import-{self.m1_q}"
+        )
+        question = dict(imported.get("item") or {})
+        question.pop("item_type", None)
+        self.school.conn.execute(
+            """
+            UPDATE live_session_items
+            SET item_json = ?, kind = 'question', prompt_id = NULL
+            WHERE id = ?
+            """,
+            (json.dumps(question), int(imported["id"])),
+        )
+        self.school.conn.commit()
+        refreshed = self.school.get_live_session_item(
+            self.session_id, int(imported["id"])
+        )
+        prompt = self.school._ensure_prompt_for_live_item(refreshed)
+        self.assertIsNotNone(prompt)
+        assert prompt is not None
+        self.assertEqual(prompt["kind"], "mc")
+
     def test_numeric_tolerance_scores_nearby_answers(self) -> None:
         """Absolute tolerance marks nearby numeric responses correct."""
 

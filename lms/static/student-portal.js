@@ -2193,6 +2193,9 @@ function paintLifecycleQuestionStack(payload) {
       return status === "active" || status === "closed" || keepSaved;
     }
     if (keepSaved) return true;
+    if (status === "active" && item?.response_mode === "group_submit") {
+      return true;
+    }
     if (status === "active") {
       return !itemStage || !stage || itemStage === stage;
     }
