@@ -1053,33 +1053,72 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
         return ids[0], ids[1]
 
+    def _open_mcr3u_m1_c4_page(self, page_number: int) -> dict[str, Any]:
+        """Point the live session at one MCR3U M1 C4 deck page.
+
+        Page numbers follow the staff rail: stored ``page_number``, or the
+        1-based index when the seed page omits it. C4 page 4 is Round 1.
+
+        Args:
+            page_number: Question-binding page, such as ``4``.
+
+        Returns:
+            The merged page dict the teacher is now standing on.
+        """
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C4",
+        )
+        metadata = self.school.live_class_metadata_for_session(self.session_id)
+        self.assertEqual(str(metadata.get("course") or ""), "MCR3U")
+        self.assertEqual(str(metadata.get("live_class") or ""), "C4")
+        pages = [
+            row
+            for row in metadata.get("pages") or []
+            if isinstance(row, dict)
+        ]
+        page = next(
+            (
+                row
+                for row in pages
+                if int(row.get("page_number") or 0) == int(page_number)
+            ),
+            None,
+        )
+        self.assertIsNotNone(page, pages)
+        assert page is not None
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C4",
+            stage=str(page.get("stage") or ""),
+            page_id=str(page.get("id") or ""),
+        )
+        return page
+
     def _publish_imported(
-        self, question_id: int, *, publish_mode: str
+        self, question_id: int, *, publish_mode: str, page_number: int = 4
     ) -> dict[str, Any]:
-        """Import one bank MC onto the round page and publish it.
+        """Import one M1 bank MC onto an MCR3U M1 C4 page and publish it.
 
         Args:
             question_id: ``questions.id`` already in the M1 bank.
             publish_mode: Token passed to ``publish_live_session_item``.
+            page_number: Staff rail page. Defaults to Shawn's page 4.
 
         Returns:
             The published lifecycle row.
         """
-        self.school.set_live_session_teacher_state(
-            self.session_id,
-            stage="round",
-            page_id="round_1",
-            live_module="M1",
-            live_slot="C2",
-        )
+        page = self._open_mcr3u_m1_c4_page(page_number)
         self.school.import_mc_to_class_playlist(
             self.class_id,
             "M1",
-            "C2",
+            "C4",
             question_id,
             library_id=self.library_id,
-            page_number=4,
-            stage="round",
+            page_number=int(page_number),
+            stage=str(page.get("stage") or ""),
         )
         items = self.school.ensure_live_session_items(self.session_id)
         imported = next(
@@ -1093,25 +1132,36 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             publish_mode=publish_mode,
         )
 
-    def test_math_bank_mc_group_submit_reaches_student_on_round(self) -> None:
-        """A bank math MC published Group is the student prompt on round.
+    def test_mcr3u_m1_c4_page4_math_mc_group_submit_reaches_student(self) -> None:
+        """A math MC added to MCR3U M1 C4 page 4 is the student Group prompt.
 
-        Round leaves Questions view at none. That used to drop the facing
-        prompt, so the student live view stayed on the wait line. The spaced
-        ``group submit`` alias must still store ``group_submit``.
+        C4 page 4 is Round 1, so Questions view stays none. That used to drop
+        the facing prompt and leave the student on the wait line. The same
+        Group button still works for an icebreaker. The spaced ``group submit``
+        alias must still store ``group_submit``.
         """
         maple, _birch = self._present_pair()
         published = self._publish_imported(self.m1_q, publish_mode="group submit")
         self.assertEqual(published["publish_mode"], "group_submit")
         self.assertEqual(published["response_mode"], "group_submit")
+        self.assertEqual(int(published.get("page_number") or 0), 4)
         view = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(view["live_module"], "M1")
+        self.assertEqual(view["live_slot"], "C4")
+        self.assertEqual(view["page_id"], "round_1")
         self.assertEqual(view["student_view"]["questions"], "none")
+        self.assertEqual(
+            self.school._current_student_page_number(self.session_id), 4
+        )
         payload = self.school.student_live_prompt_payload(self.session_id, maple)
         prompt = payload.get("prompt") or {}
         body = prompt.get("payload") or {}
         self.assertEqual(payload.get("question_view"), "none")
         self.assertIsNotNone(payload.get("prompt"))
-        self.assertIn("Factor x squared minus one", str(body.get("prompt") or body.get("text") or ""))
+        self.assertIn(
+            "Factor x squared minus one",
+            str(body.get("prompt") or body.get("text") or ""),
+        )
         self.assertTrue(body.get("choices") or body.get("options"))
         card = next(
             row
@@ -1119,6 +1169,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             if row.get("item_id") == f"bank-import-{self.m1_q}"
         )
         self.assertEqual(card["response_mode"], "group_submit")
+        self.assertEqual(int(card.get("page_number") or 0), 4)
         self.assertEqual((card.get("group_submit") or {}).get("phase"), "drafting")
         state = self.school.assemble_student_live_payload(
             self.session_id, self.class_id, maple
@@ -1128,12 +1179,13 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             any(
                 row.get("item_id") == f"bank-import-{self.m1_q}"
                 and row.get("response_mode") == "group_submit"
+                and int(row.get("page_number") or 0) == 4
                 for row in state.get("active_questions") or []
             )
         )
 
     def test_individual_bank_mc_stays_on_student_round_stack(self) -> None:
-        """Individual bank MC still faces the student without a round prompt."""
+        """Individual math MC on MCR3U M1 C4 page 4 still faces the student."""
         maple, _birch = self._present_pair()
         published = self._publish_imported(self.m1_q, publish_mode="individual")
         self.assertEqual(published["response_mode"], "individual")
@@ -1151,7 +1203,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
 
     def test_icebreaker_group_submit_still_reaches_student(self) -> None:
-        """Course Wide warmup Group on join still publishes a student prompt."""
+        """Course Wide warmup Group on MCR3U M1 C4 join still has a student prompt."""
         maple, _birch = self._present_pair()
         seeded = self.school.seed_course_wide_warmups(self.library_id)
         course = self.school.search_bank_scope_mcs(
@@ -1162,18 +1214,15 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             for row in course["items"]
             if "aisle seat or window seat" in str(row.get("text") or "").lower()
         )
+        self._open_mcr3u_m1_c4_page(1)
         self.school.set_live_session_teacher_state(
             self.session_id,
-            stage="join",
-            page_id="join",
-            live_module="M1",
-            live_slot="C2",
             student_view={"questions": "student"},
         )
         self.school.import_mc_to_class_playlist(
             self.class_id,
             "M1",
-            "C2",
+            "C4",
             int(aisle["question_id"]),
             library_id=self.library_id,
             page_number=1,
