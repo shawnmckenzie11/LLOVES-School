@@ -194,6 +194,7 @@ TEAM_NAME_OPTION_MAX = 32
 
 SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
+TEAM_LOCK_KEY_PREFIX = "live_team_lock:"
 STAT_WINDOW_KEY_PREFIX = "stat_window:"
 SHOW_RANK_KEY_PREFIX = "show_rank:"
 STUDENT_MOODS = (
@@ -1394,6 +1395,7 @@ class GameShowDB:
                 self._assign_joiner_if_teams_locked(
                     int(game["id"]), session_id, int(student_id)
                 )
+                self._snapshot_team_lock_unlocked(int(class_id))
             self.conn.commit()
         return True
 
@@ -1407,6 +1409,246 @@ class GameShowDB:
             (int(game_id),),
         ).fetchone()
         return bool(row and int(row["n"] or 0) > 0)
+
+    def _team_lock_key(self, class_id: int) -> str:
+        """App-state key for one class's locked live-class teams.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        return f"{TEAM_LOCK_KEY_PREFIX}{int(class_id)}"
+
+    def _read_team_lock_unlocked(self, class_id: int) -> dict[str, Any] | None:
+        """Return the saved team assignment. Caller holds the lock.
+
+        Args:
+            class_id: Classes primary key.
+
+        Returns:
+            ``{"teams": [{name, color, sort_order, student_ids}]}`` or None.
+        """
+        row = self.conn.execute(
+            "SELECT value FROM app_state WHERE key = ?",
+            (self._team_lock_key(class_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            parsed = json.loads(str(row["value"] or ""))
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        teams = parsed.get("teams")
+        if not isinstance(teams, list) or not teams:
+            return None
+        return parsed
+
+    def _snapshot_team_lock_unlocked(self, class_id: int) -> None:
+        """Persist named-team membership for this class. Caller holds the lock.
+
+        Empty setups are left alone so a later restore can still see the
+        previous Meet. The caller commits.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        try:
+            game = self._game_row(int(class_id))
+        except KeyError:
+            return
+        game_id = int(game["id"])
+        team_rows = self.conn.execute(
+            """
+            SELECT id, name, color, sort_order FROM game_teams
+            WHERE game_id = ? AND name != 'Class'
+            ORDER BY sort_order, id
+            """,
+            (game_id,),
+        ).fetchall()
+        if not team_rows:
+            return
+        teams: list[dict[str, Any]] = []
+        for team in team_rows:
+            members = self.conn.execute(
+                """
+                SELECT student_id FROM game_memberships
+                WHERE game_id = ? AND team_id = ?
+                ORDER BY student_id
+                """,
+                (game_id, int(team["id"])),
+            ).fetchall()
+            teams.append(
+                {
+                    "name": str(team["name"] or ""),
+                    "color": str(team["color"] or ""),
+                    "sort_order": int(team["sort_order"] or 0),
+                    "student_ids": [int(row["student_id"]) for row in members],
+                }
+            )
+        self.conn.execute(
+            """
+            INSERT INTO app_state (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (self._team_lock_key(class_id), json.dumps({"teams": teams})),
+        )
+
+    def _clear_team_lock_unlocked(self, class_id: int) -> None:
+        """Delete the saved team assignment. Caller holds the lock and commits.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        self.conn.execute(
+            "DELETE FROM app_state WHERE key = ?",
+            (self._team_lock_key(class_id),),
+        )
+
+    def clear_team_lock(self, class_id: int) -> None:
+        """Drop the saved live-class team assignment for one class.
+
+        End Live Class and Quit call this so the next Meet can assign fresh
+        teams. A crash that never reaches those paths keeps the lock.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            self._clear_team_lock_unlocked(int(class_id))
+            self.conn.commit()
+
+    def team_lock(self, class_id: int) -> dict[str, Any] | None:
+        """Return the saved named-team assignment, if one exists.
+
+        Args:
+            class_id: Classes primary key.
+        """
+        with self._lock:
+            return self._read_team_lock_unlocked(int(class_id))
+
+    def _apply_team_lock_unlocked(
+        self, class_id: int, game: sqlite3.Row, spec: dict[str, Any]
+    ) -> bool:
+        """Replace empty team rows with the saved assignment. Caller holds the lock.
+
+        Returns:
+            True when at least one roster student was placed on a named team.
+
+        Args:
+            class_id: Classes primary key.
+            game: Open games row.
+            spec: Payload from ``_read_team_lock_unlocked``.
+        """
+        game_id = int(game["id"])
+        session_id = int(game["session_id"])
+        self.conn.execute(
+            "DELETE FROM game_memberships WHERE game_id = ?", (game_id,)
+        )
+        self.conn.execute("DELETE FROM team_buckets WHERE game_id = ?", (game_id,))
+        self.conn.execute("DELETE FROM game_teams WHERE game_id = ?", (game_id,))
+        self._ensure_session_scores(session_id, int(class_id))
+        wrote = False
+        for team in spec.get("teams") or []:
+            if not isinstance(team, dict):
+                continue
+            try:
+                order = int(team.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                order = 0
+            name = str(team.get("name") or "").strip() or default_team_name(order)
+            if name == "Class":
+                continue
+            color = str(team.get("color") or "").strip() or color_for_team(order)
+            cur = self.conn.execute(
+                """
+                INSERT INTO game_teams (game_id, name, color, sort_order)
+                VALUES (?, ?, ?, ?)
+                """,
+                (game_id, name, color, order),
+            )
+            team_id = int(cur.lastrowid)
+            self.conn.execute(
+                """
+                INSERT INTO team_buckets (game_id, team_id, points)
+                VALUES (?, ?, 0)
+                """,
+                (game_id, team_id),
+            )
+            for raw in team.get("student_ids") or []:
+                try:
+                    student_id = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                roster = self.conn.execute(
+                    "SELECT id FROM students WHERE id = ? AND class_id = ?",
+                    (student_id, int(class_id)),
+                ).fetchone()
+                if roster is None:
+                    continue
+                self.conn.execute(
+                    """
+                    INSERT INTO game_memberships (game_id, team_id, student_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (game_id, team_id, student_id),
+                )
+                self.conn.execute(
+                    """
+                    UPDATE session_scores
+                    SET present = 1
+                    WHERE session_id = ? AND student_id = ? AND present = 0
+                    """,
+                    (session_id, student_id),
+                )
+                wrote = True
+        if not wrote:
+            return False
+        if str(game["status"] or "") in {"attendance", "teams"}:
+            self.conn.execute(
+                "UPDATE games SET status = 'names' WHERE id = ?",
+                (game_id,),
+            )
+        return True
+
+    def restore_team_lock(
+        self, class_id: int, *, create: bool = False
+    ) -> dict[str, Any] | None:
+        """Put the saved teams back when the open game has none.
+
+        Existing named teams are left alone so a rename or late joiner is
+        not replaced. ``create`` rebuilds an open game after a crash remint.
+        Polls pass ``create=False`` and never start a new game by themselves.
+
+        Args:
+            class_id: Classes primary key.
+            create: When True and no open game exists, start one and apply
+                the lock onto it.
+
+        Returns:
+            Game state when a lock was applied, or ``None`` when there is
+            nothing to restore.
+        """
+        with self._lock:
+            spec = self._read_team_lock_unlocked(int(class_id))
+            if spec is None:
+                return None
+            try:
+                game = self._game_row(int(class_id))
+            except KeyError:
+                if not create:
+                    return None
+                self.begin_game(int(class_id))
+                game = self._game_row(int(class_id))
+            if self._named_teams_exist_locked(int(game["id"])):
+                return None
+            applied = self._apply_team_lock_unlocked(int(class_id), game, spec)
+            if not applied:
+                self.conn.rollback()
+                return None
+            self.conn.commit()
+            self._forget_team_index(class_id=int(class_id))
+        return self.game_state(int(class_id))
 
     def _assign_joiner_if_teams_locked(
         self, game_id: int, session_id: int, student_id: int
@@ -1596,6 +1838,7 @@ class GameShowDB:
                 """,
                 (game_id, team_id, int(student_id)),
             )
+            self._snapshot_team_lock_unlocked(int(class_id))
             self.conn.commit()
             self._forget_team_index(class_id=int(class_id))
         return self.game_state(class_id)
@@ -3185,6 +3428,7 @@ class GameShowDB:
             if game["status"] not in {"attendance", "teams", "names", "rounds", "live"}:
                 raise ValueError("Quit is only available during an open game")
             self._discard_setup_unlocked(game)
+            self._clear_team_lock_unlocked(int(game["class_id"]))
             self.conn.commit()
         return {"ok": True, "class_id": class_id}
 
@@ -3754,6 +3998,7 @@ class GameShowDB:
                 (game_id,),
             )
             self._clear_team_name_poll_unlocked(game_id)
+            self._snapshot_team_lock_unlocked(int(class_id))
             self.conn.commit()
         self._team_index_cache.pop(int(class_id), None)
         return self.game_state(class_id)
@@ -3797,6 +4042,7 @@ class GameShowDB:
                 )
                 if cur.rowcount != 1:
                     raise KeyError(f"team {team_id}")
+            self._snapshot_team_lock_unlocked(int(class_id))
             if not go_live:
                 self.conn.execute(
                     """
@@ -4714,6 +4960,7 @@ class GameShowDB:
                 """,
                 (int(game["id"]), team_id, student_id),
             )
+            self._snapshot_team_lock_unlocked(int(class_id))
             self.conn.commit()
         return self.game_state(class_id)
 
@@ -5194,6 +5441,7 @@ class GameShowDB:
                 "UPDATE games SET status = 'ended' WHERE id = ?", (game_id,)
             )
             self._set_scoreboard_game(game_id)
+            self._clear_team_lock_unlocked(int(class_id))
             self.conn.commit()
             sess = self.conn.execute(
                 "SELECT starts_at FROM sessions WHERE id = ?", (session_id,)
