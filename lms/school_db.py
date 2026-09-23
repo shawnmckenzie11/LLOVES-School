@@ -10293,17 +10293,10 @@ class SchoolDB(LovesDB):
             modes = ["individual"]
             if response_mode == "group_consensus":
                 modes.append("group_consensus")
-        if "group_consensus" not in modes:
-            item_id = str(
-                question.get("id") or question.get("item_id") or ""
-            ).strip().lower().replace("_", "-")
-            is_meet = item_id in {"meet-team", "meet-a", "meet-b", "meet-c"}
-            qtype = str(question.get("type") or "").strip().lower()
-            open_ended = qtype in {"numeric", "text", "open", "share"} or bool(
-                question.get("integer_only")
-            )
-            if open_ended and not is_meet:
-                modes.append("group_consensus")
+        if "group_consensus" not in modes and SchoolDB._question_is_open_response(
+            question
+        ):
+            modes.append("group_consensus")
         return list(dict.fromkeys(modes))
 
     @staticmethod
@@ -10393,6 +10386,35 @@ class SchoolDB(LovesDB):
                 (int(session_id),),
             ).fetchone()
         return bool(row and str(row["publish_mode"] or "") == "group_shared")
+
+    @staticmethod
+    def _question_is_open_response(question: dict[str, Any]) -> bool:
+        """Return True when Individual in Group is a valid publish mode.
+
+        Numeric items and open text, including choice-less and poll-shaped
+        stems, share that mode with catalogue rows that already list
+        ``group_consensus``. Multiple choice keeps Group submission.
+        Meet cards stay individual.
+
+        Args:
+            question: Catalogue or lifecycle item payload.
+        """
+        item_id = str(
+            question.get("id") or question.get("item_id") or ""
+        ).strip().lower().replace("_", "-")
+        if item_id in {"meet-team", "meet-a", "meet-b", "meet-c"}:
+            return False
+        qtype = str(
+            question.get("type") or question.get("kind") or ""
+        ).strip().lower()
+        if qtype == "question":
+            qtype = ""
+        if qtype in {"numeric", "text", "open", "share", "poll"} or bool(
+            question.get("integer_only")
+        ):
+            return True
+        return False
+
 
     @staticmethod
     def _question_response_mode(question: dict[str, Any]) -> str:
@@ -12672,7 +12694,9 @@ class SchoolDB(LovesDB):
         """Map lifecycle item ids to response counts for the current stage.
 
         Light staff polls use this so ``Publish`` cards show live answer counts
-        without a full session snapshot on every student submit.
+        without a full session snapshot on every student submit. Individual
+        answers count prompt rows. Individual in Group counts private
+        ``live_group_votes`` rows, which never land on the prompt.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -12701,6 +12725,11 @@ class SchoolDB(LovesDB):
                 "slides",
             }:
                 continue
+            if str(item.get("response_mode") or "") == "group_consensus":
+                counts[int(item["id"])] = self._group_consensus_vote_count(
+                    int(item["id"])
+                )
+                continue
             prompt = self._prompt_for_live_item(item)
             if prompt is None or prompt.get("id") in (None, ""):
                 continue
@@ -12708,6 +12737,25 @@ class SchoolDB(LovesDB):
                 self.list_live_prompt_responses(int(prompt["id"]))
             )
         return counts
+
+    def _group_consensus_vote_count(self, live_item_id: int) -> int:
+        """Count private member votes for one Individual-in-Group item.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+
+        Returns:
+            Rows in ``live_group_votes`` for that item.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM live_group_votes
+                WHERE live_item_id = ?
+                """,
+                (int(live_item_id),),
+            ).fetchone()
+        return int((row or {"n": 0})["n"] or 0)
 
 
     def live_session_item_results(
@@ -12723,10 +12771,17 @@ class SchoolDB(LovesDB):
             summary = self.teacher_group_consensus_summary(
                 session_id, int(item["id"])
             )
+            teams = summary["teams"]
             return {
                 "item": item,
                 "response_mode": "group_consensus",
-                "teams": summary["teams"],
+                "teams": teams,
+                "response_count": sum(
+                    int(team.get("vote_count") or 0) for team in teams
+                ),
+                "eligible_count": sum(
+                    int(team.get("eligible_count") or 0) for team in teams
+                ),
             }
         prompt = self._prompt_for_live_item(item)
         responses = (
@@ -19679,8 +19734,10 @@ class SchoolDB(LovesDB):
     def live_student_poll_stamp(self, session_id: int, class_id: int) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
-        Includes prompt active flags, item counts, Save to card, and the
-        whiteboard blob so a stroke or text edit cannot keep a stale frame.
+        Includes prompt active flags, item counts, Save to card, prompt
+        responses, private group-consensus votes, and the whiteboard blob
+        so a stroke, text edit, close, unpublish, checkbox, or teammate
+        answer cannot keep a stale student frame.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -19729,9 +19786,21 @@ class SchoolDB(LovesDB):
                     SELECT MAX(r.id) FROM live_session_responses r
                     INNER JOIN live_session_prompts p ON p.id = r.prompt_id
                     WHERE p.live_session_id = ?
-                  ), 0) AS response_max
+                  ), 0) AS response_max,
+                  COALESCE((
+                    SELECT MAX(v.id) FROM live_group_votes v
+                    INNER JOIN live_session_items i ON i.id = v.live_item_id
+                    WHERE i.live_session_id = ?
+                  ), 0) AS group_vote_max,
+                  COALESCE((
+                    SELECT MAX(v.updated_at) FROM live_group_votes v
+                    INNER JOIN live_session_items i ON i.id = v.live_item_id
+                    WHERE i.live_session_id = ?
+                  ), '') AS group_vote_rev
                 """,
                 (
+                    int(session_id),
+                    int(session_id),
                     int(session_id),
                     int(session_id),
                     int(session_id),
@@ -19762,6 +19831,8 @@ class SchoolDB(LovesDB):
         item_rev = str(row["item_rev"] if row is not None else "")
         item_max = int(row["item_max"] if row is not None else 0)
         response_max = int(row["response_max"] if row is not None else 0)
+        group_vote_max = int(row["group_vote_max"] if row is not None else 0)
+        group_vote_rev = str(row["group_vote_rev"] if row is not None else "")
         with self._lock:
             canvas_row = self.conn.execute(
                 """
@@ -19775,8 +19846,8 @@ class SchoolDB(LovesDB):
         canvas_rev = hashlib.sha1(raw_canvas.encode()).hexdigest()[:12]
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
-            f"{item_max}:{response_max}:{event_max}:{prompt_rev}:{item_rev}:"
-            f"{canvas_rev}"
+            f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
+            f"{prompt_rev}:{item_rev}:{group_vote_rev}:{canvas_rev}"
         )
 
     def student_live_poll_unchanged(

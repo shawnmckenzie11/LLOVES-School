@@ -1202,6 +1202,190 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             str((card.get("content") or {}).get("text") or ""),
         )
 
+    def test_mcr3u_m1_c4_page3_open_and_numeric_individual_in_group_is_live(
+        self,
+    ) -> None:
+        """Page 3 open text and numeric keep Individual in Group, with a live feed.
+
+        Rank already stores ``group_consensus``. The overrated-food poll and a
+        staff numeric on the same Meet page only store ``individual``, but
+        both must publish ``individual_in_group`` and show the member answer
+        on the teacher light poll.
+        """
+        self.assertIn(
+            "group_consensus",
+            self.school._question_publish_modes(
+                {
+                    "type": "poll",
+                    "publish_modes": ["individual"],
+                    "options": [],
+                }
+            ),
+        )
+        self.assertIn(
+            "group_consensus",
+            self.school._question_publish_modes(
+                {
+                    "type": "numeric",
+                    "publish_modes": ["individual"],
+                    "integer_only": True,
+                }
+            ),
+        )
+        self.assertNotIn(
+            "group_consensus",
+            self.school._question_publish_modes(
+                {
+                    "id": "meet-team",
+                    "type": "poll",
+                    "publish_modes": ["individual"],
+                }
+            ),
+        )
+        self.assertNotIn(
+            "group_consensus",
+            self.school._question_publish_modes(
+                {
+                    "type": "mc",
+                    "publish_modes": ["individual"],
+                    "options": ["Aisle seat", "Window seat"],
+                }
+            ),
+        )
+        maple, _birch = self._present_pair()
+        self.school.seed_course_wide_warmups(self.library_id)
+        course = self.school.search_bank_scope_mcs(
+            self.library_id, "course", 1, "", kind="warmup"
+        )
+        rank = next(
+            row
+            for row in course["items"]
+            if str(row.get("question_title") or "") == "Rank three annoyances"
+        )
+        food = next(
+            row
+            for row in course["items"]
+            if str(row.get("question_title") or "") == "Most overrated food"
+        )
+        self.assertIn("Rank most", str(rank.get("text") or ""))
+        page = self._open_mcr3u_m1_c4_page(3)
+        self.assertEqual(page.get("id"), "meet")
+        self.assertEqual(str(page.get("stage") or ""), "meet")
+        for question_id in (int(rank["question_id"]), int(food["question_id"])):
+            self.school.import_mc_to_class_playlist(
+                self.class_id,
+                "M1",
+                "C4",
+                question_id,
+                library_id=self.library_id,
+                page_number=3,
+                stage="meet",
+            )
+        numeric = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C4",
+            question_type="numeric",
+            text="Enter a whole number.",
+            page_number=3,
+            stage="meet",
+            correct_answer="4",
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        by_item_id = {str(row.get("item_id") or ""): row for row in items}
+        food_row = by_item_id[f"bank-import-{int(food['question_id'])}"]
+        rank_row = by_item_id[f"bank-import-{int(rank['question_id'])}"]
+        numeric_row = by_item_id[str(numeric.get("item_id") or "")]
+        self.assertEqual(
+            (food_row.get("item") or {}).get("publish_modes"),
+            ["individual"],
+        )
+        self.assertEqual(food_row.get("response_mode"), "individual")
+        self.assertIn(
+            "group_consensus",
+            self.school._question_publish_modes(food_row.get("item") or {}),
+        )
+        self.assertEqual(rank_row.get("response_mode"), "group_consensus")
+        published: dict[str, dict[str, Any]] = {}
+        for label, row in (
+            ("food", food_row),
+            ("rank", rank_row),
+            ("numeric", numeric_row),
+        ):
+            published[label] = self.school.publish_live_session_item(
+                self.session_id,
+                int(row["id"]),
+                publish_mode="individual_in_group",
+            )
+            self.assertEqual(published[label]["publish_mode"], "group_consensus")
+            self.assertEqual(published[label]["response_mode"], "group_consensus")
+            self.assertEqual(int(published[label].get("page_number") or 0), 3)
+        self.school.ensure_live_session_items(self.session_id)
+        stuck = self.school.get_live_session_item(
+            self.session_id, int(published["food"]["id"])
+        )
+        self.assertEqual(stuck["response_mode"], "group_consensus")
+        before = self.school.get_live_session_state(self.session_id, light=True)
+        counts = before.get("lifecycle_response_counts") or {}
+        self.assertEqual(counts.get(int(published["food"]["id"])), 0)
+        self.assertEqual(counts.get(int(published["numeric"]["id"])), 0)
+        quiet = self.school.live_session_item_results(
+            self.session_id, int(published["food"]["id"])
+        )
+        self.assertEqual(quiet["response_count"], 0)
+        self.assertGreaterEqual(int(quiet["eligible_count"]), 1)
+        stamp_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id
+        )
+        self.school.submit_group_consensus_vote(
+            self.session_id,
+            int(published["food"]["id"]),
+            maple,
+            {"text": "kale chips"},
+        )
+        self.school.submit_group_consensus_vote(
+            self.session_id,
+            int(published["numeric"]["id"]),
+            maple,
+            {"value": 9},
+        )
+        self.school.submit_group_consensus_vote(
+            self.session_id,
+            int(published["rank"]["id"]),
+            maple,
+            {"text": "wifi then socks"},
+        )
+        after = self.school.get_live_session_state(self.session_id, light=True)
+        live_counts = after.get("lifecycle_response_counts") or {}
+        self.assertEqual(live_counts.get(int(published["food"]["id"])), 1)
+        self.assertEqual(live_counts.get(int(published["numeric"]["id"])), 1)
+        self.assertEqual(live_counts.get(int(published["rank"]["id"])), 1)
+        food_results = self.school.live_session_item_results(
+            self.session_id, int(published["food"]["id"])
+        )
+        self.assertEqual(food_results["response_count"], 1)
+        self.assertGreaterEqual(int(food_results["eligible_count"]), 1)
+        food_answers = [
+            answer
+            for team in food_results["teams"]
+            for answer in (team.get("member_answers") or [])
+        ]
+        self.assertIn("kale chips", food_answers)
+        numeric_results = self.school.live_session_item_results(
+            self.session_id, int(published["numeric"]["id"])
+        )
+        numeric_answers = [
+            answer
+            for team in numeric_results["teams"]
+            for answer in (team.get("member_answers") or [])
+        ]
+        self.assertIn(9, numeric_answers)
+        self.assertEqual(numeric_results["response_count"], 1)
+        stamp_after = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id
+        )
+        self.assertNotEqual(stamp_before, stamp_after)
+
     def test_icebreaker_group_submit_still_reaches_student(self) -> None:
         """Course Wide warmup Group on MCR3U M1 C4 join still has a student prompt."""
         maple, _birch = self._present_pair()
