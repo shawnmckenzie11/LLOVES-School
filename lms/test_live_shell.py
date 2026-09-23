@@ -304,7 +304,16 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("absorbSaveToCardSnapshot(", js)
         self.assertIn("function liveQuestionControlStrip(", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
+        self.assertIn("function openPublishModeSelection(", js)
+        self.assertIn("const openPublishIntent = new Map()", js)
         self.assertIn("Individual in Group", js)
+        self.assertIn('select[data-publish-live-mode]', js)
+        self.assertIn("openPublishIntent.set", js)
+        adopt = js.split("function adoptLifecycleResponseCounts(")[1].split(
+            "function "
+        )[0]
+        self.assertIn("refreshLifecycleResults", adopt)
+        self.assertIn("group_consensus", adopt)
         self.assertIn("Reveal answers", js)
         self.assertNotIn("lloves-scoreboard-", js)
 
