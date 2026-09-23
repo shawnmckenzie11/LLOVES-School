@@ -81,6 +81,15 @@ class LivePromptFeedbackHelperTests(unittest.TestCase):
             "A",
         )
 
+    def test_choice_letter_past_h_returns_none(self) -> None:
+        """A text match past A–H returns None instead of indexing off the end."""
+        choices = [f"option-{index}" for index in range(9)]
+        self.assertEqual(choice_letter({"choice": "option-0"}, choices), "A")
+        self.assertEqual(choice_letter({"choice": "option-7"}, choices), "H")
+        self.assertIsNone(choice_letter({"choice": "option-8"}, choices))
+        self.assertIsNone(choice_letter({"choice": "not a listed option"}, choices))
+        self.assertIsNone(choice_letter({"choice": "I"}, "abcdefghI"))
+
     def test_legacy_and_rename_item_ids(self) -> None:
         """meet-math, minds_on, and minds-on share the same soft key."""
         line = M1C1_FEEDBACK["minds_on"]["by_choice"]["A"]

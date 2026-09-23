@@ -134,6 +134,54 @@ class LiveMcHelperTests(unittest.TestCase):
         self.assertEqual(by_label["keeps us kind"], 1)
         self.assertEqual(by_label["asks the good question"], 1)
 
+    def test_tally_survives_more_labels_than_letters(self) -> None:
+        """Ninth option or many distinct free-text votes must not raise.
+
+        ``/state`` builds this tally for teacher light and student views.
+        ``CHOICE_LETTERS`` is only A–H, so a longer label list used to
+        ``IndexError`` inside ``choice_letter``.
+        """
+        many = [f"option-{index}" for index in range(9)]
+        prompt = {
+            "id": 13,
+            "kind": "mc",
+            "payload": {"prompt": "Pick", "kind": "mc", "choices": many},
+        }
+        tally = build_mc_tally(
+            prompt,
+            responses=[
+                {"response": {"choice": "option-0"}},
+                {"response": {"choice": "option-8"}},
+                {"response": {"choice": "free text that is not a choice"}},
+            ],
+            present=3,
+        )
+        self.assertIsNotNone(tally)
+        assert tally is not None
+        self.assertLessEqual(len(tally["choices"]), 8)
+        self.assertEqual(tally["choices"][0]["count"], 1)
+        self.assertEqual(tally["choices"][0]["id"], "A")
+        self.assertEqual(tally["responded"], 3)
+        self.assertNotIn("option-8", [row["label"] for row in tally["choices"]])
+
+        bare = {
+            "id": 13,
+            "kind": "mc",
+            "payload": {"prompt": "Type anything", "kind": "mc"},
+        }
+        recovered = build_mc_tally(
+            bare,
+            responses=[
+                {"response": {"choice": f"group note {index}"}} for index in range(12)
+            ],
+            present=12,
+        )
+        self.assertIsNotNone(recovered)
+        assert recovered is not None
+        self.assertEqual(len(recovered["choices"]), 8)
+        self.assertEqual(recovered["responded"], 12)
+        self.assertEqual(sum(row["count"] for row in recovered["choices"]), 8)
+
 
 class LiveMcApiTests(unittest.TestCase):
     """Staff /state tally + reveal for JOIN Minds-On and CONS MC."""
