@@ -162,6 +162,9 @@ def build_mc_tally(
 
     Returns:
         Tally dict, or ``None`` when the active prompt is not MC.
+
+    Labels past A–H are dropped. A ninth option or a pile of distinct
+    free-text answers must not raise while ``/state`` is building bars.
     """
     if not is_mc_prompt(prompt):
         return None
@@ -195,7 +198,11 @@ def build_mc_tally(
             text = _response_choice_text(raw)
             if text and text not in recovered:
                 recovered.append(text)
+            if len(recovered) >= len(CHOICE_LETTERS):
+                break
         labels = recovered
+    if len(labels) > len(CHOICE_LETTERS):
+        labels = labels[: len(CHOICE_LETTERS)]
     for raw in raw_values:
         text = _response_choice_text(raw)
         if not text or choice_letter({"choice": text}, labels):
@@ -204,7 +211,9 @@ def build_mc_tally(
             labels.append(text)
     if not labels:
         return None
-    letters = [CHOICE_LETTERS[i] for i in range(len(labels))]
+    span = min(len(labels), len(CHOICE_LETTERS))
+    labels = labels[:span]
+    letters = [CHOICE_LETTERS[i] for i in range(span)]
     counts = {letter: 0 for letter in letters}
     for letter in _choice_rows_from_values(
         raw_values, payload={**payload, "choices": labels}

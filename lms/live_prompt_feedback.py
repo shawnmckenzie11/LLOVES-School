@@ -249,7 +249,8 @@ def canonical_feedback_item_id(payload: Any) -> str:
 def choice_letter(response: Any, choices: Any) -> str | None:
     """Map a student MC response to A–H.
 
-    Accepts a letter, ``B)`` prefix, or the choice text.
+    Accepts a letter, ``B)`` prefix, or the choice text. A text match past
+    H returns None so a long choice list or free-text vote cannot raise.
 
     Args:
         response: Student answer object (``choice`` or ``value``).
@@ -273,9 +274,18 @@ def choice_letter(response: Any, choices: Any) -> str | None:
         return None
     if len(upper) >= 2 and upper[0] in CHOICE_LETTERS and upper[1] in ".)":
         return upper[0]
-    rows = [str(choice).strip() for choice in (choices or [])]
+    if isinstance(choices, (str, bytes)) or choices is None:
+        rows: list[Any] = []
+    else:
+        try:
+            rows = list(choices)
+        except TypeError:
+            return None
     for index, choice in enumerate(rows):
-        if choice == text or choice.casefold() == text.casefold():
+        if index >= len(CHOICE_LETTERS):
+            return None
+        label = str(choice).strip()
+        if label == text or label.casefold() == text.casefold():
             return CHOICE_LETTERS[index]
     return None
 
