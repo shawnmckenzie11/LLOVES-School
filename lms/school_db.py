@@ -13096,7 +13096,9 @@ class SchoolDB(LovesDB):
         Light staff polls use this so ``Publish`` cards show live answer counts
         without a full session snapshot on every student submit. Individual
         answers count prompt rows. Individual in Group counts private
-        ``live_group_votes`` rows, which never land on the prompt.
+        ``live_group_votes`` rows, which never land on the prompt. Group rank
+        counts submitted teams. The matching revision token lives in
+        ``lifecycle_rank_revisions``.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -13105,12 +13107,43 @@ class SchoolDB(LovesDB):
             ``{live_session_items.id: response_count}`` for active/closed
             question rows on the teacher's current stage.
         """
+        counts, _revs = self._lifecycle_light_signals(session_id)
+        return counts
+
+    def lifecycle_rank_revisions(self, session_id: int) -> dict[int, str]:
+        """Return cheap rank change tokens for the teacher light poll.
+
+        A new teammate and a replaced order both move the token. The light
+        poll stays a count plus this stamp; Borda itself is not rebuilt here.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{live_session_items.id: revision}`` for rank items on stage.
+        """
+        _counts, revs = self._lifecycle_light_signals(session_id)
+        return revs
+
+    def _lifecycle_light_signals(
+        self, session_id: int
+    ) -> tuple[dict[int, int], dict[int, str]]:
+        """Count answers and stamp rank items for one light staff poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(counts, rank_revs)``. Rank revisions are empty when the item
+            is not rank. Failures inside one item skip that item.
+        """
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
         except KeyError:
-            return {}
+            return {}, {}
         stage = str(teacher.get("stage") or "").strip().lower()
         counts: dict[int, int] = {}
+        revs: dict[int, str] = {}
         for item in self.list_live_session_items(session_id):
             if str(item.get("status") or "") not in {"active", "closed"}:
                 continue
@@ -13118,25 +13151,74 @@ class SchoolDB(LovesDB):
             if item_stage and stage and item_stage != stage:
                 continue
             kind = str(item.get("kind") or "").strip().lower()
-            item_type = str((item.get("item") or {}).get("item_type") or "").strip().lower()
+            nested = item.get("item") if isinstance(item.get("item"), dict) else {}
+            item_type = str(nested.get("item_type") or "").strip().lower()
             if kind in {"media", "whiteboard", "slides"} or item_type in {
                 "media",
                 "whiteboard",
                 "slides",
             }:
                 continue
+            item_id = int(item["id"])
             if str(item.get("response_mode") or "") == "group_consensus":
-                counts[int(item["id"])] = self._group_consensus_vote_count(
-                    int(item["id"])
-                )
+                counts[item_id] = self._group_consensus_vote_count(item_id)
+                continue
+            if (
+                str(item.get("response_mode") or "") == "group_submit"
+                and self._question_answer_kind(item) == "rank"
+            ):
+                teams, rev = self._group_rank_light_token(item_id)
+                counts[item_id] = teams
+                revs[item_id] = rev
                 continue
             prompt = self._prompt_for_live_item(item)
             if prompt is None or prompt.get("id") in (None, ""):
                 continue
-            counts[int(item["id"])] = len(
-                self.list_live_prompt_responses(int(prompt["id"]))
-            )
-        return counts
+            responses = self.list_live_prompt_responses(int(prompt["id"]))
+            counts[item_id] = len(responses)
+            if self._question_answer_kind(item) == "rank":
+                stamps = [
+                    str(row.get("updated_at") or "")
+                    for row in responses
+                    if isinstance(row, dict)
+                ]
+                revs[item_id] = max(stamps) if stamps else ""
+        return counts, revs
+
+    def _group_rank_light_token(self, live_item_id: int) -> tuple[int, str]:
+        """Return submitted-team count and a revision for one group rank item.
+
+        The revision includes every submit and re-submit so a replaced team
+        order refetches the teacher strip without rebuilding Borda here.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+
+        Returns:
+            ``(submitted_teams, revision)``. A query failure yields ``(0, "")``.
+        """
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM(
+                        CASE WHEN COALESCE(submit_count, 0) > 0 THEN 1 ELSE 0 END
+                      ), 0) AS teams,
+                      COALESCE(SUM(COALESCE(submit_count, 0)), 0) AS events,
+                      COALESCE(MAX(updated_at), '') AS rev
+                    FROM live_group_responses
+                    WHERE live_item_id = ?
+                    """,
+                    (int(live_item_id),),
+                ).fetchone()
+        except sqlite3.Error:
+            return 0, ""
+        if row is None:
+            return 0, ""
+        teams = int(row["teams"] or 0)
+        events = int(row["events"] or 0)
+        return teams, f"{events}:{row['rev'] or ''}"
 
     def _group_consensus_vote_count(self, live_item_id: int) -> int:
         """Count private member votes for one Individual-in-Group item.
@@ -20545,12 +20627,8 @@ class SchoolDB(LovesDB):
                 lambda: self.live_session_mc_tally(session_id),
                 None,
             ),
-            "lifecycle_response_counts": live_state_field(
-                session_id,
-                "lifecycle_response_counts",
-                lambda: self.lifecycle_response_counts(session_id),
-                {},
-            ),
+            "lifecycle_response_counts": {},
+            "lifecycle_rank_revs": {},
             "state_seq": int(teacher_state.get("state_seq") or 0),
             "light": bool(light),
             "groups": live_state_field(
@@ -20560,6 +20638,20 @@ class SchoolDB(LovesDB):
                 [],
             ),
         }
+        answer_signals = live_state_field(
+            session_id,
+            "lifecycle_response_counts",
+            lambda: self._lifecycle_light_signals(session_id),
+            ({}, {}),
+        )
+        if (
+            isinstance(answer_signals, tuple)
+            and len(answer_signals) == 2
+            and isinstance(answer_signals[0], dict)
+            and isinstance(answer_signals[1], dict)
+        ):
+            payload["lifecycle_response_counts"] = answer_signals[0]
+            payload["lifecycle_rank_revs"] = answer_signals[1]
         if light:
             payload["canvas_sync"] = live_state_field(
                 session_id,
