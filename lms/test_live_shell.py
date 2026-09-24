@@ -299,6 +299,15 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("saveToCardHold", js)
         self.assertIn("function absorbSaveToCardSnapshot(", js)
         self.assertIn("function cardSaveToCardChecked(", js)
+        self.assertIn("const teacherSettingHold = new Map()", js)
+        self.assertIn("function teacherFieldsFrom(", js)
+        self.assertIn("function surfacePublishSelection(", js)
+        self.assertIn("async function persistSurfacePublishMode(", js)
+        self.assertIn("async function persistQuestionMode(", js)
+        self.assertIn(
+            '$(`live-view-${surface}`)?.addEventListener("change"',
+            js,
+        )
         setter = js.split("async function setLifecycleSaveToCard(")[1].split(
             "async function endLifecycleVoting("
         )[0]
