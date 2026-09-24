@@ -1775,6 +1775,121 @@ class LiveBackendStateTests(unittest.TestCase):
             any(row.get("item_id") == "q-one" for row in payload["active_questions"])
         )
 
+    def test_teacher_settings_survive_deck_refresh_and_page_change(self) -> None:
+        """Catalogue defaults must not wipe teacher settings on /state or page changes.
+
+        Save to card, Show Live Results, Individual vs Group, and whiteboard
+        Shared within Group stay on the lifecycle row for bank and seed items.
+        """
+
+        bank = {
+            "id": "bank-import-41",
+            "ref": "bank/import/41",
+            "item_type": "question",
+            "stage": "round",
+            "page_number": 1,
+            "order": 3,
+            "type": "mc",
+            "text": "Bank pick",
+            "options": ["A", "B"],
+            "correct_answer": "A",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+            "import_source": "module_bank",
+        }
+
+        def catalogue(_session_id: int) -> dict[str, Any]:
+            meta = metadata_fixture()
+            meta["questions"] = [*meta["questions"], bank]
+            meta["items"] = [*meta["items"], bank]
+            return meta
+
+        self.school.live_class_metadata_for_session = catalogue
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        by_item = {str(row["item_id"]): row for row in items}
+        q1 = by_item["q-one"]
+        q2 = by_item["q-two"]
+        imported = by_item["bank-import-41"]
+        board = next(row for row in items if str(row.get("kind")) == "whiteboard")
+        self.school.update_live_session_item_settings(
+            self.session_id,
+            int(q1["id"]),
+            save_to_card=True,
+            show_live_results=False,
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id,
+            int(q2["id"]),
+            publish_mode="individual",
+            response_mode="individual",
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id,
+            int(imported["id"]),
+            save_to_card=True,
+            publish_mode="group_submit",
+            response_mode="group_submit",
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id,
+            int(board["id"]),
+            publish_mode="group_shared",
+        )
+
+        def clobber(_session_id: int) -> dict[str, Any]:
+            meta = catalogue(self.session_id)
+            for row in list(meta["questions"]) + list(meta["items"]):
+                if not isinstance(row, dict):
+                    continue
+                row["save_to_card"] = False
+                row["show_live_results"] = True
+                if str(row.get("id")) == "q-two":
+                    row["response_mode"] = "group_consensus"
+                    row["publish_mode"] = "group_consensus"
+                if str(row.get("id")) == "bank-import-41":
+                    row["response_mode"] = "individual"
+                    row["publish_mode"] = "individual"
+                if str(row.get("item_type") or row.get("type")) == "whiteboard":
+                    row["publish_mode"] = "individual"
+            return meta
+
+        self.school.live_class_metadata_for_session = clobber
+        self.school.ensure_live_session_items(self.session_id)
+        self.school.student_live_items_payload(self.session_id, self.student_ids[0])
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="play", page_id="later"
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="round", page_id="round"
+        )
+        state = self.school.get_live_session_state(self.session_id)
+        live = {str(row["item_id"]): row for row in state["live_items"]}
+        self.assertTrue(live["q-one"]["save_to_card"])
+        self.assertFalse(live["q-one"]["show_live_results"])
+        self.assertTrue(live["q-one"]["item"]["save_to_card"])
+        self.assertEqual(live["q-two"]["response_mode"], "individual")
+        self.assertEqual(live["q-two"]["publish_mode"], "individual")
+        self.assertTrue(live["bank-import-41"]["save_to_card"])
+        self.assertEqual(live["bank-import-41"]["response_mode"], "group_submit")
+        board_after = next(
+            row for row in state["live_items"] if str(row.get("kind")) == "whiteboard"
+        )
+        self.assertEqual(board_after["publish_mode"], "group_shared")
+        cards = {str(row["id"]): row for row in state["question_cards"]}
+        self.assertTrue(cards["q-one"]["save_to_card"])
+        self.assertFalse(cards["q-one"]["show_live_results"])
+        self.assertEqual(cards["q-two"]["response_mode"], "individual")
+        self.assertEqual(cards["bank-import-41"]["response_mode"], "group_submit")
+        self.assertTrue(cards["bank-import-41"]["save_to_card"])
+
     def test_removed_meet_team_does_not_return_for_students(self) -> None:
         """Removing Meet from M1 C4 drops the teammate prompt for students."""
 

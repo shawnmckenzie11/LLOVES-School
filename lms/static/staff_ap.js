@@ -314,6 +314,12 @@ let lastLiveMetadata = null;
 let lastLiveItems = [];
 /** Lifecycle id → Save to card the teacher just set. Stale polls must not flip it. */
 const saveToCardHold = new Map();
+/**
+ * In-flight per-question settings. Key is ``${lifecycleId}:${field}``.
+ * A /state snapshot clears a key only when the server echoes that value.
+ * @type {Map<string, boolean|string>}
+ */
+const teacherSettingHold = new Map();
 /** @type {any[]} */
 let lastActiveQuestions = [];
 /** @type {any[]} */
@@ -689,21 +695,38 @@ function currentStudentView() {
 }
 
 /**
- * Sync per-content Student View dropdowns.
+ * Dropdown value for one surface. The lifecycle publish mode wins over the
+ * projection map so Shared within Group survives a poll before Publish.
+ * @param {"media"|"canvas"|"slides"} surface
+ * @returns {"student"|"team"}
+ */
+function surfacePublishSelection(surface) {
+  const item = lifecycleItemForSurface(surface);
+  const id = Number(item?.id) || 0;
+  const held = id ? teacherSettingHold.get(`${id}:publish_mode`) : undefined;
+  const stored = String(held || item?.publish_mode || "");
+  if (stored === "group_shared") return "team";
+  if (stored === "individual") return "student";
+  return currentStudentView()[surface] === "team" ? "team" : "student";
+}
+
+/**
+ * Sync per-content Publish mode dropdowns from the saved lifecycle row.
  */
 function paintStudentViewControls() {
-  const view = currentStudentView();
   for (const key of ["media", "canvas", "slides"]) {
     const el = $(`live-view-${key}`);
     if (!(el instanceof HTMLSelectElement)) continue;
-    const wanted = view[key] === "team" ? "team" : "student";
+    const wanted = surfacePublishSelection(key);
     if ([...el.options].some((option) => option.value === wanted)) {
       el.value = wanted;
     }
     const team = [...el.options].find((option) => option.value === "team");
     if (team) {
-      team.disabled =
-        !Boolean(teacherState.run_as_group) || !surfaceSupportsGroup(key);
+      const whiteboard = key === "canvas";
+      team.disabled = whiteboard
+        ? false
+        : !Boolean(teacherState.run_as_group) || !surfaceSupportsGroup(key);
       if (team.disabled && el.value === "team") el.value = "student";
     }
   }
@@ -770,13 +793,11 @@ async function publishSurface(surface) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) return;
   const select = $(`live-view-${surface}`);
-  const selected =
-    select instanceof HTMLSelectElement &&
-    select.value === "team" &&
-    teacherState.run_as_group &&
-    surfaceSupportsGroup(surface)
-      ? "team"
-      : "student";
+  const picked = select instanceof HTMLSelectElement && select.value === "team";
+  const groupOk =
+    surface === "canvas" ||
+    (Boolean(teacherState.run_as_group) && surfaceSupportsGroup(surface));
+  const selected = picked && groupOk ? "team" : "student";
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "inactive") {
     const publishMode =
@@ -1653,14 +1674,15 @@ function questionCardsFromMetadata(serverCards) {
       (row) => String(row?.id || row?.item_id || "").trim() === token
     );
     byId.set(token, {
-      ...(server || {}),
       ...question,
+      ...(server || {}),
       id: token,
       item_id: token,
       stage: question.stage || server?.stage,
       page_number: question.page_number ?? server?.page_number,
       text: question.text || question.prompt || server?.text,
       options: question.options || server?.options || [],
+      ...teacherFieldsFrom(server),
     });
   }
   for (const card of incoming) {
@@ -1822,16 +1844,29 @@ function resolvePlaylistItemId(card, item) {
 }
 
 /**
+ * Compare playlist ids that differ only by hyphen vs underscore.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function liveItemAlias(raw) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+/**
  * Merge metadata, lifecycle, and server cards into one lesson-deck list.
  * @returns {any[]}
  */
 function deckQuestionRows() {
-  const lifecycleByItemId = new Map(
-    (Array.isArray(lastLiveItems) ? lastLiveItems : []).map((row) => [
-      String(row.item_id || "").trim(),
-      row,
-    ])
-  );
+  const lifecycleByItemId = new Map();
+  for (const row of Array.isArray(lastLiveItems) ? lastLiveItems : []) {
+    const token = String(row?.item_id || "").trim();
+    if (!token) continue;
+    lifecycleByItemId.set(token, row);
+    lifecycleByItemId.set(liveItemAlias(token), row);
+  }
   const serverCards = Array.isArray(lastQuestionCards) ? lastQuestionCards : [];
   const metadataQs =
     metadataMatchesCurrentPack() && Array.isArray(lastLiveMetadata?.questions)
@@ -1862,18 +1897,22 @@ function deckQuestionRows() {
     if (kind in { media: 1, whiteboard: 1, slides: 1 }) continue;
     if (question.removed || question.hidden) continue;
     const itemId = String(question.id || question.item_id || "").trim();
-    const lifecycle = lifecycleByItemId.get(itemId);
-    const server = serverCards.find(
-      (row) => String(row.id || row.item_id || "").trim() === itemId
-    );
+    const lifecycle =
+      lifecycleByItemId.get(itemId) || lifecycleByItemId.get(liveItemAlias(itemId));
+    const server = serverCards.find((row) => {
+      const token = String(row.id || row.item_id || "").trim();
+      return token === itemId || liveItemAlias(token) === liveItemAlias(itemId);
+    });
     pushRow({
       ...(server || question),
       ...(lifecycle || {}),
+      ...teacherFieldsFrom(lifecycle),
       item: {
-        ...(lifecycle?.item || {}),
         ...question,
-        ...(server || {}),
+        ...(lifecycle?.item || {}),
         ...(server?.item || {}),
+        ...teacherFieldsFrom(server),
+        ...teacherFieldsFrom(lifecycle),
         id: itemId,
         text:
           (server && (server.text || server.item?.text)) ||
@@ -2026,7 +2065,47 @@ function liveQuestionIsOpenEnded(item, card) {
 }
 
 /**
- * Keep a teacher Save to card choice when a poll snapshot is older than the click.
+ * Teacher fields a deck snapshot must not replace with catalogue defaults.
+ * @type {string[]}
+ */
+const TEACHER_ITEM_FIELDS = [
+  "save_to_card",
+  "show_live_results",
+  "publish_mode",
+  "response_mode",
+];
+
+/**
+ * Keep teacher settings from a server card when catalogue JSON is merged over it.
+ * @param {any} row
+ * @returns {Record<string, unknown>}
+ */
+function teacherFieldsFrom(row) {
+  if (!row || typeof row !== "object") return {};
+  /** @type {Record<string, unknown>} */
+  const kept = {};
+  for (const key of TEACHER_ITEM_FIELDS) {
+    if (row[key] !== undefined && row[key] !== null) kept[key] = row[key];
+  }
+  return kept;
+}
+
+/**
+ * Compare one held setting with the value a poll just returned.
+ * @param {string} field
+ * @param {unknown} held
+ * @param {unknown} incoming
+ * @returns {boolean}
+ */
+function teacherSettingMatches(field, held, incoming) {
+  if (field === "save_to_card" || field === "show_live_results") {
+    return Boolean(incoming) === Boolean(held);
+  }
+  return String(incoming || "") === String(held || "");
+}
+
+/**
+ * Keep in-flight teacher settings when a poll snapshot is older than the click.
  * @param {any[]} items
  * @returns {any[]}
  */
@@ -2034,13 +2113,24 @@ function absorbSaveToCardSnapshot(items) {
   const rows = Array.isArray(items) ? items : [];
   return rows.map((row) => {
     const id = Number(row?.id) || 0;
-    if (!id || !saveToCardHold.has(id)) return row;
-    const held = Boolean(saveToCardHold.get(id));
-    if (Boolean(row?.save_to_card) === held) {
-      saveToCardHold.delete(id);
-      return row;
+    if (!id) return row;
+    const next = { ...row };
+    if (saveToCardHold.has(id)) {
+      const held = Boolean(saveToCardHold.get(id));
+      if (Boolean(row?.save_to_card) === held) saveToCardHold.delete(id);
+      else next.save_to_card = held;
     }
-    return { ...row, save_to_card: held };
+    for (const field of TEACHER_ITEM_FIELDS) {
+      const key = `${id}:${field}`;
+      if (!teacherSettingHold.has(key)) continue;
+      const held = teacherSettingHold.get(key);
+      if (teacherSettingMatches(field, held, row?.[field])) {
+        teacherSettingHold.delete(key);
+      } else {
+        next[field] = held;
+      }
+    }
+    return next;
   });
 }
 
@@ -2725,16 +2815,29 @@ async function closeLifecycleItem(liveItemId) {
  */
 async function setLifecycleResultsVisible(liveItemId, visible) {
   const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || !liveItemId) return;
-  const result = await api(
-    `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ show_live_results: Boolean(visible) }),
-    }
-  );
-  adoptLiveItem(result?.item);
-  paintLiveQuestionCards();
+  const id = Number(liveItemId) || 0;
+  if (!sessionId || !id) return;
+  const flag = Boolean(visible);
+  teacherSettingHold.set(`${id}:show_live_results`, flag);
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  if (index >= 0) {
+    lastLiveItems[index] = { ...lastLiveItems[index], show_live_results: flag };
+  }
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ show_live_results: flag }),
+      }
+    );
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    teacherSettingHold.delete(`${id}:show_live_results`);
+    throw err;
+  } finally {
+    paintLiveQuestionCards();
+  }
 }
 
 /**
@@ -2750,13 +2853,14 @@ async function setLifecycleSaveToCard(liveItemId, enabled) {
   const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
   const previous = index >= 0 ? lastLiveItems[index] : null;
   saveToCardHold.set(id, flag);
+  teacherSettingHold.set(`${id}:save_to_card`, flag);
   if (index >= 0) {
     lastLiveItems[index] = { ...lastLiveItems[index], save_to_card: flag };
   }
   paintLiveQuestionCards();
   try {
     const result = await api(
-      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      `/api/live-sessions/${sessionId}/items/${liveItemId}/settings`,
       {
         method: "PATCH",
         body: JSON.stringify({ save_to_card: flag }),
@@ -2765,6 +2869,7 @@ async function setLifecycleSaveToCard(liveItemId, enabled) {
     adoptLiveItem(result?.item);
   } catch (err) {
     saveToCardHold.delete(id);
+    teacherSettingHold.delete(`${id}:save_to_card`);
     if (previous) lastLiveItems[index] = previous;
     throw err;
   } finally {
@@ -7436,16 +7541,114 @@ $("live-class-select")?.addEventListener("change", () => {
 });
 
 /**
- * PATCH one Student View dropdown onto teacher state.
+ * Remember one surface's Publish mode on its lifecycle row.
+ * Shared within Group is ``group_shared``. An active whiteboard also turns
+ * the collab projection on so teammates share strokes.
  * @param {"media"|"canvas"|"slides"} surface
+ * @returns {Promise<void>}
  */
-function patchStudentViewFromControl(surface) {
+async function persistSurfacePublishMode(surface) {
   const el = $(`live-view-${surface}`);
   if (!(el instanceof HTMLSelectElement)) return;
-  const mode = el.value === "student" || el.value === "team" ? el.value : "none";
-  const next = { ...(teacherState.student_view || {}), [surface]: mode };
-  teacherState.student_view = next;
-  patchTeacherState({ student_view: next });
+  const viewMode = el.value === "team" ? "team" : "student";
+  const publishMode = viewMode === "team" ? "group_shared" : "individual";
+  const item = lifecycleItemForSurface(surface);
+  const id = Number(item?.id) || 0;
+  if (!id) {
+    const next = { ...(teacherState.student_view || {}), [surface]: viewMode };
+    teacherState.student_view = next;
+    await patchTeacherState({ student_view: next });
+    return;
+  }
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  const previous = index >= 0 ? lastLiveItems[index] : null;
+  teacherSettingHold.set(`${id}:publish_mode`, publishMode);
+  if (index >= 0) {
+    lastLiveItems[index] = { ...lastLiveItems[index], publish_mode: publishMode };
+  }
+  paintStudentViewControls();
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ publish_mode: publishMode }),
+      }
+    );
+    adoptLiveItem(result?.item);
+    if (result?.teacher_state) adoptTeacherState(result.teacher_state);
+  } catch (err) {
+    teacherSettingHold.delete(`${id}:publish_mode`);
+    if (previous && index >= 0) lastLiveItems[index] = previous;
+    throw err;
+  } finally {
+    paintStudentViewControls();
+    paintSurfacePublishing();
+  }
+}
+
+/**
+ * PATCH one Publish mode dropdown onto the lifecycle row.
+ * @param {"media"|"canvas"|"slides"} surface
+ * @returns {Promise<void>}
+ */
+function patchStudentViewFromControl(surface) {
+  return persistSurfacePublishMode(surface);
+}
+
+/**
+ * Store Individual / Group on the question before Publish.
+ * @param {number} liveItemId
+ * @param {string} rawMode
+ * @returns {Promise<void>}
+ */
+async function persistQuestionMode(liveItemId, rawMode) {
+  const id = Number(liveItemId) || 0;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !id) return;
+  const canonical = canonicalPublishMode(rawMode);
+  const mode =
+    canonical === "group_consensus" || canonical === "individual_in_group"
+      ? "group_consensus"
+      : canonical === "group_submit"
+        ? "group_submit"
+        : "individual";
+  const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
+  const previous = index >= 0 ? lastLiveItems[index] : null;
+  teacherSettingHold.set(`${id}:publish_mode`, mode);
+  teacherSettingHold.set(`${id}:response_mode`, mode);
+  if (index >= 0) {
+    lastLiveItems[index] = {
+      ...lastLiveItems[index],
+      publish_mode: mode,
+      response_mode: mode,
+    };
+  }
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${id}/settings`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ publish_mode: mode, response_mode: mode }),
+      }
+    );
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    teacherSettingHold.delete(`${id}:publish_mode`);
+    teacherSettingHold.delete(`${id}:response_mode`);
+    if (previous && index >= 0) lastLiveItems[index] = previous;
+    throw err;
+  }
+}
+
+for (const surface of ["media", "canvas", "slides"]) {
+  $(`live-view-${surface}`)?.addEventListener("change", () => {
+    persistSurfacePublishMode(surface).catch((err) =>
+      showError("#ap-overlay-error", err)
+    );
+  });
 }
 
 document.querySelectorAll("[data-surface-publish]").forEach((button) => {
@@ -7496,6 +7699,7 @@ $("live-question-list")?.addEventListener("click", async (event) => {
         teacherState.teams_mode = "teams";
         await patchTeacherState({ run_as_group: true }, { silent: true });
       }
+      await persistQuestionMode(id, value);
     } catch (err) {
       showError("#ap-overlay-error", err);
     }
@@ -7537,6 +7741,12 @@ $("live-question-list")?.addEventListener("change", async (event) => {
       id,
       value === "group_consensus" ? "group_consensus" : "individual"
     );
+    try {
+      await persistQuestionMode(id, value);
+    } catch (err) {
+      showError("#ap-overlay-error", err);
+    }
+    paintLiveQuestionCards();
     return;
   }
   const select = event.target.closest("select[data-question-view]");

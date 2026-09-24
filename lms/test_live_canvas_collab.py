@@ -82,6 +82,106 @@ class WhiteboardCollabTests(unittest.TestCase):
         """Map the two collab writers onto one group and a third onto another."""
         return 2 if int(student_id) == 13 else 1
 
+    def test_shared_group_choice_survives_refresh_and_uses_team_lock(self) -> None:
+        """Whiteboard Shared within Group stays set and shares one locked team.
+
+        A deck refresh and a page change must not put the mode back on
+        Individual. Teammates then see each other's strokes and cursors.
+        """
+
+        self.school.game.add_student(self.class_id, codename="Cedar")
+        students = [
+            dict(row)
+            for row in self.school.game.conn.execute(
+                "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        ]
+        self.assertGreaterEqual(len(students), 3)
+        mates = students[:2]
+        other = students[2]
+        self.school.game.begin_game(self.class_id)
+        for student in students:
+            self.school.join_live_class_session(
+                self.session_id,
+                int(student["id"]),
+                codename=str(student["codename"]),
+            )
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=[int(student["id"]) for student in students],
+            assignments=[
+                {"student_id": int(student["id"]), "team_index": 0}
+                for student in mates
+            ]
+            + [{"student_id": int(other["id"]), "team_index": 1}],
+        )
+        row = self._whiteboard()
+        saved = self.client.patch(
+            f"/api/live-sessions/{self.session_id}/items/{int(row['id'])}/settings",
+            json={"publish_mode": "group_shared"},
+        )
+        self.assertEqual(saved.status_code, 200, saved.get_json())
+        self.assertEqual(saved.get_json()["item"]["publish_mode"], "group_shared")
+        self.school.ensure_live_session_items(self.session_id)
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="play", page_id="later"
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="meet", page_id="meet"
+        )
+        state = self.school.get_live_session_state(self.session_id)
+        board = next(
+            item
+            for item in state["live_items"]
+            if str(item.get("kind") or "") == "whiteboard"
+        )
+        self.assertEqual(board["publish_mode"], "group_shared")
+        self.assertEqual(board["item"]["publish_mode"], "group_shared")
+        published = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{int(row['id'])}/publish",
+            json={"publish_mode": "group_shared"},
+        )
+        self.assertEqual(published.status_code, 200, published.get_json())
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(teacher["canvas_align"], "team")
+        self.assertEqual(teacher["student_view"]["canvas"], "team")
+        for student, x in (
+            (mates[0], 0.2),
+            (mates[1], 0.55),
+            (other, 0.8),
+        ):
+            team_id = self.school.student_team_id_for_class(
+                self.class_id, int(student["id"])
+            )
+            self.assertIsNotNone(team_id)
+            self.school.apply_live_canvas_presence(
+                self.session_id,
+                owner=str(int(student["id"])),
+                name=str(student["codename"]),
+                team_id=team_id,
+                x=x,
+                y=0.4,
+                stroke_id=f"s-{student['id']}",
+                point=[x, 0.4],
+                as_teacher=False,
+            )
+        first = int(mates[0]["id"])
+        view = self.school.live_session_canvas_view(
+            self.session_id, student_id=first
+        )
+        self.assertEqual(
+            {stroke["owner"] for stroke in view["strokes"]},
+            {str(int(student["id"])) for student in mates},
+        )
+        self.assertEqual(
+            {cursor["name"] for cursor in view["cursors"]},
+            {str(student["codename"]) for student in mates},
+        )
+        self.assertNotIn(str(int(other["id"])), {stroke["owner"] for stroke in view["strokes"]})
+
     def test_group_publish_shares_strokes_and_named_cursors(self) -> None:
         """group_shared publish stores every writer's stroke and cursor name."""
         row = self._whiteboard()

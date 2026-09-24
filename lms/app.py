@@ -5420,7 +5420,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_live_item_settings(session_id: int, live_item_id: int):
-        """Update one item's Show Live Results setting."""
+        """Update one item's teacher settings without publishing it."""
 
         _row, error = _active_owned_live_session(session_id)
         if error is not None:
@@ -5428,11 +5428,16 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         body = request.get_json(silent=True) or {}
         has_results = "show_live_results" in body
         has_save = "save_to_card" in body
-        if not has_results and not has_save:
+        has_publish = "publish_mode" in body
+        has_response = "response_mode" in body
+        if not any((has_results, has_save, has_publish, has_response)):
             return jsonify(
                 {
                     "ok": False,
-                    "error": "show_live_results or save_to_card is required",
+                    "error": (
+                        "show_live_results, save_to_card, publish_mode, "
+                        "or response_mode is required"
+                    ),
                 }
             ), 400
         try:
@@ -5441,10 +5446,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 live_item_id,
                 show_live_results=body.get("show_live_results") if has_results else None,
                 save_to_card=body.get("save_to_card") if has_save else None,
+                publish_mode=body.get("publish_mode") if has_publish else None,
+                response_mode=body.get("response_mode") if has_response else None,
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        return jsonify({"ok": True, "item": item})
+        return jsonify(
+            {
+                "ok": True,
+                "item": item,
+                "teacher_state": school.live_session_teacher_state_payload(session_id),
+            }
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/results"

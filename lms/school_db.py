@@ -10233,10 +10233,19 @@ class SchoolDB(LovesDB):
             parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
         except json.JSONDecodeError:
             parsed = {}
-        item["item"] = parsed if isinstance(parsed, dict) else {}
+        nested = parsed if isinstance(parsed, dict) else {}
+        item["item"] = nested
         item.pop("item_json", None)
         item["show_live_results"] = bool(item.get("show_live_results"))
         item["save_to_card"] = bool(item.get("save_to_card"))
+        # Catalogue JSON is refreshed on deck polls. Column values are the
+        # teacher settings the staff UI must read back.
+        nested["show_live_results"] = item["show_live_results"]
+        nested["save_to_card"] = item["save_to_card"]
+        if item.get("publish_mode"):
+            nested["publish_mode"] = str(item.get("publish_mode"))
+        if item.get("response_mode"):
+            nested["response_mode"] = str(item.get("response_mode"))
         item["sort_order"] = int(item.get("sort_order") or 0)
         item["page_number"] = (
             int(item["page_number"])
@@ -10554,6 +10563,46 @@ class SchoolDB(LovesDB):
             activate=False,
         )
 
+    def _live_item_rows_for_session(self, session_id: int) -> list[Any]:
+        """Return raw lifecycle rows so a deck refresh can keep teacher settings.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            return self.conn.execute(
+                """
+                SELECT * FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchall()
+
+    @staticmethod
+    def _overlay_saved_teacher_settings(
+        question: dict[str, Any], existing: Any
+    ) -> dict[str, Any]:
+        """Copy saved per-question settings onto a fresh catalogue payload.
+
+        Deck polls rewrite ``item_json`` from the lesson file. Save to card,
+        Show Live Results, publish mode, and response mode stay on the
+        session row and must be copied back onto that JSON.
+
+        Args:
+            question: Catalogue or placement dict about to be stored.
+            existing: Current ``live_session_items`` row for this question.
+        """
+        body = dict(question)
+        body["save_to_card"] = bool(int(existing["save_to_card"] or 0))
+        body["show_live_results"] = bool(int(existing["show_live_results"] or 0))
+        body["publish_mode"] = str(
+            existing["publish_mode"] or body.get("publish_mode") or "individual"
+        )
+        body["response_mode"] = str(
+            existing["response_mode"] or body.get("response_mode") or "individual"
+        )
+        return body
+
     def ensure_live_session_items(self, session_id: int) -> list[dict[str, Any]]:
         """Seed inactive lifecycle rows for every resolved question placement.
 
@@ -10604,6 +10653,15 @@ class SchoolDB(LovesDB):
                 }
             )
         prompts = self._list_live_session_prompts(session_id)
+        existing_rows = self._live_item_rows_for_session(session_id)
+        existing_by_key = {
+            str(row["placement_key"] or ""): row for row in existing_rows
+        }
+        existing_by_item: dict[str, Any] = {}
+        for row in existing_rows:
+            token = str(row["item_id"] or "").strip()
+            if token and token not in existing_by_item:
+                existing_by_item[token] = row
         prompt_by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompts:
             payload = (
@@ -10686,7 +10744,26 @@ class SchoolDB(LovesDB):
                 )
                 prompt = prompt_by_item.get(item_id)
                 prompt_id = int(prompt["id"]) if prompt else None
+                saved = existing_by_key.get(placement_key)
+                if saved is None:
+                    saved = existing_by_item.get(item_id)
+                if saved is None:
+                    for key, row in existing_by_item.items():
+                        if self._same_live_item_id(key, item_id):
+                            saved = row
+                            break
+                show_live_results = 1
                 save_to_card = 1 if question.get("save_to_card") else 0
+                if saved is not None:
+                    question = self._overlay_saved_teacher_settings(question, saved)
+                    save_to_card = 1 if question.get("save_to_card") else 0
+                    show_live_results = 1 if question.get("show_live_results") else 0
+                    default_publish = str(
+                        question.get("publish_mode") or default_publish
+                    )
+                    response_mode = str(
+                        question.get("response_mode") or response_mode
+                    )
                 self.conn.execute(
                     """
                     INSERT INTO live_session_items (
@@ -10694,7 +10771,7 @@ class SchoolDB(LovesDB):
                         page_number, sort_order, kind, item_json, prompt_id,
                         status, publish_mode, response_mode, show_live_results,
                         save_to_card, published_at, closed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, 1, ?,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?, ?,
                               NULL, NULL, ?, ?)
                     ON CONFLICT(live_session_id, placement_key) DO UPDATE SET
                         item_id = excluded.item_id,
@@ -10706,11 +10783,10 @@ class SchoolDB(LovesDB):
                         prompt_id = COALESCE(
                             live_session_items.prompt_id, excluded.prompt_id
                         ),
-                        response_mode = CASE
-                            WHEN live_session_items.status = 'inactive'
-                            THEN excluded.response_mode
-                            ELSE live_session_items.response_mode
-                        END,
+                        publish_mode = live_session_items.publish_mode,
+                        response_mode = live_session_items.response_mode,
+                        show_live_results = live_session_items.show_live_results,
+                        save_to_card = live_session_items.save_to_card,
                         updated_at = excluded.updated_at
                     """,
                     (
@@ -10725,6 +10801,7 @@ class SchoolDB(LovesDB):
                         prompt_id,
                         default_publish,
                         response_mode,
+                        show_live_results,
                         save_to_card,
                         now,
                         now,
@@ -11278,6 +11355,32 @@ class SchoolDB(LovesDB):
             return bool(value)
         raise ValueError(f"{field} must be a boolean")
 
+    def _stored_item_mode(self, item: dict[str, Any], raw: Any) -> str:
+        """Return a publish or response mode this item is allowed to remember.
+
+        Storing the choice does not publish the item and does not require
+        groups. Publish still checks those rules.
+
+        Args:
+            item: Lifecycle row the teacher is editing.
+            raw: Posted mode token.
+
+        Raises:
+            ValueError: When the token is not a known live mode.
+        """
+        mode = self._canonicalize_publish_mode(raw)
+        if mode in {"group", "individual_in_group"}:
+            mode = "group_consensus"
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind == "whiteboard":
+            allowed = {"individual", "group_shared"}
+        else:
+            allowed = set(self._placement_publish_modes(item))
+            allowed.update({"individual", "group_consensus", "group_submit"})
+        if mode not in allowed:
+            raise ValueError(f"publish mode is not supported: {mode}")
+        return mode
+
     def update_live_session_item_settings(
         self,
         session_id: int,
@@ -11285,11 +11388,15 @@ class SchoolDB(LovesDB):
         *,
         show_live_results: Any = None,
         save_to_card: Any = None,
+        publish_mode: Any = None,
+        response_mode: Any = None,
     ) -> dict[str, Any]:
-        """Update Show Live Results and/or Save to card for one item.
+        """Update one item's teacher settings without publishing it.
 
-        Either flag may be omitted. Save to card is also written onto the
-        class deck so a later publish or a new session keeps the choice.
+        Any subset may be sent. Save to card is also written onto the class
+        deck so a later publish or a new session keeps that choice. Publish
+        mode and response mode stay on the lifecycle row so a deck refresh
+        cannot put the dropdown back on the catalogue default.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11297,32 +11404,66 @@ class SchoolDB(LovesDB):
             show_live_results: When set, student live tallies follow this flag.
             save_to_card: When set, the student right panel keeps the card
                 after the beat. Default off.
+            publish_mode: Individual, group consensus, group submit, or
+                whiteboard group-shared. Stored before Publish.
+            response_mode: How answers are collected. Defaults to the same
+                token as ``publish_mode`` when only that field is sent.
 
         Raises:
-            ValueError: When neither flag is present or a value is not boolean.
+            ValueError: When no setting is present or a value is invalid.
         """
-        if show_live_results is None and save_to_card is None:
-            raise ValueError("show_live_results or save_to_card is required")
+        if (
+            show_live_results is None
+            and save_to_card is None
+            and publish_mode is None
+            and response_mode is None
+        ):
+            raise ValueError(
+                "show_live_results, save_to_card, publish_mode, or response_mode is required"
+            )
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
         assignments: list[str] = []
         params: list[Any] = []
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        question = dict(question)
+        visible: bool | None = None
         if show_live_results is not None:
             visible = self._coerce_settings_flag(
                 show_live_results, "show_live_results"
             )
             assignments.append("show_live_results = ?")
             params.append(1 if visible else 0)
+            question["show_live_results"] = bool(visible)
         save_flag: bool | None = None
         if save_to_card is not None:
             save_flag = self._coerce_settings_flag(save_to_card, "save_to_card")
             assignments.append("save_to_card = ?")
             params.append(1 if save_flag else 0)
-            question = item.get("item") if isinstance(item.get("item"), dict) else {}
-            question = dict(question)
             question["save_to_card"] = bool(save_flag)
-            assignments.append("item_json = ?")
-            params.append(json.dumps(question))
+        stored_publish: str | None = None
+        if publish_mode is not None:
+            stored_publish = self._stored_item_mode(item, publish_mode)
+            assignments.append("publish_mode = ?")
+            params.append(stored_publish)
+            question["publish_mode"] = stored_publish
+            if response_mode is None:
+                if stored_publish == "group_shared":
+                    paired = "individual"
+                else:
+                    paired = stored_publish
+                assignments.append("response_mode = ?")
+                params.append(paired)
+                question["response_mode"] = paired
+        if response_mode is not None:
+            stored_response = self._stored_item_mode(item, response_mode)
+            if stored_publish == "group_shared":
+                stored_response = "individual"
+            assignments.append("response_mode = ?")
+            params.append(stored_response)
+            question["response_mode"] = stored_response
+        assignments.append("item_json = ?")
+        params.append(json.dumps(question))
         params.extend([_now(), int(item["id"])])
         with self._lock:
             self.conn.execute(
@@ -11336,6 +11477,12 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         if save_flag is not None:
             self._persist_save_to_card_on_deck(session_id, item, enabled=save_flag)
+        if (
+            stored_publish is not None
+            and str(item.get("kind") or "") == "whiteboard"
+            and str(item.get("status") or "") == "active"
+        ):
+            self._sync_whiteboard_collab(session_id, stored_publish)
         return self.get_live_session_item(session_id, int(item["id"]))
 
     def _persist_save_to_card_on_deck(
