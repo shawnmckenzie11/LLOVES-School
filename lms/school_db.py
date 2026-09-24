@@ -64,6 +64,16 @@ try:
         public_canvas_sync,
     )
     from live_mc import build_live_tally, build_mc_tally
+    from live_rank import (
+        borda_class_order,
+        build_rank_options,
+        format_rank_order,
+        is_rank_prompt,
+        parse_rank_order,
+        rank_fingerprint,
+        safe_rank_options,
+        toggle_rank_order,
+    )
     from live_class_metadata import (
         SCHEMA_V2,
         _placement_sort_key,
@@ -178,6 +188,16 @@ except ImportError:  # ``python3 lms/app.py`` package import
         public_canvas_sync,
     )
     from lms.live_mc import build_live_tally, build_mc_tally
+    from lms.live_rank import (
+        borda_class_order,
+        build_rank_options,
+        format_rank_order,
+        is_rank_prompt,
+        parse_rank_order,
+        rank_fingerprint,
+        safe_rank_options,
+        toggle_rank_order,
+    )
     from lms.live_class_metadata import (
         SCHEMA_V2,
         _placement_sort_key,
@@ -8507,6 +8527,7 @@ class SchoolDB(LovesDB):
             "mc": "multiple_choice_question",
             "numeric": "numerical_question",
             "poll": "essay_question",
+            "rank": "essay_question",
         }.get(question_type, "essay_question")
         import_key = f"staff-q-{uuid.uuid4().hex}"
         title = str(text or "").strip()[:80] or "Staff question"
@@ -8672,7 +8693,7 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C2``.
-            question_type: ``mc``, ``numeric``, or ``poll``.
+            question_type: ``mc``, ``numeric``, ``poll``, or ``rank``.
             text: Required stem (equation is stored separately).
             page_number: Current overlay page number.
             stage: Lifecycle stage; defaults to ``round``.
@@ -8696,8 +8717,8 @@ class SchoolDB(LovesDB):
             from lms.bank_mc_normalize import parse_module_token
 
         kind = str(question_type or "").strip().lower()
-        if kind not in {"mc", "numeric", "poll"}:
-            raise ValueError("type must be mc, numeric, or poll")
+        if kind not in {"mc", "numeric", "poll", "rank"}:
+            raise ValueError("type must be mc, numeric, poll, or rank")
         stem = str(text or "").strip()
         if not stem:
             raise ValueError("question text required")
@@ -8772,6 +8793,14 @@ class SchoolDB(LovesDB):
         else:
             item_payload["options"] = []
             item_payload["choices"] = []
+        if kind == "rank":
+            rank_rows = build_rank_options(option_list)
+            labels = [row["label"] for row in rank_rows]
+            item_payload["rank_options"] = rank_rows
+            item_payload["options"] = labels
+            item_payload["choices"] = labels
+            item_payload.pop("key", None)
+            item_payload.pop("correct_answer", None)
 
         source_question_id = None
         if save_to_bank:
@@ -10452,6 +10481,8 @@ class SchoolDB(LovesDB):
             return ARTIFACT_KIND
         if token == "poll":
             return "poll"
+        if token == "rank":
+            return "rank"
         return "mc"
 
     @staticmethod
@@ -11048,6 +11079,20 @@ class SchoolDB(LovesDB):
             )
             payload["options"] = kept_choices
             payload["choices"] = kept_choices
+        elif prompt_kind == "rank":
+            payload.pop("key", None)
+            payload.pop("correct_answer", None)
+            rank_rows = safe_rank_options(
+                question.get("rank_options")
+                or question.get("options")
+                or question.get("choices")
+            )
+            labels = [row["label"] for row in rank_rows]
+            payload["type"] = "rank"
+            payload["kind"] = "rank"
+            payload["rank_options"] = rank_rows
+            payload["options"] = labels
+            payload["choices"] = labels
         else:
             self._attach_singular_answer_key(payload, question)
         if prompt_kind == "numeric":
@@ -11544,7 +11589,8 @@ class SchoolDB(LovesDB):
             ValueError: The item is not multiple choice, or groups are not set up.
         """
 
-        if self._question_answer_kind(item) != "mc":
+        kind = self._question_answer_kind(item)
+        if kind not in {"mc", "rank"}:
             raise ValueError("Group submission is multiple choice only.")
         teacher = self.live_session_teacher_state_payload(session_id)
         if not teacher.get("groups_configured"):
@@ -11732,9 +11778,12 @@ class SchoolDB(LovesDB):
             row: Normalized ``live_group_responses`` row.
         """
 
+        proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        if proposed.get("kind") == "rank" or final.get("kind") == "rank":
+            return self._group_rank_phase(row)
         choice = self._group_draft_choice(row)
         why = str(row.get("why_text") or "").strip()
-        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
         matches = (
             int(row.get("submit_count") or 0) > 0
             and str(final.get("value") or "").strip() == choice
@@ -11747,6 +11796,43 @@ class SchoolDB(LovesDB):
         if choice and why:
             return "ready"
         return "drafting"
+
+    @staticmethod
+    def _group_rank_phase(row: dict[str, Any]) -> str:
+        """Return drafting, ready, or submitted for one shared rank order.
+
+        Ready is a complete permutation. Why is not required. Submitted
+        means the live order still matches the last submit.
+
+        Args:
+            row: Normalized ``live_group_responses`` row.
+        """
+        proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        order = [str(item) for item in (proposed.get("order") or []) if str(item).strip()]
+        order = order[:6]
+        complete = bool(proposed.get("complete")) and bool(order)
+        final_order = (
+            [str(item) for item in (final.get("order") or []) if str(item).strip()][:6]
+            if final.get("kind") == "rank"
+            else []
+        )
+        if int(row.get("submit_count") or 0) > 0 and complete and final_order == order:
+            return "submitted"
+        if complete:
+            return "ready"
+        return "drafting"
+
+    def _rank_option_rows(self, item: dict[str, Any]) -> list[dict[str, str]]:
+        """Return authored rank options for one lifecycle item.
+
+        Args:
+            item: Lifecycle row with a nested catalogue ``item``.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        return safe_rank_options(
+            question.get("rank_options") or question.get("options") or question.get("choices")
+        )
 
     def _team_member_names(
         self, session_id: int, class_id: int, team_id: int
@@ -11812,10 +11898,50 @@ class SchoolDB(LovesDB):
             return str(proposed["value"]).strip()
         return ""
 
+    def _group_submit_read_team(
+        self, item: dict[str, Any], student_id: int | None
+    ) -> int:
+        """Return this student's team for a group card, including after close.
+
+        An open item lands a late teammate on the shared row. A closed item
+        only reads the row that already exists, so Reveal-off can still show
+        that team's order and a late write cannot reopen the question.
+
+        Args:
+            item: Lifecycle row whose ``response_mode`` is ``group_submit``.
+            student_id: Roster id.
+
+        Raises:
+            ValueError: The student has no shared row to read.
+            KeyError: The live session is gone.
+        """
+        if str(item.get("status") or "") == "active":
+            return self._require_group_submit_member(item, student_id)
+        if student_id in (None, ""):
+            raise ValueError("Roster student required")
+        if str(item.get("response_mode") or "") != "group_submit":
+            raise ValueError("This question is not a group submission.")
+        if str(item.get("status") or "") != "closed":
+            raise ValueError("This item is not accepting responses.")
+        session_row = self.get_live_session(int(item["live_session_id"]))
+        if session_row is None:
+            raise KeyError(f"live session {item.get('live_session_id')}")
+        team_id = self.student_team_id_for_class(
+            int(session_row["class_id"]), int(student_id)
+        )
+        if team_id is None:
+            raise ValueError("Join a group before submitting.")
+        if self._group_response_row(int(item["id"]), int(team_id)) is None:
+            raise ValueError("This group is not on the question.")
+        return int(team_id)
+
     def student_group_submit_state(
         self, item: dict[str, Any], student_id: int | None
     ) -> dict[str, Any] | None:
-        """Return this student's shared MC card without other groups' answers.
+        """Return this student's shared card without other groups' answers.
+
+        Open and closed items both return the one team order. Other teams
+        stay off this card. Guests and non-members get ``None``.
 
         Args:
             item: Lifecycle row whose ``response_mode`` is ``group_submit``.
@@ -11828,7 +11954,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             return None
         try:
-            team_id = self._require_group_submit_member(item, student_id)
+            team_id = self._group_submit_read_team(item, student_id)
         except ValueError:
             return None
         row = self._group_response_row(int(item["id"]), int(team_id)) or {}
@@ -11846,7 +11972,7 @@ class SchoolDB(LovesDB):
         if last_id not in (None, ""):
             last_name = self._roster_codename(class_id, int(last_id))
         active = str(item.get("status") or "") == "active"
-        return {
+        card = {
             "team_id": int(team_id),
             "team_name": str((teams.get(int(team_id)) or {}).get("name") or ""),
             "members": self._team_member_names(
@@ -11861,6 +11987,116 @@ class SchoolDB(LovesDB):
             "last_submitter": last_name,
             "can_submit": active and phase == "ready",
         }
+        if self._question_answer_kind(item) == "rank":
+            proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+            draft_order = (
+                [str(item_id) for item_id in (proposed.get("order") or [])][:6]
+                if proposed.get("kind") == "rank"
+                else []
+            )
+            submitted_order = (
+                [str(item_id) for item_id in (final.get("order") or [])][:6]
+                if final.get("kind") == "rank"
+                else []
+            )
+            card["order"] = draft_order
+            card["submitted_order"] = submitted_order
+        return card
+
+    def _save_group_rank_draft(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        student_id: int,
+        *,
+        order: Any = None,
+        tap: Any = None,
+        clear: bool = False,
+    ) -> dict[str, Any]:
+        """Replace one team's shared rank draft. Last write wins.
+
+        A tap reads and writes the row inside the school lock so two
+        teammates cannot corrupt the order. The stored list is the rank:
+        removing an id renumbers the rest.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Open group-submit lifecycle row.
+            student_id: Roster id of the editor.
+            order: Full replacement order, when ``tap`` and ``clear`` are absent.
+            tap: Option id to number or undo.
+            clear: Wipe the draft.
+
+        Returns:
+            The public group-submit card for this student.
+        """
+        del session_id  # membership check loads the session
+        team_id = self._require_group_submit_member(item, student_id)
+        options = self._rank_option_rows(item)
+        allowed = [row["id"] for row in options]
+        live_item_id = int(item["id"])
+        now = _now()
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json, final_answer_json, submit_count
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (live_item_id, int(team_id)),
+            ).fetchone()
+            existing: list[str] = []
+            final_answer: dict[str, Any] | None = None
+            submit_count = 0
+            if current is not None:
+                submit_count = int(current["submit_count"] or 0)
+                try:
+                    parsed = json.loads(current["proposed_answer_json"] or "null")
+                except (TypeError, json.JSONDecodeError):
+                    parsed = {}
+                if isinstance(parsed, dict) and parsed.get("kind") == "rank":
+                    try:
+                        existing = parse_rank_order(parsed.get("order"), allowed, complete=False)
+                    except ValueError:
+                        existing = []
+                try:
+                    final_parsed = json.loads(current["final_answer_json"] or "null")
+                except (TypeError, json.JSONDecodeError):
+                    final_parsed = None
+                if isinstance(final_parsed, dict):
+                    final_answer = final_parsed
+            if clear:
+                next_order: list[str] = []
+            elif tap not in (None, ""):
+                next_order = toggle_rank_order(existing, str(tap), allowed)
+            elif order is not None:
+                next_order = parse_rank_order(order, allowed, complete=False)
+            else:
+                next_order = existing
+            complete = (
+                bool(next_order)
+                and set(next_order) == set(allowed)
+                and len(next_order) == len(allowed)
+            )
+            proposed_body = {"kind": "rank", "order": next_order, "complete": complete}
+            status = self._group_rank_phase(
+                {
+                    "proposed_answer": proposed_body,
+                    "final_answer": final_answer,
+                    "submit_count": submit_count,
+                }
+            )
+            proposed = json.dumps(proposed_body)
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = ?, proposed_answer_json = ?, updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (status, proposed, now, live_item_id, int(team_id)),
+            )
+            self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
 
     def save_group_mc_draft(
         self,
@@ -11870,11 +12106,15 @@ class SchoolDB(LovesDB):
         *,
         choice: Any,
         why: Any,
+        order: Any = None,
+        tap: Any = None,
+        clear: bool = False,
     ) -> dict[str, Any]:
-        """Store the team's shared choice and why. Does not submit.
+        """Store the team's shared choice and why, or a shared rank order.
 
-        Ready is choice plus a non-empty why. A previous submit stays
-        submitted until the next explicit submit; the draft can still change.
+        Ready for multiple choice is choice plus a non-empty why. Ready for
+        rank is a complete option order; why stays optional. A previous
+        submit stays submitted until the next explicit submit.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11882,6 +12122,9 @@ class SchoolDB(LovesDB):
             student_id: Roster id of the editor.
             choice: Shared multiple-choice label.
             why: Shared why line.
+            order: Full rank order of option ids. Replaces the shared draft.
+            tap: One option id to number or undo on the shared rank order.
+            clear: When True, wipe the shared rank draft.
 
         Returns:
             The public group-submit card for this student.
@@ -11889,6 +12132,15 @@ class SchoolDB(LovesDB):
 
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, live_item_id)
+        if self._question_answer_kind(item) == "rank":
+            return self._save_group_rank_draft(
+                session_id,
+                item,
+                student_id,
+                order=order,
+                tap=tap,
+                clear=clear,
+            )
         team_id = self._require_group_submit_member(item, student_id)
         choice_text = str(choice or "").strip()[:500]
         why_text = str(why or "").strip()[:500]
@@ -11929,12 +12181,14 @@ class SchoolDB(LovesDB):
         *,
         choice: Any,
         why: Any,
+        order: Any = None,
     ) -> dict[str, Any]:
-        """Submit the shared MC answer for the student's team.
+        """Submit the shared MC answer or shared rank order for the team.
 
-        The ready-gate rejects a missing choice or an empty why. An unchanged
-        double-tap does not append another log line. A changed re-submit
-        overwrites the live answer and why. No celebration cue is written.
+        The ready-gate rejects a missing choice or an empty why on multiple
+        choice. Rank is ready when every option is numbered; why stays off.
+        An unchanged double-tap does not append another log line. A changed
+        re-submit overwrites the live answer. No celebration cue is written.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -11942,11 +12196,18 @@ class SchoolDB(LovesDB):
             student_id: Roster id of the person pressing Submit.
             choice: Shared multiple-choice label.
             why: Shared why line.
+            order: Rank option ids. When omitted, the stored rank draft is used.
 
         Returns:
             The public group-submit card. No delight copy.
         """
 
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if self._question_answer_kind(item) == "rank":
+            return self._submit_group_rank_answer(
+                session_id, item, student_id, order=order
+            )
         self.save_group_mc_draft(
             session_id,
             live_item_id,
@@ -11986,6 +12247,78 @@ class SchoolDB(LovesDB):
                 """,
                 (
                     json.dumps(final),
+                    int(student_id),
+                    json.dumps(ids),
+                    now,
+                    int(item["id"]),
+                    team_id,
+                ),
+            )
+            self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def _submit_group_rank_answer(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        student_id: int,
+        *,
+        order: Any = None,
+    ) -> dict[str, Any]:
+        """Submit one team's shared rank order and append the staff log.
+
+        Uses the same group-response row, submitter ids, and re-submit count
+        as multiple choice. A miss stays off this row's ``submit_count``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Open group-submit lifecycle row.
+            student_id: Roster id of the person pressing Submit.
+            order: Optional full order. The stored draft is used when omitted.
+
+        Returns:
+            The public group-submit card.
+        """
+        self._save_group_rank_draft(
+            session_id,
+            item,
+            student_id,
+            order=order,
+        )
+        team_id = self._require_group_submit_member(item, student_id)
+        row = self._group_response_row(int(item["id"]), team_id) or {}
+        proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+        if not proposed.get("complete"):
+            raise ValueError("rank every option before submitting")
+        options = self._rank_option_rows(item)
+        allowed = [opt["id"] for opt in options]
+        order_ids = parse_rank_order(proposed.get("order"), allowed, complete=True)
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        previous = (
+            [str(opt_id) for opt_id in (final.get("order") or [])]
+            if final.get("kind") == "rank"
+            else []
+        )
+        if int(row.get("submit_count") or 0) > 0 and previous == order_ids:
+            return self.student_group_submit_state(item, student_id) or {}
+        ids = self._group_submitter_ids(row)
+        ids.append(int(student_id))
+        stored = {"kind": "rank", "order": order_ids, "why": ""}
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'submitted',
+                    final_answer_json = ?,
+                    submit_count = COALESCE(submit_count, 0) + 1,
+                    last_submitter_student_id = ?,
+                    submitter_ids_json = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (
+                    json.dumps(stored),
                     int(student_id),
                     json.dumps(ids),
                     now,
@@ -12048,11 +12381,23 @@ class SchoolDB(LovesDB):
 
         item = self.get_live_session_item(session_id, live_item_id)
         rows: list[dict[str, Any]] = []
+        rank_item = self._question_answer_kind(item) == "rank"
+        rank_options = self._rank_option_rows(item) if rank_item else []
+        allowed = [row["id"] for row in rank_options]
         for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
             final = state.get("final_answer")
             submitted = int(state.get("submit_count") or 0) > 0 and isinstance(final, dict)
-            answer = str(final.get("value") or "").strip() if submitted else ""
-            why = str(final.get("why") or "").strip() if submitted else ""
+            order: list[str] = []
+            if submitted and rank_item and final.get("kind") == "rank":
+                try:
+                    order = parse_rank_order(final.get("order"), allowed, complete=True)
+                except ValueError:
+                    order = []
+                answer = format_rank_order(order, rank_options) if order else ""
+                why = ""
+            else:
+                answer = str(final.get("value") or "").strip() if submitted else ""
+                why = str(final.get("why") or "").strip() if submitted else ""
             missed = not submitted or not answer
             rows.append(
                 {
@@ -12060,6 +12405,7 @@ class SchoolDB(LovesDB):
                     "team_name": team_name,
                     "answer": "" if missed else answer,
                     "why": "" if missed else why,
+                    "order": [] if missed else order,
                     "missed": missed,
                 }
             )
@@ -12123,7 +12469,61 @@ class SchoolDB(LovesDB):
         }
         if revealed:
             view["reveal"] = self.group_submit_reveal_rows(session_id, int(item["id"]))
+        if self._question_answer_kind(item) == "rank":
+            view["rank"] = self._rank_group_collate(session_id, item)
         return view
+
+    def _rank_group_collate(
+        self, session_id: int, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Borda class order over submitted team orders, one vote per team.
+
+        Team rows include the order for the teacher strip. The status board
+        stays waiting/check only. A team that never submitted is excluded
+        from the Borda sum and shown as waiting. Malformed stored orders
+        are skipped so this cannot raise into ``/state``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Group-submit lifecycle row.
+        """
+        options = self._rank_option_rows(item)
+        allowed = [row["id"] for row in options]
+        votes: list[list[str]] = []
+        teams: list[dict[str, Any]] = []
+        try:
+            packed = self._iter_group_submit_teams(session_id, item)
+        except (KeyError, ValueError, sqlite3.Error):
+            packed = []
+        for team_id, team_name, state in packed[:64]:
+            count = int(state.get("submit_count") or 0)
+            final = state.get("final_answer") if isinstance(state.get("final_answer"), dict) else {}
+            order: list[str] | None = None
+            if count and final.get("kind") == "rank":
+                try:
+                    order = parse_rank_order(final.get("order"), allowed, complete=True)
+                except ValueError:
+                    order = None
+            if order:
+                votes.append(order)
+            teams.append(
+                {
+                    "team_id": int(team_id),
+                    "team_name": team_name,
+                    "status": "submitted" if order else "waiting",
+                    "order": order,
+                    "order_label": format_rank_order(order, options) if order else "",
+                }
+            )
+        class_order = borda_class_order(votes, options)
+        return {
+            "unit": "team",
+            "responded": len(votes),
+            "present": len(teams),
+            "teams": teams,
+            "class_order": class_order,
+            "seq": rank_fingerprint(class_order, len(votes)),
+        }
 
     @staticmethod
     def _normalize_group_answer(response: Any) -> dict[str, Any]:
@@ -12995,7 +13395,22 @@ class SchoolDB(LovesDB):
                 )
             )
             results = None
-            if status == "closed" and item["response_mode"] == "group_submit":
+            answer_kind = self._question_answer_kind(item)
+            show_rank = status == "closed" and bool(item["show_live_results"])
+            if answer_kind == "rank" and item["response_mode"] == "group_submit":
+                if show_rank:
+                    results = {
+                        "reveal": self.group_submit_reveal_rows(
+                            session_id, int(item["id"])
+                        ),
+                        "phase": "final",
+                        "kind": "rank",
+                        "rank": self._rank_group_collate(session_id, item),
+                    }
+            elif answer_kind == "rank" and item["response_mode"] == "individual":
+                if show_rank and prompt is not None:
+                    results = self._tally_for_prompt(session_id, prompt, teacher)
+            elif status == "closed" and item["response_mode"] == "group_submit":
                 results = {
                     "reveal": self.group_submit_reveal_rows(
                         session_id, int(item["id"])
@@ -13175,7 +13590,7 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             slide_index: Zero-based slide index from the future slides plugin.
-            kind: ``mc``, ``numeric``, ``share``, ``draw``, ``artifact``, or ``idle``.
+            kind: ``mc``, ``numeric``, ``share``, ``draw``, ``artifact``, ``rank``, or ``idle``.
             payload: Kind-specific JSON (choices, prompt text, etc.).
             activate: When True, deactivate other prompts for this session.
 
@@ -13190,7 +13605,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         kind_norm = (kind or "idle").strip().lower()
-        if kind_norm not in {"mc", "numeric", "share", "draw", "artifact", "idle"}:
+        if kind_norm not in {"mc", "numeric", "share", "draw", "artifact", "idle", "rank"}:
             raise ValueError(f"unsupported prompt kind: {kind}")
         if is_cons_payload(payload):
             slot = self.session_live_slot(session_id)
@@ -14867,6 +15282,17 @@ class SchoolDB(LovesDB):
                 raise ValueError("Enter an integer.")
             response = dict(response or {})
             response["value"] = int(number) if integer_only else number
+        if is_rank_prompt(prompt_row):
+            payload = prompt_row.get("payload") if isinstance(prompt_row.get("payload"), dict) else {}
+            options = safe_rank_options(
+                payload.get("rank_options") or payload.get("options") or payload.get("choices")
+            )
+            allowed = [row["id"] for row in options]
+            try:
+                order = parse_rank_order((response or {}).get("order"), allowed, complete=True)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("rank every option before submitting") from exc
+            response = {"order": order}
         session_id = int(prompt_row["live_session_id"])
         questions_mode = self._questions_view_mode(session_id)
         response = dict(response or {})
@@ -14973,7 +15399,9 @@ class SchoolDB(LovesDB):
         """Classify a runtime prompt as poll, keyed MC, or numeric."""
 
         body = payload if isinstance(payload, dict) else {}
-        token = str(kind or body.get("kind") or "").strip().lower()
+        token = str(kind or body.get("kind") or body.get("type") or "").strip().lower()
+        if token == "rank" or str(body.get("type") or "").strip().lower() == "rank":
+            return "rank"
         if token == "numeric" or body.get("integer_only"):
             return "numeric"
         if token == ARTIFACT_KIND or is_artifact_payload(body):
@@ -15664,6 +16092,31 @@ class SchoolDB(LovesDB):
             student = student_map.get(int(sid)) if sid not in (None, "") else None
             guest = guest_map.get(str(response_row.get("participant_uuid") or ""))
             answer = response_row.get("response") or {}
+            if is_rank_prompt(prompt) and isinstance(answer, dict) and isinstance(answer.get("order"), list):
+                rank_rows = safe_rank_options(
+                    payload.get("rank_options") or payload.get("options") or payload.get("choices")
+                )
+                label = format_rank_order(
+                    [str(item) for item in answer.get("order") or []][:6],
+                    rank_rows,
+                )
+                rows.append(
+                    {
+                        "student_id": int(sid) if sid not in (None, "") else None,
+                        "name": str(
+                            (student or {}).get("codename")
+                            or (student or {}).get("first_name")
+                            or (guest or {}).get("display_name")
+                            or "Guest"
+                        ).strip(),
+                        "character": (student or {}).get("character_key"),
+                        "answer": label,
+                        "choice": None,
+                        "correct": None,
+                        "awarded_points": response_row.get("awarded_points"),
+                    }
+                )
+                continue
             letter = choice_letter(answer, choices)
             value = answer.get("value")
             if value is None:
@@ -15853,6 +16306,8 @@ class SchoolDB(LovesDB):
                     prompt = linked
                     break
         if prompt is None:
+            return None
+        if is_rank_prompt(prompt):
             return None
         if is_minds_on_payload(prompt.get("payload")) and stage not in {
             "join",
@@ -18767,7 +19222,8 @@ class SchoolDB(LovesDB):
         """Participation key for one answered question. Meet social is None.
 
         Pure Meet A/B/C taps are excluded. Real QH (Minds-On, teams spark,
-        CONS items, other non-Meet MC) each keep their own ``item_id``.
+        CONS items, rank, other non-Meet MC) each keep their own ``item_id``.
+        Rank uses this same participation round; Borda is display-only.
         Team-shared questions are filtered later — this key is only for
         Student: Individual answers.
 

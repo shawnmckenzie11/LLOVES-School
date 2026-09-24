@@ -2268,3 +2268,73 @@ body.staff-shell .prompt-choice .live-question-html img,
 .prompt-choice .katex {
   font-size: 1.05em;
 }
+.rank-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0.4rem 0;
+  padding: 0;
+  list-style: none;
+}
+.rank-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #2a4660;
+  border-radius: 10px;
+  background: #16324a;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rank-option-row.is-numbered {
+  border-width: 2px;
+  font-weight: 700;
+}
+.rank-option-row.is-grabbed {
+  outline: 2px solid #5eead4;
+}
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.rank-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.rank-clear {
+  background: none;
+  border: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: 44px;
+}
+.rank-cue {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.2rem 0;
+}
+.rank-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rank-option-row,
+  .rank-class-order li {
+    transition: none;
+  }
+}

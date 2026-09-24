@@ -2104,12 +2104,130 @@ function liveQuestionIsMultipleChoice(item, card) {
 }
 
 /**
+ * True for a rank card. Group submission uses the same switch as MC.
+ * @param {any} item
+ * @param {any} card
+ * @returns {boolean}
+ */
+function liveQuestionIsRank(item, card) {
+  const type = String(item?.type || card?.type || item?.kind || "").toLowerCase();
+  return type === "rank";
+}
+
+/** @type {Map<number, {seq: number, rows: any[], at: number}>} */
+const rankDisplayHold = new Map();
+
+/**
+ * Keep class-order rows still for about a second after a rank change.
+ * Reduced motion swaps immediately. Points on a held row still refresh.
+ * @param {number} liveItemId
+ * @param {any[]} rows
+ * @param {number} seq
+ * @returns {any[]}
+ */
+function heldRankRows(liveItemId, rows, seq) {
+  const next = Array.isArray(rows) ? rows : [];
+  const reduce =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const prev = rankDisplayHold.get(liveItemId);
+  const now = Date.now();
+  if (!prev || reduce || prev.seq === seq) {
+    rankDisplayHold.set(liveItemId, { seq, rows: next, at: prev?.at || now });
+    return next;
+  }
+  if (now - prev.at < 1000) {
+    const byId = new Map(next.map((row) => [String(row.option_id || ""), row]));
+    return prev.rows.map((row) => byId.get(String(row.option_id || "")) || row);
+  }
+  rankDisplayHold.set(liveItemId, { seq, rows: next, at: now });
+  return next;
+}
+
+/**
+ * Teacher rank strip: team rows first, class order underneath.
+ * Individual mode omits the team list.
+ * @param {any} rank
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function rankCollateHtml(rank, liveItemId) {
+  if (!rank || typeof rank !== "object") return "";
+  const unit = String(rank.unit || "student");
+  const teams = unit === "team" && Array.isArray(rank.teams) ? rank.teams : [];
+  const responded = Number(rank.responded) || 0;
+  const present = Number(rank.present) || teams.length || 0;
+  const rawRows = Array.isArray(rank.class_order) ? rank.class_order : [];
+  const rows = heldRankRows(liveItemId, rawRows, Number(rank.seq) || 0);
+  const done = teams.filter((row) => row.status === "submitted" || row.order).length;
+  const teamHtml = teams.length
+    ? `<p class="rank-collate-kicker">Teams <span>${done}/${teams.length}</span></p>
+      <ul class="rank-team-rows">${teams
+        .map((row) => {
+          const waiting = !row.order;
+          return `<li class="${waiting ? "is-waiting" : ""}">
+            <span>${escapeHtml(row.team_name || "Team")}</span>
+            <span>${waiting ? "Waiting" : "✓"}</span>
+            <span>${waiting ? "" : escapeHtml(row.order_label || "")}</span>
+          </li>`;
+        })
+        .join("")}</ul>`
+    : "";
+  const classHtml = `<p class="rank-collate-kicker">Class order <span>${
+    unit === "team" ? "1 vote per team" : `${responded} responded / ${present} present`
+  }</span></p>
+    <ol class="rank-class-order">${rows
+      .map((row) => {
+        const pct = Math.max(0, Math.min(100, Number(row.bar_pct) || 0));
+        return `<li data-rank-option="${escapeHtml(row.option_id || "")}">
+          <span class="rank-place">${Number(row.rank) || 0}</span>
+          <span>${escapeHtml(row.label || "")}</span>
+          <span class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
+          <span>${Number(row.points) || 0}</span>
+          <span class="rank-first" aria-label="${Number(row.first_picks) || 0} first picks">★ ${
+            Number(row.first_picks) || 0
+          }</span>
+        </li>`;
+      })
+      .join("")}</ol>
+    <p class="rank-responded">${responded} responded / ${present} present</p>`;
+  return `<div class="rank-collate" data-rank-seq="${Number(rank.seq) || 0}">${teamHtml}${classHtml}</div>`;
+}
+
+/**
  * Teacher status is waiting or a check. Answers stay off until reveal.
  * @param {any} result
  * @param {boolean} revealed
  * @returns {string}
  */
 function groupSubmitTeacherHtml(result, revealed) {
+  if (result?.rank) {
+    const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
+    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || 0);
+    const logHtml = `<details class="group-submitter-log">
+      <summary>Submitter log</summary>
+      <table>
+        <thead><tr><th>Group</th><th>Last submitter</th><th>Re-submits</th><th>No submit at reveal</th><th>Repeat submitter</th><th>Why</th></tr></thead>
+        <tbody>${
+          log.length
+            ? log
+                .map(
+                  (row) => `<tr>
+              <td>${escapeHtml(row.team_name || "")}</td>
+              <td>${escapeHtml(row.last_submitter || "")}</td>
+              <td>${Number(row.resubmit_count) || 0}</td>
+              <td>${row.no_submit_at_reveal ? "Yes" : "No"}</td>
+              <td>${row.repeat_submitter ? "Yes" : "No"}</td>
+              <td>${row.why_present ? "Yes" : "No"}</td>
+            </tr>`
+                )
+                .join("")
+            : `<tr><td colspan="6"></td></tr>`
+        }</tbody>
+      </table>
+    </details>`;
+    return `<div class="group-submit-teacher">${rankHtml}${logHtml}</div>`;
+  }
   const board = Array.isArray(result?.status_board) ? result.status_board : [];
   const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
   const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
@@ -2275,11 +2393,21 @@ function paintLiveQuestionCards() {
         : Array.isArray(card.options)
           ? card.options
           : [];
-      const optionHtml = options.length
-        ? `<ol class="live-question-card-options" type="A">${options
-            .map((option, optIndex) => `<li>${questionFieldHtml(item, "option", optIndex) || formatQuestionHtml(option)}</li>`)
-            .join("")}</ol>`
-        : "";
+      const isRankCard = liveQuestionIsRank(item, card);
+      const optionLabels = options.map((option) =>
+        option && typeof option === "object" ? option.label || option.text || "" : option
+      );
+      const optionHtml = isRankCard
+        ? optionLabels.length
+          ? `<ol class="rank-authored-list">${optionLabels
+              .map((option) => `<li>${escapeHtml(option)}</li>`)
+              .join("")}</ol>`
+          : ""
+        : options.length
+          ? `<ol class="live-question-card-options" type="A">${options
+              .map((option, optIndex) => `<li>${questionFieldHtml(item, "option", optIndex) || formatQuestionHtml(option)}</li>`)
+              .join("")}</ol>`
+          : "";
       const answerKey = item.correct_answer ?? card.correct_answer;
       const hasAnswerKey = liveQuestionHasSingularKey(card);
       const key = answerKey != null && String(answerKey) !== ""
@@ -2310,7 +2438,8 @@ function paintLiveQuestionCards() {
           ? item.capabilities.publish_modes
           : ["individual"];
       const openEnded = liveQuestionIsOpenEnded(item, card);
-      const multipleChoice = liveQuestionIsMultipleChoice(item, card);
+      const isRank = liveQuestionIsRank(item, card);
+      const multipleChoice = liveQuestionIsMultipleChoice(item, card) || isRank;
       const intent = groupSubmissionIntent.get(liveItemId);
       const groupChrome =
         multipleChoice &&
@@ -2330,7 +2459,16 @@ function paintLiveQuestionCards() {
         ? groupSubmitTeacherHtml(result, closed)
         : card.response_mode === "group_consensus"
           ? groupConsensusResultsHtml(result)
-          : individualLifecycleResultsHtml(result?.tally);
+          : result?.tally?.kind === "rank"
+            ? rankCollateHtml(
+                {
+                  ...result.tally,
+                  unit: "student",
+                  present: Number(result?.eligible_count ?? result.tally.present) || 0,
+                },
+                liveItemId
+              )
+            : individualLifecycleResultsHtml(result?.tally);
       const tally = lastMcTally;
       const cardRef = String(card.id || card.item_id || "").replace(/_/g, "-");
       const tallyRef = String(tally?.item_id || tally?.prompt_ref || "").replace(/_/g, "-");
@@ -2361,10 +2499,20 @@ function paintLiveQuestionCards() {
                 card.response_mode === "group_consensus" ? "responded" : "answered"
               }</p>`
             : "";
-      const submissionValue =
+      let submissionValue =
         card.response_mode === "group_submit" || intent === "group_submit"
           ? "group_submit"
           : "individual";
+      if (
+        isRank &&
+        status !== "active" &&
+        status !== "closed" &&
+        intent == null &&
+        card.response_mode !== "group_submit" &&
+        teacherState.groups_configured
+      ) {
+        submissionValue = "group_submit";
+      }
       const groupStub = multipleChoice
         ? ""
         : `<span class="live-group-submit-stub" hidden>Group submission is multiple choice only.</span>`;
@@ -2463,7 +2611,7 @@ function paintLiveQuestionCards() {
           ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
           <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.title || item.text || item.prompt || card.text || "")}</div>
           ${liveQuestionEquationHtml(item, card)}
-          ${optionHtml}
+          ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
           ${resultHtml}
           ${progress}
         </div>
@@ -2817,7 +2965,7 @@ async function refreshLifecycleResults() {
       const mode = String(row?.response_mode || "");
       return (
         (mode === "group_consensus" ||
-          ["question", "poll", "mc", "numeric", "text", "open", "share"].includes(
+          ["question", "poll", "mc", "numeric", "text", "open", "share", "rank"].includes(
             type
           )) &&
         String(row.stage || "") === String(teacherState.stage || "") &&
@@ -7954,8 +8102,25 @@ function syncAddQuestionTypeFields() {
   const kind = String(selected?.value || "mc").toLowerCase();
   const mc = $("live-add-q-mc-fields");
   const numeric = $("live-add-q-numeric-fields");
+  const rank = $("live-add-q-rank-fields");
   if (mc instanceof HTMLElement) mc.hidden = kind !== "mc";
   if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
+  if (rank instanceof HTMLElement) rank.hidden = kind !== "rank";
+  syncRankOptionRows();
+}
+
+/**
+ * Show the first three rank rows and keep remove disabled at the minimum.
+ */
+function syncRankOptionRows() {
+  const rows = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")];
+  const visible = rows.filter((row) => row instanceof HTMLElement && !row.hidden);
+  rows.forEach((row) => {
+    const button = row.querySelector("[data-rank-remove]");
+    if (button instanceof HTMLButtonElement) button.disabled = visible.length <= 3;
+  });
+  const add = $("live-add-q-rank-add");
+  if (add instanceof HTMLButtonElement) add.disabled = visible.length >= 6;
 }
 
 const EQ_RENDER_ERROR = "Couldn't render this equation — check the TeX.";
@@ -8131,6 +8296,12 @@ async function submitAddQuestion() {
     body.tolerance = String(($("live-add-q-tolerance")?.value || "0")).trim();
     body.tolerance_kind = String(($("live-add-q-tolerance-kind")?.value || "absolute"));
   }
+  if (kind === "rank") {
+    body.options = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")]
+      .filter((row) => row instanceof HTMLElement && !row.hidden)
+      .map((row) => String(row.querySelector("input")?.value || "").trim())
+      .filter(Boolean);
+  }
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
   if (!classId) throw new Error("Class is not loaded.");
@@ -8152,6 +8323,25 @@ async function submitAddQuestion() {
 $("live-add-question-btn")?.addEventListener("click", () => openAddQuestionDialog());
 document.querySelectorAll('input[name="live-add-q-type"]').forEach((input) => {
   input.addEventListener("change", () => syncAddQuestionTypeFields());
+});
+$("live-add-q-rank-add")?.addEventListener("click", () => {
+  const hidden = document.querySelector("#live-add-q-rank-list .live-add-rank-row[hidden]");
+  if (hidden instanceof HTMLElement) hidden.hidden = false;
+  syncRankOptionRows();
+});
+document.querySelectorAll("#live-add-q-rank-list [data-rank-remove]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const rows = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")].filter(
+      (row) => row instanceof HTMLElement && !row.hidden
+    );
+    if (rows.length <= 3) return;
+    const row = button.closest(".live-add-rank-row");
+    if (!(row instanceof HTMLElement)) return;
+    const input = row.querySelector("input");
+    if (input instanceof HTMLInputElement) input.value = "";
+    row.hidden = true;
+    syncRankOptionRows();
+  });
 });
 document.querySelectorAll("[data-eq-insert]").forEach((button) => {
   button.addEventListener("click", () => {

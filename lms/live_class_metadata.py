@@ -23,7 +23,7 @@ ITEM_REF_RE = re.compile(
     r"live-class/[A-Z]{3,}\d[A-Z]?/M[1-8]/C[1-4])/"
     r"(?:question|media|whiteboard|slides)/[a-z0-9][a-z0-9-]*$"
 )
-QUESTION_TYPES = frozenset({"poll", "mc", "numeric"})
+QUESTION_TYPES = frozenset({"poll", "mc", "numeric", "rank"})
 STAGE_ORDER = ("join", "teams", "meet", "round", "play", "round_3", "summary")
 STAGES = frozenset(STAGE_ORDER)
 
@@ -328,15 +328,27 @@ def _clean_question(raw: Any, *, index: int) -> dict[str, Any] | None:
     stage = str(raw.get("stage") or "round").strip().lower()
     if stage not in STAGES:
         stage = "round"
-    options = [
-        str(item).strip()
-        for item in (raw.get("options") or raw.get("choices") or [])
-        if str(item).strip()
-    ]
+    rank_rows: list[dict[str, str]] = []
+    if kind == "rank":
+        try:
+            from live_rank import safe_rank_options
+        except ImportError:
+            from lms.live_rank import safe_rank_options
+
+        rank_rows = safe_rank_options(
+            raw.get("rank_options") or raw.get("options") or raw.get("choices")
+        )
+        options = [row["label"] for row in rank_rows]
+    else:
+        options = [
+            str(item).strip()
+            for item in (raw.get("options") or raw.get("choices") or [])
+            if str(item).strip()
+        ]
     if kind == "numeric":
         options = []
     key = str(raw.get("correct_answer") or raw.get("correct") or "").strip()
-    if kind == "poll":
+    if kind in {"poll", "rank"}:
         key = ""
     try:
         order = max(1, int(raw.get("order") or index + 1))
@@ -364,6 +376,8 @@ def _clean_question(raw: Any, *, index: int) -> dict[str, Any] | None:
         placeholder = str(raw.get("placeholder") or "").strip()
         if placeholder:
             cleaned["placeholder"] = placeholder
+    if kind == "rank" and rank_rows:
+        cleaned["rank_options"] = rank_rows
     return cleaned
 
 

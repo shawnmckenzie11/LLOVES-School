@@ -163,7 +163,7 @@ class LiveBankTabTests(unittest.TestCase):
         self.assertEqual(module_hits["items"], [])
 
     def test_rejects_a_fourth_question_type(self) -> None:
-        """Add New and the course tab share mc, numeric, and poll only."""
+        """Essay is still rejected. Rank is a separate allow-list entry."""
         rv = self.client.post(
             f"/api/staff/class/{self.class_id}/live-bank/questions",
             json={"bank_scope": "M1", "type": "essay", "stem_text": "Nope"},

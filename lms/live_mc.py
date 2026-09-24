@@ -11,9 +11,11 @@ from typing import Any
 
 try:
     from live_prompt_feedback import CHOICE_LETTERS, choice_letter
+    from live_rank import build_rank_tally, is_rank_prompt
     from meet_team import current_meet_step, is_meet_team_payload, public_meet_chain
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_prompt_feedback import CHOICE_LETTERS, choice_letter
+    from lms.live_rank import build_rank_tally, is_rank_prompt
     from lms.meet_team import current_meet_step, is_meet_team_payload, public_meet_chain
 
 
@@ -25,10 +27,14 @@ def is_mc_prompt(prompt: Any) -> bool:
     """
     if not isinstance(prompt, dict):
         return False
+    if is_rank_prompt(prompt):
+        return False
     kind = str(prompt.get("kind") or "").strip().lower()
     payload = prompt.get("payload")
     body = payload if isinstance(payload, dict) else {}
-    item_kind = str(body.get("kind") or "").strip().lower()
+    item_kind = str(body.get("kind") or body.get("type") or "").strip().lower()
+    if item_kind == "rank":
+        return False
     if kind == "mc" or item_kind in {"mc", "poll"}:
         return True
     choices = body.get("choices") or body.get("options")
@@ -340,7 +346,7 @@ def build_live_tally(
     present: int = 0,
     teacher_state: Any = None,
 ) -> dict[str, Any] | None:
-    """Build an MC or numeric tally for the staff/student results graph.
+    """Build an MC, numeric, or rank tally for the staff/student results graph.
 
     Args:
         prompt: Active live-prompt row.
@@ -349,6 +355,8 @@ def build_live_tally(
         present: Students currently in the session.
         teacher_state: Optional public LiveTeacherState.
     """
+    if is_rank_prompt(prompt):
+        return build_rank_tally(prompt, responses=responses, present=present)
     numeric = build_numeric_tally(
         prompt,
         responses=responses,

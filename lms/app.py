@@ -3199,7 +3199,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @staff_required
     def staff_add_live_question(class_id: int, module: str, slot: str):
-        """Add a staff-authored MC, numeric, or poll onto the current page."""
+        """Add a staff-authored MC, numeric, poll, or rank onto the current page."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
@@ -4714,6 +4714,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 int(ident[2]),
                 choice=body.get("choice"),
                 why=body.get("why"),
+                order=body.get("order"),
+                tap=body.get("tap"),
+                clear=bool(body.get("clear")),
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
@@ -4742,6 +4745,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 int(ident[2]),
                 choice=body.get("choice"),
                 why=body.get("why"),
+                order=body.get("order"),
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
