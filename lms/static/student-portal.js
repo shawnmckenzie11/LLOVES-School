@@ -1560,6 +1560,28 @@ const RANK_CUE_WAITING = "Submitted — waiting.";
 
 /** @type {Set<number>} */
 const rankEditing = new Set();
+/** Local rank order while this student is changing a submitted team order. */
+/** @type {Map<number, string[]>} */
+const rankLocalDrafts = new Map();
+
+/**
+ * Badges to paint for a group rank card.
+ *
+ * While this student is changing the order, their local draft wins over
+ * the poll, including a cleared list. Teammates are not editing, so they
+ * keep the shared server draft.
+ *
+ * @param {{editing?: boolean, localDraft?: string[]|null, serverOrder?: string[]}} input
+ * @returns {string[]}
+ */
+function rankEditDisplayOrder(input) {
+  const body = input && typeof input === "object" ? input : {};
+  if (body.editing && Array.isArray(body.localDraft)) {
+    return body.localDraft.map((id) => String(id));
+  }
+  const server = Array.isArray(body.serverOrder) ? body.serverOrder : [];
+  return server.map((id) => String(id));
+}
 
 function liveAnswerLabel(answer) {
   if (typeof answer === "string" && answer.trim()) return answer.trim();
@@ -2282,11 +2304,17 @@ function studentGroupCardHtml(item) {
     const teamName = String(group.team_name || "").trim();
     const strip = [teamName, ...members].filter(Boolean).join(" · ");
     const last = String(group.last_submitter || "").trim();
-    const editing = rankEditing.has(Number(item.id) || 0);
+    const itemId = Number(item.id) || 0;
+    const editing = rankEditing.has(itemId);
+    const shown = rankEditDisplayOrder({
+      editing,
+      localDraft: editing && rankLocalDrafts.has(itemId) ? rankLocalDrafts.get(itemId) : null,
+      serverOrder: order,
+    });
     const body =
       group.phase === "submitted" && !editing
         ? rankWaitingHtml(options, (group.submitted_order || order).map(String), "Change team order")
-        : rankInputHtml(options, editing ? (group.submitted_order || order).map(String) : order, "group");
+        : rankInputHtml(options, shown, "group");
     return `<div class="student-group-card" data-live-action="group" data-rank-shared="1">
       ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
       ${body}
@@ -2762,6 +2790,7 @@ async function submitLifecycleAnswer(card, action) {
     }
     liveCardDrafts.delete(`${itemId}:${action}`);
     rankEditing.delete(itemId);
+    rankLocalDrafts.delete(itemId);
     if (lastStudentPayload) {
       lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
       paintLifecycleQuestionStack(lastStudentPayload);
@@ -3970,7 +3999,11 @@ document.getElementById("live-response")?.addEventListener("keydown", (event) =>
       );
       paintRankOrder(card, visual);
       syncRankGate(card);
-      if (card.querySelector("[data-rank-shared]")) void postRankDraft(card, { order: visual });
+      if (card.querySelector("[data-rank-shared]")) {
+        const itemId = Number(card.dataset.liveCardId) || 0;
+        if (itemId) rankLocalDrafts.set(itemId, visual.map((id) => String(id)));
+        void postRankDraft(card, { order: visual });
+      }
       return;
     }
     card.dataset.rankDomSnapshot = [...card.querySelectorAll("[data-rank-id]")]
@@ -4013,7 +4046,27 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
   if (rankChange instanceof HTMLButtonElement) {
     const card = rankChange.closest("[data-live-card-id]");
     if (card instanceof HTMLElement) {
-      rankEditing.add(Number(card.dataset.liveCardId) || 0);
+      const itemId = Number(card.dataset.liveCardId) || 0;
+      rankEditing.add(itemId);
+      if (itemId && !rankLocalDrafts.has(itemId)) {
+        const pools = [
+          lastStudentPayload?.active_questions,
+          lastStudentPayload?.live_items,
+        ];
+        let group = {};
+        for (const pool of pools) {
+          if (!Array.isArray(pool)) continue;
+          const row = pool.find((item) => Number(item?.id) === itemId);
+          if (row) {
+            group = row.group_submit || {};
+            break;
+          }
+        }
+        const seed = Array.isArray(group.order) && group.order.length
+          ? group.order
+          : group.submitted_order || [];
+        rankLocalDrafts.set(itemId, seed.map((id) => String(id)));
+      }
       if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
     }
     return;
@@ -4034,6 +4087,8 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
       });
       syncRankGate(card);
       if (card.querySelector("[data-rank-shared]")) {
+        const itemId = Number(card.dataset.liveCardId) || 0;
+        if (itemId) rankLocalDrafts.set(itemId, []);
         void postRankDraft(card, { clear: true });
       }
     }
@@ -4047,6 +4102,10 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
       const order = toggleRankIds(rankOrderFromCard(card), id);
       paintRankOrder(card, order);
       syncRankGate(card);
+      const itemId = Number(card.dataset.liveCardId) || 0;
+      if (itemId && card.querySelector("[data-rank-shared]")) {
+        rankLocalDrafts.set(itemId, order.map((optId) => String(optId)));
+      }
       const label = rankRow.querySelector(".rank-label")?.textContent || "";
       const place = order.indexOf(id);
       const live = card.querySelector("[data-rank-live]");

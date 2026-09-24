@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -475,6 +477,118 @@ class RankLiveSessionTests(unittest.TestCase):
         voted = next(row for row in view["rank"]["teams"] if row["order"])
         self.assertEqual(voted["order"], ["o3", "o2", "o1"])
         self.assertEqual(view["rank"]["responded"], 1)
+
+    def test_resubmit_after_clear_changes_order_submitter_and_revision(self) -> None:
+        """Clear, then a new order, overwrites the team vote and the light token.
+
+        Ops: Change team order, Clear, tap a new order, Submit for team.
+        The clear must not freeze the submitted vote. The following submit
+        replaces ``submitted_order`` and ``last_submitter`` and moves
+        ``lifecycle_rank_revs`` so the teacher light poll refetches.
+        """
+
+        self._join(4)
+        self._teams(2)
+        published = self._publish_rank("group_submit")
+        item_id = int(published["id"])
+        first = self._submit_order(published, self.student_ids[0], ["o1", "o2", "o3"])
+        self.assertEqual(first["submitted_order"], ["o1", "o2", "o3"])
+        self.assertEqual(first["last_submitter"], "Aspen")
+        cleared = self.school.save_group_mc_draft(
+            self.session_id,
+            item_id,
+            self.student_ids[2],
+            choice="",
+            why="",
+            clear=True,
+        )
+        self.assertEqual(cleared["order"], [])
+        self.assertEqual(cleared["submitted_order"], ["o1", "o2", "o3"])
+        self.assertEqual(cleared["last_submitter"], "Aspen")
+        drafted = {}
+        for option_id in ("o3", "o2", "o1"):
+            drafted = self.school.save_group_mc_draft(
+                self.session_id,
+                item_id,
+                self.student_ids[2],
+                choice="",
+                why="",
+                tap=option_id,
+            )
+        self.assertEqual(drafted["order"], ["o3", "o2", "o1"])
+        self.assertEqual(drafted["submitted_order"], ["o1", "o2", "o3"])
+        before = self.school.get_live_session_state(self.session_id, light=True)
+        revised = self.school.submit_group_mc_answer(
+            self.session_id,
+            item_id,
+            self.student_ids[2],
+            choice="",
+            why="",
+            order=["o3", "o2", "o1"],
+        )
+        self.assertEqual(revised["submitted_order"], ["o3", "o2", "o1"])
+        self.assertEqual(revised["last_submitter"], "Cedar")
+        after = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertNotEqual(
+            str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+            str((before.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+        )
+        view = self.school.live_session_item_results(self.session_id, item_id)
+        log = next(row for row in view["submitter_log"] if row["last_submitter"] == "Cedar")
+        self.assertEqual(log["resubmit_count"], 1)
+        voted = next(row for row in view["rank"]["teams"] if row["order"])
+        self.assertEqual(voted["order"], ["o3", "o2", "o1"])
+
+    def test_change_mode_local_draft_beats_the_submitted_order(self) -> None:
+        """An editing student's draft, including Clear, survives the next poll paint."""
+
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertNotIn("editing ? (group.submitted_order", student)
+        paint = student.split("function studentGroupCardHtml(")[1].split(
+            "function syncGroupSubmitGate("
+        )[0]
+        self.assertIn("rankEditDisplayOrder", paint)
+        self.assertIn('group.phase === "submitted" && !editing', paint)
+        match = re.search(
+            r"function rankEditDisplayOrder\(input\) \{.*?\n\}",
+            student,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        script = (match.group(0) if match else "") + """
+const submitted = ["o1", "o2", "o3"];
+const cleared = rankEditDisplayOrder({
+  editing: true,
+  localDraft: [],
+  serverOrder: submitted,
+});
+if (JSON.stringify(cleared) !== "[]") {
+  throw new Error("clear was clobbered: " + JSON.stringify(cleared));
+}
+const tapped = rankEditDisplayOrder({
+  editing: true,
+  localDraft: ["o3", "o1"],
+  serverOrder: submitted,
+});
+if (JSON.stringify(tapped) !== JSON.stringify(["o3", "o1"])) {
+  throw new Error("tap was clobbered: " + JSON.stringify(tapped));
+}
+const teammate = rankEditDisplayOrder({
+  editing: false,
+  localDraft: ["o3"],
+  serverOrder: ["o2", "o1", "o3"],
+});
+if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
+  throw new Error("teammate lost the server draft: " + JSON.stringify(teammate));
+}
+"""
+        proc = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_simultaneous_taps_keep_a_valid_order(self) -> None:
         """Two teammates tapping at once leave a unique order and no error."""
