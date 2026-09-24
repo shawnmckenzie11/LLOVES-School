@@ -329,13 +329,34 @@ let lastScoreboard = null;
 const lifecycleResults = new Map();
 
 /**
+ * True when a lifecycle row or its last results payload is a rank question.
+ * @param {any} row
+ * @param {any} prev
+ * @returns {boolean}
+ */
+function lifecycleRowIsRank(row, prev) {
+  const nested = row && row.item && typeof row.item === "object" ? row.item : {};
+  const type = String(
+    nested.type || nested.kind || row?.type || row?.kind || ""
+  ).toLowerCase();
+  if (type === "rank") return true;
+  if (prev && prev.rank) return true;
+  return String(prev?.tally?.kind || "") === "rank";
+}
+
+/**
  * Merge server-side per-item response counts into lifecycleResults.
  * Individual-in-Group counts come from private votes. When that count
  * moves, or the team feed is still missing, reload member answers.
+ * Rank (group and individual) refetches the same way when the count or
+ * the rank revision moves, so team rows and class order update on the
+ * light poll. Class order itself stays on the ~1s hold in rankCollateHtml.
  * @param {Record<string, number>|null|undefined} counts
+ * @param {Record<string, string>|null|undefined} [rankRevs]
  */
-function adoptLifecycleResponseCounts(counts) {
+function adoptLifecycleResponseCounts(counts, rankRevs) {
   if (!counts || typeof counts !== "object") return;
+  const revs = rankRevs && typeof rankRevs === "object" ? rankRevs : {};
   let refreshGroups = false;
   for (const [id, count] of Object.entries(counts)) {
     const liveItemId = Number(id);
@@ -344,9 +365,14 @@ function adoptLifecycleResponseCounts(counts) {
     const prev = lifecycleResults.get(liveItemId) || {};
     const seen = Object.prototype.hasOwnProperty.call(prev, "response_count");
     const previous = Number(prev.response_count) || 0;
+    const rev = Object.prototype.hasOwnProperty.call(revs, id)
+      ? String(revs[id] ?? "")
+      : null;
+    const prevRev = prev.rank_rev == null ? null : String(prev.rank_rev);
     lifecycleResults.set(liveItemId, {
       ...prev,
       response_count: n,
+      ...(rev == null ? {} : { rank_rev: rev }),
       tally: {
         ...(prev.tally && typeof prev.tally === "object" ? prev.tally : {}),
         responded: n,
@@ -354,6 +380,12 @@ function adoptLifecycleResponseCounts(counts) {
       },
     });
     const row = lastLiveItems.find((item) => Number(item?.id) === liveItemId);
+    if (lifecycleRowIsRank(row, prev)) {
+      const missingCollate = !prev.rank && String(prev?.tally?.kind || "") !== "rank";
+      const revChanged = rev != null && rev !== (prevRev ?? "");
+      if (missingCollate || (seen && previous !== n) || revChanged) refreshGroups = true;
+      continue;
+    }
     const groupMode =
       String(row?.response_mode || prev.response_mode || "") === "group_consensus";
     if (!groupMode) continue;
@@ -2158,7 +2190,11 @@ function rankCollateHtml(rank, liveItemId) {
   const responded = Number(rank.responded) || 0;
   const present = Number(rank.present) || teams.length || 0;
   const rawRows = Array.isArray(rank.class_order) ? rank.class_order : [];
-  const rows = heldRankRows(liveItemId, rawRows, Number(rank.seq) || 0);
+  const rows = heldRankRows(
+    liveItemId,
+    rawRows,
+    Number(rank.seq ?? rank.response_seq) || 0
+  );
   const done = teams.filter((row) => row.status === "submitted" || row.order).length;
   const teamHtml = teams.length
     ? `<p class="rank-collate-kicker">Teams <span>${done}/${teams.length}</span></p>
@@ -3709,7 +3745,10 @@ async function pollLiveSessionAttendees(opts = {}) {
       if (liveClassSeedMedia()) paintActiveMediaStatus(null);
       else paintQuestionArtifact(null);
     }
-    adoptLifecycleResponseCounts(payload?.lifecycle_response_counts);
+    adoptLifecycleResponseCounts(
+      payload?.lifecycle_response_counts,
+      payload?.lifecycle_rank_revs
+    );
     applyMcTally(payload?.mc_tally);
     if (wantFull) {
       refreshLifecycleResults();
@@ -6246,12 +6285,19 @@ function wireDefaultTeamNameClear(input) {
  */
 async function saveTeamNamesFromPop() {
   const teams = [...document.querySelectorAll("#ap-name-list input")]
-    .map((el) => ({
-      id: Number(el.dataset.teamId),
-      name: el.value,
-    }))
+    .map((el) => {
+      const typed = String(el.value || "").trim();
+      const fallback = String(el.defaultValue || "").trim();
+      return {
+        id: Number(el.dataset.teamId),
+        name: typed || fallback,
+      };
+    })
     .filter((row) => Number.isFinite(row.id) && row.id > 0);
   if (!teams.length) return;
+  if (teams.some((row) => !String(row.name || "").trim())) {
+    throw new Error("Team name cannot be empty");
+  }
   overlayState = await api(`/api/classes/${classId}/game/rename`, {
     method: "POST",
     body: JSON.stringify({ teams, go_live: false }),
@@ -6294,7 +6340,7 @@ $("ap-teams-rename")?.addEventListener("click", async () => {
 });
 
 $("ap-teams-rename-done")?.addEventListener("click", () => {
-  closeTeamsRenameModal({ save: true }).catch((err) => showError("#ap-overlay-error", err));
+  closeTeamsRenameModal({ save: true }).catch((err) => showError("#ap-teams-rename-error", err));
 });
 
 $("ap-start-game")?.addEventListener("click", async () => {

@@ -400,6 +400,63 @@ class RankLiveSessionTests(unittest.TestCase):
         state = self.school.get_live_session_state(self.session_id)
         self.assertIsNone(state.get("mc_tally"))
 
+    def test_light_poll_sees_a_new_group_rank_submission(self) -> None:
+        """A team submit moves the light-poll token and the teacher collate.
+
+        The staff light poll does not rebuild Borda. It reports how many
+        teams have submitted plus a revision that also moves on re-submit,
+        which is what makes the Questions card refetch within one tick.
+        """
+
+        self._join(4)
+        self._teams(2)
+        published = self._publish_rank("group_submit")
+        item_id = int(published["id"])
+        before = self.school.get_live_session_state(self.session_id, light=True)
+        counts = before.get("lifecycle_response_counts") or {}
+        revs = before.get("lifecycle_rank_revs") or {}
+        self.assertEqual(counts.get(item_id), 0)
+        self.assertIn(item_id, revs)
+        self.assertIsNone(before.get("mc_tally"))
+        self._submit_order(published, self.student_ids[0], ["o2", "o1", "o3"])
+        after = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            (after.get("lifecycle_response_counts") or {}).get(item_id),
+            1,
+        )
+        self.assertNotEqual(
+            str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+            str(revs.get(item_id) or ""),
+        )
+        view = self.school.live_session_item_results(self.session_id, item_id)
+        submitted = [row for row in view["rank"]["teams"] if row.get("order")]
+        waiting = [row for row in view["rank"]["teams"] if not row.get("order")]
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(submitted[0]["status"], "submitted")
+        self.assertEqual(submitted[0]["order"], ["o2", "o1", "o3"])
+        self.assertTrue(waiting)
+        self.assertEqual(waiting[0]["status"], "waiting")
+        by_id = {row["option_id"]: row for row in view["rank"]["class_order"]}
+        self.assertEqual(by_id["o2"]["points"], 2)
+        self._submit_order(published, self.student_ids[2], ["o3", "o2", "o1"])
+        revised = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            (revised.get("lifecycle_response_counts") or {}).get(item_id),
+            1,
+        )
+        self.assertNotEqual(
+            str((revised.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+            str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+        )
+        again = self.school.live_session_item_results(self.session_id, item_id)
+        voted = next(row for row in again["rank"]["teams"] if row.get("order"))
+        self.assertEqual(voted["order"], ["o3", "o2", "o1"])
+        revised_points = {
+            row["option_id"]: row["points"] for row in again["rank"]["class_order"]
+        }
+        self.assertEqual(revised_points["o3"], 2)
+        self.assertIsNone(revised.get("mc_tally"))
+
     def test_resubmit_overwrites_and_appends_the_staff_log(self) -> None:
         """A changed shared order replaces the team vote and logs the editor."""
 
@@ -660,6 +717,13 @@ class RankLiveSessionTests(unittest.TestCase):
         self.assertIn("tap: id", student)
         self.assertIn("Change team order", student)
         self.assertIn("Responses &amp; points", staff)
+        adopt = staff.split("function adoptLifecycleResponseCounts(")[1].split(
+            "let openResponsePromptId"
+        )[0]
+        self.assertIn("lifecycleRowIsRank", adopt)
+        self.assertIn("group_consensus", adopt)
+        self.assertIn("refreshLifecycleResults", adopt)
+        self.assertIn("lifecycle_rank_revs", staff)
 
 
 if __name__ == "__main__":
