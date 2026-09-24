@@ -621,6 +621,10 @@
                 <input type="radio" name="live-add-q-type" value="poll">
                 <span>poll</span>
               </label>
+              <label class="live-add-type-chip">
+                <input type="radio" name="live-add-q-type" value="rank">
+                <span>Rank</span>
+              </label>
             </div>
           </fieldset>
           <div class="live-add-q-stem live-add-q-main">
@@ -648,6 +652,18 @@
               <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="1"> <input id="live-add-q-opt-1" type="text" maxlength="240" placeholder="B"></label>
               <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="2"> <input id="live-add-q-opt-2" type="text" maxlength="240" placeholder="C"></label>
               <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
+            </div>
+            <div id="live-add-q-rank-fields" class="live-add-q-type-fields" hidden>
+              <p class="live-relocate-section-label">Options — 3 to 6, no answer key</p>
+              <div id="live-add-q-rank-list">
+                <label class="live-add-rank-row"><input id="live-add-q-rank-0" type="text" maxlength="240" placeholder="Option 1"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+                <label class="live-add-rank-row"><input id="live-add-q-rank-1" type="text" maxlength="240" placeholder="Option 2"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+                <label class="live-add-rank-row"><input id="live-add-q-rank-2" type="text" maxlength="240" placeholder="Option 3"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-3" type="text" maxlength="240" placeholder="Option 4"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-4" type="text" maxlength="240" placeholder="Option 5"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-5" type="text" maxlength="240" placeholder="Option 6"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
+              </div>
+              <button type="button" class="secondary live-q-btn" id="live-add-q-rank-add">Add option</button>
             </div>
             <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
               <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>

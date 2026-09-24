@@ -1554,10 +1554,198 @@ function liveCardDockKey(item) {
  * @param {any} answer
  * @returns {string}
  */
+/** Placeholder cue lines. Wonder owns the final copy. */
+const RANK_CUE_TAP = "Tap in order.";
+const RANK_CUE_WAITING = "Submitted — waiting.";
+
+/** @type {Set<number>} */
+const rankEditing = new Set();
+
 function liveAnswerLabel(answer) {
   if (typeof answer === "string" && answer.trim()) return answer.trim();
   if (!answer || typeof answer !== "object") return "—";
+  if (Array.isArray(answer.order) && answer.order.length) {
+    return answer.order.map((id, index) => `${index + 1} ${id}`).join(" · ");
+  }
   return String(answer.value ?? answer.choice ?? answer.text ?? "—");
+}
+
+/**
+ * Authored rank options in stable id order. No shuffle.
+ * @param {any} content
+ * @returns {{id: string, label: string}[]}
+ */
+function rankOptionsFromContent(content) {
+  const raw =
+    Array.isArray(content?.rank_options) && content.rank_options.length
+      ? content.rank_options
+      : Array.isArray(content?.options)
+        ? content.options
+        : [];
+  return raw
+    .slice(0, 6)
+    .map((row, index) => {
+      if (row && typeof row === "object") {
+        return {
+          id: String(row.id || `o${index + 1}`),
+          label: String(row.label || row.text || "").trim(),
+        };
+      }
+      return { id: `o${index + 1}`, label: String(row || "").trim() };
+    })
+    .filter((row) => row.label);
+}
+
+/**
+ * Tap assigns the next number. Tap again removes it and closes the gap.
+ * @param {string[]} order
+ * @param {string} optionId
+ * @returns {string[]}
+ */
+function toggleRankIds(order, optionId) {
+  const next = order.filter((item) => item !== optionId);
+  if (next.length === order.length) next.push(optionId);
+  return next;
+}
+
+/**
+ * @param {HTMLElement} card
+ * @returns {string[]}
+ */
+function rankOrderFromCard(card) {
+  const rows = [...card.querySelectorAll("[data-rank-id]")];
+  return rows
+    .map((row) => ({
+      id: row.getAttribute("data-rank-id") || "",
+      place: Number(row.getAttribute("data-rank-place") || 0),
+    }))
+    .filter((row) => row.place > 0)
+    .sort((a, b) => a.place - b.place)
+    .map((row) => row.id);
+}
+
+/**
+ * Rank rows. Badges stay contiguous. Submit stays off until n/n.
+ * @param {{id: string, label: string}[]} options
+ * @param {string[]} order
+ * @param {string} action
+ * @returns {string}
+ */
+function rankInputHtml(options, order, action) {
+  const n = options.length;
+  const k = order.length;
+  const complete = n > 0 && k === n;
+  const prefix = action === "group" ? "Submit for team" : "Submit";
+  return `<div class="rank-input" data-rank-input="1" data-rank-n="${n}">
+    <p class="rank-cue"><span>${RANK_CUE_TAP}</span> <span data-rank-count>${k}/${n}</span></p>
+    <div class="rank-option-list" role="list">${options
+      .map((opt) => {
+        const place = order.indexOf(opt.id);
+        const numbered = place >= 0;
+        const badge = numbered ? String(place + 1) : "";
+        return `<div class="rank-option-row${numbered ? " is-numbered" : ""}" role="button" tabindex="0" aria-pressed="${
+          numbered ? "true" : "false"
+        }" data-rank-id="${escapeText(opt.id)}" data-rank-place="${numbered ? place + 1 : 0}">
+          <span class="rank-badge" aria-label="${numbered ? `rank ${place + 1}` : "unranked"}">${badge}</span>
+          <span class="rank-label">${escapeText(opt.label)}</span>
+        </div>`;
+      })
+      .join("")}</div>
+    <p class="rank-live" aria-live="polite" data-rank-live></p>
+    <p class="rank-submit-hint"${complete ? " hidden" : ""}>Rank all ${n} to submit.</p>
+    <div class="rank-actions">
+      <button type="button" class="rank-clear" data-rank-clear>Clear</button>
+      <button type="button" class="prompt-submit" data-live-submit="${escapeText(action)}"${
+        complete ? "" : " disabled"
+      } aria-disabled="${complete ? "false" : "true"}">${prefix}</button>
+    </div>
+  </div>`;
+}
+
+/**
+ * @param {{id: string, label: string}[]} options
+ * @param {string[]} order
+ * @param {string} changeLabel
+ * @returns {string}
+ */
+function rankWaitingHtml(options, order, changeLabel) {
+  const labels = new Map(options.map((row) => [row.id, row.label]));
+  const line = order
+    .map((id, index) => `${index + 1} ${labels.get(id) || id}`)
+    .join(" · ");
+  return `<div class="rank-waiting">
+    <p>Your order: ${escapeText(line)}</p>
+    <p>${RANK_CUE_WAITING}</p>
+    <button type="button" class="secondary" data-rank-change>${escapeText(changeLabel)}</button>
+  </div>`;
+}
+
+/**
+ * Enable Submit only when every option is numbered.
+ * @param {HTMLElement} card
+ */
+/**
+ * Paint rank badges in authored-row order. Position in ``order`` is the rank.
+ * @param {HTMLElement} card
+ * @param {string[]} order
+ */
+function paintRankOrder(card, order) {
+  card.querySelectorAll("[data-rank-id]").forEach((row) => {
+    const id = row.getAttribute("data-rank-id") || "";
+    const place = order.indexOf(id);
+    const numbered = place >= 0;
+    row.classList.toggle("is-numbered", numbered);
+    row.setAttribute("aria-pressed", numbered ? "true" : "false");
+    row.setAttribute("data-rank-place", numbered ? String(place + 1) : "0");
+    const badge = row.querySelector(".rank-badge");
+    if (badge) {
+      badge.textContent = numbered ? String(place + 1) : "";
+      badge.setAttribute("aria-label", numbered ? `rank ${place + 1}` : "unranked");
+    }
+  });
+}
+
+/**
+ * Send one shared rank edit. The server applies taps under its lock.
+ * @param {HTMLElement} card
+ * @param {{tap?: string, clear?: boolean, order?: string[]}} body
+ */
+async function postRankDraft(card, body) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  if (!itemId) return;
+  const res = await fetch(
+    `/api/student/live-items/${itemId}/group-draft`,
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    })
+  );
+  if (!res.ok) return;
+  const data = await res.json().catch(() => ({}));
+  const active = lastStudentPayload?.active_questions;
+  if (data.group_submit && Array.isArray(active)) {
+    const row = active.find((item) => Number(item.id) === itemId);
+    if (row) row.group_submit = data.group_submit;
+  }
+}
+
+function syncRankGate(card) {
+  const input = card.querySelector("[data-rank-input]");
+  if (!(input instanceof HTMLElement)) return;
+  const n = Number(input.dataset.rankN) || 0;
+  const order = rankOrderFromCard(card);
+  const count = card.querySelector("[data-rank-count]");
+  if (count) count.textContent = `${order.length}/${n}`;
+  const hint = card.querySelector(".rank-submit-hint");
+  if (hint instanceof HTMLElement) hint.hidden = order.length === n && n > 0;
+  const submit = card.querySelector("[data-live-submit]");
+  if (submit instanceof HTMLButtonElement) {
+    const ready = order.length === n && n > 0;
+    submit.disabled = !ready;
+    submit.setAttribute("aria-disabled", ready ? "false" : "true");
+  }
 }
 
 /**
@@ -1589,6 +1777,26 @@ function liveChoiceLabels(content) {
  * @returns {string}
  */
 function lifecycleResultsHtml(results) {
+  const rankRows = Array.isArray(results?.rows)
+    ? results.rows
+    : Array.isArray(results?.class_order)
+      ? results.class_order
+      : results?.kind === "rank" && Array.isArray(results?.rank?.class_order)
+        ? results.rank.class_order
+        : [];
+  if ((results?.kind === "rank" || Array.isArray(results?.class_order)) && rankRows.length) {
+    return `<section class="student-live-results" aria-label="Class order">
+      <p class="student-live-card-kicker">Class order</p>
+      <ol class="rank-class-order">${rankRows
+        .map((row) => {
+          const pct = Math.max(0, Math.min(100, Number(row.bar_pct) || 0));
+          return `<li><span class="rank-place">${Number(row.rank) || 0}</span> <span>${escapeText(
+            row.label || ""
+          )}</span> <span class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></span></li>`;
+        })
+        .join("")}</ol>
+    </section>`;
+  }
   const choices = Array.isArray(results?.choices) ? results.choices : [];
   if (!choices.length) return "";
   return `<section class="student-live-results" aria-label="Class results">
@@ -1699,6 +1907,11 @@ function lifecycleAnswerControls(item, action, initial = null) {
   const kind = lifecycleAnswerKind(item);
   const current = liveAnswerLabel(initial);
   const prefix = action === "team" ? "Submit Group Answer" : "Submit Answer";
+  if (kind === "rank") {
+    const options = rankOptionsFromContent(content);
+    const stored = Array.isArray(initial?.order) ? initial.order.map((id) => String(id)) : [];
+    return rankInputHtml(options, stored, action);
+  }
   if (kind === "mc" || kind === "poll") {
     const choices = liveChoiceLabels(content);
     const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
@@ -2012,6 +2225,35 @@ function groupSubmitPhaseLabel(phase) {
  */
 function studentGroupCardHtml(item) {
   const status = String(item?.status || "active");
+  const content = item?.content || item?.prompt?.payload || {};
+  const rank = String(content.type || content.kind || "").toLowerCase() === "rank";
+  if (status === "closed" && rank) {
+    const options = rankOptionsFromContent(content);
+    const own = Array.isArray(item?.group_submit?.submitted_order)
+      ? item.group_submit.submitted_order
+      : Array.isArray(item?.group_submit?.order)
+        ? item.group_submit.order
+        : [];
+    const classBlock =
+      item?.results?.kind === "rank" ? lifecycleResultsHtml(item.results.rank || item.results) : "";
+    const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
+    const teams = rows.length
+      ? `<table class="group-reveal-board">
+      <caption>Teams</caption>
+      <thead><tr><th>Group</th><th>Order</th></tr></thead>
+      <tbody>${rows
+        .map((row) => {
+          const missed = Boolean(row.missed);
+          return `<tr class="${missed ? "is-missed" : ""}">
+            <th>${escapeText(row.team_name || "Group")}</th>
+            <td>${missed ? "" : escapeText(row.answer || "")}</td>
+          </tr>`;
+        })
+        .join("")}</tbody>
+    </table>`
+      : "";
+    return `${classBlock}${teams}${own.length ? rankWaitingHtml(options, own.map(String), "Change team order") : ""}`;
+  }
   if (status === "closed") {
     const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
     if (!rows.length) return "";
@@ -2031,7 +2273,26 @@ function studentGroupCardHtml(item) {
     </table>`;
   }
   const group = item?.group_submit || {};
-  const content = item?.content || item?.prompt?.payload || {};
+  if (rank) {
+    const options = rankOptionsFromContent(content);
+    const order = Array.isArray(group.order) ? group.order.map((id) => String(id)) : [];
+    const members = Array.isArray(group.members)
+      ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
+    const teamName = String(group.team_name || "").trim();
+    const strip = [teamName, ...members].filter(Boolean).join(" · ");
+    const last = String(group.last_submitter || "").trim();
+    const editing = rankEditing.has(Number(item.id) || 0);
+    const body =
+      group.phase === "submitted" && !editing
+        ? rankWaitingHtml(options, (group.submitted_order || order).map(String), "Change team order")
+        : rankInputHtml(options, editing ? (group.submitted_order || order).map(String) : order, "group");
+    return `<div class="student-group-card" data-live-action="group" data-rank-shared="1">
+      ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
+      ${body}
+      ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
+    </div>`;
+  }
   const choices = liveChoiceLabels(content);
   const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
   const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
@@ -2232,14 +2493,26 @@ function paintLifecycleQuestionStack(payload) {
       const status = String(item.status || "active");
       const groupMode = item.response_mode === "group_consensus";
       const groupSubmit = item.response_mode === "group_submit";
+      const rankKind = lifecycleAnswerKind(item) === "rank";
+      const rankEdit = rankEditing.has(Number(item.id) || 0);
       const individualControls =
-        !groupMode && !groupSubmit && !item.my_response && item.can_submit
-          ? lifecycleAnswerControls(
-              item,
-              "individual",
-              liveCardDrafts.get(`${Number(item.id)}:individual`)
+        !groupMode && !groupSubmit && rankKind && item.my_response && !rankEdit
+          ? rankWaitingHtml(
+              rankOptionsFromContent(content),
+              Array.isArray(item.my_response.response?.order)
+                ? item.my_response.response.order.map((id) => String(id))
+                : [],
+              "Change answer"
             )
-          : "";
+          : !groupMode && !groupSubmit && ((!item.my_response && item.can_submit) || (rankKind && rankEdit))
+            ? lifecycleAnswerControls(
+                item,
+                "individual",
+                rankEdit
+                  ? item.my_response?.response
+                  : liveCardDrafts.get(`${Number(item.id)}:individual`)
+              )
+            : "";
       const ownLabel = !groupMode && !groupSubmit
         ? item.my_response
           ? liveAnswerLabel(item.my_response.response)
@@ -2339,6 +2612,13 @@ function paintLifecycleQuestionStack(payload) {
  * @returns {Record<string, unknown>|null}
  */
 function lifecycleAnswerFromCard(card) {
+  const rank = card.querySelector("[data-rank-input]");
+  if (rank instanceof HTMLElement) {
+    const order = rankOrderFromCard(card);
+    const n = Number(rank.dataset.rankN) || 0;
+    if (!n || order.length !== n) return null;
+    return { order };
+  }
   if (card.querySelector("[data-artifact-kind]")) {
     return { params: { ...lastArtifactSliders } };
   }
@@ -2460,10 +2740,12 @@ async function submitLifecycleAnswer(card, action) {
     } else if (action === "group") {
       const whyEl = card.querySelector("[data-group-why]");
       url = `/api/student/live-items/${itemId}/group-submit`;
-      body = {
-        choice: response.choice,
-        why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
-      };
+      body = card.querySelector("[data-rank-input]")
+        ? { order: response.order }
+        : {
+            choice: response.choice,
+            why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
+          };
     }
     const res = await fetch(
       url,
@@ -2479,6 +2761,7 @@ async function submitLifecycleAnswer(card, action) {
       throw new Error(data.error || "Could not submit that answer.");
     }
     liveCardDrafts.delete(`${itemId}:${action}`);
+    rankEditing.delete(itemId);
     if (lastStudentPayload) {
       lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
       paintLifecycleQuestionStack(lastStudentPayload);
@@ -3650,6 +3933,63 @@ document.getElementById("student-reconnect-retry")?.addEventListener("click", ()
   void tick();
 });
 
+document.getElementById("live-response")?.addEventListener("keydown", (event) => {
+  const row = event.target instanceof Element ? event.target.closest("[data-rank-id]") : null;
+  if (!(row instanceof HTMLElement)) return;
+  const card = row.closest("[data-live-card-id]");
+  if (!(card instanceof HTMLElement)) return;
+  const list = row.parentElement;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    row.click();
+    return;
+  }
+  if (event.key === "Escape" && row.dataset.rankGrabbed === "1") {
+    event.preventDefault();
+    const domIds = String(card.dataset.rankDomSnapshot || "").split(",").filter(Boolean);
+    const badgeIds = String(card.dataset.rankOrderSnapshot || "").split(",").filter(Boolean);
+    if (list) {
+      domIds.forEach((id) => {
+        const node = list.querySelector(`[data-rank-id="${CSS.escape(id)}"]`);
+        if (node) list.appendChild(node);
+      });
+    }
+    paintRankOrder(card, badgeIds);
+    syncRankGate(card);
+    row.dataset.rankGrabbed = "0";
+    row.classList.remove("is-grabbed");
+    return;
+  }
+  if (event.key === " ") {
+    event.preventDefault();
+    if (row.dataset.rankGrabbed === "1") {
+      row.dataset.rankGrabbed = "0";
+      row.classList.remove("is-grabbed");
+      const visual = [...card.querySelectorAll("[data-rank-id]")].map(
+        (el) => el.getAttribute("data-rank-id") || ""
+      );
+      paintRankOrder(card, visual);
+      syncRankGate(card);
+      if (card.querySelector("[data-rank-shared]")) void postRankDraft(card, { order: visual });
+      return;
+    }
+    card.dataset.rankDomSnapshot = [...card.querySelectorAll("[data-rank-id]")]
+      .map((el) => el.getAttribute("data-rank-id") || "")
+      .join(",");
+    card.dataset.rankOrderSnapshot = rankOrderFromCard(card).join(",");
+    row.dataset.rankGrabbed = "1";
+    row.classList.add("is-grabbed");
+    return;
+  }
+  if ((event.key === "ArrowUp" || event.key === "ArrowDown") && row.dataset.rankGrabbed === "1" && list) {
+    event.preventDefault();
+    const sibling = event.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    if (!(sibling instanceof HTMLElement) || !sibling.hasAttribute("data-rank-id")) return;
+    if (event.key === "ArrowUp") list.insertBefore(row, sibling);
+    else list.insertBefore(sibling, row);
+  }
+});
+
 document.getElementById("live-response")?.addEventListener("click", (event) => {
   const dismissSurface = event.target.closest("[data-dismiss-surface]");
   if (dismissSurface instanceof HTMLButtonElement) {
@@ -3667,6 +4007,56 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     !event.target.closest("button")
   ) {
     event.preventDefault();
+    return;
+  }
+  const rankChange = event.target.closest("[data-rank-change]");
+  if (rankChange instanceof HTMLButtonElement) {
+    const card = rankChange.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement) {
+      rankEditing.add(Number(card.dataset.liveCardId) || 0);
+      if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+    }
+    return;
+  }
+  const rankClear = event.target.closest("[data-rank-clear]");
+  if (rankClear instanceof HTMLButtonElement) {
+    const card = rankClear.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement) {
+      card.querySelectorAll("[data-rank-id]").forEach((row) => {
+        row.classList.remove("is-numbered");
+        row.setAttribute("aria-pressed", "false");
+        row.setAttribute("data-rank-place", "0");
+        const badge = row.querySelector(".rank-badge");
+        if (badge) {
+          badge.textContent = "";
+          badge.setAttribute("aria-label", "unranked");
+        }
+      });
+      syncRankGate(card);
+      if (card.querySelector("[data-rank-shared]")) {
+        void postRankDraft(card, { clear: true });
+      }
+    }
+    return;
+  }
+  const rankRow = event.target.closest("[data-rank-id]");
+  if (rankRow instanceof HTMLElement && !event.target.closest("[data-rank-clear], [data-live-submit]")) {
+    const card = rankRow.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement) {
+      const id = rankRow.getAttribute("data-rank-id") || "";
+      const order = toggleRankIds(rankOrderFromCard(card), id);
+      paintRankOrder(card, order);
+      syncRankGate(card);
+      const label = rankRow.querySelector(".rank-label")?.textContent || "";
+      const place = order.indexOf(id);
+      const live = card.querySelector("[data-rank-live]");
+      if (live) {
+        live.textContent = place >= 0 ? `${label}, rank ${place + 1} of ${order.length}` : `${label}, removed`;
+      }
+      if (card.querySelector("[data-rank-shared]")) {
+        void postRankDraft(card, { tap: id });
+      }
+    }
     return;
   }
   const choice = event.target.closest("[data-live-choice]");

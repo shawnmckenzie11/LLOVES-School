@@ -15,7 +15,7 @@ try:
 except ImportError:
     from lms.bank_edit import create_staff_bank_question
 
-LIVE_BANK_TYPES = frozenset({"mc", "numeric", "poll"})
+LIVE_BANK_TYPES = frozenset({"mc", "numeric", "poll", "rank"})
 
 
 def create_live_bank_question(
@@ -37,7 +37,7 @@ def create_live_bank_question(
         school: School database.
         library_id: ``content_libraries.id``.
         bank_scope: ``M1``–``M8`` or ``course``.
-        body: Stem, options, and type (``mc``, ``numeric``, or ``poll``).
+        body: Stem, options, and type (``mc``, ``numeric``, ``poll``, or ``rank``).
         class_id: Class id for image URL resolution.
 
     Returns:
@@ -45,7 +45,17 @@ def create_live_bank_question(
     """
     kind = str(body.get("type") or body.get("question_type") or "mc").strip().lower()
     if kind not in LIVE_BANK_TYPES:
-        raise ValueError("type must be mc, numeric, or poll")
+        raise ValueError("type must be mc, numeric, poll, or rank")
+    rank_options: list[dict[str, str]] = []
+    if kind == "rank":
+        try:
+            from live_rank import build_rank_options
+        except ImportError:
+            from lms.live_rank import build_rank_options
+
+        rank_options = build_rank_options(
+            body.get("rank_options") or body.get("options") or []
+        )
     if kind == "numeric":
         key = str(body.get("correct_answer") or body.get("correctAnswer") or "").strip()
         if not key:
@@ -62,9 +72,12 @@ def create_live_bank_question(
         "mc": "multiple_choice_question",
         "numeric": "numerical_question",
         "poll": "essay_question",
+        "rank": "essay_question",
     }[kind]
     write = dict(body)
     write["item_type"] = item_type
+    if kind == "rank":
+        write["options"] = [row["label"] for row in rank_options]
     write.pop("kind", None)
     write.pop("tags", None)
     question = create_staff_bank_question(
@@ -87,6 +100,15 @@ def create_live_bank_question(
     if kind == "poll":
         payload["options"] = []
         payload["choices"] = []
+    if kind == "rank":
+        labels = [row["label"] for row in rank_options]
+        payload["type"] = "rank"
+        payload["kind"] = "rank"
+        payload["options"] = labels
+        payload["choices"] = labels
+        payload["rank_options"] = rank_options
+        payload.pop("key", None)
+        payload.pop("correct_answer", None)
     school.update_library_question_payload(
         int(library_id),
         int(question["id"]),
