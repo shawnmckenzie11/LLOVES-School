@@ -20156,6 +20156,45 @@ class SchoolDB(LovesDB):
             return self.game.game_state(int(class_id))
         return self.game.begin_game(int(class_id), meeting_date=meeting_date)
 
+    def _open_game_meeting_iso(self, class_id: int) -> str | None:
+        """Return the open game's meeting day when a game is still in progress.
+
+        Look-for tallies date a live session by ``meeting_date`` and fall
+        back to wall-clock ``started_at`` only when that column is empty.
+        A class begun on a chosen day must keep that day on the new live
+        session so an intro-day observation still counts in module 1 after
+        the calendar rolls into a later module.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ISO date ``YYYY-MM-DD``, or None when no open game has a date.
+        """
+        try:
+            from gradebook import session_meeting_date
+        except ImportError:
+            from lms.gradebook import session_meeting_date
+
+        with self._lock:
+            row = self.game.conn.execute(
+                """
+                SELECT s.starts_at
+                FROM games g
+                JOIN sessions s ON s.id = g.session_id
+                WHERE g.class_id = ? AND g.status != 'ended'
+                ORDER BY g.id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        meeting = session_meeting_date(row["starts_at"])
+        if meeting is None:
+            return None
+        return meeting.isoformat()
+
     def start_live_class_session(
         self,
         class_id: int,
@@ -20216,13 +20255,14 @@ class SchoolDB(LovesDB):
         self.game.clear_class_moods_and_characters(int(class_id))
         code = self.mint_unique_active_session_code()
         now = _now()
+        meeting_iso = self._open_game_meeting_iso(int(class_id))
         with self._lock:
             cur = self.conn.execute(
                 """
                 INSERT INTO live_class_sessions (
                     class_id, offering_id, teacher_user_id, session_code,
-                    status, started_at, ended_at, mgs_session_id
-                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL)
+                    status, started_at, ended_at, mgs_session_id, meeting_date
+                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?)
                 """,
                 (
                     int(class_id),
@@ -20230,6 +20270,7 @@ class SchoolDB(LovesDB):
                     int(teacher_user_id),
                     code,
                     now,
+                    meeting_iso,
                 ),
             )
             self.conn.commit()
