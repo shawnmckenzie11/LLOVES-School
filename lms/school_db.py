@@ -6442,18 +6442,44 @@ class SchoolDB(LovesDB):
         def override_for_item(item_id: str) -> dict[str, Any] | None:
             """Return the hide/move override that matches one playlist id.
 
-            Engine-ride aliases (``teams_spark`` / ``teams-spark``) share a row.
+            Engine-ride aliases (``teams_spark`` / ``teams-spark``) share a
+            row. A ``stage:page:order:item`` key shares a row with the
+            catalogue id. When a teacher move and Save to card landed on
+            different rows, the flag stays on if either row has it, and
+            the move keeps its stage and page.
             """
             token = str(item_id or "").strip()
             if not token:
                 return None
-            direct = by_item.get(token)
-            if direct is not None:
-                return direct
-            for key, row in by_item.items():
-                if SchoolDB._same_live_item_id(key, token):
-                    return row
-            return None
+            matches = [
+                row
+                for key, row in by_item.items()
+                if key == token or SchoolDB._same_live_item_id(key, token)
+            ]
+            if not matches:
+                return None
+            if len(matches) == 1:
+                return matches[0]
+            merged = dict(matches[0])
+            merged["save_to_card"] = (
+                1 if any(int(row.get("save_to_card") or 0) for row in matches) else 0
+            )
+            merged["removed"] = (
+                1 if any(int(row.get("removed") or 0) for row in matches) else 0
+            )
+            for row in matches:
+                if str(row.get("stage") or "").strip() and not str(
+                    merged.get("stage") or ""
+                ).strip():
+                    merged["stage"] = row.get("stage")
+                if (
+                    row.get("page_number") is not None
+                    and merged.get("page_number") is None
+                ):
+                    merged["page_number"] = row.get("page_number")
+                if row.get("sort_order") is not None and merged.get("sort_order") is None:
+                    merged["sort_order"] = row.get("sort_order")
+            return merged
 
         def transform(row: dict[str, Any]) -> dict[str, Any] | None:
             item_id = SchoolDB._playlist_row_item_id(row)
@@ -10622,7 +10648,69 @@ class SchoolDB(LovesDB):
                 candidate = str(row.get("id") or row.get("item_id") or "").strip()
                 if candidate and self._same_live_item_id(candidate, token):
                     return candidate
+        parsed = self._parse_positional_live_key(token)
+        if parsed and not parsed[3]:
+            beat_id = self._catalogue_id_on_beat(
+                metadata, parsed[0], parsed[1], parsed[2]
+            )
+            if beat_id:
+                return beat_id
         return token
+
+    def _catalogue_id_on_beat(
+        self,
+        metadata: dict[str, Any],
+        stage: str,
+        page: int,
+        order: int,
+    ) -> str:
+        """Return the catalogue question id on one stage and page.
+
+        A bare ``stage:page:order`` key has no item id. Exact order wins.
+        When that order drifted, the only question on the page still matches.
+
+        Args:
+            metadata: Merged live-lesson metadata.
+            stage: Positional stage token.
+            page: Positional page number.
+            order: Positional order.
+
+        Returns:
+            Catalogue question id, or ``""`` when the page is ambiguous.
+        """
+        on_page: list[tuple[bool, str]] = []
+        for source in (metadata.get("questions"), metadata.get("items")):
+            for row in source or []:
+                if not isinstance(row, dict):
+                    continue
+                row_stage = str(row.get("stage") or "").strip().lower()
+                if stage and row_stage and row_stage != stage:
+                    continue
+                try:
+                    row_page = (
+                        int(row["page_number"])
+                        if row.get("page_number") not in (None, "")
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    row_page = None
+                if row_page is not None and row_page != int(page):
+                    continue
+                candidate = str(row.get("id") or row.get("item_id") or "").strip()
+                if not candidate or self._parse_positional_live_key(candidate):
+                    continue
+                try:
+                    row_order = int(row.get("order") or 0)
+                except (TypeError, ValueError):
+                    row_order = 0
+                on_page.append((row_order == int(order), candidate))
+        exact = [item for same, item in on_page if same]
+        if exact:
+            return exact[0]
+        unique = list(dict.fromkeys(item for _same, item in on_page))
+        if len(unique) == 1:
+            return unique[0]
+        return ""
 
     def _catalogue_question_for_item(self, item: dict[str, Any]) -> dict[str, Any]:
         """Return the metadata question that matches one lifecycle item id.
@@ -11036,6 +11124,9 @@ class SchoolDB(LovesDB):
             token = str(row["item_id"] or "").strip()
             if token and token not in existing_by_item:
                 existing_by_item[token] = row
+            alias = self._live_item_alias(token)
+            if alias and alias not in existing_by_item:
+                existing_by_item[alias] = row
         prompt_by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompts:
             payload = (
@@ -11068,7 +11159,11 @@ class SchoolDB(LovesDB):
                 overlay = self._catalogue_overlay_for_placement(
                     placement, question_by_ref
                 )
+                placed_save = bool(placement.get("save_to_card"))
+                overlay_save = bool(overlay.get("save_to_card")) if overlay else False
                 question = {**placement, **overlay} if overlay else dict(placement)
+                if placed_save or overlay_save:
+                    question["save_to_card"] = True
                 catalogue_id = str(overlay.get("id") or "").strip() if overlay else ""
                 if catalogue_id:
                     question["id"] = catalogue_id
@@ -11120,10 +11215,40 @@ class SchoolDB(LovesDB):
                 if saved is None:
                     saved = existing_by_item.get(item_id)
                 if saved is None:
+                    saved = existing_by_item.get(self._live_item_alias(item_id))
+                if saved is None:
                     for key, row in existing_by_item.items():
                         if self._same_live_item_id(key, item_id):
                             saved = row
                             break
+                if saved is None:
+                    on_beat = 0
+                    for catalogue_row in questions:
+                        row_stage = str(catalogue_row.get("stage") or "").strip().lower()
+                        if stage and row_stage and row_stage != stage:
+                            continue
+                        try:
+                            row_page = (
+                                int(catalogue_row["page_number"])
+                                if catalogue_row.get("page_number") not in (None, "")
+                                else None
+                            )
+                        except (TypeError, ValueError):
+                            row_page = None
+                        if (
+                            page_number is not None
+                            and row_page is not None
+                            and row_page != page_number
+                        ):
+                            continue
+                        on_beat += 1
+                    saved = self._lifecycle_row_for_bare_beat(
+                        existing_rows,
+                        stage,
+                        page_number,
+                        order,
+                        on_beat,
+                    )
                 if saved is not None and (
                     str(saved["placement_key"] or "") != placement_key
                     or str(saved["item_id"] or "") != item_id
@@ -11980,15 +12105,15 @@ class SchoolDB(LovesDB):
                 """,
                 (class_id, module_key, slot_key),
             ).fetchall()
-            existing = next(
-                (
-                    row
-                    for row in override_rows
-                    if self._same_live_item_id(row["item_id"], item_id)
-                ),
-                None,
+            matches = [
+                row
+                for row in override_rows
+                if self._same_live_item_id(row["item_id"], item_id)
+            ]
+            has_canonical = any(
+                str(row["item_id"] or "") == item_id for row in matches
             )
-            if existing is None:
+            if not has_canonical:
                 self.conn.execute(
                     """
                     INSERT INTO class_live_playlist_item_overrides (
@@ -11998,33 +12123,15 @@ class SchoolDB(LovesDB):
                     """,
                     (class_id, module_key, slot_key, item_id, flag, stamp, stamp),
                 )
-            else:
-                rename = (
-                    str(existing["item_id"] or "") != item_id
-                    and not any(
-                        str(row["item_id"] or "") == item_id
-                        and int(row["id"]) != int(existing["id"])
-                        for row in override_rows
-                    )
+            for row in matches:
+                self.conn.execute(
+                    """
+                    UPDATE class_live_playlist_item_overrides
+                    SET save_to_card = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (flag, stamp, int(row["id"])),
                 )
-                if rename:
-                    self.conn.execute(
-                        """
-                        UPDATE class_live_playlist_item_overrides
-                        SET item_id = ?, save_to_card = ?, updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (item_id, flag, stamp, int(existing["id"])),
-                    )
-                else:
-                    self.conn.execute(
-                        """
-                        UPDATE class_live_playlist_item_overrides
-                        SET save_to_card = ?, updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (flag, stamp, int(existing["id"])),
-                    )
             self.conn.commit()
 
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
@@ -17098,18 +17205,100 @@ class SchoolDB(LovesDB):
             is not None
         )
 
+    _POSITIONAL_LIVE_KEY_RE = re.compile(
+        r"^(join|teams|meet|round_3|round|play|summary):(\d+):(\d+)(?::(.+))?$",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _parse_positional_live_key(raw: Any) -> tuple[str, int, int, str] | None:
+        """Split a ``stage:page:order`` or ``stage:page:order:item`` token.
+
+        Args:
+            raw: Lifecycle item id or placement key.
+
+        Returns:
+            ``(stage, page, order, embedded_item_id)``. The embedded id is
+            empty for a bare positional token. ``None`` when ``raw`` is not
+            a positional key.
+        """
+        token = str(raw or "").strip()
+        match = SchoolDB._POSITIONAL_LIVE_KEY_RE.fullmatch(token)
+        if not match:
+            return None
+        return (
+            str(match.group(1) or "").lower(),
+            int(match.group(2)),
+            int(match.group(3)),
+            str(match.group(4) or "").strip(),
+        )
+
+    def _lifecycle_row_for_bare_beat(
+        self,
+        rows: list[Any],
+        stage: str,
+        page_number: int | None,
+        order: int,
+        questions_on_beat: int,
+    ) -> Any:
+        """Return a lifecycle row stored as a bare ``stage:page:order`` key.
+
+        Args:
+            rows: Raw ``live_session_items`` rows.
+            stage: Catalogue stage.
+            page_number: Catalogue page, if any.
+            order: Catalogue order.
+            questions_on_beat: Catalogue questions on this stage and page.
+                A drifted order matches only when the page has one question.
+
+        Returns:
+            The matching sqlite row, or ``None``.
+        """
+        candidates: list[tuple[bool, Any]] = []
+        for row in rows:
+            for token in (row["item_id"], row["placement_key"]):
+                parsed = self._parse_positional_live_key(token)
+                if parsed is None or parsed[3]:
+                    continue
+                if parsed[0] != stage:
+                    continue
+                if page_number is not None and parsed[1] != int(page_number):
+                    continue
+                candidates.append((parsed[2] == int(order), row))
+                break
+        if not candidates:
+            return None
+        exact = [row for same, row in candidates if same]
+        if exact:
+            return exact[0]
+        if questions_on_beat == 1 and len(candidates) == 1:
+            return candidates[0][1]
+        return None
+
     @staticmethod
     def _live_item_alias(raw: Any) -> str:
         """Return the hyphen/underscore-insensitive form of a playlist id.
 
+        A ``stage:page:order:item`` placement key peels to the catalogue id,
+        so ``round:4:9:parabola_a`` and ``parabola-a`` share a row. A bare
+        ``stage:page:order`` token stays positional.
+
         Args:
             raw: Item id, ref, or placement token.
         """
-        return str(raw or "").strip().lower().replace("-", "_")
+        token = str(raw or "").strip()
+        parsed = SchoolDB._parse_positional_live_key(token)
+        if parsed and parsed[3]:
+            token = parsed[3]
+        return token.lower().replace("-", "_")
 
     @staticmethod
     def _same_live_item_id(left: Any, right: Any) -> bool:
-        """True when two playlist/engine-ride ids name the same item."""
+        """True when two playlist/engine-ride ids name the same item.
+
+        Hyphen and underscore spellings match. A placement key matches the
+        catalogue id embedded after ``stage:page:order``.
+        """
         first = SchoolDB._live_item_alias(left)
         second = SchoolDB._live_item_alias(right)
         return bool(first) and first == second

@@ -2104,6 +2104,164 @@ class LiveBackendStateTests(unittest.TestCase):
         ]
         self.assertEqual([row.get("id") for row in bank_marked], ["A"])
 
+    def _positional_preloaded_metadata(self) -> dict[str, Any]:
+        """Desk item whose id is the stage:page:order placement key.
+
+        Teacher sqlite can keep that key on the lifecycle row and on an
+        older override, while the catalogue question stays ``parabola-a``.
+        The stripped desk copy still omits the answer key.
+        """
+
+        base = self._preloaded_deck_metadata()
+        question = next(row for row in base["questions"] if row["id"] == "parabola-a")
+        stripped = {
+            key: value
+            for key, value in question.items()
+            if key not in {"correct_answer", "key"}
+        }
+        stripped["id"] = "round:4:1:parabola_a"
+        stripped["item_id"] = "round:4:1:parabola_a"
+        bank = next(
+            row for row in base["items"] if str(row.get("id") or "") == "bank-import-41"
+        )
+        base["items"] = [stripped, bank]
+        return base
+
+    def test_preloaded_save_to_card_follows_positional_override(self) -> None:
+        """Save to card survives a stage:page:order id after a teacher deck edit.
+
+        The class already has a move override on ``parabola-a`` (flag off)
+        and a stale override on ``round:4:9:parabola_a``. The live row uses
+        that positional id and Group submission. Toggling Save to card must
+        update the catalogue override, keep the same published row, and
+        still be on after a fresh deck seed.
+        """
+
+        stamp = "2026-09-25T12:00:00"
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_item_overrides (
+                    class_id, module, slot, item_id, removed, save_to_card,
+                    page_number, stage, sort_order, created_at, updated_at
+                ) VALUES (?, 'M2', 'C1', 'parabola-a', 0, 0, 4, 'round', 1, ?, ?)
+                """,
+                (self.class_id, stamp, stamp),
+            )
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_item_overrides (
+                    class_id, module, slot, item_id, removed, save_to_card,
+                    page_number, stage, sort_order, created_at, updated_at
+                ) VALUES (
+                    ?, 'M2', 'C1', 'round:4:9:parabola_a', 0, 0,
+                    NULL, NULL, NULL, ?, ?
+                )
+                """,
+                (self.class_id, stamp, stamp),
+            )
+            self.school.conn.commit()
+
+        def metadata(_session_id: int) -> dict[str, Any]:
+            overrides = self.school.list_class_playlist_item_overrides(
+                self.class_id, "M2", "C1"
+            )
+            return self.school._apply_class_playlist_item_overrides(
+                self._positional_preloaded_metadata(), overrides
+            )
+
+        self.school.live_class_metadata_for_session = metadata
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M2",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        with self.school._lock:
+            cur = self.school.conn.execute(
+                """
+                INSERT INTO live_session_items (
+                    live_session_id, placement_key, item_id, stage, page_number,
+                    sort_order, kind, item_json, status, publish_mode,
+                    response_mode, show_live_results, save_to_card, published_at,
+                    created_at, updated_at
+                ) VALUES (
+                    ?, 'round:4:9:parabola_a', 'round:4:9:parabola_a', 'round', 4,
+                    4004, 'question', ?, 'active', 'group_submit',
+                    'group_submit', 1, 0, ?, ?, ?
+                )
+                """,
+                (
+                    self.session_id,
+                    json.dumps(
+                        {
+                            "id": "round:4:9:parabola_a",
+                            "type": "mc",
+                            "text": "Which graph opens upward?",
+                            "options": ["down", "up"],
+                            "stage": "round",
+                            "page_number": 4,
+                            "order": 9,
+                        }
+                    ),
+                    stamp,
+                    stamp,
+                    stamp,
+                ),
+            )
+            self.school.conn.commit()
+            row_id = int(cur.lastrowid)
+        saved = self.school.update_live_session_item_settings(
+            self.session_id, row_id, save_to_card=True
+        )
+        self.assertEqual(int(saved["id"]), row_id)
+        self.assertTrue(saved["save_to_card"])
+        self.assertEqual(saved["item_id"], "parabola-a")
+        self.assertEqual(saved["response_mode"], "group_submit")
+        self.assertEqual((saved.get("item") or {}).get("correct_answer"), "B")
+        state = self.school.get_live_session_state(self.session_id)
+        live = [
+            row
+            for row in state["live_items"]
+            if "parabola" in str(row.get("item_id") or "")
+        ]
+        self.assertEqual(len(live), 1)
+        self.assertEqual(int(live[0]["id"]), row_id)
+        self.assertEqual(live[0]["status"], "active")
+        self.assertTrue(live[0]["save_to_card"])
+        self.assertEqual(live[0]["response_mode"], "group_submit")
+        cards = {str(row["id"]): row for row in state["question_cards"]}
+        self.assertEqual(cards["parabola-a"]["live_item_id"], row_id)
+        self.assertTrue(cards["parabola-a"]["save_to_card"])
+        self.assertEqual(cards["parabola-a"]["correct_answer"], "B")
+        self.assertEqual(cards["parabola-a"]["response_mode"], "group_submit")
+        overrides = self.school.list_class_playlist_item_overrides(
+            self.class_id, "M2", "C1"
+        )
+        catalogue = next(row for row in overrides if row["item_id"] == "parabola-a")
+        self.assertEqual(int(catalogue["save_to_card"]), 1)
+        merged = self.school._apply_class_playlist_item_overrides(
+            self._positional_preloaded_metadata(), overrides
+        )
+        question = next(row for row in merged["questions"] if row["id"] == "parabola-a")
+        self.assertTrue(question.get("save_to_card"))
+        with self.school._lock:
+            self.school.conn.execute(
+                "DELETE FROM live_session_items WHERE live_session_id = ?",
+                (self.session_id,),
+            )
+            self.school.conn.commit()
+        fresh = [
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if "parabola" in str(row.get("item_id") or "")
+        ]
+        self.assertEqual(len(fresh), 1)
+        self.assertEqual(fresh[0]["item_id"], "parabola-a")
+        self.assertTrue(fresh[0]["save_to_card"])
+
     def test_preloaded_reveal_answers_keeps_the_published_row(self) -> None:
         """Reveal answers advances the published deck row after an id drift.
 
