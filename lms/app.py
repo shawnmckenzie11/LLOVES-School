@@ -198,6 +198,27 @@ def _optional_date(value: Any) -> date | None:
 
 logger = logging.getLogger(__name__)
 
+# One warning per missing session. A full traceback on every student poll
+# starved the shared Fly CPU after a Meet row disappeared.
+_gone_live_sessions_logged: set[int] = set()
+
+
+def _note_live_session_gone(session_id: int) -> None:
+    """Log once per process when polls hit a missing or closed Meet.
+
+    Student browsers poll about once a second. Formatting a traceback on
+    each of those requests pegged the machine. One warning is enough to
+    see which session id went away.
+
+    Args:
+        session_id: ``live_class_sessions.id`` the client asked for.
+    """
+    sid = int(session_id)
+    if sid in _gone_live_sessions_logged:
+        return
+    _gone_live_sessions_logged.add(sid)
+    logger.warning("live session %s is gone; polls return ended", sid)
+
 
 def _json_error(exc: BaseException):
     """Map domain exceptions to JSON API errors."""
@@ -3800,6 +3821,31 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         clear_rejoin_cookie(resp)
         return resp
 
+    def _student_poll_ended_response(live_session_id: int):
+        """JSON 200 ended body for a missing or closed Meet.
+
+        Non-200 responses make the student page show Reconnecting… and
+        poll again. This stays HTTP 200 with ``redirect`` so the browser
+        leaves. It does not log a traceback.
+
+        Args:
+            live_session_id: Session the client was polling.
+        """
+        _note_live_session_gone(live_session_id)
+        return jsonify(
+            {
+                "ok": True,
+                "status": "ended",
+                "phase": "ended",
+                "celebrate": False,
+                "feedback": False,
+                "redirect": url_for("landing"),
+                "fault": (
+                    "Live class state is gone. This Meet is no longer running."
+                ),
+            }
+        )
+
     def _require_active_live_attendee(
         *,
         as_json: bool = False,
@@ -4266,6 +4312,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 request.args.get("stamp"),
             )
             if unchanged is not None:
+                if unchanged.get("status") == "ended" and not unchanged.get(
+                    "celebrate"
+                ):
+                    return _student_poll_ended_response(live_session_id)
                 return jsonify(unchanged)
             payload = school.assemble_student_live_payload(
                 live_session_id,
@@ -4287,6 +4337,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )
             payload = json_safe(payload)
+        except KeyError as exc:
+            # Missing Meet. Do not logger.exception — that traceback on
+            # every poll is what hung the shared-cpu machine.
+            if "live session" in str(exc):
+                return _student_poll_ended_response(live_session_id)
+            logger.exception(
+                "student /state failed session=%s", live_session_id
+            )
+            return jsonify(
+                {
+                    "ok": True,
+                    "error": "state unavailable",
+                    "status": "waiting",
+                }
+            )
         except Exception:
             logger.exception(
                 "student /state failed session=%s", live_session_id
@@ -4886,6 +4951,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         """
         session_row = school.get_live_session(session_id)
         if session_row is None:
+            _note_live_session_gone(session_id)
             return jsonify(_missing_live_session_state(session_id))
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
@@ -4897,12 +4963,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         try:
             state = school.get_live_session_state(session_id, light=light)
         except KeyError:
+            fresh = school.get_live_session(session_id)
+            if fresh is None:
+                _note_live_session_gone(session_id)
+                return jsonify(_missing_live_session_state(session_id))
             logger.exception(
                 "live session %s /state KeyError light=%s", session_id, light
             )
-            fresh = school.get_live_session(session_id)
-            if fresh is None:
-                return jsonify(_missing_live_session_state(session_id))
             state = _degraded_live_session_state(fresh)
         except Exception:
             logger.exception(
