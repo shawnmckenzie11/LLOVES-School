@@ -2193,6 +2193,25 @@ function isArtifactLifecycleItem(item) {
 }
 
 /**
+ * Write a submitted answer onto the card once the controls have closed.
+ *
+ * Save to card parks the question after the teacher leaves the page and
+ * sets ``can_submit`` false. The choice buttons are gone, so the answer
+ * has to stay on the card itself. Rank already prints "Your order".
+ *
+ * @param {any} item
+ * @returns {string}
+ */
+function studentOwnAnswerHtml(item) {
+  const response = item?.my_response?.response;
+  if (!response || typeof response !== "object") return "";
+  if (lifecycleAnswerKind(item) === "rank") return "";
+  const label = liveAnswerLabel(response);
+  if (!label || label === "—") return "";
+  return `<p class="student-live-own-answer">${escapeText(label)}</p>`;
+}
+
+/**
  * Badge for one student question card.
  * A still-published question parked by Save to card reads Saved, not Active.
  * @param {any} item
@@ -2554,6 +2573,12 @@ function paintLifecycleQuestionStack(payload) {
               (ownLabel && ownLabel !== "—") ||
               item.group_consensus?.has_voted
           ));
+      const answerControls = groupSubmit
+        ? studentGroupCardHtml(item)
+        : groupMode
+          ? lifecycleConsensusHtml(item)
+          : individualControls;
+      const ownAnswer = answerControls ? "" : studentOwnAnswerHtml(item);
       const results =
         groupSubmit
           ? ""
@@ -2598,13 +2623,8 @@ function paintLifecycleQuestionStack(payload) {
             : ""
         }
         ${lifecycleEquationHtml(content)}
-        ${
-          groupSubmit
-            ? studentGroupCardHtml(item)
-            : groupMode
-              ? lifecycleConsensusHtml(item)
-              : individualControls
-        }
+        ${answerControls}
+        ${ownAnswer}
         ${results}
       </article>`;
     })

@@ -711,11 +711,21 @@ body.student-home.is-live .student-live-response {
 
 .student-live-card h2,
 .student-live-card .student-live-answer-controls,
+.student-live-card .student-live-own-answer,
 .student-live-card .student-live-note,
 .student-live-card .student-live-feedback,
 .student-live-card .student-live-results {
   margin-left: 1rem;
   margin-right: 1rem;
+}
+
+.student-live-own-answer {
+  margin-top: 0.35rem;
+  margin-bottom: 0.8rem;
+  padding: 0.45rem 0.7rem;
+  border-left: 3px solid #5eead4;
+  color: #e8f1f8;
+  font-weight: 650;
 }
 
 .student-live-answer-controls {

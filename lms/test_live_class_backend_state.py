@@ -2488,6 +2488,192 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(back_cards["parabola-a"].get("correct_answer"), "B")
         self.assertEqual(back_cards["bank-import-41"].get("correct_answer"), "A")
 
+    def test_save_to_card_keeps_written_answer_after_leave_and_refresh(self) -> None:
+        """A checked Save to Card keeps the student's answer after a page leave.
+
+        The checkbox can stay checked in the open session while a later
+        ``/state`` refresh or a page change drops the flag, or while the
+        parked student card loses the answer they wrote. Both preloaded
+        short ids and rows stored as seed refs must keep the choice on the
+        saved card, and Close must still mark the authored key.
+        """
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        self._begin_and_join(1)
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_id="round_1",
+            student_view={"questions": "student"},
+        )
+        student_id = self.student_ids[0]
+        choice = "It's positive"
+
+        def exercise(store_as_ref: bool) -> None:
+            """Publish, answer, save, leave, refresh, and reveal one shape."""
+
+            self.school.ensure_live_session_items(self.session_id)
+            if store_as_ref:
+                meta = self.school.live_class_metadata_for_session(self.session_id)
+                ref_by_id = {
+                    str(row.get("id") or ""): str(
+                        row.get("ref") or row.get("item_ref") or ""
+                    )
+                    for row in meta.get("questions") or []
+                    if isinstance(row, dict)
+                }
+                with self.school._lock:
+                    rows = self.school.conn.execute(
+                        """
+                        SELECT id, item_id, kind FROM live_session_items
+                        WHERE live_session_id = ?
+                        """,
+                        (self.session_id,),
+                    ).fetchall()
+                    for row in rows:
+                        if str(row["kind"] or "") in {
+                            "media",
+                            "whiteboard",
+                            "slides",
+                        }:
+                            continue
+                        ref = ref_by_id.get(str(row["item_id"] or ""))
+                        if not ref:
+                            continue
+                        self.school.conn.execute(
+                            """
+                            UPDATE live_session_items
+                            SET item_id = ?, save_to_card = 0
+                            WHERE id = ?
+                            """,
+                            (ref, int(row["id"])),
+                        )
+                    self.school.conn.commit()
+            state = self.school.get_live_session_state(self.session_id)
+            card = next(
+                row
+                for row in state.get("question_cards") or []
+                if row.get("id") == "parabola-a"
+            )
+            live_id = int(card["live_item_id"])
+            with self.school._lock:
+                self.school.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET status = 'inactive', closed_at = NULL
+                    WHERE id = ?
+                    """,
+                    (live_id,),
+                )
+                self.school.conn.commit()
+            self.school.update_live_session_item_settings(
+                self.session_id,
+                live_id,
+                save_to_card=True,
+                show_live_results=False,
+            )
+            published = self.school.publish_live_session_item(
+                self.session_id, live_id, publish_mode="individual"
+            )
+            self.assertTrue(published.get("save_to_card"))
+            facing = self.school.student_live_items_payload(
+                self.session_id, student_id
+            )
+            live_card = next(
+                row
+                for row in facing.get("active_questions") or []
+                if str(row.get("item_id") or "").replace("_", "-") == "parabola-a"
+                or "parabola-a" in str(row.get("item_id") or "")
+            )
+            prompt_id = int((live_card.get("prompt") or {})["id"])
+            self.school.submit_live_prompt_response(
+                prompt_id, student_id, {"choice": choice}
+            )
+            self.school.set_live_session_teacher_state(
+                self.session_id, stage="join", page_id="join"
+            )
+            refreshed = self.school.get_live_session_state(self.session_id)
+            self.school.set_live_session_teacher_state(
+                self.session_id, stage="round", page_id="round_1"
+            )
+            back = self.school.get_live_session_state(self.session_id)
+            back_card = next(
+                row
+                for row in back.get("question_cards") or []
+                if row.get("id") == "parabola-a"
+            )
+            self.assertTrue(back_card.get("save_to_card"), store_as_ref)
+            self.assertEqual(int(back_card["live_item_id"]), live_id)
+            with self.school._lock:
+                column = self.school.conn.execute(
+                    """
+                    SELECT save_to_card FROM live_session_items WHERE id = ?
+                    """,
+                    (live_id,),
+                ).fetchone()
+            self.assertEqual(int(column["save_to_card"]), 1)
+            self.school.set_live_session_teacher_state(
+                self.session_id, stage="join", page_id="join"
+            )
+            parked = self.school.student_live_prompt_payload(
+                self.session_id, student_id
+            )
+            saved = [
+                row
+                for row in parked.get("saved_cards") or []
+                if "parabola-a" in str(row.get("item_id") or "").replace("_", "-")
+                or str(row.get("item_id") or "").endswith("parabola-a")
+            ]
+            self.assertEqual(len(saved), 1, parked.get("saved_cards"))
+            written = (saved[0].get("my_response") or {}).get("response") or {}
+            self.assertEqual(written.get("choice"), choice)
+            content = saved[0].get("content") or {}
+            self.assertIn(choice, list(content.get("options") or content.get("choices") or []))
+            self.assertNotIn("correct_answer", content)
+            self.school.set_live_session_teacher_state(
+                self.session_id, stage="round", page_id="round_1"
+            )
+            closed = self.school.close_live_session_item(self.session_id, live_id)
+            self.assertTrue(closed.get("save_to_card"))
+            revealed = self.school.student_live_items_payload(
+                self.session_id, student_id
+            )
+            revealed_card = next(
+                row
+                for row in (revealed.get("saved_cards") or [])
+                + (revealed.get("closed_results") or [])
+                + (revealed.get("active_questions") or [])
+                if "parabola" in str(row.get("item_id") or "")
+            )
+            self.assertEqual(
+                ((revealed_card.get("my_response") or {}).get("response") or {}).get(
+                    "choice"
+                ),
+                choice,
+            )
+            marked = [
+                row
+                for row in (revealed_card.get("results") or {}).get("choices") or []
+                if row.get("correct")
+            ]
+            self.assertEqual(len(marked), 1)
+            self.assertEqual(marked[0].get("label"), choice)
+            teacher = self.school.live_session_item_results(self.session_id, live_id)
+            teacher_marked = [
+                row
+                for row in (teacher.get("tally") or {}).get("choices") or []
+                if row.get("correct")
+            ]
+            self.assertEqual(len(teacher_marked), 1)
+            self.assertEqual(teacher_marked[0].get("label"), choice)
+            self.assertGreaterEqual(int(teacher.get("response_count") or 0), 1)
+            _ = refreshed
+
+        exercise(False)
+        exercise(True)
+
     def test_preloaded_reveal_answers_keeps_the_published_row(self) -> None:
         """Reveal answers advances the published deck row after an id drift.
 
