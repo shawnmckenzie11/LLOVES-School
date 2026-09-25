@@ -1890,6 +1890,260 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(cards["bank-import-41"]["response_mode"], "group_submit")
         self.assertTrue(cards["bank-import-41"]["save_to_card"])
 
+    def _preloaded_deck_metadata(self, page: int = 4) -> dict[str, Any]:
+        """Return a stripped desk item plus a bank item on one round page.
+
+        The desk projection uses an underscore id and omits the answer key,
+        matching ``items`` after teacher-field stripping. The catalogue
+        question keeps the hyphenated id and the key.
+        """
+
+        question = {
+            "id": "parabola-a",
+            "ref": "test/parabola-a",
+            "item_type": "question",
+            "stage": "round",
+            "page_number": page,
+            "order": 1,
+            "type": "mc",
+            "text": "Which graph opens upward?",
+            "options": ["down", "up"],
+            "correct_answer": "B",
+            "publish_modes": ["individual", "group_consensus"],
+            "response_mode": "individual",
+        }
+        stripped = {
+            key: value
+            for key, value in question.items()
+            if key not in {"correct_answer", "key"}
+        }
+        stripped["id"] = "parabola_a"
+        bank = {
+            "id": "bank-import-41",
+            "ref": "bank/import/41",
+            "item_type": "question",
+            "stage": "round",
+            "page_number": page,
+            "order": 2,
+            "type": "mc",
+            "text": "Bank pick",
+            "options": ["left", "right"],
+            "correct_answer": "A",
+            "placement_key": f"class:{self.class_id}:import:parabola",
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+            "import_source": "module_bank",
+        }
+        return {
+            "schema_version": 2,
+            "course": "MCF3M",
+            "module": "M2",
+            "live_class": "C1",
+            "questions": [question, bank],
+            "items": [stripped, bank],
+            "media": None,
+            "slides": {"deck_ref": None, "page_numbers": []},
+            "round_defaults": {},
+            "pages": [
+                {"id": "round", "stage": "round", "page_number": page, "name": "Round 1"}
+            ],
+        }
+
+    def _drift_preloaded_lifecycle_id(self, row_id: int) -> None:
+        """Store the underscore spelling the desk projection used to fork."""
+
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_items
+                SET item_id = ?, placement_key = ?
+                WHERE id = ?
+                """,
+                ("parabola_a", "round:4:9:parabola_a", int(row_id)),
+            )
+            self.school.conn.commit()
+
+    def test_preloaded_save_to_card_survives_alias_refresh(self) -> None:
+        """Save to card on a deck item survives a hyphen/underscore refresh.
+
+        A later /state poll must keep one published row and the student
+        saved card, including after the lifecycle id drifts to underscores.
+        """
+
+        self.school.live_class_metadata_for_session = (
+            lambda _session_id: self._preloaded_deck_metadata()
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M2",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        deck_rows = [
+            row
+            for row in items
+            if str(row.get("item_id") or "") in {"parabola-a", "parabola_a"}
+        ]
+        self.assertEqual(len(deck_rows), 1)
+        deck = deck_rows[0]
+        self.assertEqual(deck["item_id"], "parabola-a")
+        self.assertEqual((deck.get("item") or {}).get("correct_answer"), "B")
+        row_id = int(deck["id"])
+        self._drift_preloaded_lifecycle_id(row_id)
+        saved = self.school.update_live_session_item_settings(
+            self.session_id, row_id, save_to_card=True
+        )
+        self.assertEqual(int(saved["id"]), row_id)
+        self.assertTrue(saved["save_to_card"])
+        self.assertEqual(saved["item_id"], "parabola-a")
+        published = self.school.publish_live_session_item(
+            self.session_id, row_id, publish_mode="individual"
+        )
+        self.assertEqual(published["status"], "active")
+        self.assertTrue(published["save_to_card"])
+        self._drift_preloaded_lifecycle_id(row_id)
+        state = self.school.get_live_session_state(self.session_id)
+        live = [
+            row
+            for row in state["live_items"]
+            if str(row.get("item_id") or "") in {"parabola-a", "parabola_a"}
+        ]
+        self.assertEqual(len(live), 1)
+        self.assertEqual(int(live[0]["id"]), row_id)
+        self.assertEqual(live[0]["status"], "active")
+        self.assertTrue(live[0]["save_to_card"])
+        cards = {
+            str(row["id"]): row for row in state["question_cards"]
+        }
+        self.assertEqual(cards["parabola-a"]["live_item_id"], row_id)
+        self.assertTrue(cards["parabola-a"]["save_to_card"])
+        self.assertEqual(cards["parabola-a"]["correct_answer"], "B")
+        self.school.set_live_session_teacher_state(self.session_id, stage="summary")
+        payload = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        card = next(
+            row
+            for row in payload["saved_cards"]
+            if str(row.get("item_id") or "") in {"parabola-a", "parabola_a"}
+        )
+        self.assertTrue(card["save_to_card"])
+        self.assertTrue(card.get("parked"))
+
+    def test_preloaded_reveal_marks_answer_and_bank_still_works(self) -> None:
+        """Reveal marks a deck item's key, and a bank add still marks its own.
+
+        A keyless prompt linked to the preloaded row is repaired from the
+        catalogue question. The bank placement keeps its own key.
+        """
+
+        self.school.live_class_metadata_for_session = (
+            lambda _session_id: self._preloaded_deck_metadata()
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M2",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        items = {
+            str(row["item_id"]): row
+            for row in self.school.ensure_live_session_items(self.session_id)
+        }
+        deck = items["parabola-a"]
+        bank = items["bank-import-41"]
+        published = self.school.publish_live_session_item(
+            self.session_id, int(deck["id"]), publish_mode="individual"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        self.assertEqual(str((prompt.get("payload") or {}).get("key") or ""), "B")
+        payload = dict(prompt.get("payload") or {})
+        payload.pop("key", None)
+        payload.pop("correct_answer", None)
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_prompts
+                SET payload = ?
+                WHERE id = ?
+                """,
+                (json.dumps(payload), int(prompt["id"])),
+            )
+            self.school.conn.commit()
+        self._drift_preloaded_lifecycle_id(int(deck["id"]))
+        results = self.school.live_session_item_results(
+            self.session_id, int(deck["id"])
+        )
+        tally = results.get("tally") or {}
+        marked = [
+            row for row in tally.get("choices") or [] if row.get("correct")
+        ]
+        self.assertEqual([row.get("id") for row in marked], ["B"])
+        healed = self.school.get_live_session_item(self.session_id, int(deck["id"]))
+        self.assertEqual(healed["item_id"], "parabola-a")
+        self.assertEqual(healed["status"], "active")
+        bank_published = self.school.publish_live_session_item(
+            self.session_id, int(bank["id"]), publish_mode="individual"
+        )
+        bank_prompt = self.school._prompt_for_live_item(bank_published)
+        assert bank_prompt is not None
+        self.assertEqual(str((bank_prompt.get("payload") or {}).get("key") or ""), "A")
+        bank_results = self.school.live_session_item_results(
+            self.session_id, int(bank["id"])
+        )
+        bank_marked = [
+            row
+            for row in (bank_results.get("tally") or {}).get("choices") or []
+            if row.get("correct")
+        ]
+        self.assertEqual([row.get("id") for row in bank_marked], ["A"])
+
+    def test_preloaded_reveal_answers_keeps_the_published_row(self) -> None:
+        """Reveal answers advances the published deck row after an id drift.
+
+        Group voting is stored on the lifecycle id. A deck refresh that only
+        changes hyphen versus underscore must not point the button at a new
+        inactive row.
+        """
+
+        self.school.live_class_metadata_for_session = (
+            lambda _session_id: self._preloaded_deck_metadata()
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M2",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        self._begin_and_join(4)
+        self._setup_groups()
+        deck = next(
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if row["item_id"] == "parabola-a"
+        )
+        published = self.school.publish_live_session_item(
+            self.session_id, int(deck["id"]), publish_mode="group_consensus"
+        )
+        self.assertEqual(published["response_mode"], "group_consensus")
+        self._drift_preloaded_lifecycle_id(int(deck["id"]))
+        summary = self.school.end_group_consensus_voting(
+            self.session_id, int(deck["id"])
+        )
+        self.assertGreaterEqual(len(summary.get("teams") or []), 1)
+        healed = self.school.get_live_session_item(self.session_id, int(deck["id"]))
+        self.assertEqual(int(healed["id"]), int(deck["id"]))
+        self.assertEqual(healed["status"], "active")
+        self.assertEqual(healed["item_id"], "parabola-a")
+
     def test_removed_meet_team_does_not_return_for_students(self) -> None:
         """Removing Meet from M1 C4 drops the teammate prompt for students."""
 

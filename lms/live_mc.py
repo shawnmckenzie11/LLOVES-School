@@ -181,6 +181,8 @@ def build_mc_tally(
         correct_ids = payload.get("correct_ids") or []
         if isinstance(correct_ids, list) and correct_ids:
             key = str(correct_ids[0] or "").strip().upper()
+    if not key:
+        key = str(payload.get("correct_answer") or "").strip().upper()
     source = "live_prompt"
     raw_values: list[Any] = []
     for row in responses or []:

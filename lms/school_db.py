@@ -10594,6 +10594,113 @@ class SchoolDB(LovesDB):
             activate=False,
         )
 
+    def _canonical_playlist_item_id(self, session_id: int, item_id: str) -> str:
+        """Return the catalogue question id for one lifecycle item id.
+
+        Hyphen and underscore spellings share a row. Question cards and
+        deck overrides bind to the metadata id, so Save to card is written
+        there instead of splitting a second override.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item_id: Lifecycle or client item id.
+
+        Returns:
+            The metadata question id when one aliases ``item_id``.
+        """
+        token = str(item_id or "").strip()
+        if not token:
+            return ""
+        try:
+            metadata = self.live_class_metadata_for_session(int(session_id))
+        except (KeyError, TypeError, ValueError):
+            return token
+        for source in (metadata.get("questions"), metadata.get("items")):
+            for row in source or []:
+                if not isinstance(row, dict):
+                    continue
+                candidate = str(row.get("id") or row.get("item_id") or "").strip()
+                if candidate and self._same_live_item_id(candidate, token):
+                    return candidate
+        return token
+
+    def _catalogue_question_for_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Return the metadata question that matches one lifecycle item id.
+
+        Args:
+            item: Lifecycle row with ``live_session_id`` and ``item_id``.
+
+        Returns:
+            The catalogue question dict, or an empty dict when none matches.
+        """
+        token = str(item.get("item_id") or "").strip()
+        if not token:
+            return {}
+        try:
+            metadata = self.live_class_metadata_for_session(
+                int(item["live_session_id"])
+            )
+        except (KeyError, TypeError, ValueError):
+            return {}
+        for row in metadata.get("questions") or []:
+            if not isinstance(row, dict):
+                continue
+            if self._same_live_item_id(row.get("id"), token) or self._same_live_item_id(
+                row.get("ref"), token
+            ):
+                return row
+        return {}
+
+    def _repair_mc_answer_key(
+        self, item: dict[str, Any], prompt: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Attach a missing singular MC key without clearing the active prompt.
+
+        Deck ``items`` omit teacher answer fields. A prompt created from that
+        copy, or linked under a hyphen/underscore alias, stays keyless and
+        Reveal cannot mark the correct choice. Polls and rank stay unkeyed.
+        The update writes payload only so an active prompt stays active.
+
+        Args:
+            item: Lifecycle row that owns the prompt.
+            prompt: Existing linked prompt row.
+
+        Returns:
+            The original prompt, or the prompt with ``key`` filled in.
+        """
+        if self._question_answer_kind(item) != "mc":
+            return prompt
+        payload = (
+            dict(prompt.get("payload") or {})
+            if isinstance(prompt.get("payload"), dict)
+            else {}
+        )
+        if self._singular_question_key(payload):
+            return prompt
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        if not self._singular_question_key(question):
+            catalogue = self._catalogue_question_for_item(item)
+            if catalogue:
+                question = {**question, **catalogue}
+        if not self._singular_question_key(question):
+            return prompt
+        self._attach_singular_answer_key(payload, question)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_prompts
+                SET payload = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(payload), _now(), int(prompt["id"])),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT * FROM live_session_prompts WHERE id = ?",
+                (int(prompt["id"]),),
+            ).fetchone()
+        return self._prompt_row_to_dict(row) if row else prompt
+
     def _live_item_rows_for_session(self, session_id: int) -> list[Any]:
         """Return raw lifecycle rows so a deck refresh can keep teacher settings.
 
@@ -10634,6 +10741,250 @@ class SchoolDB(LovesDB):
         )
         return body
 
+    @staticmethod
+    def _same_catalogue_beat(row: Any, stage: str, page_number: int | None) -> bool:
+        """True when a lifecycle row is still on the catalogue stage and page.
+
+        A hyphen/underscore id change, or an order tweak on the same page,
+        should keep the published row. A different page is a move, which
+        starts a new inactive placement and clears the previous publish.
+
+        Args:
+            row: ``live_session_items`` sqlite row.
+            stage: Catalogue stage token.
+            page_number: Catalogue page number, if any.
+        """
+        row_stage = str(row["stage"] or "").strip().lower()
+        if stage and row_stage and row_stage != stage:
+            return False
+        raw_page = row["page_number"]
+        try:
+            row_page = int(raw_page) if raw_page not in (None, "") else None
+        except (TypeError, ValueError):
+            row_page = None
+        if page_number is not None and row_page is not None and page_number != row_page:
+            return False
+        return True
+
+    def _index_catalogue_questions(
+        self, questions: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Index catalogue questions by id, ref, and hyphen/underscore alias.
+
+        Args:
+            questions: Resolved metadata ``questions`` rows.
+
+        Returns:
+            Map whose keys include the raw token and its alias.
+        """
+        indexed: dict[str, dict[str, Any]] = {}
+        for row in questions:
+            if not isinstance(row, dict):
+                continue
+            for token in (
+                row.get("ref"),
+                row.get("item_ref"),
+                row.get("id"),
+                row.get("item_id"),
+            ):
+                key = str(token or "").strip()
+                if not key:
+                    continue
+                indexed.setdefault(key, row)
+                alias = self._live_item_alias(key)
+                if alias:
+                    indexed.setdefault(alias, row)
+        return indexed
+
+    def _catalogue_overlay_for_placement(
+        self,
+        placement: dict[str, Any],
+        indexed: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return the catalogue question that belongs on one deck placement.
+
+        Non-questions stay as authored. Question placements pick up the
+        catalogue row, including an answer key the stripped ``items`` copy
+        does not carry. Hyphen and underscore ids match.
+
+        Args:
+            placement: One metadata ``items`` row.
+            indexed: Output of ``_index_catalogue_questions``.
+        """
+        item_type = str(placement.get("item_type") or "").strip().lower()
+        if item_type and item_type != "question":
+            return {}
+        if not item_type:
+            kind = str(
+                placement.get("type") or placement.get("kind") or ""
+            ).strip().lower()
+            if kind in {"media", "whiteboard", "slides"}:
+                return {}
+        lookup = str(
+            placement.get("ref")
+            or placement.get("item_ref")
+            or placement.get("id")
+            or placement.get("item_id")
+            or ""
+        ).strip()
+        overlay = indexed.get(lookup) or indexed.get(self._live_item_alias(lookup))
+        return overlay if isinstance(overlay, dict) else {}
+
+    @staticmethod
+    def _pick_lifecycle_keeper(saved: Any, clash: Any) -> tuple[Any, Any]:
+        """Choose the lifecycle row that should survive a placement clash.
+
+        Active and closed rows beat an inactive fork. A linked prompt,
+        a prior publish, and Save to card break remaining ties.
+
+        Args:
+            saved: Row found by item id or alias.
+            clash: Row that already occupies the catalogue placement key.
+
+        Returns:
+            ``(keeper, loser)``.
+        """
+
+        def rank(row: Any) -> tuple[int, int, int, int, int]:
+            status = str(row["status"] or "")
+            status_rank = 2 if status == "active" else 1 if status == "closed" else 0
+            published = 0 if row["published_at"] in (None, "") else 1
+            prompt = 0 if row["prompt_id"] in (None, "") else 1
+            save = 1 if int(row["save_to_card"] or 0) else 0
+            return (status_rank, published, prompt, save, -int(row["id"]))
+
+        if rank(saved) >= rank(clash):
+            return saved, clash
+        return clash, saved
+
+    def _fill_lifecycle_keeper(self, keeper: Any, loser: Any) -> None:
+        """Copy a missing prompt and the newer Save to card flag onto the keeper.
+
+        Caller holds ``self._lock``.
+
+        Args:
+            keeper: Row that will remain.
+            loser: Duplicate row about to be deleted.
+        """
+        if keeper["prompt_id"] in (None, "") and loser["prompt_id"] not in (None, ""):
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET prompt_id = ?
+                WHERE id = ?
+                """,
+                (int(loser["prompt_id"]), int(keeper["id"])),
+            )
+        keeper_flag = int(keeper["save_to_card"] or 0)
+        loser_flag = int(loser["save_to_card"] or 0)
+        if keeper_flag != loser_flag:
+            newer = keeper
+            if str(loser["updated_at"] or "") > str(keeper["updated_at"] or ""):
+                newer = loser
+            flag = int(newer["save_to_card"] or 0)
+            if flag != keeper_flag:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET save_to_card = ?
+                    WHERE id = ?
+                    """,
+                    (flag, int(keeper["id"])),
+                )
+
+    def _retarget_lifecycle_placement(
+        self,
+        saved: Any,
+        *,
+        placement_key: str,
+        item_id: str,
+        existing_by_key: dict[str, Any],
+        existing_by_item: dict[str, Any],
+        now: str,
+    ) -> Any:
+        """Move one lifecycle row onto the catalogue placement key.
+
+        Deck refresh used to INSERT a second inactive row when the id
+        spelling or the order token changed, then delete the published
+        row. Votes, the prompt, and Save to card live on the original row,
+        so that row is moved onto the expected key instead.
+
+        Caller holds ``self._lock``.
+
+        Args:
+            saved: Existing row for this catalogue item.
+            placement_key: Key ``ensure_live_session_items`` will upsert.
+            item_id: Canonical catalogue item id.
+            existing_by_key: Placement-key map mutated in place.
+            existing_by_item: Item-id map mutated in place.
+            now: Timestamp written on the retarget.
+
+        Returns:
+            The sqlite row that now owns ``placement_key``.
+        """
+        current_key = str(saved["placement_key"] or "")
+        current_id = str(saved["item_id"] or "")
+        if current_key == placement_key and current_id == item_id:
+            return saved
+        keeper = saved
+        clash = existing_by_key.get(placement_key)
+        if clash is not None and int(clash["id"]) != int(saved["id"]):
+            keeper, loser = self._pick_lifecycle_keeper(saved, clash)
+            self._fill_lifecycle_keeper(keeper, loser)
+            self.conn.execute(
+                "DELETE FROM live_session_items WHERE id = ?",
+                (int(loser["id"]),),
+            )
+            loser_key = str(loser["placement_key"] or "")
+            loser_item = str(loser["item_id"] or "")
+            mapped_key = existing_by_key.get(loser_key)
+            if mapped_key is not None and int(mapped_key["id"]) == int(loser["id"]):
+                existing_by_key.pop(loser_key, None)
+            mapped_item = existing_by_item.get(loser_item)
+            if mapped_item is not None and int(mapped_item["id"]) == int(loser["id"]):
+                existing_by_item.pop(loser_item, None)
+            keeper = self.conn.execute(
+                "SELECT * FROM live_session_items WHERE id = ?",
+                (int(keeper["id"]),),
+            ).fetchone()
+        if keeper is None:
+            return saved
+        if (
+            str(keeper["placement_key"] or "") != placement_key
+            or str(keeper["item_id"] or "") != item_id
+        ):
+            self.conn.execute(
+                """
+                UPDATE live_session_items
+                SET placement_key = ?, item_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (placement_key, item_id, now, int(keeper["id"])),
+            )
+            keeper = self.conn.execute(
+                "SELECT * FROM live_session_items WHERE id = ?",
+                (int(keeper["id"]),),
+            ).fetchone()
+        if keeper is None:
+            return saved
+        existing_by_key[placement_key] = keeper
+        existing_by_item[item_id] = keeper
+        mapped_old = existing_by_item.get(current_id)
+        if (
+            current_id
+            and current_id != item_id
+            and mapped_old is not None
+            and int(mapped_old["id"]) == int(keeper["id"])
+        ):
+            existing_by_item.pop(current_id, None)
+        if current_key and current_key != placement_key:
+            mapped_old_key = existing_by_key.get(current_key)
+            if mapped_old_key is not None and int(mapped_old_key["id"]) == int(
+                keeper["id"]
+            ):
+                existing_by_key.pop(current_key, None)
+        return keeper
+
     def ensure_live_session_items(self, session_id: int) -> list[dict[str, Any]]:
         """Seed inactive lifecycle rows for every resolved question placement.
 
@@ -10651,15 +11002,7 @@ class SchoolDB(LovesDB):
             for row in metadata.get("questions") or []
             if isinstance(row, dict)
         ]
-        question_by_ref = {
-            str(
-                row.get("ref")
-                or row.get("item_ref")
-                or row.get("id")
-                or ""
-            ): row
-            for row in questions
-        }
+        question_by_ref = self._index_catalogue_questions(questions)
         placements = [
             dict(row)
             for row in metadata.get("items") or []
@@ -10707,6 +11050,9 @@ class SchoolDB(LovesDB):
             ).strip()
             if item_id and item_id not in prompt_by_item:
                 prompt_by_item[item_id] = prompt
+                alias = self._live_item_alias(item_id)
+                if alias and alias not in prompt_by_item:
+                    prompt_by_item[alias] = prompt
         now = _now()
         stage_order = {
             "join": 0,
@@ -10719,20 +11065,13 @@ class SchoolDB(LovesDB):
         }
         with self._lock:
             for index, placement in enumerate(placements):
-                lookup = str(
-                    placement.get("ref")
-                    or placement.get("item_ref")
-                    or placement.get("id")
-                    or ""
+                overlay = self._catalogue_overlay_for_placement(
+                    placement, question_by_ref
                 )
-                question = {
-                    **placement,
-                    **(
-                        question_by_ref.get(lookup) or {}
-                        if placement.get("item_type") == "question"
-                        else {}
-                    ),
-                }
+                question = {**placement, **overlay} if overlay else dict(placement)
+                catalogue_id = str(overlay.get("id") or "").strip() if overlay else ""
+                if catalogue_id:
+                    question["id"] = catalogue_id
                 placement_key = self._question_placement_key(question, index)
                 item_id = str(
                     question.get("id")
@@ -10773,7 +11112,9 @@ class SchoolDB(LovesDB):
                     in self._question_publish_modes(question)
                     else "individual"
                 )
-                prompt = prompt_by_item.get(item_id)
+                prompt = prompt_by_item.get(item_id) or prompt_by_item.get(
+                    self._live_item_alias(item_id)
+                )
                 prompt_id = int(prompt["id"]) if prompt else None
                 saved = existing_by_key.get(placement_key)
                 if saved is None:
@@ -10783,6 +11124,20 @@ class SchoolDB(LovesDB):
                         if self._same_live_item_id(key, item_id):
                             saved = row
                             break
+                if saved is not None and (
+                    str(saved["placement_key"] or "") != placement_key
+                    or str(saved["item_id"] or "") != item_id
+                ) and self._same_catalogue_beat(saved, stage, page_number):
+                    retargeted = self._retarget_lifecycle_placement(
+                        saved,
+                        placement_key=placement_key,
+                        item_id=item_id,
+                        existing_by_key=existing_by_key,
+                        existing_by_item=existing_by_item,
+                        now=now,
+                    )
+                    if retargeted is not None:
+                        saved = retargeted
                 show_live_results = 1
                 save_to_card = 1 if question.get("save_to_card") else 0
                 if saved is not None:
@@ -10870,10 +11225,7 @@ class SchoolDB(LovesDB):
             for row in metadata.get("questions") or []
             if isinstance(row, dict)
         ]
-        question_by_ref = {
-            str(row.get("ref") or row.get("item_ref") or row.get("id") or ""): row
-            for row in questions
-        }
+        question_by_ref = self._index_catalogue_questions(questions)
         placements = [
             dict(row)
             for row in metadata.get("items") or []
@@ -10899,20 +11251,13 @@ class SchoolDB(LovesDB):
             )
         keys: set[str] = set()
         for index, placement in enumerate(placements):
-            lookup = str(
-                placement.get("ref")
-                or placement.get("item_ref")
-                or placement.get("id")
-                or ""
+            overlay = self._catalogue_overlay_for_placement(
+                placement, question_by_ref
             )
-            question = {
-                **placement,
-                **(
-                    question_by_ref.get(lookup) or {}
-                    if placement.get("item_type") == "question"
-                    else {}
-                ),
-            }
+            question = {**placement, **overlay} if overlay else dict(placement)
+            catalogue_id = str(overlay.get("id") or "").strip() if overlay else ""
+            if catalogue_id:
+                question["id"] = catalogue_id
             keys.add(self._question_placement_key(question, index))
         return keys
 
@@ -11036,6 +11381,31 @@ class SchoolDB(LovesDB):
                         "item_id has multiple placements; use placement_key"
                     )
                 row = matches[0] if matches else None
+            if row is None:
+                alias_matches = [
+                    candidate
+                    for candidate in self.conn.execute(
+                        """
+                        SELECT * FROM live_session_items
+                        WHERE live_session_id = ?
+                        ORDER BY sort_order ASC, id ASC
+                        """,
+                        (int(session_id),),
+                    ).fetchall()
+                    if self._same_live_item_id(candidate["item_id"], token)
+                ]
+                if len(alias_matches) > 1:
+                    alias_matches.sort(
+                        key=lambda candidate: (
+                            0
+                            if str(candidate["status"] or "") == "active"
+                            else 1
+                            if str(candidate["status"] or "") == "closed"
+                            else 2,
+                            int(candidate["id"]),
+                        )
+                    )
+                row = alias_matches[0] if alias_matches else None
         if row is None:
             raise KeyError(f"live item {token}")
         return self._live_item_row_to_dict(row)
@@ -11062,7 +11432,8 @@ class SchoolDB(LovesDB):
 
         prompt = self._prompt_for_live_item(item)
         if prompt is not None:
-            return self._repair_numeric_live_prompt(item, prompt)
+            prompt = self._repair_numeric_live_prompt(item, prompt)
+            return self._repair_mc_answer_key(item, prompt)
         item_id_norm = str(item.get("item_id") or "").strip().lower().replace("_", "-")
         session_id = int(item["live_session_id"])
         if item_id_norm in {"minds-on", "minds_on"}:
@@ -11116,6 +11487,15 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
             return prompt
         question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        question = dict(question)
+        if not self._singular_question_key(question):
+            catalogue = self._catalogue_question_for_item(item)
+            if catalogue and self._singular_question_key(catalogue):
+                question["correct_answer"] = catalogue.get("correct_answer")
+                if catalogue.get("key") not in (None, ""):
+                    question["key"] = catalogue.get("key")
+                if not question.get("options") and catalogue.get("options"):
+                    question["options"] = list(catalogue.get("options") or [])
         lifecycle_kind = str(item.get("kind") or "").strip().lower()
         item_type = str(
             question.get("item_type")
@@ -11558,7 +11938,8 @@ class SchoolDB(LovesDB):
         class_id = int(session_row["class_id"])
         module_key = str(teacher.get("live_module") or "M1").upper()
         slot_key = str(teacher.get("live_slot") or "C1").upper()
-        item_id = str(item.get("item_id") or "").strip()
+        raw_item_id = str(item.get("item_id") or "").strip()
+        item_id = self._canonical_playlist_item_id(session_id, raw_item_id)
         if not item_id:
             return
         flag = 1 if enabled else 0
@@ -11592,13 +11973,21 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
             return
         with self._lock:
-            existing = self.conn.execute(
+            override_rows = self.conn.execute(
                 """
-                SELECT id FROM class_live_playlist_item_overrides
-                WHERE class_id = ? AND module = ? AND slot = ? AND item_id = ?
+                SELECT id, item_id FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ?
                 """,
-                (class_id, module_key, slot_key, item_id),
-            ).fetchone()
+                (class_id, module_key, slot_key),
+            ).fetchall()
+            existing = next(
+                (
+                    row
+                    for row in override_rows
+                    if self._same_live_item_id(row["item_id"], item_id)
+                ),
+                None,
+            )
             if existing is None:
                 self.conn.execute(
                     """
@@ -11610,14 +11999,32 @@ class SchoolDB(LovesDB):
                     (class_id, module_key, slot_key, item_id, flag, stamp, stamp),
                 )
             else:
-                self.conn.execute(
-                    """
-                    UPDATE class_live_playlist_item_overrides
-                    SET save_to_card = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (flag, stamp, int(existing["id"])),
+                rename = (
+                    str(existing["item_id"] or "") != item_id
+                    and not any(
+                        str(row["item_id"] or "") == item_id
+                        and int(row["id"]) != int(existing["id"])
+                        for row in override_rows
+                    )
                 )
+                if rename:
+                    self.conn.execute(
+                        """
+                        UPDATE class_live_playlist_item_overrides
+                        SET item_id = ?, save_to_card = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (item_id, flag, stamp, int(existing["id"])),
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        UPDATE class_live_playlist_item_overrides
+                        SET save_to_card = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (flag, stamp, int(existing["id"])),
+                    )
             self.conn.commit()
 
     def list_active_live_questions(self, session_id: int) -> list[dict[str, Any]]:
@@ -15870,9 +16277,11 @@ class SchoolDB(LovesDB):
         lifecycle_rows = self.list_live_session_items(session_id)
         lifecycle_by_item: dict[str, list[dict[str, Any]]] = {}
         for lifecycle in lifecycle_rows:
-            lifecycle_by_item.setdefault(
-                str(lifecycle.get("item_id") or ""), []
-            ).append(lifecycle)
+            token = str(lifecycle.get("item_id") or "")
+            lifecycle_by_item.setdefault(token, []).append(lifecycle)
+            alias = self._live_item_alias(token)
+            if alias and alias != token:
+                lifecycle_by_item.setdefault(alias, []).append(lifecycle)
         prompt_rows = self._list_live_session_prompts(session_id)
         by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompt_rows:
@@ -15882,8 +16291,11 @@ class SchoolDB(LovesDB):
                 or payload.get("pack")
                 or f"prompt-{prompt.get('id')}"
             ).strip()
-            if item_id:
+            if item_id and item_id not in by_item:
                 by_item[item_id] = prompt
+                alias = self._live_item_alias(item_id)
+                if alias and alias not in by_item:
+                    by_item[alias] = prompt
         question_views = (
             teacher.get("question_views")
             if isinstance(teacher.get("question_views"), dict)
@@ -15917,10 +16329,14 @@ class SchoolDB(LovesDB):
             ):
                 continue
             lifecycle = self._lifecycle_row_for_metadata_question(
-                lifecycle_by_item.get(question_id) or [],
+                lifecycle_by_item.get(question_id)
+                or lifecycle_by_item.get(self._live_item_alias(question_id))
+                or [],
                 question,
             )
-            prompt = by_item.get(question_id)
+            prompt = by_item.get(question_id) or by_item.get(
+                self._live_item_alias(question_id)
+            )
             if prompt is None and lifecycle is not None:
                 prompt = self._prompt_for_live_item(lifecycle)
             payload = prompt.get("payload") if isinstance(prompt, dict) else {}
@@ -16014,7 +16430,7 @@ class SchoolDB(LovesDB):
                     else "",
                 }
             )
-            seen.add(question_id)
+            seen.add(self._live_item_alias(question_id))
         # Build a map from prompt_id to lifecycle stage for filtering
         prompt_to_lifecycle_stage: dict[int, str] = {}
         for lifecycle in lifecycle_rows:
@@ -16049,7 +16465,7 @@ class SchoolDB(LovesDB):
                 or payload.get("pack")
                 or f"prompt-{prompt.get('id')}"
             ).strip()
-            if not question_id or question_id in seen:
+            if not question_id or self._live_item_alias(question_id) in seen:
                 continue
             if self._session_playlist_item_removed(session_id, question_id):
                 continue
@@ -16121,7 +16537,7 @@ class SchoolDB(LovesDB):
                     "response_count": len(responses),
                 }
             )
-            seen.add(question_id)
+            seen.add(self._live_item_alias(question_id))
         cards.sort(key=lambda row: (int(row.get("order") or 0), str(row["id"])))
         return cards
 
@@ -16683,10 +17099,19 @@ class SchoolDB(LovesDB):
         )
 
     @staticmethod
+    def _live_item_alias(raw: Any) -> str:
+        """Return the hyphen/underscore-insensitive form of a playlist id.
+
+        Args:
+            raw: Item id, ref, or placement token.
+        """
+        return str(raw or "").strip().lower().replace("-", "_")
+
+    @staticmethod
     def _same_live_item_id(left: Any, right: Any) -> bool:
         """True when two playlist/engine-ride ids name the same item."""
-        first = str(left or "").strip().lower().replace("-", "_")
-        second = str(right or "").strip().lower().replace("-", "_")
+        first = SchoolDB._live_item_alias(left)
+        second = SchoolDB._live_item_alias(right)
         return bool(first) and first == second
 
     def _lifecycle_item_for_prompt(
@@ -17148,6 +17573,9 @@ class SchoolDB(LovesDB):
         """
         if not prompt or prompt.get("id") in (None, ""):
             return None
+        linked = self._lifecycle_item_for_prompt(session_id, prompt)
+        if linked is not None:
+            prompt = self._repair_mc_answer_key(linked, prompt)
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
         return build_live_tally(

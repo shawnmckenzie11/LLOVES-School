@@ -2777,6 +2777,14 @@ body.staff-shell .live-item-chart-track > span {
   height: 100%;
   background: #0f766e;
 }
+body.staff-shell .live-item-chart-row.is-correct .live-item-chart-label,
+body.staff-shell .live-item-chart-row.is-correct .live-item-chart-value {
+  font-weight: 750;
+  color: #166534;
+}
+body.staff-shell .live-item-chart-row.is-correct .live-item-chart-track > span {
+  background: #166534;
+}
 body.staff-shell .live-item-chart.is-histogram .live-item-chart-track {
   height: 1.3rem;
   border-radius: 2px 2px 0 0;

@@ -312,6 +312,14 @@ class LiveShellTests(unittest.TestCase):
             "async function endLifecycleVoting("
         )[0]
         self.assertIn("saveToCardHold.set", setter)
+        chart = js.split("function individualLifecycleResultsHtml(")[1].split(
+            "function groupAnswerLabel("
+        )[0]
+        self.assertIn(" · Correct", chart)
+        merged = js.split("function questionCardsFromMetadata(")[1].split(
+            "function applyLocalPlaylistCardChange("
+        )[0]
+        self.assertIn("liveItemAlias(", merged)
         self.assertIn("absorbSaveToCardSnapshot(", js)
         self.assertIn("function liveQuestionControlStrip(", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
