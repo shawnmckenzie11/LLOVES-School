@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import tempfile
@@ -17,7 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
-from app import create_app  # noqa: E402
+from app import _gone_live_sessions_logged, create_app  # noqa: E402
 
 
 def _membership(state: dict) -> dict[str, tuple[int, ...]]:
@@ -239,3 +240,148 @@ class LiveTeamLockTests(unittest.TestCase):
         self.assertTrue(payload.get("ok"))
         self.assertEqual(payload.get("error"), "state unavailable")
         self.assertTrue(payload.get("fault"))
+
+    def test_student_poll_missing_session_is_stable_ended(self) -> None:
+        """Hammering a gone Meet returns ended JSON and does not traceback.
+
+        Production browsers kept polling session 9 after the row was gone.
+        ``live_session_teacher_state_payload`` raised ``KeyError`` and each
+        poll logged a full traceback until the shared CPU wedged.
+        """
+        student = self.app.test_client()
+        live = self.school.get_live_session(self.session_id)
+        assert live is not None
+        joined = student.post(
+            "/auth/student-code",
+            data={"code": live["session_code"], "name": "Maple"},
+            follow_redirects=True,
+        )
+        self.assertEqual(joined.status_code, 200, joined.get_data(as_text=True)[:400])
+
+        def _still_here(*_args, **_kwargs):
+            """Presence still says this student is in a Meet sqlite no longer has."""
+            return {
+                "live_session_id": self.session_id,
+                "codename": "Maple",
+                "left_at": None,
+            }
+
+        def _still_active(*_args, **_kwargs) -> bool:
+            """Keep the student gate open after the Meet row is deleted."""
+            return True
+
+        real_get = self.school.get_live_session
+        removed = {"done": False}
+
+        def _vanish_after_read(session_id: int):
+            """Drop the Meet after the route's first read so /state raises KeyError."""
+            row = real_get(session_id)
+            if (
+                row is not None
+                and int(session_id) == self.session_id
+                and not removed["done"]
+            ):
+                removed["done"] = True
+                self.school.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE id = ?",
+                    (int(session_id),),
+                )
+                self.school.conn.commit()
+            return row
+
+        _gone_live_sessions_logged.clear()
+        handler = logging.Handler()
+        handler.setLevel(logging.DEBUG)
+        records: list[logging.LogRecord] = []
+        handler.emit = records.append  # type: ignore[method-assign]
+        log = logging.getLogger("app")
+        previous = log.level
+        log.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        try:
+            self.school.get_live_session = _vanish_after_read  # type: ignore[method-assign]
+            vanished = self.staff.get(
+                f"/api/live-sessions/{self.session_id}/state"
+            )
+            self.school.get_live_session = real_get  # type: ignore[method-assign]
+            self.assertTrue(removed["done"])
+            self.assertEqual(
+                vanished.status_code, 200, vanished.get_data(as_text=True)[:500]
+            )
+            vanished_body = vanished.get_json()
+            self.assertEqual(vanished_body.get("phase"), "ended")
+            self.assertIn("no longer running", str(vanished_body.get("fault") or ""))
+            self.assertNotEqual(vanished_body.get("error"), "state unavailable")
+
+            self.school.conn.execute(
+                "DELETE FROM live_class_sessions WHERE id = ?",
+                (self.session_id,),
+            )
+            self.school.conn.commit()
+            self.school.touch_live_session_heartbeat = _still_here  # type: ignore[method-assign]
+            self.school.student_is_active_live_attendee = _still_active  # type: ignore[method-assign]
+
+            direct = [
+                self.school.student_live_poll_unchanged(
+                    9, self.class_id, 1, "gone"
+                )
+                for _ in range(20)
+            ]
+            self.assertTrue(all(body == direct[0] for body in direct))
+            self.assertEqual(direct[0]["status"], "ended")
+            self.assertEqual(direct[0]["phase"], "ended")
+            self.assertFalse(direct[0]["celebrate"])
+            self.assertIn("no longer running", direct[0]["fault"])
+
+            seen: list[dict] = []
+            for _ in range(30):
+                rv = student.get("/api/student/state?seq=1&stamp=gone")
+                self.assertEqual(
+                    rv.status_code, 200, rv.get_data(as_text=True)[:500]
+                )
+                self.assertNotIn(
+                    "Traceback", rv.get_data(as_text=True)
+                )
+                seen.append(rv.get_json())
+            self.assertTrue(all(body == seen[0] for body in seen))
+            self.assertEqual(seen[0]["status"], "ended")
+            self.assertEqual(seen[0]["phase"], "ended")
+            self.assertFalse(seen[0]["celebrate"])
+            self.assertTrue(seen[0].get("redirect"))
+            self.assertIn("no longer running", seen[0]["fault"])
+
+            for session_id in (self.session_id, 9):
+                for _ in range(15):
+                    staff = self.staff.get(
+                        f"/api/live-sessions/{session_id}/state"
+                    )
+                    self.assertEqual(
+                        staff.status_code,
+                        200,
+                        staff.get_data(as_text=True)[:500],
+                    )
+                    staff_body = staff.get_json()
+                    self.assertEqual(staff_body.get("phase"), "ended")
+                    self.assertTrue(staff_body.get("ok"))
+                    self.assertNotIn("Traceback", staff.get_data(as_text=True))
+        finally:
+            log.removeHandler(handler)
+            log.setLevel(previous)
+
+        for record in records:
+            self.assertFalse(
+                record.exc_info,
+                f"poll logged a traceback: {record.getMessage()}",
+            )
+            self.assertNotIn("Traceback", record.getMessage())
+        gone_notes = [
+            record
+            for record in records
+            if "is gone" in record.getMessage()
+        ]
+        self.assertTrue(gone_notes)
+        counts: dict[str, int] = {}
+        for record in gone_notes:
+            self.assertEqual(record.levelno, logging.WARNING)
+            counts[record.getMessage()] = counts.get(record.getMessage(), 0) + 1
+        self.assertTrue(all(count == 1 for count in counts.values()))

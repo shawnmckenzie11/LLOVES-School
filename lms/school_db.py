@@ -20681,26 +20681,82 @@ class SchoolDB(LovesDB):
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{canvas_rev}"
         )
 
+    def _student_live_poll_is_open(self, session_id: int) -> bool:
+        """True when student ``/state`` should build a snapshot for this id.
+
+        A missing row is closed. An ended session stays open only while
+        celebration is still on screen. This does not raise ``KeyError``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id, status FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return False
+        return self._session_open_for_student(
+            {"id": int(row["id"]), "status": row["status"]}
+        )
+
+    def _student_live_gone_payload(self, session_id: int) -> dict[str, Any]:
+        """Stable ended body for a missing or closed live session.
+
+        Callers return this instead of raising ``KeyError`` so a poll
+        loop cannot log a traceback on every tick.
+
+        Args:
+            session_id: ``live_class_sessions.id`` the client asked for.
+        """
+        return {
+            "ok": True,
+            "status": "ended",
+            "phase": "ended",
+            "celebrate": False,
+            "feedback": False,
+            "unchanged": False,
+            "state_seq": 0,
+            "stamp": "",
+            "fault": (
+                "Live class state is gone. This Meet is no longer running."
+            ),
+            "session": {"id": int(session_id), "status": "ended"},
+        }
+
     def student_live_poll_unchanged(
         self, session_id: int, class_id: int, seq: Any, stamp: Any
     ) -> dict[str, Any] | None:
         """Return a tiny payload when the student's seq and stamp still match.
+
+        A missing or closed Meet returns a stable ended body and does not
+        call ``live_session_teacher_state_payload`` (that raises
+        ``KeyError`` when the row is gone).
 
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id.
             seq: Client ``state_seq`` from the last full payload.
             stamp: Client ``live_student_poll_stamp`` from the last full payload.
+
+        Returns:
+            Ended body, unchanged short-circuit, or ``None`` to rebuild.
         """
+        if not self._student_live_poll_is_open(session_id):
+            return self._student_live_gone_payload(session_id)
         try:
             requested = int(seq)
         except (TypeError, ValueError):
             return None
         if stamp in (None, ""):
             return None
-        teacher = self.live_session_teacher_state_payload(session_id)
-        current_seq = int(teacher.get("state_seq") or 0)
-        current_stamp = self.live_student_poll_stamp(session_id, class_id)
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            current_seq = int(teacher.get("state_seq") or 0)
+            current_stamp = self.live_student_poll_stamp(session_id, class_id)
+        except KeyError:
+            return self._student_live_gone_payload(session_id)
         if requested != current_seq or str(stamp) != current_stamp:
             return None
         return {
