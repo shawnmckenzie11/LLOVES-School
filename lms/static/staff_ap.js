@@ -1702,9 +1702,10 @@ function questionCardsFromMetadata(serverCards) {
     if (kind in { media: 1, whiteboard: 1, slides: 1 }) continue;
     const token = String(question.id || question.item_id || "").trim();
     if (!token) continue;
-    const server = incoming.find(
-      (row) => String(row?.id || row?.item_id || "").trim() === token
-    );
+    const server = incoming.find((row) => {
+      const candidate = String(row?.id || row?.item_id || "").trim();
+      return candidate === token || liveItemAlias(candidate) === liveItemAlias(token);
+    });
     byId.set(token, {
       ...question,
       ...(server || {}),
@@ -1719,7 +1720,12 @@ function questionCardsFromMetadata(serverCards) {
   }
   for (const card of incoming) {
     const token = String(card?.id || card?.item_id || "").trim();
-    if (token && !byId.has(token)) byId.set(token, card);
+    if (!token) continue;
+    const alias = liveItemAlias(token);
+    const already = [...byId.keys()].some(
+      (key) => key === token || liveItemAlias(key) === alias
+    );
+    if (!already) byId.set(token, card);
   }
   return [...byId.values()];
 }
@@ -2763,10 +2769,12 @@ function individualLifecycleResultsHtml(tally) {
   }">${tally.choices
     .map((row) => {
       const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
-      return `<div class="live-item-chart-row">
+      const correct = row.correct ? " is-correct" : "";
+      const mark = row.correct ? " · Correct" : "";
+      return `<div class="live-item-chart-row${correct}">
         <span class="live-item-chart-label">${escapeHtml(row.label ?? row.id ?? "")}</span>
         <span class="live-item-chart-track"><span style="width:${pct}%"></span></span>
-        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%</span>
+        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%${mark}</span>
       </div>`;
     })
     .join("")}</div>`;

@@ -27,6 +27,24 @@ from minds_on import MINDS_ON_CHOICES, minds_on_prompt_payload  # noqa: E402
 class LiveMcHelperTests(unittest.TestCase):
     """Pure tally helpers (no Flask)."""
 
+    def test_tally_uses_correct_answer_when_key_is_missing(self) -> None:
+        """A deck prompt that only stored correct_answer still marks that choice."""
+
+        prompt = {
+            "id": 3,
+            "kind": "mc",
+            "payload": {
+                "item_id": "parabola-a",
+                "prompt": "Which graph opens upward?",
+                "choices": ["down", "up"],
+                "correct_answer": "B",
+            },
+        }
+        tally = build_mc_tally(prompt, responses=[], present=1)
+        assert tally is not None
+        marked = [row["id"] for row in tally["choices"] if row.get("correct")]
+        self.assertEqual(marked, ["B"])
+
     def test_tally_maps_letter_or_text_and_fingerprints(self) -> None:
         """Choices accept A or full text; seq changes when a bar moves."""
         prompt = {
