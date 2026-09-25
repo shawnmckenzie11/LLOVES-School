@@ -2104,6 +2104,390 @@ class LiveBackendStateTests(unittest.TestCase):
         ]
         self.assertEqual([row.get("id") for row in bank_marked], ["A"])
 
+    def _positional_preloaded_metadata(self) -> dict[str, Any]:
+        """Desk item whose id is the stage:page:order placement key.
+
+        Teacher sqlite can keep that key on the lifecycle row and on an
+        older override, while the catalogue question stays ``parabola-a``.
+        The stripped desk copy still omits the answer key.
+        """
+
+        base = self._preloaded_deck_metadata()
+        question = next(row for row in base["questions"] if row["id"] == "parabola-a")
+        stripped = {
+            key: value
+            for key, value in question.items()
+            if key not in {"correct_answer", "key"}
+        }
+        stripped["id"] = "round:4:1:parabola_a"
+        stripped["item_id"] = "round:4:1:parabola_a"
+        bank = next(
+            row for row in base["items"] if str(row.get("id") or "") == "bank-import-41"
+        )
+        base["items"] = [stripped, bank]
+        return base
+
+    def test_preloaded_save_to_card_follows_positional_override(self) -> None:
+        """Save to card survives a stage:page:order id after a teacher deck edit.
+
+        The class already has a move override on ``parabola-a`` (flag off)
+        and a stale override on ``round:4:9:parabola_a``. The live row uses
+        that positional id and Group submission. Toggling Save to card must
+        update the catalogue override, keep the same published row, and
+        still be on after a fresh deck seed.
+        """
+
+        stamp = "2026-09-25T12:00:00"
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_item_overrides (
+                    class_id, module, slot, item_id, removed, save_to_card,
+                    page_number, stage, sort_order, created_at, updated_at
+                ) VALUES (?, 'M2', 'C1', 'parabola-a', 0, 0, 4, 'round', 1, ?, ?)
+                """,
+                (self.class_id, stamp, stamp),
+            )
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_item_overrides (
+                    class_id, module, slot, item_id, removed, save_to_card,
+                    page_number, stage, sort_order, created_at, updated_at
+                ) VALUES (
+                    ?, 'M2', 'C1', 'round:4:9:parabola_a', 0, 0,
+                    NULL, NULL, NULL, ?, ?
+                )
+                """,
+                (self.class_id, stamp, stamp),
+            )
+            self.school.conn.commit()
+
+        def metadata(_session_id: int) -> dict[str, Any]:
+            overrides = self.school.list_class_playlist_item_overrides(
+                self.class_id, "M2", "C1"
+            )
+            return self.school._apply_class_playlist_item_overrides(
+                self._positional_preloaded_metadata(), overrides
+            )
+
+        self.school.live_class_metadata_for_session = metadata
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M2",
+            live_slot="C1",
+            stage="round",
+            page_id="round",
+            student_view={"questions": "student"},
+        )
+        with self.school._lock:
+            cur = self.school.conn.execute(
+                """
+                INSERT INTO live_session_items (
+                    live_session_id, placement_key, item_id, stage, page_number,
+                    sort_order, kind, item_json, status, publish_mode,
+                    response_mode, show_live_results, save_to_card, published_at,
+                    created_at, updated_at
+                ) VALUES (
+                    ?, 'round:4:9:parabola_a', 'round:4:9:parabola_a', 'round', 4,
+                    4004, 'question', ?, 'active', 'group_submit',
+                    'group_submit', 1, 0, ?, ?, ?
+                )
+                """,
+                (
+                    self.session_id,
+                    json.dumps(
+                        {
+                            "id": "round:4:9:parabola_a",
+                            "type": "mc",
+                            "text": "Which graph opens upward?",
+                            "options": ["down", "up"],
+                            "stage": "round",
+                            "page_number": 4,
+                            "order": 9,
+                        }
+                    ),
+                    stamp,
+                    stamp,
+                    stamp,
+                ),
+            )
+            self.school.conn.commit()
+            row_id = int(cur.lastrowid)
+        saved = self.school.update_live_session_item_settings(
+            self.session_id, row_id, save_to_card=True
+        )
+        self.assertEqual(int(saved["id"]), row_id)
+        self.assertTrue(saved["save_to_card"])
+        self.assertEqual(saved["item_id"], "parabola-a")
+        self.assertEqual(saved["response_mode"], "group_submit")
+        self.assertEqual((saved.get("item") or {}).get("correct_answer"), "B")
+        state = self.school.get_live_session_state(self.session_id)
+        live = [
+            row
+            for row in state["live_items"]
+            if "parabola" in str(row.get("item_id") or "")
+        ]
+        self.assertEqual(len(live), 1)
+        self.assertEqual(int(live[0]["id"]), row_id)
+        self.assertEqual(live[0]["status"], "active")
+        self.assertTrue(live[0]["save_to_card"])
+        self.assertEqual(live[0]["response_mode"], "group_submit")
+        cards = {str(row["id"]): row for row in state["question_cards"]}
+        self.assertEqual(cards["parabola-a"]["live_item_id"], row_id)
+        self.assertTrue(cards["parabola-a"]["save_to_card"])
+        self.assertEqual(cards["parabola-a"]["correct_answer"], "B")
+        self.assertEqual(cards["parabola-a"]["response_mode"], "group_submit")
+        overrides = self.school.list_class_playlist_item_overrides(
+            self.class_id, "M2", "C1"
+        )
+        catalogue = next(row for row in overrides if row["item_id"] == "parabola-a")
+        self.assertEqual(int(catalogue["save_to_card"]), 1)
+        merged = self.school._apply_class_playlist_item_overrides(
+            self._positional_preloaded_metadata(), overrides
+        )
+        question = next(row for row in merged["questions"] if row["id"] == "parabola-a")
+        self.assertTrue(question.get("save_to_card"))
+        with self.school._lock:
+            self.school.conn.execute(
+                "DELETE FROM live_session_items WHERE live_session_id = ?",
+                (self.session_id,),
+            )
+            self.school.conn.commit()
+        fresh = [
+            row
+            for row in self.school.ensure_live_session_items(self.session_id)
+            if "parabola" in str(row.get("item_id") or "")
+        ]
+        self.assertEqual(len(fresh), 1)
+        self.assertEqual(fresh[0]["item_id"], "parabola-a")
+        self.assertTrue(fresh[0]["save_to_card"])
+
+    def test_save_to_card_binds_ref_and_bank_keys_on_every_page(self) -> None:
+        """Save to Card persists when lifecycle ids are refs or import keys.
+
+        #149 only aliased hyphen versus underscore. Live rows stored as the
+        seed ref (``live-class/.../parabola-a``) or a bank row stored as
+        ``class:N:import:...`` never match the short catalogue id, so every
+        course and page ships ``live_item_id`` null and the checkbox cannot
+        persist. Reveal uses that same row for the answer key.
+        """
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        self._begin_and_join(1)
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_id="round_1",
+            student_view={"questions": "student"},
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        meta = self.school.live_class_metadata_for_session(self.session_id)
+        ref_by_id = {
+            str(row.get("id") or ""): str(row.get("ref") or row.get("item_ref") or "")
+            for row in meta.get("questions") or []
+            if isinstance(row, dict)
+        }
+        with self.school._lock:
+            rows = self.school.conn.execute(
+                """
+                SELECT id, item_id, kind FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (self.session_id,),
+            ).fetchall()
+            for row in rows:
+                if str(row["kind"] or "") in {"media", "whiteboard", "slides"}:
+                    continue
+                ref = ref_by_id.get(str(row["item_id"] or ""))
+                if not ref:
+                    continue
+                self.school.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET item_id = ?, save_to_card = 0
+                    WHERE id = ?
+                    """,
+                    (ref, int(row["id"])),
+                )
+            self.school.conn.commit()
+        import_key = f"class:{self.class_id}:import:savecard"
+        bank_payload = {
+            "id": "bank-import-41",
+            "item_type": "question",
+            "type": "mc",
+            "stage": "round",
+            "page_number": 4,
+            "order": 9,
+            "text": "Bank question on the same page",
+            "options": ["A", "B"],
+            "correct_answer": "A",
+            "placement_key": import_key,
+            "publish_modes": ["individual"],
+            "response_mode": "individual",
+            "import_source": "module_bank",
+        }
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, source_question_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                """,
+                (
+                    self.class_id,
+                    "M1",
+                    "C2",
+                    4,
+                    "round",
+                    9,
+                    import_key,
+                    "bank-import-41",
+                    json.dumps(bank_payload),
+                    "t",
+                ),
+            )
+            self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=self.class_id)
+        self.school.ensure_live_session_items(self.session_id)
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE live_session_items
+                SET item_id = ?, save_to_card = 0
+                WHERE live_session_id = ? AND item_id = ?
+                """,
+                (import_key, self.session_id, "bank-import-41"),
+            )
+            self.school.conn.commit()
+        before = self.school.get_live_session_state(self.session_id)
+        cards = {
+            str(card.get("id")): card for card in before.get("question_cards") or []
+        }
+        self.assertIn("parabola-a", cards)
+        self.assertIn("parabola-c", cards)
+        self.assertIn("bank-import-41", cards)
+        for card_id, expected_key in (
+            ("parabola-a", "B"),
+            ("parabola-c", "D"),
+            ("bank-import-41", "A"),
+        ):
+            card = cards[card_id]
+            self.assertTrue(card.get("live_item_id"), card_id)
+            self.assertFalse(card.get("save_to_card"))
+            self.assertEqual(card.get("correct_answer"), expected_key)
+            self.school.update_live_session_item_settings(
+                self.session_id, int(card["live_item_id"]), save_to_card=True
+            )
+        after = self.school.get_live_session_state(self.session_id)
+        after_cards = {
+            str(card.get("id")): card for card in after.get("question_cards") or []
+        }
+        for card_id, expected_key in (
+            ("parabola-a", "B"),
+            ("parabola-c", "D"),
+            ("bank-import-41", "A"),
+        ):
+            card = after_cards[card_id]
+            self.assertTrue(card.get("save_to_card"), card_id)
+            self.assertEqual(card.get("correct_answer"), expected_key)
+            self.assertEqual(
+                int(card.get("live_item_id")),
+                int(cards[card_id]["live_item_id"]),
+            )
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(after_cards["parabola-a"]["live_item_id"]),
+            publish_mode="individual",
+        )
+        self.assertTrue(published.get("save_to_card"))
+        self.assertEqual(
+            (published.get("item") or {}).get("correct_answer"), "B"
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="join", page_id="join"
+        )
+        parked = self.school.student_live_items_payload(
+            self.session_id, self.student_ids[0]
+        )
+        saved = [
+            row
+            for row in parked.get("saved_cards") or []
+            if row.get("item_id") == "parabola-a"
+        ]
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(saved[0].get("save_to_card"))
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C1",
+            stage="join",
+            page_id="join",
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        join_meta = self.school.live_class_metadata_for_session(self.session_id)
+        join_refs = {
+            str(row.get("id") or ""): str(row.get("ref") or row.get("item_ref") or "")
+            for row in join_meta.get("questions") or []
+            if isinstance(row, dict)
+        }
+        with self.school._lock:
+            join_rows = self.school.conn.execute(
+                """
+                SELECT id, item_id, kind FROM live_session_items
+                WHERE live_session_id = ?
+                """,
+                (self.session_id,),
+            ).fetchall()
+            for row in join_rows:
+                if str(row["kind"] or "") in {"media", "whiteboard", "slides"}:
+                    continue
+                ref = join_refs.get(str(row["item_id"] or ""))
+                if not ref:
+                    continue
+                self.school.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET item_id = ?, save_to_card = 0
+                    WHERE id = ?
+                    """,
+                    (ref, int(row["id"])),
+                )
+            self.school.conn.commit()
+        join_state = self.school.get_live_session_state(self.session_id)
+        join_cards = [
+            card
+            for card in join_state.get("question_cards") or []
+            if card.get("live_item_id")
+        ]
+        self.assertGreaterEqual(len(join_cards), 1)
+        for card in join_cards:
+            self.school.update_live_session_item_settings(
+                self.session_id, int(card["live_item_id"]), save_to_card=True
+            )
+        join_after = self.school.get_live_session_state(self.session_id)
+        for card in join_after.get("question_cards") or []:
+            self.assertTrue(card.get("live_item_id"))
+            self.assertTrue(card.get("save_to_card"), card.get("id"))
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_id="round_1",
+        )
+        back = self.school.get_live_session_state(self.session_id)
+        back_cards = {
+            str(card.get("id")): card for card in back.get("question_cards") or []
+        }
+        self.assertTrue(back_cards["parabola-a"].get("save_to_card"))
+        self.assertTrue(back_cards["bank-import-41"].get("save_to_card"))
+        self.assertEqual(back_cards["parabola-a"].get("correct_answer"), "B")
+        self.assertEqual(back_cards["bank-import-41"].get("correct_answer"), "A")
+
     def test_preloaded_reveal_answers_keeps_the_published_row(self) -> None:
         """Reveal answers advances the published deck row after an id drift.
 

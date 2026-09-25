@@ -298,7 +298,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function setLifecycleSaveToCard(", js)
         self.assertIn("saveToCardHold", js)
         self.assertIn("function absorbSaveToCardSnapshot(", js)
+        self.assertIn("saveToCardHoldByAlias", js)
         self.assertIn("function cardSaveToCardChecked(", js)
+        alias = js.split("function liveItemAlias(")[1].split("function ")[0]
+        self.assertIn("round_3", alias)
+        local_change = js.split("function applyLocalPlaylistCardChange(")[1].split(
+            "function "
+        )[0]
+        self.assertIn("liveItemAlias(", local_change)
         self.assertIn("const teacherSettingHold = new Map()", js)
         self.assertIn("function teacherFieldsFrom(", js)
         self.assertIn("function surfacePublishSelection(", js)

@@ -315,6 +315,12 @@ let lastLiveItems = [];
 /** Lifecycle id → Save to card the teacher just set. Stale polls must not flip it. */
 const saveToCardHold = new Map();
 /**
+ * Catalogue alias → Save to card. A poll that returns a new lifecycle id
+ * for the same ``stage:page:order:item`` key must keep the click.
+ * @type {Map<string, boolean>}
+ */
+const saveToCardHoldByAlias = new Map();
+/**
  * In-flight per-question settings. Key is ``${lifecycleId}:${field}``.
  * A /state snapshot clears a key only when the server echoes that value.
  * @type {Map<string, boolean|string>}
@@ -1738,8 +1744,12 @@ function questionCardsFromMetadata(serverCards) {
 function applyLocalPlaylistCardChange(itemId) {
   const token = String(itemId || "").trim();
   if (!token) return;
+  const alias = liveItemAlias(token);
   lastQuestionCards = (Array.isArray(lastQuestionCards) ? lastQuestionCards : []).filter(
-    (row) => String(row?.id || row?.item_id || "") !== token
+    (row) => {
+      const candidate = String(row?.id || row?.item_id || "");
+      return candidate !== token && liveItemAlias(candidate) !== alias;
+    }
   );
 }
 
@@ -1887,10 +1897,12 @@ function resolvePlaylistItemId(card, item) {
  * @returns {string}
  */
 function liveItemAlias(raw) {
-  return String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/-/g, "_");
+  const token = String(raw || "").trim();
+  const peeled = token.replace(
+    /^(?:join|teams|meet|round_3|round|play|summary):\d+:\d+:/i,
+    ""
+  );
+  return peeled.toLowerCase().replace(/-/g, "_");
 }
 
 /**
@@ -2149,14 +2161,21 @@ function teacherSettingMatches(field, held, incoming) {
  */
 function absorbSaveToCardSnapshot(items) {
   const rows = Array.isArray(items) ? items : [];
-  return rows.map((row) => {
+  const nextRows = rows.map((row) => {
     const id = Number(row?.id) || 0;
     if (!id) return row;
     const next = { ...row };
+    const alias = liveItemAlias(row?.item_id || row?.placement_key);
     if (saveToCardHold.has(id)) {
       const held = Boolean(saveToCardHold.get(id));
       if (Boolean(row?.save_to_card) === held) saveToCardHold.delete(id);
       else next.save_to_card = held;
+    } else if (alias && saveToCardHoldByAlias.has(alias)) {
+      const held = Boolean(saveToCardHoldByAlias.get(alias));
+      if (Boolean(row?.save_to_card) !== held) {
+        next.save_to_card = held;
+        saveToCardHold.set(id, held);
+      }
     }
     for (const field of TEACHER_ITEM_FIELDS) {
       const key = `${id}:${field}`;
@@ -2170,6 +2189,18 @@ function absorbSaveToCardSnapshot(items) {
     }
     return next;
   });
+  for (const [alias, held] of saveToCardHoldByAlias.entries()) {
+    const related = nextRows.filter(
+      (row) => liveItemAlias(row?.item_id || row?.placement_key) === alias
+    );
+    if (
+      related.length &&
+      related.every((row) => Boolean(row?.save_to_card) === Boolean(held))
+    ) {
+      saveToCardHoldByAlias.delete(alias);
+    }
+  }
+  return nextRows;
 }
 
 /**
@@ -2181,6 +2212,10 @@ function absorbSaveToCardSnapshot(items) {
 function cardSaveToCardChecked(card, liveItemId) {
   const id = Number(liveItemId) || 0;
   if (id && saveToCardHold.has(id)) return Boolean(saveToCardHold.get(id));
+  const alias = liveItemAlias(card?.item_id || card?.id || card?.placement_key);
+  if (alias && saveToCardHoldByAlias.has(alias)) {
+    return Boolean(saveToCardHoldByAlias.get(alias));
+  }
   return Boolean(card?.save_to_card);
 }
 
@@ -2499,15 +2534,24 @@ function paintLiveQuestionCards() {
       const prompt = activeByItem.get(String(card.id || card.item_id || ""));
       const pageNumber = card.page_number;
       const stage = card.stage;
-      return {
+      const questionId = String(card.item_id || card.id || "");
+      const merged = {
         ...card,
         ...(lifecycle || {}),
+        id: questionId,
+        item_id: questionId || String(lifecycle?.item_id || ""),
         item: card.item || lifecycle?.item || card,
         text: card.text || card.item?.text || lifecycle?.item?.text,
         page_number: pageNumber ?? lifecycle?.page_number,
         stage: stage || lifecycle?.stage,
+        live_item_id: card.live_item_id || lifecycle?.id || null,
         prompt_id: Number(prompt?.id || lifecycle?.prompt_id || card.prompt_id) || 0,
       };
+      merged.save_to_card = cardSaveToCardChecked(
+        merged,
+        Number(merged.live_item_id) || 0
+      );
+      return merged;
     });
   if (!cards.length) {
     const deckTotal = deckQuestionRows().length;
@@ -3044,7 +3088,11 @@ async function setLifecycleSaveToCard(liveItemId, enabled) {
   const flag = Boolean(enabled);
   const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
   const previous = index >= 0 ? lastLiveItems[index] : null;
+  const alias = liveItemAlias(
+    previous?.item_id || previous?.placement_key || previous?.item?.id
+  );
   saveToCardHold.set(id, flag);
+  if (alias) saveToCardHoldByAlias.set(alias, flag);
   teacherSettingHold.set(`${id}:save_to_card`, flag);
   if (index >= 0) {
     lastLiveItems[index] = { ...lastLiveItems[index], save_to_card: flag };
@@ -3061,6 +3109,7 @@ async function setLifecycleSaveToCard(liveItemId, enabled) {
     adoptLiveItem(result?.item);
   } catch (err) {
     saveToCardHold.delete(id);
+    if (alias) saveToCardHoldByAlias.delete(alias);
     teacherSettingHold.delete(`${id}:save_to_card`);
     if (previous) lastLiveItems[index] = previous;
     throw err;
