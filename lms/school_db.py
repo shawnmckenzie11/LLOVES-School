@@ -10623,9 +10623,10 @@ class SchoolDB(LovesDB):
     def _canonical_playlist_item_id(self, session_id: int, item_id: str) -> str:
         """Return the catalogue question id for one lifecycle item id.
 
-        Hyphen and underscore spellings share a row. Question cards and
-        deck overrides bind to the metadata id, so Save to card is written
-        there instead of splitting a second override.
+        Hyphen and underscore spellings share a row. A seed ref or a
+        class import key resolves to the short catalogue id. Question
+        cards and deck overrides bind to that id, so Save to card is
+        written there instead of splitting a second override.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -10648,6 +10649,10 @@ class SchoolDB(LovesDB):
                 candidate = str(row.get("id") or row.get("item_id") or "").strip()
                 if candidate and self._same_live_item_id(candidate, token):
                     return candidate
+                for field in ("ref", "item_ref", "placement_key", "placement_id"):
+                    other = str(row.get(field) or "").strip()
+                    if other and (other == token or self._same_live_item_id(other, token)):
+                        return candidate or other
         parsed = self._parse_positional_live_key(token)
         if parsed and not parsed[3]:
             beat_id = self._catalogue_id_on_beat(
@@ -10874,6 +10879,8 @@ class SchoolDB(LovesDB):
                 row.get("item_ref"),
                 row.get("id"),
                 row.get("item_id"),
+                row.get("placement_key"),
+                row.get("placement_id"),
             ):
                 key = str(token or "").strip()
                 if not key:
@@ -10883,6 +10890,28 @@ class SchoolDB(LovesDB):
                 if alias:
                     indexed.setdefault(alias, row)
         return indexed
+
+    def _catalogue_question_for_token(
+        self, indexed: dict[str, dict[str, Any]], token: Any
+    ) -> dict[str, Any] | None:
+        """Return the catalogue question named by a lifecycle token.
+
+        Seed refs (``live-class/.../parabola-a``), class import keys
+        (``class:N:import:...``), and ``stage:page:order:item`` keys all
+        land on the short catalogue id. Hyphen and underscore match.
+
+        Args:
+            indexed: Output of ``_index_catalogue_questions``.
+            token: Lifecycle ``item_id`` or ``placement_key``.
+        """
+        key = str(token or "").strip()
+        if not key or not indexed:
+            return None
+        for candidate in (key, self._live_item_alias(key)):
+            found = indexed.get(candidate)
+            if isinstance(found, dict):
+                return found
+        return None
 
     def _catalogue_overlay_for_placement(
         self,
@@ -11222,6 +11251,16 @@ class SchoolDB(LovesDB):
                             saved = row
                             break
                 if saved is None:
+                    for key, row in existing_by_item.items():
+                        found = self._catalogue_question_for_token(
+                            question_by_ref, key
+                        )
+                        if found and self._same_live_item_id(
+                            found.get("id"), item_id
+                        ):
+                            saved = row
+                            break
+                if saved is None:
                     on_beat = 0
                     for catalogue_row in questions:
                         row_stage = str(catalogue_row.get("stage") or "").strip().lower()
@@ -11418,6 +11457,13 @@ class SchoolDB(LovesDB):
             True when metadata dest stage/page differs from a session row.
         """
         metadata = self.live_class_metadata_for_session(session_id)
+        indexed = self._index_catalogue_questions(
+            [
+                row
+                for row in metadata.get("questions") or []
+                if isinstance(row, dict)
+            ]
+        )
         wanted: dict[str, tuple[str, int | None]] = {}
         for row in metadata.get("questions") or []:
             if not isinstance(row, dict):
@@ -11444,6 +11490,14 @@ class SchoolDB(LovesDB):
                         dest = value
                         break
             if dest is None:
+                found = self._catalogue_question_for_token(
+                    indexed, token
+                ) or self._catalogue_question_for_token(
+                    indexed, item.get("placement_key")
+                )
+                canonical = str((found or {}).get("id") or "").strip()
+                if canonical and not self._same_live_item_id(token, canonical):
+                    return True
                 continue
             stage, page = dest
             item_stage = str(item.get("stage") or "").strip().lower()
@@ -14017,14 +14071,26 @@ class SchoolDB(LovesDB):
         teacher = self.live_session_teacher_state_payload(session_id)
         stage = str(teacher.get("stage") or "").strip().lower()
         current_page = self._current_student_page_number(session_id)
-        deck_ids = [
-            self._playlist_row_item_id(row)
-            for row in (
-                self.live_class_metadata_for_session(session_id).get("questions")
-                or []
-            )
-            if isinstance(row, dict)
-        ]
+        deck_ids: list[str] = []
+        for row in (
+            self.live_class_metadata_for_session(session_id).get("questions") or []
+        ):
+            if not isinstance(row, dict):
+                continue
+            for field in (
+                "id",
+                "item_id",
+                "ref",
+                "item_ref",
+                "placement_key",
+                "placement_id",
+            ):
+                token = str(row.get(field) or "").strip()
+                if token:
+                    deck_ids.append(token)
+            short_id = self._playlist_row_item_id(row)
+            if short_id:
+                deck_ids.append(short_id)
         listed = list(self.list_live_session_items(session_id))
         has_published_join = any(
             str(row.get("status") or "") == "active"
@@ -14046,7 +14112,8 @@ class SchoolDB(LovesDB):
             item_id_raw = str(row.get("item_id") or "")
             if kind not in {"media", "whiteboard", "slides"} and deck_ids:
                 if not any(
-                    self._same_live_item_id(item_id_raw, deck_id)
+                    item_id_raw == deck_id
+                    or self._same_live_item_id(item_id_raw, deck_id)
                     for deck_id in deck_ids
                 ):
                     continue
@@ -16382,6 +16449,13 @@ class SchoolDB(LovesDB):
         current_page = self._current_deck_page(metadata, teacher)
         wanted_page = self._page_number_for_deck_page(current_page)
         lifecycle_rows = self.list_live_session_items(session_id)
+        catalogue_index = self._index_catalogue_questions(
+            [
+                row
+                for row in metadata.get("questions") or []
+                if isinstance(row, dict)
+            ]
+        )
         lifecycle_by_item: dict[str, list[dict[str, Any]]] = {}
         for lifecycle in lifecycle_rows:
             token = str(lifecycle.get("item_id") or "")
@@ -16389,6 +16463,19 @@ class SchoolDB(LovesDB):
             alias = self._live_item_alias(token)
             if alias and alias != token:
                 lifecycle_by_item.setdefault(alias, []).append(lifecycle)
+            found = self._catalogue_question_for_token(
+                catalogue_index, token
+            ) or self._catalogue_question_for_token(
+                catalogue_index, lifecycle.get("placement_key")
+            )
+            canonical = str((found or {}).get("id") or "").strip()
+            if canonical:
+                lifecycle_by_item.setdefault(canonical, []).append(lifecycle)
+                canonical_alias = self._live_item_alias(canonical)
+                if canonical_alias and canonical_alias != canonical:
+                    lifecycle_by_item.setdefault(canonical_alias, []).append(
+                        lifecycle
+                    )
         prompt_rows = self._list_live_session_prompts(session_id)
         by_item: dict[str, dict[str, Any]] = {}
         for prompt in prompt_rows:
