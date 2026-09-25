@@ -1217,6 +1217,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("function submitPromptShellAnswer(", js)
         self.assertIn("saved_cards", js)
         self.assertIn("function studentLiveCardBadge(", js)
+        self.assertIn("function studentOwnAnswerHtml(", js)
+        self.assertIn("student-live-own-answer", js)
         self.assertIn("item?.parked", js)
         self.assertIn("function studentMcSummary(", js)
         self.assertNotIn("Your answer:", js)
