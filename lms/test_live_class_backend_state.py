@@ -2674,6 +2674,408 @@ class LiveBackendStateTests(unittest.TestCase):
         exercise(False)
         exercise(True)
 
+    def test_m2_c1_save_to_card_keeps_answers_on_every_page(self) -> None:
+        """M2 C1 Save to Card keeps a written answer on every lesson page.
+
+        MCF3M and MCR3U Module 2 Challenge 1 ship only the teams spark and
+        the Meet chain. #150 bound seed refs and bank keys. #151 painted a
+        parked MCF3M M1 C2 parabola choice. Advancing Meet retargets the
+        one lifecycle row onto the next step, so the checkbox stays on and
+        the written answer is no longer the prompt that card reads. A bank
+        MC on each page must keep its choice after leave and reload, and
+        Close must mark that key.
+        """
+
+        self.school.live_class_metadata_for_session = self.original_metadata
+        pages = (
+            ("join", "join", 1),
+            ("welcome", "teams", 2),
+            ("meet", "meet", 3),
+            ("round_1", "round", 4),
+            ("round_2", "play", 5),
+            ("round_3", "round_3", 6),
+            ("summary", "summary", 7),
+        )
+
+        def open_course(code: str) -> tuple[int, int, int]:
+            """Return class id, session id, and one joined student id."""
+
+            if code == "MCF3M":
+                self._begin_and_join(1)
+                return self.class_id, self.session_id, self.student_ids[0]
+            offering = self.school.assign_course(
+                teacher_user_id=int(self.teacher["id"]), ontario_code=code
+            )
+            created = self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code=code,
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=["Aspen", "Birch", "Cedar", "Maple"],
+                offering_id=int(offering["id"]),
+                teacher_user_id=int(self.teacher["id"]),
+            )
+            class_id = int(created["id"])
+            live = self.school.start_live_class_session(
+                class_id, int(self.teacher["id"])
+            )
+            session_id = int(live["id"])
+            self.school.game.begin_game(class_id)
+            with self.school.game._lock:
+                student = self.school.game.conn.execute(
+                    """
+                    SELECT * FROM students
+                    WHERE class_id = ?
+                    ORDER BY id ASC
+                    LIMIT 1
+                    """,
+                    (class_id,),
+                ).fetchone()
+            student_id = int(student["id"])
+            self.school.join_live_class_session(
+                session_id,
+                student_id,
+                codename=str(student["codename"]),
+            )
+            return class_id, session_id, student_id
+
+        def exercise(code: str) -> None:
+            """Save, leave, and close one course's M2 C1 pages."""
+
+            class_id, session_id, student_id = open_course(code)
+            self.school.set_live_session_teacher_state(
+                session_id,
+                live_module="M2",
+                live_slot="C1",
+                stage="join",
+                page_id="join",
+                student_view={"questions": "student"},
+            )
+            for page_id, stage, page_number in pages:
+                item_id = f"bank-import-m2-{page_number}"
+                import_key = f"class:{class_id}:import:m2c1-p{page_number}"
+                payload = {
+                    "id": item_id,
+                    "item_type": "question",
+                    "type": "mc",
+                    "stage": stage,
+                    "page_number": page_number,
+                    "order": 8,
+                    "text": f"{code} M2 C1 page {page_number}",
+                    "options": ["north", "south", "east", "west"],
+                    "correct_answer": "B",
+                    "placement_key": import_key,
+                    "publish_modes": ["individual"],
+                    "response_mode": "individual",
+                    "import_source": "module_bank",
+                }
+                with self.school._lock:
+                    self.school.conn.execute(
+                        """
+                        INSERT INTO class_live_playlist_placements (
+                            class_id, module, slot, page_number, stage,
+                            sort_order, placement_key, item_id, item_json,
+                            source_question_id, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                        """,
+                        (
+                            class_id,
+                            "M2",
+                            "C1",
+                            page_number,
+                            stage,
+                            8,
+                            import_key,
+                            item_id,
+                            json.dumps(payload),
+                            "t",
+                        ),
+                    )
+                    self.school.conn.commit()
+            self.school.invalidate_live_metadata_cache(class_id=class_id)
+            self.school.ensure_live_session_items(session_id)
+            drifted_key = f"class:{class_id}:import:m2c1-p4"
+            with self.school._lock:
+                self.school.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET item_id = ?
+                    WHERE live_session_id = ? AND item_id = ?
+                    """,
+                    (drifted_key, session_id, "bank-import-m2-4"),
+                )
+                self.school.conn.commit()
+
+            def show(page_id: str, stage: str) -> None:
+                """Move the teacher onto one named M2 C1 page."""
+
+                self.school.set_live_session_teacher_state(
+                    session_id,
+                    live_module="M2",
+                    live_slot="C1",
+                    stage=stage,
+                    page_id=page_id,
+                    student_view={"questions": "student"},
+                )
+
+            def card_for(item_id: str) -> dict[str, Any]:
+                """Return the teacher card for one catalogue question id."""
+
+                state = self.school.get_live_session_state(session_id)
+                return next(
+                    row
+                    for row in state.get("question_cards") or []
+                    if row.get("id") == item_id
+                )
+
+            for page_id, stage, page_number in pages:
+                item_id = f"bank-import-m2-{page_number}"
+                choice = "south"
+                show(page_id, stage)
+                card = card_for(item_id)
+                live_id = int(card["live_item_id"])
+                self.assertEqual(card.get("correct_answer"), "B", item_id)
+                self.assertFalse(card.get("save_to_card"), item_id)
+                self.school.update_live_session_item_settings(
+                    session_id, live_id, save_to_card=True
+                )
+                away_id, away_stage = (
+                    ("join", "join")
+                    if page_id == "summary"
+                    else ("summary", "summary")
+                )
+                show(away_id, away_stage)
+                self.school.get_live_session_state(session_id)
+                show(page_id, stage)
+                kept = card_for(item_id)
+                self.assertTrue(kept.get("save_to_card"), f"{code} {item_id} snapped off")
+                self.assertEqual(int(kept["live_item_id"]), live_id)
+                self.school.update_live_session_item_settings(
+                    session_id, live_id, save_to_card=False
+                )
+                show(away_id, away_stage)
+                show(page_id, stage)
+                cleared = card_for(item_id)
+                self.assertFalse(cleared.get("save_to_card"), f"{code} {item_id}")
+                self.school.update_live_session_item_settings(
+                    session_id, live_id, save_to_card=True
+                )
+                published = self.school.publish_live_session_item(
+                    session_id, live_id, publish_mode="individual"
+                )
+                self.assertTrue(published.get("save_to_card"))
+                facing = self.school.student_live_prompt_payload(
+                    session_id, student_id
+                )
+                import_key = f"class:{class_id}:import:m2c1-p{page_number}"
+                live_card = next(
+                    row
+                    for row in facing.get("active_questions") or []
+                    if row.get("item_id") == item_id
+                    or str(row.get("item_id") or "") == import_key
+                )
+                prompt_id = int((live_card.get("prompt") or {})["id"])
+                self.school.submit_live_prompt_response(
+                    prompt_id, student_id, {"choice": choice}
+                )
+                show(away_id, away_stage)
+                parked = self.school.student_live_prompt_payload(
+                    session_id, student_id
+                )
+                saved = [
+                    row
+                    for row in parked.get("saved_cards") or []
+                    if row.get("item_id") == item_id
+                    or str(row.get("item_id") or "") == import_key
+                    or str(row.get("placement_key") or "") == import_key
+                ]
+                self.assertEqual(len(saved), 1, (code, item_id, parked.get("saved_cards")))
+                written = (saved[0].get("my_response") or {}).get("response") or {}
+                self.assertEqual(written.get("choice"), choice)
+                options = list(
+                    (saved[0].get("content") or {}).get("options")
+                    or (saved[0].get("content") or {}).get("choices")
+                    or []
+                )
+                self.assertIn(choice, options)
+                show(page_id, stage)
+                closed = self.school.close_live_session_item(session_id, live_id)
+                self.assertTrue(closed.get("save_to_card"))
+                revealed = self.school.student_live_prompt_payload(
+                    session_id, student_id
+                )
+                revealed_card = next(
+                    row
+                    for row in (revealed.get("saved_cards") or [])
+                    + (revealed.get("closed_results") or [])
+                    + (revealed.get("active_questions") or [])
+                    if row.get("item_id") == item_id
+                    or str(row.get("item_id") or "") == import_key
+                    or str(row.get("placement_key") or "") == import_key
+                )
+                self.assertEqual(
+                    ((revealed_card.get("my_response") or {}).get("response") or {}).get(
+                        "choice"
+                    ),
+                    choice,
+                )
+                marked = [
+                    row
+                    for row in (revealed_card.get("results") or {}).get("choices") or []
+                    if row.get("correct")
+                ]
+                self.assertEqual(len(marked), 1, (code, item_id, revealed_card.get("results")))
+                self.assertEqual(marked[0].get("label"), choice)
+                teacher = self.school.live_session_item_results(session_id, live_id)
+                teacher_marked = [
+                    row
+                    for row in (teacher.get("tally") or {}).get("choices") or []
+                    if row.get("correct")
+                ]
+                self.assertEqual(len(teacher_marked), 1, (code, item_id))
+                self.assertEqual(teacher_marked[0].get("label"), choice)
+
+            show("welcome", "teams")
+            spark = card_for("teams-spark")
+            spark_id = int(spark["live_item_id"])
+            self.school.update_live_session_item_settings(
+                session_id, spark_id, save_to_card=True
+            )
+            self.school.publish_live_session_item(
+                session_id, spark_id, publish_mode="individual"
+            )
+            spark_facing = self.school.student_live_prompt_payload(
+                session_id, student_id
+            )
+            spark_card = next(
+                row
+                for row in spark_facing.get("active_questions") or []
+                if "spark" in str(row.get("item_id") or "").replace("_", "-")
+            )
+            self.school.submit_live_prompt_response(
+                int((spark_card.get("prompt") or {})["id"]),
+                student_id,
+                {"value": 11},
+            )
+            show("round_1", "round")
+            spark_parked = self.school.student_live_prompt_payload(
+                session_id, student_id
+            )
+            spark_saved = [
+                row
+                for row in spark_parked.get("saved_cards") or []
+                if "spark" in str(row.get("item_id") or "").replace("_", "-")
+            ]
+            self.assertEqual(len(spark_saved), 1, spark_parked.get("saved_cards"))
+            self.assertEqual(
+                ((spark_saved[0].get("my_response") or {}).get("response") or {}).get(
+                    "value"
+                ),
+                11,
+            )
+            show("welcome", "teams")
+            spark_back = card_for("teams-spark")
+            self.assertTrue(spark_back.get("save_to_card"), code)
+            self.assertEqual(int(spark_back["live_item_id"]), spark_id)
+
+            show("meet", "meet")
+            meet_facing = self.school.student_live_prompt_payload(
+                session_id, student_id
+            )
+            meet_card = next(
+                row
+                for row in meet_facing.get("active_questions") or []
+                if str(row.get("item_id") or "").replace("_", "-")
+                in {"meet-team", "meet-a", "meet-b", "meet-c"}
+            )
+            meet_choices = list(
+                (meet_card.get("content") or {}).get("choices")
+                or (meet_card.get("content") or {}).get("options")
+                or []
+            )
+            self.assertGreaterEqual(len(meet_choices), 1, meet_card.get("content"))
+            meet_choice = str(meet_choices[0])
+            meet_live_id = int(meet_card["id"])
+            self.school.update_live_session_item_settings(
+                session_id, meet_live_id, save_to_card=True
+            )
+            self.school.submit_live_prompt_response(
+                int((meet_card.get("prompt") or {})["id"]),
+                student_id,
+                {"choice": meet_choice},
+            )
+            self.school.set_live_session_teacher_state(
+                session_id,
+                live_module="M2",
+                live_slot="C1",
+                stage="meet",
+                page_id="meet",
+                meet_action="next",
+            )
+            advanced = card_for("meet-team")
+            self.assertTrue(advanced.get("save_to_card"), f"{code} meet snapped off")
+            self.assertEqual(int(advanced["live_item_id"]), meet_live_id)
+            during = self.school.student_live_prompt_payload(session_id, student_id)
+            during_saved = [
+                row
+                for row in during.get("saved_cards") or []
+                if "meet" in str(row.get("item_id") or "").replace("_", "-")
+            ]
+            self.assertEqual(len(during_saved), 1, during.get("saved_cards"))
+            self.assertEqual(
+                ((during_saved[0].get("my_response") or {}).get("response") or {}).get(
+                    "choice"
+                ),
+                meet_choice,
+            )
+            active_meet = [
+                row
+                for row in during.get("active_questions") or []
+                if "meet" in str(row.get("item_id") or "").replace("_", "-")
+            ]
+            self.assertTrue(active_meet)
+            self.assertNotEqual(
+                ((active_meet[0].get("my_response") or {}).get("response") or {}).get(
+                    "choice"
+                ),
+                meet_choice,
+            )
+            show("round_1", "round")
+            meet_parked = self.school.student_live_prompt_payload(
+                session_id, student_id
+            )
+            meet_saved = [
+                row
+                for row in meet_parked.get("saved_cards") or []
+                if "meet" in str(row.get("item_id") or "").replace("_", "-")
+            ]
+            self.assertEqual(len(meet_saved), 1, meet_parked.get("saved_cards"))
+            self.assertEqual(
+                ((meet_saved[0].get("my_response") or {}).get("response") or {}).get(
+                    "choice"
+                ),
+                meet_choice,
+            )
+            meet_options = list(
+                (meet_saved[0].get("content") or {}).get("choices")
+                or (meet_saved[0].get("content") or {}).get("options")
+                or []
+            )
+            self.assertIn(meet_choice, meet_options)
+            with self.school._lock:
+                flag = self.school.conn.execute(
+                    """
+                    SELECT save_to_card FROM live_session_items WHERE id = ?
+                    """,
+                    (meet_live_id,),
+                ).fetchone()
+            self.assertEqual(int(flag["save_to_card"]), 1)
+            self.school.end_live_class_session(session_id)
+
+        exercise("MCF3M")
+        exercise("MCR3U")
+
     def test_preloaded_reveal_answers_keeps_the_published_row(self) -> None:
         """Reveal answers advances the published deck row after an id drift.
 
