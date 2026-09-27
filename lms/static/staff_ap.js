@@ -2721,7 +2721,8 @@ function paintLiveQuestionCards() {
             ${groupStub}
           </div>`;
       const pointsButton =
-        card.response_mode === "group_consensus" || groupChrome
+        (card.response_mode === "group_consensus" || groupChrome) &&
+        !liveGroupMcKeepsResponsePoints(item, card, hasAnswerKey)
           ? ""
           : `<button type="button" class="secondary live-q-btn" data-view-responses="${promptId}" data-question-title="${escapeHtml(
               item.title || item.text || card.text
@@ -2862,6 +2863,12 @@ function groupMemberAnswerValues(team) {
 function groupConsensusResultsHtml(result) {
   const teams = Array.isArray(result?.teams) ? result.teams : [];
   if (!teams.length) return "";
+  const consensusItem = result?.item || {};
+  const keyedMc = liveGroupMcKeepsResponsePoints(
+    consensusItem.item || consensusItem,
+    consensusItem,
+    liveQuestionHasSingularKey(consensusItem)
+  );
   return `<div class="live-consensus-teams">${teams
     .map((team) => {
       const status = String(team.status || "collecting_votes");
@@ -2899,9 +2906,13 @@ function groupConsensusResultsHtml(result) {
         )}</p>
         <p class="live-consensus-team-count">${responded}/${eligible} contributed</p>
         <p class="live-consensus-team-note">Group Answer ✓</p>
-        <button type="button" data-award-consensus="${Number(
-          result?.item?.id || 0
-        )}" data-team-id="${Number(team.team_id)}">+1 team</button>`;
+        ${
+          keyedMc
+            ? ""
+            : `<button type="button" data-award-consensus="${Number(
+                result?.item?.id || 0
+              )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
+        }`;
       } else {
         body = `<p class="live-consensus-team-name">${escapeHtml(
           team.team_name || "Team"
@@ -3249,6 +3260,22 @@ function paintQuestionResponses(responses) {
   }
   host.innerHTML =
     chunks.join("") || `<p class="hint compact">No responses yet.</p>`;
+}
+
+/**
+ * Keyed group multiple choice still uses Responses and points.
+ *
+ * Group submit and group consensus hide that control. A multiple-choice
+ * card with one answer key is the exception, on every course: after Close
+ * or Reveal the teacher uses the same award dialog as an individual question.
+ *
+ * @param {any} item
+ * @param {any} card
+ * @param {boolean} hasAnswerKey
+ * @returns {boolean}
+ */
+function liveGroupMcKeepsResponsePoints(item, card, hasAnswerKey) {
+  return Boolean(hasAnswerKey) && liveQuestionIsMultipleChoice(item, card);
 }
 
 /**

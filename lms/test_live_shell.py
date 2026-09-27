@@ -1427,6 +1427,19 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("closeTeamsPops({ keepRename: true })", strip_enabled)
         self.assertIn("const pointsButton =", js)
         self.assertIn("closed", js.split("const pointsButton =")[1].split("function individualLifecycleResultsHtml")[0])
+        self.assertIn("function liveGroupMcKeepsResponsePoints(", js)
+        points_gate = js.split("const pointsButton =")[1].split("const playlistItemId")[0]
+        self.assertIn("liveGroupMcKeepsResponsePoints", points_gate)
+        self.assertIn("group_consensus", points_gate)
+        self.assertIn("groupChrome", points_gate)
+        self.assertIn('data-save-to-card="', js)
+        self.assertIn("data-close-live-item", js)
+        self.assertIn("data-end-voting", js)
+        consensus = js.split("function groupConsensusResultsHtml(")[1].split(
+            "function setQuestionStudentView("
+        )[0]
+        self.assertIn("keyedMc", consensus)
+        self.assertIn("data-award-consensus", consensus)
         self.assertIn("body.staff-shell .live-round-strip {", css)
         self.assertIn("max-height: var(--live-options-max-h)", css)
         self.assertIn(
