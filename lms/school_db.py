@@ -14047,6 +14047,150 @@ class SchoolDB(LovesDB):
             cleaned = strip_teacher_prompt_fields(payload)
         return rewrite_student_prompt_images(cleaned)
 
+    def _orphan_saved_answer(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+        class_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the written answer when Save to card's linked prompt lost it.
+
+        Meet keeps one lifecycle row and retargets ``prompt_id`` on each
+        chain step. Teams spark can also leave a second prompt for the
+        same item. The response stays on the prompt the student submitted.
+        This reads that prompt back for the parked card only. It does not
+        change the live row, so the current Meet step stays answerable.
+        Rank cards are left on their linked prompt.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Public student item, including a ``my_response`` taken
+                from its linked prompt.
+            student_id: Roster id, when the attendee is on the roster.
+            participant_uuid: Live-session person key.
+            class_id: Owning class, for student-safe bank and image cleanup.
+
+        Returns:
+            ``content``, ``prompt``, and ``my_response`` for the answered
+            prompt, or ``None`` when the linked prompt already has the
+            answer or no sibling prompt does.
+        """
+        if not item.get("save_to_card") or item.get("my_response"):
+            return None
+        if str(item.get("response_mode") or "") in {
+            "group_consensus",
+            "group_submit",
+        }:
+            return None
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        linked = item.get("prompt") if isinstance(item.get("prompt"), dict) else {}
+        kind = str(content.get("type") or linked.get("kind") or "").strip().lower()
+        if kind == "rank":
+            return None
+        item_token = self._live_item_alias(item.get("item_id"))
+        meet_family = item_token in {"meet_team", "meet_a", "meet_b", "meet_c"}
+        spark_family = item_token == "teams_spark"
+        if not meet_family and not spark_family:
+            return None
+        try:
+            linked_prompt_id = int(linked.get("id") or 0)
+        except (TypeError, ValueError):
+            linked_prompt_id = 0
+        person = str(participant_uuid or "").strip()
+        if person:
+            person_sql = "r.participant_uuid = ?"
+            person_param: Any = person
+        elif student_id not in (None, ""):
+            person_sql = "r.student_id = ?"
+            person_param = int(student_id)
+        else:
+            return None
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT p.id, p.slide_index, p.kind, p.payload,
+                       r.response_json, r.awarded_points, r.updated_at
+                FROM live_session_responses AS r
+                JOIN live_session_prompts AS p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ? AND {person_sql}
+                """,
+                (int(session_id), person_param),
+            ).fetchall()
+        found: tuple[str, int, dict[str, Any], dict[str, Any]] | None = None
+        for row in rows:
+            try:
+                prompt_id = int(row["id"] or 0)
+            except (TypeError, ValueError):
+                continue
+            if not prompt_id or prompt_id == linked_prompt_id:
+                continue
+            if str(row["kind"] or "").strip().lower() == "rank":
+                continue
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            prompt_token = self._live_item_alias(
+                payload.get("item_id") or payload.get("pack")
+            )
+            if meet_family and not is_meet_team_payload(payload):
+                continue
+            if spark_family and not (
+                is_teams_spark_payload(payload) or prompt_token == "teams_spark"
+            ):
+                continue
+            try:
+                body = json.loads(row["response_json"] or "{}")
+            except json.JSONDecodeError:
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            if not any(
+                body.get(key) not in (None, "", [])
+                for key in ("choice", "value", "text")
+            ):
+                continue
+            prior = {
+                "response": body,
+                "awarded_points": row["awarded_points"],
+                "updated_at": row["updated_at"],
+            }
+            prompt = {
+                "id": prompt_id,
+                "slide_index": row["slide_index"],
+                "kind": row["kind"],
+                "payload": payload,
+            }
+            stamp = str(row["updated_at"] or "")
+            if found is None or (stamp, prompt_id) >= (found[0], found[1]):
+                found = (stamp, prompt_id, prompt, prior)
+        if found is None:
+            return None
+        _stamp, prompt_id, prompt, prior = found
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        public = self._student_public_item_payload(payload, class_id=class_id)
+        return {
+            "content": public,
+            "prompt": {
+                "id": prompt_id,
+                "slide_index": int(prompt.get("slide_index") or 0),
+                "kind": str(prompt.get("kind") or ""),
+                "payload": public,
+            },
+            "my_response": {
+                "response": prior.get("response") or {},
+                "awarded_points": prior.get("awarded_points"),
+                "updated_at": prior.get("updated_at"),
+            },
+            "can_submit": False,
+            "parked": True,
+        }
+
     def student_live_items_payload(
         self,
         session_id: int,
@@ -14348,14 +14492,36 @@ class SchoolDB(LovesDB):
             )
         ]
         facing_ids = {int(row["id"]) for row in facing}
+        class_id = session_row.get("class_id")
         saved_cards: list[dict[str, Any]] = []
         for row in public_items:
-            if not row.get("save_to_card") or int(row["id"]) in facing_ids:
+            if not row.get("save_to_card"):
+                continue
+            orphan = self._orphan_saved_answer(
+                session_id,
+                row,
+                student_id,
+                participant_uuid=participant_uuid,
+                class_id=class_id,
+            )
+            if int(row["id"]) in facing_ids:
+                # The student stack drops a second card with the same
+                # lifecycle id. Keep the live step facing, and park the
+                # already-written answer under its own id.
+                if orphan is None:
+                    continue
+                parked = dict(row)
+                parked.update(orphan)
+                parked["id"] = 1_000_000 + int((orphan.get("prompt") or {}).get("id") or 0)
+                parked["status"] = "inactive"
+                saved_cards.append(parked)
                 continue
             parked = dict(row)
             if str(parked.get("status") or "") == "active":
                 parked["can_submit"] = False
                 parked["parked"] = True
+            if orphan is not None:
+                parked.update(orphan)
             saved_cards.append(parked)
         return {
             "active_questions": facing,
