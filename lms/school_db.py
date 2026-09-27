@@ -2119,6 +2119,24 @@ class LovesDB:
                 "ALTER TABLE live_group_responses "
                 "ADD COLUMN submitter_ids_json TEXT NOT NULL DEFAULT '[]'"
             )
+        self._ensure_group_member_award_column()
+
+    def _ensure_group_member_award_column(self) -> None:
+        """Store per-student group MC awards off the prompt response table.
+
+        Group answers are one row per team. Responses and points still
+        replaces a student's award, so the amount lives on the membership
+        snapshot instead of ``live_session_responses``.
+        """
+
+        cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(live_group_members)")
+        }
+        if "awarded_points" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_members ADD COLUMN awarded_points REAL"
+            )
 
     def _ensure_save_to_card_columns(self) -> None:
         """Add the per-question Save to card flag on existing databases.
@@ -16883,6 +16901,194 @@ class SchoolDB(LovesDB):
             return str(value).strip() == raw_key
         return None
 
+    def _linked_group_mc_item(
+        self, session_id: int, prompt: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Return a group multiple-choice item linked to this prompt.
+
+        Individual prompts and group rank stay on prompt response rows.
+        Group submit and group consensus multiple choice score the shared
+        team answer. The course code is not part of the decision.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Prompt row that may be linked to a lifecycle item.
+        """
+
+        item = self._lifecycle_item_for_prompt(session_id, prompt)
+        if item is None:
+            return None
+        mode = str(item.get("response_mode") or "")
+        if mode not in {"group_submit", "group_consensus"}:
+            return None
+        if self._question_answer_kind(item) != "mc":
+            return None
+        return item
+
+    @staticmethod
+    def _group_mc_choice_label(final: Any) -> str:
+        """Return the shared choice text stored on a team answer.
+
+        Args:
+            final: Normalized ``final_answer`` object, or anything else.
+        """
+
+        if not isinstance(final, dict):
+            return ""
+        for key in ("value", "choice", "text"):
+            raw = final.get(key)
+            if raw not in (None, ""):
+                return str(raw).strip()
+        return ""
+
+    def _submitted_group_mc_choice(
+        self, item: dict[str, Any], state: dict[str, Any]
+    ) -> str:
+        """Return the team's choice once it is a finished group answer.
+
+        Group submit counts a submitted final answer. Group consensus counts
+        a finalized team answer. Drafts and open votes stay off the roster.
+
+        Args:
+            item: Lifecycle row whose ``response_mode`` is a group MC mode.
+            state: Normalized ``live_group_responses`` row.
+        """
+
+        final = state.get("final_answer")
+        if str(item.get("response_mode") or "") == "group_consensus":
+            if str(state.get("status") or "") != "finalized":
+                return ""
+            return self._group_mc_choice_label(final)
+        if int(state.get("submit_count") or 0) <= 0:
+            return ""
+        return self._group_mc_choice_label(final)
+
+    def _group_member_award_rows(self, live_item_id: int) -> list[dict[str, Any]]:
+        """Return membership rows, including any saved award, for one item.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+        """
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT team_id, student_id, awarded_points
+                FROM live_group_members
+                WHERE live_item_id = ?
+                """,
+                (int(live_item_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _group_mc_choice_labels(
+        self, item: dict[str, Any], payload: dict[str, Any]
+    ) -> list[str]:
+        """Return MC labels used to map a team choice onto a letter key.
+
+        Args:
+            item: Lifecycle row with a nested catalogue item.
+            payload: Linked prompt payload, used when the item has no options.
+        """
+
+        labels = self._mc_option_labels(item)
+        if labels:
+            return labels
+        found: list[str] = []
+        for choice in payload.get("choices") or payload.get("options") or []:
+            if isinstance(choice, dict):
+                text = str(choice.get("text") or choice.get("label") or "").strip()
+            else:
+                text = str(choice or "").strip()
+            if text:
+                found.append(text)
+        return found
+
+    def _group_mc_response_roster(
+        self,
+        session_id: int,
+        prompt: dict[str, Any],
+        item: dict[str, Any],
+        student_map: dict[int, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Project each sharing member as a named row for Responses and points.
+
+        A team that never submitted, or never finalized, contributes no rows.
+        ``correct`` uses the same key match as an individual MC response.
+        Awards stay on ``live_group_members`` so the group answer is not a
+        participation credit.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Linked prompt, used for the answer key and choice labels.
+            item: Group multiple-choice lifecycle row.
+            student_map: Roster id to student row.
+        """
+
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        labels = self._group_mc_choice_labels(item, payload)
+        nested = item.get("item") if isinstance(item.get("item"), dict) else {}
+        raw_key = str(
+            payload.get("key")
+            or payload.get("correct_answer")
+            or self._singular_question_key(nested)
+            or ""
+        ).strip()
+        key = raw_key.upper()
+        by_team: dict[int, list[dict[str, Any]]] = {}
+        for member in self._group_member_award_rows(int(item["id"])):
+            by_team.setdefault(int(member["team_id"]), []).append(member)
+        rows: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for team_id, _team_name, state in self._iter_group_submit_teams(session_id, item):
+            label = self._submitted_group_mc_choice(item, state)
+            if not label:
+                continue
+            team_members = list(by_team.get(int(team_id)) or [])
+            if not team_members:
+                team_members = [
+                    {
+                        "team_id": int(team_id),
+                        "student_id": student_id,
+                        "awarded_points": None,
+                    }
+                    for student_id in self._active_team_member_ids(session_id, int(team_id))
+                ]
+            letter = choice_letter({"choice": label}, labels)
+            correct = self._response_matches_key(
+                letter=letter,
+                value=label,
+                key=key,
+                raw_key=raw_key,
+                payload=payload,
+            )
+            for member in team_members:
+                try:
+                    student_id = int(member["student_id"])
+                except (TypeError, ValueError):
+                    continue
+                if student_id in seen:
+                    continue
+                seen.add(student_id)
+                student = student_map.get(student_id)
+                rows.append(
+                    {
+                        "student_id": student_id,
+                        "name": str(
+                            (student or {}).get("codename")
+                            or (student or {}).get("first_name")
+                            or "Student"
+                        ).strip(),
+                        "character": (student or {}).get("character_key"),
+                        "answer": label,
+                        "choice": letter,
+                        "correct": correct,
+                        "awarded_points": member.get("awarded_points"),
+                    }
+                )
+        rows.sort(key=lambda row: str(row["name"]).casefold())
+        return rows
+
     def live_prompt_response_roster(
         self, session_id: int, prompt_id: int
     ) -> list[dict[str, Any]]:
@@ -16911,6 +17117,11 @@ class SchoolDB(LovesDB):
                 )
             ]
         student_map = {int(row["id"]): row for row in students}
+        group_item = self._linked_group_mc_item(session_id, prompt)
+        if group_item is not None:
+            return self._group_mc_response_roster(
+                session_id, prompt, group_item, student_map
+            )
         attendees = self.list_live_session_attendees(session_id)
         guest_map = {
             str(row.get("participant_uuid") or ""): row
@@ -17012,6 +17223,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Award prompt points to a selected set, replacing a prior assignment.
 
+        Individual and rank prompts update ``live_session_responses``.
+        Group multiple choice updates ``live_group_members`` for each
+        student who shares the team answer, with the same replace rules.
+
         Args:
             session_id: ``live_class_sessions.id``.
             prompt_id: ``live_session_prompts.id``.
@@ -17072,17 +17287,41 @@ class SchoolDB(LovesDB):
                     amount=delta,
                     label="Live question",
                 )
+        prompt = next(
+            (
+                row
+                for row in self._list_live_session_prompts(session_id)
+                if int(row["id"]) == int(prompt_id)
+            ),
+            None,
+        )
+        group_item = (
+            self._linked_group_mc_item(session_id, prompt)
+            if prompt is not None
+            else None
+        )
         with self._lock:
             for student_id, current, desired in plan:
-                if desired != current:
+                if desired == current:
+                    continue
+                if group_item is not None:
                     self.conn.execute(
                         """
-                        UPDATE live_session_responses
+                        UPDATE live_group_members
                         SET awarded_points = ?
-                        WHERE prompt_id = ? AND student_id = ?
+                        WHERE live_item_id = ? AND student_id = ?
                         """,
-                        (desired, int(prompt_id), student_id),
+                        (desired, int(group_item["id"]), int(student_id)),
                     )
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE live_session_responses
+                    SET awarded_points = ?
+                    WHERE prompt_id = ? AND student_id = ?
+                    """,
+                    (desired, int(prompt_id), int(student_id)),
+                )
             self.conn.commit()
         return {
             "awarded_student_ids": sorted(selected),

@@ -3156,6 +3156,222 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertIn("selectedPublishMode(liveItemId)", publish_fn)
         self.assertIn('return "group_submit"', staff_js)
 
+    def test_group_submit_keyed_mc_awards_after_close_like_individual(self) -> None:
+        """A keyed Group MC uses Responses and points after Close.
+
+        The deck is shaped like MCR3U M2 C1 page 2 (worded options, letter
+        key). Scoring does not read the course code, so the same path covers
+        MCF3M. Reveal is Close for group submit. Save to card still stores.
+        """
+
+        deck = metadata_fixture()
+        deck["course"] = "MCR3U"
+        deck["module"] = "M2"
+        deck["live_class"] = "C1"
+        question = deck["questions"][0]
+        question["stage"] = "teams"
+        question["page_number"] = 2
+        question["text"] = "Which way does the graph go?"
+        question["options"] = ["The graph rises", "The graph falls"]
+        question["correct_answer"] = "A"
+        deck["items"] = [*deck["questions"], deck["items"][-1]]
+        self.school.live_class_metadata_for_session = lambda _session_id: deck
+        self._begin_and_join(4)
+        self._setup_groups()
+        self.school.set_live_session_teacher_state(
+            self.session_id, stage="teams", live_module="M2", live_slot="C1"
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        published = self.school.publish_live_session_item(
+            self.session_id, int(group_item["id"]), publish_mode="group_submit"
+        )
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        prompt_id = int(prompt["id"])
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="The graph rises",
+            why="it climbs",
+        )
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[1],
+            choice="The graph falls",
+            why="it drops",
+        )
+        saved = self.school.update_live_session_item_settings(
+            self.session_id, int(published["id"]), save_to_card=True
+        )
+        self.assertTrue(saved["save_to_card"])
+        closed = self.school.close_live_session_item(
+            self.session_id, int(published["id"])
+        )
+        self.assertEqual(closed["status"], "closed")
+        revealed = self.school.live_session_item_results(
+            self.session_id, int(published["id"])
+        )
+        self.assertTrue(revealed.get("reveal"))
+        self.assertEqual(
+            {row["answer"] for row in revealed["reveal"] if row["answer"]},
+            {"The graph rises", "The graph falls"},
+        )
+        roster = self.school.live_prompt_response_roster(self.session_id, prompt_id)
+        by_name = {row["name"]: row for row in roster}
+        self.assertEqual(set(by_name), {"Aspen", "Birch", "Cedar", "Maple"})
+        self.assertTrue(by_name["Aspen"]["correct"])
+        self.assertTrue(by_name["Cedar"]["correct"])
+        self.assertFalse(by_name["Birch"]["correct"])
+        self.assertFalse(by_name["Maple"]["correct"])
+        self.assertEqual(by_name["Aspen"]["answer"], "The graph rises")
+        awarded = self.school.award_live_prompt_points(
+            self.session_id, prompt_id, mode="correct", amount=1
+        )
+        points = {
+            row["name"]: int(row.get("awarded_points") or 0)
+            for row in awarded["responses"]
+        }
+        self.assertEqual(points["Aspen"], 1)
+        self.assertEqual(points["Cedar"], 1)
+        self.assertEqual(points["Birch"], 0)
+        self.assertEqual(points["Maple"], 0)
+        state = self.school.get_live_session_state(self.session_id)
+        game_points = state.get("game_points") or {}
+        self.assertEqual(int(game_points.get(str(self.student_ids[0]), 0)), 1)
+        self.assertEqual(int(game_points.get(str(self.student_ids[2]), 0)), 1)
+        self.assertEqual(int(game_points.get(str(self.student_ids[1]), 0)), 0)
+        with self.school._lock:
+            prompt_rows = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM live_session_responses WHERE prompt_id = ?",
+                (prompt_id,),
+            ).fetchone()["n"]
+        self.assertEqual(int(prompt_rows), 0)
+        self.assertEqual(
+            self.school.participation_question_credits_for_class(self.class_id).get(
+                self.student_ids[0], 0
+            ),
+            0,
+        )
+        replaced = self.school.award_live_prompt_points(
+            self.session_id,
+            prompt_id,
+            mode="manual",
+            student_ids=[self.student_ids[1]],
+            amount=1,
+        )
+        again = {
+            row["name"]: int(row.get("awarded_points") or 0)
+            for row in replaced["responses"]
+        }
+        self.assertEqual(again["Aspen"], 0)
+        self.assertEqual(again["Cedar"], 0)
+        self.assertEqual(again["Birch"], 1)
+        self.assertEqual(again["Maple"], 0)
+        state = self.school.get_live_session_state(self.session_id)
+        game_points = state.get("game_points") or {}
+        self.assertEqual(int(game_points.get(str(self.student_ids[0]), 0)), 0)
+        self.assertEqual(int(game_points.get(str(self.student_ids[1]), 0)), 1)
+        solo = self.school.set_live_session_prompt(
+            self.session_id,
+            slide_index=880,
+            kind="mc",
+            payload={
+                "item_id": "solo-key",
+                "kind": "mc",
+                "prompt": "Individual still scores",
+                "choices": ["A", "B"],
+                "key": "A",
+            },
+            activate=True,
+        )
+        solo_id = int(solo["id"])
+        self.school.submit_live_prompt_response(
+            solo_id, self.student_ids[3], {"choice": "A"}
+        )
+        solo_award = self.school.award_live_prompt_points(
+            self.session_id, solo_id, mode="correct", amount=1
+        )
+        solo_points = {
+            int(row["student_id"]): int(row.get("awarded_points") or 0)
+            for row in solo_award["responses"]
+            if row.get("student_id") not in (None, "")
+        }
+        self.assertEqual(solo_points.get(self.student_ids[3]), 1)
+        self.assertEqual(again["Birch"], 1)
+
+    def test_mcf3m_group_consensus_keyed_mc_awards_the_matching_team(self) -> None:
+        """MCF3M group-consensus MC with a key awards after Close.
+
+        Finalized team answers feed the same correct-answer selection as
+        group submit. Teams that never finalize stay off the roster.
+        """
+
+        self._begin_and_join(4)
+        self._setup_groups()
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-two")
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group_consensus",
+        )
+        self.assertEqual(published["response_mode"], "group_consensus")
+        teams = [
+            team
+            for team in self.school.game.game_state(self.class_id)["teams"]
+            if str(team.get("name") or "") != "Class"
+        ]
+        self.assertGreaterEqual(len(teams), 2)
+        first_ids = [int(row["id"]) for row in teams[0]["members"]]
+        second_ids = [int(row["id"]) for row in teams[1]["members"]]
+        for student_id in first_ids:
+            self.school.submit_group_consensus_vote(
+                self.session_id,
+                int(published["id"]),
+                student_id,
+                {"choice": "B"},
+            )
+        for student_id in second_ids:
+            self.school.submit_group_consensus_vote(
+                self.session_id,
+                int(published["id"]),
+                student_id,
+                {"choice": "A"},
+            )
+        self.school.finalize_group_consensus_answer(
+            self.session_id,
+            int(published["id"]),
+            first_ids[0],
+            {"choice": "B"},
+        )
+        self.school.finalize_group_consensus_answer(
+            self.session_id,
+            int(published["id"]),
+            second_ids[0],
+            {"choice": "A"},
+        )
+        self.school.close_live_session_item(self.session_id, int(published["id"]))
+        prompt = self.school._prompt_for_live_item(published)
+        assert prompt is not None
+        awarded = self.school.award_live_prompt_points(
+            self.session_id, int(prompt["id"]), mode="correct", amount=1
+        )
+        points = {
+            int(row["student_id"]): int(row.get("awarded_points") or 0)
+            for row in awarded["responses"]
+        }
+        for student_id in first_ids:
+            self.assertEqual(points.get(student_id), 1)
+        for student_id in second_ids:
+            self.assertEqual(points.get(student_id), 0)
+        state = self.school.get_live_session_state(self.session_id)
+        game_points = state.get("game_points") or {}
+        self.assertEqual(int(game_points.get(str(first_ids[0]), 0)), 1)
+        self.assertEqual(int(game_points.get(str(second_ids[0]), 0)), 0)
+
 
 class LiveBackendApiGuardTests(unittest.TestCase):
     """Verify ownership and active-session guards on new publish APIs."""
