@@ -1005,8 +1005,23 @@ function bindFloatingPane(pane) {
   });
 }
 
+/**
+ * True when the jigsawable state machine is peeled and students should
+ * see ArtifactViewer. Round 1 keeps the generic media checkbox off; this
+ * fill still syncs from active media.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function stateMachineMediaLive(payload) {
+  const media = payload?.active_media;
+  if (!media || media.artifact_kind !== "state_machine") return false;
+  if (media.fill_id !== "jigsawable-class-size") return false;
+  return Boolean(String(media.state_event || "").trim());
+}
+
 function applyTeacherProjection(payload) {
   const proj = studentProjection(payload);
+  const artifactLive = stateMachineMediaLive(payload);
   const welcomeOn = hasGameShowWelcome(payload);
   if (proj.seq !== lastStateSeq) {
     lastStateSeq = proj.seq;
@@ -1030,10 +1045,13 @@ function applyTeacherProjection(payload) {
     if (mediaLock) mediaLock.hidden = true;
     if (
       !paneIsBeingGrabbed(mediaPane) &&
-      (!proj.media || dockedLiveCardKeys.has("surface:media"))
+      (!proj.media || dockedLiveCardKeys.has("surface:media")) &&
+      !artifactLive
     ) {
       mediaPane.hidden = true;
       unmountStudentMedia();
+    } else if (artifactLive && !paneIsBeingGrabbed(mediaPane) && !dockedLiveCardKeys.has("surface:media")) {
+      mediaPane.hidden = false;
     }
   }
   if (slidesPane) {
@@ -1052,12 +1070,13 @@ function isWaitingRoom(payload) {
   const proj = studentProjection(payload);
   const publishedMedia = activePublishedItem(payload, "media");
   const hasMedia =
-    proj.media &&
+    stateMachineMediaLive(payload) ||
+    (proj.media &&
     Boolean(
       payload.active_media?.url ||
       publishedMedia?.content?.file ||
       publishedMedia?.content?.url
-    );
+    ));
   return !payload.scoring && !hasMedia;
 }
 
@@ -1089,12 +1108,13 @@ function applyLayout(payload) {
   const proj = studentProjection(payload);
   const publishedMedia = activePublishedItem(payload, "media");
   const hasMedia =
-    proj.media &&
+    stateMachineMediaLive(payload) ||
+    (proj.media &&
     Boolean(
       payload.active_media?.url ||
       publishedMedia?.content?.file ||
       publishedMedia?.content?.url
-    );
+    ));
   const waitingRoom = isWaitingRoom(payload);
   const welcomeOn = Boolean(payload.game_show_welcome);
   const celebrating = Boolean(payload.celebrate);
@@ -1170,6 +1190,17 @@ function postMediaState(media) {
         params: media.params || { a: 1, b: 0, c: 0 },
         artifact: media.artifact || null,
         student_play: Boolean(media.artifact),
+        artifact_kind: media.artifact_kind || "",
+        fill_id: media.fill_id || "",
+        state_event: media.state_event || "",
+        class_size: media.class_size ?? null,
+        g: media.g ?? null,
+        n: media.n ?? null,
+        centre: media.centre ?? null,
+        reveal_armed: Boolean(media.reveal_armed),
+        prediction_hold: Boolean(media.prediction_hold),
+        wonder_cue: media.wonder_cue || "",
+        layout: media.layout || "",
         stem: media.stem || "",
         caption: media.caption || "",
         entry_chip: media.chip || media.entry_chip || "",
@@ -1182,12 +1213,24 @@ function postMediaState(media) {
   }
 }
 
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  const data = event.data;
+  if (!data || data.type !== "artifact-ready" || data.source !== "lloves-jigsawable") return;
+  if (!mediaFrame || !lastStudentMedia) return;
+  postMediaState(lastStudentMedia);
+});
+
+/** @type {any} */
+let lastStudentMedia = null;
+
 /**
  * Show or hide the student iframe pane from /api/student/state.
  * @param {any} payload
  */
 function paintMedia(payload) {
   const proj = applyTeacherProjection(payload);
+  const artifactLive = stateMachineMediaLive(payload);
   if (payload.game_show_welcome) {
     if (mediaChip) mediaChip.hidden = true;
     if (mediaStem) mediaStem.hidden = true;
@@ -1196,7 +1239,7 @@ function paintMedia(payload) {
     if (mediaEncore) mediaEncore.hidden = true;
     if (!proj.media) return;
   }
-  if (!proj.media) {
+  if (!proj.media && !artifactLive) {
     if (mediaChip) mediaChip.hidden = true;
     if (mediaStem) mediaStem.hidden = true;
     if (mediaCaption) mediaCaption.hidden = true;
@@ -1213,6 +1256,7 @@ function paintMedia(payload) {
           url: published.content?.file || published.content?.url || "",
         }
       : null);
+  lastStudentMedia = media;
   const url = media ? safeMediaUrl(media.url) : "";
   if (mediaChip) {
     const chip = String(
@@ -1308,6 +1352,13 @@ function paintMedia(payload) {
     caption: media.caption || "",
     toast_key: media.toast_key || "",
     cons_item: media.cons_item || "",
+    state_event: media.state_event || "",
+    layout: media.layout || "",
+    g: media.g ?? null,
+    n: media.n ?? null,
+    centre: media.centre ?? null,
+    reveal_armed: Boolean(media.reveal_armed),
+    wonder_cue: media.wonder_cue || "",
   });
   if (url !== lastMediaUrl) {
     lastMediaUrl = url;

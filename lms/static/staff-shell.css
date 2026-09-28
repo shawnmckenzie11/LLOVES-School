@@ -1137,6 +1137,38 @@ body.staff-shell .ap-media-params {
 body.staff-shell .ap-media-params[hidden] {
   display: none !important;
 }
+body.staff-shell .state-event-bar {
+  margin: 0.45rem 0 0.2rem;
+}
+body.staff-shell .state-event-bar[hidden] {
+  display: none !important;
+}
+body.staff-shell .state-event-bar-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: #3d4f5f;
+}
+body.staff-shell .state-event-buttons,
+body.staff-shell .state-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+body.staff-shell .state-event-buttons button.is-current {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+body.staff-shell .state-event-hold {
+  margin: 0.4rem 0 0;
+  color: #3d4f5f;
+  font-size: 0.85rem;
+}
+body.staff-shell .state-event-hold[hidden],
+body.staff-shell #state-event-ask-status[hidden],
+body.staff-shell .state-event-actions button[hidden] {
+  display: none !important;
+}
 body.staff-shell .ap-media-preview {
   width: 100%;
   min-height: 42rem;

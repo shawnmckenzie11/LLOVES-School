@@ -26,6 +26,17 @@
         "individual"
       ],
       "response_mode": "individual"
+    },
+    {
+      "ref": "course/MCF3M/media/jigsawable-class-size",
+      "stage": "round",
+      "page_number": 4,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
     }
   ],
   "pages": [

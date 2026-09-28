@@ -143,6 +143,11 @@ try:
         live_class_seed_media,
         uses_c1_real_slice,
     )
+    from state_artifact import (
+        INTERACTION_KIND_ARTIFACT_STATE,
+        is_jigsawable_media,
+        jigsawable_snapshot,
+    )
     from paths import GAME_SHOW, SEMESTER_JSON
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.codes import generate_live_access_code
@@ -266,6 +271,11 @@ except ImportError:  # ``python3 lms/app.py`` package import
         staff_team_challenge_prompt_payload,
         live_class_seed_media,
         uses_c1_real_slice,
+    )
+    from lms.state_artifact import (
+        INTERACTION_KIND_ARTIFACT_STATE,
+        is_jigsawable_media,
+        jigsawable_snapshot,
     )
     from lms.paths import GAME_SHOW, SEMESTER_JSON
 
@@ -489,6 +499,19 @@ CREATE TABLE IF NOT EXISTS live_session_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_session_responses_prompt
     ON live_session_responses(prompt_id);
+
+CREATE TABLE IF NOT EXISTS live_session_interactions (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL
+        REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+    interaction_kind TEXT NOT NULL,
+    actor_role TEXT NOT NULL DEFAULT 'teacher',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_session_interactions_session
+    ON live_session_interactions(live_session_id, id);
 
 CREATE TABLE IF NOT EXISTS live_session_items (
     id INTEGER PRIMARY KEY,
@@ -18656,6 +18679,126 @@ class SchoolDB(LovesDB):
                 return None
         return public
 
+    def record_artifact_state_interaction(
+        self,
+        session_id: int,
+        snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Append one thin ``artifact_state`` snapshot for a teacher peel.
+
+        The payload is ``{event, class_size, g, n, centre, ts}`` only.
+        Student responses stay on ``live_session_responses``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            snapshot: Peel snapshot from ``jigsawable_snapshot``.
+
+        Returns:
+            The stored snapshot plus ``interaction_kind``.
+        """
+        body = {
+            "event": str(snapshot.get("event") or ""),
+            "class_size": snapshot.get("class_size"),
+            "g": snapshot.get("g"),
+            "n": snapshot.get("n"),
+            "centre": snapshot.get("centre"),
+            "ts": str(snapshot.get("ts") or _now()),
+        }
+        encoded = json.dumps(body, separators=(",", ":"))
+        if len(encoded) > 500:
+            raise ValueError("artifact snapshot is too large")
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO live_session_interactions (
+                    live_session_id, interaction_kind, actor_role,
+                    payload_json, created_at
+                ) VALUES (?, ?, 'teacher', ?, ?)
+                """,
+                (
+                    int(session_id),
+                    INTERACTION_KIND_ARTIFACT_STATE,
+                    encoded,
+                    body["ts"],
+                ),
+            )
+            self.conn.commit()
+        body["interaction_kind"] = INTERACTION_KIND_ARTIFACT_STATE
+        return body
+
+    def list_artifact_state_interactions(
+        self, session_id: int
+    ) -> list[dict[str, Any]]:
+        """Return teacher artifact-state snapshots for one session, oldest first.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT payload_json FROM live_session_interactions
+                WHERE live_session_id = ? AND interaction_kind = ?
+                ORDER BY id ASC
+                """,
+                (int(session_id), INTERACTION_KIND_ARTIFACT_STATE),
+            ).fetchall()
+        found: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row["payload_json"] or "{}"))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                payload["interaction_kind"] = INTERACTION_KIND_ARTIFACT_STATE
+                found.append(payload)
+        return found
+
+    def _record_jigsawable_peel(
+        self,
+        session_id: int,
+        *,
+        previous: dict[str, Any] | None,
+        payload: dict[str, Any] | None,
+        state_event: Any,
+        clear: bool,
+        ts: str,
+    ) -> None:
+        """Write a snapshot when a jigsawable peel actually changes state.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            previous: Media blob before this write.
+            payload: Media blob after this write, or ``None`` when cleared.
+            state_event: Posted peel id, if any.
+            clear: Posted clear flag.
+            ts: ISO timestamp stamped on the snapshot.
+        """
+        event = str(state_event or "").strip()
+        if clear and not event and is_jigsawable_media(previous):
+            event = "clear"
+        if event == "clear" and is_jigsawable_media(previous):
+            self.record_artifact_state_interaction(
+                session_id,
+                jigsawable_snapshot(previous, event="clear", ts=ts),
+            )
+            return
+        if not event or not is_jigsawable_media(payload):
+            return
+        previous_event = (
+            str((previous or {}).get("state_event") or "")
+            if is_jigsawable_media(previous)
+            else ""
+        )
+        if str(payload.get("state_event") or "") != event:
+            return
+        if event == previous_event:
+            return
+        self.record_artifact_state_interaction(
+            session_id,
+            jigsawable_snapshot(payload, event=event, ts=ts),
+        )
+
     def set_live_session_active_media(
         self,
         session_id: int,
@@ -18688,6 +18831,9 @@ class SchoolDB(LovesDB):
         toast: Any = None,
         toast_key: Any = None,
         artifact: Any = None,
+        state_event: Any = None,
+        arm_reveal: Any = None,
+        class_size: Any = None,
         allow_url_swap: bool = True,
         merge: bool = False,
         persist_media_copy: bool = True,
@@ -18730,6 +18876,9 @@ class SchoolDB(LovesDB):
             toast: Optional Wonder toast overlay.
             toast_key: Optional toast identity.
             allow_url_swap: When False, production seed-locks the Real-slice URL.
+            state_event: Jigsawable peel id. ``clear`` unmounts the fill.
+            arm_reveal: Release the prediction hold without firing ``reveal_5x3``.
+            class_size: Jigsawable mount size. v0 accepts 16 only.
             merge: When True, treat omitted url as a patch of current media.
             persist_media_copy: When False, skip writing ``class_live_media_overlays``
                 (automatic slot remounts must not overwrite a saved overlay).
@@ -18805,6 +18954,12 @@ class SchoolDB(LovesDB):
             kwargs["toast_key"] = toast_key
         if artifact is not None:
             kwargs["artifact"] = artifact
+        if state_event is not None:
+            kwargs["state_event"] = state_event
+        if arm_reveal is not None:
+            kwargs["arm_reveal"] = arm_reveal
+        if class_size is not None:
+            kwargs["class_size"] = class_size
         slot = (
             normalize_live_slot(challenge)
             if challenge is not None
@@ -18922,6 +19077,14 @@ class SchoolDB(LovesDB):
                     caption=caption,
                     payload=payload,
                 )
+            self._record_jigsawable_peel(
+                session_id,
+                previous=current,
+                payload=payload,
+                state_event=state_event,
+                clear=clear,
+                ts=str(kwargs.get("updated_at") or ""),
+            )
             return payload
         payload = apply_active_media_update(current, **kwargs)
         encoded = json.dumps(payload) if payload else None
@@ -18955,6 +19118,14 @@ class SchoolDB(LovesDB):
                     payload=payload,
                 )
         self._sync_cons_prompt(session_id, payload)
+        self._record_jigsawable_peel(
+            session_id,
+            previous=current,
+            payload=payload,
+            state_event=state_event,
+            clear=clear,
+            ts=str(kwargs.get("updated_at") or ""),
+        )
         return payload
 
     def _persist_session_media_copy(
@@ -22264,9 +22435,14 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         )
-        payload["active_media"] = self.live_session_active_media_payload(
-            int(live_session_id)
-        )
+        media = self.live_session_active_media_payload(int(live_session_id))
+        if isinstance(media, dict) and is_jigsawable_media(media):
+            media = dict(media)
+            # Stage-ask stems stay on the prompt channel. Students watch
+            # the visualizer; they do not receive the unarmed ask packet.
+            media.pop("linked_prompt", None)
+            media.pop("state_events", None)
+        payload["active_media"] = media
         payload["teacher_state"] = self.live_session_teacher_state_payload(
             int(live_session_id)
         )

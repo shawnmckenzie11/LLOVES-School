@@ -5306,6 +5306,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             kwargs["toast_key"] = body.get("toast_key")
         if "artifact" in body:
             kwargs["artifact"] = body.get("artifact")
+        if "state_event" in body:
+            kwargs["state_event"] = body.get("state_event")
+        if "arm_reveal" in body:
+            kwargs["arm_reveal"] = body.get("arm_reveal")
+        if "class_size" in body:
+            kwargs["class_size"] = body.get("class_size")
         try:
             media = school.set_live_session_active_media(session_id, **kwargs)
             if "artifact" in body:

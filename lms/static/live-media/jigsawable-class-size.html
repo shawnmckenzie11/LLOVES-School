@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jigsawable class size</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #14202b;
+      --muted: #5c6b78;
+      --line: #d5dee6;
+      --seat: #1f6f78;
+      --seat-moved: #8a5a12;
+      --paper: #f4f7f8;
+      --struck: #8b97a3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.4 "Source Sans 3", "Segoe UI", sans-serif;
+    }
+    main {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-start;
+      padding: 1rem;
+    }
+    .stage { flex: 1 1 16rem; min-width: 16rem; }
+    h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.05rem;
+      font-weight: 650;
+    }
+    .status {
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      min-height: 1.4em;
+    }
+    .labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin: 0 0 0.75rem;
+      min-height: 1.6rem;
+    }
+    .labels[hidden],
+    .grid[hidden],
+    .priya-note[hidden] {
+      display: none !important;
+    }
+    .labels span {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.1rem 0.55rem;
+      background: #fff;
+    }
+    .labels.is-struck span { color: var(--struck); text-decoration: line-through; }
+    .grid {
+      display: grid;
+      gap: 0.45rem;
+      justify-content: start;
+    }
+    .grid.unmarked { grid-template-columns: repeat(8, 1.6rem); max-width: 16rem; }
+    .grid.grid_4x4, .grid.pause_15 { grid-template-columns: repeat(4, 2.2rem); }
+    .grid.grid_5x3, .grid.algebra { grid-template-columns: repeat(5, 2.2rem); }
+    .seat {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      background: var(--seat);
+      border: 0;
+      pointer-events: none;
+    }
+    .seat.moved { background: var(--seat-moved); }
+    .priya-note {
+      margin: 0.75rem 0 0;
+      color: var(--muted);
+    }
+    .algebra {
+      flex: 1 1 14rem;
+      margin: 0;
+      padding: 0.85rem 1rem;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .algebra[hidden] { display: none; }
+    .algebra p { margin: 0.25rem 0; }
+    .eq { font-size: 1.15rem; }
+    #wonder-cue { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="stage" aria-label="Class-size visualizer">
+      <h1>Jigsawable class size</h1>
+      <p class="status" id="status" aria-live="polite">Waiting for the teacher.</p>
+      <div class="labels" id="labels" hidden></div>
+      <div class="grid unmarked" id="grid" hidden></div>
+      <p class="priya-note" id="priya-note" hidden>Priya left. Paused at 15.</p>
+    </section>
+    <aside class="algebra" id="algebra" hidden>
+      <p>Relative to centre 4</p>
+      <p>one dimension −1, the other +1</p>
+      <p class="eq">(x − 1)(x + 1) = x² − 1</p>
+    </aside>
+  </main>
+  <p id="wonder-cue" data-wonder-cue="" hidden></p>
+  <script>
+    /**
+     * Draw the calm class-size grid for one teacher peel.
+     * Students cannot scrub. Wonder stays silent except the Priya cue slot.
+     * @param {any} data
+     */
+    function paintJigsawable(data) {
+      const event = String(data.state_event || "");
+      const layout = String(data.layout || "idle");
+      const grid = document.getElementById("grid");
+      const labels = document.getElementById("labels");
+      const status = document.getElementById("status");
+      const priya = document.getElementById("priya-note");
+      const algebra = document.getElementById("algebra");
+      const wonder = document.getElementById("wonder-cue");
+      if (!grid || !labels || !status || !priya || !algebra || !wonder) return;
+      const cue = event === "priya_leaves_pause_15"
+        ? "jigsawable:priya_leaves_pause_15"
+        : "";
+      wonder.dataset.wonderCue = cue;
+      wonder.textContent = "";
+      algebra.hidden = layout !== "algebra";
+      priya.hidden = layout !== "pause_15";
+      if (!event) {
+        grid.hidden = true;
+        grid.replaceChildren();
+        labels.hidden = true;
+        labels.replaceChildren();
+        labels.classList.remove("is-struck");
+        status.textContent = "Waiting for the teacher.";
+        return;
+      }
+      const count = layout === "unmarked" || layout === "grid_4x4" ? 16 : 15;
+      grid.hidden = false;
+      grid.className = "grid " + (layout === "algebra" ? "algebra" : layout);
+      grid.replaceChildren();
+      for (let index = 1; index <= count; index += 1) {
+        const seat = document.createElement("span");
+        seat.className = "seat";
+        const moved = (layout === "grid_5x3" || layout === "algebra") && index > 12;
+        if (moved) seat.classList.add("moved");
+        seat.setAttribute("role", "img");
+        seat.setAttribute("aria-label", moved ? "Seat moved" : "Seat");
+        grid.appendChild(seat);
+      }
+      const showLabels = layout !== "unmarked" && layout !== "idle";
+      labels.hidden = !showLabels;
+      labels.classList.toggle("is-struck", layout === "pause_15");
+      labels.replaceChildren();
+      if (showLabels) {
+        const bits = [
+          ["g", data.g],
+          ["n", data.n],
+          ["centre x", data.centre],
+        ];
+        bits.forEach(([name, value]) => {
+          if (value == null || value === "") return;
+          const chip = document.createElement("span");
+          chip.textContent = name + " = " + value;
+          labels.appendChild(chip);
+        });
+        if (layout === "grid_4x4") {
+          const perfect = document.createElement("span");
+          perfect.textContent = "perfectly jigsawable";
+          labels.prepend(perfect);
+        }
+        if (layout === "grid_5x3" || layout === "algebra") {
+          const moved = document.createElement("span");
+          moved.textContent = "move only 3";
+          labels.prepend(moved);
+        }
+      }
+      const lines = {
+        seed_16: "16 seats. No group labels yet.",
+        show_4x4: "4 by 4. Perfectly jigsawable.",
+        priya_leaves_pause_15: "Priya left. Paused at 15.",
+        reveal_5x3: "5 by 3. First 12 stayed. Three seats moved.",
+        show_algebra: "5 by 3 beside the algebra strip.",
+      };
+      status.textContent = lines[event] || "Waiting for the teacher.";
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.type !== "live-media-state") return;
+      if (data.fill_id && data.fill_id !== "jigsawable-class-size") return;
+      paintJigsawable(data);
+    });
+
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(
+        { source: "lloves-jigsawable", type: "artifact-ready" },
+        window.location.origin
+      );
+    }
+  </script>
+</body>
+</html>
