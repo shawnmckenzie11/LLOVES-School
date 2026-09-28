@@ -1303,6 +1303,97 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         return response
 
+    def _landing_resume_from_token(token: str):
+        """Resume a student from the rejoin cookie, or render landing.
+
+        Args:
+            token: httpOnly rejoin visit token.
+
+        Returns:
+            A redirect into the live class, or a landing response when the
+            token is no longer an active attendee.
+
+        Raises:
+            LivePresenceUnavailable: Presence could not confirm the token.
+            The caller keeps the cookie and shows landing.
+        """
+        resolved = school.resolve_student_visit_token(
+            token, allow_left=True
+        )
+        if resolved is None:
+            resp = make_response(
+                render_template(
+                    "landing.html",
+                    **landing_kwargs(one_tap_auto=False),
+                )
+            )
+            clear_rejoin_cookie(resp)
+            return resp
+        attendee = school.touch_live_session_heartbeat(token)
+        if attendee is None:
+            resp = make_response(
+                render_template(
+                    "landing.html",
+                    **landing_kwargs(one_tap_auto=False),
+                )
+            )
+            clear_rejoin_cookie(resp)
+            return resp
+        session_row = resolved["session"]
+        class_id = int(resolved["class_id"])
+        try:
+            cls = school.game.get_class(class_id)
+            offering = school.get_offering(int(session_row["offering_id"]))
+        except (KeyError, TypeError):
+            resp = make_response(
+                render_template(
+                    "landing.html",
+                    **landing_kwargs(one_tap_auto=False),
+                )
+            )
+            clear_rejoin_cookie(resp)
+            return resp
+        sid = resolved.get("student_id")
+        unmatched = bool(resolved.get("unmatched")) or sid in (None, "")
+        student = None
+        if not unmatched and sid not in (None, ""):
+            try:
+                student = school.game.get_student(class_id, int(sid))
+            except (KeyError, TypeError):
+                student = None
+                unmatched = True
+        display = str(
+            attendee.get("codename")
+            or (student or {}).get("codename")
+            or ""
+        )
+        bind_student_session(
+            session,
+            offering,
+            cls,
+            student
+            or {"id": None, "codename": display, "first_name": display},
+            live_session_id=int(resolved["live_session_id"]),
+            session_code=str(session_row.get("session_code") or ""),
+            visit_token=token,
+            participant_uuid=str(
+                resolved.get("participant_uuid")
+                or attendee.get("participant_uuid")
+                or ""
+            ),
+            unmatched=unmatched,
+        )
+        endpoint = next_student_endpoint(
+            school,
+            class_id,
+            int(sid) if sid not in (None, "") else None,
+            visit_token=token,
+            unmatched=unmatched,
+        )
+        resp = redirect(student_url_with_token(endpoint, token))
+        set_rejoin_cookie(resp, token)
+        return resp
+
     @app.route("/")
     def landing():
         """Public ALC logo, then Teacher / Student / Admin entry.
@@ -1314,82 +1405,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         token = rejoin_token_from_cookie()
         if token:
-            resolved = school.resolve_student_visit_token(
-                token, allow_left=True
-            )
-            if resolved is None:
-                resp = make_response(
-                    render_template(
-                        "landing.html",
-                        **landing_kwargs(one_tap_auto=False),
-                    )
-                )
-                clear_rejoin_cookie(resp)
-                return resp
-            attendee = school.touch_live_session_heartbeat(token)
-            if attendee is None:
-                resp = make_response(
-                    render_template(
-                        "landing.html",
-                        **landing_kwargs(one_tap_auto=False),
-                    )
-                )
-                clear_rejoin_cookie(resp)
-                return resp
-            session_row = resolved["session"]
-            class_id = int(resolved["class_id"])
             try:
-                cls = school.game.get_class(class_id)
-                offering = school.get_offering(int(session_row["offering_id"]))
-            except (KeyError, TypeError):
-                resp = make_response(
-                    render_template(
-                        "landing.html",
-                        **landing_kwargs(one_tap_auto=False),
-                    )
-                )
-                clear_rejoin_cookie(resp)
-                return resp
-            sid = resolved.get("student_id")
-            unmatched = bool(resolved.get("unmatched")) or sid in (None, "")
-            student = None
-            if not unmatched and sid not in (None, ""):
-                try:
-                    student = school.game.get_student(class_id, int(sid))
-                except (KeyError, TypeError):
-                    student = None
-                    unmatched = True
-            display = str(
-                attendee.get("codename")
-                or (student or {}).get("codename")
-                or ""
-            )
-            bind_student_session(
-                session,
-                offering,
-                cls,
-                student
-                or {"id": None, "codename": display, "first_name": display},
-                live_session_id=int(resolved["live_session_id"]),
-                session_code=str(session_row.get("session_code") or ""),
-                visit_token=token,
-                participant_uuid=str(
-                    resolved.get("participant_uuid")
-                    or attendee.get("participant_uuid")
-                    or ""
-                ),
-                unmatched=unmatched,
-            )
-            endpoint = next_student_endpoint(
-                school,
-                class_id,
-                int(sid) if sid not in (None, "") else None,
-                visit_token=token,
-                unmatched=unmatched,
-            )
-            resp = redirect(student_url_with_token(endpoint, token))
-            set_rejoin_cookie(resp, token)
-            return resp
+                return _landing_resume_from_token(token)
+            except Exception as exc:
+                from live_presence import LivePresenceUnavailable, note_presence_blip
+
+                if not isinstance(exc, LivePresenceUnavailable):
+                    raise
+                # Keep the rejoin cookie. A presence blip is not Leave.
+                note_presence_blip("landing auto-resume skipped")
         return render_template(
             "landing.html",
             **landing_kwargs(one_tap_auto=False),
@@ -3871,7 +3895,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 # painted Artifact frame; the portal shows Reconnecting… / Retry.
                 if "locked" not in str(exc).lower() or not as_json:
                     raise
-                logger.exception("student /state sqlite lock")
+                logger.warning("student /state sqlite lock")
                 return jsonify(
                     {
                         "ok": True,
@@ -3881,19 +3905,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     }
                 )
             except Exception as exc:
-                from live_presence import LivePresenceUnavailable
+                from live_presence import LivePresenceUnavailable, note_presence_blip
 
-                if not isinstance(exc, LivePresenceUnavailable) or not as_json:
+                if not isinstance(exc, LivePresenceUnavailable):
                     raise
-                logger.exception("student /state presence unavailable")
-                return jsonify(
-                    {
-                        "ok": True,
-                        "error": "state unavailable",
-                        "status": "waiting",
-                        "retry": True,
-                    }
-                )
+                note_presence_blip("student live heartbeat skipped")
+                if as_json:
+                    return jsonify(
+                        {
+                            "ok": True,
+                            "error": "state unavailable",
+                            "status": "waiting",
+                            "retry": True,
+                        }
+                    )
+                # HTML reload keeps the session page. Ending the class here
+                # would log the student out because Postgres blinked.
+                return None
             if attendee is not None:
                 return None
             return _ended_student_response(as_json=as_json)
@@ -3940,14 +3968,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Does not put ``student_id`` in the URL; the cookie remains the source
         of truth after this redirect.
         """
-        resolved = school.resolve_student_visit_token(token, allow_left=True)
-        if resolved is None:
-            resp = redirect(url_for("landing"))
-            clear_student_session_keys(session)
-            clear_rejoin_cookie(resp)
-            return resp
-        attendee = school.touch_live_session_heartbeat(token)
-        if attendee is None:
+        try:
+            resolved = school.resolve_student_visit_token(token, allow_left=True)
+            attendee = (
+                school.touch_live_session_heartbeat(token)
+                if resolved is not None
+                else None
+            )
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable, note_presence_blip
+
+            if not isinstance(exc, LivePresenceUnavailable):
+                raise
+            note_presence_blip("visit-token resume skipped")
+            return redirect(url_for("landing"))
+        if resolved is None or attendee is None:
             resp = redirect(url_for("landing"))
             clear_student_session_keys(session)
             clear_rejoin_cookie(resp)
@@ -4971,17 +5006,34 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "live session %s /state KeyError light=%s", session_id, light
             )
             state = _degraded_live_session_state(fresh)
-        except Exception:
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable, note_presence_blip
+
+            if isinstance(exc, LivePresenceUnavailable):
+                note_presence_blip(f"staff /state session={session_id}")
+                state = _degraded_live_session_state(session_row)
+                return jsonify({"ok": True, **state})
             logger.exception(
                 "live session %s /state failed light=%s", session_id, light
             )
             if not light:
                 try:
                     state = school.get_live_session_state(session_id, light=True)
-                except Exception:
-                    logger.exception(
-                        "live session %s light /state fallback failed", session_id
+                except Exception as light_exc:
+                    from live_presence import (
+                        LivePresenceUnavailable,
+                        note_presence_blip,
                     )
+
+                    if isinstance(light_exc, LivePresenceUnavailable):
+                        note_presence_blip(
+                            f"staff light /state session={session_id}"
+                        )
+                    else:
+                        logger.exception(
+                            "live session %s light /state fallback failed",
+                            session_id,
+                        )
                     state = _degraded_live_session_state(session_row)
             else:
                 state = _degraded_live_session_state(session_row)
