@@ -16,10 +16,14 @@ primary_region = 'yyz'
 [build]
   dockerfile = 'lms/Dockerfile'
 
-# Same command as lms/Dockerfile CMD. A machine override of 1 worker × 2
-# threads re-wedged alc after restart. Deploy must keep 4 × 8, timeout 120.
-# One Fly app process on one shared-cpu-1x / 1 GB machine. The four workers
-# are gunicorn processes inside that command, not a second machine.
+# Same command as lms/Dockerfile CMD. Deploy must keep 4 × 8, timeout 120,
+# and these socket bounds. One Fly app process on one shared-cpu-1x / 1 GB
+# machine. The four workers are gunicorn processes inside that command, not
+# a second machine.
+# 2026-09-28: this capacity was already on the live machine CMD, and
+# `fly machines restart` still wedged /health. `fly machines update`
+# (fresh launch) restored it. Recovery under live polls is a fresh launch
+# or an image deploy. Backlog 64 refuses the rest of that boot flood.
 [processes]
   app = "gunicorn --worker-class gthread --workers 4 --threads 8 --worker-connections 32 --keep-alive 1 --timeout 120 --graceful-timeout 30 --backlog 64 --bind 0.0.0.0:8080 --chdir lms app:create_app()"
 

@@ -2,9 +2,12 @@
 
 Alc hung with ~1000 ESTABLISHED sockets on one gunicorn worker (2 threads,
 timeout 600) so ``/health`` returned zero bytes. Restarting that 1×2
-command re-flooded. These tests lock the tip fix: 4 workers, 8 threads,
-timeout 120, a small per-worker connection cap, gone Meets return ended
-JSON without a traceback per field, and ``/health`` does not ping presence.
+command re-flooded. A later soft restart of 4×8 with timeout 120 wedged
+``/health`` again because the listen socket accepted the poll backlog
+before workers served. These tests lock the tip fix: 4 workers, 8 threads,
+timeout 120, a bounded listen backlog, an 8s boot shed for ``/state``,
+gone Meets return ended JSON without a traceback per field, and ``/health``
+does not ping presence.
 """
 
 from __future__ import annotations
@@ -77,6 +80,34 @@ class ServeCapacityTests(unittest.TestCase):
         self.assertNotIn('"--threads", "2"', dockerfile)
         self.assertNotIn('"--workers", "1"', dockerfile)
         self.assertNotIn('"--timeout", "600"', dockerfile)
+        self.assertIn("--backlog 64", command)
+        self.assertLessEqual(gunicorn_conf.backlog, 64)
+
+    def test_boot_warmup_sheds_only_while_armed(self) -> None:
+        """The boot window is off until gunicorn arms it, then it expires."""
+        cap.clear_worker_warmup()
+        self.assertFalse(cap.worker_warmup_active())
+        self.assertFalse(cap.running_under_gunicorn())
+        previous = os.environ.get("SERVER_SOFTWARE")
+        os.environ["SERVER_SOFTWARE"] = "gunicorn/26.2.0"
+        try:
+            self.assertTrue(cap.running_under_gunicorn())
+            cap.maybe_arm_worker_warmup(testing=True)
+            self.assertFalse(cap.worker_warmup_active())
+            cap.maybe_arm_worker_warmup(testing=False)
+            self.assertTrue(cap.worker_warmup_active())
+        finally:
+            if previous is None:
+                os.environ.pop("SERVER_SOFTWARE", None)
+            else:
+                os.environ["SERVER_SOFTWARE"] = previous
+            cap.clear_worker_warmup()
+        deadline = cap.arm_worker_warmup(now=time.monotonic() - 30)
+        try:
+            self.assertLess(deadline, time.monotonic())
+            self.assertFalse(cap.worker_warmup_active())
+        finally:
+            cap.clear_worker_warmup()
 
     def test_poll_paths_and_budget_helpers(self) -> None:
         """Only the live ``/state`` polls close the socket."""
@@ -222,12 +253,38 @@ class LivePollHardenTests(unittest.TestCase):
     def tearDown(self) -> None:
         """Close sqlite and drop a leftover poll budget on this thread."""
         cap._poll_budget.deadline = None
+        cap.clear_worker_warmup()
         school = getattr(self, "school", None)
         if school is not None:
             school.close()
         tmp = getattr(self, "tmp", None)
         if tmp is not None:
             tmp.cleanup()
+
+    def test_warmup_sheds_state_and_still_serves_health(self) -> None:
+        """A boot backlog poll is retry JSON. ``/health`` is not shed."""
+        cap.arm_worker_warmup()
+        try:
+            state = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+            self.assertEqual(state.status_code, 200)
+            body = state.get_json()
+            self.assertTrue(body["retry"])
+            self.assertEqual(body["error"], "state unavailable")
+            self.assertNotIn("attendees", body)
+            self.assertEqual(state.headers.get("Connection"), "close")
+            missing = self.staff.get("/api/live-sessions/99999/state")
+            self.assertTrue(missing.get_json()["retry"])
+            health = self.staff.get("/health")
+            self.assertEqual(health.status_code, 200)
+            self.assertTrue(health.get_json()["ok"])
+            self.assertNotEqual(health.headers.get("Connection"), "close")
+            other = self.staff.get("/api/live-sessions/99999/prompts")
+            self.assertNotEqual(other.status_code, 200)
+        finally:
+            cap.clear_worker_warmup()
+        built = self.staff.get(f"/api/live-sessions/{self.session_id}/state")
+        self.assertEqual(built.status_code, 200)
+        self.assertNotIn("retry", built.get_json())
 
     def test_health_does_not_ping_presence(self) -> None:
         """``/health`` reads the cached label and stays off the presence pool."""

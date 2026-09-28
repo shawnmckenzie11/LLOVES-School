@@ -23,6 +23,7 @@ from serve_capacity import (  # noqa: E402
     WORKER_CONNECTIONS,
     WORKER_TIMEOUT_SECONDS,
     WORKERS,
+    arm_worker_warmup,
 )
 
 bind = "0.0.0.0:8080"
@@ -34,3 +35,18 @@ keepalive = KEEPALIVE_SECONDS
 timeout = WORKER_TIMEOUT_SECONDS
 graceful_timeout = GRACEFUL_TIMEOUT_SECONDS
 backlog = BACKLOG
+
+
+def post_worker_init(worker) -> None:
+    """Re-arm the boot shed when this file is loaded as ``--config``.
+
+    The image command does not pass ``--config``. ``create_app`` arms the
+    same window, which is what a machine CMD override still runs. This
+    hook covers a local ``--config`` worker and resets the deadline at
+    accept time.
+
+    Args:
+        worker: The gunicorn worker that just finished loading the app.
+    """
+    del worker
+    arm_worker_warmup()
