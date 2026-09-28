@@ -699,7 +699,10 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function applyMcTally(", js)
         self.assertIn("function patchMcReveal(", js)
         self.assertIn("desiredSessionPollMs()", js)
-        self.assertIn("return lastMcTally ? 1000 : 2000", js)
+        self.assertIn("return FALLBACK_POLL_MS", js)
+        self.assertNotIn("return lastMcTally ? 1000 : 2000", js)
+        self.assertIn("connectLiveNewsWire", js)
+        self.assertIn("startStaffNewsWire", js)
         reveal = js.split("function patchMcReveal(")[1].split("function ")[0]
         self.assertIn('teacherState.stage || "") === "join"', reveal)
         self.assertIn("reveal_to_students: joinShare", reveal)
@@ -2438,6 +2441,10 @@ class LiveShellTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("function setStudentReconnectBanner(", js)
+        self.assertIn("STUDENT_POLL_BASE_MS = FALLBACK_POLL_MS", js)
+        self.assertIn("ensureStudentNewsWire", js)
+        self.assertIn("Catching up…", js)
+        self.assertNotIn("const STUDENT_POLL_BASE_MS = 4000", js)
         self.assertIn("Reconnecting…", home)
         self.assertIn("student-reconnect-retry", home)
         tick = js.split("async function tick()")[1].split(
