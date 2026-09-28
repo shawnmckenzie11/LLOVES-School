@@ -5040,21 +5040,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             JSON-safe light payload so staff/overlay polls stay 200.
         """
         phase = "ended" if session_row.get("status") == "ended" else "live"
+        shell_session = school.staff_session_for_shell(session_row)
         return json_safe(
             {
-                "session": session_row,
+                "session": shell_session,
                 "code": session_row.get("session_code"),
                 "count": 0,
                 "attendees": [],
                 "phase": phase,
-                "teacher_state": session_row.get("teacher_state") or {},
+                "teacher_state": shell_session.get("teacher_state") or {},
                 "allow_unmatched_guests": bool(
-                    int(session_row.get("allow_unmatched_guests") or 0)
+                    int(shell_session.get("allow_unmatched_guests") or 0)
                 ),
                 "mc_tally": None,
                 "lifecycle_response_counts": {},
                 "state_seq": int(
-                    (session_row.get("teacher_state") or {}).get("state_seq") or 0
+                    (shell_session.get("teacher_state") or {}).get("state_seq") or 0
                 ),
                 "light": True,
                 "groups": [],
@@ -5889,7 +5890,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             student_id=int(owner) if owner.isdigit() else None,
             as_teacher=as_teacher,
         )
-        return jsonify({"ok": True, "canvas_sync": blob, "canvas_view": view})
+        # Staff ticks must not download every group board. Students still
+        # receive the stored blob so a teammate stroke can paint.
+        outbound = view if as_teacher else blob
+        return jsonify({"ok": True, "canvas_sync": outbound, "canvas_view": view})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

@@ -770,6 +770,7 @@ function adoptTeacherState(next) {
   textOnlyChallenge = isTextOnlyLiveSlot(slot) ? slot : "";
   trackMode = teacherState.run_as_group ? "team" : "individual";
   REACHED_STAGES.add(teacherState.stage);
+  syncTeacherBoardCollab();
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
     paintResultsStrip();
@@ -4462,7 +4463,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
-    if (payload?.canvas_sync) paintTeacherCanvas(payload.canvas_sync);
+    if (payload?.canvas_sync) paintTeacherCanvas(payload.canvas_sync, { source: "poll" });
     if (Array.isArray(payload?.class_list)) adoptClassListRows(payload.class_list);
     if (Array.isArray(payload?.groups)) lastGroups = payload.groups;
     if (Object.prototype.hasOwnProperty.call(payload || {}, "scoreboard")) {
@@ -9049,6 +9050,12 @@ document.querySelectorAll("#live-frames [data-drop-frame]").forEach((slot) => {
 let teacherBoard = null;
 
 /**
+ * True once the teacher board is showing a calm frame. Later polls must
+ * not replace that frame when all-groups fan-in is stopped.
+ */
+let teacherCalmFrameHeld = false;
+
+/**
  * True when the published whiteboard is the shared group board.
  * @returns {boolean}
  */
@@ -9059,13 +9066,74 @@ function whiteboardCollabOn() {
 }
 
 /**
- * Paint the session board. Collaborative publish replaces strokes and
- * shows named cursors; text labels always follow the session blob.
+ * Drop other groups' strokes before the teacher shell paints.
+ *
+ * Group collaboration stays on the student boards. The teacher shell
+ * keeps its own strokes so a shared publish still shows what was sent.
  * @param {any} view
+ * @returns {any}
  */
-function paintTeacherCanvas(view) {
+function teacherCanvasWithoutGroupBoards(view) {
+  if (!view || typeof view !== "object") return view;
+  const strokes = Array.isArray(view.strokes)
+    ? view.strokes.filter((stroke) => String(stroke?.owner || "teacher") === "teacher")
+    : [];
+  const cursors = Array.isArray(view.cursors)
+    ? view.cursors.filter((row) => String(row?.owner || "") === "teacher")
+    : [];
+  const texts = Array.isArray(view.texts)
+    ? view.texts.filter(
+        (row) => String(row?.owner || "teacher") === "teacher" || Boolean(row?.mine)
+      )
+    : view.texts;
+  return { ...view, strokes, cursors, texts };
+}
+
+/**
+ * True when a teacher-only echo still has a board to show.
+ * @param {any} view
+ * @returns {boolean}
+ */
+function teacherSnapshotHasInk(view) {
+  const strokes = Array.isArray(view?.strokes) ? view.strokes : [];
+  const texts = Array.isArray(view?.texts) ? view.texts : [];
+  return strokes.length > 0 || texts.length > 0;
+}
+
+/**
+ * Match the board's collab flag to publish state without repainting.
+ * Cursor posts stay available. Strokes are left on the last calm frame.
+ */
+function syncTeacherBoardCollab() {
+  if (!teacherBoard || typeof teacherBoard.setCollab !== "function") return;
+  teacherBoard.setCollab(whiteboardCollabOn());
+}
+
+/**
+ * Paint the session board.
+ *
+ * After Shared within Group, polls must not hydrate every group's
+ * strokes. An empty echo must not white-wipe the last calm frame. A
+ * non-empty teacher snapshot is applied once when the board is still
+ * empty (reload). Local drawing holds that frame.
+ * @param {any} view
+ * @param {{source?: string}} [options]
+ */
+function paintTeacherCanvas(view, options = {}) {
   if (!teacherBoard || !view) return;
-  teacherBoard.importRemote(view, { collab: whiteboardCollabOn() });
+  const collab = whiteboardCollabOn();
+  syncTeacherBoardCollab();
+  const shell = teacherCanvasWithoutGroupBoards(view);
+  if (collab) {
+    if (teacherCalmFrameHeld || !teacherSnapshotHasInk(shell)) return;
+    teacherBoard.importRemote(shell, { collab: true });
+    teacherCalmFrameHeld = true;
+    return;
+  }
+  teacherBoard.importRemote(shell, { collab: false });
+  if (options.source === "poll" && teacherSnapshotHasInk(shell)) {
+    teacherCalmFrameHeld = true;
+  }
 }
 
 /**
@@ -9099,7 +9167,7 @@ function postTeacherCanvas(canvas, p, extra = {}) {
     body: JSON.stringify(body),
   })
     .then((res) => {
-      if (res?.canvas_view) paintTeacherCanvas(res.canvas_view);
+      if (res?.canvas_view) paintTeacherCanvas(res.canvas_view, { source: "presence" });
     })
     .catch(() => {});
 }
@@ -9117,8 +9185,12 @@ function bindEphemeralCanvas() {
     textBtn: $("live-canvas-text"),
     cursorLayer: $("live-canvas-cursors"),
     onCursor: (p) => postTeacherCanvas(canvas, p, { cursorOnly: true }),
-    onText: (label) => postTeacherCanvas(canvas, { x: label.x * canvas.width, y: label.y * canvas.height }, { text: label }),
+    onText: (label) => {
+      teacherCalmFrameHeld = true;
+      postTeacherCanvas(canvas, { x: label.x * canvas.width, y: label.y * canvas.height }, { text: label });
+    },
     onPoint: (p, ended, strokeId) => {
+      teacherCalmFrameHeld = true;
       postTeacherCanvas(canvas, p, { ended, strokeId });
     },
   });
