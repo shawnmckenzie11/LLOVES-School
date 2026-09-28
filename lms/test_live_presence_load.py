@@ -38,6 +38,7 @@ from artifact import C2_TRANSFORM_MEDIA_URL, TRANSFORMATIONS_ARTIFACT_ID  # noqa
 # Thursday bar. The teacher is the extra party on staff /state.
 CLASS_SIZE = 28
 WAVES = 4
+# Harness in-flight cap. Production threads are serve_capacity.THREADS (8).
 GUNICORN_THREADS = 2
 CODENAMES = [f"S{index:02d}" for index in range(CLASS_SIZE)]
 REPORT_MD = REPO_ROOT / "lc-qa" / "artifact-load-postgres.md"
@@ -618,7 +619,7 @@ Writes this file and `lc-qa/artifact-load-postgres.log`.
 
 ## Repro
 
-Thursday bar: **N={CLASS_SIZE}** (MCR3U / MCR3U-2 / MCF3M headcount, not the N=12 alc sample). Artifact `{TRANSFORMATIONS_ARTIFACT_ID}` at `{C2_TRANSFORM_MEDIA_URL}` with **`group_q: true`**. In-flight cap {GUNICORN_THREADS} (gunicorn threads). Heartbeat write window forced to 0 so every state and heartbeat poll takes the presence UPDATE. A second connection hammers `classes` on the sqlite file for the whole storm.
+Thursday bar: **N={CLASS_SIZE}** (MCR3U / MCR3U-2 / MCF3M headcount, not the N=12 alc sample). Artifact `{TRANSFORMATIONS_ARTIFACT_ID}` at `{C2_TRANSFORM_MEDIA_URL}` with **`group_q: true`**. Harness in-flight cap {GUNICORN_THREADS} (production is 4 gunicorn workers × 8 threads). Heartbeat write window forced to 0 so every state and heartbeat poll takes the presence UPDATE. A second connection hammers `classes` on the sqlite file for the whole storm.
 
 Fly stack this replaces:
 
@@ -665,6 +666,6 @@ Pass bar: those updates are Postgres, sqlite attendee writes stay 0, 0 `database
 
 - Thursday still runs on sqlite if this branch is not merged **and** the secret is not attached. Both are required. Attach alone on the current image does nothing; the image alone without the secret stays on sqlite.
 - Staff `/state` still reads prompts, scores, and roster from sqlite. Those are reads. A sqlite writer outside this process (an SSH `sqlite3` with no busy timeout) can still stall the catalogue.
-- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 2 threads). Postgres moves the lock. It does not add CPU.
+- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 4 workers × 8 threads, timeout 120 in `lms/serve_capacity.py`). Postgres moves the lock. It does not add CPU.
 - Basic Managed Postgres is a paid cluster. WAL remains the local/dev belt when no URL is set.
 """

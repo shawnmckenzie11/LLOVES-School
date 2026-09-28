@@ -24,9 +24,9 @@ Student `/api/student/state` and `/api/student/heartbeat` both call `touch_live_
 
 Connections use autocommit and `prepare_threshold=None` so Fly's PgBouncer transaction pool (the URL `fly mpg attach` injects) does not break on prepared statements.
 
-The app pool is LIFO on one gunicorn worker (2 threads). A connection that has not run a query for 15 seconds is closed and replaced. That is shorter than PgBouncer `client_idle_timeout`, which otherwise answers the next poll with `ProtocolViolation: client_idle_timeout` and `LivePresenceUnavailable`. If a dead socket still gets checked out, that one statement is retried on a new connection. `tcp_user_timeout` is 8 seconds so a silent socket cannot hold a thread until the 600s worker timeout.
+The app pool is LIFO inside each gunicorn worker. Production is 4 workers × 8 threads on one 1 GB machine (`lms/serve_capacity.py`). The pool stays at 4 connections per worker: extra threads wait 2 seconds and the poll returns retry JSON instead of opening more Postgres sockets. A connection that has not run a query for 15 seconds is closed and replaced. That is shorter than PgBouncer `client_idle_timeout`, which otherwise answers the next poll with `ProtocolViolation: client_idle_timeout` and `LivePresenceUnavailable`. If a dead socket still gets checked out, that one statement is retried on a new connection. `tcp_user_timeout` is 8 seconds so a silent socket cannot hold a thread until the 120s worker timeout.
 
-Student `/api/student/state` checks the visit token before the view. That gate, landing auto-resume, and staff `/state` turn a presence blip into a JSON retry or the last sqlite roster. They do not render Flask's HTML 500. Workers and threads stay at 1 and 2. The hang was a dead pooled connection, not a short CPU queue.
+Student `/api/student/state` checks the visit token before the view. That gate, landing auto-resume, and staff `/state` turn a presence blip into a JSON retry or the last sqlite roster. They do not render Flask's HTML 500. `/health` reads the cached presence label and does not ping. The idle-timeout recycle stays. A later hang was accepted sockets filling a 1×2 worker (`worker_connections` default 1000). The image command is 4 workers × 8 threads, timeout 120, and 32 connections per worker.
 
 ## Boot
 

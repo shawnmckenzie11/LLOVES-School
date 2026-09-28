@@ -16,6 +16,13 @@ primary_region = 'yyz'
 [build]
   dockerfile = 'lms/Dockerfile'
 
+# Same command as lms/Dockerfile CMD. A machine override of 1 worker × 2
+# threads re-wedged alc after restart. Deploy must keep 4 × 8, timeout 120.
+# One Fly app process on one shared-cpu-1x / 1 GB machine. The four workers
+# are gunicorn processes inside that command, not a second machine.
+[processes]
+  app = "gunicorn --worker-class gthread --workers 4 --threads 8 --worker-connections 32 --keep-alive 1 --timeout 120 --graceful-timeout 30 --backlog 64 --bind 0.0.0.0:8080 --chdir lms app:create_app()"
+
 [env]
   FLASK_ENV = 'production'
   IT_EMAILS = 'solutions@mckenzian.com'
@@ -36,6 +43,9 @@ primary_region = 'yyz'
   [http_service.http_options]
     # Large IMSCC uploads (any size) + unpack can sit quiet after the body lands.
     # Free config — Fly Proxy has no hard body-size reject; disk on lloves_data is the cap.
+    # Proxy idle for a quiet IMSCC body. gunicorn worker timeout is 120s
+    # (see [processes]). Live /state sockets are closed by the app.
+    # One shared-cpu-1x / 1 GB machine.
     idle_timeout = 600
 
 [[vm]]
