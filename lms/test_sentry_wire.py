@@ -351,10 +351,10 @@ const slides = {
   ],
 };
 if (opts.beforeSend(slides) !== slides) throw new Error("dropped slides");
-const txn = { transaction: "GET /api/student/state" };
-if (opts.beforeSendTransaction(txn) !== null) throw new Error("kept txn");
-const okTxn = { transaction: "GET /staff/class/1" };
-if (opts.beforeSendTransaction(okTxn) !== okTxn) throw new Error("dropped txn");
+const pollSpan = { description: "GET /api/student/state", data: { url: "/api/student/state" } };
+if (opts.beforeSendSpan(pollSpan) !== null) throw new Error("kept poll span");
+const gameSpan = { description: "GET /api/classes/1/game", data: { url: "/api/classes/1/game" } };
+if (opts.beforeSendSpan(gameSpan) !== gameSpan) throw new Error("dropped game span");
 const okCrumb = { category: "fetch", data: { url: "/api/student/heartbeat", status_code: 200 } };
 if (opts.beforeBreadcrumb(okCrumb) !== null) throw new Error("kept ok crumb");
 const badCrumb = { category: "fetch", data: { url: "/api/student/state", status_code: 503 } };

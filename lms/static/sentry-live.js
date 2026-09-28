@@ -108,15 +108,22 @@
   }
 
   /**
-   * True when a tracing transaction is a live poll.
-   * @param {object} event
+   * True when a streamed span describes a live poll.
+   * Streamed tracing ignores beforeSendTransaction, so poll spans drop here.
+   * @param {object} span
    * @returns {boolean}
    */
-  function shouldDropLivePollTransaction(event) {
-    if (!event) return false;
-    var name = String(event.transaction || "");
-    var requestUrl = event.request && event.request.url ? String(event.request.url) : "";
-    return isLivePollUrl(name) || isLivePollUrl(requestUrl);
+  function shouldDropLivePollSpan(span) {
+    if (!span) return false;
+    var data = span.data || {};
+    var url = String(
+      data.url || data["http.url"] || data["url.full"] || ""
+    );
+    return (
+      isLivePollUrl(String(span.description || "")) ||
+      isLivePollUrl(url) ||
+      isLivePollUrl(String(span.op || ""))
+    );
   }
 
   /**
@@ -194,13 +201,14 @@
       }
       return event;
     },
-    beforeSendTransaction: function (event) {
+    // Streamed tracing ignores beforeSendTransaction. Drop poll spans here.
+    beforeSendSpan: function (span) {
       try {
-        if (shouldDropLivePollTransaction(event)) return null;
+        if (shouldDropLivePollSpan(span)) return null;
       } catch (_err) {
-        return event;
+        return span;
       }
-      return event;
+      return span;
     },
     beforeBreadcrumb: function (crumb) {
       try {
