@@ -2189,6 +2189,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", resume)
         self.assertIn("await loadSavedLiveLesson(", resume)
         self.assertIn("await ensureC1MediaSeeded()", resume)
+        self.assertNotIn("openTeamsRenameModal", resume)
+        self.assertIn("quietAdvanceNamesResume(state)", resume)
+        quiet = js.split("async function quietAdvanceNamesResume(")[1].split(
+            "async function resumeLiveClassIfNeeded()"
+        )[0]
+        self.assertIn("renderNamesPanel()", quiet)
+        self.assertIn("saveTeamNamesFromPop()", quiet)
+        self.assertNotIn("openTeamsRenameModal", quiet)
         self.assertIn("function persistActiveMediaCopy(", js)
         self.assertIn("function scheduleActiveMediaCopyAutosave()", js)
         self.assertIn("deck?fresh=1", js)
@@ -2388,6 +2396,24 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("teacherStateNeedsQuestionRefresh(body)", patch)
         self.assertIn("pollLiveSessionAttendees({ full: true, force: true })", patch)
+        poll = js.split("async function pollLiveSessionAttendees(")[1].split(
+            "function startLiveSessionPolling("
+        )[0]
+        self.assertIn("sessionPollQueued", js)
+        self.assertIn("function adoptLightGroupResults(", js)
+        self.assertIn("function paintGroupResultsInPlace(", js)
+        self.assertIn("GROUP_POLL_PENDING_MS = 800", js)
+        self.assertIn("GROUP_POLL_FAIL_MS = 4000", js)
+        self.assertIn("if (!wantFull) adoptLightGroupResults", poll)
+        self.assertIn("if (wantFull) paintLiveQuestionCards()", poll)
+        self.assertIn("Do not refreshLifecycleResults", js)
+        self.assertNotIn("Repeat submitter", js)
+        self.assertNotIn("No submit at reveal", js)
+        course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id="live-group-poll-feel"', course)
+        self.assertIn('id="live-group-poll-retry"', course)
 
     def test_student_poll_keeps_last_frame_and_shows_reconnect(self) -> None:
         """Failed student /state keeps the last paint and shows Reconnecting…."""

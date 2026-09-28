@@ -2884,6 +2884,40 @@ body.staff-shell .group-status-board li {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.2rem 0;
+  align-items: baseline;
+}
+body.staff-shell .group-status-mark {
+  font-weight: 750;
+}
+body.staff-shell .group-status-board .group-submitter-log,
+body.staff-shell .live-consensus-team .group-submitter-log {
+  color: #64748b;
+  font-weight: 500;
+}
+body.staff-shell .live-group-poll-feel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.78rem;
+  color: #475569;
+}
+body.staff-shell .live-group-poll-feel[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-group-poll-feel[data-state="fail"] {
+  color: #9a3412;
+}
+body.staff-shell #live-group-poll-retry {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid #c2410c;
+  border-radius: 6px;
+  background: #fff;
+  color: #9a3412;
+  font: inherit;
+  font-weight: 700;
 }
 body.staff-shell .group-submitter-log,
 body.staff-shell .group-reveal-board {

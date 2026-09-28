@@ -1674,6 +1674,93 @@ class LiveBackendStateTests(unittest.TestCase):
             after,
         )
 
+    def test_light_group_results_are_thin(self) -> None:
+        """Light /state sends thin group rows and keeps answers off the tick."""
+
+        self._begin_and_join(4)
+        self._setup_groups()
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        idle = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(idle.get("group_results"), {})
+        published = self.school.publish_live_session_item(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group_submit",
+        )
+        waiting = self.school.get_live_session_state(self.session_id, light=True)
+        bag = waiting["group_results"][str(published["id"])]
+        self.assertEqual(bag["response_mode"], "group_submit")
+        self.assertTrue(bag["response_seq"])
+        self.assertGreaterEqual(len(bag["teams"]), 2)
+        allowed = {
+            "team_id",
+            "team_name",
+            "status",
+            "vote_count",
+            "eligible_count",
+            "last_submitter",
+        }
+        for team in bag["teams"]:
+            self.assertTrue(set(team).issubset(allowed), team)
+            self.assertEqual(team["status"], "waiting")
+            self.assertNotIn("final_answer", team)
+            self.assertNotIn("member_answers", team)
+        self.school.submit_group_mc_answer(
+            self.session_id,
+            int(published["id"]),
+            self.student_ids[0],
+            choice="A",
+            why="because the graph rises",
+        )
+        live = self.school.get_live_session_state(self.session_id, light=True)
+        after = live["group_results"][str(published["id"])]
+        submitted = next(
+            team for team in after["teams"] if team["status"] == "submitted"
+        )
+        still_waiting = next(
+            team for team in after["teams"] if team["status"] == "waiting"
+        )
+        self.assertEqual(submitted["last_submitter"]["name"], "Aspen")
+        self.assertTrue(submitted["last_submitter"]["at"])
+        self.assertEqual(set(submitted["last_submitter"]), {"name", "at"})
+        self.assertNotIn("last_submitter", still_waiting)
+        self.assertNotIn("final_answer", submitted)
+        self.assertNotEqual(after["response_seq"], bag["response_seq"])
+        blob = json.dumps(live["group_results"])
+        self.assertNotIn("member_answers", blob)
+        self.assertNotIn("vote_summary", blob)
+        self.assertNotIn("response_json", blob)
+        consensus_row = next(row for row in items if row["item_id"] == "q-two")
+        consensus = self.school.publish_live_session_item(
+            self.session_id,
+            int(consensus_row["id"]),
+            publish_mode="group_consensus",
+        )
+        self.school.submit_group_consensus_vote(
+            self.session_id,
+            int(consensus["id"]),
+            self.student_ids[0],
+            {"choice": "A"},
+        )
+        both = self.school.get_live_session_state(self.session_id, light=True)
+        cons = both["group_results"][str(consensus["id"])]
+        self.assertEqual(cons["response_mode"], "group_consensus")
+        voted = next(team for team in cons["teams"] if int(team["vote_count"]) >= 1)
+        self.assertEqual(voted["status"], "waiting")
+        self.assertEqual(voted["last_submitter"]["name"], "Aspen")
+        self.assertNotIn("final_answer", voted)
+        self.assertNotIn("member_answers", json.dumps(cons))
+        full = self.school.get_live_session_state(self.session_id)
+        self.assertNotIn("group_results", full)
+        self.school.close_live_session_item(self.session_id, int(published["id"]))
+        self.school.close_live_session_item(self.session_id, int(consensus["id"]))
+        closed = self.school.get_live_session_state(self.session_id, light=True)
+        closed_ids = set((closed.get("group_results") or {}))
+        self.assertNotIn(str(published["id"]), closed_ids)
+        self.assertNotIn(str(consensus["id"]), closed_ids)
+
     def test_student_payload_includes_results_after_submit(self) -> None:
         """Lifecycle cards receive class results once the student has answered."""
 
