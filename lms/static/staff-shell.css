@@ -858,8 +858,41 @@ body.staff-shell .live-reconnect-retry {
   cursor: pointer;
 }
 body.staff-shell .live-reconnect-retry[hidden],
-body.staff-shell #live-group-poll-retry[hidden] {
+body.staff-shell #live-group-poll-retry[hidden],
+body.staff-shell #live-mutation-retry[hidden] {
   display: none !important;
+}
+body.staff-shell .live-mutation-feel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.65rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.85rem;
+}
+body.staff-shell .live-mutation-feel[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-mutation-feel[data-state="fail"] {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+}
+body.staff-shell #live-mutation-retry {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #c2410c;
+  border-radius: 6px;
+  background: #fff;
+  color: #9a3412;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
 body.staff-shell .ap-add-next-round {
   margin-top: 0.75rem;

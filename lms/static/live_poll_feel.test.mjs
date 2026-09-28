@@ -4,8 +4,10 @@
 import {
   POLL_BACKOFF_BASE_MS,
   POLL_BACKOFF_MAX_MS,
+  artifactMountAction,
   isLiveStateBusy,
   jitterPollDelay,
+  mediaMountKey,
   nextPollBackoffMs,
   reconnectCopy,
   reconnectMode,
@@ -83,6 +85,51 @@ if (shouldApplyLiveSnapshot({ state_seq: 3, teacher_state: { state_seq: 3 } }, 5
 }
 if (!shouldApplyLiveSnapshot({ state_seq: 5, ok: true }, 5)) {
   console.error("same state_seq may refresh light fields");
+  process.exit(1);
+}
+if (shouldApplyLiveSnapshot({ teacher_state: { state_seq: 4 } }, 6)) {
+  console.error("stale page frame must not apply");
+  process.exit(1);
+}
+
+const slice = {
+  url: "/static/live-media/m1c2-transforms.html",
+  ref: "/static/live-media/m1c2-transforms.html",
+  media_version: "/static/live-media/m1c2-transforms.html",
+  params: { a: 1 },
+};
+const absolute = {
+  url: "https://alc.mckenzian.com/static/live-media/m1c2-transforms.html?role=teacher",
+  params: { a: 4 },
+};
+const mounted = mediaMountKey(slice, "teacher");
+if (mediaMountKey(absolute, "teacher") !== mounted) {
+  console.error("absolute src and param peel must keep the Artifact mount", mounted);
+  process.exit(1);
+}
+if (artifactMountAction(mounted, mediaMountKey(absolute, "teacher")) !== "keep") {
+  console.error("poll must not remount a stable Artifact");
+  process.exit(1);
+}
+if (artifactMountAction(mounted, "") !== "keep") {
+  console.error("a poll that omits media must not tear the iframe");
+  process.exit(1);
+}
+if (artifactMountAction(mounted, "", true) !== "clear") {
+  console.error("teacher clear may unmount");
+  process.exit(1);
+}
+const bumped = mediaMountKey({ ...slice, media_version: "2" }, "teacher");
+if (bumped === mounted || artifactMountAction(mounted, bumped) !== "mount") {
+  console.error("media_version bump is a remount");
+  process.exit(1);
+}
+const other = mediaMountKey(
+  { url: "/static/live-media/m1c1-c1-real-slice.html" },
+  "teacher"
+);
+if (artifactMountAction(mounted, other) !== "mount") {
+  console.error("ref change is a remount");
   process.exit(1);
 }
 

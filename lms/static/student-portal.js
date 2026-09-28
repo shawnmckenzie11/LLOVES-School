@@ -5,8 +5,10 @@ import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
+  artifactMountAction,
   isLiveStateBusy,
   jitterPollDelay,
+  mediaMountKey,
   nextPollBackoffMs,
   reconnectCopy,
   reconnectMode,
@@ -74,6 +76,8 @@ let saveWorkToastTimer = 0;
 let lastPromptId = null;
 /** @type {string} */
 let lastMediaUrl = "";
+/** Mount key of the student Artifact iframe. Polls must not assign ``src`` again. */
+let lastMediaMountKey = "";
 /** @type {string} */
 let lastMediaSig = "";
 /** @type {string} */
@@ -679,6 +683,7 @@ function unmountStudentMedia() {
   if (!mediaFrame) return;
   mediaFrame.removeAttribute("src");
   lastMediaUrl = "";
+  lastMediaMountKey = "";
   lastMediaSig = "";
 }
 
@@ -1073,8 +1078,8 @@ function applyTeacherProjection(payload) {
       (!proj.media || dockedLiveCardKeys.has("surface:media")) &&
       !artifactLive
     ) {
+      // Hide the pane. Leave the iframe mounted until the ref changes.
       mediaPane.hidden = true;
-      unmountStudentMedia();
     } else if (artifactLive && !paneIsBeingGrabbed(mediaPane) && !dockedLiveCardKeys.has("surface:media")) {
       mediaPane.hidden = false;
     }
@@ -1337,10 +1342,10 @@ function paintMedia(payload) {
     mediaPane.hidden = true;
     return;
   }
-  if (!url) {
-    mediaFrame.removeAttribute("src");
-    lastMediaUrl = "";
-    lastMediaSig = "";
+  const mountKey = url ? mediaMountKey({ ...media, url }, "student") : "";
+  const action = artifactMountAction(lastMediaMountKey, mountKey, !mountKey);
+  if (action === "clear") {
+    unmountStudentMedia();
     lastToastKey = "";
     if (mediaToast) {
       mediaToast.hidden = true;
@@ -1350,6 +1355,7 @@ function paintMedia(payload) {
     mediaPane.classList.add("is-empty");
     return;
   }
+  if (!url) return;
   mediaPane.classList.remove("is-empty");
   mediaPane.hidden = false;
   const sig = JSON.stringify({
@@ -1385,7 +1391,8 @@ function paintMedia(payload) {
     reveal_armed: Boolean(media.reveal_armed),
     wonder_cue: media.wonder_cue || "",
   });
-  if (url !== lastMediaUrl) {
+  if (action === "mount") {
+    lastMediaMountKey = mountKey;
     lastMediaUrl = url;
     lastMediaSig = sig;
     mediaFrame.onload = () => postMediaState(media);

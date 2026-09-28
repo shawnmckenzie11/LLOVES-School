@@ -37,8 +37,10 @@ import { bindWhiteboard } from "/static/live_whiteboard.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
+  artifactMountAction,
   isLiveStateBusy,
   jitterPollDelay,
+  mediaMountKey,
   nextPollBackoffMs,
   reconnectCopy,
   reconnectMode,
@@ -681,6 +683,25 @@ let openResponsePromptId = 0;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
+/** Mount key of the teacher Artifact iframe. Polls must not assign ``src`` again. */
+let lastTeacherMountKey = "";
+/** True while one Prev/Next POST is waiting. Extra clicks are ignored. */
+let pageFlipInFlight = false;
+/** True while one media push is waiting. A newer body waits for that ACK. */
+let mediaPushInFlight = false;
+/** @type {Record<string, unknown> | null} */
+let mediaPushQueued = null;
+/** True while one Artifact mint is waiting. A second mint is ignored. */
+let artifactMintInFlight = false;
+let mutationPendingTimer = 0;
+let mutationFailTimer = 0;
+let mutationSettled = true;
+/** Bumps on each arm so an older ACK cannot hide a newer pending line. */
+let mutationGeneration = 0;
+/** @type {""|"flip"|"push"|"artifact"} */
+let mutationFeelKind = "";
+/** @type {(() => void) | null} */
+let mutationRetry = null;
 /** Last active-media blob so Question-tab paints survive calls without media. */
 let lastActiveMedia = null;
 
@@ -838,9 +859,10 @@ function paintStageRail() {
   }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
-  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase;
+  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || pageFlipInFlight;
   if (next instanceof HTMLButtonElement) {
-    next.disabled = setupPhase ? false : index < 0 || index >= pages.length - 1;
+    next.disabled =
+      pageFlipInFlight || (setupPhase ? false : index < 0 || index >= pages.length - 1);
   }
   const addBtn = $("live-add-page");
   const deleteBtn = $("live-delete-page");
@@ -1483,14 +1505,8 @@ function paintLiveSlotPicks() {
   if (preview) {
     const hideMedia = textOnly || (!liveClassSeedMedia() && !lastTeacherMediaSrc);
     preview.hidden = hideMedia;
-    if (hideMedia) {
-      preview.setAttribute("hidden", "");
-      if (!liveClassSeedMedia() && !lastTeacherMediaSrc) {
-        preview.removeAttribute("src");
-      }
-    } else {
-      preview.removeAttribute("hidden");
-    }
+    if (hideMedia) preview.setAttribute("hidden", "");
+    else preview.removeAttribute("hidden");
   }
 }
 
@@ -1778,24 +1794,147 @@ async function confirmDeleteLiveLessonPage() {
 }
 
 /**
+ * Soft line for a push, page flip, or Artifact open that is still out.
+ * The last painted frame and ClassList stay mounted.
+ *
+ * @param {"ok"|"pending"|"fail"} mode
+ */
+function paintTeacherMutationFeel(mode) {
+  const el = $("live-mutation-feel");
+  if (!(el instanceof HTMLElement)) return;
+  const copy = el.querySelector(".live-mutation-feel-copy");
+  const retry = $("live-mutation-retry");
+  const lines = {
+    flip: ["Updating the page…", "Page did not update."],
+    push: ["Updating media…", "Media did not update."],
+    artifact: ["Opening the Artifact…", "Artifact did not open."],
+  };
+  const pair = lines[mutationFeelKind] || ["Updating…", "That did not update."];
+  if (mode === "ok") {
+    el.hidden = true;
+    el.dataset.state = "ok";
+    if (copy) copy.textContent = "";
+    setRetryControlVisible(retry, false);
+    return;
+  }
+  el.hidden = false;
+  el.dataset.state = mode;
+  if (copy) copy.textContent = mode === "fail" ? pair[1] : pair[0];
+  setRetryControlVisible(retry, mode === "fail");
+}
+
+/**
+ * Drop the 800ms / 4s timers without hiding a fail line.
+ */
+function clearTeacherMutationTimers() {
+  if (mutationPendingTimer) window.clearTimeout(mutationPendingTimer);
+  if (mutationFailTimer) window.clearTimeout(mutationFailTimer);
+  mutationPendingTimer = 0;
+  mutationFailTimer = 0;
+}
+
+/**
+ * Arm soft pending at 800ms and fail + Retry at 4s.
+ * Does not clear ClassList or the live shell.
+ *
+ * @param {"flip"|"push"|"artifact"} kind
+ * @param {() => void} retry
+ * @returns {number} Generation. Pass it to ``settleTeacherMutationFeel``.
+ */
+function armTeacherMutationFeel(kind, retry) {
+  const generation = ++mutationGeneration;
+  clearTeacherMutationTimers();
+  mutationFeelKind = kind;
+  mutationRetry = retry;
+  mutationSettled = false;
+  paintTeacherMutationFeel("ok");
+  mutationPendingTimer = window.setTimeout(() => {
+    mutationPendingTimer = 0;
+    if (mutationSettled || generation !== mutationGeneration) return;
+    paintTeacherMutationFeel("pending");
+  }, RECONNECT_PENDING_MS);
+  mutationFailTimer = window.setTimeout(() => {
+    mutationFailTimer = 0;
+    if (mutationSettled || generation !== mutationGeneration) return;
+    paintTeacherMutationFeel("fail");
+  }, RECONNECT_STUCK_MS);
+  return generation;
+}
+
+/**
+ * Hide the line after ACK, or leave fail + Retry when the write failed.
+ * A stale generation does nothing, so an older flip cannot clear a newer push.
+ * @param {number} generation Value returned by ``armTeacherMutationFeel``.
+ * @param {boolean} ok
+ */
+function settleTeacherMutationFeel(generation, ok) {
+  if (generation !== mutationGeneration) return;
+  mutationSettled = true;
+  clearTeacherMutationTimers();
+  if (ok) {
+    mutationRetry = null;
+    paintTeacherMutationFeel("ok");
+    return;
+  }
+  paintTeacherMutationFeel("fail");
+}
+
+/**
+ * User Retry for a failed push, flip, or Artifact open.
+ * Ignored while that write is still in flight.
+ */
+function retryTeacherMutation() {
+  if (pageFlipInFlight || mediaPushInFlight || artifactMintInFlight) return;
+  const retry = mutationRetry;
+  mutationRetry = null;
+  paintTeacherMutationFeel("ok");
+  if (typeof retry === "function") retry();
+}
+
+$("live-mutation-retry")?.addEventListener("click", () => {
+  retryTeacherMutation();
+});
+
+/**
  * Step one named lesson page forward or back using the merged page list.
+ * One flip is in flight. Further Prev/Next clicks wait for that ACK.
+ * The painted page stays until the response; a failure does not wipe ClassList.
  * @param {number} delta
  */
 function advanceLivePage(delta) {
+  if (pageFlipInFlight) return;
   if (setupPhase && Number(delta) > 0) {
     applyValidateDateChoice();
     return;
   }
   const pages = liveLessonPages();
   const index = currentLivePageIndex();
+  /** @type {Record<string, unknown>} */
+  let body;
   if (index < 0) {
-    patchTeacherState({ advance: Number(delta) > 0 ? "next" : "prev" });
-    return;
+    body = { advance: Number(delta) > 0 ? "next" : "prev" };
+  } else {
+    const nextIndex = Math.max(0, Math.min(pages.length - 1, index + Number(delta)));
+    const page = pages[nextIndex];
+    if (!page || nextIndex === index) return;
+    body = { stage: page.stage, page_id: page.id };
   }
-  const nextIndex = Math.max(0, Math.min(pages.length - 1, index + Number(delta)));
-  const page = pages[nextIndex];
-  if (!page || nextIndex === index) return;
-  patchTeacherState({ stage: page.stage, page_id: page.id });
+  pageFlipInFlight = true;
+  paintStageRail();
+  const generation = armTeacherMutationFeel("flip", () => {
+    advanceLivePage(delta);
+  });
+  patchTeacherState(body, { flip: true })
+    .then(() => {
+      settleTeacherMutationFeel(generation, true);
+    })
+    .catch(() => {
+      settleTeacherMutationFeel(generation, false);
+    })
+    .finally(() => {
+      pageFlipInFlight = false;
+      paintStageRail();
+    });
 }
 
 /**
@@ -4717,21 +4856,33 @@ function paintActiveMediaStatus(media) {
   const copySource =
     seed && !activeMediaUrlMatchesSeed(row, seed) ? seed : media || seed;
   paintActiveMediaCopyEditor(mediaUrl ? copySource : null);
-  if (!mediaUrl) {
+  const mountKey = mediaUrl
+    ? mediaMountKey(
+        {
+          url: mediaUrl,
+          ref: mediaUrl,
+          media_version: media && media.media_version,
+        },
+        "teacher"
+      )
+    : "";
+  const action = artifactMountAction(lastTeacherMountKey, mountKey, !mountKey);
+  if (action === "clear") {
     preview.hidden = true;
     preview.removeAttribute("src");
     lastTeacherMediaSrc = "";
+    lastTeacherMountKey = "";
     paintQuestionArtifact(media);
     return;
   }
   const teacherSrc = mediaUrl.includes("?")
     ? `${mediaUrl}&role=teacher`
     : `${mediaUrl}?role=teacher`;
-  const currentSrc = preview.getAttribute("src") || "";
-  if (currentSrc !== teacherSrc) {
+  if (action === "mount") {
+    lastTeacherMountKey = mountKey;
+    lastTeacherMediaSrc = teacherSrc;
     preview.src = teacherSrc;
   }
-  lastTeacherMediaSrc = teacherSrc;
   preview.hidden = false;
   preview.removeAttribute("hidden");
   if (media && media.url) {
@@ -4925,6 +5076,10 @@ async function ensureC1MediaSeeded() {
  * @param {Record<string, unknown>} body
  */
 async function postActiveMedia(body) {
+  if (mediaPushInFlight) {
+    mediaPushQueued = body;
+    return lastActiveMedia;
+  }
   const id = liveSessionId || readLiveSessionId();
   if (!id) {
     await ensureLiveSessionMinted();
@@ -4933,13 +5088,36 @@ async function postActiveMedia(body) {
   if (!sessionId) {
     throw new Error("Start the live class before pushing media.");
   }
-  const res = await api(`/api/live-sessions/${sessionId}/active-media`, {
-    method: "POST",
-    body: JSON.stringify(body),
+  mediaPushInFlight = true;
+  const generation = armTeacherMutationFeel("push", () => {
+    void postActiveMedia(body);
   });
-  paintActiveMediaStatus(res.active_media);
-  if (res?.teacher_state) adoptTeacherState(res.teacher_state);
-  return res.active_media;
+  try {
+    const res = await api(`/api/live-sessions/${sessionId}/active-media`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    paintActiveMediaStatus(res.active_media);
+    if (
+      res?.teacher_state &&
+      shouldApplyLiveSnapshot(
+        res.teacher_state,
+        Number(teacherState.state_seq) || lastGoodStateSeq
+      )
+    ) {
+      adoptTeacherState(res.teacher_state);
+    }
+    settleTeacherMutationFeel(generation, true);
+    return res.active_media;
+  } catch (err) {
+    settleTeacherMutationFeel(generation, false);
+    throw err;
+  } finally {
+    mediaPushInFlight = false;
+    const queued = mediaPushQueued;
+    mediaPushQueued = null;
+    if (queued) void postActiveMedia(queued).catch(() => {});
+  }
 }
 
 let mintToastTimer = 0;
@@ -4967,44 +5145,66 @@ function showStaffMintToast(line) {
  * @param {Record<string, unknown>} data
  */
 async function mintArtifactFromMedia(data) {
+  if (artifactMintInFlight) return null;
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) {
     await ensureLiveSessionMinted();
   }
   const id = liveSessionId || readLiveSessionId();
   if (!id) throw new Error("Start the live class before minting an Artifact.");
-  const res = await api(`/api/live-sessions/${id}/artifacts`, {
-    method: "POST",
-    body: JSON.stringify({
-      artifact_id: data.artifact_id,
-      snapshot: data.snapshot,
-      target_mode: data.target_mode || "graph",
-      parent: data.parent || null,
-      page_number: currentLivePageNumber(),
-      slide_index: currentLivePageNumber(),
-      hot_cold_visible: Boolean(data.hot_cold_visible),
-      group_q: Boolean(data.group_q),
-      accuracy_margin: data.accuracy_margin,
-    }),
+  artifactMintInFlight = true;
+  const generation = armTeacherMutationFeel("artifact", () => {
+    artifactMintInFlight = false;
+    void mintArtifactFromMedia(data);
   });
-  paintActiveMediaStatus(res.active_media);
-  if (res?.teacher_state) adoptTeacherState(res.teacher_state);
-  if (Array.isArray(res?.live_items)) {
-    lastLiveItems = absorbSaveToCardSnapshot(res.live_items);
+  try {
+    const res = await api(`/api/live-sessions/${id}/artifacts`, {
+      method: "POST",
+      body: JSON.stringify({
+        artifact_id: data.artifact_id,
+        snapshot: data.snapshot,
+        target_mode: data.target_mode || "graph",
+        parent: data.parent || null,
+        page_number: currentLivePageNumber(),
+        slide_index: currentLivePageNumber(),
+        hot_cold_visible: Boolean(data.hot_cold_visible),
+        group_q: Boolean(data.group_q),
+        accuracy_margin: data.accuracy_margin,
+      }),
+    });
+    paintActiveMediaStatus(res.active_media);
+    if (
+      res?.teacher_state &&
+      shouldApplyLiveSnapshot(
+        res.teacher_state,
+        Number(teacherState.state_seq) || lastGoodStateSeq
+      )
+    ) {
+      adoptTeacherState(res.teacher_state);
+    }
+    if (Array.isArray(res?.live_items)) {
+      lastLiveItems = absorbSaveToCardSnapshot(res.live_items);
+    }
+    if (Array.isArray(res?.question_cards)) {
+      lastQuestionCards = questionCardsFromMetadata(res.question_cards);
+    }
+    applyLiveMcImportPayload(res);
+    paintLiveQuestionCards();
+    paintQuestionArtifact(res.active_media);
+    staffStateNeedsFull = true;
+    await pollLiveSessionAttendees({ full: true, force: true });
+    paintLiveQuestionCards();
+    if (res?.first_mint && res?.toast) {
+      showStaffMintToast(String(res.toast));
+    }
+    settleTeacherMutationFeel(generation, true);
+    return res;
+  } catch (err) {
+    settleTeacherMutationFeel(generation, false);
+    throw err;
+  } finally {
+    artifactMintInFlight = false;
   }
-  if (Array.isArray(res?.question_cards)) {
-    lastQuestionCards = questionCardsFromMetadata(res.question_cards);
-  }
-  applyLiveMcImportPayload(res);
-  paintLiveQuestionCards();
-  paintQuestionArtifact(res.active_media);
-  staffStateNeedsFull = true;
-  await pollLiveSessionAttendees({ full: true, force: true });
-  paintLiveQuestionCards();
-  if (res?.first_mint && res?.toast) {
-    showStaffMintToast(String(res.toast));
-  }
-  return res;
 }
 
 /**
@@ -8181,7 +8381,11 @@ async function patchTeacherState(body, opts = {}) {
     return teacherState;
   }
   if (teacherStateInFlight && opts.silent) return teacherState;
-  if (!body.assign) {
+  if (teacherStateInFlight && opts.flip) {
+    throw new Error("page flip already in flight");
+  }
+  // A flip keeps the last calm page until ACK. Other patches still paint locally.
+  if (!body.assign && !opts.flip) {
     adoptTeacherState(optimisticTeacherState(body));
     renderAttendanceList();
   }
@@ -8191,7 +8395,15 @@ async function patchTeacherState(body, opts = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
-    if (res?.teacher_state) adoptTeacherState(res.teacher_state);
+    if (
+      res?.teacher_state &&
+      shouldApplyLiveSnapshot(
+        res.teacher_state,
+        Number(teacherState.state_seq) || lastGoodStateSeq
+      )
+    ) {
+      adoptTeacherState(res.teacher_state);
+    }
     if (res?.game) {
       overlayState = res.game;
       applySessionTimerUi(overlayState);
@@ -8203,7 +8415,10 @@ async function patchTeacherState(body, opts = {}) {
     }
     return teacherState;
   } catch (err) {
-    if (!opts.silent) showError(opts.errorSelector || "#ap-overlay-error", err);
+    if (!opts.silent && !opts.flip) {
+      showError(opts.errorSelector || "#ap-overlay-error", err);
+    }
+    if (opts.flip) throw err;
     return teacherState;
   } finally {
     teacherStateInFlight = false;

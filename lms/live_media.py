@@ -978,6 +978,23 @@ def _apply_wonder_peel_delight(
         base["caption"] = line
 
 
+def media_mount_token(url: str) -> str:
+    """Return the Artifact iframe mount token for ``url``.
+
+    Hosts and query strings are ignored. Param peels, copy edits, and
+    ``?role=teacher`` must not change the token, or a poll remounts the
+    iframe and flashes white. A different path is a new document.
+
+    Args:
+        url: Stored or public media URL, absolute or ``/static/`` path.
+    """
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    path = urlparse(text).path or text.split("?", 1)[0].split("#", 1)[0]
+    return str(path or text)
+
+
 def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return the student/staff JSON fragment, or ``None`` when media is cleared.
 
@@ -1092,6 +1109,9 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         "toast": str(stored.get("toast") or ""),
         "toast_key": str(stored.get("toast_key") or ""),
         "updated_at": stored.get("updated_at"),
+        "ref": media_mount_token(url),
+        "media_version": str(stored.get("media_version") or "")
+        or media_mount_token(url),
     }
     if is_jigsawable_url(url):
         payload["challenge"] = ""

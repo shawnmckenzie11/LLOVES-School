@@ -45,6 +45,7 @@ from live_media import (  # noqa: E402
     get_cons_item,
     live_media_url_swap_allowed,
     normalize_active_media_url,
+    media_mount_token,
     public_active_media_payload,
     staff_cons_prompt_payload,
     student_cons_prompt_payload,
@@ -325,6 +326,30 @@ class LiveMediaHelperTests(unittest.TestCase):
         self.assertEqual(
             set(current["unlock_flags"]), {"L0", "L1", "L2", "L3", "L4"}
         )
+
+    def test_mount_token_ignores_peels_and_role(self) -> None:
+        """Artifact polls keep one mount token across peels and ``?role=``."""
+        current = public_active_media_payload(
+            {"url": DEFAULT_LIVE_MEDIA_URL, "params": {"a": 1, "b": 0, "c": 0}}
+        )
+        assert current is not None
+        peeled = public_active_media_payload(
+            {
+                "url": DEFAULT_LIVE_MEDIA_URL + "?role=teacher",
+                "params": {"a": 2, "b": 1, "c": -3},
+                "reveal_axes": True,
+                "stem": "changed",
+            }
+        )
+        assert peeled is not None
+        self.assertEqual(current["media_version"], peeled["media_version"])
+        self.assertEqual(current["ref"], media_mount_token(DEFAULT_LIVE_MEDIA_URL))
+        self.assertNotIn("?", current["ref"])
+        other = public_active_media_payload(
+            {"url": "/static/live-media/m1c2-transforms.html"}
+        )
+        assert other is not None
+        self.assertNotEqual(current["media_version"], other["media_version"])
 
     def test_c2_seeds_transform_media_c3_clears(self) -> None:
         """C2 seeds Transformations; C3 still clears the blob."""
