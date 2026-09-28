@@ -3386,6 +3386,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 image_url=body.get("image_url") or body.get("imageUrl"),
                 save_to_bank=save_to_bank,
                 bank_scope=str(body.get("bank_scope") or body.get("bankScope") or "module"),
+                bank_kind=str(body.get("bank_kind") or body.get("bankKind") or ""),
                 library_id=int(library_id) if library_id else None,
             )
         except KeyError as exc:

@@ -174,8 +174,8 @@ export async function mountBankMcPicker(opts) {
         showKind
           ? `<label class="bank-mc-picker-kind">Kind
               <select data-bank-mc-kind aria-label="Kind">
-                <option value="" selected>Process</option>
-                <option value="standard">Standard</option>
+                <option value="" selected>Core Math</option>
+                <option value="standard">Custom</option>
                 <option value="contest">Contest</option>
                 <option value="warmup">Warmup</option>
               </select>
@@ -265,6 +265,7 @@ export async function mountBankMcPicker(opts) {
         const stemLabel =
           questionFieldHtml(item, "text") || formatQuestionHtml(itemPreview(item));
         const warmup = String(item.kind || "") === "warmup";
+        const openPrompt = Boolean(item.curriculum_open) || String(item.type || "") === "poll";
         const label =
           warmup && title
             ? `<span class="bank-mc-picker-title">${escapeHtml(title)}</span>${stemLabel}`
@@ -275,7 +276,9 @@ export async function mountBankMcPicker(opts) {
             ? `Warmup · ${
                 optionList.length ? optionList.join(" / ") : "Open response"
               }`
-            : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
+            : openPrompt && !String(item.correct_answer || "").trim()
+              ? "Open prompt"
+              : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
         );
         const action =
           mode === "import"

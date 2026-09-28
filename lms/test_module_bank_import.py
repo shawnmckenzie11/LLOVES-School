@@ -749,7 +749,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertNotIn("$", str(item.get("equation_latex") or ""))
 
     def test_import_search_excludes_warmup_unless_scoped(self) -> None:
-        """Process Import hides warmup tags until kind is warmup."""
+        """Core Math hides warmup and Custom until Kind is scoped."""
 
         warmup_id = _insert_mc_question(
             self.school,
@@ -792,8 +792,22 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         self.assertNotIn(warmup_id, default_ids)
         self.assertNotIn(tagged_warmup_id, default_ids)
         self.assertIn(contest_id, default_ids)
-        self.assertIn(standard_id, default_ids)
+        self.assertNotIn(standard_id, default_ids)
         self.assertIn(self.m1_q, default_ids)
+        standard_ids = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 1, "", kind="standard"
+            )["items"]
+        }
+        self.assertEqual(standard_ids, {standard_id})
+        custom_ids = {
+            int(row.get("question_id") or 0)
+            for row in self.school.search_module_bank_mcs(
+                self.library_id, 1, "", kind="custom"
+            )["items"]
+        }
+        self.assertEqual(custom_ids, {standard_id})
         warmup_ids = {
             int(row.get("question_id") or 0)
             for row in self.school.search_module_bank_mcs(

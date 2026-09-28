@@ -110,8 +110,8 @@
         </label>
         <label class="live-bank-field" for="live-bank-kind">Kind
           <select id="live-bank-kind" aria-label="Kind">
-            <option value="" selected>Process</option>
-            <option value="standard">Standard</option>
+            <option value="" selected>Core Math</option>
+            <option value="standard">Custom</option>
             <option value="contest">Contest</option>
             <option value="warmup">Warmup</option>
           </select>
@@ -123,7 +123,7 @@
           <button type="button" id="live-bank-browse" data-live-bank-mode="browse" data-bank-done aria-pressed="true">Browse</button>
           <button type="button" id="live-bank-edit" data-live-bank-mode="edit" data-bank-edit aria-pressed="false" aria-label="Edit bank">Edit</button>
         </div>
-        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. Process hides warmup.</p>
+        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. Core Math hides warmup and Custom.</p>
       </div>
       <aside class="card module-nav-pane">
         <div id="catalog-list">Loading live bank…</div>
@@ -647,6 +647,14 @@
               </label>
             </div>
           </fieldset>
+          <label class="live-add-q-kind live-add-q-side" for="live-add-q-bank-kind">Kind
+            <select id="live-add-q-bank-kind" aria-label="Kind">
+              <option value="" selected>Core Math</option>
+              <option value="standard">Custom</option>
+              <option value="contest">Contest</option>
+              <option value="warmup">Warmup</option>
+            </select>
+          </label>
           <div class="live-add-q-stem live-add-q-main">
             <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>
             <textarea id="live-add-q-text" rows="3" maxlength="2000" required></textarea>

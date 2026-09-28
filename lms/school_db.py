@@ -5840,23 +5840,26 @@ class SchoolDB(LovesDB):
 
     @staticmethod
     def _bank_mc_kind_visible(item: dict[str, Any], kind: str | None) -> bool:
-        """Keep math-process picks unless the teacher scopes kind to warmup.
+        """Keep Core Math picks unless the teacher scopes Kind.
 
-        Untagged rows stay in the default mix. An explicit ``standard``,
-        ``contest``, or ``warmup`` value keeps only that tag.
+        Untagged rows stay in Core Math. Custom (stored ``standard``) and
+        warmup drop out of that default mix. Contest stays. ``custom`` is
+        an alias of ``standard``.
 
         Args:
             item: Normalized MC row. ``kind`` is set when the payload is tagged.
-            kind: Requested kind filter. Empty excludes warmup.
+            kind: Requested kind filter. Empty is Core Math.
 
         Returns:
             True when the row belongs in this Import result.
         """
+        try:
+            from bank_kinds import bank_kind_visible
+        except ImportError:
+            from lms.bank_kinds import bank_kind_visible
+
         tagged = str(item.get("kind") or "").strip().lower()
-        wanted = str(kind or "").strip().lower()
-        if wanted in {"warmup", "contest", "standard"}:
-            return tagged == wanted
-        return tagged != "warmup"
+        return bank_kind_visible(tagged, kind)
 
     def search_module_bank_mcs(
         self,
@@ -5876,9 +5879,8 @@ class SchoolDB(LovesDB):
             query: Optional stem/options substring filter.
             limit: Maximum rows to return (capped at 500).
             class_id: Class id for image URL resolution.
-            kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
-                process picks and drops warmup-tagged icebreakers, including
-                Course Wide warmups.
+            kind: ``standard`` (Custom), ``contest``, or ``warmup``. Empty
+                is Core Math: untagged and contest rows, not warmup or Custom.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count), and
@@ -5889,6 +5891,13 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.bank_mc_normalize import normalize_bank_mc
 
+        if int(module_number) == 2:
+            try:
+                from bank_kinds import retag_module2_teaching_today
+            except ImportError:
+                from lms.bank_kinds import retag_module2_teaching_today
+
+            retag_module2_teaching_today(self, int(library_id))
         confirmed = self.list_module_bank_links(int(library_id), int(module_number))
         bank_ids = [int(row["bank_id"]) for row in confirmed]
         if not bank_ids:
@@ -5925,12 +5934,37 @@ class SchoolDB(LovesDB):
                 is_course_scoped_warmup,
                 normalize_course_warmup,
             )
+        try:
+            from curriculum_bank_seed import (
+                is_curriculum_open,
+                normalize_curriculum_open,
+            )
+        except ImportError:
+            from lms.curriculum_bank_seed import (
+                is_curriculum_open,
+                normalize_curriculum_open,
+            )
 
         for row in rows:
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
+            if is_curriculum_open(payload):
+                normalized = normalize_curriculum_open(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                if normalized is None:
+                    continue
+                problem_kind = self._problem_kind_from_payload(payload)
+                if problem_kind:
+                    normalized["kind"] = problem_kind
+                all_items.append(normalized)
+                continue
             course_warmup = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
                 or is_course_scoped_warmup(payload)
@@ -6008,7 +6042,7 @@ class SchoolDB(LovesDB):
         Confirms the bank on modules 1–8 so Course Wide search (that union)
         can see it when Kind is Warmup. Rows stay
         ``multiple_choice_question`` so open polls survive the search
-        filter; normalization does not invent a key. Process Kind still
+        filter; normalization does not invent a key. Core Math still
         hides them. Re-running updates stems in place.
 
         Args:
@@ -6308,7 +6342,7 @@ class SchoolDB(LovesDB):
         ``course`` unions confirmed banks on modules 1–8. Kind ``warmup``
         seeds the Course Wide bank for MCF3M and MCR3U when the locked
         titles are missing. A module token searches that module only.
-        Process Kind drops warmup-tagged icebreakers.
+        Core Math drops warmup-tagged icebreakers and Custom rows.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -8460,15 +8494,27 @@ class SchoolDB(LovesDB):
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
-            overlay = None
-            if row["stem_text"] is not None:
-                overlay = {
-                    "stem_text": row["stem_text"],
-                    "options_json": row["options_json"],
-                    "correct_answer": row["correct_answer"],
-                    "points": row["points"],
-                }
-            if course_warmup_bank or is_course_scoped_warmup(payload):
+            try:
+                from curriculum_bank_seed import (
+                    is_curriculum_open,
+                    normalize_curriculum_open,
+                )
+            except ImportError:
+                from lms.curriculum_bank_seed import (
+                    is_curriculum_open,
+                    normalize_curriculum_open,
+                )
+
+            if is_curriculum_open(payload):
+                normalized = normalize_curriculum_open(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                skip_reason = None if normalized else "empty_stem"
+            elif course_warmup_bank or is_course_scoped_warmup(payload):
                 normalized = normalize_course_warmup(
                     question_id=int(row["id"]),
                     bank_id=int(row["bank_id"]),
@@ -8478,6 +8524,14 @@ class SchoolDB(LovesDB):
                 )
                 skip_reason = None if normalized else "invalid_warmup"
             else:
+                overlay = None
+                if row["stem_text"] is not None:
+                    overlay = {
+                        "stem_text": row["stem_text"],
+                        "options_json": row["options_json"],
+                        "correct_answer": row["correct_answer"],
+                        "points": row["points"],
+                    }
                 normalized, skip_reason = normalize_bank_mc(
                     question_id=int(row["id"]),
                     bank_id=int(row["bank_id"]),
@@ -8822,6 +8876,7 @@ class SchoolDB(LovesDB):
         image_url: str | None = None,
         save_to_bank: bool = False,
         bank_scope: str = "module",
+        bank_kind: str | None = None,
         library_id: int | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
@@ -8847,6 +8902,8 @@ class SchoolDB(LovesDB):
             image_url: Optional stored image URL.
             save_to_bank: Persist into the module-bank tables.
             bank_scope: ``course``, ``module``, ``M2`` / ``2``, or similar.
+            bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
+                stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
 
         Returns:
@@ -8934,6 +8991,12 @@ class SchoolDB(LovesDB):
         else:
             item_payload["options"] = []
             item_payload["choices"] = []
+        try:
+            from bank_kinds import apply_stored_bank_kind
+        except ImportError:
+            from lms.bank_kinds import apply_stored_bank_kind
+
+        apply_stored_bank_kind(item_payload, bank_kind)
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
             labels = [row["label"] for row in rank_rows]
