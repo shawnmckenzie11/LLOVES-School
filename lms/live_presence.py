@@ -25,9 +25,12 @@ logger = logging.getLogger(__name__)
 _SCHEMA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # PgBouncer ``client_idle_timeout`` on Fly Managed Postgres closes a client
-# that has not issued a query. This pool is LIFO and gunicorn runs two
-# threads, so one connection stays hot on 1–4s polls while its sibling sits
-# until the next burst and then raises ``ProtocolViolation: client_idle_timeout``.
+# that has not issued a query. This pool is LIFO. Production runs one
+# gunicorn worker with eight threads (``serve_capacity.THREADS``) and this
+# pool stays at four connections, so one connection stays hot on 1–4s polls
+# while a sibling sits until the next burst and then raises
+# ``ProtocolViolation: client_idle_timeout``. Extra threads wait on the
+# semaphore and the poll returns retry JSON instead of opening more sockets.
 # Recycle anything idle this long before the pooler does.
 _MAX_IDLE_SECONDS = 15.0
 # Milliseconds. A silent dead socket must not hold a gunicorn thread until
@@ -226,10 +229,13 @@ def _attendee_payload(row: dict[str, Any]) -> dict[str, Any]:
 class LivePresenceStore:
     """Postgres rows for live session status and attendee heartbeats.
 
-    One process (gunicorn, two threads) checks out a connection per call.
-    Statements are autocommit so a heartbeat does not hold a transaction
-    open across the poll. Idle connections are closed before Fly's pooler
-    ``client_idle_timeout`` can turn the next poll into a protocol error.
+    One process checks out a connection per call. Production is one gunicorn
+    worker and eight threads; this pool stays smaller than that so a burst
+    cannot open a socket per thread. Statements are autocommit so a heartbeat
+    does not hold a transaction open across the poll. Idle connections are
+    closed before Fly's pooler ``client_idle_timeout`` can turn the next poll
+    into a protocol error. Successful and failed checkouts update
+    ``cached_label`` for ``/health``, which does not ping.
     """
 
     def __init__(self, dsn: str, *, schema: str | None = None, pool_size: int = 4) -> None:
@@ -272,8 +278,34 @@ class LivePresenceStore:
         for conn, _returned_at in idle:
             self._close_quietly(conn)
 
+    def cached_label(self) -> str:
+        """Return ``postgres`` or ``postgres-down`` without a query.
+
+        ``/health`` reads this. A checkout updates it. A store that has not
+        checked out yet reports ``postgres`` — boot runs DDL through
+        ``_conn`` before the app serves.
+
+        Returns:
+            Cached presence mode.
+        """
+        if self._ping_at and not self._ping_ok:
+            return "postgres-down"
+        return "postgres"
+
+    def _note_checkout(self, *, ok: bool) -> None:
+        """Remember the last checkout for ``cached_label``.
+
+        Args:
+            ok: True when the statement finished on a live connection.
+        """
+        self._ping_ok = bool(ok)
+        self._ping_at = time.monotonic()
+
     def ping(self) -> bool:
         """True when ``SELECT 1`` succeeds. Cached for 30 seconds.
+
+        ``/health`` must not call this. Poll traffic and this method share
+        ``cached_label``.
 
         Returns:
             Whether the store answered.
@@ -666,10 +698,17 @@ class LivePresenceStore:
             else:
                 self._park(wrapped.connection)
                 wrapped.connection = None
-        except LivePresenceUnavailable:
+                self._note_checkout(ok=True)
+        except LivePresenceUnavailable as exc:
+            # Pool wait is a full semaphore, not a dead server. Constraint
+            # failures are converted below and are not marked down either.
+            if "pool busy" not in str(exc):
+                self._note_checkout(ok=False)
             raise
         except Exception as exc:
             if _is_db_error(exc):
+                if _is_reconnectable(exc):
+                    self._note_checkout(ok=False)
                 raise LivePresenceUnavailable(
                     "live presence store unavailable"
                 ) from exc

@@ -20,6 +20,14 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+from serve_capacity import (  # noqa: E402
+    begin_poll_budget,
+    end_poll_budget,
+    ensure_poll_budget,
+    missing_live_session,
+    poll_budget_expired,
+)
+
 try:
     from codes import generate_live_access_code
     from artifact import (
@@ -928,31 +936,68 @@ def json_safe(value: Any, *, _depth: int = 0) -> Any:
     return value
 
 
+# One warning per session/field/error type. A traceback on every poll pegged
+# the shared CPU after ``KeyError: live session {id}`` on canvas_sync and
+# group_projection.
+_field_failure_logged: set[tuple[int, str, str]] = set()
+
+
+def _log_state_field_failure(session_id: int, name: str, exc: BaseException) -> None:
+    """Log one ``/state`` field failure without a traceback.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+        name: Field name.
+        exc: The builder error.
+    """
+    key = (int(session_id), str(name), type(exc).__name__)
+    if key in _field_failure_logged:
+        return
+    if len(_field_failure_logged) > 256:
+        _field_failure_logged.clear()
+    _field_failure_logged.add(key)
+    logger.warning(
+        "live session %s /state field %s failed: %s",
+        session_id,
+        name,
+        exc,
+    )
+
+
 def live_state_field(
     session_id: int, name: str, builder: Callable[[], Any], default: Any
 ) -> Any:
     """Return one ``/state`` field, or ``default`` when the builder raises.
 
     Heavy snapshots assemble many independent slices. One card/metadata
-    failure must not 500 the whole poll under a full class.
+    failure must not 500 the whole poll under a full class. A gone Meet
+    (``KeyError`` naming ``live session``) is re-raised so the poll returns
+    ended JSON instead of walking the rest of the fields. After the poll
+    budget the builder is not started.
 
     Args:
         session_id: ``live_class_sessions.id``.
         name: Field name for logs.
         builder: Zero-arg callable that returns the field.
-        default: Value used when ``builder`` raises.
+        default: Value used when ``builder`` raises or the budget is spent.
 
     Returns:
         Builder result or ``default``.
+
+    Raises:
+        KeyError: When the builder reports a missing live session.
     """
+    if poll_budget_expired():
+        return default
     try:
         return builder()
-    except Exception:
-        logger.exception(
-            "live session %s /state field %s failed",
-            session_id,
-            name,
-        )
+    except KeyError as exc:
+        if missing_live_session(exc):
+            raise
+        _log_state_field_failure(session_id, name, exc)
+        return default
+    except Exception as exc:
+        _log_state_field_failure(session_id, name, exc)
         return default
 
 
@@ -1154,8 +1199,29 @@ class LovesDB:
         self.presence = store
         logger.info("live presence store=postgres")
 
+    def live_presence_label(self) -> str:
+        """Cheap label for ``/health``. Does not ping or read a live session.
+
+        Returns:
+            ``sqlite`` when no store is attached. Otherwise the store's
+            cached ``postgres`` or ``postgres-down`` from the last checkout.
+        """
+        presence = self.presence
+        if presence is None:
+            return "sqlite"
+        label = getattr(presence, "cached_label", None)
+        if not callable(label):
+            return "postgres"
+        text = str(label())
+        if text in {"postgres", "postgres-down", "sqlite"}:
+            return text
+        return "postgres"
+
     def live_presence_status(self) -> str:
         """Report which store serves live heartbeat writes.
+
+        This pings Postgres. ``/health`` uses ``live_presence_label`` so a
+        stuck presence socket cannot block liveness.
 
         Returns:
             ``postgres`` when the pool answers, ``postgres-down`` when a URL
@@ -5103,8 +5169,8 @@ class SchoolDB(LovesDB):
         mod = importlib.util.module_from_spec(spec)
         sys.modules.setdefault("mgs_db", mod)
         spec.loader.exec_module(mod)
-        # One lock for both connections. Two gunicorn threads must not use
-        # the shared file at once: a school write and a game write otherwise
+        # One lock for both connections. Gunicorn threads must not use the
+        # shared file at once: a school write and a game write otherwise
         # raise "database is locked" on the live-class polls.
         self.game = mod.GameShowDB(path, store, lock=self._lock)
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
@@ -22339,7 +22405,30 @@ class SchoolDB(LovesDB):
         Light polls return attendees, teacher chrome, and groups. Full
         snapshots seed missing placements once, then list lifecycle rows.
         Each heavy field is isolated so one builder failure degrades that
-        slice instead of 500ing the poll.
+        slice instead of 500ing the poll. Field builders stop after the
+        poll budget so a slow slice cannot occupy the thread until the
+        gunicorn worker timeout.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            light: When True, skip cards, metadata, scoreboard, and points.
+
+        Returns:
+            Dict with ``session``, ``code``, ``count``, ``attendees``, ``phase``.
+
+        Raises:
+            KeyError: If the session id is unknown.
+        """
+        token = begin_poll_budget()
+        try:
+            return self._assemble_live_session_state(session_id, light=light)
+        finally:
+            end_poll_budget(token)
+
+    def _assemble_live_session_state(
+        self, session_id: int, *, light: bool = False
+    ) -> dict[str, Any]:
+        """Build one live-session snapshot inside the current poll budget.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -22707,6 +22796,53 @@ class SchoolDB(LovesDB):
 
         Returns:
             Student live payload without poll stamp or display time.
+
+        Raises:
+            KeyError: If the live session disappears mid-build.
+            PollBudgetExceeded: The poll budget was spent before a later slice.
+        """
+        token = begin_poll_budget()
+        try:
+            return self._fill_student_live_payload(
+                live_session_id,
+                class_id,
+                student_id,
+                participant_uuid=participant_uuid,
+                codename=codename,
+                unmatched=unmatched,
+            )
+        finally:
+            end_poll_budget(token)
+
+    def _fill_student_live_payload(
+        self,
+        live_session_id: int,
+        class_id: int,
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+        codename: str = "",
+        unmatched: bool = False,
+    ) -> dict[str, Any]:
+        """Fill one student snapshot, stopping between slices at the budget.
+
+        A partial snapshot is not returned. Spending the budget raises so
+        the route can send retry JSON and the browser keeps the last frame.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Roster id, or ``None`` for an unmatched guest.
+            participant_uuid: Live-session person key.
+            codename: Display name for a guest payload.
+            unmatched: True when the attendee is not on the roster.
+
+        Returns:
+            Student live payload without poll stamp or display time.
+
+        Raises:
+            KeyError: If the live session disappears mid-build.
+            PollBudgetExceeded: The poll budget was spent before a later slice.
         """
         sid = int(student_id) if student_id not in (None, "") else None
         session_row = self.get_live_session(int(live_session_id))
@@ -22719,6 +22855,7 @@ class SchoolDB(LovesDB):
             )
         else:
             payload = self.game.student_live_payload(int(class_id), sid)
+        ensure_poll_budget()
         payload.update(
             self.student_live_prompt_payload(
                 int(live_session_id),
@@ -22726,6 +22863,7 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         )
+        ensure_poll_budget()
         media = self.live_session_active_media_payload(int(live_session_id))
         if isinstance(media, dict) and is_jigsawable_media(media):
             media = dict(media)
@@ -22734,17 +22872,22 @@ class SchoolDB(LovesDB):
             media.pop("linked_prompt", None)
             media.pop("state_events", None)
         payload["active_media"] = media
+        ensure_poll_budget()
         payload["teacher_state"] = self.live_session_teacher_state_payload(
             int(live_session_id)
         )
+        ensure_poll_budget()
         self.apply_student_live_group_projection(payload, int(live_session_id))
+        ensure_poll_budget()
         payload["live_metadata"] = self.student_live_class_metadata_for_session(
             int(live_session_id)
         )
+        ensure_poll_budget()
         payload["canvas_sync"] = self.live_session_canvas_view(
             int(live_session_id),
             student_id=sid,
         )
+        ensure_poll_budget()
         self.apply_student_end_overlay(
             payload,
             int(live_session_id),

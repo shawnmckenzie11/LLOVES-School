@@ -41,6 +41,7 @@ from flask import (  # noqa: E402
     Flask,
     Response,
     abort,
+    current_app,
     jsonify,
     make_response,
     redirect,
@@ -78,6 +79,12 @@ from local_dev_seed import (  # noqa: E402
     seed_local_dev_school,
 )
 from school_db import STAFF_2FA_MODE_LABELS, SchoolDB, json_safe  # noqa: E402
+from serve_capacity import (  # noqa: E402
+    PollBudgetExceeded,
+    is_live_state_poll,
+    missing_live_session,
+    poll_slot,
+)
 from artifact import (  # noqa: E402
     C2_TRANSFORM_MEDIA_URL,
     TRANSFORMATIONS_ARTIFACT_ID,
@@ -201,6 +208,54 @@ logger = logging.getLogger(__name__)
 # One warning per missing session. A full traceback on every student poll
 # starved the shared Fly CPU after a Meet row disappeared.
 _gone_live_sessions_logged: set[int] = set()
+
+
+def _poll_shed_response():
+    """JSON retry when every heavy ``/state`` slot is already taken.
+
+    Does not touch sqlite or presence. The thread returns immediately
+    so ``/health`` can still be served.
+
+    Returns:
+        HTTP 200 ``{retry: true}``.
+    """
+    return jsonify(
+        {
+            "ok": True,
+            "error": "state unavailable",
+            "status": "waiting",
+            "retry": True,
+            "fault": "Live class is busy. Retry.",
+        }
+    )
+
+
+def _guard_live_poll(view):
+    """Shed a live poll when the in-flight cap is full.
+
+    The cap is off under ``TESTING`` so unit fan-out still runs the
+    builders. Production keeps threads free for ``/health``. Staff
+    ``/state`` is registered outside ``create_app``, so this wrapper
+    reads ``current_app`` at request time.
+
+    Args:
+        view: The Flask view to wrap.
+
+    Returns:
+        A view that admits or sheds before the original body.
+    """
+
+    def wrapped(*args, **kwargs):
+        """Admit one poll or return the shed body."""
+        testing = bool(current_app.config.get("TESTING"))
+        with poll_slot(enabled=not testing) as admitted:
+            if not admitted:
+                return _poll_shed_response()
+            return view(*args, **kwargs)
+
+    wrapped.__name__ = view.__name__
+    wrapped.__doc__ = view.__doc__
+    return wrapped
 
 
 def _note_live_session_gone(session_id: int) -> None:
@@ -1470,14 +1525,32 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/health")
     def health():
-        """Fly / DNS liveness — no auth."""
+        """Fly / DNS liveness — no auth, no presence ping, no live session."""
         return jsonify(
             {
                 "ok": True,
                 "school": SCHOOL_SHORT,
-                "live_presence": school.live_presence_status(),
+                "live_presence": school.live_presence_label(),
             }
         )
+
+    @app.after_request
+    def _close_live_poll_connection(response):
+        """Drop keepalive on live ``/state`` so idle tabs cannot pile up sockets.
+
+        gunicorn's default ``worker_connections`` is 1000. Poll responses
+        that stay open become ESTABLISHED fds. ``Connection: close`` keeps
+        those polls out of the keepalive set. ``/health`` is not a poll.
+
+        Args:
+            response: The view's response.
+
+        Returns:
+            The same response, with ``Connection: close`` on live polls.
+        """
+        if is_live_state_poll(request.path):
+            response.headers["Connection"] = "close"
+        return response
 
     @app.route("/it")
     @it_required
@@ -4313,6 +4386,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/api/student/state")
     @student_required
+    @_guard_live_poll
     def student_state():
         """Live-class payload for the bound student (or a pick redirect)."""
         denied = _require_active_live_attendee(as_json=True)
@@ -4372,10 +4446,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )
             payload = json_safe(payload)
+        except PollBudgetExceeded:
+            return jsonify(
+                {
+                    "ok": True,
+                    "error": "state unavailable",
+                    "status": "waiting",
+                    "retry": True,
+                }
+            )
         except KeyError as exc:
             # Missing Meet. Do not logger.exception — that traceback on
             # every poll is what hung the shared-cpu machine.
-            if "live session" in str(exc):
+            if missing_live_session(exc) or "live session" in str(exc):
                 return _student_poll_ended_response(live_session_id)
             logger.exception(
                 "student /state failed session=%s", live_session_id
@@ -4978,6 +5061,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/api/live-sessions/<int:session_id>/state")
     @login_required
+    @_guard_live_poll
     def api_live_session_state(session_id: int):
         """Return code, attendee count, roster, and phase for one live session.
 
@@ -4997,15 +5081,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         }
         try:
             state = school.get_live_session_state(session_id, light=light)
-        except KeyError:
+        except PollBudgetExceeded:
+            state = _degraded_live_session_state(session_row)
+            state["fault"] = "Live class state is slow. Retry."
+            state["error"] = "state unavailable"
+        except KeyError as exc:
             fresh = school.get_live_session(session_id)
             if fresh is None:
                 _note_live_session_gone(session_id)
                 return jsonify(_missing_live_session_state(session_id))
-            logger.exception(
-                "live session %s /state KeyError light=%s", session_id, light
-            )
-            state = _degraded_live_session_state(fresh)
+            if missing_live_session(exc):
+                # Row came back, or a field raced a delete. Degrade without
+                # a traceback. Do not call the gone-Meet log: the row exists.
+                state = _degraded_live_session_state(fresh)
+            else:
+                logger.exception(
+                    "live session %s /state KeyError light=%s", session_id, light
+                )
+                state = _degraded_live_session_state(fresh)
         except Exception as exc:
             from live_presence import LivePresenceUnavailable, note_presence_blip
 

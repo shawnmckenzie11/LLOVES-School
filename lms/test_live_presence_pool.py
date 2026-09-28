@@ -3,7 +3,7 @@
 Fly Managed Postgres (PgBouncer) closes an idle client with
 ``ProtocolViolation: client_idle_timeout``. The student visit-token gate
 runs before the view, so that error used to become Flask's HTML 500 on
-``GET /api/student/state`` and stall the two gunicorn threads.
+``GET /api/student/state`` and stall the gunicorn threads.
 """
 
 from __future__ import annotations

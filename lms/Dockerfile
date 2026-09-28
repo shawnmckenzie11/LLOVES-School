@@ -22,4 +22,5 @@ RUN python lms/fetch_ontario_curriculum_pdfs.py
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--worker-class", "gthread", "--workers", "1", "--threads", "2", "--timeout", "600", "--bind", "0.0.0.0:8080", "--chdir", "lms", "app:create_app()"]
+# 1 worker, 8 threads, bounded keepalive. See lms/gunicorn_conf.py.
+CMD ["gunicorn", "--config", "lms/gunicorn_conf.py", "--chdir", "lms", "app:create_app()"]

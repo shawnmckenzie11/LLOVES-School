@@ -1,7 +1,9 @@
 """Class-size Artifact open: Group Q must not 500 or rebuild the game.
 
-Production serves live class on one gunicorn worker with two threads
-(``lms/Dockerfile``) and a shared-cpu-1x Fly machine. Opening an Artifact
+Production serves live class on one gunicorn worker. Threads are
+``serve_capacity.THREADS`` (8) on a shared-cpu-1x Fly machine. This harness
+still gates in-flight work at 2 so the sqlite lock bar stays strict.
+Opening an Artifact
 for group work used to call ``game_state`` on every teacher-state read.
 Sixteen students plus the teacher then rebuilt the full roster hundreds of
 times in one wave. That pegged the machine (Fly "server overloaded") and
@@ -39,7 +41,8 @@ from artifact import C2_TRANSFORM_MEDIA_URL, TRANSFORMATIONS_ARTIFACT_ID  # noqa
 
 # N=16 matches the #116 idle bar. The teacher is the 17th party.
 CLASS_SIZE = 16
-# gunicorn ``--threads 2``. Extra requests wait, the way Fly queues them.
+# Harness in-flight cap. Production threads are ``serve_capacity.THREADS``
+# (8). This bar stays at 2 so the sqlite lock is the thing under test.
 GUNICORN_THREADS = 2
 # One student poll may still build the live game once for points and once
 # for the group list. The old path was ~25 ``game_state`` calls.
@@ -683,7 +686,7 @@ Writes this file and `lc-qa/artifact-load-latest.log`.
 
 On alc, opening an **Artifact for group work** returned Internal Server Error / server overloaded for the teacher and students. #115 and #116 kept idle `/state` at 200. They did not cover Artifact mint, active media, or Group Q preview fanout.
 
-Production is gunicorn **1 worker, 2 threads** on a **shared-cpu-1x / 1gb** Fly machine (`fly.toml`, `lms/Dockerfile`). No Fly deploy in this change.
+Production is gunicorn **1 worker, 8 threads** on a **shared-cpu-1x / 1gb** Fly machine (`fly.toml`, `lms/gunicorn_conf.py`). This harness still caps in-flight work at {GUNICORN_THREADS}. No Fly deploy in this change.
 
 ## Cause
 
@@ -707,7 +710,7 @@ Group Q team checks and the session timer used the same full rebuild.
 |---|---|
 | Verdict | **{verdict}** |
 | Class | {CLASS_SIZE} students + teacher |
-| In-flight cap | {GUNICORN_THREADS} (gunicorn threads) |
+| In-flight cap | {GUNICORN_THREADS} (harness; production threads are 8) |
 | Wall | {wall_ms:.0f} ms |
 | `game_state` calls | {game_state_calls} (budget {WAVE_GAME_STATE_BUDGET}) |
 | HTTP | {code_line} |
@@ -722,7 +725,7 @@ Group Q team checks and the session timer used the same full rebuild.
 
 ## Residual
 
-- Fly machine size is unchanged: shared-cpu-1x, 1 GB, 2 threads. A different heavy path can still saturate that VM. This wave no longer rebuilds the game per teacher-state read.
+- Fly machine size is unchanged: shared-cpu-1x, 1 GB, 1 worker, 8 threads (`lms/serve_capacity.py`). A different heavy path can still saturate that VM. This wave no longer rebuilds the game per teacher-state read.
 - Staff heavy `/state` is still the #115 path (field isolation, 200). This test rides one heavy staff poll in the same wave and expects 200.
 - The 0.5s membership cache can lag a team edit by one student poll. Artifact open does not edit teams.
 - Not smoked on Fly. Re-run this test on tip `:8787` only if you want the same protocol against the dev server; the in-process bar above is the regression lock.
@@ -806,7 +809,7 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 ## Fix
 
 - Both connections use autocommit, so a statement releases the write lock when it returns.
-- Both connections share one process lock, so the two gunicorn threads do not interleave one connection.
+- Both connections share one process lock, so gunicorn threads do not interleave one connection.
 - WAL + `busy_timeout` stay. `synchronous=NORMAL` is the WAL companion so a heartbeat fsync does not sit on the lock.
 - If a lock still escapes, heartbeat returns JSON 503 `retry: true` and student `/state` returns the reconnect stub. The student page keeps the last Artifact frame and shows Reconnecting… / Retry. This run expects those branches not to fire.
 
@@ -839,7 +842,7 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 
 ## Residual
 
-- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 2 threads). Not smoked on Fly.
+- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 1 worker, 8 threads). Not smoked on Fly.
 - A second process on the same file can still wait on `busy_timeout` (30s). Production runs one gunicorn worker.
 - The 0.5s team-membership cache can lag a team edit by one poll.
 """

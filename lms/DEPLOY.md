@@ -116,13 +116,20 @@ that requires a paid upgrade to raise. Config already set (no machine upsell):
 | Layer | Setting | Notes |
 |-------|---------|--------|
 | Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **`None`** (unlimited) in `lms/modules.py` |
-| gunicorn | `--timeout 600` | Unpack after upload can exceed 5 minutes |
+| gunicorn | 1 worker, 8 threads, `--timeout 600`, keepalive 1s, `worker_connections` 32 | Unpack may exceed 5 minutes. Polls do not use the 600s timeout. See `lms/gunicorn_conf.py`. |
 | Fly `http_service.http_options.idle_timeout` | **600s** | Free config; quiet periods while the body is received / unpack runs |
 | Fly Proxy body size | streaming | No documented hard cap; >10 MB skips replay buffering (latency quirk only, not a reject) |
 | Fly volume `lloves_data` | currently **15 GB** | **Real hard limit** for `.imscc` + unpacked tree. Extending volume **costs money** — only if disk-full errors appear |
 
 **Zero-cost vs paid:** Raising Flask/gunicorn/idle_timeout is free. Extending the
 volume or buying a larger VM is **not** free — do not extend unless `/data` is full.
+Stay on **one** shared-cpu-1x / 1 GB machine. A second gunicorn worker would
+copy the interpreter and the sqlite catalogue. Eight threads on the one
+worker leave room for `/health` while a few `/state` polls are slow.
+`worker_connections` is 32, not gunicorn's default of 1000, so keepalive
+sockets cannot climb to ~1k ESTABLISHED fds. Live `/state` sends
+`Connection: close`. `--timeout 600` stays for IMSCC unpack; `gthread` does
+not abort a request at that timeout, so poll builders stop after 8 seconds.
 
 **Cloudflare:** keep the `alc` CNAME **DNS only** (grey cloud). Orange-cloud proxying
 often rejects or truncates very large request bodies.

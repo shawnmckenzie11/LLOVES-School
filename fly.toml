@@ -36,6 +36,9 @@ primary_region = 'yyz'
   [http_service.http_options]
     # Large IMSCC uploads (any size) + unpack can sit quiet after the body lands.
     # Free config — Fly Proxy has no hard body-size reject; disk on lloves_data is the cap.
+    # Live /state sockets are closed by the app (keepalive 1s + Connection: close
+    # in lms/gunicorn_conf.py). This 600s is for a quiet upload body, not polls.
+    # One shared-cpu-1x / 1 GB machine. Do not add a second process here.
     idle_timeout = 600
 
 [[vm]]
