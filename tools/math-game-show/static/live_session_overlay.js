@@ -7,6 +7,10 @@ import {
   jitterPollDelay,
   nextPollBackoffMs,
 } from "/static/live_poll_feel.js";
+import {
+  FALLBACK_POLL_MS,
+  connectLiveNewsWire,
+} from "/static/live_news_wire.js";
 import { nameWithAvatar } from "/static/student_avatars.js";
 
 const params = new URLSearchParams(location.search);
@@ -735,7 +739,7 @@ async function fetchLiveSessionState() {
 function scheduleOverlayTick() {
   if (overlayDismissed) return;
   if (tickTimer) window.clearTimeout(tickTimer);
-  const ms = overlayBackoffMs > 0 ? jitterPollDelay(overlayBackoffMs) : 2000;
+  const ms = overlayBackoffMs > 0 ? jitterPollDelay(overlayBackoffMs) : FALLBACK_POLL_MS;
   tickTimer = window.setTimeout(() => {
     tickTimer = 0;
     void tick();
@@ -789,6 +793,14 @@ if (!sessionId) {
   if (countEl) countEl.textContent = "Missing session";
   dismissOverlayWindow({ blankIfStillOpen: true });
 } else {
+  connectLiveNewsWire(sessionId, {
+    onNews() {
+      if (!tickBusy) void tick();
+    },
+    onBusy() {
+      // Keep the last overlay frame. Busy is not a reload.
+    },
+  });
   void tick();
   clockTimer = window.setInterval(() => {
     if (!lastBoard) return;
