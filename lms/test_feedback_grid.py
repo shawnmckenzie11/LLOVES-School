@@ -185,7 +185,7 @@ class FeedbackGridTests(unittest.TestCase):
         self.assertIn("grid-template-columns: 20px minmax(0, 1fr)", css)
         self.assertIn("min-height: 44px", css)
         self.assertIn("gap: 10px", css)
-        self.assertIn("margin-top: calc(18px - 0.65rem)", css)
+        self.assertIn("margin-top: 18px", css)
         self.assertIn("justify-content: space-between", css)
 
     def test_clear_one_live_class_leaves_the_other(self) -> None:
