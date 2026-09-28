@@ -9059,13 +9059,41 @@ function whiteboardCollabOn() {
 }
 
 /**
+ * Drop other groups' strokes before the teacher shell paints.
+ *
+ * Group collaboration stays on the student boards. The teacher shell
+ * echoes the teacher's own strokes so a shared publish still shows
+ * what was sent, without a live collage of every group.
+ * @param {any} view
+ * @returns {any}
+ */
+function teacherCanvasWithoutGroupBoards(view) {
+  if (!view || typeof view !== "object") return view;
+  const strokes = Array.isArray(view.strokes)
+    ? view.strokes.filter((stroke) => String(stroke?.owner || "teacher") === "teacher")
+    : [];
+  const cursors = Array.isArray(view.cursors)
+    ? view.cursors.filter((row) => String(row?.owner || "") === "teacher")
+    : [];
+  const texts = Array.isArray(view.texts)
+    ? view.texts.filter(
+        (row) => String(row?.owner || "teacher") === "teacher" || Boolean(row?.mine)
+      )
+    : view.texts;
+  return { ...view, strokes, cursors, texts };
+}
+
+/**
  * Paint the session board. Collaborative publish replaces strokes and
  * shows named cursors; text labels always follow the session blob.
+ * Group boards are not mirrored here.
  * @param {any} view
  */
 function paintTeacherCanvas(view) {
   if (!teacherBoard || !view) return;
-  teacherBoard.importRemote(view, { collab: whiteboardCollabOn() });
+  teacherBoard.importRemote(teacherCanvasWithoutGroupBoards(view), {
+    collab: whiteboardCollabOn(),
+  });
 }
 
 /**

@@ -20130,6 +20130,45 @@ class SchoolDB(LovesDB):
         )
         return self._write_canvas_sync(session_id, blob)
 
+    @staticmethod
+    def staff_session_for_shell(session_row: dict[str, Any]) -> dict[str, Any]:
+        """Copy a live session for the teacher shell without group boards.
+
+        Staff ``/state`` used to embed ``canvas_sync.strokes.teams`` — every
+        group's whiteboard — on each poll. Students still read those buckets
+        through ``live_session_canvas_view``. The shell keeps the teacher's
+        own strokes, cursor, and labels.
+
+        Args:
+            session_row: ``get_live_session`` dict.
+        """
+        public = dict(session_row)
+        public.pop("canvas_sync_json", None)
+        canvas = public.get("canvas_sync")
+        if not isinstance(canvas, dict):
+            return public
+        strokes = canvas.get("strokes") if isinstance(canvas.get("strokes"), dict) else {}
+        cursors = canvas.get("cursors") if isinstance(canvas.get("cursors"), dict) else {}
+        teacher_cursor = cursors.get("teacher")
+        texts = [
+            row
+            for row in (canvas.get("texts") or [])
+            if isinstance(row, dict) and str(row.get("owner") or "") == "teacher"
+        ]
+        public["canvas_sync"] = {
+            "strokes": {
+                "teacher": list(strokes.get("teacher") or []),
+                "teams": {},
+            },
+            "cursors": (
+                {"teacher": teacher_cursor}
+                if isinstance(teacher_cursor, dict)
+                else {}
+            ),
+            "texts": texts,
+        }
+        return public
+
     def live_session_canvas_view(
         self,
         session_id: int,
@@ -20139,10 +20178,14 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Filtered strokes/cursors for staff or one student.
 
+        Staff never receives every group board. While groups collaborate,
+        the teacher shell echoes only the teacher's own strokes. Students
+        still receive their team bucket plus those teacher strokes.
+
         Args:
             session_id: ``live_class_sessions.id``.
             student_id: Roster id when the viewer is a student.
-            as_teacher: True for the staff preview (all team buckets).
+            as_teacher: True for the staff shell (teacher strokes only).
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
@@ -20158,11 +20201,14 @@ class SchoolDB(LovesDB):
         viewer = "teacher" if as_teacher else (
             str(int(student_id)) if student_id not in (None, "") else ""
         )
+        view_align = align
+        if as_teacher and align == "team":
+            view_align = "teacher"
         return canvas_view_for(
             self.live_session_canvas_sync(session_id),
-            align=align,
+            align=view_align,
             team_id=team_id,
-            include_all_teams=bool(as_teacher and align == "team"),
+            include_all_teams=False,
             viewer=viewer,
         )
 
@@ -22528,7 +22574,7 @@ class SchoolDB(LovesDB):
             public_rows.append(item)
         present = [row for row in public_rows if not row.get("left_at")]
         phase = "ended" if session_row.get("status") == "ended" else "live"
-        session_public = dict(session_row)
+        session_public = self.staff_session_for_shell(session_row)
         session_public["allow_unmatched_guests"] = bool(
             int(session_public.get("allow_unmatched_guests") or 0)
         )

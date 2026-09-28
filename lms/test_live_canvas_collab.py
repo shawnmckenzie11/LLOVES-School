@@ -237,6 +237,99 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.assertNotIn("12", other_owners)
         self.assertIn("teacher", other_owners)
 
+    def test_teacher_shell_does_not_fan_in_group_boards(self) -> None:
+        """Staff polls echo the teacher board, not every group's strokes.
+
+        Publishing Shared within Group still stores teammate strokes for
+        students. The teacher ``/state`` payload and canvas tick omit them.
+        """
+        row = self._whiteboard()
+        published = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{int(row['id'])}/publish",
+            json={"publish_mode": "group_shared"},
+        )
+        self.assertEqual(published.status_code, 200, published.get_json())
+        self.school.student_team_id_for_class = self._team_for  # type: ignore[method-assign]
+        for owner, name, team_id, x in (
+            ("11", "Aspen", 1, 0.2),
+            ("12", "Birch", 1, 0.4),
+            ("13", "Cedar", 2, 0.8),
+        ):
+            self.school.apply_live_canvas_presence(
+                self.session_id,
+                owner=owner,
+                name=name,
+                team_id=team_id,
+                x=x,
+                y=0.4,
+                stroke_id=f"s-{owner}",
+                point=[x, 0.4],
+                as_teacher=False,
+            )
+        self.school.apply_live_canvas_presence(
+            self.session_id,
+            owner="teacher",
+            name="Teacher",
+            x=0.5,
+            y=0.6,
+            stroke_id="s-teacher",
+            point=[0.5, 0.6],
+            as_teacher=True,
+        )
+        staff = self.school.live_session_canvas_view(
+            self.session_id, as_teacher=True
+        )
+        self.assertEqual(
+            {stroke["owner"] for stroke in staff["strokes"]},
+            {"teacher"},
+        )
+        self.assertEqual(
+            {cursor["owner"] for cursor in staff["cursors"]},
+            {"teacher"},
+        )
+        aspen = self.school.live_session_canvas_view(
+            self.session_id, student_id=11
+        )
+        self.assertEqual(
+            {stroke["owner"] for stroke in aspen["strokes"]},
+            {"11", "12", "teacher"},
+        )
+        cedar = self.school.live_session_canvas_view(
+            self.session_id, student_id=13
+        )
+        self.assertEqual(
+            {stroke["owner"] for stroke in cedar["strokes"]},
+            {"13", "teacher"},
+        )
+        for light in ("", "?light=1"):
+            polled = self.client.get(
+                f"/api/live-sessions/{self.session_id}/state{light}"
+            )
+            self.assertEqual(polled.status_code, 200, polled.get_json())
+            body = polled.get_json()
+            painted = {stroke["owner"] for stroke in body["canvas_sync"]["strokes"]}
+            self.assertEqual(painted, {"teacher"})
+            teams = body["session"]["canvas_sync"]["strokes"]["teams"]
+            self.assertEqual(teams, {})
+            self.assertNotIn("canvas_sync_json", body["session"])
+        tick = self.client.post(
+            f"/api/live-sessions/{self.session_id}/canvas-presence",
+            json={
+                "x": 0.15,
+                "y": 0.25,
+                "point": [0.15, 0.25],
+                "stroke_id": "s-teacher-2",
+            },
+        )
+        self.assertEqual(tick.status_code, 200, tick.get_json())
+        tick_body = tick.get_json()
+        for key in ("canvas_view", "canvas_sync"):
+            owners = {
+                stroke["owner"] for stroke in tick_body[key]["strokes"]
+            }
+            self.assertEqual(owners, {"teacher"}, key)
+            self.assertNotIsInstance(tick_body[key]["strokes"], dict)
+
     def test_text_tool_persists_for_the_session_and_edits(self) -> None:
         """Text labels survive a reload, can be edited, and can be cleared."""
         before = self.school.live_student_poll_stamp(self.session_id, self.class_id)
@@ -309,3 +402,4 @@ class WhiteboardCollabTests(unittest.TestCase):
         script = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("text_id", script)
         self.assertIn("whiteboardCollabOn", script)
+        self.assertIn("teacherCanvasWithoutGroupBoards", script)
