@@ -452,10 +452,30 @@ def student_required(f: Callable) -> Callable:
         from student_portal import visit_token_from_request
 
         token = visit_token_from_request()
-        if token and school_db().resolve_student_visit_token(
-            token, allow_left=True
-        ) is not None:
-            return f(*args, **kwargs)
+        if token:
+            try:
+                resolved = school_db().resolve_student_visit_token(
+                    token, allow_left=True
+                )
+            except Exception as exc:
+                from live_presence import LivePresenceUnavailable, note_presence_blip
+
+                if not isinstance(exc, LivePresenceUnavailable):
+                    raise
+                # The visit-token check runs before the view's retry handler.
+                note_presence_blip(f"student gate path={request.path}")
+                if request.path.startswith("/api/"):
+                    return jsonify(
+                        {
+                            "ok": True,
+                            "error": "state unavailable",
+                            "status": "waiting",
+                            "retry": True,
+                        }
+                    )
+                resolved = None
+            if resolved is not None:
+                return f(*args, **kwargs)
         if not session.get("student_offering_id") and not session.get("student_class_id"):
             return redirect(url_for("landing"))
         return f(*args, **kwargs)
@@ -1058,13 +1078,13 @@ def register_auth_routes(app: Flask) -> None:
                 {"ok": False, "error": "Reconnecting…", "retry": True}
             ), 503
         except Exception as exc:
-            from live_presence import LivePresenceUnavailable
+            from live_presence import LivePresenceUnavailable, note_presence_blip
 
             if not isinstance(exc, LivePresenceUnavailable):
                 raise
             # Postgres blip. Same calm degrade as a sqlite lock: last frame
             # stays up, client retries. Login routes do not use this path.
-            current_app.logger.exception("student heartbeat presence unavailable")
+            note_presence_blip("student heartbeat skipped")
             return jsonify(
                 {"ok": False, "error": "Reconnecting…", "retry": True}
             ), 503

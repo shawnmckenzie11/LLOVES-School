@@ -24,6 +24,33 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# PgBouncer ``client_idle_timeout`` on Fly Managed Postgres closes a client
+# that has not issued a query. This pool is LIFO and gunicorn runs two
+# threads, so one connection stays hot on 1–4s polls while its sibling sits
+# until the next burst and then raises ``ProtocolViolation: client_idle_timeout``.
+# Recycle anything idle this long before the pooler does.
+_MAX_IDLE_SECONDS = 15.0
+# Milliseconds. A silent dead socket must not hold a gunicorn thread until
+# the 600s worker timeout.
+_TCP_USER_TIMEOUT_MS = 8000
+_POOL_WAIT_SECONDS = 2.0
+_PRESENCE_LOG_INTERVAL_S = 10.0
+_RECONNECTABLE_ERRORS = frozenset(
+    {
+        "ProtocolViolation",
+        "OperationalError",
+        "InterfaceError",
+        "AdminShutdown",
+        "ConnectionDoesNotExist",
+        "ConnectionFailure",
+        "ConnectionException",
+        "SqlclientUnableToEstablishSqlconnection",
+    }
+)
+
+_presence_log_at = 0.0
+_presence_log_lock = threading.Lock()
+
 _DDL = """
 CREATE TABLE IF NOT EXISTS live_presence_sessions (
     id BIGINT PRIMARY KEY,
@@ -61,6 +88,72 @@ class LivePresenceUnavailable(Exception):
     JSON retry the sqlite lock path already uses, so the browser keeps
     the last Artifact frame.
     """
+
+
+def note_presence_blip(detail: str) -> None:
+    """Log a presence blip at most once every few seconds.
+
+    A full traceback on every student poll pegged the shared-cpu worker.
+    Callers keep the last frame and retry. This records that the blip
+    happened without writing a stack per request.
+
+    Args:
+        detail: Short reason. No traceback.
+    """
+    global _presence_log_at
+    now = time.monotonic()
+    with _presence_log_lock:
+        if now - _presence_log_at < _PRESENCE_LOG_INTERVAL_S:
+            return
+        _presence_log_at = now
+    logger.warning("live presence unavailable: %s", detail)
+
+
+class _PresenceConnection:
+    """Checked-out connection that opens a fresh one after an idle drop.
+
+    PgBouncer answers the next query on a killed client with
+    ``ProtocolViolation: client_idle_timeout``. One retry uses a new
+    connection so the poll succeeds. A second failure propagates.
+    """
+
+    def __init__(self, store: "LivePresenceStore", connection: Any) -> None:
+        """Wrap one autocommit connection.
+
+        Args:
+            store: Pool that can open a replacement.
+            connection: psycopg connection.
+        """
+        self._store = store
+        self.connection = connection
+        self._retried = False
+
+    def execute(self, query: str, params: Any = None, **kwargs: Any) -> Any:
+        """Run one statement, reconnecting once if the pooler dropped us.
+
+        Args:
+            query: SQL text.
+            params: Bind values, or ``None``.
+            **kwargs: Passed to psycopg ``Connection.execute``.
+
+        Returns:
+            The cursor from the attempt that ran.
+
+        Raises:
+            Exception: The driver error when the fresh connection also fails,
+            or when the error is not a dropped connection.
+        """
+        try:
+            return self.connection.execute(query, params, **kwargs)
+        except Exception as exc:
+            if self._retried or not _is_reconnectable(exc):
+                raise
+            self._retried = True
+            note_presence_blip(f"recycled dead connection ({type(exc).__name__})")
+            self._store._close_quietly(self.connection)
+            self.connection = None
+            self.connection = self._store._connect()
+            return self.connection.execute(query, params, **kwargs)
 
 
 def resolve_live_database_url(explicit: str | None = None) -> str:
@@ -135,7 +228,8 @@ class LivePresenceStore:
 
     One process (gunicorn, two threads) checks out a connection per call.
     Statements are autocommit so a heartbeat does not hold a transaction
-    open across the poll.
+    open across the poll. Idle connections are closed before Fly's pooler
+    ``client_idle_timeout`` can turn the next poll into a protocol error.
     """
 
     def __init__(self, dsn: str, *, schema: str | None = None, pool_size: int = 4) -> None:
@@ -175,7 +269,7 @@ class LivePresenceStore:
         with self._idle_lock:
             idle = list(self._idle)
             self._idle.clear()
-        for conn in idle:
+        for conn, _returned_at in idle:
             self._close_quietly(conn)
 
     def ping(self) -> bool:
@@ -542,32 +636,36 @@ class LivePresenceStore:
         return session_n, attendee_n
 
     @contextmanager
-    def _conn(self) -> Iterator[Any]:
+    def _conn(self) -> Iterator[_PresenceConnection]:
         """Check out one autocommit connection.
 
+        A checkout that has been idle past ``_MAX_IDLE_SECONDS`` is closed
+        and replaced. The wrapper retries one statement when the pooler has
+        already dropped the socket.
+
         Yields:
-            A psycopg connection.
+            A connection wrapper with ``execute``.
 
         Raises:
-            LivePresenceUnavailable: Connect or a server error.
+            LivePresenceUnavailable: Connect, pool wait, or a server error.
         """
-        self._sem.acquire()
-        conn: Any = None
+        if not self._sem.acquire(timeout=_POOL_WAIT_SECONDS):
+            raise LivePresenceUnavailable("live presence pool busy")
+        wrapped: _PresenceConnection | None = None
         try:
-            with self._idle_lock:
-                if self._idle:
-                    conn = self._idle.pop()
-            if conn is None:
-                conn = self._connect()
+            raw = self._take_idle()
+            if raw is None:
+                raw = self._connect()
+            wrapped = _PresenceConnection(self, raw)
             try:
-                yield conn
+                yield wrapped
             except Exception:
-                self._close_quietly(conn)
-                conn = None
+                self._close_quietly(wrapped.connection)
+                wrapped.connection = None
                 raise
             else:
-                with self._idle_lock:
-                    self._idle.append(conn)
+                self._park(wrapped.connection)
+                wrapped.connection = None
         except LivePresenceUnavailable:
             raise
         except Exception as exc:
@@ -578,6 +676,42 @@ class LivePresenceStore:
             raise
         finally:
             self._sem.release()
+
+    def _take_idle(self) -> Any:
+        """Return a recently used connection, closing stale siblings.
+
+        Returns:
+            A psycopg connection, or ``None`` when the pool needs a new one.
+        """
+        now = time.monotonic()
+        stale: list[Any] = []
+        chosen: Any = None
+        with self._idle_lock:
+            while self._idle:
+                conn, returned_at = self._idle.pop()
+                if getattr(conn, "closed", False):
+                    stale.append(conn)
+                    continue
+                if now - returned_at >= _MAX_IDLE_SECONDS:
+                    stale.append(conn)
+                    continue
+                chosen = conn
+                break
+        for conn in stale:
+            self._close_quietly(conn)
+        return chosen
+
+    def _park(self, conn: Any) -> None:
+        """Return a live connection to the idle list.
+
+        Args:
+            conn: Connection to keep, or ``None``.
+        """
+        if conn is None or getattr(conn, "closed", False):
+            self._close_quietly(conn)
+            return
+        with self._idle_lock:
+            self._idle.append((conn, time.monotonic()))
 
     def _connect(self) -> Any:
         """Open one autocommit connection on the presence schema.
@@ -596,6 +730,11 @@ class LivePresenceStore:
             # Fly's pooled DATABASE_URL goes through PgBouncer (transaction
             # mode). Prepared statements are not safe on that pool.
             prepare_threshold=None,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=5,
+            keepalives_count=3,
+            tcp_user_timeout=_TCP_USER_TIMEOUT_MS,
         )
         if self.schema:
             conn.execute(f'SET search_path TO "{self.schema}"')
@@ -625,3 +764,22 @@ def _is_db_error(exc: BaseException) -> bool:
     except ImportError:
         return False
     return isinstance(exc, psycopg.Error)
+
+
+def _is_reconnectable(exc: BaseException) -> bool:
+    """True when a new connection can safely retry this statement.
+
+    Constraint failures stay put. Idle-timeout and dropped sockets do not.
+
+    Args:
+        exc: Exception from ``execute``.
+    """
+    if not _is_db_error(exc):
+        return False
+    if type(exc).__name__ in _RECONNECTABLE_ERRORS:
+        return True
+    text = str(exc).lower()
+    return (
+        "client_idle_timeout" in text
+        or "server closed the connection" in text
+    )

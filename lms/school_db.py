@@ -1179,11 +1179,11 @@ class LovesDB:
         try:
             self.presence.upsert_session(session_row)
         except Exception as exc:
-            from live_presence import LivePresenceUnavailable
+            from live_presence import LivePresenceUnavailable, note_presence_blip
 
             if not isinstance(exc, LivePresenceUnavailable):
                 raise
-            logger.exception("live presence session mirror failed")
+            note_presence_blip("session mirror failed")
 
     def _mirror_presence_attendee(self, row: dict[str, Any] | None) -> None:
         """Copy one attendee into Postgres after a sqlite join insert.
@@ -1198,11 +1198,11 @@ class LovesDB:
             self._mirror_presence_session(session_row)
             self.presence.upsert_attendee(row)
         except Exception as exc:
-            from live_presence import LivePresenceUnavailable
+            from live_presence import LivePresenceUnavailable, note_presence_blip
 
             if not isinstance(exc, LivePresenceUnavailable):
                 raise
-            logger.exception("live presence attendee mirror failed")
+            note_presence_blip("attendee mirror failed")
 
     def _apply_presence(self, row: dict[str, Any]) -> dict[str, Any]:
         """Overlay Postgres heartbeat fields onto a sqlite attendee row.
@@ -1216,7 +1216,15 @@ class LovesDB:
         """
         if self.presence is None or not row or row.get("id") in (None, ""):
             return row
-        fresh = self.presence.get_by_id(int(row["id"]))
+        try:
+            fresh = self.presence.get_by_id(int(row["id"]))
+        except Exception as exc:
+            from live_presence import LivePresenceUnavailable, note_presence_blip
+
+            if not isinstance(exc, LivePresenceUnavailable):
+                raise
+            note_presence_blip(f"overlay skipped attendee={row.get('id')}")
+            return row
         if fresh is None:
             return row
         for key in (
@@ -9795,12 +9803,23 @@ class SchoolDB(LovesDB):
             Number of attendees marked left.
         """
         if self.presence is not None:
-            return self.presence.sweep(
-                int(session_id),
-                except_token=except_token,
-                stale_s=LIVE_HEARTBEAT_STALE_SECONDS,
-                min_interval_s=LIVE_SWEEP_MIN_INTERVAL_SECONDS,
-            )
+            try:
+                return self.presence.sweep(
+                    int(session_id),
+                    except_token=except_token,
+                    stale_s=LIVE_HEARTBEAT_STALE_SECONDS,
+                    min_interval_s=LIVE_SWEEP_MIN_INTERVAL_SECONDS,
+                )
+            except Exception as exc:
+                from live_presence import (
+                    LivePresenceUnavailable,
+                    note_presence_blip,
+                )
+
+                if not isinstance(exc, LivePresenceUnavailable):
+                    raise
+                note_presence_blip(f"sweep skipped session={session_id}")
+                return 0
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return 0
@@ -21836,7 +21855,22 @@ class SchoolDB(LovesDB):
                 item.get("section_index"),
             )
             if self.presence is not None:
-                item["attendee_count"] = self.presence.present_count(int(item["id"]))
+                try:
+                    item["attendee_count"] = self.presence.present_count(
+                        int(item["id"])
+                    )
+                except Exception as exc:
+                    from live_presence import (
+                        LivePresenceUnavailable,
+                        note_presence_blip,
+                    )
+
+                    if not isinstance(exc, LivePresenceUnavailable):
+                        raise
+                    note_presence_blip(
+                        f"present count skipped session={item.get('id')}"
+                    )
+                    item["attendee_count"] = int(item.get("attendee_count") or 0)
             else:
                 item["attendee_count"] = int(item.get("attendee_count") or 0)
             payload.append(item)
