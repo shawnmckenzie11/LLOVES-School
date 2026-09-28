@@ -114,3 +114,69 @@ export function shouldApplyLiveSnapshot(payload, lastGoodSeq) {
   const last = Number(lastGoodSeq) || 0;
   return seq >= last;
 }
+
+/**
+ * Path identity for an Artifact document.
+ *
+ * Absolute and relative URLs, and ``?role=teacher``, are the same ref.
+ *
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function mediaRefPath(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text, "https://lloves.local");
+    return url.pathname || text.split("?")[0].split("#")[0];
+  } catch (_err) {
+    return text.split("#")[0].split("?")[0];
+  }
+}
+
+/**
+ * Mount key for one Artifact iframe.
+ *
+ * Polls may repeat the payload. The iframe stays up unless ``media_version``
+ * or the ref path changes. A version that only repeats the path does not
+ * count as a change, so adding the field cannot remount a live frame.
+ *
+ * @param {any} media
+ * @param {string} [role] ``teacher`` or ``student`` for this iframe only.
+ * @returns {string} Empty when there is no document to mount.
+ */
+export function mediaMountKey(media, role = "") {
+  if (!media || typeof media !== "object") return "";
+  const ref = mediaRefPath(
+    media.ref || media.active_media_ref || media.url || media.file || ""
+  );
+  const versionRaw = media.media_version;
+  const version =
+    versionRaw == null || versionRaw === "" ? "" : String(versionRaw);
+  if (!ref && !version) return "";
+  const versionToken = !version || version === ref ? "" : version;
+  return `${versionToken}|${ref}|${String(role || "")}`;
+}
+
+/**
+ * Whether a poll or a teacher clear may touch the Artifact iframe.
+ *
+ * An empty next key keeps the mounted document. Callers pass
+ * ``explicitClear`` only for a teacher clear, not for a poll that omitted
+ * media. A different non-empty key is the only remount.
+ *
+ * @param {string} mountedKey Key of the document currently in the iframe.
+ * @param {string} nextKey Key from this payload.
+ * @param {boolean} [explicitClear] Teacher clear/unpublish, not a poll.
+ * @returns {"keep"|"mount"|"clear"}
+ */
+export function artifactMountAction(mountedKey, nextKey, explicitClear = false) {
+  const mounted = String(mountedKey || "");
+  const next = String(nextKey || "");
+  if (!next) {
+    if (explicitClear && mounted) return "clear";
+    return "keep";
+  }
+  if (next === mounted) return "keep";
+  return "mount";
+}

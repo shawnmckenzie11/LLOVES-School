@@ -2460,6 +2460,53 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('data.error === "state unavailable"', waiting)
         self.assertNotIn("location.reload", waiting)
 
+    def test_artifact_poll_and_page_flip_do_not_wipe(self) -> None:
+        """Polls keep the Artifact iframe; rapid Prev/Next is one in-flight write."""
+
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("artifactMountAction", staff)
+        self.assertIn("lastTeacherMountKey", staff)
+        self.assertIn("pageFlipInFlight", staff)
+        self.assertIn("if (pageFlipInFlight) return;", staff)
+        self.assertIn("armTeacherMutationFeel", staff)
+        self.assertIn('id="live-mutation-feel"', course)
+        self.assertIn('id="live-mutation-retry"', course)
+        slot = staff.split("function paintLiveSlotPicks(")[1].split(
+            "function paintTeamsSparkCard("
+        )[0]
+        self.assertNotIn('removeAttribute("src")', slot)
+        media = staff.split("function paintActiveMediaStatus(")[1].split(
+            "function usesC1RealSlice("
+        )[0]
+        self.assertNotIn('preview.getAttribute("src")', media)
+        self.assertIn("artifactMountAction", media)
+        flip = staff.split("function advanceLivePage(")[1].split(
+            "async function importLiveMcFromBank("
+        )[0]
+        self.assertIn("opts.flip", staff)
+        self.assertIn("pageFlipInFlight = true", flip)
+        self.assertNotIn("adoptTeacherState(optimisticTeacherState(body))", flip)
+        tick = student.split("async function tick()")[1].split(
+            'document.getElementById("live-response")'
+        )[0]
+        apply_at = tick.find("shouldApplyLiveSnapshot")
+        paint_at = tick.find("paintMedia(")
+        self.assertGreater(apply_at, 0)
+        self.assertGreater(paint_at, apply_at)
+        projection = student.split("function applyTeacherProjection(")[1].split(
+            "function isWaitingRoom("
+        )[0]
+        self.assertNotIn("unmountStudentMedia()", projection)
+        paint = student.split("function paintMedia(")[1].split(
+            "function paintMediaToast("
+        )[0]
+        self.assertIn("artifactMountAction", paint)
+        self.assertIn("lastMediaMountKey", paint)
+
     def test_shed_json_does_not_imply_reload(self) -> None:
         """Boot-shed /state JSON keeps the last frame and backs off above 0."""
 
