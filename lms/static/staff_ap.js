@@ -103,6 +103,24 @@ let mediaPushTimer = 0;
 let teamsRenameFocusEl = null;
 
 const SEED_MEDIA_URL = "/static/live-media/m1c1-c1-real-slice.html";
+const JIGSAWABLE_FILL_ID = "jigsawable-class-size";
+const JIGSAWABLE_MEDIA_URL = "/static/live-media/jigsawable-class-size.html";
+const JIGSAWABLE_EVENTS = [
+  "seed_16",
+  "show_4x4",
+  "priya_leaves_pause_15",
+  "reveal_5x3",
+  "show_algebra",
+  "clear",
+];
+const JIGSAWABLE_EVENT_LABELS = {
+  seed_16: "16 seats",
+  show_4x4: "4×4",
+  priya_leaves_pause_15: "Priya",
+  reveal_5x3: "5×3",
+  show_algebra: "Algebra",
+  clear: "Clear",
+};
 const SEED_MEDIA_TITLE =
   "Consider the parabola represented by y = ax^2 + bx + c. What do you know about a, b, and c?";
 const SEED_MEDIA_STEM = SEED_MEDIA_TITLE;
@@ -4001,6 +4019,18 @@ function staffLiveMediaState(media, params) {
     artifact: row.artifact || null,
     stem: row.stem || SEED_MEDIA_STEM,
     entry_chip: row.entry_chip || "",
+    artifact_kind: row.artifact_kind || "",
+    fill_id: row.fill_id || "",
+    state_event: row.state_event || "",
+    class_size: row.class_size ?? null,
+    g: row.g ?? null,
+    n: row.n ?? null,
+    centre: row.centre ?? null,
+    reveal_armed: Boolean(row.reveal_armed),
+    prediction_hold: Boolean(row.prediction_hold),
+    prediction_opened_at: row.prediction_opened_at || "",
+    wonder_cue: row.wonder_cue || "",
+    layout: row.layout || "",
   };
 }
 
@@ -4055,7 +4085,171 @@ function paintActiveMediaCopyEditor(media) {
   }
 }
 
+let jigsawableHoldTimer = 0;
+
+/**
+ * True when this blob is the jigsawable class-size state-machine fill.
+ * @param {any} media
+ * @returns {boolean}
+ */
+function isJigsawableMedia(media) {
+  const fill = String(media?.fill_id || "");
+  const url = String(media?.url || "");
+  return fill === JIGSAWABLE_FILL_ID || url.includes("jigsawable-class-size.html");
+}
+
+/**
+ * Teacher StateEventBar. Reveal is not fired by the prediction countdown.
+ * @param {any} media
+ */
+function paintStateEventBar(media) {
+  const bar = $("state-event-bar");
+  const host = $("state-event-buttons");
+  const hold = $("state-event-hold");
+  const arm = $("state-event-arm");
+  const ask = $("state-event-ask");
+  const askNumeric = $("state-event-ask-numeric");
+  if (!(bar instanceof HTMLElement) || !(host instanceof HTMLElement)) return;
+  const row = media && typeof media === "object" ? media : null;
+  if (!row || !isJigsawableMedia(row)) {
+    bar.hidden = true;
+    window.clearInterval(jigsawableHoldTimer);
+    return;
+  }
+  bar.hidden = false;
+  const current = String(row.state_event || "");
+  const order = JIGSAWABLE_EVENTS.filter((id) => id !== "clear");
+  const nextIndex = current ? order.indexOf(current) + 1 : 0;
+  const next = nextIndex >= 0 && nextIndex < order.length ? order[nextIndex] : "";
+  host.replaceChildren();
+  JIGSAWABLE_EVENTS.forEach((id) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = JIGSAWABLE_EVENT_LABELS[id] || id;
+    const canClear = id === "clear" && Boolean(current);
+    const isNext = id === next;
+    const revealBlocked = id === "reveal_5x3" && !row.reveal_armed;
+    button.disabled = !(canClear || isNext) || revealBlocked;
+    button.classList.toggle("is-current", id === current);
+    button.addEventListener("click", () => {
+      void postJigsawableEvent(id);
+    });
+    host.appendChild(button);
+  });
+  const onPriya = current === "priya_leaves_pause_15";
+  if (arm instanceof HTMLButtonElement) {
+    arm.hidden = !onPriya;
+    arm.disabled = Boolean(row.reveal_armed);
+    arm.textContent = row.reveal_armed ? "Reveal armed" : "Arm reveal";
+  }
+  paintJigsawableHold(row, hold instanceof HTMLElement ? hold : null);
+  const linked = row.linked_prompt && typeof row.linked_prompt === "object"
+    ? row.linked_prompt
+    : null;
+  if (ask instanceof HTMLButtonElement) {
+    ask.hidden = !linked;
+    ask.textContent = linked && linked.run_as === "group" ? "Arm group share" : "Arm stage ask";
+  }
+  if (askNumeric instanceof HTMLButtonElement) {
+    askNumeric.hidden = !(linked && linked.alt_kind === "numeric");
+  }
+}
+
+/**
+ * Placeholder 20–30s line after Priya leaves. Does not post a peel.
+ * @param {any} media
+ * @param {HTMLElement | null} hold
+ */
+function paintJigsawableHold(media, hold) {
+  window.clearInterval(jigsawableHoldTimer);
+  if (!(hold instanceof HTMLElement)) return;
+  if (String(media?.state_event || "") !== "priya_leaves_pause_15") {
+    hold.hidden = true;
+    hold.textContent = "";
+    return;
+  }
+  hold.hidden = false;
+  const opened = Date.parse(String(media.prediction_opened_at || ""));
+  const windowMs = Number(media.prediction_window_seconds || 25) * 1000;
+  const tick = () => {
+    const remain = Number.isFinite(opened)
+      ? Math.max(0, opened + windowMs - Date.now())
+      : windowMs;
+    const seconds = Math.ceil(remain / 1000);
+    const armed = Boolean(media.reveal_armed);
+    hold.textContent = seconds > 0
+      ? `Prediction window ${seconds}s. Reveal stays held${armed ? " (armed)" : ""}.`
+      : `Prediction window closed. ${armed ? "Play 5×3 when you are ready." : "Arm reveal, then play 5×3."}`;
+    if (seconds <= 0) window.clearInterval(jigsawableHoldTimer);
+  };
+  tick();
+  jigsawableHoldTimer = window.setInterval(tick, 1000);
+}
+
+/**
+ * Advance one jigsawable peel. ``clear`` unmounts active media.
+ * @param {string} eventId
+ */
+async function postJigsawableEvent(eventId) {
+  await postActiveMedia(
+    eventId === "clear" ? { state_event: "clear" } : { state_event: eventId }
+  );
+}
+
+/**
+ * Release the prediction hold. Does not play ``reveal_5x3``.
+ */
+async function armJigsawableReveal() {
+  await postActiveMedia({ arm_reveal: true });
+}
+
+/**
+ * Arm the beat's live-packet ask on the existing prompt channel.
+ * @param {"share" | "numeric"} kind
+ */
+async function armJigsawableAsk(kind) {
+  const linked = (lastActiveMedia && lastActiveMedia.linked_prompt) || {};
+  const useNumeric = kind === "numeric";
+  const prompt = String(
+    useNumeric ? linked.numeric_prompt || linked.prompt || "" : linked.prompt || ""
+  ).trim();
+  if (!prompt) return;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  const runAs = String(linked.run_as || "individual");
+  await patchTeacherState(
+    {
+      run_as_group: runAs === "group",
+      student_view: { questions: "student" },
+    },
+    { silent: true }
+  );
+  await api(`/api/live-sessions/${sessionId}/prompts`, {
+    method: "POST",
+    body: JSON.stringify({
+      slide_index: Number(linked.slide_index || 940),
+      kind: useNumeric ? "numeric" : "share",
+      payload: {
+        prompt,
+        text: prompt,
+        item_id: "jigsawable-stage-ask",
+        run_as: runAs,
+        integer_only: useNumeric,
+        placeholder: useNumeric ? "Enter an integer" : "Share a short answer",
+      },
+    }),
+  });
+  const askStatus = $("state-event-ask-status");
+  if (askStatus instanceof HTMLElement) {
+    askStatus.hidden = false;
+    askStatus.textContent = `Stage ask armed: ${prompt}`;
+  }
+  paintLiveQuestionBody(prompt, []);
+}
+
 function paintActiveMediaStatus(media) {
+  lastActiveMedia = media && typeof media === "object" ? media : null;
+  paintStateEventBar(isJigsawableMedia(media) ? media : null);
   const preview = $("ap-media-preview");
   if (!preview) return;
   const rawUrl = String((media && media.url) || "").trim();
@@ -8415,6 +8609,31 @@ function scheduleActiveMediaCopyAutosave() {
     );
   }, 400);
 }
+
+$("state-event-arm")?.addEventListener("click", () => {
+  void armJigsawableReveal();
+});
+$("state-event-ask")?.addEventListener("click", () => {
+  void armJigsawableAsk("share");
+});
+$("state-event-ask-numeric")?.addEventListener("click", () => {
+  void armJigsawableAsk("numeric");
+});
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  const data = event.data;
+  if (!data || data.type !== "artifact-ready" || data.source !== "lloves-jigsawable") return;
+  const preview = $("ap-media-preview");
+  if (!preview || !lastActiveMedia) return;
+  try {
+    preview.contentWindow?.postMessage(
+      staffLiveMediaState(lastActiveMedia, lastActiveMedia.params),
+      window.location.origin
+    );
+  } catch (_) {
+    /* preview may still be loading */
+  }
+});
 
 $("ap-media-copy-editor")?.addEventListener("submit", (event) => {
   saveActiveMediaCopy(event).catch((err) => showError("#ap-overlay-error", err));

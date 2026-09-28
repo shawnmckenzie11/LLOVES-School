@@ -29,6 +29,14 @@ try:
         RIDE_CONS,
         quick_hitter_packaging,
     )
+    from state_artifact import (
+        JIGSAWABLE_MEDIA_URL,
+        advance_jigsawable_state,
+        initial_jigsawable_state,
+        is_jigsawable_url,
+        jigsawable_state_keys,
+        public_jigsawable_fields,
+    )
 except ImportError:  # ``python3 lms/app.py`` package import
     from lms.artifact import (
         C2_TRANSFORM_MEDIA_URL,
@@ -41,6 +49,14 @@ except ImportError:  # ``python3 lms/app.py`` package import
         QUICK_HITTER_ARTIFACT_ID,
         RIDE_CONS,
         quick_hitter_packaging,
+    )
+    from lms.state_artifact import (
+        JIGSAWABLE_MEDIA_URL,
+        advance_jigsawable_state,
+        initial_jigsawable_state,
+        is_jigsawable_url,
+        jigsawable_state_keys,
+        public_jigsawable_fields,
     )
 
 # Seed C1 Real-slice page (Grade-11 parabola / real slice of the 3D saddle).
@@ -103,6 +119,7 @@ ALLOWED_SEED_MEDIA_URLS = frozenset(
         "/static/live-media/mcr3u-m1c2-parent-transformations.html",
         "/static/live-media/mcr3u-m1c4-parent-transformations.html",
         "/static/live-media/mcr3u-m1c1-sqrt.html",
+        JIGSAWABLE_MEDIA_URL,
     }
 )
 CONS_PACK_IDS = {
@@ -144,6 +161,8 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
     """
     path = normalize_active_media_url(url or DEFAULT_LIVE_MEDIA_URL)
     assert path is not None
+    if path == JIGSAWABLE_MEDIA_URL:
+        return default_jigsawable_media()
     if path == C2_TRANSFORM_MEDIA_URL:
         return default_c2_transform_media()
     if path == C3_PARENT_MEDIA_URL:
@@ -176,6 +195,27 @@ def default_seed_media(*, url: str | None = None) -> dict[str, Any]:
         "toast": "",
         "toast_key": "",
     }
+
+
+def default_jigsawable_media() -> dict[str, Any]:
+    """Return the jigsawable class-size fill on the active-media channel.
+
+    The visualizer is mounted and idle until the teacher peels ``seed_16``.
+    Challenge stays empty so a C1 slot does not inherit Real-slice gates.
+    """
+    base = default_seed_media(url=DEFAULT_LIVE_MEDIA_URL)
+    base["url"] = JIGSAWABLE_MEDIA_URL
+    base["title"] = "Jigsawable class size"
+    base["stem"] = "Jigsawable class size"
+    base["caption"] = ""
+    base["entry_chip"] = ""
+    base["challenge"] = ""
+    base["cons_item"] = ""
+    base["toast"] = ""
+    base["toast_key"] = ""
+    base["answers"] = []
+    base.update(initial_jigsawable_state())
+    return base
 
 
 def default_unlock_flags() -> dict[str, bool]:
@@ -957,7 +997,9 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
     except ValueError:
         challenge = ""
     url = str(stored.get("url") or "").strip()
-    if url == DEFAULT_LIVE_MEDIA_URL:
+    if is_jigsawable_url(url):
+        challenge = ""
+    elif url == DEFAULT_LIVE_MEDIA_URL:
         challenge = "C1"
     elif url == C2_TRANSFORM_MEDIA_URL:
         challenge = "C2"
@@ -1002,7 +1044,7 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         yaw_range = DEFAULT_LIMITED_YAW_DEG
     if not allow_limited:
         yaw_range = 0.0
-    return {
+    payload = {
         "url": url,
         "title": str(stored.get("title") or ""),
         "caption": str(stored.get("caption") or ""),
@@ -1051,6 +1093,12 @@ def public_active_media_payload(stored: dict[str, Any] | None) -> dict[str, Any]
         "toast_key": str(stored.get("toast_key") or ""),
         "updated_at": stored.get("updated_at"),
     }
+    if is_jigsawable_url(url):
+        payload["challenge"] = ""
+        payload["toast"] = ""
+        payload["toast_key"] = ""
+        payload.update(public_jigsawable_fields(stored))
+    return payload
 
 
 def apply_active_media_update(
@@ -1084,6 +1132,9 @@ def apply_active_media_update(
     toast: Any = _UNSET,
     toast_key: Any = _UNSET,
     artifact: Any = _UNSET,
+    state_event: Any = _UNSET,
+    arm_reveal: Any = _UNSET,
+    class_size: Any = _UNSET,
     allow_url_swap: bool = True,
     updated_at: str | None = None,
 ) -> dict[str, Any] | None:
@@ -1124,6 +1175,10 @@ def apply_active_media_update(
         toast: Optional explicit Wonder toast overlay.
         toast_key: Optional toast identity (``reveal_axes`` / ``unlock`` /
             ``freeze`` / ``cons_unlock`` / ``cons_4``).
+        state_event: Jigsawable StateEventBar peel. ``clear`` unmounts.
+        arm_reveal: Teacher release after ``priya_leaves_pause_15``. Does
+            not fire ``reveal_5x3`` in the same request.
+        class_size: Jigsawable mount size. v0 accepts 16 only.
         allow_url_swap: When False, only the seed Real-slice URL (or clear) is allowed.
         updated_at: ISO timestamp stamped onto the stored object.
 
@@ -1175,6 +1230,7 @@ def apply_active_media_update(
         "cons_item",
         "toast",
         "toast_key",
+        *jigsawable_state_keys(),
     )
     if url_given:
         normalized = normalize_active_media_url(url)
@@ -1388,6 +1444,27 @@ def apply_active_media_update(
         caption_given=caption is not _UNSET,
         toast_given=toast is not _UNSET,
     )
+    if is_jigsawable_url(base.get("url")):
+        stamp = updated_at or ""
+        nxt, _changed = advance_jigsawable_state(
+            base,
+            state_event=None if state_event is _UNSET else state_event,
+            arm_reveal=False if arm_reveal is _UNSET else _as_bool(arm_reveal),
+            class_size=None if class_size is _UNSET else class_size,
+            now=stamp,
+        )
+        if nxt is None:
+            return None
+        base.update(nxt)
+        base["challenge"] = ""
+        base["toast"] = ""
+        base["toast_key"] = ""
+    elif state_event is not _UNSET and str(state_event or "").strip():
+        raise ValueError(
+            "state_event is only for the jigsawable-class-size fill."
+        )
+    elif arm_reveal is not _UNSET and _as_bool(arm_reveal):
+        raise ValueError("Arm reveal is only for the jigsawable-class-size fill.")
     if updated_at:
         base["updated_at"] = updated_at
     return public_active_media_payload(base)

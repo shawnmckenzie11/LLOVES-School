@@ -148,6 +148,46 @@
         "dismissible": true
       }
     },
+    "course/MCF3M/media/jigsawable-class-size": {
+      "scope": "course",
+      "course": "MCF3M",
+      "item_type": "media",
+      "id": "jigsawable-class-size",
+      "file": "/static/live-media/jigsawable-class-size.html",
+      "title": "Jigsawable class size",
+      "artifact_kind": "state_machine",
+      "fill_id": "jigsawable-class-size",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
+    "course/MCR3U/media/jigsawable-class-size": {
+      "scope": "course",
+      "course": "MCR3U",
+      "item_type": "media",
+      "id": "jigsawable-class-size",
+      "file": "/static/live-media/jigsawable-class-size.html",
+      "title": "Jigsawable class size",
+      "artifact_kind": "state_machine",
+      "fill_id": "jigsawable-class-size",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
     "course/MCR3U/media/square-root-transformation": {
       "scope": "course",
       "course": "MCR3U",

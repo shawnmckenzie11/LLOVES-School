@@ -427,6 +427,17 @@
                     <button type="button" class="secondary" data-surface-close="media" disabled>Close</button>
                   </div>
                   <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
+                  <section id="state-event-bar" class="state-event-bar" hidden aria-label="State events">
+                    <p class="state-event-bar-label">State events</p>
+                    <div id="state-event-buttons" class="state-event-buttons"></div>
+                    <p id="state-event-hold" class="state-event-hold" hidden></p>
+                    <p id="state-event-ask-status" class="state-event-hold" hidden></p>
+                    <div class="state-event-actions">
+                      <button type="button" id="state-event-arm" class="secondary" hidden>Arm reveal</button>
+                      <button type="button" id="state-event-ask" class="secondary" hidden>Arm stage ask</button>
+                      <button type="button" id="state-event-ask-numeric" class="secondary" hidden>Arm numeric centre</button>
+                    </div>
+                  </section>
                   <form id="ap-media-copy-editor" class="ap-media-copy-editor" hidden>
                     <p class="ap-media-copy-label">Student-facing text</p>
                     <label class="ap-media-copy-field" for="ap-media-stem">
