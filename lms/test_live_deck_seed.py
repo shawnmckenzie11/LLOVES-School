@@ -294,7 +294,42 @@ class LiveDeckSeedTests(unittest.TestCase):
             [row["name"] for row in default_math_pages()],
         )
         self.assertEqual(len(meta["pages"]), 7)
+        self.assertEqual(meta.get("schema_version"), 2)
         self.assertEqual(SEED_C3.read_bytes(), self.c3_bytes)
+
+    def test_blank_hides_waiting_room_questions(self) -> None:
+        """Blank stays empty after a session has already minted Minds On."""
+
+        started = self.client.post(
+            f"/api/classes/{self.class_id}/live-session/start",
+            json={"live_module": "M1", "live_slot": "C1"},
+        )
+        self.assertEqual(started.status_code, 200, started.get_json())
+        session_id = int(started.get_json()["live_session_id"])
+        self.school.ensure_live_session_items(session_id)
+        self.school.ensure_waiting_room_minds_on(session_id)
+        seeded = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C1", mode="blank"
+        )
+        meta = seeded["live_metadata"]
+        self.assertEqual(_question_signature(meta), [])
+        self.assertEqual(
+            [row["name"] for row in meta["pages"]],
+            [row["name"] for row in default_math_pages()],
+        )
+        self.assertTrue(
+            self.school.schema_v2_owns_live_stage_questions(session_id, "join")
+        )
+        cards = self.school.live_session_question_cards(session_id)
+        blob = " ".join(str(card.get("text") or "") for card in cards).lower()
+        self.assertNotIn("straight-line", blob)
+        self.assertNotIn("teammate", blob)
+        questions = [
+            row
+            for row in self.school.list_live_session_items(session_id)
+            if str(row.get("kind") or "") == "question"
+        ]
+        self.assertEqual(questions, [])
 
     def test_course_copy_and_http_round_trip(self) -> None:
         """POST seeds from a chosen same-course deck and GET lists it."""

@@ -7454,6 +7454,63 @@ class SchoolDB(LovesDB):
             },
         }
 
+    def _drop_blank_deck_prompts(
+        self, class_id: int, module: str, slot: str
+    ) -> None:
+        """Remove waiting-room prompts after a blank deck seed.
+
+        Minds On, Teams Spark, and Meet the team are not part of the
+        seven-page empty template. A prompt row left from session start
+        would still paint on Join or Meet.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Destination module token.
+            slot: Destination challenge token.
+        """
+
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is None:
+            return
+        session_id = int(active["id"])
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return
+        if str(teacher.get("live_module") or "M1").upper() != str(module).upper():
+            return
+        if str(teacher.get("live_slot") or "C1").upper() != str(slot).upper():
+            return
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, payload FROM live_session_prompts
+                WHERE live_session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+            drop_ids: list[int] = []
+            for row in rows:
+                try:
+                    payload = json.loads(row["payload"] or "{}")
+                except json.JSONDecodeError:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    continue
+                if (
+                    is_minds_on_payload(payload)
+                    or is_teams_spark_payload(payload)
+                    or is_meet_team_payload(payload)
+                ):
+                    drop_ids.append(int(row["id"]))
+            for prompt_id in drop_ids:
+                self.conn.execute(
+                    "DELETE FROM live_session_prompts WHERE id = ?",
+                    (prompt_id,),
+                )
+            self.conn.commit()
+        self.clear_active_live_prompt(session_id)
+
     def apply_class_deck_seed(
         self,
         class_id: int,
@@ -7564,6 +7621,8 @@ class SchoolDB(LovesDB):
             team_challenge=None if choice == "blank" else challenge,
         )
         self._sync_playlist_change(int(class_id), module_key, slot_key)
+        if choice == "blank":
+            self._drop_blank_deck_prompts(int(class_id), module_key, slot_key)
         metadata = self.live_class_metadata_for_class_lesson(
             int(class_id), module_key, slot_key, fresh=True
         )
@@ -7736,6 +7795,24 @@ class SchoolDB(LovesDB):
                         stamp,
                     ),
                 )
+            if mode == "blank":
+                for ride_id in ("minds_on", "teams-spark", "meet-team"):
+                    self.conn.execute(
+                        """
+                        INSERT INTO class_live_playlist_item_overrides (
+                            class_id, module, slot, item_id, removed,
+                            page_number, stage, sort_order, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, ?, ?)
+                        """,
+                        (
+                            int(class_id),
+                            module_key,
+                            slot_key,
+                            ride_id,
+                            stamp,
+                            stamp,
+                        ),
+                    )
             if isinstance(media, dict) and (
                 str(media.get("stem") or "").strip()
                 or str(media.get("caption") or "").strip()
@@ -17613,6 +17690,9 @@ class SchoolDB(LovesDB):
         seed_choice = self.get_class_live_deck_seed(int(class_id), key[2], key[3])
         if seed_choice and int(seed_choice.get("suppress_authored") or 0):
             loaded = empty_live_class_metadata(key[1], key[2], key[3])
+            # Working copies own their question list. Schema v1 would
+            # remount Minds On and Meet onto an empty deck.
+            loaded["schema_version"] = SCHEMA_V2
             media = seed_choice.get("media")
             if isinstance(media, dict) and media:
                 loaded["media"] = deepcopy(media)
@@ -17728,13 +17808,27 @@ class SchoolDB(LovesDB):
 
         Schema-v1 and ad-hoc sessions continue to use the singleton prompt
         compatibility path. A schema-v2 stage with no question placements also
-        falls back so partially authored playlists remain usable.
+        falls back so partially authored playlists remain usable. An explicit
+        blank Set Class seed owns every stage, including empty ones.
 
         Args:
             session_id: ``live_class_sessions.id``.
             stage: Optional stage override; defaults to the teacher's stage.
         """
 
+        session_row = self.get_live_session(session_id)
+        if session_row is not None:
+            try:
+                teacher = self.live_session_teacher_state_payload(session_id)
+            except KeyError:
+                teacher = {}
+            seed = self.get_class_live_deck_seed(
+                int(session_row["class_id"]),
+                str((teacher or {}).get("live_module") or "M1"),
+                str((teacher or {}).get("live_slot") or "C1"),
+            )
+            if seed and str(seed.get("mode") or "") == "blank":
+                return True
         metadata = self.live_class_metadata_for_session(session_id)
         if metadata.get("schema_version") != SCHEMA_V2:
             return False
