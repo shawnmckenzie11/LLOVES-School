@@ -204,7 +204,9 @@ def arm_worker_warmup(now: float | None = None) -> float:
     global _warmup_until
     stamp = time.monotonic() if now is None else now
     _warmup_until = stamp + WORKER_WARMUP_SECONDS
-    logger.info(
+    # Warning, not info: gunicorn does not configure this logger, and the
+    # process stderr is what Fly keeps. One line per worker at boot.
+    logger.warning(
         "live poll warmup: shedding /state for %.0fs so /health can answer",
         WORKER_WARMUP_SECONDS,
     )
