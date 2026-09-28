@@ -817,6 +817,44 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         state = self.school.get_live_session_state(self.session_id)
         self.assertIn("attendees", state)
 
+    def test_open_rank_strips_cues_and_reveal_is_one_group_table(self) -> None:
+        """Open RANK has no gesture sentences. Closed group reveal is one table.
+
+        Submit stays disabled until the order is complete. The closed card
+        mounts the Group | Order board and does not also print class order.
+        """
+
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertNotIn("Tap in order", student)
+        self.assertNotIn("Rank all", student)
+        self.assertNotIn("rank-submit-hint", student)
+        self.assertNotIn("data-rank-count", student)
+        input_fn = student.split("function rankInputHtml")[1].split(
+            "function rankWaitingHtml"
+        )[0]
+        self.assertIn("aria-disabled", input_fn)
+        self.assertIn(" disabled", input_fn)
+        self.assertIn("rank ${place + 1}", input_fn)
+        self.assertIn('role="button"', input_fn)
+        self.assertIn("data-rank-live", input_fn)
+        self.assertIn("Clear", input_fn)
+        reveal = student.split("function rankGroupRevealHtml")[1].split(
+            "function studentGroupCardHtml"
+        )[0]
+        self.assertIn("group-reveal-board", reveal)
+        self.assertIn("<th>Group</th><th>Order</th>", reveal)
+        self.assertIn("is-missed", reveal)
+        self.assertNotIn("lifecycleResultsHtml", reveal)
+        self.assertNotIn("student-live-results", reveal)
+        self.assertNotIn("rank-class-order", reveal)
+        closed = student.split('if (status === "closed" && rank)')[1].split(
+            'if (status === "closed")'
+        )[0]
+        self.assertIn("rankGroupRevealHtml", closed)
+        self.assertNotIn("lifecycleResultsHtml", closed)
+        self.assertNotIn("classBlock", closed)
+        self.assertIn("Change team order", closed)
+
     def test_teacher_strip_puts_teams_before_class_order(self) -> None:
         """The Questions card leads with team rows. Individual omits them."""
 

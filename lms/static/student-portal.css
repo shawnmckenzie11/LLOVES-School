@@ -2330,11 +2330,6 @@ body.staff-shell .prompt-choice .live-question-html img,
   cursor: pointer;
   min-height: 44px;
 }
-.rank-cue {
-  display: flex;
-  justify-content: space-between;
-  margin: 0.2rem 0;
-}
 .rank-live {
   position: absolute;
   width: 1px;
