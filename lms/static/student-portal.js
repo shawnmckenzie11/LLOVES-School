@@ -1605,8 +1605,7 @@ function liveCardDockKey(item) {
  * @param {any} answer
  * @returns {string}
  */
-/** Placeholder cue lines. Wonder owns the final copy. */
-const RANK_CUE_TAP = "Tap in order.";
+/** Status after a rank submit. Wonder owns the final copy. */
 const RANK_CUE_WAITING = "Submitted — waiting.";
 
 /** @type {Set<number>} */
@@ -1699,6 +1698,10 @@ function rankOrderFromCard(card) {
 
 /**
  * Rank rows. Badges stay contiguous. Submit stays off until n/n.
+ *
+ * The gate is the disabled control. No instructional sentence and no
+ * k/n counter — the numbered badges already show the order.
+ *
  * @param {{id: string, label: string}[]} options
  * @param {string[]} order
  * @param {string} action
@@ -1706,11 +1709,9 @@ function rankOrderFromCard(card) {
  */
 function rankInputHtml(options, order, action) {
   const n = options.length;
-  const k = order.length;
-  const complete = n > 0 && k === n;
+  const complete = n > 0 && order.length === n;
   const prefix = action === "group" ? "Submit for team" : "Submit";
   return `<div class="rank-input" data-rank-input="1" data-rank-n="${n}">
-    <p class="rank-cue"><span>${RANK_CUE_TAP}</span> <span data-rank-count>${k}/${n}</span></p>
     <div class="rank-option-list" role="list">${options
       .map((opt) => {
         const place = order.indexOf(opt.id);
@@ -1725,7 +1726,6 @@ function rankInputHtml(options, order, action) {
       })
       .join("")}</div>
     <p class="rank-live" aria-live="polite" data-rank-live></p>
-    <p class="rank-submit-hint"${complete ? " hidden" : ""}>Rank all ${n} to submit.</p>
     <div class="rank-actions">
       <button type="button" class="rank-clear" data-rank-clear>Clear</button>
       <button type="button" class="prompt-submit" data-live-submit="${escapeText(action)}"${
@@ -1753,10 +1753,6 @@ function rankWaitingHtml(options, order, changeLabel) {
   </div>`;
 }
 
-/**
- * Enable Submit only when every option is numbered.
- * @param {HTMLElement} card
- */
 /**
  * Paint rank badges in authored-row order. Position in ``order`` is the rank.
  * @param {HTMLElement} card
@@ -1804,15 +1800,19 @@ async function postRankDraft(card, body) {
   }
 }
 
+/**
+ * Enable Submit only when every option is numbered.
+ *
+ * The button carries ``disabled`` and ``aria-disabled``. There is no
+ * hint sentence.
+ *
+ * @param {HTMLElement} card
+ */
 function syncRankGate(card) {
   const input = card.querySelector("[data-rank-input]");
   if (!(input instanceof HTMLElement)) return;
   const n = Number(input.dataset.rankN) || 0;
   const order = rankOrderFromCard(card);
-  const count = card.querySelector("[data-rank-count]");
-  if (count) count.textContent = `${order.length}/${n}`;
-  const hint = card.querySelector(".rank-submit-hint");
-  if (hint instanceof HTMLElement) hint.hidden = order.length === n && n > 0;
   const submit = card.querySelector("[data-live-submit]");
   if (submit instanceof HTMLButtonElement) {
     const ready = order.length === n && n > 0;
@@ -2311,7 +2311,38 @@ function groupSubmitPhaseLabel(phase) {
 }
 
 /**
+ * One Reveal table for a closed group rank card.
+ *
+ * Each team is one row. A miss leaves the Order cell blank. Class-order
+ * summary is not mounted beside this table.
+ *
+ * @param {any[]} rows
+ * @returns {string}
+ */
+function rankGroupRevealHtml(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return "";
+  return `<table class="group-reveal-board">
+      <caption>Teams</caption>
+      <thead><tr><th>Group</th><th>Order</th></tr></thead>
+      <tbody>${list
+        .map((row) => {
+          const missed = Boolean(row.missed);
+          return `<tr class="${missed ? "is-missed" : ""}">
+            <th>${escapeText(row.team_name || "Group")}</th>
+            <td>${missed ? "" : escapeText(row.answer || "")}</td>
+          </tr>`;
+        })
+        .join("")}</tbody>
+    </table>`;
+}
+
+/**
  * Shared MC card: team strip, Ready-gate, and a calm waiting beat.
+ *
+ * Closed group rank uses ``rankGroupRevealHtml`` only. Borda class order
+ * stays on the staff strip.
+ *
  * @param {any} item
  * @returns {string}
  */
@@ -2326,25 +2357,8 @@ function studentGroupCardHtml(item) {
       : Array.isArray(item?.group_submit?.order)
         ? item.group_submit.order
         : [];
-    const classBlock =
-      item?.results?.kind === "rank" ? lifecycleResultsHtml(item.results.rank || item.results) : "";
-    const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
-    const teams = rows.length
-      ? `<table class="group-reveal-board">
-      <caption>Teams</caption>
-      <thead><tr><th>Group</th><th>Order</th></tr></thead>
-      <tbody>${rows
-        .map((row) => {
-          const missed = Boolean(row.missed);
-          return `<tr class="${missed ? "is-missed" : ""}">
-            <th>${escapeText(row.team_name || "Group")}</th>
-            <td>${missed ? "" : escapeText(row.answer || "")}</td>
-          </tr>`;
-        })
-        .join("")}</tbody>
-    </table>`
-      : "";
-    return `${classBlock}${teams}${own.length ? rankWaitingHtml(options, own.map(String), "Change team order") : ""}`;
+    const teams = rankGroupRevealHtml(item?.results?.reveal);
+    return `${teams}${own.length ? rankWaitingHtml(options, own.map(String), "Change team order") : ""}`;
   }
   if (status === "closed") {
     const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
