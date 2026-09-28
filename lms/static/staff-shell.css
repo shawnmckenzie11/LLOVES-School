@@ -1593,6 +1593,43 @@ body.staff-shell .live-pack-field select {
   min-width: 4.5rem;
   font-size: 0.85rem;
 }
+body.staff-shell .live-deck-seed {
+  border: 0;
+  margin: 0 0 0.85rem;
+  padding: 0 0 0.75rem;
+  border-bottom: 1px solid var(--live-border);
+}
+body.staff-shell .live-deck-seed legend {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #334155;
+  padding: 0;
+  margin-bottom: 0.35rem;
+}
+body.staff-shell .live-deck-seed-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.28rem 0;
+  font-size: 0.92rem;
+}
+body.staff-shell .live-deck-seed-choice.is-disabled {
+  opacity: 0.55;
+}
+body.staff-shell .live-deck-seed-note {
+  margin: 0 0 0.35rem 1.45rem;
+}
+body.staff-shell .live-deck-seed-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.4rem 1.45rem;
+  font-size: 0.85rem;
+}
+body.staff-shell .live-deck-seed-picker select {
+  min-width: 8rem;
+  font-size: 0.85rem;
+}
 body.staff-shell .live-header {
   display: flex;
   flex-wrap: nowrap;

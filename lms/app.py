@@ -3306,6 +3306,62 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return response
 
     @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/deck-seed-options",
+        methods=["GET"],
+    )
+    @staff_required
+    def staff_live_deck_seed_options(class_id: int, module: str, slot: str):
+        """Return Set Class choices for seeding this challenge's live deck."""
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            options = school.deck_seed_options(int(class_id), module, slot)
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        response = jsonify({"ok": True, **options})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/deck-seed",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_live_deck_seed(class_id: int, module: str, slot: str):
+        """Copy a course deck or start the blank 7-page template.
+
+        The destination gets its own working copy. The source challenge and
+        the course seed JSON are not rewritten.
+        """
+
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            seeded = school.apply_class_deck_seed(
+                int(class_id),
+                module,
+                slot,
+                mode=str(body.get("mode") or ""),
+                source_module=body.get("source_module") or body.get("sourceModule"),
+                source_slot=body.get("source_slot") or body.get("sourceSlot"),
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        response = jsonify({"ok": True, "module": str(module or "").upper(), "slot": str(slot or "").upper(), **seeded})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
         "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-mc",
         methods=["POST"],
     )

@@ -154,6 +154,40 @@ def normalize_slot(raw: Any) -> str:
     return slot if SLOT_RE.fullmatch(slot) else "C1"
 
 
+CHALLENGE_SLOT_ORDER: tuple[str, ...] = ("C1", "C2", "C3", "C4")
+
+
+def previous_challenge_slot(slot: Any) -> str | None:
+    """Return the previous challenge in module order, or None.
+
+    Sequence is C1, then C2, then C3, then C4 within the same module.
+    ``C1`` has no previous challenge. Unknown tokens return None so a
+    caller cannot invent a deck by falling back to C1.
+
+    Args:
+        slot: Live-class token such as ``C3``.
+    """
+
+    token = str(slot or "").strip().upper()
+    if token not in CHALLENGE_SLOT_ORDER:
+        return None
+    index = CHALLENGE_SLOT_ORDER.index(token)
+    if index == 0:
+        return None
+    return CHALLENGE_SLOT_ORDER[index - 1]
+
+
+def live_deck_choice_label(module: Any, slot: Any) -> str:
+    """Return a short staff label such as ``M2 C3``.
+
+    Args:
+        module: Module token such as ``M2``.
+        slot: Live-class token such as ``C3``.
+    """
+
+    return f"{normalize_module(module)} {normalize_slot(slot)}"
+
+
 def metadata_path(
     course: Any,
     module: Any,
