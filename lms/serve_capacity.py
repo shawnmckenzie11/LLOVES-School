@@ -1,23 +1,26 @@
 """Capacity limits for the one 1 GB Fly machine.
 
-Production is one ``gthread`` worker. A second worker would duplicate the
-interpreter and the sqlite catalogue and is not used on shared-cpu-1x /
-1 GB. Eight threads share that process so ``/health`` can still answer
-while a few live ``/state`` polls are slow. The presence pool stays
-smaller than the thread count: extra polls wait briefly and return retry
-JSON instead of opening more Postgres sockets.
+Alc on Fly v189 (1 worker, 2 threads, timeout 600) stayed wedged through a
+soft restart and a hard restart: clients re-flooded the two threads and
+``/health`` never returned. The machine command that restored ``/health``
+200 on that same shared-cpu-1x / 1 GB box was 4 workers, 8 threads, and
+timeout 120. Those three numbers are on the image ``CMD`` and on the Fly
+process command so the next Deploy cannot snap back to 1×2.
 
-gunicorn's default ``worker_connections`` is 1000. On alc that cap filled
-with ESTABLISHED sockets (~1000 fds) while the two request threads sat in
-``epoll`` / ``futex`` and ``/health`` returned zero bytes. ``worker_connections``
-here is a small multiple of the thread count. Live ``/state`` responses
-also send ``Connection: close`` so a finished poll does not sit in the
-keepalive set. Keepalive itself is 1 second.
+Four workers share one machine. They are not a second Fly machine. Each
+worker is its own process, so sqlite writers can wait on ``busy_timeout``,
+and the presence pool (4 connections) is per process. That cost is what
+kept ``/health`` up under the re-flood. Do not go back to one worker.
 
-``timeout`` stays 600 seconds because an IMSCC unpack can run that long.
-``gthread`` does not abort a request at that timeout — the worker still
-notifies the arbiter — so poll builders stop on their own after
-``POLL_BUDGET_SECONDS``.
+gunicorn's default ``worker_connections`` is 1000. On the wedged worker that
+cap filled with ESTABLISHED sockets. The cap here is 32 per worker (128
+across four), with keepalive of 1 second. Live ``/state`` also sends
+``Connection: close``.
+
+``timeout`` is 120 seconds. A worker that stops notifying the arbiter (the
+epoll wedge) is killed after two minutes, not ten. ``gthread`` still
+notifies during a normal request, so poll slices use ``POLL_BUDGET_SECONDS``
+rather than waiting for that kill.
 """
 
 from __future__ import annotations
@@ -27,23 +30,21 @@ import time
 from contextlib import contextmanager
 from typing import Iterator
 
-# One process. Two processes contend on ``lloves.sqlite`` and double RSS.
-WORKERS = 1
-# Was 2. A couple of slow ``/state`` calls then occupied every thread, so
-# ``/health`` could not start. Eight is enough for one class of short polls
-# plus staff, and still one worker on 1 GB.
+# Proven on live alc after 1 worker × 2 threads re-wedged on restart.
+# Four processes on the one 1 GB machine, not a second Fly machine.
+WORKERS = 4
+# Eight threads per worker. ``/health`` can run while a few ``/state`` polls
+# are slow, and three other workers still accept if one worker wedges.
 THREADS = 8
-# 8 in flight plus a small keepalive/pending margin. Not gunicorn's 1000.
+# Per worker. Not gunicorn's 1000. Four workers × 32 = 128 sockets, not ~1k.
 WORKER_CONNECTIONS = 32
 KEEPALIVE_SECONDS = 1
-# IMSCC unpack. Polls use ``POLL_BUDGET_SECONDS``, not this.
-WORKER_TIMEOUT_SECONDS = 600
+# A silent worker is killed after 120s. The old 600s left the wedge in place.
+WORKER_TIMEOUT_SECONDS = 120
 GRACEFUL_TIMEOUT_SECONDS = 30
-# Kernel accept queue. Past this, new clients fail fast instead of becoming
-# fds inside the wedged worker.
+# Kernel accept queue per worker. Past this, new clients fail fast.
 BACKLOG = 64
-# Stop starting another ``/state`` slice. Well under the 600s worker timeout
-# and in the same range as the presence TCP user timeout.
+# Stop starting another ``/state`` slice. Well under the worker timeout.
 POLL_BUDGET_SECONDS = 8.0
 # Heavy ``/state`` builds. The other threads stay free for ``/health`` and
 # for the shed response.
@@ -150,6 +151,32 @@ def poll_slot(*, enabled: bool = True) -> Iterator[bool]:
     finally:
         if admitted:
             _POLL_SLOTS.release()
+
+
+def image_gunicorn_command() -> str:
+    """Return the gunicorn command the image and Fly process must run.
+
+    The flags match the alc tourniquet (4 workers, 8 threads, timeout 120,
+    bind ``0.0.0.0:8080``, chdir ``lms``) and keep the socket bounds on the
+    same line so a Deploy cannot drop them.
+
+    Returns:
+        One shell command, without a shell wrapper.
+    """
+    return (
+        "gunicorn "
+        "--worker-class gthread "
+        f"--workers {WORKERS} "
+        f"--threads {THREADS} "
+        f"--worker-connections {WORKER_CONNECTIONS} "
+        f"--keep-alive {KEEPALIVE_SECONDS} "
+        f"--timeout {WORKER_TIMEOUT_SECONDS} "
+        f"--graceful-timeout {GRACEFUL_TIMEOUT_SECONDS} "
+        f"--backlog {BACKLOG} "
+        "--bind 0.0.0.0:8080 "
+        "--chdir lms "
+        "app:create_app()"
+    )
 
 
 def is_live_state_poll(path: str) -> bool:

@@ -22,5 +22,7 @@ RUN python lms/fetch_ontario_curriculum_pdfs.py
 
 EXPOSE 8080
 
-# 1 worker, 8 threads, bounded keepalive. See lms/gunicorn_conf.py.
-CMD ["gunicorn", "--config", "lms/gunicorn_conf.py", "--chdir", "lms", "app:create_app()"]
+# Proven alc tourniquet: 4 workers × 8 threads, timeout 120, plus the
+# socket bounds. Same text as fly.toml [processes].app and
+# serve_capacity.image_gunicorn_command(). Do not revert to 1 worker × 2 threads.
+CMD ["gunicorn", "--worker-class", "gthread", "--workers", "4", "--threads", "8", "--worker-connections", "32", "--keep-alive", "1", "--timeout", "120", "--graceful-timeout", "30", "--backlog", "64", "--bind", "0.0.0.0:8080", "--chdir", "lms", "app:create_app()"]

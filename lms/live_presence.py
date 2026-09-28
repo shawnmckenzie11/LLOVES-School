@@ -25,16 +25,16 @@ logger = logging.getLogger(__name__)
 _SCHEMA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # PgBouncer ``client_idle_timeout`` on Fly Managed Postgres closes a client
-# that has not issued a query. This pool is LIFO. Production runs one
-# gunicorn worker with eight threads (``serve_capacity.THREADS``) and this
-# pool stays at four connections, so one connection stays hot on 1–4s polls
-# while a sibling sits until the next burst and then raises
+# that has not issued a query. This pool is LIFO inside each worker.
+# Production is 4 gunicorn workers × 8 threads. This pool stays at four
+# connections per worker, so one connection stays hot on 1–4s polls while a
+# sibling sits until the next burst and then raises
 # ``ProtocolViolation: client_idle_timeout``. Extra threads wait on the
 # semaphore and the poll returns retry JSON instead of opening more sockets.
 # Recycle anything idle this long before the pooler does.
 _MAX_IDLE_SECONDS = 15.0
 # Milliseconds. A silent dead socket must not hold a gunicorn thread until
-# the 600s worker timeout.
+# the 120s worker timeout.
 _TCP_USER_TIMEOUT_MS = 8000
 _POOL_WAIT_SECONDS = 2.0
 _PRESENCE_LOG_INTERVAL_S = 10.0
@@ -229,9 +229,9 @@ def _attendee_payload(row: dict[str, Any]) -> dict[str, Any]:
 class LivePresenceStore:
     """Postgres rows for live session status and attendee heartbeats.
 
-    One process checks out a connection per call. Production is one gunicorn
-    worker and eight threads; this pool stays smaller than that so a burst
-    cannot open a socket per thread. Statements are autocommit so a heartbeat
+    One process checks out a connection per call. Production is four gunicorn
+    workers and eight threads each; this pool stays at four connections per
+    worker so a burst cannot open a socket per thread. Statements are autocommit so a heartbeat
     does not hold a transaction open across the poll. Idle connections are
     closed before Fly's pooler ``client_idle_timeout`` can turn the next poll
     into a protocol error. Successful and failed checkouts update

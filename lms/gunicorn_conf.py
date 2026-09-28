@@ -1,8 +1,9 @@
-"""Gunicorn process model for the Fly image.
+"""Gunicorn process model for local ``--config`` checks.
 
-``lms/Dockerfile`` loads this file. The numbers live in ``serve_capacity``
-so tests can lock them. ``--chdir lms`` is on the command line; this module
-inserts its own directory so the import works before that chdir.
+The image ``CMD`` and ``fly.toml`` ``[processes]`` repeat these flags on the
+command line. A Deploy that only loaded this file could be overridden by a
+machine command; the Dockerfile line is what ships. Numbers live in
+``serve_capacity`` so the three copies cannot drift in tests.
 """
 
 from __future__ import annotations

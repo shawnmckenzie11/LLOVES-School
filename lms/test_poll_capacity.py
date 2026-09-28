@@ -1,14 +1,15 @@
 """Dead-session polls, poll budget, and the 1 GB gunicorn cap.
 
 Alc hung with ~1000 ESTABLISHED sockets on one gunicorn worker (2 threads,
-timeout 600) so ``/health`` returned zero bytes. These tests lock the tip
-fix: one worker and eight threads, a small connection cap, gone Meets
-return ended JSON without a traceback per field, and ``/health`` does not
-ping presence.
+timeout 600) so ``/health`` returned zero bytes. Restarting that 1×2
+command re-flooded. These tests lock the tip fix: 4 workers, 8 threads,
+timeout 120, a small per-worker connection cap, gone Meets return ended
+JSON without a traceback per field, and ``/health`` does not ping presence.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -41,17 +42,18 @@ from serve_capacity import (  # noqa: E402
 
 
 class ServeCapacityTests(unittest.TestCase):
-    """The image stays one worker on the 1 GB machine."""
+    """The image stays 4 workers × 8 threads on the one 1 GB machine."""
 
-    def test_one_worker_and_more_threads(self) -> None:
-        """Eight threads, still one worker. Two workers do not fit this box."""
-        self.assertEqual(WORKERS, 1)
+    def test_four_workers_eight_threads_timeout_120(self) -> None:
+        """The alc tourniquet: 4×8 on one machine, worker timeout 120."""
+        self.assertEqual(WORKERS, 4)
         self.assertEqual(THREADS, 8)
-        self.assertEqual(gunicorn_conf.workers, 1)
+        self.assertEqual(gunicorn_conf.workers, 4)
         self.assertEqual(gunicorn_conf.threads, 8)
         self.assertEqual(gunicorn_conf.worker_class, "gthread")
         self.assertLess(POLL_IN_FLIGHT, THREADS)
-        self.assertEqual(gunicorn_conf.timeout, 600)
+        self.assertEqual(gunicorn_conf.timeout, 120)
+        self.assertEqual(cap.WORKER_TIMEOUT_SECONDS, 120)
 
     def test_keepalive_and_connections_are_bounded(self) -> None:
         """Dead clients cannot accumulate gunicorn's default 1000 sockets."""
@@ -61,9 +63,20 @@ class ServeCapacityTests(unittest.TestCase):
         self.assertLessEqual(gunicorn_conf.keepalive, 2)
         self.assertEqual(gunicorn_conf.keepalive, cap.KEEPALIVE_SECONDS)
         self.assertLessEqual(gunicorn_conf.backlog, 128)
+        command = cap.image_gunicorn_command()
+        self.assertIn("--workers 4", command)
+        self.assertIn("--threads 8", command)
+        self.assertIn("--timeout 120", command)
+        self.assertNotIn("--timeout 600", command)
+        self.assertNotIn("--workers 1", command)
         dockerfile = (LMS_DIR / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn("lms/gunicorn_conf.py", dockerfile)
+        fly = (REPO_ROOT / "fly.toml").read_text(encoding="utf-8")
+        self.assertIn(command, fly)
+        for token in command.split():
+            self.assertIn(json.dumps(token), dockerfile)
         self.assertNotIn('"--threads", "2"', dockerfile)
+        self.assertNotIn('"--workers", "1"', dockerfile)
+        self.assertNotIn('"--timeout", "600"', dockerfile)
 
     def test_poll_paths_and_budget_helpers(self) -> None:
         """Only the live ``/state`` polls close the socket."""
