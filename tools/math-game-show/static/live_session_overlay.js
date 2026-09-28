@@ -2,6 +2,11 @@
  * Narrow Zoom-share overlay: session code, join count, roster, optional teams.
  */
 import { escapeHtml, formatPoints, formatCountdown, remainingUntilMs } from "./common.js";
+import {
+  isLiveStateBusy,
+  jitterPollDelay,
+  nextPollBackoffMs,
+} from "/static/live_poll_feel.js";
 import { nameWithAvatar } from "/static/student_avatars.js";
 
 const params = new URLSearchParams(location.search);
@@ -38,6 +43,8 @@ let classId = classIdHint > 0 ? classIdHint : 0;
 let tickBusy = false;
 let overlayDismissed = false;
 let tickTimer = 0;
+/** Automatic delay after a shed / 503. ``0`` keeps the 2s overlay poll. */
+let overlayBackoffMs = 0;
 let clockTimer = 0;
 let lastRosterKey = "";
 let lastTeamKey = "";
@@ -652,7 +659,7 @@ async function copyClassCode() {
  * Stop roster/scoreboard polling after this overlay has dismissed.
  */
 function stopOverlayPolling() {
-  if (tickTimer) window.clearInterval(tickTimer);
+  if (tickTimer) window.clearTimeout(tickTimer);
   if (clockTimer) window.clearInterval(clockTimer);
   tickTimer = 0;
   clockTimer = 0;
@@ -715,10 +722,24 @@ async function fetchLiveSessionState() {
     headers: { Accept: "application/json" },
   });
   if (response.status === 404) return { missing: true };
-  if (!response.ok) return { missing: false };
+  if (!response.ok) return { missing: false, busy: true };
   const payload = await response.json();
+  if (isLiveStateBusy(payload)) return { missing: false, busy: true, payload };
   if (payload?.ok === false) return { missing: true };
   return { missing: false, payload };
+}
+
+/**
+ * Schedule the next overlay poll. Busy delays back off and never hit 0.
+ */
+function scheduleOverlayTick() {
+  if (overlayDismissed) return;
+  if (tickTimer) window.clearTimeout(tickTimer);
+  const ms = overlayBackoffMs > 0 ? jitterPollDelay(overlayBackoffMs) : 2000;
+  tickTimer = window.setTimeout(() => {
+    tickTimer = 0;
+    void tick();
+  }, ms);
 }
 
 /**
@@ -733,15 +754,22 @@ async function tick() {
       dismissOverlayWindow({ blankIfStillOpen: true });
       return;
     }
+    if (result.busy) {
+      overlayBackoffMs = nextPollBackoffMs(overlayBackoffMs);
+      return;
+    }
+    overlayBackoffMs = 0;
     if (result.payload) paintSession(result.payload);
     if (classId > 0) {
       const board = await fetchJson(`/api/classes/${classId}/scoreboard`);
       if (board) paintTeams(board);
     }
   } catch {
-    /* keep last paint; retry next interval */
+    overlayBackoffMs = nextPollBackoffMs(overlayBackoffMs);
+    /* keep last paint; retry on the backed-off timer */
   } finally {
     tickBusy = false;
+    if (!overlayDismissed && !tickTimer) scheduleOverlayTick();
   }
 }
 
@@ -761,8 +789,7 @@ if (!sessionId) {
   if (countEl) countEl.textContent = "Missing session";
   dismissOverlayWindow({ blankIfStillOpen: true });
 } else {
-  tick();
-  tickTimer = window.setInterval(tick, 2000);
+  void tick();
   clockTimer = window.setInterval(() => {
     if (!lastBoard) return;
     const phase = String(lastBoard.overlay_phase || "");

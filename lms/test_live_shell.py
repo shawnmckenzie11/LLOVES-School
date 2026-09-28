@@ -2336,6 +2336,9 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("result.missing", tick)
         self.assertIn("dismissOverlayWindow({ blankIfStillOpen: true })", tick)
+        self.assertIn("result.busy", tick)
+        self.assertIn("isLiveStateBusy", overlay)
+        self.assertNotIn("location.reload", tick)
         paint = overlay.split("function paintSession(state)")[1].split(
             "function paintTeamScores"
         )[0]
@@ -2406,6 +2409,17 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("GROUP_POLL_FAIL_MS = 4000", js)
         self.assertIn("if (!wantFull) adoptLightGroupResults", poll)
         self.assertIn("if (wantFull) paintLiveQuestionCards()", poll)
+        self.assertIn("isLiveStateBusy", poll)
+        self.assertIn("noteStaffPollBusy", poll)
+        self.assertIn("Do not reload", poll)
+        self.assertNotIn("location.reload", poll)
+        self.assertNotIn('paintGroupPollFeel("fail")', poll)
+        retry = js.split('$("live-reconnect-retry")')[1].split(
+            '$("live-group-poll-retry")'
+        )[0]
+        self.assertIn("reissueLiveStateOnce", retry)
+        self.assertNotIn("force: true", retry)
+        self.assertNotIn("location.reload", retry)
         self.assertIn("Do not refreshLifecycleResults", js)
         self.assertNotIn("Repeat submitter", js)
         self.assertNotIn("No submit at reveal", js)
@@ -2414,6 +2428,7 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn('id="live-group-poll-feel"', course)
         self.assertIn('id="live-group-poll-retry"', course)
+        self.assertIn('id="live-reconnect-retry" hidden', course)
 
     def test_student_poll_keeps_last_frame_and_shows_reconnect(self) -> None:
         """Failed student /state keeps the last paint and shows Reconnecting…."""
@@ -2433,6 +2448,25 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("setStudentReconnectBanner(true)", tick)
         self.assertIn("setStudentReconnectBanner(false)", tick)
         self.assertNotIn("innerHTML = \"\"", tick.split("if (data.celebrate)")[0])
+        self.assertIn("isLiveStateBusy", tick)
+        self.assertIn("noteStudentPollBusy", tick)
+        self.assertIn("studentPollInFlight", tick)
+        self.assertNotIn("location.reload", tick)
+        self.assertIn('id="student-reconnect-retry" hidden', home)
+
+    def test_shed_json_does_not_imply_reload(self) -> None:
+        """Boot-shed /state JSON keeps the last frame and backs off above 0."""
+
+        node = LMS_DIR / "static" / "live_poll_feel.test.mjs"
+        result = subprocess.run(
+            ["node", str(node)],
+            cwd=str(node.parent),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("ok", result.stdout)
 
     def test_playlist_move_options_list_every_rail_page(self) -> None:
         """Relocate options use 1-based rail index plus page name for every page."""

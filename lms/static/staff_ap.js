@@ -34,6 +34,16 @@ import {
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
+import {
+  RECONNECT_PENDING_MS,
+  RECONNECT_STUCK_MS,
+  isLiveStateBusy,
+  jitterPollDelay,
+  nextPollBackoffMs,
+  reconnectCopy,
+  reconnectMode,
+  shouldApplyLiveSnapshot,
+} from "/static/live_poll_feel.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -81,6 +91,16 @@ let sessionPollMs = 0;
 let sessionPollInFlight = false;
 /** @type {{full?: boolean, force?: boolean}|null} */
 let sessionPollQueued = null;
+/** Automatic delay after a busy/503. ``0`` means the healthy 1–2s poll. */
+let pollBackoffMs = 0;
+/** Set when End/Quit stops the loop so a late finally cannot reschedule. */
+let sessionPollStopped = true;
+/** Epoch ms when the current outage started. ``0`` when the frame is calm. */
+let staffOutageStartedAt = 0;
+let reconnectPendingTimer = 0;
+let reconnectStuckTimer = 0;
+/** Last ``state_seq`` that painted. Older snapshots are ignored. */
+let lastGoodStateSeq = 0;
 let groupPollPendingTimer = 0;
 let groupPollFailTimer = 0;
 let groupPollFeelShown = false;
@@ -1911,8 +1931,9 @@ async function refreshLiveQuestionCards() {
   if (!id) return;
   try {
     const snapshot = await api(`/api/live-sessions/${id}/state`);
-    if (snapshot?.error === "state unavailable") {
+    if (snapshot?.error === "state unavailable" || isLiveStateBusy(snapshot)) {
       setLiveReconnectBanner(true);
+      noteStaffPollBusy();
       return;
     }
     if (snapshot?.live_metadata) {
@@ -1931,6 +1952,7 @@ async function refreshLiveQuestionCards() {
     setLiveReconnectBanner(false);
   } catch (_) {
     setLiveReconnectBanner(true);
+    noteStaffPollBusy();
   }
 }
 
@@ -3929,13 +3951,32 @@ async function copyJoinBillboardCode() {
 
 /**
  * Stop polling live-session attendees.
+ * A late poll ``finally`` must not start the loop again.
  */
 function stopLiveSessionPolling() {
+  sessionPollStopped = true;
   if (sessionPollTimer) {
-    clearInterval(sessionPollTimer);
+    window.clearTimeout(sessionPollTimer);
     sessionPollTimer = null;
   }
   sessionPollMs = 0;
+  clearReconnectFeelTimers();
+}
+
+/**
+ * Schedule the next staff /state. Busy delays use backoff, never 0.
+ */
+function scheduleLiveSessionPoll() {
+  if (sessionPollStopped) return;
+  if (!liveSessionId && !readLiveSessionId()) return;
+  if (sessionPollTimer) window.clearTimeout(sessionPollTimer);
+  const ms =
+    pollBackoffMs > 0 ? jitterPollDelay(pollBackoffMs) : desiredSessionPollMs();
+  sessionPollMs = ms;
+  sessionPollTimer = window.setTimeout(() => {
+    sessionPollTimer = null;
+    void pollLiveSessionAttendees();
+  }, ms);
 }
 
 /**
@@ -3947,18 +3988,14 @@ function desiredSessionPollMs() {
 }
 
 /**
- * Restart the session poll only when the interval should change.
+ * Start the session poll when nothing is waiting.
+ * Does not pull a pending backoff timer forward to 0.
  */
 function syncLiveSessionPolling() {
+  if (sessionPollStopped) return;
   if (!liveSessionId && !readLiveSessionId()) return;
-  const ms = desiredSessionPollMs();
-  if (sessionPollTimer && sessionPollMs === ms) return;
-  if (sessionPollTimer) {
-    clearInterval(sessionPollTimer);
-    sessionPollTimer = null;
-  }
-  sessionPollMs = ms;
-  sessionPollTimer = window.setInterval(pollLiveSessionAttendees, ms);
+  if (sessionPollTimer || sessionPollInFlight) return;
+  scheduleLiveSessionPoll();
 }
 
 /**
@@ -4027,18 +4064,138 @@ function optimisticTeacherState(body) {
 }
 
 /**
+ * Show or hide one Retry control. Author ``button`` CSS overrides the
+ * ``hidden`` attribute, so the ``hidden`` class is required too.
+ * @param {HTMLElement | null} retry
+ * @param {boolean} visible
+ */
+function setRetryControlVisible(retry, visible) {
+  if (!(retry instanceof HTMLElement)) return;
+  retry.hidden = !visible;
+  retry.classList.toggle("hidden", !visible);
+}
+
+/**
+ * Paint the one soft strip. Does not touch the question stack or reload.
+ * @param {"ok"|"pending"|"busy"|"stuck"} mode
+ * @param {string} message
+ * @param {boolean} showRetry
+ */
+function paintStaffReconnect(mode, message, showRetry) {
+  const el = $("live-reconnect");
+  const copy = el?.querySelector(".live-reconnect-copy");
+  const retry = $("live-reconnect-retry");
+  if (mode === "ok") {
+    if (el instanceof HTMLElement) el.hidden = true;
+    if (copy) copy.textContent = "Reconnecting…";
+    setRetryControlVisible(retry, false);
+    return;
+  }
+  if (el instanceof HTMLElement) el.hidden = false;
+  if (copy) copy.textContent = message;
+  setRetryControlVisible(retry, showRetry);
+}
+
+/**
+ * Clear pending/stuck timers. Does not hide a line that is already showing.
+ */
+function clearReconnectFeelTimers() {
+  if (reconnectPendingTimer) window.clearTimeout(reconnectPendingTimer);
+  if (reconnectStuckTimer) window.clearTimeout(reconnectStuckTimer);
+  reconnectPendingTimer = 0;
+  reconnectStuckTimer = 0;
+}
+
+/**
+ * After 4s without a good frame, swap the line for user-tap Retry.
+ */
+function armStaffStuckTimer() {
+  if (reconnectStuckTimer) window.clearTimeout(reconnectStuckTimer);
+  if (!staffOutageStartedAt) return;
+  const wait = Math.max(0, RECONNECT_STUCK_MS - (Date.now() - staffOutageStartedAt));
+  reconnectStuckTimer = window.setTimeout(() => {
+    reconnectStuckTimer = 0;
+    if (!staffOutageStartedAt) return;
+    paintStaffReconnect("stuck", reconnectCopy("stuck"), true);
+  }, wait);
+}
+
+/**
+ * Hide the strip and return the automatic poll to the healthy interval.
+ */
+function clearStaffOutage() {
+  staffOutageStartedAt = 0;
+  pollBackoffMs = 0;
+  clearReconnectFeelTimers();
+  paintStaffReconnect("ok", "", false);
+  paintGroupPollFeel("ok");
+}
+
+/**
  * Show or hide the live-state strip without touching the deck.
- * A fault replaces the calm Reconnecting… line so a dead Meet is visible.
+ * A non-busy fault (ended Meet) is one calm line and does not offer Retry.
+ * Busy / shed JSON uses the soft strip. This never reloads the page.
  * @param {boolean} visible
  * @param {string} [message]
  */
 function setLiveReconnectBanner(visible, message) {
-  const el = $("live-reconnect");
-  if (el instanceof HTMLElement) el.hidden = !visible;
-  const copy = el?.querySelector(".live-reconnect-copy");
-  if (copy) {
-    copy.textContent = message || "Reconnecting…";
+  if (!visible) {
+    clearStaffOutage();
+    return;
   }
+  const text = String(message || "").trim();
+  const soft = new Set([
+    "",
+    reconnectCopy("pending"),
+    reconnectCopy("busy"),
+    reconnectCopy("stuck"),
+    "Reconnecting…",
+  ]);
+  if (text && !soft.has(text)) {
+    paintStaffReconnect("busy", text, false);
+    return;
+  }
+  if (!staffOutageStartedAt) staffOutageStartedAt = Date.now();
+  const kind = text === reconnectCopy("pending") ? "inflight" : "busy";
+  const mode = reconnectMode(staffOutageStartedAt, Date.now(), kind);
+  paintStaffReconnect(mode, reconnectCopy(mode) || "Reconnecting…", mode === "stuck");
+  armStaffStuckTimer();
+}
+
+/**
+ * Lengthen the next automatic /state after busy/503. Never schedules at 0.
+ */
+function noteStaffPollBusy() {
+  pollBackoffMs = nextPollBackoffMs(pollBackoffMs);
+  setLiveReconnectBanner(true);
+  scheduleLiveSessionPoll();
+}
+
+/**
+ * Arm "Reconnecting…" only if this poll is still out after ~800ms.
+ * Does not clear a busy line already on screen.
+ */
+function armStaffPendingFeel() {
+  if (reconnectPendingTimer) window.clearTimeout(reconnectPendingTimer);
+  if (staffOutageStartedAt) {
+    armStaffStuckTimer();
+    return;
+  }
+  reconnectPendingTimer = window.setTimeout(() => {
+    reconnectPendingTimer = 0;
+    if (!sessionPollInFlight || staffOutageStartedAt) return;
+    staffOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
+    paintStaffReconnect("pending", reconnectCopy("pending"), false);
+    armStaffStuckTimer();
+  }, RECONNECT_PENDING_MS);
+}
+
+/**
+ * User Retry: one /state if none is in flight. Does not reload or zero the delay.
+ */
+function reissueLiveStateOnce() {
+  if (sessionPollInFlight) return;
+  void pollLiveSessionAttendees({ retryGesture: true });
 }
 
 /**
@@ -4064,7 +4221,7 @@ function paintGroupPollFeel(mode) {
   if (mode === "ok") {
     el.hidden = true;
     el.dataset.state = "ok";
-    if (retry instanceof HTMLElement) retry.hidden = true;
+    setRetryControlVisible(retry, false);
     groupPollFeelShown = false;
     return;
   }
@@ -4074,13 +4231,13 @@ function paintGroupPollFeel(mode) {
     el.hidden = false;
     el.dataset.state = "pending";
     if (copy) copy.textContent = "Updating group status…";
-    if (retry instanceof HTMLElement) retry.hidden = true;
+    setRetryControlVisible(retry, false);
     return;
   }
   el.hidden = false;
   el.dataset.state = "fail";
   if (copy) copy.textContent = "Group status did not update.";
-  if (retry instanceof HTMLElement) retry.hidden = false;
+  setRetryControlVisible(retry, true);
 }
 
 /**
@@ -4112,7 +4269,9 @@ async function pollLiveSessionAttendees(opts = {}) {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
   if (sessionPollInFlight) {
-    if (opts.force || opts.full) {
+    // A Retry tap does not queue a second /state. One follow-up full
+    // snapshot is only for a healthy light poll whose state_seq moved.
+    if (!opts.retryGesture && (opts.force || opts.full)) {
       sessionPollQueued = {
         full: Boolean(opts.full) || Boolean(sessionPollQueued?.full),
         force: true,
@@ -4123,8 +4282,8 @@ async function pollLiveSessionAttendees(opts = {}) {
   liveSessionId = id;
   sessionPollInFlight = true;
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
-  const prevSeq = Number(teacherState.state_seq);
-  armGroupPollFeel();
+  const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
+  armStaffPendingFeel();
   try {
     const qs = wantFull ? "" : "?light=1";
     let payload;
@@ -4132,8 +4291,11 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload = await api(`/api/live-sessions/${id}/state${qs}`);
     } catch (err) {
       if (!wantFull) throw err;
+      const message = String(err?.message || err || "");
+      if (/busy|503|unavailable|overloaded|locked/i.test(message)) throw err;
       payload = await api(`/api/live-sessions/${id}/state?light=1`);
     }
+    // Shed / busy / 503 stays on this document. Do not reload.
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       const fault = String(payload?.fault || "").trim();
       clearGroupPollFeelTimers();
@@ -4144,10 +4306,19 @@ async function pollLiveSessionAttendees(opts = {}) {
       stopLiveSessionPolling();
       return;
     }
-    if (payload?.error === "state unavailable" || payload?.fault) {
+    if (
+      payload?.error === "state unavailable" ||
+      isLiveStateBusy(payload) ||
+      String(payload?.fault || "").trim()
+    ) {
       clearGroupPollFeelTimers();
-      paintGroupPollFeel("fail");
-      setLiveReconnectBanner(true, String(payload?.fault || "").trim() || "Reconnecting…");
+      paintGroupPollFeel("ok");
+      setLiveReconnectBanner(true);
+      noteStaffPollBusy();
+      return;
+    }
+    if (!shouldApplyLiveSnapshot(payload, lastGoodStateSeq)) {
+      clearStaffOutage();
       return;
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
@@ -4228,6 +4399,9 @@ async function pollLiveSessionAttendees(opts = {}) {
     const nextSeq = Number(
       payload?.state_seq ?? payload?.teacher_state?.state_seq
     );
+    if (Number.isFinite(nextSeq) && nextSeq >= lastGoodStateSeq) {
+      lastGoodStateSeq = nextSeq;
+    }
     staffStateNeedsFull = false;
     clearGroupPollFeelTimers();
     paintGroupPollFeel("ok");
@@ -4237,13 +4411,15 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
   } catch (_) {
     clearGroupPollFeelTimers();
-    paintGroupPollFeel("fail");
-    setLiveReconnectBanner(true, "Live class state failed. Retry, or end the Meet if it stays down.");
+    paintGroupPollFeel("ok");
+    setLiveReconnectBanner(true);
+    noteStaffPollBusy();
   } finally {
     sessionPollInFlight = false;
     const queued = sessionPollQueued;
     sessionPollQueued = null;
     if (queued) return pollLiveSessionAttendees(queued);
+    if (!sessionPollStopped && !sessionPollTimer) scheduleLiveSessionPoll();
   }
 }
 
@@ -4252,17 +4428,19 @@ async function pollLiveSessionAttendees(opts = {}) {
  */
 function startLiveSessionPolling() {
   stopLiveSessionPolling();
-  pollLiveSessionAttendees();
-  syncLiveSessionPolling();
+  sessionPollStopped = false;
+  pollBackoffMs = 0;
+  staffOutageStartedAt = 0;
+  void pollLiveSessionAttendees();
 }
 
 $("live-reconnect-retry")?.addEventListener("click", () => {
-  void pollLiveSessionAttendees({ full: true, force: true });
+  reissueLiveStateOnce();
 });
 
 $("live-group-poll-retry")?.addEventListener("click", () => {
   paintGroupPollFeel("ok");
-  void pollLiveSessionAttendees({ force: true });
+  reissueLiveStateOnce();
 });
 
 /**
