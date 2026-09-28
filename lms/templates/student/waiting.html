@@ -14,15 +14,23 @@
     <p class="hint">Later: options provided by your teacher. (Not in this version.)</p>
   </div>
   <script>
+    let pollInFlight = false;
+    /**
+     * Watch for kickoff. A shed / busy body stays on this page.
+     */
     async function poll() {
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
         const res = await fetch("/api/student/state");
+        if (!res.ok) return;
         const data = await res.json();
-        if (data.redirect) {
-          location.href = data.redirect;
-        }
+        if (!data || data.retry || data.error === "state unavailable") return;
+        if (data.redirect) location.href = data.redirect;
       } catch (err) {
         /* keep waiting */
+      } finally {
+        pollInFlight = false;
       }
     }
     setInterval(poll, 4000);

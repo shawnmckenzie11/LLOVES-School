@@ -217,6 +217,9 @@ body.student-home .student-chrome-top {
   font-weight: 700;
   cursor: pointer;
 }
+.student-home .live-reconnect-retry[hidden] {
+  display: none !important;
+}
 
 body.student-home .student-chrome-bottom {
   border-top: 1px solid #1e3348;

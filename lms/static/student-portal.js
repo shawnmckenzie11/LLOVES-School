@@ -2,6 +2,16 @@
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
 import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import {
+  RECONNECT_PENDING_MS,
+  RECONNECT_STUCK_MS,
+  isLiveStateBusy,
+  jitterPollDelay,
+  nextPollBackoffMs,
+  reconnectCopy,
+  reconnectMode,
+  shouldApplyLiveSnapshot,
+} from "/static/live_poll_feel.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -95,6 +105,21 @@ const liveSubmitInFlight = new Set();
 /** @type {number} */
 let lastStateSeq = -1;
 let lastPollStamp = "";
+/** One student /state at a time. A second tick waits until it finishes. */
+let studentPollInFlight = false;
+/**
+ * One coalesced follow-up. A healthy overlap may run it once.
+ * Busy / 503 keeps the backoff timer instead of firing immediately.
+ */
+let studentPollQueued = false;
+let studentPollTimer = 0;
+/** Automatic delay after busy/503. ``0`` keeps the healthy 4s poll. */
+let studentBackoffMs = 0;
+/** Epoch ms when the current outage started. ``0`` when the frame is calm. */
+let studentOutageStartedAt = 0;
+let studentPendingTimer = 0;
+let studentStuckTimer = 0;
+const STUDENT_POLL_BASE_MS = 4000;
 /** @type {any} */
 let lastStudentPayload = null;
 /** @type {string} */
@@ -3943,24 +3968,158 @@ function paintGameShowWelcome(payload) {
 }
 
 /**
+ * Show or hide Retry. Global ``button`` CSS overrides the hidden attribute.
+ * @param {boolean} visible
+ */
+function setStudentRetryVisible(visible) {
+  const retry = document.getElementById("student-reconnect-retry");
+  if (!(retry instanceof HTMLElement)) return;
+  retry.hidden = !visible;
+  retry.classList.toggle("hidden", !visible);
+}
+
+/**
+ * Paint the one student strip. Does not clear the question stack or navigate.
+ * @param {"ok"|"pending"|"busy"|"stuck"} mode
+ */
+function paintStudentReconnect(mode) {
+  const el = document.getElementById("student-reconnect");
+  const copy = el?.querySelector(".live-reconnect-copy");
+  if (mode === "ok") {
+    if (el instanceof HTMLElement) el.hidden = true;
+    if (copy) copy.textContent = "Reconnecting…";
+    setStudentRetryVisible(false);
+    return;
+  }
+  if (el instanceof HTMLElement) el.hidden = false;
+  if (copy) copy.textContent = reconnectCopy(mode);
+  setStudentRetryVisible(mode === "stuck");
+}
+
+/**
+ * Clear soft-strip timers without scheduling a poll.
+ */
+function clearStudentFeelTimers() {
+  if (studentPendingTimer) window.clearTimeout(studentPendingTimer);
+  if (studentStuckTimer) window.clearTimeout(studentStuckTimer);
+  studentPendingTimer = 0;
+  studentStuckTimer = 0;
+}
+
+/**
+ * Show user-tap Retry once the outage has lasted ~4s.
+ */
+function armStudentStuckTimer() {
+  if (studentStuckTimer) window.clearTimeout(studentStuckTimer);
+  if (!studentOutageStartedAt) return;
+  const wait = Math.max(0, RECONNECT_STUCK_MS - (Date.now() - studentOutageStartedAt));
+  studentStuckTimer = window.setTimeout(() => {
+    studentStuckTimer = 0;
+    if (!studentOutageStartedAt) return;
+    paintStudentReconnect("stuck");
+  }, wait);
+}
+
+/**
+ * Hide the strip and let the next poll use the healthy interval.
+ */
+function clearStudentOutage() {
+  studentOutageStartedAt = 0;
+  studentBackoffMs = 0;
+  clearStudentFeelTimers();
+  paintStudentReconnect("ok");
+}
+
+/**
  * Show or hide the calm Reconnecting… strip without wiping the last frame.
+ * Busy / presence loss never reloads the page.
  * @param {boolean} visible
  */
 function setStudentReconnectBanner(visible) {
-  const el = document.getElementById("student-reconnect");
-  if (el instanceof HTMLElement) el.hidden = !visible;
+  if (!visible) {
+    clearStudentOutage();
+    return;
+  }
+  if (!studentOutageStartedAt) studentOutageStartedAt = Date.now();
+  const mode = reconnectMode(studentOutageStartedAt, Date.now(), "busy");
+  paintStudentReconnect(mode);
+  armStudentStuckTimer();
+}
+
+/**
+ * "Reconnecting…" only after this /state has already waited ~800ms.
+ */
+function armStudentPendingFeel() {
+  if (studentPendingTimer) window.clearTimeout(studentPendingTimer);
+  if (studentOutageStartedAt) {
+    armStudentStuckTimer();
+    return;
+  }
+  studentPendingTimer = window.setTimeout(() => {
+    studentPendingTimer = 0;
+    if (!studentPollInFlight || studentOutageStartedAt) return;
+    studentOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
+    paintStudentReconnect("pending");
+    armStudentStuckTimer();
+  }, RECONNECT_PENDING_MS);
+}
+
+/**
+ * Lengthen the next automatic /state after busy/503. Never uses delay 0.
+ */
+function noteStudentPollBusy() {
+  studentBackoffMs = nextPollBackoffMs(studentBackoffMs, STUDENT_POLL_BASE_MS);
+  setStudentReconnectBanner(true);
+  scheduleStudentPoll();
+}
+
+/**
+ * Schedule one student /state. A pending timer is replaced by the current delay.
+ */
+function scheduleStudentPoll() {
+  if (studentPollTimer) window.clearTimeout(studentPollTimer);
+  const ms =
+    studentBackoffMs > 0 ? jitterPollDelay(studentBackoffMs) : STUDENT_POLL_BASE_MS;
+  studentPollTimer = window.setTimeout(() => {
+    studentPollTimer = 0;
+    void tick();
+  }, ms);
+}
+
+/**
+ * User Retry: one /state when none is in flight, plus one heartbeat.
+ * Does not reload, does not queue a second request, and does not
+ * pull the busy delay back to 0.
+ */
+function reissueStudentStateOnce() {
+  if (studentPollInFlight) return;
+  if (studentPollTimer) {
+    window.clearTimeout(studentPollTimer);
+    studentPollTimer = 0;
+  }
+  document.dispatchEvent(new CustomEvent("lloves-live-retry"));
+  void tick();
 }
 
 if (window.__llovesLiveLinkOk === false) setStudentReconnectBanner(true);
 document.addEventListener("lloves-live-link", (event) => {
   const ok = Boolean(event.detail && event.detail.ok);
+  if (ok && studentBackoffMs > 0) return;
   setStudentReconnectBanner(!ok);
 });
 
 /**
  * Fetch and paint /api/student/state.
+ * One poll is in flight. A 4s tick that overlaps it coalesces.
+ * Busy / shed JSON keeps the last frame, backs off, and does not navigate.
  */
 async function tick() {
+  if (studentPollInFlight) {
+    studentPollQueued = true;
+    return;
+  }
+  studentPollInFlight = true;
+  armStudentPendingFeel();
   try {
     const params = new URLSearchParams();
     if (lastStateSeq >= 0) params.set("seq", String(lastStateSeq));
@@ -3969,11 +4128,17 @@ async function tick() {
     const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
     if (!res.ok) {
       setStudentReconnectBanner(true);
+      noteStudentPollBusy();
       return;
     }
     const data = await res.json();
-    if (data && data.error === "state unavailable") {
+    if (data && (data.error === "state unavailable" || isLiveStateBusy(data))) {
       setStudentReconnectBanner(true);
+      noteStudentPollBusy();
+      return;
+    }
+    if (!shouldApplyLiveSnapshot(data, lastStateSeq < 0 ? 0 : lastStateSeq)) {
+      setStudentReconnectBanner(false);
       return;
     }
     if (data.unchanged) {
@@ -3989,7 +4154,13 @@ async function tick() {
     ) {
       paintCelebrate({ celebrate: false });
     }
-    if (data.redirect && data.redirect !== "/student/home" && !data.celebrate) {
+    if (
+      data.redirect &&
+      data.redirect !== "/student/home" &&
+      !data.celebrate &&
+      !data.retry &&
+      !isLiveStateBusy(data)
+    ) {
       location.href = data.redirect;
       return;
     }
@@ -4039,12 +4210,19 @@ async function tick() {
     setStudentReconnectBanner(false);
   } catch (_err) {
     setStudentReconnectBanner(true);
+    noteStudentPollBusy();
+  } finally {
+    studentPollInFlight = false;
+    const queued = studentPollQueued;
+    studentPollQueued = false;
+    // Busy already scheduled the next poll. Do not stampede another /state.
+    if (queued && studentBackoffMs <= 0) return tick();
+    if (!studentPollTimer) scheduleStudentPoll();
   }
 }
 
 document.getElementById("student-reconnect-retry")?.addEventListener("click", () => {
-  document.dispatchEvent(new CustomEvent("lloves-live-retry"));
-  void tick();
+  reissueStudentStateOnce();
 });
 
 document.getElementById("live-response")?.addEventListener("keydown", (event) => {
@@ -4359,8 +4537,7 @@ bindStudentCanvas();
 bindFloatingPane(mediaPane);
 bindFloatingPane(canvasPane);
 bindFloatingPane(slidesPane);
-tick();
-setInterval(tick, 4000);
+void tick();
 setInterval(tickDisplayTime, 250);
 
 const bootCodename = body && body.dataset ? body.dataset.codename : "";
