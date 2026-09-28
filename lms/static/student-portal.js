@@ -107,7 +107,10 @@ let lastStateSeq = -1;
 let lastPollStamp = "";
 /** One student /state at a time. A second tick waits until it finishes. */
 let studentPollInFlight = false;
-/** Coalesce one follow-up tick after a submit. Retry does not set this. */
+/**
+ * One coalesced follow-up. A healthy overlap may run it once.
+ * Busy / 503 keeps the backoff timer instead of firing immediately.
+ */
 let studentPollQueued = false;
 let studentPollTimer = 0;
 /** Automatic delay after busy/503. ``0`` keeps the healthy 4s poll. */
@@ -4085,10 +4088,15 @@ function scheduleStudentPoll() {
 
 /**
  * User Retry: one /state when none is in flight, plus one heartbeat.
- * Does not reload and does not pull the poll delay back to 0.
+ * Does not reload, does not queue a second request, and does not
+ * pull the busy delay back to 0.
  */
 function reissueStudentStateOnce() {
   if (studentPollInFlight) return;
+  if (studentPollTimer) {
+    window.clearTimeout(studentPollTimer);
+    studentPollTimer = 0;
+  }
   document.dispatchEvent(new CustomEvent("lloves-live-retry"));
   void tick();
 }
@@ -4102,7 +4110,8 @@ document.addEventListener("lloves-live-link", (event) => {
 
 /**
  * Fetch and paint /api/student/state.
- * One poll is in flight. Busy / shed JSON keeps the last frame and does not navigate.
+ * One poll is in flight. A 4s tick that overlaps it coalesces.
+ * Busy / shed JSON keeps the last frame, backs off, and does not navigate.
  */
 async function tick() {
   if (studentPollInFlight) {
@@ -4204,10 +4213,10 @@ async function tick() {
     noteStudentPollBusy();
   } finally {
     studentPollInFlight = false;
-    if (studentPollQueued) {
-      studentPollQueued = false;
-      return tick();
-    }
+    const queued = studentPollQueued;
+    studentPollQueued = false;
+    // Busy already scheduled the next poll. Do not stampede another /state.
+    if (queued && studentBackoffMs <= 0) return tick();
     if (!studentPollTimer) scheduleStudentPoll();
   }
 }

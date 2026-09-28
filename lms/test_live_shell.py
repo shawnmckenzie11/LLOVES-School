@@ -2451,8 +2451,14 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("isLiveStateBusy", tick)
         self.assertIn("noteStudentPollBusy", tick)
         self.assertIn("studentPollInFlight", tick)
+        self.assertIn("studentBackoffMs <= 0", tick)
         self.assertNotIn("location.reload", tick)
         self.assertIn('id="student-reconnect-retry" hidden', home)
+        waiting = (LMS_DIR / "templates" / "student" / "waiting.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('data.error === "state unavailable"', waiting)
+        self.assertNotIn("location.reload", waiting)
 
     def test_shed_json_does_not_imply_reload(self) -> None:
         """Boot-shed /state JSON keeps the last frame and backs off above 0."""
