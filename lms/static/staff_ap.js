@@ -9516,6 +9516,7 @@ async function submitAddQuestion() {
   const imageUrl = imageFile ? await uploadLiveQuestionImage(imageFile) : "";
   const saveBank = $("live-add-q-save-bank");
   const scope = $("live-add-q-bank-scope-select");
+  const bankKind = $("live-add-q-bank-kind");
   const body = {
     type: kind,
     text,
@@ -9523,6 +9524,7 @@ async function submitAddQuestion() {
     image_url: imageUrl,
     page_number: currentLivePageNumber(),
     stage: String(teacherState.stage || "round"),
+    bank_kind: bankKind instanceof HTMLSelectElement ? String(bankKind.value || "") : "",
     save_to_bank: Boolean(saveBank instanceof HTMLInputElement && saveBank.checked),
     bank_scope: String(
       scope instanceof HTMLSelectElement && scope.value

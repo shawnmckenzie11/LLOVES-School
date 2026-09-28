@@ -692,9 +692,11 @@ function initLiveProblemsTab() {
       .map((p) => {
         const procs = (p.processes || []).join(", ");
         const active = Number(p.active) === 1;
+        const kindLabel =
+          String(p.kind || "").toLowerCase() === "standard" ? "Custom" : p.kind;
         return `<tr>
           <td>${escapeHtml(p.title)}</td>
-          <td>${escapeHtml(p.kind)}</td>
+          <td>${escapeHtml(kindLabel)}</td>
           <td>${escapeHtml(p.module_hint || "")}</td>
           <td>${escapeHtml(procs)}</td>
           <td><button type="button" class="btn secondary" data-toggle-problem="${p.id}" data-active="${active ? "0" : "1"}">${active ? "Deactivate" : "Activate"}</button></td>

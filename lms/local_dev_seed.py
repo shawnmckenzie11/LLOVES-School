@@ -141,6 +141,12 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
     if bank_seed is not None:
         summary["bank_seed"] = bank_seed
     summary["warmup_seed"] = school.seed_course_wide_warmups(library_id)
+    try:
+        from curriculum_bank_seed import seed_local_question_banks
+    except ImportError:
+        from lms.curriculum_bank_seed import seed_local_question_banks
+
+    summary["import_banks"] = seed_local_question_banks(school)
     return summary
 
 
@@ -223,6 +229,7 @@ def main() -> int:
     if not local_dev_login_enabled():
         print("local-dev seed skipped: LOCAL_DEV_LOGIN is not set")
         return 0
+    from curriculum import seed_curriculum
     from paths import DEFAULT_DB_PATH
     from school_db import SchoolDB
 
@@ -230,6 +237,7 @@ def main() -> int:
     store = Path(os.getenv("LLOVES_DATA_DIR") or db_file.parent)
     school = SchoolDB(db_file, store)
     try:
+        seed_curriculum(school)
         summary = seed_local_dev_school(school)
     except Exception as exc:  # noqa: BLE001 - start script must report and fail
         print(f"local-dev seed failed: {exc}", file=sys.stderr)

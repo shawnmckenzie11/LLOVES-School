@@ -74,7 +74,7 @@ function currentScope() {
 }
 
 /**
- * Kind query shared with Import. Empty is Process (warmup hidden).
+ * Kind query shared with Import. Empty is Core Math (warmup and Custom hidden).
  */
 function currentKind() {
   return kindEl instanceof HTMLSelectElement ? String(kindEl.value || "") : "";
@@ -123,6 +123,8 @@ function readEditor(card) {
     pointsInput instanceof HTMLInputElement ? pointsInput.value.trim() : "";
   const typeEl = card.querySelector("[data-bank-new-type]");
   const type = typeEl instanceof HTMLSelectElement ? typeEl.value : "mc";
+  const kindSelect = card.querySelector("[data-bank-kind]");
+  const bankKind = kindSelect instanceof HTMLSelectElement ? kindSelect.value : "";
   const numericEl = card.querySelector("[data-bank-numeric]");
   const numeric =
     numericEl instanceof HTMLInputElement ? numericEl.value.trim() : "";
@@ -137,6 +139,7 @@ function readEditor(card) {
           : "",
     points: pointsRaw === "" ? null : Number(pointsRaw),
     type,
+    bank_kind: bankKind,
   };
 }
 
@@ -206,12 +209,21 @@ function editorHtml(question, isNew) {
           <input data-bank-numeric type="text" inputmode="decimal" required>
         </label>`
       : "";
+  const bankKind = String(question.bank_kind || "");
   const typeFields = isNew
     ? `<label>Type
         <select data-bank-new-type aria-label="Type">
           <option value="mc"${newType === "mc" ? " selected" : ""}>mc</option>
           <option value="numeric"${newType === "numeric" ? " selected" : ""}>numeric</option>
           <option value="poll"${newType === "poll" ? " selected" : ""}>poll</option>
+        </select>
+      </label>
+      <label>Kind
+        <select data-bank-kind aria-label="Kind">
+          <option value=""${bankKind === "" ? " selected" : ""}>Core Math</option>
+          <option value="standard"${bankKind === "standard" ? " selected" : ""}>Custom</option>
+          <option value="contest"${bankKind === "contest" ? " selected" : ""}>Contest</option>
+          <option value="warmup"${bankKind === "warmup" ? " selected" : ""}>Warmup</option>
         </select>
       </label>`
     : "";
@@ -296,7 +308,16 @@ function paintList() {
     const on = Number(selected?.question_id) === qid ? " is-on" : "";
     const previewHtml = String(item.stem_preview_html || "").trim();
     const preview = String(item.text || item.question_title || "Untitled");
-    const kind = isWarmup(item) ? "Warmup" : String(item.type || "mc");
+    const storedKind = String(item.kind || item.payload?.bank_kind || item.payload?.kind || "").toLowerCase();
+    const kindLabel =
+      storedKind === "standard" || storedKind === "custom"
+        ? "Custom"
+        : storedKind === "contest"
+          ? "Contest"
+          : isWarmup(item)
+            ? "Warmup"
+            : "";
+    const kind = kindLabel || String(item.type || "mc");
     const previewMarkup = previewHtml
       ? `<span class="bank-q-preview live-question-html">${previewHtml}</span>`
       : `<span class="bank-q-preview">${escapeText(preview)}</span>`;
@@ -584,7 +605,14 @@ detail?.addEventListener("change", (event) => {
   if (!(form instanceof HTMLElement)) return;
   const draft = readEditor(form);
   detail.innerHTML = `<header class="bank-detail-head"><div><h2>Add question</h2></div></header>${editorHtml(
-    { id: "new", type: draft.type, stem_plain: draft.stem_text, points: draft.points ?? 1, choices: [] },
+    {
+      id: "new",
+      type: draft.type,
+      bank_kind: draft.bank_kind,
+      stem_plain: draft.stem_text,
+      points: draft.points ?? 1,
+      choices: [],
+    },
     true
   )}`;
 });

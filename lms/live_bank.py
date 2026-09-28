@@ -30,8 +30,9 @@ def create_live_bank_question(
 
     Uses the staff-authored bank and ``INSERT OR IGNORE`` module links — the
     same tables Add New writes when Save to bank is checked. Course Wide links
-    modules 1–8 without touching the Course Wide warmup bank. New rows are
-    untagged, so Process Import can see them and Warmup stays a filter.
+    modules 1–8 without touching the Course Wide warmup bank. An omitted
+    ``bank_kind`` stays untagged (Core Math). ``custom`` stores as
+    ``standard``. Warmup stays a filter.
 
     Args:
         school: School database.
@@ -79,6 +80,7 @@ def create_live_bank_question(
     if kind == "rank":
         write["options"] = [row["label"] for row in rank_options]
     write.pop("kind", None)
+    write.pop("bank_kind", None)
     write.pop("tags", None)
     question = create_staff_bank_question(
         school,
@@ -109,6 +111,12 @@ def create_live_bank_question(
         payload["rank_options"] = rank_options
         payload.pop("key", None)
         payload.pop("correct_answer", None)
+    try:
+        from bank_kinds import apply_stored_bank_kind
+    except ImportError:
+        from lms.bank_kinds import apply_stored_bank_kind
+
+    apply_stored_bank_kind(payload, body.get("bank_kind") or body.get("bankKind"))
     school.update_library_question_payload(
         int(library_id),
         int(question["id"]),
