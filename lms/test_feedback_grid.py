@@ -65,11 +65,6 @@ class FeedbackGridTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _student_id(self) -> int:
-        """Return Aspen's roster id."""
-        roster = self.school.game.dashboard(self.class_id, sort="az")["students"]
-        return int(roster[0]["id"])
-
     def _insert_feedback(
         self,
         *,
@@ -78,9 +73,14 @@ class FeedbackGridTests(unittest.TestCase):
         slot: str = "C1",
         mood: str = "good",
         before: str = "ok",
+        student_name: str = "Aspen",
+        comment: str = "note",
     ) -> None:
         """Write one submitted How-was-class row."""
-        sid = self._student_id()
+        roster = self.school.game.dashboard(self.class_id, sort="az")["students"]
+        sid = next(
+            int(row["id"]) for row in roster if row["codename"] == student_name
+        )
         with self.school._lock:
             self.school.conn.execute(
                 """
@@ -88,10 +88,20 @@ class FeedbackGridTests(unittest.TestCase):
                     class_id, student_id, participant_uuid, codename,
                     meeting_date, token, mood, before_mood, live_module,
                     live_slot, comment, submitted_at, created_at
-                ) VALUES (?, ?, '', 'Aspen', '2026-09-09', ?, ?, ?, ?, ?,
-                          'note', '2026-09-09T12:00:00', '2026-09-09T12:00:00')
+                ) VALUES (?, ?, '', ?, '2026-09-09', ?, ?, ?, ?, ?,
+                          ?, '2026-09-09T12:00:00', '2026-09-09T12:00:00')
                 """,
-                (int(self.class_id), sid, token, mood, before, module, slot),
+                (
+                    int(self.class_id),
+                    sid,
+                    student_name,
+                    token,
+                    mood,
+                    before,
+                    module,
+                    slot,
+                    comment,
+                ),
             )
             self.school.conn.commit()
 
@@ -113,6 +123,70 @@ class FeedbackGridTests(unittest.TestCase):
         self.assertNotIn("moodGlyph", js)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("#fb-clear.on", css)
+        self.assertNotIn("mood-face", js)
+        self.assertNotIn('colspan="4"', js)
+
+    def test_summary_cell_is_one_column_per_live_key(self) -> None:
+        """Feedback ledger is one text summary per live key, with a detail sheet."""
+        self._insert_feedback(token="tok-c1", slot="C1", mood="good", before="ok")
+        self._insert_feedback(token="tok-c2", slot="C2", mood="low", before="good")
+        self._insert_feedback(
+            token="tok-birch",
+            slot="C1",
+            mood="ok",
+            before="ok",
+            student_name="Birch",
+            comment="",
+        )
+        page = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=feedback"
+        )
+        html = page.get_data(as_text=True)
+        self.assertNotIn("mood-face", html)
+        self.assertNotIn('colspan="4"', html)
+        self.assertNotIn("<th>Before</th>", html)
+        self.assertNotIn("<th>Note</th>", html)
+        self.assertIn('data-live-key="M1C1"', html)
+        self.assertIn('data-live-key="M1C2"', html)
+        self.assertIn("ok → good · +1", html)
+        self.assertIn("good → low · −2", html)
+        self.assertIn("ok → ok · 0", html)
+        self.assertNotIn("ok → ok · 0 ·", html)
+        self.assertIn(">note<", html)
+        self.assertIn('aria-label="Aspen, M1C1, ok → good · +1, note"', html)
+        self.assertIn('aria-label="Birch, M1C1, ok → ok · 0"', html)
+        self.assertIn('id="feedback-comment-dialog"', html)
+        self.assertIn('id="feedback-detail-before"', html)
+        self.assertIn('id="feedback-detail-comment"', html)
+        self.assertIn(">Before<", html)
+        self.assertIn(">After<", html)
+        self.assertIn(">Score<", html)
+        self.assertIn(">Comment<", html)
+        hint = html.split('class="hint">', 1)[1].split("</p>", 1)[0]
+        self.assertNotIn("icon", hint.lower())
+        self.assertIn("−1", hint)
+        self.assertIn("end-live-options", html)
+        self.assertIn('name="save_attendance"', html)
+        self.assertIn('name="save_participation"', html)
+        self.assertIn('name="end_options"', html)
+        home = (LMS_DIR / "templates" / "staff" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('class="end-live-options"', home)
+        self.assertIn('class="end-live-options"', course)
+        self.assertIn('class="end-live-option"', home)
+        self.assertIn('class="end-live-option"', course)
+        self.assertIn('name="save_attendance" value="1" checked', home)
+        self.assertIn('name="save_participation" value="1" checked', course)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("grid-template-columns: 20px minmax(0, 1fr)", css)
+        self.assertIn("min-height: 44px", css)
+        self.assertIn("gap: 10px", css)
+        self.assertIn("margin-top: calc(18px - 0.65rem)", css)
+        self.assertIn("justify-content: space-between", css)
 
     def test_clear_one_live_class_leaves_the_other(self) -> None:
         """Clear M1C1 drops that column and keeps M1C2."""

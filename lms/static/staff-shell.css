@@ -463,9 +463,36 @@ body.staff-shell .ap-subtabs a.on {
   color: #0f766e;
   border-bottom: 2px solid #0f766e;
 }
-body.staff-shell #feedback-sheet .mood-face {
-  width: 2rem;
-  height: 2rem;
+body.staff-shell .feedback-summary-cell {
+  white-space: normal;
+}
+body.staff-shell .feedback-summary {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 550;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+body.staff-shell .feedback-summary:hover,
+body.staff-shell .feedback-summary:focus-visible {
+  filter: none;
+  border-color: transparent;
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+body.staff-shell .feedback-summary-note {
+  color: #0f766e;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
 }
 body.staff-shell .scoreboard-opt {
   display: grid;
@@ -4462,24 +4489,62 @@ body.staff-shell .end-live-dialog-form p {
   margin: 0;
   color: #475569;
 }
-body.staff-shell .end-live-option {
+body.staff-shell .end-live-options {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+body.staff-shell .end-live-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 0.5rem;
+  align-items: baseline;
+  min-height: 44px;
+  width: 100%;
+  margin: 0;
+  padding-block: 12px;
+  box-sizing: border-box;
+  font-size: 1rem;
   font-weight: 600;
+  line-height: 1.3;
+  color: #12202e;
+  cursor: pointer;
+}
+body.staff-shell .end-live-option input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  margin: 0;
+  padding: 0;
+  justify-self: start;
+  align-self: baseline;
+}
+body.staff-shell .end-live-option span {
+  min-width: 0;
+  align-self: baseline;
 }
 body.staff-shell .end-live-dialog-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 0.35rem;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: calc(18px - 0.65rem);
+}
+body.staff-shell .end-live-dialog-actions > button {
+  flex: 0 0 auto;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  white-space: nowrap;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 body.staff-shell .feedback-live-group {
   text-align: center;
-}
-body.staff-shell .feedback-note-link {
-  padding: 0.15rem 0.45rem;
-  font-size: 0.78rem;
 }
 body.staff-shell .feedback-comment-dialog {
   border: 1px solid #cbd5e1;
@@ -4491,8 +4556,31 @@ body.staff-shell .feedback-comment-card {
   margin: 0;
   padding: 1rem 1.1rem;
 }
-body.staff-shell .feedback-comment-body {
+body.staff-shell .feedback-detail {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.85rem 0 1rem;
+}
+body.staff-shell .feedback-detail > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+}
+body.staff-shell .feedback-detail dt,
+body.staff-shell .feedback-detail dd {
+  margin: 0;
+}
+body.staff-shell .feedback-detail dt {
+  font-weight: 700;
+  color: #334155;
+}
+body.staff-shell .feedback-detail dd {
   white-space: pre-wrap;
+}
+body.staff-shell .feedback-detail-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 body.staff-shell #meet-option-card:not([hidden]) {
