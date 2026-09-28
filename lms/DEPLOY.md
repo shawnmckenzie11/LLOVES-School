@@ -116,7 +116,7 @@ that requires a paid upgrade to raise. Config already set (no machine upsell):
 | Layer | Setting | Notes |
 |-------|---------|--------|
 | Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **`None`** (unlimited) in `lms/modules.py` |
-| gunicorn | **4 workers, 8 threads, `--timeout 120`**, keepalive 1s, `worker_connections` 32 per worker | Same line in `lms/Dockerfile` and `fly.toml` `[processes]`. A silent worker is killed after 120s. Poll slices stop at 8s. |
+| gunicorn | **4 workers, 8 threads, `--timeout 120`**, keepalive 1s, `worker_connections` 32 per worker, **backlog 64** | Same line in `lms/Dockerfile` and `fly.toml` `[processes]`. A silent worker is killed after 120s. Poll slices stop at 8s. Boot `/state` sheds for 8s. |
 | Fly `http_service.http_options.idle_timeout` | **600s** | Free config; quiet periods while the body is received / unpack runs |
 | Fly Proxy body size | streaming | No documented hard cap; >10 MB skips replay buffering (latency quirk only, not a reject) |
 | Fly volume `lloves_data` | currently **15 GB** | **Real hard limit** for `.imscc` + unpacked tree. Extending volume **costs money** — only if disk-full errors appear |
@@ -125,11 +125,34 @@ that requires a paid upgrade to raise. Config already set (no machine upsell):
 volume or buying a larger VM is **not** free — do not extend unless `/data` is full.
 Stay on **one** shared-cpu-1x / 1 GB machine. Do not add a second Fly machine.
 Inside that machine the image command is 4 gunicorn workers × 8 threads and
-timeout 120. 1 worker × 2 threads re-wedged alc after a soft restart and a
-hard restart; 4×8 with timeout 120 restored `/health`. `worker_connections`
-is 32 per worker, not gunicorn's default of 1000. Live `/state` sends
-`Connection: close`. Fly proxy `idle_timeout` stays 600 for a quiet upload
-body. The gunicorn worker timeout is 120.
+timeout 120, with keepalive 1s, `worker_connections` 32 per worker, and
+listen backlog 64. Live `/state` sends `Connection: close`. Fly proxy
+`idle_timeout` stays 600 for a quiet upload body. The gunicorn worker
+timeout is 120.
+
+## When `/health` wedges under live polls
+
+On 2026-09-28 the live machine command was already
+`gunicorn … --workers 4 --threads 8 --timeout 120`. A plain
+`fly machines restart` wedged `/health` again (curl exit 28, about 90s).
+Re-applying that same command with `fly machines update` (fresh launch)
+restored `/health` 200.
+
+Restart binds `:8080` before workers finish `create_app()`. Poll clients
+re-attach into that listen queue and the workers then spend their threads
+on `/state`. A fresh launch or an image deploy cuts traffic over after
+the process is serving.
+
+Recovery under live poll load:
+
+- Image deploy (merge to `main`), or `fly machines update` on the one machine.
+- Do not use `fly machines restart` while student and staff polls are attached.
+
+The image also refuses connections past backlog 64 (gunicorn's default
+queue is 2048) and, for 8 seconds after each worker loads, answers
+`/state` with retry JSON. `/health` is served during that window. That
+does not make a soft restart the recovery path. The listen socket is
+still open while `create_app()` runs.
 
 **Cloudflare:** keep the `alc` CNAME **DNS only** (grey cloud). Orange-cloud proxying
 often rejects or truncates very large request bodies.

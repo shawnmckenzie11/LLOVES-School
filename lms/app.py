@@ -82,8 +82,10 @@ from school_db import STAFF_2FA_MODE_LABELS, SchoolDB, json_safe  # noqa: E402
 from serve_capacity import (  # noqa: E402
     PollBudgetExceeded,
     is_live_state_poll,
+    maybe_arm_worker_warmup,
     missing_live_session,
     poll_slot,
+    worker_warmup_active,
 )
 from artifact import (  # noqa: E402
     C2_TRANSFORM_MEDIA_URL,
@@ -949,6 +951,24 @@ def create_app(
             )
         return response
 
+    @app.before_request
+    def _shed_live_polls_during_worker_warmup():
+        """Shed boot-queue ``/state`` polls so ``/health`` can be served.
+
+        gunicorn binds before this worker accepts. A soft restart under
+        live polls fills that queue. Retry JSON skips auth, sqlite, and
+        presence. ``/health`` and every other path stay on the normal view.
+
+        Returns:
+            The shed body during warmup, otherwise ``None`` so the view runs.
+        """
+        if not is_live_state_poll(request.path):
+            return None
+        if not worker_warmup_active():
+            return None
+        return _poll_shed_response()
+
+    maybe_arm_worker_warmup(testing=testing)
     return app
 
 
