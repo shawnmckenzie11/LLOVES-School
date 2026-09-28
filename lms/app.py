@@ -87,6 +87,11 @@ from serve_capacity import (  # noqa: E402
     poll_slot,
     worker_warmup_active,
 )
+from sentry_wire import (  # noqa: E402
+    SENTRY_CONNECT_SRC,
+    init_flask_sentry,
+    sentry_browser_context,
+)
 from artifact import (  # noqa: E402
     C2_TRANSFORM_MEDIA_URL,
     TRANSFORMATIONS_ARTIFACT_ID,
@@ -864,6 +869,8 @@ def create_app(
             ``None`` reads the environment. ``""`` forces sqlite.
         live_presence_schema: Optional Postgres schema for tests.
     """
+    if not testing:
+        init_flask_sentry()
     app = Flask(
         __name__,
         template_folder=str(LMS_DIR / "templates"),
@@ -920,6 +927,11 @@ def create_app(
         """Expose ALC display names and McKenzian credit on every template."""
         return public_brand()
 
+    @app.context_processor
+    def inject_sentry_browser() -> dict[str, str]:
+        """Expose the live-shell Sentry meta values. Empty DSN skips the SDK."""
+        return sentry_browser_context()
+
     @app.after_request
     def add_security_headers(response: Response) -> Response:
         """Browser isolation headers. HSTS only behind production TLS."""
@@ -938,7 +950,8 @@ def create_app(
             "script-src 'self' 'unsafe-inline' https://accounts.google.com; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
-            "connect-src 'self' https://accounts.google.com; "
+            "connect-src 'self' https://accounts.google.com "
+            f"{SENTRY_CONNECT_SRC}; "
             "frame-src 'self' https://accounts.google.com; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "

@@ -20,6 +20,10 @@ COPY . .
 # Science 11–12 + HPE 9–12 PDFs (not always in git). Skip if already copied.
 RUN python lms/fetch_ontario_curriculum_pdfs.py
 
+# Sentry release tag. Empty on a laptop image build. Actions passes the SHA.
+ARG GH_SHA=
+ENV GH_SHA=${GH_SHA}
+
 EXPOSE 8080
 
 # Proven alc tourniquet: 4 workers × 8 threads, timeout 120, plus the
