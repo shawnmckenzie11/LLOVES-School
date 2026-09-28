@@ -50,3 +50,21 @@ def post_worker_init(worker) -> None:
     """
     del worker
     arm_worker_warmup()
+
+
+def post_fork(server, worker) -> None:
+    """Re-init Sentry in the forked worker when this config file is loaded.
+
+    The production image command does not pass ``--config`` and does not
+    preload. ``create_app`` initializes Sentry on that path. This hook
+    covers a local ``--config`` run so a preloaded master client is not
+    the one the worker uses.
+
+    Args:
+        server: The gunicorn arbiter.
+        worker: The worker that just forked.
+    """
+    del server, worker
+    from sentry_wire import init_flask_sentry
+
+    init_flask_sentry()

@@ -1,0 +1,8 @@
+{# Public live-shell DSN from SENTRY_DSN_LIVE. Empty skips every tag. #}
+{% if sentry_live_dsn %}
+<meta name="lloves-sentry-dsn" content="{{ sentry_live_dsn }}">
+<meta name="lloves-sentry-environment" content="{{ sentry_environment }}">
+<meta name="lloves-sentry-release" content="{{ sentry_release }}">
+<script src="/static/vendor/sentry/bundle.tracing.min.js"></script>
+<script src="/static/sentry-live.js"></script>
+{% endif %}

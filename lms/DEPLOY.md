@@ -159,3 +159,64 @@ often rejects or truncates very large request bodies.
 
 If something still returns HTTP 413, it is not an LLOVES size cap — check Cloudflare
 proxy mode, idle timeout on a stalled upload, or volume free space.
+
+## Sentry
+
+Org `mckenzian`. Projects: `lloves-lms` (Flask) and `lloves-live` (browser). DSNs stay in the environment. The repo has no DSN strings.
+
+| Variable | Role |
+|----------|------|
+| `SENTRY_DSN` | Flask / gunicorn. Leave unset and the process boots with no Sentry client. |
+| `SENTRY_DSN_LIVE` | Public browser key for Run Live Class and the student portal. The server injects it as a meta tag. Leave unset and those pages do not load the browser SDK. |
+| `GH_SHA` | Release tag. `.github/workflows/deploy.yml` passes the commit as Docker `--build-arg GH_SHA`. |
+| `FLASK_ENV` | Environment tag. Fly sets `production`. Unset local runs tag `development`. |
+| `SENTRY_ENVIRONMENT` | Optional override. Use it for a tip smoke so you do not have to set `FLASK_ENV=production` (that flag refuses `LOCAL_DEV_LOGIN`). |
+| `SENTRY_RELEASE` | Optional override when `GH_SHA` is empty. |
+
+Fly secrets, after Shawn's GO (this tip does not deploy):
+
+```bash
+fly secrets set SENTRY_DSN='…' SENTRY_DSN_LIVE='…' --app lloves-lms
+```
+
+Paste each DSN at the prompt. The next merge to `main` ships the SDK. Events appear once those secrets exist on the machine.
+
+### Tip smoke on :8787
+
+```bash
+read -r SENTRY_DSN
+read -r SENTRY_DSN_LIVE
+export SENTRY_DSN SENTRY_DSN_LIVE
+export SENTRY_ENVIRONMENT=tip
+export GH_SHA="$(git rev-parse HEAD)"
+export LOCAL_DEV_LOGIN=1
+python3 lms/app.py
+```
+
+Flask event, same environment, second shell:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, 'lms')
+from sentry_wire import init_flask_sentry
+import sentry_sdk
+assert init_flask_sentry(), 'SENTRY_DSN missing'
+try:
+    raise RuntimeError('lloves-lms tip smoke MCK-8')
+except RuntimeError:
+    sentry_sdk.capture_exception()
+sentry_sdk.flush(timeout=10)
+print('flask event flushed')
+"
+```
+
+Browser: sign in with the offline picker, open Run Live Class or the student home, then in the console:
+
+```js
+throw new Error('lloves-live tip smoke MCK-8')
+```
+
+Confirm `lloves-lms` and `lloves-live` show those messages, environment `tip`, and release equal to `GH_SHA` when it is set.
+
+Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports. Traces sample at 5%. `/health`, `/api/student/state`, `/api/student/heartbeat`, and `/api/live-sessions/<id>/state` are not sampled. Request bodies and local variables are not sent.
