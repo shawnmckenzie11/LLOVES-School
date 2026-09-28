@@ -13864,6 +13864,257 @@ class SchoolDB(LovesDB):
             "game": game,
         }
 
+    def light_group_results(self, session_id: int) -> dict[str, Any]:
+        """Thin team status for active group items on a staff light poll.
+
+        Group MC (``group_submit``) and Individual-in-Group
+        (``group_consensus``) on the teacher's current stage only. Each
+        team is ``team_id``, ``team_name``, ``status`` (``waiting`` or
+        ``submitted``), ``vote_count``, ``eligible_count``, and an
+        optional ``last_submitter`` of ``{name, at}``. Member answer
+        lists stay off this payload. ``final_answer`` is omitted here
+        because only active items are included; Reveal uses the full
+        item results.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{item_id: {response_mode, response_seq, teams}}``. Empty
+            when the session is gone or no active group item is on stage.
+        """
+
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            session_row = self.get_live_session(session_id)
+            items = self.list_live_session_items(session_id)
+        except (KeyError, sqlite3.Error):
+            return {}
+        if session_row is None:
+            return {}
+        stage = str(teacher.get("stage") or "").strip().lower()
+        class_id = int(session_row["class_id"])
+        named = self._named_teams_for_live_session(session_id)
+        order = [
+            (int(team["id"]), str(team.get("name") or f"Team {team['id']}"))
+            for team in named
+            if str(team.get("name") or "") != "Class"
+        ]
+        present = {
+            int(row["student_id"])
+            for row in self.list_live_session_attendees(session_id, present_only=True)
+            if row.get("student_id") not in (None, "")
+        }
+        member_counts: dict[int, int] = {}
+        for team in named:
+            team_id = int(team["id"])
+            count = 0
+            for member in team.get("members") or []:
+                try:
+                    student_id = int(member["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if student_id in present:
+                    count += 1
+            member_counts[team_id] = count
+        out: dict[str, Any] = {}
+        for item in items:
+            if str(item.get("status") or "") != "active":
+                continue
+            item_stage = str(item.get("stage") or "").strip().lower()
+            if item_stage and stage and item_stage != stage:
+                continue
+            mode = str(item.get("response_mode") or "")
+            if mode not in {"group_submit", "group_consensus"}:
+                continue
+            item_id = int(item["id"])
+            if mode == "group_submit":
+                teams = self._light_group_submit_teams(
+                    item_id, class_id, order, member_counts
+                )
+            else:
+                teams = self._light_group_consensus_teams(
+                    item_id, class_id, order, member_counts
+                )
+            out[str(item_id)] = {
+                "response_mode": mode,
+                "response_seq": self._group_results_seq(teams),
+                "teams": teams,
+            }
+        return out
+
+    @staticmethod
+    def _group_results_seq(teams: list[dict[str, Any]]) -> str:
+        """Stamp a thin team list so the client can skip an unchanged paint.
+
+        Args:
+            teams: Thin team dicts from one active group item.
+
+        Returns:
+            ``vote_total:statuses:latest_submitter_at``.
+        """
+
+        votes = 0
+        marks: list[str] = []
+        stamps: list[str] = []
+        for team in teams:
+            votes += int(team.get("vote_count") or 0)
+            marks.append(str(team.get("status") or "waiting"))
+            last = team.get("last_submitter")
+            if isinstance(last, dict):
+                stamps.append(str(last.get("at") or ""))
+        latest = max(stamps) if stamps else ""
+        return f"{votes}:{','.join(marks)}:{latest}"
+
+    def _light_group_submit_teams(
+        self,
+        live_item_id: int,
+        class_id: int,
+        order: list[tuple[int, str]],
+        member_counts: dict[int, int],
+    ) -> list[dict[str, Any]]:
+        """Return thin Group MC rows without answer text.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            class_id: Game-show class id, for the submitter codename.
+            order: Named teams as ``(team_id, team_name)``.
+            member_counts: Present members per team.
+
+        Returns:
+            One thin team dict per named team. A query failure yields ``[]``.
+        """
+
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    """
+                    SELECT team_id, submit_count, last_submitter_student_id,
+                           updated_at
+                    FROM live_group_responses
+                    WHERE live_item_id = ?
+                    """,
+                    (int(live_item_id),),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        by_id = {int(row["team_id"]): row for row in rows}
+        packed_order = list(order)
+        known = {team_id for team_id, _name in packed_order}
+        for team_id in by_id:
+            if team_id not in known:
+                packed_order.append((team_id, f"Team {team_id}"))
+        teams: list[dict[str, Any]] = []
+        for team_id, team_name in packed_order:
+            row = by_id.get(team_id)
+            count = int(row["submit_count"] or 0) if row is not None else 0
+            team: dict[str, Any] = {
+                "team_id": int(team_id),
+                "team_name": team_name,
+                "status": "submitted" if count > 0 else "waiting",
+                "vote_count": count,
+                "eligible_count": max(int(member_counts.get(team_id) or 0), 1),
+            }
+            last_id = row["last_submitter_student_id"] if row is not None else None
+            if count > 0 and last_id not in (None, ""):
+                name = self._roster_codename(class_id, int(last_id))
+                if name:
+                    team["last_submitter"] = {
+                        "name": name,
+                        "at": str(row["updated_at"] or ""),
+                    }
+            teams.append(team)
+        return teams
+
+    def _light_group_consensus_teams(
+        self,
+        live_item_id: int,
+        class_id: int,
+        order: list[tuple[int, str]],
+        member_counts: dict[int, int],
+    ) -> list[dict[str, Any]]:
+        """Return thin Individual-in-Group rows without member answers.
+
+        Vote rows are counted and the latest voter is named. Answer JSON
+        is not selected.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            class_id: Game-show class id, for the submitter codename.
+            order: Named teams as ``(team_id, team_name)``.
+            member_counts: Present members per team.
+
+        Returns:
+            One thin team dict per team that is named or already voting.
+            A query failure yields ``[]``.
+        """
+
+        try:
+            with self._lock:
+                responses = self.conn.execute(
+                    """
+                    SELECT team_id, status
+                    FROM live_group_responses
+                    WHERE live_item_id = ?
+                    """,
+                    (int(live_item_id),),
+                ).fetchall()
+                counts = self.conn.execute(
+                    """
+                    SELECT team_id, COUNT(*) AS n
+                    FROM live_group_votes
+                    WHERE live_item_id = ?
+                    GROUP BY team_id
+                    """,
+                    (int(live_item_id),),
+                ).fetchall()
+                latest = self.conn.execute(
+                    """
+                    SELECT v.team_id, v.student_id, v.updated_at
+                    FROM live_group_votes v
+                    JOIN (
+                        SELECT team_id, MAX(id) AS id
+                        FROM live_group_votes
+                        WHERE live_item_id = ?
+                        GROUP BY team_id
+                    ) pick ON pick.id = v.id
+                    """,
+                    (int(live_item_id),),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        status_by_team = {
+            int(row["team_id"]): str(row["status"] or "") for row in responses
+        }
+        votes_by_team = {int(row["team_id"]): int(row["n"] or 0) for row in counts}
+        last_by_team = {int(row["team_id"]): row for row in latest}
+        packed_order = list(order)
+        known = {team_id for team_id, _name in packed_order}
+        for team_id in set(status_by_team) | set(votes_by_team):
+            if team_id not in known:
+                packed_order.append((team_id, f"Team {team_id}"))
+        teams: list[dict[str, Any]] = []
+        for team_id, team_name in packed_order:
+            vote_count = int(votes_by_team.get(team_id) or 0)
+            eligible = max(int(member_counts.get(team_id) or 0), vote_count)
+            submitted = status_by_team.get(team_id) == "finalized"
+            team: dict[str, Any] = {
+                "team_id": int(team_id),
+                "team_name": team_name,
+                "status": "submitted" if submitted else "waiting",
+                "vote_count": vote_count,
+                "eligible_count": eligible,
+            }
+            last = last_by_team.get(team_id)
+            if last is not None and last["student_id"] not in (None, ""):
+                name = self._roster_codename(class_id, int(last["student_id"]))
+                if name:
+                    team["last_submitter"] = {
+                        "name": name,
+                        "at": str(last["updated_at"] or ""),
+                    }
+            teams.append(team)
+        return teams
 
     def lifecycle_response_counts(self, session_id: int) -> dict[int, int]:
         """Map lifecycle item ids to response counts for the current stage.
@@ -22170,6 +22421,12 @@ class SchoolDB(LovesDB):
             payload["lifecycle_response_counts"] = answer_signals[0]
             payload["lifecycle_rank_revs"] = answer_signals[1]
         if light:
+            payload["group_results"] = live_state_field(
+                session_id,
+                "group_results",
+                lambda: self.light_group_results(session_id),
+                {},
+            )
             payload["canvas_sync"] = live_state_field(
                 session_id,
                 "canvas_sync",

@@ -79,6 +79,15 @@ let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
 let sessionPollMs = 0;
 let sessionPollInFlight = false;
+/** @type {{full?: boolean, force?: boolean}|null} */
+let sessionPollQueued = null;
+let groupPollPendingTimer = 0;
+let groupPollFailTimer = 0;
+let groupPollFeelShown = false;
+/** Soft pending on the consensus strip after this many milliseconds. */
+const GROUP_POLL_PENDING_MS = 800;
+/** Fail + Retry when a staff /state poll is still out after this. */
+const GROUP_POLL_FAIL_MS = 4000;
 let staffStateNeedsFull = true;
 /** @type {any} */
 let lastMcTally = null;
@@ -376,11 +385,10 @@ function lifecycleRowIsRank(row, prev) {
 
 /**
  * Merge server-side per-item response counts into lifecycleResults.
- * Individual-in-Group counts come from private votes. When that count
- * moves, or the team feed is still missing, reload member answers.
- * Rank (group and individual) refetches the same way when the count or
- * the rank revision moves, so team rows and class order update on the
- * light poll. Class order itself stays on the ~1s hold in rankCollateHtml.
+ * Rank refetches when the count or rank revision moves. Group MC and
+ * Individual-in-Group do not: those cards merge thin ``group_results``
+ * and paint in place. Do not refreshLifecycleResults for a group light tick.
+ * Class order itself stays on the ~1s hold in rankCollateHtml.
  * @param {Record<string, number>|null|undefined} counts
  * @param {Record<string, string>|null|undefined} [rankRevs]
  */
@@ -417,12 +425,235 @@ function adoptLifecycleResponseCounts(counts, rankRevs) {
       continue;
     }
     const groupMode =
-      String(row?.response_mode || prev.response_mode || "") === "group_consensus";
-    if (!groupMode) continue;
-    const missingTeams = !Array.isArray(prev.teams);
-    if (missingTeams || (seen && previous !== n)) refreshGroups = true;
+      String(row?.response_mode || prev.response_mode || "") === "group_consensus" ||
+      String(row?.response_mode || prev.response_mode || "") === "group_submit";
+    if (groupMode) {
+      // Thin group_results paints in place. Do not refreshLifecycleResults on a light tick.
+      continue;
+    }
   }
   if (refreshGroups) void refreshLifecycleResults();
+}
+
+/**
+ * Staff-only last submitter name from a thin team or a full log row.
+ * @param {any} row
+ * @returns {string}
+ */
+function submitterDisplayName(row) {
+  const last = row?.last_submitter;
+  if (last && typeof last === "object") return String(last.name || "").trim();
+  return String(last || "").trim();
+}
+
+/**
+ * ISO timestamp for a last submitter, when the thin bag sent one.
+ * @param {any} row
+ * @returns {string}
+ */
+function submitterAt(row) {
+  const last = row?.last_submitter;
+  if (last && typeof last === "object") return String(last.at || "").trim();
+  return String(row?.last_submitter_at || "").trim();
+}
+
+/**
+ * Soft relative age for a submitter timestamp.
+ * @param {string} at
+ * @returns {string}
+ */
+function softRelativeTime(at) {
+  const then = Date.parse(String(at || ""));
+  if (!Number.isFinite(then)) return "";
+  const delta = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (delta < 5) return "just now";
+  if (delta < 60) return `${delta}s`;
+  const minutes = Math.round(delta / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.round(minutes / 60)}h`;
+}
+
+/**
+ * Awareness line: name and soft age. No re-submit count or ranking cue.
+ * @param {any} row
+ * @returns {string}
+ */
+function groupSubmitterLine(row) {
+  const name = submitterDisplayName(row);
+  if (!name) return "";
+  const rel = softRelativeTime(submitterAt(row));
+  return rel ? `last: ${name} · ${rel}` : `last: ${name}`;
+}
+
+/**
+ * Match a status-board row to its submitter log row.
+ * @param {any[]} log
+ * @param {any} row
+ * @returns {any}
+ */
+function submitterLogRow(log, row) {
+  const id = Number(row?.team_id) || 0;
+  if (id) {
+    const hit = log.find((item) => Number(item?.team_id) === id);
+    if (hit) return hit;
+  }
+  const name = String(row?.team_name || "");
+  return log.find((item) => String(item?.team_name || "") === name) || row;
+}
+
+/**
+ * Lifecycle id stamped on a group results host.
+ * @param {any} result
+ * @returns {number}
+ */
+function groupResultsHostId(result, liveItemId) {
+  return Number(liveItemId || result?.live_item_id || result?.item?.id) || 0;
+}
+
+/**
+ * Waiting / check board with a soft submitter line. Answers stay out.
+ * @param {any} result
+ * @returns {string}
+ */
+function groupStatusBoardHtml(result) {
+  const board = Array.isArray(result?.status_board) ? result.status_board : [];
+  const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
+  const rows = board.length ? board : log;
+  if (!rows.length) {
+    return `<p class="hint compact">Groups appear here after publish.</p>`;
+  }
+  return `<ul class="group-status-board" aria-label="Group status">${rows
+    .map((row) => {
+      const source = submitterLogRow(log, row);
+      const submitted =
+        Boolean(row.submitted) || String(row.status || source.status || "") === "submitted";
+      const mark = submitted ? "✓" : "Waiting";
+      const line = groupSubmitterLine(source);
+      return `<li>
+        <span>${escapeHtml(row.team_name || source.team_name || "Group")}</span>
+        <span class="group-status-mark">${mark}</span>
+        ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
+      </li>`;
+    })
+    .join("")}</ul>`;
+}
+
+/**
+ * Merge thin light-poll ``group_results`` into lifecycleResults.
+ * Diffs ``response_seq`` (vote total, status, submitter time) and skips
+ * an unchanged item. Does not call refreshLifecycleResults.
+ * @param {Record<string, any>|null|undefined} bag
+ * @returns {boolean} True when at least one item changed.
+ */
+function adoptLightGroupResults(bag) {
+  if (!bag || typeof bag !== "object") return false;
+  let changed = false;
+  for (const [id, entry] of Object.entries(bag)) {
+    const liveItemId = Number(id);
+    if (!liveItemId || !entry || typeof entry !== "object") continue;
+    const teams = Array.isArray(entry.teams) ? entry.teams : [];
+    const seq = String(entry.response_seq ?? "");
+    const prev = lifecycleResults.get(liveItemId) || {};
+    if (seq && seq === String(prev.group_response_seq || "")) continue;
+    const mode = String(entry.response_mode || prev.response_mode || "group_submit");
+    if (mode === "group_consensus") {
+      const prevTeams = new Map(
+        (Array.isArray(prev.teams) ? prev.teams : []).map((team) => [
+          Number(team?.team_id) || 0,
+          team,
+        ])
+      );
+      const keepAnswers = Boolean(prev.answers_revealed);
+      lifecycleResults.set(liveItemId, {
+        ...prev,
+        live_item_id: liveItemId,
+        response_mode: "group_consensus",
+        group_response_seq: seq,
+        answers_revealed: keepAnswers,
+        teams: teams.map((team) => {
+          const teamId = Number(team.team_id) || 0;
+          const old = prevTeams.get(teamId) || {};
+          return {
+            team_id: teamId,
+            team_name: String(team.team_name || old.team_name || "Team"),
+            status: team.status === "submitted" ? "finalized" : "collecting_votes",
+            vote_count: Number(team.vote_count) || 0,
+            eligible_count: Number(team.eligible_count) || 0,
+            last_submitter: team.last_submitter || null,
+            final_answer: keepAnswers ? old.final_answer || null : null,
+            member_answers: keepAnswers ? old.member_answers : undefined,
+            vote_summary: keepAnswers ? old.vote_summary : undefined,
+          };
+        }),
+      });
+    } else {
+      const next = {
+        ...prev,
+        live_item_id: liveItemId,
+        response_mode: mode,
+        group_response_seq: seq,
+        response_count: teams.filter((team) => team.status === "submitted").length,
+        eligible_count: teams.length,
+        status_board: teams.map((team) => ({
+          team_id: Number(team.team_id) || 0,
+          team_name: String(team.team_name || "Group"),
+          submitted: team.status === "submitted",
+        })),
+        submitter_log: teams.map((team) => ({
+          team_id: Number(team.team_id) || 0,
+          team_name: String(team.team_name || "Group"),
+          last_submitter: team.last_submitter || null,
+        })),
+      };
+      delete next.reveal;
+      lifecycleResults.set(liveItemId, next);
+    }
+    changed = true;
+  }
+  if (changed) paintGroupResultsInPlace();
+  return changed;
+}
+
+/**
+ * Patch consensus cards and SubmitterLog without remounting the question list.
+ */
+function paintGroupResultsInPlace() {
+  const host = $("live-question-list");
+  if (!host) return;
+  host.querySelectorAll(".live-question-card[data-live-item-id]").forEach((card) => {
+    const liveItemId = Number(card.getAttribute("data-live-item-id")) || 0;
+    if (!liveItemId) return;
+    const result = lifecycleResults.get(liveItemId);
+    if (!result) return;
+    const mode = String(result.response_mode || "");
+    if (mode !== "group_submit" && mode !== "group_consensus") return;
+    const seq = String(result.group_response_seq || "");
+    const current = card.querySelector(`[data-group-results="${liveItemId}"]`);
+    if (current && seq && current.getAttribute("data-group-seq") === seq) return;
+    const revealed = card.classList.contains("is-closed");
+    const html =
+      mode === "group_consensus"
+        ? groupConsensusResultsHtml(result, revealed, liveItemId)
+        : groupSubmitTeacherHtml(result, revealed, liveItemId);
+    if (!html) return;
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    const next = temp.firstElementChild;
+    if (!(next instanceof HTMLElement)) return;
+    if (current) current.replaceWith(next);
+    else {
+      const main = card.querySelector(".live-question-card-main");
+      if (main) main.appendChild(next);
+    }
+    if (mode === "group_submit") {
+      const progress = card.querySelector(".live-question-progress");
+      const board = Array.isArray(result.status_board) ? result.status_board : [];
+      if (progress && board.length) {
+        const done = board.filter((row) => row.submitted).length;
+        progress.textContent = `${done} / ${board.length} groups`;
+      }
+    }
+  });
 }
 
 
@@ -2381,71 +2612,33 @@ function rankCollateHtml(rank, liveItemId) {
 
 /**
  * Teacher status is waiting or a check. Answers stay off until reveal.
+ * SubmitterLog is the last name and a soft relative time, staff-only.
  * @param {any} result
  * @param {boolean} revealed
+ * @param {number} [liveItemId]
  * @returns {string}
  */
-function groupSubmitTeacherHtml(result, revealed) {
+function groupSubmitTeacherHtml(result, revealed, liveItemId) {
+  const hostId = groupResultsHostId(result, liveItemId);
+  const seq = escapeHtml(String(result?.group_response_seq || ""));
+  const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
   if (result?.rank) {
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
-    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || 0);
-    const logHtml = `<details class="group-submitter-log">
-      <summary>Submitter log</summary>
-      <table>
-        <thead><tr><th>Group</th><th>Last submitter</th><th>Re-submits</th><th>No submit at reveal</th><th>Repeat submitter</th><th>Why</th></tr></thead>
-        <tbody>${
-          log.length
-            ? log
-                .map(
-                  (row) => `<tr>
-              <td>${escapeHtml(row.team_name || "")}</td>
-              <td>${escapeHtml(row.last_submitter || "")}</td>
-              <td>${Number(row.resubmit_count) || 0}</td>
-              <td>${row.no_submit_at_reveal ? "Yes" : "No"}</td>
-              <td>${row.repeat_submitter ? "Yes" : "No"}</td>
-              <td>${row.why_present ? "Yes" : "No"}</td>
-            </tr>`
-                )
-                .join("")
-            : `<tr><td colspan="6"></td></tr>`
-        }</tbody>
-      </table>
-    </details>`;
-    return `<div class="group-submit-teacher">${rankHtml}${logHtml}</div>`;
+    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || hostId);
+    const lines = log
+      .map((row) => {
+        const line = groupSubmitterLine(row);
+        if (!line) return "";
+        return `<li><span>${escapeHtml(row.team_name || "Group")}</span><span class="group-submitter-log">${escapeHtml(line)}</span></li>`;
+      })
+      .filter(Boolean)
+      .join("");
+    const logHtml = lines
+      ? `<ul class="group-status-board" aria-label="Submitter log">${lines}</ul>`
+      : "";
+    return `${open}${rankHtml}${logHtml}</div>`;
   }
-  const board = Array.isArray(result?.status_board) ? result.status_board : [];
-  const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
   const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
-  const statusHtml = board.length
-    ? `<ul class="group-status-board" aria-label="Group status">${board
-        .map((row) => {
-          const mark = row.submitted ? "✓" : "Waiting";
-          return `<li><span>${escapeHtml(row.team_name || "Group")}</span><span>${mark}</span></li>`;
-        })
-        .join("")}</ul>`
-    : `<p class="hint compact">Groups appear here after publish.</p>`;
-  const logHtml = `<details class="group-submitter-log">
-      <summary>Submitter log</summary>
-      <table>
-        <thead><tr><th>Group</th><th>Last submitter</th><th>Re-submits</th><th>No submit at reveal</th><th>Repeat submitter</th><th>Why</th></tr></thead>
-        <tbody>${
-          log.length
-            ? log
-                .map(
-                  (row) => `<tr>
-              <td>${escapeHtml(row.team_name || "")}</td>
-              <td>${escapeHtml(row.last_submitter || "")}</td>
-              <td>${Number(row.resubmit_count) || 0}</td>
-              <td>${row.no_submit_at_reveal ? "Yes" : "No"}</td>
-              <td>${row.repeat_submitter ? "Yes" : "No"}</td>
-              <td>${row.why_present ? "Yes" : "No"}</td>
-            </tr>`
-                )
-                .join("")
-            : `<tr><td colspan="6"></td></tr>`
-        }</tbody>
-      </table>
-    </details>`;
   const revealHtml = reveal.length
     ? `<table class="group-reveal-board">
         <caption>Group answers</caption>
@@ -2462,7 +2655,7 @@ function groupSubmitTeacherHtml(result, revealed) {
           .join("")}</tbody>
       </table>`
     : "";
-  return `<div class="group-submit-teacher">${statusHtml}${logHtml}${revealHtml}</div>`;
+  return `${open}${groupStatusBoardHtml(result)}${revealHtml}</div>`;
 }
 
 /**
@@ -2650,9 +2843,9 @@ function paintLiveQuestionCards() {
         card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
       const resultHtml = groupChrome
-        ? groupSubmitTeacherHtml(result, closed)
+        ? groupSubmitTeacherHtml(result, closed, liveItemId)
         : card.response_mode === "group_consensus"
-          ? groupConsensusResultsHtml(result)
+          ? groupConsensusResultsHtml(result, closed, liveItemId)
           : result?.tally?.kind === "rank"
             ? rankCollateHtml(
                 {
@@ -2875,73 +3068,66 @@ function groupMemberAnswerValues(team) {
 
 /**
  * Render compact per-team group-consensus cards for the teacher.
+ * Waiting / check stays primary. Answers and member lists wait for Reveal.
  * @param {any} result
+ * @param {boolean} [revealed]
+ * @param {number} [liveItemId]
  * @returns {string}
  */
-function groupConsensusResultsHtml(result) {
+function groupConsensusResultsHtml(result, revealed, liveItemId) {
   const teams = Array.isArray(result?.teams) ? result.teams : [];
-  if (!teams.length) return "";
+  const hostId = groupResultsHostId(result, liveItemId);
+  const seq = escapeHtml(String(result?.group_response_seq || ""));
+  if (!teams.length) {
+    if (!hostId) return "";
+    return `<div class="live-consensus-teams" data-group-results="${hostId}" data-group-seq="${seq}"></div>`;
+  }
   const consensusItem = result?.item || {};
   const keyedMc = liveGroupMcKeepsResponsePoints(
     consensusItem.item || consensusItem,
     consensusItem,
     liveQuestionHasSingularKey(consensusItem)
   );
-  return `<div class="live-consensus-teams">${teams
+  const showAnswers = Boolean(revealed) || Boolean(result?.answers_revealed);
+  return `<div class="live-consensus-teams" data-group-results="${hostId}" data-group-seq="${seq}">${teams
     .map((team) => {
       const status = String(team.status || "collecting_votes");
+      const submitted = status === "finalized" || status === "submitted";
       const responded = Number(team.vote_count) || 0;
       const eligible = Math.max(Number(team.eligible_count) || 0, responded);
-      const answers = groupMemberAnswerValues(team);
-      const answerList = answers
-        .map((value) => `<li>${escapeHtml(value)}</li>`)
-        .join("");
-      const inspect = `<details class="live-consensus-inspect">
+      const mark = submitted ? "✓" : "Waiting";
+      const line = groupSubmitterLine(team);
+      const answers = showAnswers ? groupMemberAnswerValues(team) : [];
+      const answerList = answers.map((value) => `<li>${escapeHtml(value)}</li>`).join("");
+      const inspect =
+        showAnswers && answers.length
+          ? `<details class="live-consensus-inspect">
         <summary>Member answers</summary>
-        <ul>${answerList || "<li>Waiting</li>"}</ul>
-      </details>`;
-      let body = "";
-      if (status === "collecting_votes") {
-        const liveLine = answers.length
-          ? answers.map((value) => escapeHtml(value)).join(" · ")
-          : "Waiting";
-        body = `<p class="live-consensus-team-name">${escapeHtml(
-          team.team_name || "Team"
-        )}</p>
-        <p class="live-consensus-team-count">${responded}/${eligible} responded</p>
-        <p class="live-consensus-team-answers">${liveLine}</p>
-        <p class="live-consensus-team-note">${
-          responded === eligible && eligible > 0
-            ? "Ready to discuss"
-            : "Private responses incoming…"
-        }</p>`;
-      } else if (status === "finalized") {
-        body = `<p class="live-consensus-team-name">${escapeHtml(
-          team.team_name || "Team"
-        )}</p>
-        <p class="live-consensus-team-answer">${escapeHtml(
-          groupAnswerLabel(team.final_answer)
-        )}</p>
-        <p class="live-consensus-team-count">${responded}/${eligible} contributed</p>
-        <p class="live-consensus-team-note">Group Answer ✓</p>
-        ${
-          keyedMc
-            ? ""
-            : `<button type="button" data-award-consensus="${Number(
-                result?.item?.id || 0
-              )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
-        }`;
-      } else {
-        body = `<p class="live-consensus-team-name">${escapeHtml(
-          team.team_name || "Team"
-        )}</p>
-        <p class="live-consensus-team-answers">Responses: ${
-          answers.map((value) => escapeHtml(value)).join(" · ") || "—"
-        }</p>
-        <p class="live-consensus-team-note">Awaiting Group Answer</p>`;
-      }
+        <ul>${answerList}</ul>
+      </details>`
+          : "";
+      const answer =
+        showAnswers && team.final_answer
+          ? `<p class="live-consensus-team-answer">${escapeHtml(
+              groupAnswerLabel(team.final_answer)
+            )}</p>`
+          : "";
+      const award =
+        submitted && !keyedMc
+          ? `<button type="button" data-award-consensus="${Number(
+              result?.item?.id || hostId
+            )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
+          : "";
       return `<article class="live-consensus-team is-${escapeHtml(status)}">
-        ${body}
+        <p class="live-consensus-team-name">${escapeHtml(team.team_name || "Team")}</p>
+        <p class="live-consensus-team-count"><span class="group-status-mark">${mark}</span> ${responded}/${eligible}</p>
+        ${
+          line
+            ? `<p class="group-submitter-log">${escapeHtml(line)}</p>`
+            : ""
+        }
+        ${answer}
+        ${award}
         ${inspect}
       </article>`;
     })
@@ -3158,7 +3344,11 @@ async function endLifecycleVoting(liveItemId) {
     `/api/live-sessions/${sessionId}/items/${liveItemId}/end-voting`,
     { method: "POST", body: "{}" }
   );
-  lifecycleResults.set(liveItemId, result);
+  lifecycleResults.set(liveItemId, {
+    ...(result && typeof result === "object" ? result : {}),
+    live_item_id: liveItemId,
+    answers_revealed: true,
+  });
   paintLiveQuestionCards();
 }
 
@@ -3852,21 +4042,89 @@ function setLiveReconnectBanner(visible, message) {
 }
 
 /**
+ * Clear the slow-poll timers on the consensus strip.
+ */
+function clearGroupPollFeelTimers() {
+  if (groupPollPendingTimer) window.clearTimeout(groupPollPendingTimer);
+  if (groupPollFailTimer) window.clearTimeout(groupPollFailTimer);
+  groupPollPendingTimer = 0;
+  groupPollFailTimer = 0;
+}
+
+/**
+ * Show one soft pending or fail line above the question list.
+ * Pending is armed once per slow poll. Fail keeps a Retry control.
+ * @param {"ok"|"pending"|"fail"} mode
+ */
+function paintGroupPollFeel(mode) {
+  const el = $("live-group-poll-feel");
+  if (!(el instanceof HTMLElement)) return;
+  const copy = el.querySelector(".live-group-poll-feel-copy");
+  const retry = $("live-group-poll-retry");
+  if (mode === "ok") {
+    el.hidden = true;
+    el.dataset.state = "ok";
+    if (retry instanceof HTMLElement) retry.hidden = true;
+    groupPollFeelShown = false;
+    return;
+  }
+  if (mode === "pending") {
+    if (groupPollFeelShown) return;
+    groupPollFeelShown = true;
+    el.hidden = false;
+    el.dataset.state = "pending";
+    if (copy) copy.textContent = "Updating group status…";
+    if (retry instanceof HTMLElement) retry.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.dataset.state = "fail";
+  if (copy) copy.textContent = "Group status did not update.";
+  if (retry instanceof HTMLElement) retry.hidden = false;
+}
+
+/**
+ * Arm pending at 800ms and fail at 4s for the in-flight staff poll.
+ */
+function armGroupPollFeel() {
+  clearGroupPollFeelTimers();
+  paintGroupPollFeel("ok");
+  groupPollPendingTimer = window.setTimeout(
+    () => paintGroupPollFeel("pending"),
+    GROUP_POLL_PENDING_MS
+  );
+  groupPollFailTimer = window.setTimeout(
+    () => paintGroupPollFeel("fail"),
+    GROUP_POLL_FAIL_MS
+  );
+}
+
+/**
  * Fetch live-session state and auto-mark present attendees on the roster.
- * Interval ticks skip when a poll is already in flight. Light polls omit
- * cards and scoreboard until ``state_seq`` moves. A failed full snapshot
- * retries once with ``?light=1`` so attendees keep updating. Poll failure
- * keeps the last calm frame and shows Reconnecting… / Retry.
+ * One staff /state poll is in flight; a forced tick coalesces behind it.
+ * Light polls omit cards and scoreboard until ``state_seq`` moves, and
+ * they patch group cards in place. Full ``refreshLifecycleResults`` runs
+ * on a full snapshot (publish, close, reveal, or a state_seq that needs
+ * the item set). A failed full snapshot retries once with ``?light=1``.
  * @param {{full?: boolean, force?: boolean}} [opts]
  */
 async function pollLiveSessionAttendees(opts = {}) {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
-  if (sessionPollInFlight && !opts.force) return;
+  if (sessionPollInFlight) {
+    if (opts.force || opts.full) {
+      sessionPollQueued = {
+        full: Boolean(opts.full) || Boolean(sessionPollQueued?.full),
+        force: true,
+      };
+    }
+    return;
+  }
   liveSessionId = id;
   sessionPollInFlight = true;
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq);
+  armGroupPollFeel();
   try {
     const qs = wantFull ? "" : "?light=1";
     let payload;
@@ -3878,12 +4136,17 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       const fault = String(payload?.fault || "").trim();
+      clearGroupPollFeelTimers();
+      paintGroupPollFeel("ok");
+      sessionPollQueued = null;
       setLiveReconnectBanner(Boolean(fault), fault);
       paintJoinBillboard("", { ended: true });
       stopLiveSessionPolling();
       return;
     }
     if (payload?.error === "state unavailable" || payload?.fault) {
+      clearGroupPollFeelTimers();
+      paintGroupPollFeel("fail");
       setLiveReconnectBanner(true, String(payload?.fault || "").trim() || "Reconnecting…");
       return;
     }
@@ -3940,7 +4203,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       present
     );
     paintSlidesMetadata();
-    paintLiveQuestionCards();
+    if (wantFull) paintLiveQuestionCards();
     if (payload?.active_media || payload?.session?.active_media) {
       const media = payload?.active_media || payload?.session?.active_media;
       paintActiveMediaStatus(media);
@@ -3957,6 +4220,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload?.lifecycle_rank_revs
     );
     applyMcTally(payload?.mc_tally);
+    if (!wantFull) adoptLightGroupResults(payload?.group_results);
     if (wantFull) {
       refreshLifecycleResults();
       ensureC1MediaSeeded();
@@ -3965,15 +4229,21 @@ async function pollLiveSessionAttendees(opts = {}) {
       payload?.state_seq ?? payload?.teacher_state?.state_seq
     );
     staffStateNeedsFull = false;
+    clearGroupPollFeelTimers();
+    paintGroupPollFeel("ok");
     setLiveReconnectBanner(false);
     if (!wantFull && Number.isFinite(nextSeq) && nextSeq !== prevSeq) {
-      sessionPollInFlight = false;
-      return pollLiveSessionAttendees({ full: true, force: true });
+      sessionPollQueued = { full: true, force: true };
     }
   } catch (_) {
+    clearGroupPollFeelTimers();
+    paintGroupPollFeel("fail");
     setLiveReconnectBanner(true, "Live class state failed. Retry, or end the Meet if it stays down.");
   } finally {
     sessionPollInFlight = false;
+    const queued = sessionPollQueued;
+    sessionPollQueued = null;
+    if (queued) return pollLiveSessionAttendees(queued);
   }
 }
 
@@ -3988,6 +4258,11 @@ function startLiveSessionPolling() {
 
 $("live-reconnect-retry")?.addEventListener("click", () => {
   void pollLiveSessionAttendees({ full: true, force: true });
+});
+
+$("live-group-poll-retry")?.addEventListener("click", () => {
+  paintGroupPollFeel("ok");
+  void pollLiveSessionAttendees({ force: true });
 });
 
 /**
@@ -7497,6 +7772,26 @@ $("ap-score-team-tabs")?.addEventListener("click", (event) => {
 $("ap-score-end")?.addEventListener("click", endGame);
 
 /**
+ * Paint rename fields and leave a stuck names step without opening the modal.
+ * When teams already exist, the same Done write (go_live false) advances
+ * the game to rounds. Rename still opens only from the Rename control.
+ * @param {any} state
+ * @returns {Promise<void>}
+ */
+async function quietAdvanceNamesResume(state) {
+  renderNamesPanel();
+  const dialog = teamsRenameDialog();
+  if (dialog?.open) dialog.close();
+  const named = (state?.teams || []).filter((team) => team && team.name !== "Class");
+  if (named.length < 2) return;
+  try {
+    await saveTeamNamesFromPop();
+  } catch (_) {
+    /* Stay on names. The dialog stays closed until Rename is clicked. */
+  }
+}
+
+/**
  * Resume an in-progress live class when returning to tab=live with a session id.
  * Fresh / reminted sessions stay on Set Class until date + module + slot are set.
  * Uses the open game's meeting_date; does not re-begin with “today” and discard
@@ -7547,8 +7842,7 @@ async function resumeLiveClassIfNeeded() {
         else selectTrackMode("team");
         renderTeamsPanel();
         if (status === "names") {
-          renderNamesPanel();
-          openTeamsRenameModal();
+          await quietAdvanceNamesResume(state);
         }
       }
     } else {
