@@ -2242,10 +2242,19 @@ class LiveShellTests(unittest.TestCase):
         )
         html = page.get_data(as_text=True)
         self.assertNotIn(">When<", html)
-        self.assertIn("Before", html)
-        self.assertIn("After", html)
-        self.assertIn("View", html)
+        self.assertIn(">Before<", html)
+        self.assertIn(">After<", html)
+        self.assertIn(">Score<", html)
+        self.assertIn(">Comment<", html)
+        self.assertIn("low → good · +2", html)
+        self.assertIn(">note<", html)
         self.assertIn("Great energy", html)
+        self.assertNotIn("mood-face", html)
+        self.assertNotIn('colspan="4"', html)
+        self.assertNotIn(">View<", html)
+        self.assertIn(
+            "Score is +1 for each mood step up, −1 for each step down.", html
+        )
         self.assertTrue(grid["students"])
         aspen_row = next(
             row for row in grid["students"] if row["codename"] == "Aspen"

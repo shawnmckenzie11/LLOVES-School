@@ -6,14 +6,104 @@ let clearMode = false;
 let latestGrid = null;
 
 /**
- * Mood face cell, or an em dash when missing.
+ * Plain mood label. Empty when the cell has no mood.
  * @param {string|null|undefined} mood
  * @returns {string}
  */
-function moodCell(mood) {
-  const key = String(mood || "").trim().toLowerCase();
-  if (!key) return "—";
-  return `<img class="mood-face" src="/static/mood/${escapeHtml(key)}.svg" alt="${escapeHtml(key)}" width="32" height="32">`;
+function moodLabel(mood) {
+  return String(mood || "").trim().toLowerCase();
+}
+
+/**
+ * Signed ledger score: +N, 0, or −N. Empty when the score is absent.
+ * @param {number|string|null|undefined} score
+ * @returns {string}
+ */
+function formatScore(score) {
+  if (score == null || score === "") return "";
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "";
+  if (n > 0) return `+${n}`;
+  if (n < 0) return `−${Math.abs(n)}`;
+  return "0";
+}
+
+/**
+ * Summary segments for one live-class cell, excluding the note link.
+ * @param {any} cell
+ * @returns {string[]}
+ */
+function summarySegments(cell) {
+  const before = moodLabel(cell?.before_mood);
+  const after = moodLabel(cell?.after_mood);
+  const score = formatScore(cell?.score);
+  const parts = [];
+  if (before && after) parts.push(`${before} → ${after}`);
+  else if (before || after) parts.push(before || after);
+  if (score !== "") parts.push(score);
+  return parts;
+}
+
+/**
+ * One text summary cell, or an em dash when the intersection is empty.
+ * @param {any} student
+ * @param {any} col
+ * @param {any} cell
+ * @returns {string}
+ */
+function summaryCell(student, col, cell) {
+  const name = String(student?.codename || "Student");
+  const key = String(col?.key || "");
+  const parts = summarySegments(cell || {});
+  const hasNote = Boolean(cell?.has_comment);
+  if (!parts.length && !hasNote) {
+    return `<td class="feedback-summary-cell">—</td>`;
+  }
+  const visible = parts.join(" · ");
+  const ariaDetail = visible && hasNote ? `${visible}, note` : hasNote ? "note" : visible;
+  const aria = `${name}, ${key}, ${ariaDetail}`;
+  const textHtml = visible
+    ? `<span class="feedback-summary-text">${escapeHtml(visible)}</span>`
+    : "";
+  const noteHtml = hasNote
+    ? `${visible ? " · " : ""}<span class="feedback-summary-note">note</span>`
+    : "";
+  return (
+    `<td class="feedback-summary-cell">` +
+    `<button type="button" class="feedback-summary" aria-haspopup="dialog" ` +
+    `aria-label="${escapeHtml(aria)}" ` +
+    `data-name="${escapeHtml(name)}" data-live-key="${escapeHtml(key)}" ` +
+    `data-before="${escapeHtml(moodLabel(cell?.before_mood))}" ` +
+    `data-after="${escapeHtml(moodLabel(cell?.after_mood))}" ` +
+    `data-score="${escapeHtml(formatScore(cell?.score))}" ` +
+    `data-comment="${escapeHtml(cell?.comment || "")}">` +
+    `${textHtml}${noteHtml}</button></td>`
+  );
+}
+
+/**
+ * Fill the reused comment dialog as a text-only detail sheet.
+ * @param {HTMLElement} button
+ */
+function openFeedbackDetail(button) {
+  const dialog = document.getElementById("feedback-comment-dialog");
+  const title = document.getElementById("feedback-comment-title");
+  const beforeEl = document.getElementById("feedback-detail-before");
+  const afterEl = document.getElementById("feedback-detail-after");
+  const scoreEl = document.getElementById("feedback-detail-score");
+  const commentEl = document.getElementById("feedback-detail-comment");
+  const name = button.getAttribute("data-name") || "Student";
+  const key = button.getAttribute("data-live-key") || "";
+  const before = button.getAttribute("data-before") || "";
+  const after = button.getAttribute("data-after") || "";
+  const score = button.getAttribute("data-score") || "";
+  const comment = button.getAttribute("data-comment") || "";
+  if (title) title.textContent = key ? `${name} · ${key}` : name;
+  if (beforeEl) beforeEl.textContent = before || "—";
+  if (afterEl) afterEl.textContent = after || "—";
+  if (scoreEl) scoreEl.textContent = score || "—";
+  if (commentEl) commentEl.textContent = comment.trim() ? comment : "No comment";
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
 }
 
 /**
@@ -26,71 +116,49 @@ function paint(data) {
   const columns = data.columns || [];
   const students = data.students || [];
   const totals = data.totals || {};
-  const nameSpan = columns.length ? ' rowspan="2"' : "";
   let groups = "";
   for (const col of columns) {
     const key = String(col.key || "");
     const clickable =
       clearMode && key ? ` data-clear-key="${escapeHtml(key)}"` : "";
-    groups += `<th colspan="4" class="feedback-live-group${clickable ? " clear-target" : ""}"${clickable}>${escapeHtml(key)}</th>`;
-  }
-  let sub = "";
-  if (columns.length) {
-    sub = "<tr>";
-    for (const _col of columns) {
-      sub += "<th>Before</th><th>After</th><th>Score</th><th>Note</th>";
-    }
-    sub += "</tr>";
+    groups += `<th class="feedback-live-group${clickable ? " clear-target" : ""}" data-live-key="${escapeHtml(key)}"${clickable}>${escapeHtml(key)}</th>`;
   }
   let body = "";
   if (!students.length) {
-    const span = 2 + columns.length * 4;
+    const span = 2 + columns.length;
     body = `<tr><td colspan="${span}" class="hint">No student feedback yet.</td></tr>`;
   }
   for (const student of students) {
     body += `<tr><td class="name">${escapeHtml(student.codename || "Student")}</td>`;
     for (const col of columns) {
       const cell = (student.cells || {})[col.key] || {};
-      const score = cell.score;
-      const note = cell.has_comment
-        ? `<button type="button" class="feedback-note-link" data-comment="${escapeHtml(cell.comment || "")}" data-name="${escapeHtml(student.codename || "Student")}">View</button>`
-        : "—";
-      body += `<td class="feedback-mood">${moodCell(cell.before_mood)}</td>`;
-      body += `<td class="feedback-mood">${moodCell(cell.after_mood)}</td>`;
-      body += `<td class="feedback-score">${score == null ? "—" : escapeHtml(String(score))}</td>`;
-      body += `<td>${note}</td>`;
+      body += summaryCell(student, col, cell);
     }
-    const total = student.total == null ? 0 : student.total;
-    body += `<td class="total">${escapeHtml(String(total))}</td></tr>`;
+    body += `<td class="total">${escapeHtml(formatScore(student.total == null ? 0 : student.total))}</td></tr>`;
   }
   let foot = "";
   if (columns.length) {
     foot = `<tfoot><tr><th class="name">Class total</th>`;
     for (const col of columns) {
-      foot += `<td colspan="3"></td><td class="feedback-score">${escapeHtml(String(totals[col.key] ?? 0))}</td>`;
+      foot += `<td class="feedback-score">${escapeHtml(formatScore(totals[col.key] ?? 0))}</td>`;
     }
-    foot += `<th class="total">${escapeHtml(String(data.grand_total || 0))}</th></tr></tfoot>`;
+    foot += `<th class="total">${escapeHtml(formatScore(data.grand_total || 0))}</th></tr></tfoot>`;
   }
-  table.innerHTML = `<thead><tr><th class="name"${nameSpan}>Student</th>${groups}<th class="total"${nameSpan}>Total</th></tr>${sub}</thead><tbody>${body}</tbody>${foot}`;
+  table.innerHTML = `<thead><tr><th class="name">Student</th>${groups}<th class="total">Total</th></tr></thead><tbody>${body}</tbody>${foot}`;
   document.getElementById("fb-clear-hint")?.toggleAttribute("hidden", !clearMode);
   document.getElementById("fb-clear")?.classList.toggle("on", clearMode);
 }
 
 /**
- * Toggle clear mode or delete one live-class column.
+ * Open a summary detail sheet, or clear one live-class column.
  * @param {MouseEvent} event
  */
 async function onRootClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  const note = target.closest(".feedback-note-link");
-  if (note) {
-    const dialog = document.getElementById("feedback-comment-dialog");
-    const title = document.getElementById("feedback-comment-title");
-    const body = document.getElementById("feedback-comment-body");
-    if (title) title.textContent = note.getAttribute("data-name") || "Comment";
-    if (body) body.textContent = note.getAttribute("data-comment") || "";
-    dialog?.showModal();
+  const summary = target.closest(".feedback-summary");
+  if (summary instanceof HTMLElement) {
+    openFeedbackDetail(summary);
     return;
   }
   const header = target.closest("[data-clear-key]");

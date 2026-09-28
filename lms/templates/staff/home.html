@@ -220,14 +220,16 @@
       <h2>End Live Class</h2>
       <p>Choose what to save before ending this class.</p>
       <input type="hidden" name="end_options" value="1">
-      <label class="end-live-option">
-        <input type="checkbox" name="save_attendance" value="1" checked>
-        <span>Save attendance</span>
-      </label>
-      <label class="end-live-option">
-        <input type="checkbox" name="save_participation" value="1" checked>
-        <span>Save participation</span>
-      </label>
+      <div class="end-live-options">
+        <label class="end-live-option">
+          <input type="checkbox" name="save_attendance" value="1" checked>
+          <span>Save attendance</span>
+        </label>
+        <label class="end-live-option">
+          <input type="checkbox" name="save_participation" value="1" checked>
+          <span>Save participation</span>
+        </label>
+      </div>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-end-live>Cancel</button>
         <button type="submit">End class</button>

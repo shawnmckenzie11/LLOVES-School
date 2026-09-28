@@ -935,60 +935,53 @@
         </div>
         <div id="fb-error" class="error" hidden></div>
         <h2 class="track-step-title">How was class?</h2>
-        <p class="hint">Before and after mood for each live class. Score is +1 for each step up, −1 for each step down.</p>
+        <p class="hint">Score is +1 for each mood step up, −1 for each step down.</p>
         <p class="hint" id="fb-clear-hint" hidden>Clear mode: click a live class label (e.g. M1C1) to remove that class&apos;s feedback.</p>
         {% set grid = feedback_grid if feedback_grid is defined else {} %}
         {% set columns = grid.columns if grid.columns is defined else [] %}
+        {% macro fb_score(score) -%}
+        {%- if score is number -%}
+        {%- if score > 0 -%}+{{ score }}{%- elif score < 0 -%}−{{ score|abs }}{%- else -%}0{%- endif -%}
+        {%- endif -%}
+        {%- endmacro %}
         <script type="application/json" id="feedback-grid-data">{{ grid | tojson }}</script>
         <div class="sheet-wrap">
           <table class="sheet attendance-grid" id="feedback-sheet">
             <thead>
               <tr>
-                <th class="name"{% if columns %} rowspan="2"{% endif %}>Student</th>
+                <th class="name">Student</th>
                 {% for col in columns %}
-                <th colspan="4" class="feedback-live-group" data-live-key="{{ col.key }}">{{ col.key }}</th>
+                <th class="feedback-live-group" data-live-key="{{ col.key }}">{{ col.key }}</th>
                 {% endfor %}
-                <th class="total"{% if columns %} rowspan="2"{% endif %}>Total</th>
+                <th class="total">Total</th>
               </tr>
-              {% if columns %}
-              <tr>
-                {% for col in columns %}
-                <th>Before</th>
-                <th>After</th>
-                <th>Score</th>
-                <th>Note</th>
-                {% endfor %}
-              </tr>
-              {% endif %}
             </thead>
             <tbody>
               {% for student in grid.students or [] %}
+              {% set stu_name = student.codename or 'Student' %}
+              {% set stu_total = fb_score(student.total if student.total is number else 0)|trim %}
               <tr>
-                <td class="name">{{ student.codename or 'Student' }}</td>
+                <td class="name">{{ stu_name }}</td>
                 {% for col in columns %}
                 {% set cell = (student.cells or {}).get(col.key) or {} %}
-                <td class="feedback-mood">
-                  {% if cell.before_mood %}
-                  <img class="mood-face" src="/static/mood/{{ cell.before_mood }}.svg" alt="{{ cell.before_mood }}" width="32" height="32">
-                  {% else %}—{% endif %}
-                </td>
-                <td class="feedback-mood">
-                  {% if cell.after_mood %}
-                  <img class="mood-face" src="/static/mood/{{ cell.after_mood }}.svg" alt="{{ cell.after_mood }}" width="32" height="32">
-                  {% else %}—{% endif %}
-                </td>
-                <td class="feedback-score">{% if cell.score is not none %}{{ cell.score }}{% else %}—{% endif %}</td>
-                <td>
-                  {% if cell.has_comment %}
-                  <button type="button" class="feedback-note-link" data-comment="{{ cell.comment|e }}" data-name="{{ student.codename|e }}">View</button>
+                {% set before = ((cell.before_mood or '')|string)|trim|lower %}
+                {% set after = ((cell.after_mood or '')|string)|trim|lower %}
+                {% set mood_bit = (before ~ ' → ' ~ after) if (before and after) else (before or after) %}
+                {% set score_bit = fb_score(cell.score)|trim %}
+                {% set text = (mood_bit ~ ' · ' ~ score_bit) if (mood_bit and score_bit) else (mood_bit or score_bit) %}
+                {% set has_note = cell.has_comment %}
+                {% set aria_detail = (text ~ ', note') if (text and has_note) else ('note' if has_note else text) %}
+                <td class="feedback-summary-cell">
+                  {% if text or has_note %}
+                  <button type="button" class="feedback-summary" aria-haspopup="dialog" aria-label="{{ stu_name }}, {{ col.key }}, {{ aria_detail }}" data-name="{{ stu_name }}" data-live-key="{{ col.key }}" data-before="{{ before }}" data-after="{{ after }}" data-score="{{ score_bit }}" data-comment="{{ cell.comment or '' }}">{%- if text -%}<span class="feedback-summary-text">{{ text }}</span>{%- endif -%}{%- if has_note -%}{% if text %} · {% endif %}<span class="feedback-summary-note">note</span>{%- endif -%}</button>
                   {% else %}—{% endif %}
                 </td>
                 {% endfor %}
-                <td class="total">{% if student.total is not none %}{{ student.total }}{% else %}0{% endif %}</td>
+                <td class="total">{{ stu_total }}</td>
               </tr>
               {% else %}
               <tr>
-                <td colspan="{{ 2 + (columns|length * 4) }}" class="hint">No student feedback yet.</td>
+                <td colspan="{{ 2 + (columns|length) }}" class="hint">No student feedback yet.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -997,20 +990,38 @@
               <tr>
                 <th class="name">Class total</th>
                 {% for col in columns %}
-                <td colspan="3"></td>
-                <td class="feedback-score">{{ (grid.totals or {}).get(col.key, 0) }}</td>
+                <td class="feedback-score">{{ fb_score((grid.totals or {}).get(col.key, 0))|trim }}</td>
                 {% endfor %}
-                <th class="total">{{ grid.grand_total or 0 }}</th>
+                <th class="total">{{ fb_score(grid.grand_total if grid.grand_total is number else 0)|trim }}</th>
               </tr>
             </tfoot>
             {% endif %}
           </table>
         </div>
-        <dialog id="feedback-comment-dialog" class="feedback-comment-dialog">
+        <dialog id="feedback-comment-dialog" class="feedback-comment-dialog" aria-labelledby="feedback-comment-title">
           <form method="dialog" class="feedback-comment-card">
-            <h3 id="feedback-comment-title">Comment</h3>
-            <p id="feedback-comment-body" class="feedback-comment-body"></p>
-            <button type="submit">Close</button>
+            <h3 id="feedback-comment-title">Feedback</h3>
+            <dl class="feedback-detail">
+              <div>
+                <dt>Before</dt>
+                <dd id="feedback-detail-before">—</dd>
+              </div>
+              <div>
+                <dt>After</dt>
+                <dd id="feedback-detail-after">—</dd>
+              </div>
+              <div>
+                <dt>Score</dt>
+                <dd id="feedback-detail-score">—</dd>
+              </div>
+              <div>
+                <dt>Comment</dt>
+                <dd id="feedback-detail-comment">No comment</dd>
+              </div>
+            </dl>
+            <div class="feedback-detail-actions">
+              <button type="submit">Close</button>
+            </div>
           </form>
         </dialog>
       </div>
@@ -1254,14 +1265,16 @@
       <h2>End Live Class</h2>
       <p>Choose what to save before ending this class.</p>
       <input type="hidden" name="end_options" value="1">
-      <label class="end-live-option">
-        <input type="checkbox" name="save_attendance" value="1" checked>
-        <span>Save attendance</span>
-      </label>
-      <label class="end-live-option">
-        <input type="checkbox" name="save_participation" value="1" checked>
-        <span>Save participation</span>
-      </label>
+      <div class="end-live-options">
+        <label class="end-live-option">
+          <input type="checkbox" name="save_attendance" value="1" checked>
+          <span>Save attendance</span>
+        </label>
+        <label class="end-live-option">
+          <input type="checkbox" name="save_participation" value="1" checked>
+          <span>Save participation</span>
+        </label>
+      </div>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-end-live>Cancel</button>
         <button type="submit">End class</button>
