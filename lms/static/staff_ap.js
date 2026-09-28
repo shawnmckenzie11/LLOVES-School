@@ -46,6 +46,12 @@ import {
   reconnectMode,
   shouldApplyLiveSnapshot,
 } from "/static/live_poll_feel.js";
+import {
+  CATCHING_UP_COPY,
+  FALLBACK_POLL_MS,
+  connectLiveNewsWire,
+  newsPaintsBoardInPlace,
+} from "/static/live_news_wire.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -93,8 +99,12 @@ let sessionPollMs = 0;
 let sessionPollInFlight = false;
 /** @type {{full?: boolean, force?: boolean}|null} */
 let sessionPollQueued = null;
-/** Automatic delay after a busy/503. ``0`` means the healthy 1–2s poll. */
+/** Automatic delay after a busy/503. ``0`` means the slow fallback poll. */
 let pollBackoffMs = 0;
+/** News-driven /state. Pending copy says Catching up…, not a reload. */
+let staffNewsFetch = false;
+/** @type {{stop: () => void, noteSeq: (seq: number) => void, sessionId: number}|null} */
+let staffNewsWire = null;
 /** Set when End/Quit stops the loop so a late finally cannot reschedule. */
 let sessionPollStopped = true;
 /** Epoch ms when the current outage started. ``0`` when the frame is calm. */
@@ -4101,6 +4111,10 @@ function stopLiveSessionPolling() {
   }
   sessionPollMs = 0;
   clearReconnectFeelTimers();
+  if (staffNewsWire) {
+    staffNewsWire.stop();
+    staffNewsWire = null;
+  }
 }
 
 /**
@@ -4120,11 +4134,11 @@ function scheduleLiveSessionPoll() {
 }
 
 /**
- * Poll interval: ≤1s while an MC prompt is live, else 2s.
+ * Slow fallback while LiveNewsWire is the tap. Not a 1–2s stampede.
  * @returns {number}
  */
 function desiredSessionPollMs() {
-  return lastMcTally ? 1000 : 2000;
+  return FALLBACK_POLL_MS;
 }
 
 /**
@@ -4325,7 +4339,8 @@ function armStaffPendingFeel() {
     reconnectPendingTimer = 0;
     if (!sessionPollInFlight || staffOutageStartedAt) return;
     staffOutageStartedAt = Date.now() - RECONNECT_PENDING_MS;
-    paintStaffReconnect("pending", reconnectCopy("pending"), false);
+    const pendingCopy = staffNewsFetch ? CATCHING_UP_COPY : reconnectCopy("pending");
+    paintStaffReconnect("pending", pendingCopy, false);
     armStaffStuckTimer();
   }, RECONNECT_PENDING_MS);
 }
@@ -4409,9 +4424,16 @@ async function pollLiveSessionAttendees(opts = {}) {
   const id = liveSessionId || readLiveSessionId();
   if (!id) return;
   if (sessionPollInFlight) {
-    // A Retry tap does not queue a second /state. One follow-up full
-    // snapshot is only for a healthy light poll whose state_seq moved.
-    if (!opts.retryGesture && (opts.force || opts.full)) {
+    // A Retry tap does not queue a second /state. News coalesces to one
+    // light follow-up. A full snapshot is only when state_seq moved.
+    if (opts.fromNews) {
+      sessionPollQueued = {
+        full: Boolean(sessionPollQueued?.full),
+        force: true,
+        fromNews: true,
+        board: Boolean(opts.board) || Boolean(sessionPollQueued?.board),
+      };
+    } else if (!opts.retryGesture && (opts.force || opts.full)) {
       sessionPollQueued = {
         full: Boolean(opts.full) || Boolean(sessionPollQueued?.full),
         force: true,
@@ -4421,6 +4443,7 @@ async function pollLiveSessionAttendees(opts = {}) {
   }
   liveSessionId = id;
   sessionPollInFlight = true;
+  if (opts.fromNews) staffNewsFetch = true;
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
   armStaffPendingFeel();
@@ -4541,6 +4564,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     );
     if (Number.isFinite(nextSeq) && nextSeq >= lastGoodStateSeq) {
       lastGoodStateSeq = nextSeq;
+      staffNewsWire?.noteSeq(lastGoodStateSeq);
     }
     staffStateNeedsFull = false;
     clearGroupPollFeelTimers();
@@ -4556,6 +4580,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     noteStaffPollBusy();
   } finally {
     sessionPollInFlight = false;
+    staffNewsFetch = false;
     const queued = sessionPollQueued;
     sessionPollQueued = null;
     if (queued) return pollLiveSessionAttendees(queued);
@@ -4566,11 +4591,34 @@ async function pollLiveSessionAttendees(opts = {}) {
 /**
  * Begin polling session joins until End Game / cancel.
  */
+/**
+ * Open the session SSE tap. Events light-fetch; they do not reload.
+ * @param {number} sessionId
+ */
+function startStaffNewsWire(sessionId) {
+  const sid = Number(sessionId) || 0;
+  if (!sid) return;
+  if (staffNewsWire && staffNewsWire.sessionId === sid) return;
+  if (staffNewsWire) staffNewsWire.stop();
+  staffNewsWire = connectLiveNewsWire(sid, {
+    onNews(event) {
+      staffNewsFetch = true;
+      const board = newsPaintsBoardInPlace(event);
+      void pollLiveSessionAttendees({ fromNews: true, board: board });
+    },
+    onBusy() {
+      // Soft strip only. A wire shed must not white-wipe or reload.
+      setLiveReconnectBanner(true);
+    },
+  });
+}
+
 function startLiveSessionPolling() {
   stopLiveSessionPolling();
   sessionPollStopped = false;
   pollBackoffMs = 0;
   staffOutageStartedAt = 0;
+  startStaffNewsWire(liveSessionId || readLiveSessionId());
   void pollLiveSessionAttendees();
 }
 

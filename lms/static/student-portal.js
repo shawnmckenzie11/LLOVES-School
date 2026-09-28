@@ -14,6 +14,11 @@ import {
   reconnectMode,
   shouldApplyLiveSnapshot,
 } from "/static/live_poll_feel.js";
+import {
+  CATCHING_UP_COPY,
+  FALLBACK_POLL_MS,
+  connectLiveNewsWire,
+} from "/static/live_news_wire.js";
 import { bindWhiteboard } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -117,13 +122,17 @@ let studentPollInFlight = false;
  */
 let studentPollQueued = false;
 let studentPollTimer = 0;
-/** Automatic delay after busy/503. ``0`` keeps the healthy 4s poll. */
+/** Automatic delay after busy/503. ``0`` keeps the slow fallback poll. */
 let studentBackoffMs = 0;
+/** News-driven /state. Pending copy says Catching up… and does not reload. */
+let studentNewsFetch = false;
+/** @type {{stop: () => void, noteSeq: (seq: number) => void, sessionId: number}|null} */
+let studentNewsWire = null;
 /** Epoch ms when the current outage started. ``0`` when the frame is calm. */
 let studentOutageStartedAt = 0;
 let studentPendingTimer = 0;
 let studentStuckTimer = 0;
-const STUDENT_POLL_BASE_MS = 4000;
+const STUDENT_POLL_BASE_MS = FALLBACK_POLL_MS;
 /** @type {any} */
 let lastStudentPayload = null;
 /** @type {string} */
@@ -3999,7 +4008,10 @@ function paintStudentReconnect(mode) {
     return;
   }
   if (el instanceof HTMLElement) el.hidden = false;
-  if (copy) copy.textContent = reconnectCopy(mode);
+  if (copy) {
+    copy.textContent =
+      mode === "pending" && studentNewsFetch ? CATCHING_UP_COPY : reconnectCopy(mode);
+  }
   setStudentRetryVisible(mode === "stuck");
 }
 
@@ -4033,8 +4045,30 @@ function armStudentStuckTimer() {
 function clearStudentOutage() {
   studentOutageStartedAt = 0;
   studentBackoffMs = 0;
+  studentNewsFetch = false;
   clearStudentFeelTimers();
   paintStudentReconnect("ok");
+}
+
+/**
+ * Open the student SSE tap once the hydrate names the session.
+ * Busy paints the soft strip. The wire never reloads the page.
+ * @param {number} sessionId
+ */
+function ensureStudentNewsWire(sessionId) {
+  const sid = Number(sessionId) || 0;
+  if (!sid) return;
+  if (studentNewsWire && studentNewsWire.sessionId === sid) return;
+  if (studentNewsWire) studentNewsWire.stop();
+  studentNewsWire = connectLiveNewsWire(sid, {
+    onNews() {
+      studentNewsFetch = true;
+      void tick();
+    },
+    onBusy() {
+      setStudentReconnectBanner(true);
+    },
+  });
 }
 
 /**
@@ -4117,8 +4151,9 @@ document.addEventListener("lloves-live-link", (event) => {
 
 /**
  * Fetch and paint /api/student/state.
- * One poll is in flight. A 4s tick that overlaps it coalesces.
+ * One poll is in flight. A fallback tick that overlaps it coalesces.
  * Busy / shed JSON keeps the last frame, backs off, and does not navigate.
+ * LiveNewsWire calls this for a light catch-up. It does not reload.
  */
 async function tick() {
   if (studentPollInFlight) {
@@ -4151,10 +4186,17 @@ async function tick() {
     if (data.unchanged) {
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
+      if (data.live_session_id && data.status !== "ended") {
+        ensureStudentNewsWire(data.live_session_id);
+      }
+      studentNewsWire?.noteSeq(lastStateSeq);
       setStudentReconnectBanner(false);
       return;
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
+    if (data.live_session_id && data.status !== "ended") {
+      ensureStudentNewsWire(data.live_session_id);
+    }
     if (
       (data.status === "ended" || data.status === "waiting")
       && !data.celebrate
@@ -4174,6 +4216,7 @@ async function tick() {
     const prevSeq = lastStateSeq;
     lastStudentPayload = data;
     applyTeacherProjection(data);
+    studentNewsWire?.noteSeq(lastStateSeq);
     applyLayout(data);
     paintGameShowWelcome(data);
     paintStudentCanvas(data);
@@ -4220,6 +4263,7 @@ async function tick() {
     noteStudentPollBusy();
   } finally {
     studentPollInFlight = false;
+    studentNewsFetch = false;
     const queued = studentPollQueued;
     studentPollQueued = false;
     // Busy already scheduled the next poll. Do not stampede another /state.

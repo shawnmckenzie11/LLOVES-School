@@ -87,6 +87,18 @@ from serve_capacity import (  # noqa: E402
     poll_slot,
     worker_warmup_active,
 )
+from live_news_wire import (  # noqa: E402
+    active_media_event,
+    emit_answer_landed,
+    emit_session_news,
+    events_for_teacher_patch,
+    flag_work_event,
+    live_news_response,
+    prompt_event,
+    prompt_response_count,
+    response_landed_events,
+    teacher_state_seq,
+)
 from sentry_wire import (  # noqa: E402
     SENTRY_CONNECT_SRC,
     init_flask_sentry,
@@ -4459,6 +4471,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "celebrate"
                 ):
                     return _student_poll_ended_response(live_session_id)
+                unchanged = dict(unchanged)
+                unchanged["live_session_id"] = live_session_id
                 return jsonify(unchanged)
             payload = school.assemble_student_live_payload(
                 live_session_id,
@@ -4479,6 +4493,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             payload["state_seq"] = int(
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )
+            payload["live_session_id"] = live_session_id
             payload = json_safe(payload)
         except PollBudgetExceeded:
             return jsonify(
@@ -4797,6 +4812,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 teacher=teacher,
             ):
                 body["mc_tally"] = tally
+            emit_answer_landed(
+                school,
+                live_session_id,
+                student_id=int(student_id) if student_id not in (None, "") else None,
+                count=prompt_response_count(school, prompt_id),
+            )
             return jsonify(body)
         try:
             saved = school.submit_live_prompt_response(
@@ -4838,6 +4859,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             teacher=teacher,
         ):
             body["mc_tally"] = tally
+        emit_answer_landed(
+            school,
+            live_session_id,
+            student_id=int(student_id) if student_id not in (None, "") else None,
+            count=prompt_response_count(school, prompt_id),
+        )
         return jsonify(body)
 
     @app.route(
@@ -4872,6 +4899,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=result.get("team_id") if isinstance(result, dict) else None,
+            count=result.get("vote_count") if isinstance(result, dict) else None,
+            scope="group",
+        )
         return jsonify({"ok": True, **result})
 
     @app.route(
@@ -4906,6 +4941,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=team.get("team_id") if isinstance(team, dict) else None,
+            count=team.get("vote_count") if isinstance(team, dict) else None,
+            scope="group",
+        )
         return jsonify({"ok": True, "group_consensus": team})
 
     @app.route(
@@ -4966,6 +5009,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=card.get("team_id") if isinstance(card, dict) else None,
+            scope="group",
+        )
         return jsonify({"ok": True, "ack": True, "group_submit": card})
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
@@ -5269,6 +5319,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        news = [
+            {"type": "state_seq", "state_seq": seq},
+            prompt_event(prompt.get("id") if isinstance(prompt, dict) else None, seq),
+        ]
+        if isinstance(prompt, dict) and prompt.get("slide_index") not in (None, ""):
+            news.append(
+                {
+                    "type": "slide",
+                    "slide_index": int(prompt.get("slide_index") or 0),
+                    "deck_version": seq,
+                    "state_seq": seq,
+                }
+            )
+        emit_session_news(school, session_id, news)
         return jsonify({"ok": True, "prompt": prompt})
 
     @app.route("/api/live-sessions/<int:session_id>/artifacts", methods=["POST"])
@@ -5306,6 +5371,26 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 hot_cold_visible=body.get("hot_cold_visible"),
                 group_q=body.get("group_q"),
                 accuracy_margin=body.get("accuracy_margin"),
+            )
+            seq = teacher_state_seq(school, session_id)
+            minted_prompt = minted.get("prompt") if isinstance(minted, dict) else None
+            emit_session_news(
+                school,
+                session_id,
+                [
+                    {"type": "state_seq", "state_seq": seq},
+                    prompt_event(
+                        minted_prompt.get("id")
+                        if isinstance(minted_prompt, dict)
+                        else None,
+                        seq,
+                    ),
+                    active_media_event(
+                        minted.get("active_media") if isinstance(minted, dict) else None,
+                        seq,
+                    ),
+                    flag_work_event("mint", seq),
+                ],
             )
             return jsonify(
                 {
@@ -5496,6 +5581,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             media = school.set_live_session_active_media(session_id, **kwargs)
             if "artifact" in body:
                 school.sync_artifact_teacher_flags(session_id, body.get("artifact"))
+            seq = teacher_state_seq(school, session_id)
+            emit_session_news(
+                school,
+                session_id,
+                [
+                    {"type": "state_seq", "state_seq": seq},
+                    active_media_event(media if isinstance(media, dict) else None, seq),
+                ],
+            )
             return jsonify(
                 {
                     "ok": True,
@@ -5511,6 +5605,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         except Exception:
             return _artifact_busy("media-write")
+
+    @app.route("/api/live/session/<int:session_id>/events")
+    def api_live_session_events(session_id: int):
+        """SSE LiveNewsWire for one live session.
+
+        Staff cookie or the student rejoin cookie. ``Last-Event-ID`` resumes
+        the postcard tape. A full worker sheds one ``busy`` event and does
+        not reload the tab.
+        """
+        return live_news_response(
+            school,
+            session_id,
+            testing=bool(app.config.get("TESTING")),
+            last_event_header=request.headers.get("Last-Event-ID"),
+            last_event_arg=request.args.get("last_event_id"),
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/teacher-state",
@@ -5584,9 +5694,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if key in body:
                 kwargs[key] = body.get(key)
         try:
+            before_state = school.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            before_state = None
+        try:
             state = school.set_live_session_teacher_state(session_id, **kwargs)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        emit_session_news(
+            school,
+            session_id,
+            events_for_teacher_patch(before_state, state),
+        )
         payload = {"ok": True, "teacher_state": state}
         if "assign" in body or "advance" in body:
             try:
@@ -5619,6 +5738,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                flag_work_event("visibility", seq),
+            ],
+        )
         return jsonify({"ok": True, **result})
 
     @app.route(
@@ -5641,6 +5769,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        prompt_id = item.get("prompt_id") if isinstance(item, dict) else None
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                prompt_event(prompt_id, seq),
+                flag_work_event("publish", seq),
+            ],
+        )
         return jsonify(
             {
                 "ok": True,
@@ -5669,6 +5808,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                flag_work_event("close", seq),
+            ],
+        )
         return jsonify({"ok": True, "item": item, "results": results})
 
     @app.route(
