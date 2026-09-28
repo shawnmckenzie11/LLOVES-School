@@ -403,3 +403,6 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.assertIn("text_id", script)
         self.assertIn("whiteboardCollabOn", script)
         self.assertIn("teacherCanvasWithoutGroupBoards", script)
+        self.assertIn("teacherCalmFrameHeld", script)
+        self.assertIn("must not white-wipe", script)
+        self.assertIn('paintTeacherCanvas(payload.canvas_sync, { source: "poll" })', script)
