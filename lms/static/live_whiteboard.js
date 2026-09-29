@@ -16,16 +16,69 @@ export const PRESENCE_FLUSH_MS = 80;
 export const BOARD_DELTA_POLL_MS = 1750;
 
 /**
- * Poll board ops while this tab has no LiveNewsWire stream.
+ * Ops whose sequence is strictly above the caller's cursor.
  *
- * One request is in flight. Busy, 429, and 5xx back off. The timer
- * does not send while the board is hidden. ``ended`` stops the poll.
- * A stream tab keeps the existing wire behavior and does not poll.
+ * @param {any[] | null | undefined} ops
+ * @param {number} cursor
+ * @returns {any[]}
+ */
+export function opsAboveCursor(ops, cursor) {
+  const floor = Number(cursor) || 0;
+  const fresh = [];
+  for (const op of Array.isArray(ops) ? ops : []) {
+    if (!op || typeof op !== "object") continue;
+    const seq = Number(op.board_seq);
+    if (!Number.isFinite(seq) || seq <= floor) continue;
+    fresh.push(op);
+  }
+  fresh.sort((a, b) => Number(a.board_seq) - Number(b.board_seq));
+  return fresh;
+}
+
+/**
+ * Highest sequence in ``ops``, never lower than ``cursor``.
+ *
+ * @param {number} cursor
+ * @param {any[] | null | undefined} ops
+ * @returns {number}
+ */
+export function cursorAfterOps(cursor, ops) {
+  let high = Number(cursor) || 0;
+  for (const op of Array.isArray(ops) ? ops : []) {
+    const seq = Number(op && op.board_seq);
+    if (Number.isFinite(seq) && seq > high) high = seq;
+  }
+  return high;
+}
+
+/**
+ * Identity of one op. The same key applied twice is a no-op.
+ *
+ * A sequence is unique on a board. Ops that have no sequence fall back
+ * to type plus stroke id.
+ *
+ * @param {any} op
+ * @returns {string}
+ */
+export function boardOpKey(op) {
+  if (!op || typeof op !== "object") return "";
+  const seq = Number(op.board_seq);
+  const type = String(op.type || "");
+  const id = String(op.id || op.stroke_id || "");
+  if (Number.isFinite(seq) && seq > 0) return `${op.board_key || ""}:${seq}`;
+  return `${type}:${id}`;
+}
+
+/**
+ * Poll board ops for every tab that is showing a shared board.
+ *
+ * One request is in flight, whether or not the tab holds a LiveNewsWire
+ * stream. Busy, 429, and 5xx back off. The timer does not send while the
+ * board is hidden. ``ended`` stops the poll. This poll is not a wire signal.
  *
  * @param {{
  *   poll: () => Promise<any>,
  *   onDelta?: (result: any) => void,
- *   hasStream?: () => boolean,
  *   isShown?: () => boolean,
  * }} opts
  * @returns {{ stop: () => void }}
@@ -46,16 +99,11 @@ export function createBoardDeltaPoll(opts) {
   }
 
   /**
-   * One poll. Hidden boards and open streams do not hit the network.
+   * One poll. A hidden board waits. A shown board always reads.
    */
   function run() {
     timer = 0;
     if (stopped || inFlight) return;
-    if (typeof opts.hasStream === "function" && opts.hasStream()) {
-      delay = BOARD_DELTA_POLL_MS;
-      schedule();
-      return;
-    }
     if (typeof opts.isShown === "function" && !opts.isShown()) {
       delay = BOARD_DELTA_POLL_MS;
       schedule();
@@ -905,6 +953,9 @@ export function bindWhiteboard(canvas, opts = {}) {
    * board; callers simply do not call this.
    * @param {any} delta
    */
+  /** Op keys already folded into this board. A second apply is a no-op. */
+  const appliedOpKeys = new Set();
+
   const applyDelta = (delta) => {
     if (!delta || typeof delta !== "object") return;
     if (delta.snapshot && delta.canvas_view) {
@@ -923,6 +974,9 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (!op || typeof op !== "object") continue;
       const type = String(op.type || "");
       const id = String(op.id || op.stroke_id || "");
+      const opKey = boardOpKey(op);
+      if (opKey && appliedOpKeys.has(opKey)) continue;
+      if (opKey) appliedOpKeys.add(opKey);
       if (op.x != null && op.y != null && op.owner) cursors.push(op);
       if (type === "stroke_remove" && id) {
         const before = strokes.length;
@@ -964,6 +1018,8 @@ export function bindWhiteboard(canvas, opts = {}) {
         structural = true;
         continue;
       }
+      // stroke_add does not append points onto an existing stroke
+      if (type === "stroke_add") continue;
       const merged = existing.points.concat(points);
       if (isExtension(existing.points, merged)) {
         const from = existing.points.length;

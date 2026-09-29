@@ -294,7 +294,7 @@ def _note_live_session_gone(session_id: int) -> None:
     logger.warning("live session %s is gone; polls return ended", sid)
 
 
-from board_ops import BoardOpRejected, normalize_board_key  # noqa: E402
+from board_ops import BoardOpRejected, BoardSessionClosed, normalize_board_key  # noqa: E402
 
 
 def _optional_board_seq(raw: Any) -> int | None:
@@ -4753,6 +4753,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     as_teacher=False,
                     client_batch_id=batch_id,
                 )
+        except BoardSessionClosed:
+            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         reply = school.canvas_presence_reply(
@@ -6153,6 +6155,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,
                 )
+        except BoardSessionClosed:
+            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
@@ -6313,6 +6317,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 since=_optional_board_seq(body.get("since")),
                 teacher_since=_optional_board_seq(body.get("teacher_since")),
             )
+        except BoardSessionClosed:
+            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
@@ -6397,6 +6403,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     as_teacher=True,
                     since=_optional_board_seq(body.get("since")),
                 )
+            except BoardSessionClosed:
+                return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
             except BoardOpRejected as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 403
             except (KeyError, ValueError) as exc:
@@ -6430,6 +6438,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 since=_optional_board_seq(body.get("since")),
                 teacher_since=_optional_board_seq(body.get("teacher_since")),
             )
+        except BoardSessionClosed:
+            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:

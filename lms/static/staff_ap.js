@@ -36,7 +36,9 @@ import { nameWithMood } from "/static/mood_faces.js";
 import {
   bindWhiteboard,
   createPresenceQueue,
+  cursorAfterOps,
   normalizeBoardPoint,
+  opsAboveCursor,
 } from "/static/live_whiteboard.js";
 import {
   RECONNECT_PENDING_MS,
@@ -9410,13 +9412,17 @@ function teacherPresenceQueue() {
      */
     onReply(data) {
       if (!data) return;
-      if (typeof data.board_seq === "number") teacherBoardSince = data.board_seq;
       if (data.snapshot && data.canvas_view) {
+        if (typeof data.board_seq === "number" && data.board_seq >= teacherBoardSince) {
+          teacherBoardSince = data.board_seq;
+        }
         paintTeacherCanvas(data.canvas_view, { source: "presence" });
         return;
       }
-      if (data.ops_since && teacherBoard && typeof teacherBoard.applyDelta === "function") {
-        teacherBoard.applyDelta(data);
+      const fresh = opsAboveCursor(data.ops_since, teacherBoardSince);
+      teacherBoardSince = cursorAfterOps(teacherBoardSince, fresh);
+      if (fresh.length && teacherBoard && typeof teacherBoard.applyDelta === "function") {
+        teacherBoard.applyDelta({ ops_since: fresh });
         return;
       }
       if (data.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });

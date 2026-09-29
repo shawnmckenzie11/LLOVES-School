@@ -20966,6 +20966,7 @@ class SchoolDB(LovesDB):
             bucket=bucket,
             owner=who,
         )
+        self._require_live_board_open(session_id)
         return self.boards.append_ink(
             int(session_id),
             key,
@@ -21028,6 +21029,7 @@ class SchoolDB(LovesDB):
             key = "shared"
         else:
             key = f"solo:{writer}"
+        self._require_live_board_open(session_id)
         self.boards.append_text(
             int(session_id),
             key,
@@ -21285,6 +21287,7 @@ class SchoolDB(LovesDB):
                 )
             else:
                 key = f"solo:{who}"
+        self._require_live_board_open(session_id)
         return self.boards.append_remove(
             int(session_id),
             key,
@@ -21477,6 +21480,29 @@ class SchoolDB(LovesDB):
             return reply
         reply["teacher_ops"] = list(teacher.get("ops") or [])
         return reply
+
+    def _require_live_board_open(self, session_id: int) -> None:
+        """Reject ink writes once this live session is no longer active.
+
+        The board store also rejects a write that races the purge, while
+        status is still ``active``. This check covers a session that has
+        already flipped to ended.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Raises:
+            BoardSessionClosed: The session is missing or not active.
+        """
+        from board_ops import BoardSessionClosed
+
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "active":
+            raise BoardSessionClosed("session has ended")
 
     def purge_board_ops(self, session_id: int) -> None:
         """Delete board ops for a session that has ended.

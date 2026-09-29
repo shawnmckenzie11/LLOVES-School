@@ -648,6 +648,6 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.assertIn("function createBoardDeltaPoll", wb)
         self.assertIn("let inFlight = false", wb)
         self.assertIn("if (stopped || inFlight) return", wb)
-        self.assertIn("opts.hasStream()", wb)
+        self.assertNotIn("opts.hasStream()", wb)
         self.assertIn("/api/student/board/mine?", student)
         self.assertNotIn("createBoardDeltaPoll", staff)

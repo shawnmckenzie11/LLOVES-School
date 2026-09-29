@@ -23,7 +23,9 @@ import {
   bindWhiteboard,
   createBoardDeltaPoll,
   createPresenceQueue,
+  cursorAfterOps,
   normalizeBoardPoint,
+  opsAboveCursor,
 } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -756,18 +758,30 @@ function studentPresenceQueue() {
      */
     onReply(data) {
       if (!data) return;
-      if (typeof data.board_seq === "number") studentBoardSince = data.board_seq;
-      if (typeof data.teacher_board_seq === "number") {
-        studentTeacherSince = data.teacher_board_seq;
-      }
-      if (
-        data.snapshot ||
-        data.ops_since ||
-        data.teacher_ops
-      ) {
+      if (data.snapshot) {
+        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
+          studentBoardSince = data.board_seq;
+        }
+        if (
+          typeof data.teacher_board_seq === "number" &&
+          data.teacher_board_seq >= studentTeacherSince
+        ) {
+          studentTeacherSince = data.teacher_board_seq;
+        }
         if (typeof bindStudentCanvas.applyDelta === "function") {
           bindStudentCanvas.applyDelta(data);
         }
+        return;
+      }
+      const teamOps = opsAboveCursor(data.ops_since, studentBoardSince);
+      const teacherOps = opsAboveCursor(data.teacher_ops, studentTeacherSince);
+      studentBoardSince = cursorAfterOps(studentBoardSince, teamOps);
+      studentTeacherSince = cursorAfterOps(studentTeacherSince, teacherOps);
+      if (
+        (teamOps.length || teacherOps.length) &&
+        typeof bindStudentCanvas.applyDelta === "function"
+      ) {
+        bindStudentCanvas.applyDelta({ ops_since: teamOps, teacher_ops: teacherOps });
         return;
       }
       const view = data?.canvas_view || data?.canvas_sync;
@@ -874,24 +888,15 @@ function bindStudentCanvas() {
 }
 
 /**
- * Poll teammate and teacher ink when this tab has no LiveNewsWire stream.
+ * Poll teammate and teacher ink on every tab that is showing the board.
  *
- * One request is in flight. The poll stops while the whiteboard is hidden
- * or the session has ended. A tab that holds a stream does not poll.
+ * One request is in flight, including tabs that hold a LiveNewsWire
+ * stream. The poll stops while the whiteboard is hidden or the session
+ * has ended.
  */
 function ensureStudentBoardPoll() {
   if (studentBoardPoll) return;
   studentBoardPoll = createBoardDeltaPoll({
-    /**
-     * @returns {boolean}
-     */
-    hasStream() {
-      return Boolean(
-        studentNewsWire &&
-          typeof studentNewsWire.hasStream === "function" &&
-          studentNewsWire.hasStream()
-      );
-    },
     /**
      * @returns {boolean}
      */
@@ -925,12 +930,31 @@ function ensureStudentBoardPoll() {
      * @param {any} data
      */
     onDelta(data) {
-      if (typeof data.board_seq === "number") studentBoardSince = data.board_seq;
-      if (typeof data.teacher_board_seq === "number") {
-        studentTeacherSince = data.teacher_board_seq;
+      if (data.snapshot) {
+        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
+          studentBoardSince = data.board_seq;
+        }
+        if (
+          typeof data.teacher_board_seq === "number" &&
+          data.teacher_board_seq >= studentTeacherSince
+        ) {
+          studentTeacherSince = data.teacher_board_seq;
+        }
+        if (typeof bindStudentCanvas.applyDelta === "function") {
+          bindStudentCanvas.applyDelta(data);
+        }
+        return;
       }
+      const teamOps = opsAboveCursor(data.ops || data.ops_since, studentBoardSince);
+      const teacherOps = opsAboveCursor(data.teacher_ops, studentTeacherSince);
+      studentBoardSince = cursorAfterOps(studentBoardSince, teamOps);
+      studentTeacherSince = cursorAfterOps(studentTeacherSince, teacherOps);
       if (typeof bindStudentCanvas.applyDelta === "function") {
-        bindStudentCanvas.applyDelta(data);
+        bindStudentCanvas.applyDelta({
+          ops: teamOps,
+          ops_since: teamOps,
+          teacher_ops: teacherOps,
+        });
       }
     },
   });

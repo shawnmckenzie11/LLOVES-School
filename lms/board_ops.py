@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS board_batches (
     last_seq INTEGER NOT NULL,
     PRIMARY KEY (session_id, board_key, owner, client_batch_id)
 );
+CREATE TABLE IF NOT EXISTS board_sessions (
+    session_id INTEGER PRIMARY KEY,
+    closed INTEGER NOT NULL DEFAULT 0
+);
 """
 
 _POSTGRES_DDL = """
@@ -105,6 +109,10 @@ CREATE TABLE IF NOT EXISTS board_batches (
     last_seq BIGINT NOT NULL,
     PRIMARY KEY (session_id, board_key, owner, client_batch_id)
 );
+CREATE TABLE IF NOT EXISTS board_sessions (
+    session_id BIGINT PRIMARY KEY,
+    closed BIGINT NOT NULL DEFAULT 0
+);
 """
 
 Exec = Callable[[str, tuple[Any, ...]], Any]
@@ -116,6 +124,10 @@ class BoardOpRejected(Exception):
     Raised when a ``stroke_remove`` names a stroke owned by someone else,
     or a stroke that is not on this board.
     """
+
+
+class BoardSessionClosed(Exception):
+    """Ink writes are closed because the live session is ending or ended."""
 
 
 def normalize_board_key(raw: Any) -> str:
@@ -719,10 +731,13 @@ class _BoardStore:
     def since(
         self, session_id: int, board_key: str, since_seq: int
     ) -> dict[str, Any]:
-        """Return ops with ``board_seq`` greater than ``since_seq``.
+        """Return ops with ``since_seq < board_seq <=`` the head read first.
 
-        A gap wider than ``MAX_DELTA_OPS`` sets ``snapshot`` and returns
-        no op list. ``since_seq`` equal to the current sequence is empty.
+        The head is the counter value at the start of this read. Rows
+        committed after that read are left for the next poll, so a reply
+        never contains a sequence past the ``board_seq`` it reports. A gap
+        wider than ``MAX_DELTA_OPS`` sets ``snapshot`` and returns no op
+        list. ``since_seq`` equal to the current sequence is empty.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -749,11 +764,11 @@ class _BoardStore:
                 """
                 SELECT board_key, board_seq, op, owner
                 FROM board_ops
-                WHERE session_id = ? AND board_key = ? AND board_seq > ?
+                WHERE session_id = ? AND board_key = ? AND board_seq > ? AND board_seq <= ?
                 ORDER BY board_seq ASC
                 LIMIT ?
                 """,
-                (int(session_id), key, since_n, MAX_DELTA_OPS + 1),
+                (int(session_id), key, since_n, current, MAX_DELTA_OPS + 1),
             )
             rows = [_row_dict(row) for row in cursor.fetchall()]
             if len(rows) > MAX_DELTA_OPS:
@@ -833,7 +848,13 @@ class _BoardStore:
         return self._read(work)
 
     def purge(self, session_id: int) -> None:
-        """Delete every op, counter, and batch row for a session.
+        """Close the session and delete its ops, counters, and batches.
+
+        The closed flag and the deletes share one transaction and the
+        same ``board_sessions`` row a writer locks before inserting. A
+        write that races this purge either commits before the delete or
+        sees the session closed and inserts nothing, so sequence 1 cannot
+        be reused against an orphan row.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -841,6 +862,14 @@ class _BoardStore:
         sid = int(session_id)
 
         def work(exec_: Exec) -> None:
+            exec_(
+                """
+                INSERT INTO board_sessions (session_id, closed)
+                VALUES (?, 1)
+                ON CONFLICT (session_id) DO UPDATE SET closed = 1
+                """,
+                (sid,),
+            )
             exec_("DELETE FROM board_ops WHERE session_id = ?", (sid,))
             exec_("DELETE FROM board_counters WHERE session_id = ?", (sid,))
             exec_("DELETE FROM board_batches WHERE session_id = ?", (sid,))
@@ -1071,6 +1100,34 @@ class _BoardStore:
             )
         return prepared
 
+    def _session_closed(self, exec_: Exec, session_id: int) -> bool:
+        """Lock this session's board row and report whether writes are closed.
+
+        The upsert sets ``closed`` to its current value so the row stays
+        locked until the surrounding transaction ends. A purge that wants
+        the same row waits. This write then either commits its ops or sees
+        ``closed`` and inserts nothing.
+
+        Args:
+            exec_: Statement runner for the open transaction.
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            True when new ops must be rejected.
+        """
+        cursor = exec_(
+            """
+            INSERT INTO board_sessions (session_id, closed)
+            VALUES (?, 0)
+            ON CONFLICT (session_id) DO UPDATE
+                SET closed = board_sessions.closed
+            RETURNING closed
+            """,
+            (int(session_id),),
+        )
+        row = _row_dict(cursor.fetchone())
+        return bool(int(row.get("closed") or 0))
+
     def _insert_ops(
         self,
         exec_: Exec,
@@ -1092,7 +1149,12 @@ class _BoardStore:
 
         Returns:
             ``{board_key, board_seq, ops, duplicate}``.
+
+        Raises:
+            BoardSessionClosed: The session is ending or has ended.
         """
+        if self._session_closed(exec_, session_id):
+            raise BoardSessionClosed("session has ended")
         batch = str(client_batch_id or "").strip()[:80]
         if batch:
             existing = self._batch_result(exec_, session_id, board_key, owner, batch)
@@ -1268,11 +1330,11 @@ def _is_integrity(exc: BaseException) -> bool:
     Args:
         exc: Exception from a write transaction.
     """
+    if isinstance(exc, (BoardOpRejected, BoardSessionClosed)):
+        return False
     if isinstance(exc, sqlite3.IntegrityError):
         return True
-    return type(exc).__name__ in {"UniqueViolation", "IntegrityError"} and not isinstance(
-        exc, BoardOpRejected
-    )
+    return type(exc).__name__ in {"UniqueViolation", "IntegrityError"}
 
 
 class SqliteBoardOps(_BoardStore):
@@ -1360,8 +1422,9 @@ class SqliteBoardOps(_BoardStore):
 class PostgresBoardOps(_BoardStore):
     """Board ops on the live-presence Postgres pool.
 
-    Sequence allocation and inserts share one transaction. DDL takes an
-    advisory lock so concurrent workers do not collide on ``pg_type``.
+    Sequence allocation and inserts share one transaction. DDL takes
+    ``pg_advisory_xact_lock`` so concurrent workers do not collide on
+    ``pg_type``. Running setup twice changes nothing.
     """
 
     def __init__(self, presence: Any) -> None:
@@ -1374,23 +1437,15 @@ class PostgresBoardOps(_BoardStore):
         self.presence = presence
 
     def ensure_schema(self) -> None:
-        """Create board tables, waiting out a concurrent worker's DDL."""
+        """Create board tables under the same transaction advisory lock as presence.
+
+        A second call does not change an existing schema.
+        """
+        from live_presence import apply_locked_ddl
+
+        statements = [part.strip() for part in _POSTGRES_DDL.split(";") if part.strip()]
         with self.presence._conn() as wrapped:
-            raw = wrapped.connection
-            raw.execute("SELECT pg_advisory_lock(%s)", (_BOARD_DDL_LOCK,))
-            try:
-                for part in _POSTGRES_DDL.split(";"):
-                    statement = part.strip()
-                    if not statement:
-                        continue
-                    try:
-                        raw.execute(statement)
-                    except Exception as exc:
-                        if schema_race(exc):
-                            continue
-                        raise
-            finally:
-                raw.execute("SELECT pg_advisory_unlock(%s)", (_BOARD_DDL_LOCK,))
+            apply_locked_ddl(wrapped.connection, statements, _BOARD_DDL_LOCK)
 
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` in one Postgres transaction on a pooled connection.

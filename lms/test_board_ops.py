@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sqlite3
 import sys
 import tempfile
@@ -23,8 +25,10 @@ from app import create_app  # noqa: E402
 from board_ops import (  # noqa: E402
     MAX_DELTA_OPS,
     BoardOpRejected,
+    BoardSessionClosed,
     SqliteBoardOps,
 )
+from live_presence import apply_locked_ddl  # noqa: E402
 
 
 class SqliteBoardOpsTests(unittest.TestCase):
@@ -238,6 +242,146 @@ class SqliteBoardOpsTests(unittest.TestCase):
         self.assertEqual(len(strokes), 90)
         self.assertEqual(strokes[0]["id"], "keep-0")
         self.assertEqual(strokes[-1]["id"], "keep-89")
+
+
+    def test_since_omits_ops_past_the_reported_head(self) -> None:
+        """A row newer than the counter is not included in this reply."""
+        for index in range(2):
+            self.store.append_ops(
+                1,
+                "shared",
+                owner="11",
+                ops=[
+                    {
+                        "type": "stroke_add",
+                        "id": f"head-{index}",
+                        "points": [[0.1, 0.2]],
+                    }
+                ],
+            )
+        self.conn.execute(
+            """
+            INSERT INTO board_ops (
+                session_id, board_key, board_seq, op, owner, created_at
+            ) VALUES (1, 'shared', 50, ?, '9', '2026-01-01T00:00:00')
+            """,
+            (
+                json.dumps(
+                    {"type": "stroke_add", "id": "orphan", "points": [[0.1, 0.1]]}
+                ),
+            ),
+        )
+        delta = self.store.since(1, "shared", 0)
+        self.assertEqual(delta["board_seq"], 2)
+        self.assertFalse(delta["snapshot"])
+        self.assertEqual([op["board_seq"] for op in delta["ops"]], [1, 2])
+        self.assertNotIn(50, [op["board_seq"] for op in delta["ops"]])
+
+    def test_ensure_schema_twice_changes_nothing(self) -> None:
+        """Opening the board schema again leaves the same tables in place."""
+        self.store.ensure_schema()
+        self.store.ensure_schema()
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'board_sessions'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+
+    def test_purge_and_a_racing_write_do_not_reuse_a_sequence(self) -> None:
+        """Writers that overlap a purge raise closed, and leave no orphan rows."""
+        errors: list[BaseException] = []
+
+        def writer() -> None:
+            """Append until the session closes, recording unexpected errors."""
+            conn = self._connect(self.path)
+            try:
+                store = SqliteBoardOps(conn)
+                for index in range(40):
+                    try:
+                        store.append_ops(
+                            7,
+                            "shared",
+                            owner="1",
+                            ops=[
+                                {
+                                    "type": "stroke_add",
+                                    "id": f"s-{threading.get_ident()}-{index}",
+                                    "points": [[0.1, 0.1]],
+                                }
+                            ],
+                        )
+                    except BoardSessionClosed:
+                        return
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                conn.close()
+
+        threads = [threading.Thread(target=writer) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        self.store.purge(7)
+        for thread in threads:
+            thread.join(timeout=30)
+        self.assertEqual(errors, [])
+        leftover = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM board_ops WHERE session_id = 7"
+        ).fetchone()
+        counters = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM board_counters WHERE session_id = 7"
+        ).fetchone()
+        self.assertEqual(int(leftover["n"]), 0)
+        self.assertEqual(int(counters["n"]), 0)
+        with self.assertRaises(BoardSessionClosed):
+            self.store.append_ops(
+                7,
+                "shared",
+                owner="1",
+                ops=[{"type": "stroke_add", "id": "after", "points": [[0.2, 0.2]]}],
+            )
+
+    def test_locked_ddl_survives_a_duplicate_type_and_runs_twice(self) -> None:
+        """A UniqueViolation on one statement does not abort the rest of setup."""
+
+        class UniqueViolation(Exception):
+            """Stand-in for psycopg's duplicate pg_type error."""
+
+        class FakeRaw:
+            """Records DDL and fails the first CREATE TABLE once."""
+
+            def __init__(self) -> None:
+                self.statements: list[str] = []
+                self.fail_once = True
+
+            def transaction(self):
+                """Act as the psycopg transaction context."""
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                return False
+
+            def execute(self, sql: str, params=None):
+                """Record ``sql`` and raise once on the first create."""
+                self.statements.append(sql)
+                if "CREATE TABLE" in sql and self.fail_once:
+                    self.fail_once = False
+                    raise UniqueViolation("pg_type_typname_nsp_index")
+                return self
+
+        raw = FakeRaw()
+        statements = [
+            "CREATE TABLE IF NOT EXISTS live_presence_sessions (id BIGINT PRIMARY KEY)",
+            "CREATE INDEX IF NOT EXISTS live_presence_sessions_class ON live_presence_sessions (class_id)",
+        ]
+        apply_locked_ddl(raw, statements, 87421300)
+        self.assertIn("SELECT pg_advisory_xact_lock(%s)", raw.statements)
+        self.assertIn("ROLLBACK TO SAVEPOINT ddl_step", raw.statements)
+        self.assertTrue(any(sql.startswith("CREATE INDEX") for sql in raw.statements))
+        first = list(raw.statements)
+        apply_locked_ddl(raw, statements, 87421300)
+        self.assertGreater(len(raw.statements), len(first))
 
 
 class BoardRouteTests(unittest.TestCase):
@@ -517,18 +661,113 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(self.school.boards.load_keys(self.session_id, None), [])
         self.assertEqual(self.school.boards.current_seq(self.session_id, key), 0)
 
-    def test_no_stream_poll_is_one_in_flight(self) -> None:
-        """The shared-board poll is 1.5–2s, one in flight, and skips a stream."""
+    def test_ending_the_session_rejects_later_ink(self) -> None:
+        """Ink posted while a session is ending is 409, not a uniqueness 500.
+
+        Purge runs before the status flip. The attendee is still joined and
+        the session row is still active, which is the window that reused
+        sequence 1 against an orphan row.
+        """
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        first = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "x": 0.2,
+                "y": 0.2,
+                "point": [0.2, 0.2],
+                "stroke_id": "before-purge",
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.get_json())
+        self.school.purge_board_ops(self.session_id)
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "x": 0.4,
+                "y": 0.4,
+                "point": [0.4, 0.4],
+                "stroke_id": "during-end",
+                "client_batch_id": "during-end-batch",
+            },
+        )
+        self.assertEqual(drawn.status_code, 409, drawn.get_json())
+        body = drawn.get_json()
+        self.assertTrue(body.get("ended"))
+        self.assertEqual(self.school.boards.load_keys(self.session_id, None), [])
+        ended = self.school.end_live_class_session(self.session_id)
+        self.assertEqual(ended["status"], "ended")
+        with self.assertRaises(BoardSessionClosed):
+            self.school.apply_live_canvas_presence(
+                self.session_id,
+                owner=str(self._student_id("Aspen")),
+                name="Aspen",
+                point=[0.6, 0.6],
+                stroke_id="after-status",
+            )
+
+    def test_shared_board_poll_runs_with_or_without_a_stream(self) -> None:
+        """Every shown shared-board tab polls, one request in flight."""
         wb = (LMS_DIR / "static" / "live_whiteboard.js").read_text(encoding="utf-8")
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         wire = (LMS_DIR / "static" / "live_news_wire.js").read_text(encoding="utf-8")
+        presence = (LMS_DIR / "live_presence.py").read_text(encoding="utf-8")
+        boards = (LMS_DIR / "board_ops.py").read_text(encoding="utf-8")
         self.assertIn("export const BOARD_DELTA_POLL_MS = 1750", wb)
         self.assertIn("let inFlight = false", wb)
         self.assertIn("if (stopped || inFlight) return", wb)
-        self.assertIn("opts.hasStream()", wb)
+        self.assertNotIn("opts.hasStream()", wb)
         self.assertIn("result.ended", wb)
+        self.assertIn("stroke_add does not append points onto an existing stroke", wb)
         self.assertIn("/api/student/board/mine?", student)
+        self.assertNotIn("hasStream()", student)
+        self.assertNotIn("createBoardDeltaPoll", staff)
         self.assertIn("hasStream()", wire)
+        self.assertIn("pg_advisory_xact_lock", presence)
+        self.assertIn("pg_advisory_xact_lock", boards)
+        self.assertIn("CREATE TABLE IF NOT EXISTS live_presence_sessions", presence)
+        self.assertIn("CREATE TABLE IF NOT EXISTS board_ops", boards)
+
+    def test_client_cursor_drops_ops_at_or_below_and_duplicate_keys(self) -> None:
+        """The client keeps seqs above the cursor and ignores a repeated op key."""
+        script = """
+import { boardOpKey, cursorAfterOps, opsAboveCursor } from './lms/static/live_whiteboard.js';
+const ops = [
+  { board_seq: 1, board_key: 'shared', id: 'a', type: 'stroke_add' },
+  { board_seq: 2, board_key: 'shared', id: 'b', type: 'pts_append' },
+  { board_seq: 3, board_key: 'shared', id: 'b', type: 'pts_append' },
+  { board_seq: 2, board_key: 'shared', id: 'dup', type: 'stroke_add' },
+];
+const fresh = opsAboveCursor(ops, 1);
+if (fresh.map((op) => op.board_seq).join(',') !== '2,2,3') {
+  console.error(JSON.stringify(fresh));
+  process.exit(1);
+}
+const next = cursorAfterOps(1, fresh);
+if (next !== 3) process.exit(2);
+if (opsAboveCursor(ops, next).length !== 0) process.exit(3);
+if (cursorAfterOps(5, [{ board_seq: 2 }]) !== 5) process.exit(4);
+const seen = new Set();
+const key = boardOpKey({ board_seq: 2, board_key: 'shared', type: 'pts_append', id: 'b' });
+if (key !== 'shared:2') process.exit(5);
+seen.add(key);
+if (seen.has(boardOpKey({ board_seq: 2, board_key: 'shared', type: 'pts_append', id: 'b', points: [[1, 1]] }))) {
+  // same op key is the duplicate the client drops
+} else {
+  process.exit(6);
+}
+const later = boardOpKey({ board_seq: 4, board_key: 'shared', type: 'pts_append', id: 'b' });
+if (later === key || seen.has(later)) process.exit(7);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":
