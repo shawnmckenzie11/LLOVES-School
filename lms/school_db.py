@@ -65,8 +65,6 @@ try:
         staff_cons_prompt_payload,
     )
     from live_canvas import (
-        apply_canvas_presence,
-        apply_canvas_text,
         canvas_view_for,
         cursor_color_for,
         public_canvas_sync,
@@ -202,8 +200,6 @@ except ImportError:  # ``python3 lms/app.py`` package import
         staff_cons_prompt_payload,
     )
     from lms.live_canvas import (
-        apply_canvas_presence,
-        apply_canvas_text,
         canvas_view_for,
         cursor_color_for,
         public_canvas_sync,
@@ -1179,6 +1175,7 @@ class LovesDB:
         self._seed()
         self._seed_live_class_features()
         self.conn.commit()
+        self._install_sqlite_board_ops()
         self._attach_live_presence()
 
     def close(self) -> None:
@@ -1213,7 +1210,33 @@ class LovesDB:
             logger.error("live presence postgres refused: %s", exc)
             raise
         self.presence = store
+        self._install_postgres_board_ops(store)
         logger.info("live presence store=postgres")
+
+    def _install_sqlite_board_ops(self) -> None:
+        """Create the sqlite board-op tables and use them until Postgres attaches.
+
+        Local dev and CI have no live-presence URL. Tests run on this path.
+        ``LovesDB`` itself opens the connection, so the installer lives here
+        rather than only on the school facade.
+        """
+        from board_ops import SqliteBoardOps
+
+        store = SqliteBoardOps(self.conn, self._lock)
+        store.ensure_schema()
+        self.boards = store
+
+    def _install_postgres_board_ops(self, presence: Any) -> None:
+        """Point board ops at Postgres and create the tables under an advisory lock.
+
+        Args:
+            presence: Attached ``LivePresenceStore``.
+        """
+        from board_ops import PostgresBoardOps
+
+        store = PostgresBoardOps(presence)
+        store.ensure_schema()
+        self.boards = store
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
@@ -2491,6 +2514,10 @@ class LovesDB:
         if "canvas_sync_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN canvas_sync_json TEXT"
+            )
+        if "run_key" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN run_key TEXT"
             )
         feedback_cols = {
             str(row[1])
@@ -10756,6 +10783,7 @@ class SchoolDB(LovesDB):
         Returns:
             Number of attendees marked left.
         """
+        self._purge_board_ops_if_ended(int(session_id))
         if self.presence is not None:
             try:
                 return self.presence.sweep(
@@ -20822,16 +20850,22 @@ class SchoolDB(LovesDB):
         return public_teacher_state(payload)
 
     def live_session_canvas_sync(self, session_id: int) -> dict[str, Any]:
-        """Return the ephemeral canvas-sync blob for one live session.
+        """Return the folded canvas blob for every board in one session.
+
+        This is the server-side fold of append-only ops. Student and staff
+        replies use ``live_session_canvas_view``, which loads only the
+        boards that viewer may see.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
+        from board_ops import fold_to_public_blob
+
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
-        stored = session_row.get("canvas_sync")
-        return public_canvas_sync(stored if isinstance(stored, dict) else None)
+        rows = self.boards.load_keys(self.live_board_run_key(session_id), None)
+        return fold_to_public_blob(rows)
 
     def _write_canvas_sync(
         self, session_id: int, payload: dict[str, Any]
@@ -20888,8 +20922,10 @@ class SchoolDB(LovesDB):
         points: Any = None,
         ended: bool = False,
         as_teacher: bool = False,
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
-        """Merge one ephemeral cursor tick and a point or a points batch.
+        """Append one cursor tick and a point or a points batch as board ops.
 
         Unique-per-student alignment stores cursors only. Frozen-to-teacher
         publishes teacher strokes. Shared-within-group publishes team
@@ -20908,6 +20944,7 @@ class SchoolDB(LovesDB):
             points: Optional batch of ``[x, y]`` pairs.
             ended: True when the pointer lifts.
             as_teacher: True for the staff stub.
+            client_batch_id: Retry token. A repeat does not allocate a new seq.
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
@@ -20921,23 +20958,36 @@ class SchoolDB(LovesDB):
         elif align == "team":
             publish = True
             bucket = "teacher" if as_teacher else "team"
-        color = cursor_color_for("teacher" if as_teacher else owner)
-        blob = apply_canvas_presence(
-            self.live_session_canvas_sync(session_id),
-            owner="teacher" if as_teacher else str(owner),
-            name=name,
-            color=color,
+        if not publish:
+            return self.live_session_canvas_view(
+                session_id,
+                student_id=int(owner) if str(owner).isdigit() and not as_teacher else None,
+                as_teacher=as_teacher,
+            )
+        who = "teacher" if as_teacher else str(owner)
+        key = self._ink_board_key(
+            as_teacher=as_teacher,
             team_id=team_id,
+            bucket=bucket,
+            owner=who,
+        )
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_ink(
+            run_key,
+            key,
+            owner=who,
+            name=name,
+            color=cursor_color_for(who),
+            team_id=team_id,
+            stroke_id=stroke_id,
+            points=points if isinstance(points, list) else None,
+            point=point,
+            ended=ended,
+            batched=isinstance(points, list),
             x=x,
             y=y,
-            stroke_id=stroke_id,
-            point=point,
-            points=points if isinstance(points, list) else None,
-            ended=ended,
-            publish_stroke=publish,
-            stroke_bucket=bucket,
+            client_batch_id=str(client_batch_id or "").strip() or None,
         )
-        return self._write_canvas_sync(session_id, blob)
 
     def apply_live_canvas_text(
         self,
@@ -20951,6 +21001,7 @@ class SchoolDB(LovesDB):
         x: Any = None,
         y: Any = None,
         as_teacher: bool = False,
+        claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
         """Persist one whiteboard text label for this live session.
 
@@ -20974,10 +21025,20 @@ class SchoolDB(LovesDB):
             collab = str(teacher.get("canvas_align") or "") == "team"
         writer = "teacher" if as_teacher else str(owner)
         stored_team = None
-        if collab and not as_teacher:
-            stored_team = int(team_id) if team_id not in (None, "") else 0
-        blob = apply_canvas_text(
-            self.live_session_canvas_sync(session_id),
+        if as_teacher:
+            key = "teacher"
+        elif collab and team_id not in (None, ""):
+            stored_team = int(team_id)
+            key = f"team:{stored_team}"
+        elif collab:
+            stored_team = 0
+            key = "shared"
+        else:
+            key = f"solo:{writer}"
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        self.boards.append_text(
+            run_key,
+            key,
             owner=writer,
             name=name,
             text_id=text_id,
@@ -20987,7 +21048,9 @@ class SchoolDB(LovesDB):
             color=cursor_color_for(writer),
             team_id=stored_team,
         )
-        return self._write_canvas_sync(session_id, blob)
+        # Callers (and the text test) expect the full session blob, the
+        # same shape ``_write_canvas_sync`` used to return.
+        return self.live_session_canvas_sync(session_id)
 
     @staticmethod
     def staff_session_for_shell(session_row: dict[str, Any]) -> dict[str, Any]:
@@ -21063,13 +21126,537 @@ class SchoolDB(LovesDB):
         view_align = align
         if as_teacher and align == "team":
             view_align = "teacher"
+        from board_ops import fold_to_public_blob
+
+        keys = self._board_keys_for_view(
+            view_align,
+            team_id=team_id,
+            viewer=viewer,
+        )
+        blob = fold_to_public_blob(
+            self.boards.load_keys(self.live_board_run_key(session_id), keys)
+        )
         return canvas_view_for(
-            self.live_session_canvas_sync(session_id),
+            blob,
             align=view_align,
             team_id=team_id,
             include_all_teams=False,
             viewer=viewer,
         )
+
+    def _ink_board_key(
+        self,
+        *,
+        as_teacher: bool,
+        team_id: int | None,
+        bucket: str,
+        owner: str,
+    ) -> str:
+        """Board key for one ink writer.
+
+        Args:
+            as_teacher: Staff stroke, always the teacher board.
+            team_id: Student's team, when they have one.
+            bucket: ``teacher`` or ``team`` from the alignment rules.
+            owner: Writer id used for a solo board.
+        """
+        if as_teacher or bucket == "teacher":
+            return "teacher"
+        if team_id is None:
+            return "shared"
+        return f"team:{int(team_id)}"
+
+    def _board_keys_for_view(
+        self,
+        align: str,
+        *,
+        team_id: int | None,
+        viewer: str,
+    ) -> list[str]:
+        """Boards one viewer is allowed to fold into a canvas view.
+
+        The teacher view is only the teacher board. A student on a shared
+        board sees that team plus the teacher. Individual alignment is the
+        student's own text board.
+
+        Args:
+            align: ``teacher``, ``student``, or ``team``.
+            team_id: Viewer's team, when they have one.
+            viewer: ``teacher`` or roster id string.
+        """
+        if align == "teacher":
+            return ["teacher"]
+        if align == "student":
+            who = str(viewer or "").strip()
+            return [f"solo:{who}"] if who else []
+        keys = ["teacher"]
+        if team_id is not None:
+            keys.append(f"team:{int(team_id)}")
+        else:
+            keys.append("shared")
+        return keys
+
+    def student_board_access(self, session_id: int, student_id: int) -> dict[str, Any]:
+        """Read and write keys for one roster student.
+
+        A student may write their team board (or ``shared`` when they have
+        no team) and their solo text board. They may read those plus the
+        teacher board. They may not read or write another team's board.
+
+        Args:
+            session_id: ``live_class_sessions.id``. Used to resolve the class.
+            student_id: Roster id.
+        """
+        session_row = self.get_live_session(int(session_id))
+        team_id = None
+        if session_row is not None:
+            team_id = self.student_team_id_for_class(
+                int(session_row["class_id"]), int(student_id)
+            )
+        collab = f"team:{int(team_id)}" if team_id is not None else "shared"
+        solo = f"solo:{int(student_id)}"
+        return {
+            "collab_key": collab,
+            "read": {collab, solo, "teacher"},
+            "write": {collab, solo},
+        }
+
+    def board_delta(
+        self,
+        session_id: int,
+        board_key: str,
+        since_seq: int,
+        *,
+        student_id: int | None = None,
+        as_teacher: bool = False,
+    ) -> dict[str, Any]:
+        """Ops after ``since_seq``, or a snapshot when the gap is too wide.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: One board the caller is allowed to read.
+            since_seq: Last sequence the caller has applied.
+            student_id: Roster id when the snapshot must be student-scoped.
+            as_teacher: True when the snapshot is the teacher board only.
+
+        Returns:
+            Since-seq payload. ``snapshot`` true includes ``canvas_view``.
+        """
+        delta = self.boards.since(
+            self.live_board_run_key(session_id), board_key, int(since_seq)
+        )
+        if delta.get("snapshot"):
+            delta["canvas_view"] = self.live_session_canvas_view(
+                int(session_id),
+                student_id=student_id,
+                as_teacher=as_teacher,
+            )
+            delta["canvas_sync"] = delta["canvas_view"]
+        return delta
+
+    def remove_live_board_stroke(
+        self,
+        session_id: int,
+        *,
+        owner: str,
+        stroke_id: str,
+        team_id: int | None = None,
+        as_teacher: bool = False,
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ``stroke_remove`` for a stroke this caller owns.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            owner: Roster id string, ignored when ``as_teacher`` is set.
+            stroke_id: Stroke to drop.
+            team_id: Student's team, when they have one.
+            as_teacher: True for the staff board.
+            client_batch_id: Retry token.
+
+        Returns:
+            The append result from the board store.
+
+        Raises:
+            BoardOpRejected: The stroke belongs to someone else.
+        """
+        who = "teacher" if as_teacher else str(owner)
+        if as_teacher:
+            key = "teacher"
+        else:
+            teacher = self.live_session_teacher_state_payload(session_id)
+            align = str(teacher.get("canvas_align") or "student")
+            if self._whiteboard_collab_active(session_id):
+                align = "team"
+            if align == "team":
+                key = self._ink_board_key(
+                    as_teacher=False,
+                    team_id=team_id,
+                    bucket="team",
+                    owner=who,
+                )
+            else:
+                key = f"solo:{who}"
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_remove(
+            run_key,
+            key,
+            owner=who,
+            stroke_id=str(stroke_id or ""),
+            client_batch_id=str(client_batch_id or "").strip() or None,
+        )
+
+    def canvas_presence_reply(
+        self,
+        session_id: int,
+        *,
+        student_id: int | None = None,
+        as_teacher: bool = False,
+        since: int | None = None,
+        teacher_since: int | None = None,
+    ) -> dict[str, Any]:
+        """Build the presence POST body.
+
+        Callers that omit both sequence cursors still receive the filtered
+        canvas view (tests and older clients). A cursor selects a since-seq
+        delta so the write does not fold the whole board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id for a student caller.
+            as_teacher: True for the staff shell.
+            since: Last seq on the board the caller just wrote.
+            teacher_since: Last teacher-board seq a student has applied.
+
+        Returns:
+            JSON-ready dict with ``canvas_view`` and/or ``ops_since``.
+        """
+        if as_teacher:
+            seq = since if since is not None else teacher_since
+            if seq is None:
+                view = self.live_session_canvas_view(int(session_id), as_teacher=True)
+                return {"ok": True, "canvas_sync": view, "canvas_view": view}
+            delta = self.board_delta(
+                int(session_id), "teacher", int(seq), as_teacher=True
+            )
+            return self._delta_reply(delta, teacher_key="teacher")
+        access = self.student_board_access(
+            int(session_id), int(student_id or 0)
+        )
+        if since is None and teacher_since is None:
+            view = self.live_session_canvas_view(
+                int(session_id), student_id=student_id
+            )
+            return {"ok": True, "canvas_sync": view, "canvas_view": view}
+        reply: dict[str, Any] = {
+            "ok": True,
+            "ops_since": [],
+            "teacher_ops": [],
+            "snapshot": False,
+            "board_key": access["collab_key"],
+        }
+        snapshot = False
+        if since is not None:
+            delta = self.board_delta(
+                int(session_id),
+                access["collab_key"],
+                int(since),
+                student_id=student_id,
+            )
+            reply["board_seq"] = delta["board_seq"]
+            if delta.get("snapshot"):
+                snapshot = True
+                reply["canvas_view"] = delta.get("canvas_view")
+            else:
+                reply["ops_since"] = list(delta.get("ops") or [])
+        if teacher_since is not None:
+            teacher_delta = self.board_delta(
+                int(session_id),
+                "teacher",
+                int(teacher_since),
+                student_id=student_id,
+            )
+            reply["teacher_board_seq"] = teacher_delta["board_seq"]
+            if teacher_delta.get("snapshot"):
+                snapshot = True
+                reply["canvas_view"] = teacher_delta.get("canvas_view")
+            else:
+                reply["teacher_ops"] = list(teacher_delta.get("ops") or [])
+        if snapshot:
+            view = reply.get("canvas_view") or self.live_session_canvas_view(
+                int(session_id), student_id=student_id
+            )
+            reply["snapshot"] = True
+            reply["canvas_view"] = view
+            reply["canvas_sync"] = view
+            reply["ops_since"] = []
+            reply["teacher_ops"] = []
+        return reply
+
+    @staticmethod
+    def _delta_reply(delta: dict[str, Any], *, teacher_key: str) -> dict[str, Any]:
+        """Shape one board's since-seq result as a presence reply.
+
+        Args:
+            delta: ``board_delta`` result.
+            teacher_key: Board key to report under ``board_seqs``.
+        """
+        reply: dict[str, Any] = {
+            "ok": True,
+            "board_key": delta.get("board_key") or teacher_key,
+            "board_seq": delta.get("board_seq") or 0,
+            "board_seqs": {teacher_key: delta.get("board_seq") or 0},
+            "snapshot": bool(delta.get("snapshot")),
+            "ops_since": [] if delta.get("snapshot") else list(delta.get("ops") or []),
+        }
+        if delta.get("snapshot"):
+            view = delta.get("canvas_view") or {"strokes": [], "cursors": [], "texts": []}
+            reply["canvas_view"] = view
+            reply["canvas_sync"] = view
+        return reply
+
+    def read_board(
+        self,
+        session_id: int,
+        board_key: str,
+        since_seq: int,
+        *,
+        student_id: int | None = None,
+        as_teacher: bool = False,
+        teacher_since: int | None = None,
+    ) -> dict[str, Any]:
+        """Since-seq read for one board the caller is already allowed to see.
+
+        An ended session returns ``ended`` so a delta poll can stop. A wide
+        gap sets ``snapshot`` and includes the filtered canvas view. A
+        student read of their team board can piggyback teacher ink so one
+        poll covers both boards they may see.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Canonical board key.
+            since_seq: Last sequence applied on ``board_key``.
+            student_id: Roster id when the viewer is a student.
+            as_teacher: True for the teacher board only.
+            teacher_since: When set on a student team read, include teacher ops.
+
+        Returns:
+            JSON-ready delta or snapshot.
+        """
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        if str(session_row.get("status") or "") != "active":
+            return {"ok": True, "ended": True, "status": "ended"}
+        delta = self.board_delta(
+            int(session_id),
+            board_key,
+            int(since_seq),
+            student_id=student_id,
+            as_teacher=as_teacher,
+        )
+        reply: dict[str, Any] = {
+            "ok": True,
+            "ended": False,
+            "board_key": delta.get("board_key") or board_key,
+            "board_seq": delta.get("board_seq") or 0,
+            "since": delta.get("since") or 0,
+            "ops": [] if delta.get("snapshot") else list(delta.get("ops") or []),
+            "snapshot": bool(delta.get("snapshot")),
+        }
+        if delta.get("snapshot"):
+            reply["canvas_view"] = delta.get("canvas_view")
+        if (
+            teacher_since is None
+            or as_teacher
+            or board_key == "teacher"
+        ):
+            return reply
+        teacher = self.board_delta(
+            int(session_id),
+            "teacher",
+            int(teacher_since),
+            student_id=student_id,
+        )
+        reply["teacher_board_seq"] = teacher.get("board_seq") or 0
+        reply["teacher_since"] = teacher.get("since") or 0
+        if teacher.get("snapshot") or reply["snapshot"]:
+            reply["snapshot"] = True
+            reply["canvas_view"] = self.live_session_canvas_view(
+                int(session_id), student_id=student_id
+            )
+            reply["ops"] = []
+            reply["teacher_ops"] = []
+            return reply
+        reply["teacher_ops"] = list(teacher.get("ops") or [])
+        return reply
+
+    def live_board_run_key(self, session_id: int) -> str:
+        """Return the run key stored on this live session.
+
+        An active session that has no key yet gets one minted, so a class
+        that started before the column existed can still draw. Ended
+        sessions keep the key they were given at start.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The run key for this row.
+
+        Raises:
+            KeyError: The session is missing or has no run key.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status, run_key FROM live_class_sessions WHERE id = ?",
+                (sid,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"live session {sid}")
+            key = str(row["run_key"] or "").strip()
+            if not key and str(row["status"] or "") == "active":
+                minted = uuid.uuid4().hex
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET run_key = ?
+                    WHERE id = ? AND status = 'active'
+                      AND (run_key IS NULL OR run_key = '')
+                    """,
+                    (minted, sid),
+                )
+                self.conn.commit()
+                fresh = self.conn.execute(
+                    "SELECT run_key FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                ).fetchone()
+                key = str(fresh["run_key"] or "").strip() if fresh else ""
+        if not key:
+            raise KeyError(f"live session {sid} has no run key")
+        return key
+
+    def _require_live_board_open(
+        self, session_id: int, claimed_run_key: str | None = None
+    ) -> str:
+        """Reject ink writes once this live run is no longer current.
+
+        The board store also rejects a write that races the purge, while
+        status is still ``active``. A claimed run key from a previous
+        live run is rejected even when the session id has been reused.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            claimed_run_key: Run key supplied by the client, if any.
+
+        Returns:
+            The current run key to store the write under.
+
+        Raises:
+            BoardSessionClosed: The session is missing, ended, or the
+                claim belongs to another run.
+        """
+        from board_ops import BoardSessionClosed
+
+        try:
+            key = self.live_board_run_key(session_id)
+        except KeyError as exc:
+            raise BoardSessionClosed("session has ended") from exc
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "active":
+            raise BoardSessionClosed("session has ended")
+        claimed = str(claimed_run_key or "").strip()
+        if claimed and claimed != key:
+            raise BoardSessionClosed("session has ended")
+        return key
+
+    def append_live_board_ops(
+        self,
+        session_id: int,
+        board_key: str,
+        *,
+        owner: str,
+        ops: list[dict[str, Any]],
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ops onto the session's current run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Destination board.
+            owner: Writer stored on each row.
+            ops: Client op objects.
+            client_batch_id: Retry token.
+            claimed_run_key: Run key supplied by the client, if any.
+
+        Returns:
+            The append result from the board store.
+
+        Raises:
+            BoardSessionClosed: The session is ended or the claim is stale.
+        """
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_ops(
+            run_key,
+            board_key,
+            owner=owner,
+            ops=ops,
+            client_batch_id=client_batch_id,
+        )
+
+    def purge_board_ops(self, session_id: int) -> None:
+        """Delete board ops, the seq counter, and the close flag for this run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        boards = getattr(self, "boards", None)
+        if boards is None:
+            return
+        try:
+            key = self.live_board_run_key(session_id)
+        except KeyError:
+            return
+        boards.purge(key)
+        done = getattr(self, "_boards_purged", None)
+        if done is None:
+            done = set()
+            self._boards_purged = done
+        done.add(key)
+
+    def _purge_board_ops_if_ended(self, session_id: int) -> None:
+        """Drop board ops when a swept session is already ended.
+
+        Active sessions are left alone. A run key already purged is not
+        deleted again. The cache is the run key, so a reused session id
+        does not skip the next run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        if getattr(self, "boards", None) is None:
+            return
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status, run_key FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "ended":
+            return
+        key = str(row["run_key"] or "").strip()
+        if not key:
+            return
+        done = getattr(self, "_boards_purged", None)
+        if done is not None and key in done:
+            return
+        self.purge_board_ops(int(session_id))
 
     def _mount_meet_chain(
         self,
@@ -21727,8 +22314,9 @@ class SchoolDB(LovesDB):
         return len(student_ids)
 
     def cleanup_live_session_response_data(self, session_id: int) -> None:
-        """Delete ephemeral individual votes and group response artifacts."""
+        """Delete ephemeral individual votes, group responses, and board ops."""
 
+        self.purge_board_ops(int(session_id))
         with self._lock:
             item_rows = self.conn.execute(
                 """
@@ -21905,6 +22493,7 @@ class SchoolDB(LovesDB):
                 int(row["id"]) for row in sessions if int(row["id"]) in wanted
             ]
         for sid in session_ids:
+            self.purge_board_ops(sid)
             self.clear_attendee_moods_and_characters(sid)
         try:
             self.game.clear_class_moods_and_characters(int(class_id))
@@ -23074,8 +23663,9 @@ class SchoolDB(LovesDB):
                 """
                 INSERT INTO live_class_sessions (
                     class_id, offering_id, teacher_user_id, session_code,
-                    status, started_at, ended_at, mgs_session_id, meeting_date
-                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?)
+                    status, started_at, ended_at, mgs_session_id, meeting_date,
+                    run_key
+                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)
                 """,
                 (
                     int(class_id),
@@ -23084,6 +23674,7 @@ class SchoolDB(LovesDB):
                     code,
                     now,
                     meeting_iso,
+                    uuid.uuid4().hex,
                 ),
             )
             self.conn.commit()
@@ -23165,9 +23756,10 @@ class SchoolDB(LovesDB):
         """Return a cheap revision token for student /state short-circuit.
 
         Includes prompt active flags, item counts, Save to card, prompt
-        responses, private group-consensus votes, and the whiteboard blob
-        so a stroke, text edit, close, unpublish, checkbox, or teammate
-        answer cannot keep a stale student frame.
+        responses, and private group-consensus votes so a close, unpublish,
+        checkbox, or teammate answer cannot keep a stale student frame.
+        Board ink is not in this stamp. A stroke or text edit must leave
+        it unchanged.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -23263,21 +23855,12 @@ class SchoolDB(LovesDB):
         response_max = int(row["response_max"] if row is not None else 0)
         group_vote_max = int(row["group_vote_max"] if row is not None else 0)
         group_vote_rev = str(row["group_vote_rev"] if row is not None else "")
-        with self._lock:
-            canvas_row = self.conn.execute(
-                """
-                SELECT canvas_sync_json FROM live_class_sessions WHERE id = ?
-                """,
-                (int(session_id),),
-            ).fetchone()
-        raw_canvas = ""
-        if canvas_row is not None:
-            raw_canvas = str(canvas_row["canvas_sync_json"] or "")
-        canvas_rev = hashlib.sha1(raw_canvas.encode()).hexdigest()[:12]
+        # Ink lives in board_ops. It must not change this stamp, or every
+        # stroke forces a full ``/state`` rebuild.
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
-            f"{prompt_rev}:{item_rev}:{group_vote_rev}:{canvas_rev}"
+            f"{prompt_rev}:{item_rev}:{group_vote_rev}"
         )
 
     def _student_live_poll_is_open(self, session_id: int) -> bool:
@@ -23484,12 +24067,6 @@ class SchoolDB(LovesDB):
                 lambda: self.light_group_results(session_id),
                 {},
             )
-            payload["canvas_sync"] = live_state_field(
-                session_id,
-                "canvas_sync",
-                lambda: self.live_session_canvas_view(session_id, as_teacher=True),
-                {},
-            )
             return json_safe(payload)
         is_active = session_row.get("status") == "active"
         if is_active:
@@ -23587,14 +24164,6 @@ class SchoolDB(LovesDB):
                     "scoreboard",
                     lambda: self.live_scoreboard_projection(session_id),
                     None,
-                ),
-                "canvas_sync": live_state_field(
-                    session_id,
-                    "canvas_sync",
-                    lambda: self.live_session_canvas_view(
-                        session_id, as_teacher=True
-                    ),
-                    {},
                 ),
                 "game_points": live_state_field(
                     session_id,
@@ -23849,11 +24418,6 @@ class SchoolDB(LovesDB):
         ensure_poll_budget()
         payload["live_metadata"] = self.student_live_class_metadata_for_session(
             int(live_session_id)
-        )
-        ensure_poll_budget()
-        payload["canvas_sync"] = self.live_session_canvas_view(
-            int(live_session_id),
-            student_id=sid,
         )
         ensure_poll_budget()
         self.apply_student_end_overlay(

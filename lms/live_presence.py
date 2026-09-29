@@ -84,6 +84,51 @@ CREATE INDEX IF NOT EXISTS live_presence_attendees_session
 """
 
 
+PRESENCE_DDL_LOCK = 87421300
+
+
+def ddl_race(exc: BaseException) -> bool:
+    """True when ``CREATE ... IF NOT EXISTS`` lost a type-catalog race.
+
+    Args:
+        exc: The driver exception from a DDL statement.
+    """
+    name = type(exc).__name__
+    if name in {"UniqueViolation", "DuplicateTable", "DuplicateObject"}:
+        return True
+    code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+    return str(code or "") in {"23505", "42P07", "42710"}
+
+
+def apply_locked_ddl(raw: Any, statements: list[str], lock_id: int) -> None:
+    """Run DDL under ``pg_advisory_xact_lock``.
+
+    Statements are ``CREATE ... IF NOT EXISTS``, so a second call changes
+    nothing. A duplicate-type error rolls back to a savepoint and the rest
+    of the transaction still commits.
+
+    Args:
+        raw: psycopg connection that supports ``transaction()``.
+        statements: SQL statements, one each.
+        lock_id: Advisory lock key, distinct per schema.
+    """
+    with raw.transaction():
+        raw.execute("SELECT pg_advisory_xact_lock(%s)", (int(lock_id),))
+        for statement in statements:
+            sql = statement.strip().rstrip(";")
+            if not sql:
+                continue
+            raw.execute("SAVEPOINT ddl_step")
+            try:
+                raw.execute(sql)
+            except Exception as exc:
+                raw.execute("ROLLBACK TO SAVEPOINT ddl_step")
+                if not ddl_race(exc):
+                    raise
+            else:
+                raw.execute("RELEASE SAVEPOINT ddl_step")
+
+
 class LivePresenceUnavailable(Exception):
     """Postgres could not serve a live poll.
 
@@ -324,15 +369,15 @@ class LivePresenceStore:
         return self._ping_ok
 
     def ensure_schema(self) -> None:
-        """Create presence tables if this database does not have them yet."""
-        statements = [
-            part.strip()
-            for part in _DDL.split(";")
-            if part.strip()
-        ]
+        """Create presence tables if this database does not have them yet.
+
+        Workers share one transaction advisory lock so a cold boot cannot
+        race ``pg_type``. Running this twice does not change an existing
+        schema.
+        """
+        statements = [part.strip() for part in _DDL.split(";") if part.strip()]
         with self._conn() as conn:
-            for statement in statements:
-                conn.execute(statement)
+            apply_locked_ddl(conn.connection, statements, PRESENCE_DDL_LOCK)
 
     def upsert_session(self, session_row: dict[str, Any]) -> None:
         """Insert or update one live session's status.

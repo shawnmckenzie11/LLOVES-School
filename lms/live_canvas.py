@@ -25,6 +25,9 @@ CURSOR_COLORS: tuple[str, ...] = (
     "#006d77",
 )
 
+# Retired with append-only board ops. Older blobs were trimmed to 80
+# strokes per bucket; folding ops does not evict ink. The name stays so
+# older notes still point at the cap that used to bind.
 MAX_STROKES = 80
 # A shared stroke now arrives as a batch, not one point per pointer move.
 # 360 is still a hard bound (about six seconds at 60 Hz, or a long
@@ -131,8 +134,6 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
         cleaned = _clean_stroke(item)
         if cleaned is not None:
             teacher_strokes.append(cleaned)
-        if len(teacher_strokes) >= MAX_STROKES:
-            break
     teams: dict[str, list[dict[str, Any]]] = {}
     raw_teams = strokes.get("teams") if isinstance(strokes.get("teams"), dict) else {}
     for key, rows in raw_teams.items():
@@ -143,8 +144,6 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
             cleaned = _clean_stroke(item)
             if cleaned is not None:
                 bucket.append(cleaned)
-            if len(bucket) >= MAX_STROKES:
-                break
         if bucket:
             teams[str(key)] = bucket
     cursors: dict[str, dict[str, Any]] = {}
@@ -434,8 +433,6 @@ def apply_canvas_presence(
             "points": [],
         }
         bucket.append(target)
-        if len(bucket) > MAX_STROKES:
-            del bucket[0 : len(bucket) - MAX_STROKES]
     for add_point in incoming:
         if len(target["points"]) >= MAX_POINTS:
             break

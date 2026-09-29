@@ -36,7 +36,9 @@ import { nameWithMood } from "/static/mood_faces.js";
 import {
   bindWhiteboard,
   createPresenceQueue,
+  cursorAfterOps,
   normalizeBoardPoint,
+  opsAboveCursor,
 } from "/static/live_whiteboard.js";
 import {
   RECONNECT_PENDING_MS,
@@ -9378,6 +9380,9 @@ function paintTeacherCanvas(view, options = {}) {
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let teacherPresence = null;
 
+/** Last applied sequence on the teacher board. */
+let teacherBoardSince = 0;
+
 /**
  * One presence POST at a time for this teacher tab.
  * The live session id is read when the request is sent.
@@ -9393,16 +9398,34 @@ function teacherPresenceQueue() {
     send(body) {
       const sessionId = liveSessionId || readLiveSessionId();
       if (!sessionId) return Promise.resolve(null);
+      const payload = { ...body, since: teacherBoardSince };
+      if (!payload.client_batch_id) {
+        payload.client_batch_id = `b-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+      }
       return api(`/api/live-sessions/${sessionId}/canvas-presence`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
     },
     /**
      * @param {any} data
      */
     onReply(data) {
-      if (data?.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });
+      if (!data) return;
+      if (data.snapshot && data.canvas_view) {
+        if (typeof data.board_seq === "number" && data.board_seq >= teacherBoardSince) {
+          teacherBoardSince = data.board_seq;
+        }
+        paintTeacherCanvas(data.canvas_view, { source: "presence" });
+        return;
+      }
+      const fresh = opsAboveCursor(data.ops_since, teacherBoardSince);
+      teacherBoardSince = cursorAfterOps(teacherBoardSince, fresh);
+      if (fresh.length && teacherBoard && typeof teacherBoard.applyDelta === "function") {
+        teacherBoard.applyDelta({ ops_since: fresh });
+        return;
+      }
+      if (data.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });
     },
   });
   return teacherPresence;
@@ -9471,6 +9494,17 @@ function bindEphemeralCanvas() {
     onPoints: (points, ended, strokeId) => {
       teacherCalmFrameHeld = true;
       postTeacherCanvas(canvas, points, { ended, strokeId });
+    },
+    onUndo: (stroke) => {
+      teacherCalmFrameHeld = true;
+      teacherPresenceQueue().push({
+        op: "stroke_remove",
+        stroke_id: stroke.id,
+      });
+    },
+    onRedo: (stroke) => {
+      teacherCalmFrameHeld = true;
+      postTeacherCanvas(canvas, stroke.points, { ended: true, strokeId: stroke.id });
     },
   });
 }

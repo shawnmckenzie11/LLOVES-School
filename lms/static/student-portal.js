@@ -21,8 +21,11 @@ import {
 } from "/static/live_news_wire.js";
 import {
   bindWhiteboard,
+  createBoardDeltaPoll,
   createPresenceQueue,
+  cursorAfterOps,
   normalizeBoardPoint,
+  opsAboveCursor,
 } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -711,6 +714,15 @@ let studentPresenceCollab = false;
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let studentPresence = null;
 
+/** Last applied sequence on this student's team board. */
+let studentBoardSince = 0;
+
+/** Last applied sequence on the teacher board. */
+let studentTeacherSince = 0;
+
+/** @type {ReturnType<typeof createBoardDeltaPoll> | null} */
+let studentBoardPoll = null;
+
 /**
  * One presence POST at a time for this student tab.
  * @returns {ReturnType<typeof createPresenceQueue>}
@@ -723,13 +735,21 @@ function studentPresenceQueue() {
      * @returns {Promise<any>}
      */
     send(body) {
+      const payload = {
+        ...body,
+        since: studentBoardSince,
+        teacher_since: studentTeacherSince,
+      };
+      if (!payload.client_batch_id) {
+        payload.client_batch_id = `b-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+      }
       return fetch(
         "/api/student/canvas-presence",
         visitFetchInit({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify(body),
+          body: JSON.stringify(payload),
         })
       ).then((res) => (res.ok ? res.json() : null));
     },
@@ -737,6 +757,33 @@ function studentPresenceQueue() {
      * @param {any} data
      */
     onReply(data) {
+      if (!data) return;
+      if (data.snapshot) {
+        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
+          studentBoardSince = data.board_seq;
+        }
+        if (
+          typeof data.teacher_board_seq === "number" &&
+          data.teacher_board_seq >= studentTeacherSince
+        ) {
+          studentTeacherSince = data.teacher_board_seq;
+        }
+        if (typeof bindStudentCanvas.applyDelta === "function") {
+          bindStudentCanvas.applyDelta(data);
+        }
+        return;
+      }
+      const teamOps = opsAboveCursor(data.ops_since, studentBoardSince);
+      const teacherOps = opsAboveCursor(data.teacher_ops, studentTeacherSince);
+      studentBoardSince = cursorAfterOps(studentBoardSince, teamOps);
+      studentTeacherSince = cursorAfterOps(studentTeacherSince, teacherOps);
+      if (
+        (teamOps.length || teacherOps.length) &&
+        typeof bindStudentCanvas.applyDelta === "function"
+      ) {
+        bindStudentCanvas.applyDelta({ ops_since: teamOps, teacher_ops: teacherOps });
+        return;
+      }
       const view = data?.canvas_view || data?.canvas_sync;
       if (view && typeof bindStudentCanvas.importRemote === "function") {
         bindStudentCanvas.importRemote(view, studentPresenceCollab);
@@ -807,6 +854,19 @@ function bindStudentCanvas() {
     onPoints: (points, ended, strokeId) => {
       postStudentCanvas(points, { ended, strokeId, align: lastAlign });
     },
+    onUndo: (stroke) => {
+      studentPresenceQueue().push({
+        op: "stroke_remove",
+        stroke_id: stroke.id,
+      });
+    },
+    onRedo: (stroke) => {
+      postStudentCanvas(stroke.points, {
+        ended: true,
+        strokeId: stroke.id,
+        align: lastAlign,
+      });
+    },
   });
   bindStudentCanvas.setAlign = (align) => {
     lastAlign = String(align || "student");
@@ -821,6 +881,83 @@ function bindStudentCanvas() {
   bindStudentCanvas.importRemote = (view, collab) => {
     board.importRemote(view, { collab });
   };
+  bindStudentCanvas.applyDelta = (delta) => {
+    board.applyDelta(delta);
+  };
+  ensureStudentBoardPoll();
+}
+
+/**
+ * Poll teammate and teacher ink on every tab that is showing the board.
+ *
+ * One request is in flight, including tabs that hold a LiveNewsWire
+ * stream. The poll stops while the whiteboard is hidden or the session
+ * has ended.
+ */
+function ensureStudentBoardPoll() {
+  if (studentBoardPoll) return;
+  studentBoardPoll = createBoardDeltaPoll({
+    /**
+     * @returns {boolean}
+     */
+    isShown() {
+      const pane = document.getElementById("canvas-pane");
+      if (!(pane instanceof HTMLElement) || pane.hidden) return false;
+      return studentPresenceCollab;
+    },
+    /**
+     * @returns {Promise<any>}
+     */
+    poll() {
+      const params = new URLSearchParams();
+      params.set("since", String(studentBoardSince));
+      params.set("teacher_since", String(studentTeacherSince));
+      return fetch(`/api/student/board/mine?${params}`, visitFetchInit()).then(async (res) => {
+        if (res.status === 429 || res.status >= 500) {
+          return { status: res.status, busy: true };
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok) return { status: res.status, busy: res.status >= 500 };
+        return { ...(data || {}), status: res.status };
+      });
+    },
+    /**
+     * @param {any} data
+     */
+    onDelta(data) {
+      if (data.snapshot) {
+        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
+          studentBoardSince = data.board_seq;
+        }
+        if (
+          typeof data.teacher_board_seq === "number" &&
+          data.teacher_board_seq >= studentTeacherSince
+        ) {
+          studentTeacherSince = data.teacher_board_seq;
+        }
+        if (typeof bindStudentCanvas.applyDelta === "function") {
+          bindStudentCanvas.applyDelta(data);
+        }
+        return;
+      }
+      const teamOps = opsAboveCursor(data.ops || data.ops_since, studentBoardSince);
+      const teacherOps = opsAboveCursor(data.teacher_ops, studentTeacherSince);
+      studentBoardSince = cursorAfterOps(studentBoardSince, teamOps);
+      studentTeacherSince = cursorAfterOps(studentTeacherSince, teacherOps);
+      if (typeof bindStudentCanvas.applyDelta === "function") {
+        bindStudentCanvas.applyDelta({
+          ops: teamOps,
+          ops_since: teamOps,
+          teacher_ops: teacherOps,
+        });
+      }
+    },
+  });
 }
 
 /**

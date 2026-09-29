@@ -215,6 +215,16 @@ export function connectLiveNewsWire(sessionId, handlers) {
       const next = Number(seq) || 0;
       if (next > lastSeq) lastSeq = next;
     },
+    /**
+     * True while the EventSource is open.
+     *
+     * A tab still connecting, or one the server did not give a slot,
+     * does not have a stream. Those tabs poll board ops instead.
+     * @returns {boolean}
+     */
+    hasStream() {
+      return Boolean(source && source.readyState === 1);
+    },
     /** Close the stream. A late frame must not fetch. */
     stop() {
       stopped = true;

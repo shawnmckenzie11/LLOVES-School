@@ -9,6 +9,146 @@
 /** How often a drawing tab flushes queued points while the pointer is down. */
 export const PRESENCE_FLUSH_MS = 80;
 
+/**
+ * How often a shared-board tab with no LiveNewsWire stream asks for
+ * ink since the last sequence. One request at a time; 1.5–2s.
+ */
+export const BOARD_DELTA_POLL_MS = 1750;
+
+/**
+ * Ops whose sequence is strictly above the caller's cursor.
+ *
+ * @param {any[] | null | undefined} ops
+ * @param {number} cursor
+ * @returns {any[]}
+ */
+export function opsAboveCursor(ops, cursor) {
+  const floor = Number(cursor) || 0;
+  const fresh = [];
+  for (const op of Array.isArray(ops) ? ops : []) {
+    if (!op || typeof op !== "object") continue;
+    const seq = Number(op.board_seq);
+    if (!Number.isFinite(seq) || seq <= floor) continue;
+    fresh.push(op);
+  }
+  fresh.sort((a, b) => Number(a.board_seq) - Number(b.board_seq));
+  return fresh;
+}
+
+/**
+ * Highest sequence in ``ops``, never lower than ``cursor``.
+ *
+ * @param {number} cursor
+ * @param {any[] | null | undefined} ops
+ * @returns {number}
+ */
+export function cursorAfterOps(cursor, ops) {
+  let high = Number(cursor) || 0;
+  for (const op of Array.isArray(ops) ? ops : []) {
+    const seq = Number(op && op.board_seq);
+    if (Number.isFinite(seq) && seq > high) high = seq;
+  }
+  return high;
+}
+
+/**
+ * Identity of one op. The same key applied twice is a no-op.
+ *
+ * A sequence is unique on a board. Ops that have no sequence fall back
+ * to type plus stroke id.
+ *
+ * @param {any} op
+ * @returns {string}
+ */
+export function boardOpKey(op) {
+  if (!op || typeof op !== "object") return "";
+  const seq = Number(op.board_seq);
+  const type = String(op.type || "");
+  const id = String(op.id || op.stroke_id || "");
+  if (Number.isFinite(seq) && seq > 0) return `${op.board_key || ""}:${seq}`;
+  return `${type}:${id}`;
+}
+
+/**
+ * Poll board ops for every tab that is showing a shared board.
+ *
+ * One request is in flight, whether or not the tab holds a LiveNewsWire
+ * stream. Busy, 429, and 5xx back off. The timer does not send while the
+ * board is hidden. ``ended`` stops the poll. This poll is not a wire signal.
+ *
+ * @param {{
+ *   poll: () => Promise<any>,
+ *   onDelta?: (result: any) => void,
+ *   isShown?: () => boolean,
+ * }} opts
+ * @returns {{ stop: () => void }}
+ */
+export function createBoardDeltaPoll(opts) {
+  let timer = 0;
+  let inFlight = false;
+  let stopped = false;
+  let delay = BOARD_DELTA_POLL_MS;
+
+  /**
+   * Arm the next poll. A stopped poll does not arm again.
+   */
+  function schedule() {
+    if (stopped) return;
+    if (timer) window.clearTimeout(timer);
+    timer = window.setTimeout(run, delay);
+  }
+
+  /**
+   * One poll. A hidden board waits. A shown board always reads.
+   */
+  function run() {
+    timer = 0;
+    if (stopped || inFlight) return;
+    if (typeof opts.isShown === "function" && !opts.isShown()) {
+      delay = BOARD_DELTA_POLL_MS;
+      schedule();
+      return;
+    }
+    inFlight = true;
+    Promise.resolve()
+      .then(() => opts.poll())
+      .then((result) => {
+        if (stopped) return;
+        if (result && result.ended) {
+          stopped = true;
+          return;
+        }
+        const status = Number(result && result.status) || 200;
+        const busy = Boolean(result && (result.busy || result.retry));
+        if (busy || status === 429 || status >= 500) {
+          delay = Math.min(Math.max(delay, BOARD_DELTA_POLL_MS) * 2, 8000);
+          return;
+        }
+        delay = BOARD_DELTA_POLL_MS;
+        if (result && typeof opts.onDelta === "function") opts.onDelta(result);
+      })
+      .catch(() => {
+        delay = Math.min(Math.max(delay, BOARD_DELTA_POLL_MS) * 2, 8000);
+      })
+      .finally(() => {
+        inFlight = false;
+        if (!stopped) schedule();
+      });
+  }
+
+  schedule();
+  return {
+    /**
+     * Stop polling. Used when the session ends or the tab leaves.
+     */
+    stop() {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+    },
+  };
+}
+
 /** Ignore pointer samples closer than this, in logical board pixels. */
 const MIN_POINT_PX = 1.25;
 
@@ -160,6 +300,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       clear: () => {},
       setCollab: () => {},
       importRemote: () => {},
+      applyDelta: () => {},
     };
   }
   const logicalW = canvas.width || 720;
@@ -480,7 +621,8 @@ export function bindWhiteboard(canvas, opts = {}) {
   const paintCursors = (cursors) => {
     const layer = opts.cursorLayer;
     if (!(layer instanceof HTMLElement)) return;
-    const rows = Array.isArray(cursors) ? cursors : [];
+    if (!Array.isArray(cursors)) return;
+    const rows = cursors;
     layer.innerHTML = rows
       .map((row) => {
         const name = String(row.name || row.owner || "").replace(/[<>&"]/g, "");
@@ -764,6 +906,9 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!strokes.length) return;
     const last = strokes.pop();
     if (last) redoStack.push(last);
+    if (last && last.mine && collab && typeof opts.onUndo === "function") {
+      opts.onUndo(last);
+    }
     replayCommitted();
     syncButtons();
   });
@@ -771,6 +916,9 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!redoStack.length) return;
     const next = redoStack.pop();
     if (next) strokes.push(next);
+    if (next && next.mine && collab && typeof opts.onRedo === "function") {
+      opts.onRedo(next);
+    }
     replayCommitted();
     syncButtons();
   });
@@ -797,9 +945,107 @@ export function bindWhiteboard(canvas, opts = {}) {
   }
   window.addEventListener("resize", () => fitBoard());
   fitBoard();
+  /**
+   * Apply a since-seq delta or a snapshot without remounting the canvas.
+   *
+   * Own strokes are not replaced by server points. ``stroke_remove`` drops
+   * that id, including this tab's own undo echo. Errors never clear the
+   * board; callers simply do not call this.
+   * @param {any} delta
+   */
+  /** Op keys already folded into this board. A second apply is a no-op. */
+  const appliedOpKeys = new Set();
+
+  const applyDelta = (delta) => {
+    if (!delta || typeof delta !== "object") return;
+    if (delta.snapshot && delta.canvas_view) {
+      importRemoteHolder(delta.canvas_view);
+      return;
+    }
+    const ops = []
+      .concat(Array.isArray(delta.ops) ? delta.ops : [])
+      .concat(Array.isArray(delta.ops_since) ? delta.ops_since : [])
+      .concat(Array.isArray(delta.teacher_ops) ? delta.teacher_ops : []);
+    if (!ops.length) return;
+    let structural = false;
+    /** @type {any[]} */
+    const cursors = [];
+    for (const op of ops) {
+      if (!op || typeof op !== "object") continue;
+      const type = String(op.type || "");
+      const id = String(op.id || op.stroke_id || "");
+      const opKey = boardOpKey(op);
+      if (opKey && appliedOpKeys.has(opKey)) continue;
+      if (opKey) appliedOpKeys.add(opKey);
+      if (op.x != null && op.y != null && op.owner) cursors.push(op);
+      if (type === "stroke_remove" && id) {
+        const before = strokes.length;
+        strokes = strokes.filter((stroke) => stroke.id !== id);
+        if (strokes.length !== before) structural = true;
+        continue;
+      }
+      if (type === "text_upsert") {
+        if (!editingId) {
+          const body = String(op.text || "").trim();
+          texts = texts.filter((label) => label.id !== id);
+          if (body && id) {
+            texts.push({
+              id,
+              x: Number(op.x),
+              y: Number(op.y),
+              text: body,
+              color: String(op.color || color),
+              mine: Boolean(op.mine) || String(op.owner || "") === ownerNow(),
+            });
+          }
+          structural = true;
+        }
+        continue;
+      }
+      if (type !== "stroke_add" && type !== "pts_append") continue;
+      if (!id || ownIds.has(id)) continue;
+      const points = remotePoints({ points: op.points });
+      if (!points.length) continue;
+      const existing = strokes.find((stroke) => stroke.id === id);
+      if (!existing) {
+        strokes.push({
+          id,
+          owner: String(op.owner || ""),
+          points,
+          color: String(op.color || color),
+          mine: false,
+        });
+        structural = true;
+        continue;
+      }
+      // stroke_add does not append points onto an existing stroke
+      if (type === "stroke_add") continue;
+      const merged = existing.points.concat(points);
+      if (isExtension(existing.points, merged)) {
+        const from = existing.points.length;
+        existing.points = merged;
+        strokeSegment(ctx, existing.points, existing.color, from);
+      } else {
+        existing.points = merged;
+        structural = true;
+      }
+    }
+    if (cursors.length) paintCursors(cursors);
+    if (structural) replayCommitted();
+    syncButtons();
+  };
+
+  /**
+   * Snapshot paint used by applyDelta. Declared late so importRemote exists.
+   * @param {any} view
+   */
+  function importRemoteHolder(view) {
+    boardApi.importRemote(view, { collab: true });
+  }
+
   syncButtons();
   canvas.style.cursor = "crosshair";
-  return {
+  const boardApi = {
     setEnabled: (on) => {
       enabled = Boolean(on);
       if (!enabled) commitEditor();
@@ -840,5 +1086,11 @@ export function bindWhiteboard(canvas, opts = {}) {
       if (structural) replayCommitted();
       syncButtons();
     },
+    /**
+     * Apply ops since seq, or a snapshot view. Own ink stays put.
+     * @param {any} delta
+     */
+    applyDelta,
   };
+  return boardApi;
 }
