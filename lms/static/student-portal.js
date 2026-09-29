@@ -919,6 +919,13 @@ function bindStudentCanvas() {
   bindStudentCanvas.applyDelta = (delta) => {
     board.applyDelta(delta);
   };
+  /**
+   * Paint one server view and drop this tab's open stroke.
+   * @param {any} view
+   */
+  bindStudentCanvas.resetRun = (view) => {
+    if (typeof board.resetRun === "function") board.resetRun(view);
+  };
   ensureStudentBoardPoll();
 }
 
@@ -939,9 +946,15 @@ function bindStudentCanvas() {
 function refreshStudentBoard() {
   if (studentBoardRefresh) return studentBoardRefresh;
   studentBoardRefresh = (async () => {
+    const empty = { strokes: [], texts: [], cursors: [] };
     studentPresenceQueue().drop();
     studentBoardSince = 0;
     studentTeacherSince = 0;
+    // End the open stroke before the refetch so later flushes cannot
+    // re-post it once this tab learns the new run key.
+    if (typeof bindStudentCanvas.resetRun === "function") {
+      bindStudentCanvas.resetRun(empty);
+    }
     const params = new URLSearchParams();
     params.set("since", "0");
     params.set("teacher_since", "0");
@@ -955,7 +968,12 @@ function refreshStudentBoard() {
     } catch (_err) {
       data = null;
     }
+    // A flush that landed in the queue during the refetch is still the old run.
+    studentPresenceQueue().drop();
     if (!data || data.ended) {
+      if (data && data.ended && typeof bindStudentCanvas.resetRun === "function") {
+        bindStudentCanvas.resetRun(empty);
+      }
       if (studentCanvas instanceof HTMLCanvasElement) {
         showBoardRefreshCue(studentCanvas);
       }
@@ -966,7 +984,7 @@ function refreshStudentBoard() {
       if (data.snapshot && data.canvas_view) {
         bindStudentCanvas.resetRun(data.canvas_view);
       } else {
-        bindStudentCanvas.resetRun({ strokes: [], texts: [], cursors: [] });
+        bindStudentCanvas.resetRun(empty);
         if (typeof bindStudentCanvas.applyDelta === "function") {
           bindStudentCanvas.applyDelta({
             ops: data.ops || [],

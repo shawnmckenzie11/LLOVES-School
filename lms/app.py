@@ -4788,6 +4788,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
+        except KeyError as exc:
+            # Start deletes the row a few milliseconds after End. The
+            # student write that lands in that gap is a closed class.
+            if not missing_live_session(exc):
+                raise
+            return board_write_closed(BoardSessionClosed("session has ended"))
         reply = school.canvas_presence_reply(
             live_session_id,
             student_id=int(student_id),

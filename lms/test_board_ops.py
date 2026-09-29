@@ -1121,5 +1121,287 @@ if (sent.join(',') !== 'a,c') {
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
 
+    def test_student_stale_refresh_discards_the_open_stroke(self) -> None:
+        """A student stale_run refresh clears the board and does not re-post.
+
+        The open stroke ends, the op cache is reset, and pointer samples
+        after the 409 are not sent under the new run key. An ended refetch
+        resets as well.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+class Element {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.Element = Element;
+
+function makeEl(tag) {
+  const listeners = {};
+  const node = {
+    tagName: String(tag || 'div').toUpperCase(),
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    appendChild(child) {
+      node.children.push(child);
+      child.parentElement = node;
+      return child;
+    },
+    insertAdjacentElement(_where, child) {
+      return node.appendChild(child);
+    },
+    addEventListener(type, fn) {
+      (listeners[type] ||= []).push(fn);
+    },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    removeAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        type,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+        preventDefault() {},
+        stopPropagation() {},
+        target: node,
+        ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const body = makeEl('body');
+body.dataset = { codename: '' };
+const byId = { 'student-canvas': canvas, body };
+globalThis.document = {
+  body,
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement(tag) { return makeEl(tag); },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = { origin: 'http://localhost', pathname: '/student' };
+window.innerWidth = 1280;
+
+const root = '/workspace';
+const staticHref = pathToFileURL(root + '/lms/static/').href;
+let src = readFileSync(root + '/lms/static/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(root + '/tools/math-game-show/static/common.js').href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src = src.replace('void tick();', '');
+src = src.replace('setInterval(tickDisplayTime, 250);', '');
+src += '\nexport { bindStudentCanvas, refreshStudentBoard, studentBoardRun, studentPresenceQueue };\n';
+const out = '/tmp/student-board-refresh-harness.mjs';
+writeFileSync(out, src);
+
+const posts = [];
+let mode = 'stale';
+let refreshSeen = false;
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  const json = (status, data) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return data; },
+  });
+  if (target.includes('/api/student/canvas-presence')) {
+    posts.push(JSON.parse(init.body));
+    if (mode === 'ended') {
+      return json(409, { ok: false, error: 'Session has ended.', ended: true });
+    }
+    if (posts.length === 1) {
+      return json(409, { ok: false, error: 'This board is from an earlier class.', stale_run: true });
+    }
+    return json(200, { ok: true, run_key: 'new-run' });
+  }
+  if (target.includes('/api/student/board/mine')) {
+    refreshSeen = true;
+    if (mode === 'ended') return json(200, { ok: false, ended: true });
+    return json(200, {
+      ok: true,
+      run_key: 'new-run',
+      snapshot: true,
+      canvas_view: { strokes: [], texts: [], cursors: [] },
+      board_seq: 0,
+      teacher_board_seq: 0,
+    });
+  }
+  return json(200, { ok: true });
+};
+
+const mod = await import(pathToFileURL(out).href);
+if (typeof mod.bindStudentCanvas.resetRun !== 'function') {
+  console.error('resetRun was not wired');
+  process.exit(2);
+}
+let resets = 0;
+const origReset = mod.bindStudentCanvas.resetRun;
+mod.bindStudentCanvas.resetRun = (view) => {
+  resets += 1;
+  return origReset(view);
+};
+mod.bindStudentCanvas.setAlign('team');
+mod.studentBoardRun.key = 'old-run';
+
+function waitFor(pred) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('timeout ' + posts.length + ' refresh=' + refreshSeen));
+      setTimeout(tick, 15);
+    };
+    tick();
+  });
+}
+
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 120, clientY: 80 });
+await waitFor(() => posts.length >= 1 && refreshSeen);
+const strokeId = posts[0].stroke_id;
+if (posts[0].run_key !== 'old-run') {
+  console.error('first post key ' + posts[0].run_key);
+  process.exit(3);
+}
+if (mod.studentBoardRun.key !== 'new-run') {
+  console.error('run key after refresh ' + mod.studentBoardRun.key);
+  process.exit(4);
+}
+if (resets < 1) {
+  console.error('reset not called');
+  process.exit(5);
+}
+const afterRefresh = posts.length;
+canvas.dispatch('pointermove', { clientX: 200, clientY: 90 });
+canvas.dispatch('pointermove', { clientX: 260, clientY: 140 });
+canvas.dispatch('pointerup', { clientX: 280, clientY: 160 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+const replayed = posts.slice(afterRefresh).filter((body) => body.stroke_id === strokeId);
+if (replayed.length || posts.length !== afterRefresh) {
+  console.error(JSON.stringify(posts.map((body) => ({
+    id: body.stroke_id, key: body.run_key, ended: body.ended, n: (body.points || []).length,
+  }))));
+  process.exit(6);
+}
+
+mode = 'ended';
+refreshSeen = false;
+const resetsBeforeEnd = resets;
+const postsBeforeEnd = posts.length;
+mod.studentBoardRun.key = 'old-run';
+canvas.dispatch('pointerdown', { clientX: 40, clientY: 50 });
+canvas.dispatch('pointermove', { clientX: 140, clientY: 70 });
+await waitFor(() => posts.length > postsBeforeEnd && refreshSeen);
+canvas.dispatch('pointermove', { clientX: 220, clientY: 100 });
+canvas.dispatch('pointerup', { clientX: 250, clientY: 120 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+if (posts.length !== postsBeforeEnd + 1) {
+  console.error('ended re-posted ' + JSON.stringify(posts.slice(postsBeforeEnd)));
+  process.exit(7);
+}
+if (resets <= resetsBeforeEnd) {
+  console.error('ended refetch did not reset');
+  process.exit(8);
+}
+if (!posts[postsBeforeEnd].run_key) {
+  console.error('ended post missing key');
+  process.exit(9);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_canvas_presence_in_the_start_after_end_gap_is_409(self) -> None:
+        """A stroke after End deletes the row is 409 ended, not a 500.
+
+        Start removes the session a few milliseconds after End. The
+        attendee gate can already have passed. ``KeyError: live session N``
+        from that gap is a closed class.
+        """
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        sid = self.session_id
+        run_key = self.school.live_board_run_key(sid)
+        original = self.school.apply_live_canvas_presence
+
+        def vanish_then_apply(*args, **kwargs):
+            """Delete the live row, then run the real presence write."""
+            with self.school._lock:
+                self.school.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                )
+                self.school.conn.commit()
+            return original(*args, **kwargs)
+
+        self.school.apply_live_canvas_presence = vanish_then_apply
+        self.app.config["PROPAGATE_EXCEPTIONS"] = False
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": run_key,
+                "x": 0.4,
+                "y": 0.4,
+                "points": [[0.4, 0.4]],
+                "stroke_id": "gap-stroke",
+                "client_batch_id": "gap-batch",
+            },
+        )
+        self.assertEqual(drawn.status_code, 409, drawn.get_data(as_text=True))
+        body = drawn.get_json()
+        self.assertTrue(body.get("ended"))
+        self.assertNotIn("stale_run", body)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
