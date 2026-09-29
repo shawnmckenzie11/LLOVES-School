@@ -19,7 +19,11 @@ import {
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
 } from "/static/live_news_wire.js";
-import { bindWhiteboard } from "/static/live_whiteboard.js";
+import {
+  bindWhiteboard,
+  createPresenceQueue,
+  normalizeBoardPoint,
+} from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
 const waitEl = document.getElementById("student-wait");
@@ -701,47 +705,85 @@ function unmountStudentMedia() {
  * @param {any} payload
  * @returns {{media: boolean, canvas: boolean, unlockMedia: boolean}}
  */
+/** True while the student board is the shared group board. */
+let studentPresenceCollab = false;
+
+/** @type {ReturnType<typeof createPresenceQueue> | null} */
+let studentPresence = null;
+
 /**
- * Post a student stroke, named cursor, or text label.
- * @param {{x: number, y: number}} p
+ * One presence POST at a time for this student tab.
+ * @returns {ReturnType<typeof createPresenceQueue>}
+ */
+function studentPresenceQueue() {
+  if (studentPresence) return studentPresence;
+  studentPresence = createPresenceQueue({
+    /**
+     * @param {Record<string, any>} body
+     * @returns {Promise<any>}
+     */
+    send(body) {
+      return fetch(
+        "/api/student/canvas-presence",
+        visitFetchInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        })
+      ).then((res) => (res.ok ? res.json() : null));
+    },
+    /**
+     * @param {any} data
+     */
+    onReply(data) {
+      const view = data?.canvas_view || data?.canvas_sync;
+      if (view && typeof bindStudentCanvas.importRemote === "function") {
+        bindStudentCanvas.importRemote(view, studentPresenceCollab);
+      }
+    },
+  });
+  return studentPresence;
+}
+
+/**
+ * Queue a student stroke batch or text label.
+ *
+ * Hover cursors are not posted. A cursor rides on the drawing batch.
+ * One request is in flight; further points wait for the next batch.
+ * @param {{x: number, y: number} | {x: number, y: number}[]} p
  * @param {{ended?: boolean, strokeId?: string, text?: {id: string, text: string}, cursorOnly?: boolean, align?: string}} extra
  */
 function postStudentCanvas(p, extra) {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
   const align = String(extra.align || "student");
   const text = extra.text;
-  if (!text && align !== "team") return;
-  const body = {
-    x: p.x / studentCanvas.width,
-    y: p.y / studentCanvas.height,
-  };
+  if (extra.cursorOnly) return;
   if (text) {
-    body.text_id = text.id;
-    body.text = text.text;
-    body.x = text.x;
-    body.y = text.y;
-  } else if (!extra.cursorOnly) {
-    body.point = [body.x, body.y];
-    body.stroke_id = extra.strokeId || undefined;
-    body.ended = Boolean(extra.ended);
+    studentPresenceQueue().push({
+      text_id: text.id,
+      text: text.text,
+      x: text.x,
+      y: text.y,
+    });
+    return;
   }
-  fetch(
-    "/api/student/canvas-presence",
-    visitFetchInit({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(body),
-    })
-  )
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      const view = data?.canvas_view || data?.canvas_sync;
-      if (view && typeof bindStudentCanvas.importRemote === "function") {
-        bindStudentCanvas.importRemote(view, align === "team");
-      }
-    })
-    .catch(() => {});
+  if (align !== "team") return;
+  const samples = Array.isArray(p) ? p : [p];
+  const points = [];
+  for (const sample of samples) {
+    const norm = normalizeBoardPoint(studentCanvas, sample);
+    if (norm) points.push([norm.x, norm.y]);
+  }
+  if (!points.length) return;
+  const tail = points[points.length - 1];
+  studentPresenceQueue().push({
+    x: tail[0],
+    y: tail[1],
+    points,
+    stroke_id: extra.strokeId || undefined,
+    ended: Boolean(extra.ended),
+  });
 }
 
 /**
@@ -756,21 +798,21 @@ function bindStudentCanvas() {
     eraseBtn: document.getElementById("student-canvas-erase"),
     textBtn: document.getElementById("student-canvas-text"),
     cursorLayer: canvasCursors,
+    owner: () => {
+      const id = lastStudentPayload?.me?.id;
+      return id != null && id !== "" ? String(id) : "student";
+    },
     canDraw: () => lastAlign !== "teacher" && !(canvasLock && !canvasLock.hidden),
-    onCursor: (p) => postStudentCanvas(p, { cursorOnly: true, align: lastAlign }),
-    onText: (label) =>
-      postStudentCanvas(
-        { x: label.x * studentCanvas.width, y: label.y * studentCanvas.height },
-        { text: label, align: lastAlign }
-      ),
-    onPoint: (p, ended, strokeId) => {
-      postStudentCanvas(p, { ended, strokeId, align: lastAlign });
+    onText: (label) => postStudentCanvas(label, { text: label, align: lastAlign }),
+    onPoints: (points, ended, strokeId) => {
+      postStudentCanvas(points, { ended, strokeId, align: lastAlign });
     },
   });
   bindStudentCanvas.setAlign = (align) => {
     lastAlign = String(align || "student");
+    studentPresenceCollab = lastAlign === "team";
     board.setEnabled(lastAlign !== "teacher");
-    board.setCollab(lastAlign === "team");
+    board.setCollab(studentPresenceCollab);
   };
   /**
    * @param {any} view
@@ -783,9 +825,14 @@ function bindStudentCanvas() {
 
 /**
  * Paint student canvas from teacher unlocks + canvas_sync view.
+ *
+ * ``/state`` imports ink into the canvas node bound at startup. It does
+ * not rebuild or replace that node.
  * @param {any} payload
  */
 function paintStudentCanvas(payload) {
+  const node = document.getElementById("student-canvas");
+  if (node !== studentCanvas) return;
   const proj = studentProjection(payload);
   if (typeof bindStudentCanvas.setAlign === "function") {
     bindStudentCanvas.setAlign(proj.canvasAlign);

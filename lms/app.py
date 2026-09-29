@@ -4695,7 +4695,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         name = str(ctx.get("codename") or body.get("name") or student_id).strip()
         text_id = str(body.get("text_id") or "").strip()
         if text_id:
-            blob = school.apply_live_canvas_text(
+            school.apply_live_canvas_text(
                 live_session_id,
                 owner=str(int(student_id)),
                 name=name or str(student_id),
@@ -4707,7 +4707,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 as_teacher=False,
             )
         else:
-            blob = school.apply_live_canvas_presence(
+            raw_points = body.get("points")
+            school.apply_live_canvas_presence(
                 live_session_id,
                 owner=str(int(student_id)),
                 name=name or str(student_id),
@@ -4716,13 +4717,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 y=body.get("y"),
                 stroke_id=str(body.get("stroke_id") or "") or None,
                 point=body.get("point"),
+                points=raw_points if isinstance(raw_points, list) else None,
                 ended=bool(body.get("ended")),
                 as_teacher=False,
             )
         view = school.live_session_canvas_view(
             live_session_id, student_id=int(student_id)
         )
-        return jsonify({"ok": True, "canvas_sync": blob, "canvas_view": view})
+        # Own team plus the teacher. The stored blob still holds every
+        # group; this reply does not.
+        return jsonify({"ok": True, "canvas_sync": view, "canvas_view": view})
 
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
@@ -6039,31 +6043,44 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             owner = "teacher"
             name = "Teacher"
         else:
-            denied = _require_active_live_attendee(as_json=True)
-            if denied is not None:
-                return denied
-            ident = _student_identity()
-            ctx = _student_live_context()
-            if ident is None or ctx is None:
+            # This route lives outside create_app, so student identity is
+            # resolved here. A joined student may post; anyone else may not.
+            ctx = resolve_student_live_context(school, session)
+            if (
+                ctx is None
+                or int(ctx.get("live_session_id") or 0) != int(session_id)
+            ):
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
-            if int(ctx.get("live_session_id") or 0) != int(session_id):
-                return jsonify({"ok": False, "error": "Forbidden"}), 403
-            student_id = ident[2]
+            student_id = ctx.get("student_id")
             if student_id in (None, ""):
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
+            token = str(ctx.get("visit_token") or visit_token_from_request() or "")
+            if not school.student_is_active_live_attendee(
+                int(session_id),
+                int(student_id),
+                visit_token=token,
+            ):
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            if token:
+                try:
+                    school.touch_live_session_heartbeat(token)
+                except Exception as exc:
+                    from live_presence import LivePresenceUnavailable
+
+                    locked = isinstance(exc, sqlite3.OperationalError) and (
+                        "locked" in str(exc).lower()
+                    )
+                    if not isinstance(exc, LivePresenceUnavailable) and not locked:
+                        raise
             owner = str(int(student_id))
-            name = str(
-                (ctx or {}).get("codename")
-                or body.get("name")
-                or owner
-            ).strip() or owner
+            name = str(ctx.get("codename") or body.get("name") or owner).strip() or owner
             team_id = school.student_team_id_for_class(
                 int(session_row["class_id"]), int(student_id)
             )
         text_id = str(body.get("text_id") or "").strip()
         try:
             if text_id:
-                blob = school.apply_live_canvas_text(
+                school.apply_live_canvas_text(
                     session_id,
                     owner=owner,
                     name=name,
@@ -6075,7 +6092,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     as_teacher=as_teacher,
                 )
             else:
-                blob = school.apply_live_canvas_presence(
+                raw_points = body.get("points")
+                school.apply_live_canvas_presence(
                     session_id,
                     owner=owner,
                     name=name,
@@ -6084,6 +6102,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     y=body.get("y"),
                     stroke_id=str(body.get("stroke_id") or "") or None,
                     point=body.get("point"),
+                    points=raw_points if isinstance(raw_points, list) else None,
                     ended=bool(body.get("ended")),
                     as_teacher=as_teacher,
                 )
@@ -6094,10 +6113,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             student_id=int(owner) if owner.isdigit() else None,
             as_teacher=as_teacher,
         )
-        # Staff ticks must not download every group board. Students still
-        # receive the stored blob so a teammate stroke can paint.
-        outbound = view if as_teacher else blob
-        return jsonify({"ok": True, "canvas_sync": outbound, "canvas_view": view})
+        # Staff stays on the teacher board (#165). A student receives only
+        # their own team plus the teacher — never the all-groups blob.
+        return jsonify({"ok": True, "canvas_sync": view, "canvas_view": view})
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""

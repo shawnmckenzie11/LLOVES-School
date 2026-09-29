@@ -490,6 +490,15 @@ body.student-home.has-media .student-live-response {
   position: relative;
   width: 100%;
 }
+.live-canvas-stage > canvas.live-canvas-ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: transparent;
+}
 .live-canvas-stage .canvas-cursors,
 .canvas-cursors {
   position: absolute;
