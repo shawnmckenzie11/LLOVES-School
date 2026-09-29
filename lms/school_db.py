@@ -83,9 +83,17 @@ try:
         toggle_rank_order,
     )
     from live_class_metadata import (
+        MODULE_RE,
         SCHEMA_V2,
+        SLOT_RE,
         _placement_sort_key,
+        default_math_pages,
+        empty_live_class_metadata,
+        list_live_lesson_summaries,
+        live_deck_choice_label,
         load_live_class_metadata,
+        metadata_path,
+        previous_challenge_slot,
         questions_for_stage,
     )
     from live_teacher_state import (
@@ -212,9 +220,17 @@ except ImportError:  # ``python3 lms/app.py`` package import
         toggle_rank_order,
     )
     from lms.live_class_metadata import (
+        MODULE_RE,
         SCHEMA_V2,
+        SLOT_RE,
         _placement_sort_key,
+        default_math_pages,
+        empty_live_class_metadata,
+        list_live_lesson_summaries,
+        live_deck_choice_label,
         load_live_class_metadata,
+        metadata_path,
+        previous_challenge_slot,
         questions_for_stage,
     )
     from lms.live_teacher_state import (
@@ -1862,6 +1878,24 @@ class LovesDB:
             );
             CREATE INDEX IF NOT EXISTS idx_class_media_overlays_class_module_slot
                 ON class_live_media_overlays(class_id, module, slot);
+
+            CREATE TABLE IF NOT EXISTS class_live_deck_seeds (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                slot TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                source_module TEXT,
+                source_slot TEXT,
+                suppress_authored INTEGER NOT NULL DEFAULT 1,
+                media_json TEXT,
+                team_challenge_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(class_id, module, slot)
+            );
+            CREATE INDEX IF NOT EXISTS idx_class_deck_seeds_class_module_slot
+                ON class_live_deck_seeds(class_id, module, slot);
 
             CREATE TABLE IF NOT EXISTS library_question_overlays (
                 library_id INTEGER NOT NULL
@@ -7122,6 +7156,780 @@ class SchoolDB(LovesDB):
             "target_page_index": int(target_page_index),
         }
 
+    def _require_live_lesson_token(self, module: str, slot: str) -> tuple[str, str]:
+        """Return a module and challenge token, rejecting unknown values.
+
+        Args:
+            module: Module token such as ``M2``.
+            slot: Live slot such as ``C3``.
+
+        Returns:
+            ``(module, slot)`` uppercased.
+
+        Raises:
+            ValueError: When either token is outside M1–M8 / C1–C4.
+        """
+
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        if not MODULE_RE.fullmatch(module_key) or not SLOT_RE.fullmatch(slot_key):
+            raise ValueError("Unknown live lesson.")
+        return module_key, slot_key
+
+    def _course_code_for_class(self, class_id: int) -> str:
+        """Return the Ontario course code stored on one class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Raises:
+            KeyError: Unknown class.
+        """
+
+        class_row = self.game.get_class(int(class_id))
+        if class_row is None:
+            raise KeyError(f"class {class_id}")
+        return str(class_row.get("course_code") or "").strip().upper()
+
+    def get_class_live_deck_seed(
+        self, class_id: int, module: str, slot: str
+    ) -> dict[str, Any] | None:
+        """Return the Set Class deck seed for one challenge, if any.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M2``.
+            slot: Live slot such as ``C3``.
+
+        Returns:
+            Seed row with ``media`` and ``team_challenge`` decoded, or None.
+        """
+
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM class_live_deck_seeds
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                (int(class_id), module_key, slot_key),
+            ).fetchone()
+        if row is None:
+            return None
+        data = dict(row)
+        for column, key in (
+            ("media_json", "media"),
+            ("team_challenge_json", "team_challenge"),
+        ):
+            raw = data.get(column)
+            parsed: Any = None
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = None
+            data[key] = parsed if isinstance(parsed, dict) else None
+        return data
+
+    def _slot_has_deck_overlay(self, class_id: int, module: str, slot: str) -> bool:
+        """Return whether this class has saved deck rows for one challenge.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M2``.
+            slot: Live slot such as ``C3``.
+        """
+
+        params = (int(class_id), str(module or "").upper(), str(slot or "").upper())
+        with self._lock:
+            placement = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            if placement is not None:
+                return True
+            page = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_pages
+                WHERE class_id = ? AND module = ? AND slot = ?
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            if page is not None:
+                return True
+            override = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ?
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            if override is not None:
+                return True
+            media = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_media_overlays
+                WHERE class_id = ? AND module = ? AND slot = ?
+                  AND (stem != '' OR caption != '')
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+        return media is not None
+
+    def class_live_deck_available(self, class_id: int, module: str, slot: str) -> bool:
+        """Return whether this class has a real deck for one challenge.
+
+        A seed file or a saved working copy counts. An explicit blank
+        template with no later edits does not. Nothing is created.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M2``.
+            slot: Live slot such as ``C2``.
+        """
+
+        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        course = self._course_code_for_class(int(class_id))
+        seed = self.get_class_live_deck_seed(int(class_id), module_key, slot_key)
+        has_overlay = self._slot_has_deck_overlay(int(class_id), module_key, slot_key)
+        mode = str((seed or {}).get("mode") or "")
+        if mode == "blank" and not has_overlay:
+            return False
+        if has_overlay or mode in {"copy", "previous", "course"}:
+            return True
+        path = metadata_path(course, module_key, slot_key)
+        return path.is_file() and path.parent.parent.name == course
+
+    def list_course_live_deck_choices(
+        self,
+        class_id: int,
+        *,
+        exclude_module: str = "",
+        exclude_slot: str = "",
+    ) -> list[dict[str, Any]]:
+        """List live decks that belong to this class's course.
+
+        Seed files from other course codes are not included. The challenge
+        being set up is omitted so the picker is a different deck.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            exclude_module: Destination module to hide.
+            exclude_slot: Destination slot to hide.
+        """
+
+        course = self._course_code_for_class(int(class_id))
+        skip = (
+            str(exclude_module or "").strip().upper(),
+            str(exclude_slot or "").strip().upper(),
+        )
+        choices: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for summary in list_live_lesson_summaries(course):
+            if str(summary.get("course") or "").strip().upper() != course:
+                continue
+            module = str(summary.get("module") or "").strip().upper()
+            slot = str(summary.get("live_class") or "").strip().upper()
+            if not MODULE_RE.fullmatch(module) or not SLOT_RE.fullmatch(slot):
+                continue
+            if (module, slot) == skip:
+                continue
+            if not self.class_live_deck_available(int(class_id), module, slot):
+                continue
+            seen.add((module, slot))
+            choices.append(
+                {
+                    "module": module,
+                    "slot": slot,
+                    "label": live_deck_choice_label(module, slot),
+                    "question_count": int(summary.get("question_count") or 0),
+                }
+            )
+        with self._lock:
+            extra = self.conn.execute(
+                """
+                SELECT module, slot FROM class_live_playlist_placements
+                WHERE class_id = ?
+                UNION
+                SELECT module, slot FROM class_live_playlist_pages
+                WHERE class_id = ?
+                UNION
+                SELECT module, slot FROM class_live_media_overlays
+                WHERE class_id = ? AND (stem != '' OR caption != '')
+                """,
+                (int(class_id), int(class_id), int(class_id)),
+            ).fetchall()
+        for row in extra:
+            module = str(row["module"] or "").strip().upper()
+            slot = str(row["slot"] or "").strip().upper()
+            if (module, slot) in seen or (module, slot) == skip:
+                continue
+            if not MODULE_RE.fullmatch(module) or not SLOT_RE.fullmatch(slot):
+                continue
+            if not self.class_live_deck_available(int(class_id), module, slot):
+                continue
+            seen.add((module, slot))
+            merged = self.live_class_metadata_for_class_lesson(
+                int(class_id), module, slot, fresh=True
+            )
+            questions = [
+                item
+                for item in merged.get("questions") or []
+                if isinstance(item, dict)
+            ]
+            choices.append(
+                {
+                    "module": module,
+                    "slot": slot,
+                    "label": live_deck_choice_label(module, slot),
+                    "question_count": len(questions),
+                }
+            )
+        choices.sort(key=lambda item: (item["module"], item["slot"]))
+        return choices
+
+    def deck_seed_options(self, class_id: int, module: str, slot: str) -> dict[str, Any]:
+        """Return Set Class deck choices for one course challenge.
+
+        Previous is the prior challenge in the same module (C2 when setting
+        up C3), never the last calendar session. The course picker lists
+        decks for this course only.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module being set up.
+            slot: Challenge being set up.
+        """
+
+        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        course = self._course_code_for_class(int(class_id))
+        previous = previous_challenge_slot(slot_key)
+        if previous is None:
+            previous_block: dict[str, Any] = {
+                "available": False,
+                "module": None,
+                "slot": None,
+                "label": "",
+                "message": "No previous challenge in this module.",
+            }
+        else:
+            label = live_deck_choice_label(module_key, previous)
+            if self.class_live_deck_available(int(class_id), module_key, previous):
+                previous_block = {
+                    "available": True,
+                    "module": module_key,
+                    "slot": previous,
+                    "label": label,
+                    "message": "",
+                }
+            else:
+                previous_block = {
+                    "available": False,
+                    "module": module_key,
+                    "slot": previous,
+                    "label": label,
+                    "message": f"No deck saved for {module_key} {previous}.",
+                }
+        return {
+            "course": course,
+            "module": module_key,
+            "slot": slot_key,
+            "previous": previous_block,
+            "decks": self.list_course_live_deck_choices(
+                int(class_id),
+                exclude_module=module_key,
+                exclude_slot=slot_key,
+            ),
+            "blank": {
+                "label": "Blank 7-page template",
+                "page_count": len(default_math_pages()),
+            },
+        }
+
+    def _drop_blank_deck_prompts(
+        self, class_id: int, module: str, slot: str
+    ) -> None:
+        """Remove waiting-room prompts after a blank deck seed.
+
+        Minds On, Teams Spark, and Meet the team are not part of the
+        seven-page empty template. A prompt row left from session start
+        would still paint on Join or Meet.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Destination module token.
+            slot: Destination challenge token.
+        """
+
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is None:
+            return
+        session_id = int(active["id"])
+        try:
+            teacher = self.live_session_teacher_state_payload(session_id)
+        except KeyError:
+            return
+        if str(teacher.get("live_module") or "M1").upper() != str(module).upper():
+            return
+        if str(teacher.get("live_slot") or "C1").upper() != str(slot).upper():
+            return
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, payload FROM live_session_prompts
+                WHERE live_session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+            drop_ids: list[int] = []
+            for row in rows:
+                try:
+                    payload = json.loads(row["payload"] or "{}")
+                except json.JSONDecodeError:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    continue
+                if (
+                    is_minds_on_payload(payload)
+                    or is_teams_spark_payload(payload)
+                    or is_meet_team_payload(payload)
+                ):
+                    drop_ids.append(int(row["id"]))
+            for prompt_id in drop_ids:
+                self.conn.execute(
+                    "DELETE FROM live_session_prompts WHERE id = ?",
+                    (prompt_id,),
+                )
+            self.conn.commit()
+        self.clear_active_live_prompt(session_id)
+
+    def apply_class_deck_seed(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        mode: str,
+        source_module: str | None = None,
+        source_slot: str | None = None,
+    ) -> dict[str, Any]:
+        """Seed one challenge's working deck without changing the source.
+
+        ``previous`` copies the prior challenge in the same module.
+        ``course`` copies another deck from this course. ``blank`` starts
+        from the seven-page empty template. Copied questions are new
+        placement rows on the destination, so later edits do not rewrite
+        the source challenge or the course seed JSON.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Destination module token.
+            slot: Destination challenge token.
+            mode: ``previous``, ``course``, or ``blank``.
+            source_module: Required for ``course``.
+            source_slot: Required for ``course``.
+
+        Returns:
+            Destination metadata plus the seed mode that was stored.
+
+        Raises:
+            KeyError: Unknown class.
+            ValueError: Unknown mode, missing previous deck, or a source
+                that is not a deck in this course.
+        """
+
+        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        choice = str(mode or "").strip().lower()
+        if choice not in {"previous", "course", "blank"}:
+            raise ValueError("Choose how to start the live deck.")
+        course = self._course_code_for_class(int(class_id))
+        source_meta: dict[str, Any] | None = None
+        source_m: str | None = None
+        source_s: str | None = None
+        if choice == "previous":
+            source_s = previous_challenge_slot(slot_key)
+            source_m = module_key
+            if source_s is None:
+                raise ValueError("No previous challenge in this module.")
+            if not self.class_live_deck_available(int(class_id), source_m, source_s):
+                raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            source_meta = self.live_class_metadata_for_class_lesson(
+                int(class_id), source_m, source_s, fresh=True
+            )
+        elif choice == "course":
+            source_m, source_s = self._require_live_lesson_token(
+                str(source_module or ""), str(source_slot or "")
+            )
+            if source_m == module_key and source_s == slot_key:
+                raise ValueError("Choose a different deck from this course.")
+            source_path = metadata_path(course, source_m, source_s)
+            on_disk = (
+                source_path.is_file() and source_path.parent.parent.name == course
+            )
+            has_overlay = self._slot_has_deck_overlay(
+                int(class_id), source_m, source_s
+            )
+            if not on_disk and not has_overlay:
+                raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            if not self.class_live_deck_available(int(class_id), source_m, source_s):
+                raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            source_meta = self.live_class_metadata_for_class_lesson(
+                int(class_id), source_m, source_s, fresh=True
+            )
+        questions: list[dict[str, Any]] = []
+        pages = default_math_pages()
+        media: dict[str, Any] | None = None
+        challenge: dict[str, Any] | None = None
+        if source_meta is not None:
+            questions = [
+                deepcopy(row)
+                for row in source_meta.get("questions") or []
+                if isinstance(row, dict)
+            ]
+            raw_pages = source_meta.get("pages")
+            if isinstance(raw_pages, list) and raw_pages:
+                pages = raw_pages
+            raw_media = source_meta.get("media")
+            if isinstance(raw_media, dict):
+                media = deepcopy(raw_media)
+            raw_challenge = source_meta.get("team_challenge")
+            if isinstance(raw_challenge, dict):
+                challenge = deepcopy(raw_challenge)
+        ready = self._serializable_deck_questions(questions)
+        if choice != "blank" and questions and not ready:
+            raise ValueError(
+                f"No deck saved for {source_m} {source_s}."
+            )
+        self._replace_class_deck_working_copy(
+            int(class_id),
+            module_key,
+            slot_key,
+            mode=choice,
+            source_module=source_m,
+            source_slot=source_s,
+            questions=ready,
+            pages=default_math_pages() if choice == "blank" else pages,
+            media=None if choice == "blank" else media,
+            team_challenge=None if choice == "blank" else challenge,
+        )
+        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        if choice == "blank":
+            self._drop_blank_deck_prompts(int(class_id), module_key, slot_key)
+        metadata = self.live_class_metadata_for_class_lesson(
+            int(class_id), module_key, slot_key, fresh=True
+        )
+        return {
+            "mode": choice,
+            "source_module": source_m,
+            "source_slot": source_s,
+            "course": course,
+            "live_metadata": metadata,
+            "deck_revision": self.class_deck_revision(
+                int(class_id), module_key, slot_key
+            ),
+        }
+
+    @staticmethod
+    def _serializable_deck_questions(
+        questions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return JSON-safe question snapshots for a deck copy.
+
+        Args:
+            questions: Resolved questions from the source deck.
+        """
+
+        ready: list[dict[str, Any]] = []
+        for question in questions:
+            item_id = str(
+                question.get("id") or question.get("item_id") or ""
+            ).strip()
+            if not item_id:
+                continue
+            payload = deepcopy(question)
+            payload["id"] = item_id
+            payload["item_id"] = item_id
+            payload["import_source"] = "deck_copy"
+            payload.pop("source_question_id", None)
+            try:
+                json.dumps(payload)
+            except TypeError:
+                continue
+            ready.append(payload)
+        return ready
+
+    def _replace_class_deck_working_copy(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        mode: str,
+        source_module: str | None,
+        source_slot: str | None,
+        questions: list[dict[str, Any]],
+        pages: list[Any],
+        media: dict[str, Any] | None,
+        team_challenge: dict[str, Any] | None,
+    ) -> None:
+        """Replace one challenge's working copy with a seed snapshot.
+
+        Deletes destination overlay rows only. Source rows are not updated.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Destination module.
+            slot: Destination challenge.
+            mode: ``previous``, ``course``, or ``blank``.
+            source_module: Copied module, or None for blank.
+            source_slot: Copied challenge, or None for blank.
+            questions: Snapshot questions to insert as placements.
+            pages: Page list to mirror with overlay rows.
+            media: Media dict stored on the seed row.
+            team_challenge: Team-challenge copy stored on the seed row.
+        """
+
+        module_key = str(module or "").upper()
+        slot_key = str(slot or "").upper()
+        stamp = _now()
+        media_blob = json.dumps(media) if isinstance(media, dict) and media else None
+        challenge_blob = (
+            json.dumps(team_challenge)
+            if isinstance(team_challenge, dict) and team_challenge
+            else None
+        )
+        page_rows = [] if mode == "blank" else self._deck_page_overlay_rows(pages)
+        with self._lock:
+            params = (int(class_id), module_key, slot_key)
+            self.conn.execute(
+                """
+                DELETE FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            )
+            self.conn.execute(
+                """
+                DELETE FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            )
+            self.conn.execute(
+                """
+                DELETE FROM class_live_playlist_pages
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            )
+            self.conn.execute(
+                """
+                DELETE FROM class_live_media_overlays
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            )
+            for index, payload in enumerate(questions, start=1):
+                item_id = str(payload.get("id") or "").strip()
+                placement_key = (
+                    f"deck-copy:{int(class_id)}:{module_key}{slot_key}:{index}:{item_id}"
+                )
+                stage = str(payload.get("stage") or "round").strip().lower() or "round"
+                try:
+                    page_number = int(payload.get("page_number") or index)
+                except (TypeError, ValueError):
+                    page_number = index
+                try:
+                    sort_order = int(payload.get("order") or index)
+                except (TypeError, ValueError):
+                    sort_order = index
+                self.conn.execute(
+                    """
+                    INSERT INTO class_live_playlist_placements (
+                        class_id, module, slot, page_number, stage, sort_order,
+                        placement_key, item_id, item_json, source_question_id,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                    """,
+                    (
+                        int(class_id),
+                        module_key,
+                        slot_key,
+                        page_number,
+                        stage,
+                        sort_order,
+                        placement_key,
+                        item_id,
+                        json.dumps(payload),
+                        stamp,
+                    ),
+                )
+            for row in page_rows:
+                self.conn.execute(
+                    """
+                    INSERT INTO class_live_playlist_pages (
+                        class_id, module, slot, page_id, name, stage,
+                        page_number, insert_after_page_id, removed,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(class_id),
+                        module_key,
+                        slot_key,
+                        row["page_id"],
+                        row["name"],
+                        row["stage"],
+                        row["page_number"],
+                        row["insert_after"],
+                        int(row["removed"]),
+                        stamp,
+                        stamp,
+                    ),
+                )
+            if mode == "blank":
+                for ride_id in ("minds_on", "teams-spark", "meet-team"):
+                    self.conn.execute(
+                        """
+                        INSERT INTO class_live_playlist_item_overrides (
+                            class_id, module, slot, item_id, removed,
+                            page_number, stage, sort_order, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, ?, ?)
+                        """,
+                        (
+                            int(class_id),
+                            module_key,
+                            slot_key,
+                            ride_id,
+                            stamp,
+                            stamp,
+                        ),
+                    )
+            if isinstance(media, dict) and (
+                str(media.get("stem") or "").strip()
+                or str(media.get("caption") or "").strip()
+            ):
+                self.conn.execute(
+                    """
+                    INSERT INTO class_live_media_overlays (
+                        class_id, module, slot, stem, caption, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(class_id),
+                        module_key,
+                        slot_key,
+                        str(media.get("stem") or ""),
+                        str(media.get("caption") or ""),
+                        stamp,
+                        stamp,
+                    ),
+                )
+            self.conn.execute(
+                """
+                INSERT INTO class_live_deck_seeds (
+                    class_id, module, slot, mode, source_module, source_slot,
+                    suppress_authored, media_json, team_challenge_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                ON CONFLICT(class_id, module, slot) DO UPDATE SET
+                    mode = excluded.mode,
+                    source_module = excluded.source_module,
+                    source_slot = excluded.source_slot,
+                    suppress_authored = 1,
+                    media_json = excluded.media_json,
+                    team_challenge_json = excluded.team_challenge_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    mode,
+                    source_module,
+                    source_slot,
+                    media_blob,
+                    challenge_blob,
+                    stamp,
+                    stamp,
+                ),
+            )
+            self.conn.commit()
+        self.invalidate_live_metadata_cache(
+            class_id=int(class_id), module=module_key, slot=slot_key
+        )
+
+    @staticmethod
+    def _deck_page_overlay_rows(pages: list[Any]) -> list[dict[str, Any]]:
+        """Return page overlay rows that mirror ``pages`` on a blank template.
+
+        Default seven pages need no rows. Hidden defaults and extra pages
+        are recorded so the destination does not keep the source's page table.
+
+        Args:
+            pages: Source deck ``pages`` list.
+        """
+
+        defaults = default_math_pages()
+        default_ids = [str(page["id"]) for page in defaults]
+        source: list[dict[str, Any]] = []
+        for row in pages:
+            if not isinstance(row, dict):
+                continue
+            page_id = str(row.get("id") or "").strip()
+            if not page_id:
+                continue
+            source.append(row)
+        source_ids = {str(row.get("id") or "") for row in source}
+        overlays: list[dict[str, Any]] = []
+        for page_id in default_ids:
+            if page_id in source_ids:
+                continue
+            overlays.append(
+                {
+                    "page_id": page_id,
+                    "name": "",
+                    "stage": "play",
+                    "page_number": None,
+                    "insert_after": None,
+                    "removed": 1,
+                }
+            )
+        previous_id = ""
+        for row in source:
+            page_id = str(row.get("id") or "")
+            if page_id in default_ids:
+                previous_id = page_id
+                continue
+            try:
+                page_number = (
+                    int(row["page_number"])
+                    if row.get("page_number") not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                page_number = None
+            overlays.append(
+                {
+                    "page_id": page_id,
+                    "name": str(row.get("name") or "Page").strip() or "Page",
+                    "stage": str(row.get("stage") or "play").strip().lower() or "play",
+                    "page_number": page_number,
+                    "insert_after": previous_id or None,
+                    "removed": 0,
+                }
+            )
+            previous_id = page_id
+        return overlays
+
     def playlist_staff_snapshot(
         self, class_id: int, module: str, slot: str
     ) -> dict[str, Any]:
@@ -7831,9 +8639,9 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Return a fingerprint of saved class overlays for one lesson deck.
 
-        Playlist placements, hide/move overrides, page overlays, and media
-        copy all participate. The next open compares this token so a cached
-        seed pack cannot outlive teacher edits.
+        Playlist placements, hide/move overrides, page overlays, media copy,
+        and the Set Class deck seed all participate. The next open compares
+        this token so a cached seed pack cannot outlive teacher edits.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -7882,6 +8690,22 @@ class SchoolDB(LovesDB):
                 """,
                 params,
             ).fetchone()
+            seed = self.conn.execute(
+                """
+                SELECT mode, COALESCE(source_module, '') AS source_module,
+                       COALESCE(source_slot, '') AS source_slot,
+                       suppress_authored, COALESCE(updated_at, '') AS stamp
+                FROM class_live_deck_seeds
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchone()
+        seed_token = "s:authored"
+        if seed is not None:
+            seed_token = (
+                f"s:{seed['mode']}:{seed['source_module']}{seed['source_slot']}:"
+                f"{int(seed['suppress_authored'] or 0)}:{seed['stamp'] or ''}"
+            )
         return "|".join(
             [
                 f"p:{int(placements['n'] or 0)}:{int(placements['max_id'] or 0)}",
@@ -7897,6 +8721,7 @@ class SchoolDB(LovesDB):
                     f"m:{int(media['n'] or 0)}:{int(media['max_id'] or 0)}:"
                     f"{media['stamp'] or ''}"
                 ),
+                seed_token,
             ]
         )
 
@@ -16862,7 +17687,23 @@ class SchoolDB(LovesDB):
             cached = self._live_metadata_cache.get(cache_key)
             if cached is not None:
                 return deepcopy(cached)
-        loaded = load_live_class_metadata(key[1], key[2], key[3])
+        seed_choice = self.get_class_live_deck_seed(int(class_id), key[2], key[3])
+        if seed_choice and int(seed_choice.get("suppress_authored") or 0):
+            loaded = empty_live_class_metadata(key[1], key[2], key[3])
+            # Working copies own their question list. Schema v1 would
+            # remount Minds On and Meet onto an empty deck.
+            loaded["schema_version"] = SCHEMA_V2
+            media = seed_choice.get("media")
+            if isinstance(media, dict) and media:
+                loaded["media"] = deepcopy(media)
+            challenge = seed_choice.get("team_challenge")
+            if isinstance(challenge, dict) and any(
+                str(challenge.get(part) or "").strip()
+                for part in ("context", "question", "speaker_notes")
+            ):
+                loaded["team_challenge"] = deepcopy(challenge)
+        else:
+            loaded = load_live_class_metadata(key[1], key[2], key[3])
         placements = self.list_class_playlist_placements(
             int(class_id), key[2], key[3]
         )
@@ -16967,13 +17808,27 @@ class SchoolDB(LovesDB):
 
         Schema-v1 and ad-hoc sessions continue to use the singleton prompt
         compatibility path. A schema-v2 stage with no question placements also
-        falls back so partially authored playlists remain usable.
+        falls back so partially authored playlists remain usable. An explicit
+        blank Set Class seed owns every stage, including empty ones.
 
         Args:
             session_id: ``live_class_sessions.id``.
             stage: Optional stage override; defaults to the teacher's stage.
         """
 
+        session_row = self.get_live_session(session_id)
+        if session_row is not None:
+            try:
+                teacher = self.live_session_teacher_state_payload(session_id)
+            except KeyError:
+                teacher = {}
+            seed = self.get_class_live_deck_seed(
+                int(session_row["class_id"]),
+                str((teacher or {}).get("live_module") or "M1"),
+                str((teacher or {}).get("live_slot") or "C1"),
+            )
+            if seed and str(seed.get("mode") or "") == "blank":
+                return True
         metadata = self.live_class_metadata_for_session(session_id)
         if metadata.get("schema_version") != SCHEMA_V2:
             return False

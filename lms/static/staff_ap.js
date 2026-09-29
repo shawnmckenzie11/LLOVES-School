@@ -274,6 +274,7 @@ function enterSetClassPhase() {
   setupPhase = true;
   currentStep = "validate";
   lockClassListPane();
+  refreshDeckSeedOptions();
 }
 
 /**
@@ -307,6 +308,149 @@ async function markClassSetComplete() {
     { silent: true }
   );
 }
+
+/** @type {"previous"|"course"|"blank"} */
+let deckSeedMode = "blank";
+/** @type {any} */
+let deckSeedCatalog = null;
+
+/**
+ * Read the Set Class module and challenge currently selected.
+ * @returns {{module: string, slot: string}}
+ */
+function selectedSetClassPack() {
+  return {
+    module: String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase(),
+    slot: String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase(),
+  };
+}
+
+/**
+ * Show the course-deck picker only when that choice is selected.
+ */
+function paintDeckSeedPicker() {
+  const picker = $("live-deck-seed-picker");
+  if (picker) picker.hidden = deckSeedMode !== "course";
+}
+
+/**
+ * Paint previous-challenge availability and the course deck list.
+ * @param {any} data
+ */
+function paintDeckSeedOptions(data) {
+  deckSeedCatalog = data || null;
+  const previousInput = $("live-deck-seed-previous");
+  const previousLabel = $("live-deck-seed-previous-label");
+  const note = $("live-deck-seed-previous-note");
+  const available = Boolean(data?.previous?.available);
+  if (previousInput instanceof HTMLInputElement) previousInput.disabled = !available;
+  previousLabel?.classList.toggle("is-disabled", !available);
+  if (note) {
+    const message = String(data?.previous?.message || "").trim();
+    note.hidden = available || !message;
+    note.textContent = available ? "" : message;
+  }
+  if (!available && deckSeedMode === "previous") deckSeedMode = "blank";
+  const select = $("live-deck-seed-source");
+  if (select instanceof HTMLSelectElement) {
+    const decks = Array.isArray(data?.decks) ? data.decks : [];
+    const current = select.value;
+    select.replaceChildren();
+    if (!decks.length) {
+      const empty = new Option("No other decks in this course", "");
+      empty.disabled = true;
+      select.add(empty);
+    } else {
+      for (const deck of decks) {
+        const module = String(deck.module || "").toUpperCase();
+        const slot = String(deck.slot || "").toUpperCase();
+        const label = String(deck.label || `${module} ${slot}`);
+        select.add(new Option(label, `${module}:${slot}`));
+      }
+      if ([...select.options].some((opt) => opt.value === current)) {
+        select.value = current;
+      }
+    }
+  }
+  const picked = document.querySelector(
+    `input[name="live-deck-seed"][value="${deckSeedMode}"]`
+  );
+  if (picked instanceof HTMLInputElement && !picked.disabled) {
+    picked.checked = true;
+  } else {
+    deckSeedMode = "blank";
+    const blank = $("live-deck-seed-blank");
+    if (blank instanceof HTMLInputElement) blank.checked = true;
+  }
+  paintDeckSeedPicker();
+}
+
+/**
+ * Load deck choices for the module and challenge on Set Class.
+ * @returns {Promise<void>}
+ */
+async function refreshDeckSeedOptions() {
+  if (!classId || !$("live-deck-seed")) return;
+  const pack = selectedSetClassPack();
+  try {
+    const data = await api(
+      `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed-options`
+    );
+    paintDeckSeedOptions(data);
+  } catch (err) {
+    paintDeckSeedOptions({
+      previous: {
+        available: false,
+        message: err instanceof Error ? err.message : "Could not load decks.",
+      },
+      decks: [],
+    });
+  }
+}
+
+/**
+ * Seed the selected challenge deck, then let Set Class continue.
+ * Copy is a new working copy. A missing previous deck stops here.
+ * @returns {Promise<void>}
+ */
+async function applyDeckSeedChoice() {
+  const pack = selectedSetClassPack();
+  const selected = document.querySelector('input[name="live-deck-seed"]:checked');
+  const mode = String(selected?.value || deckSeedMode || "blank");
+  /** @type {Record<string, string>} */
+  const body = { mode };
+  if (mode === "previous") {
+    const previous = $("live-deck-seed-previous");
+    if (previous instanceof HTMLInputElement && previous.disabled) {
+      const message =
+        $("live-deck-seed-previous-note")?.textContent ||
+        deckSeedCatalog?.previous?.message ||
+        "No previous challenge deck.";
+      throw new Error(String(message).trim() || "No previous challenge deck.");
+    }
+  }
+  if (mode === "course") {
+    const raw = String($("live-deck-seed-source")?.value || "");
+    const [sourceModule, sourceSlot] = raw.split(":");
+    if (!sourceModule || !sourceSlot) {
+      throw new Error("Choose a deck from this course.");
+    }
+    body.source_module = sourceModule;
+    body.source_slot = sourceSlot;
+  }
+  await api(
+    `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
+$("live-deck-seed")?.addEventListener("change", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.name === "live-deck-seed") {
+    deckSeedMode = /** @type {"previous"|"course"|"blank"} */ (target.value);
+    paintDeckSeedPicker();
+  }
+});
 const LAYOUT_PRESETS = {
   media_full: { A: "media" },
   questions_full: { A: "questions" },
@@ -5527,6 +5671,32 @@ async function applyValidateDateChoice(opts = {}) {
 }
 
 /**
+ * Keep Set Class open when the deck seed is refused.
+ * @param {unknown} err
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {Promise<void>}
+ */
+async function stayOnSetClassAfterSeedError(err, opts = {}) {
+  teacherState.class_set = false;
+  setupPhase = true;
+  try {
+    await patchTeacherState({ class_set: false }, { silent: true });
+  } catch (_) {
+    /* the session may not be minted yet */
+  }
+  enterSetClassPhase();
+  showPanel("validate");
+  showError("#ap-overlay-error", err);
+  if (opts.reservedWin && !opts.reservedWin.closed) {
+    try {
+      opts.reservedWin.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+/**
  * Begin Run Live Class for a resolved meeting date, then mint the join code.
  * @param {string} iso
  * @param {{ reservedWin?: Window|null }} [opts]
@@ -5539,10 +5709,18 @@ async function proceedRunLiveBegin(iso, opts = {}) {
     method: "POST",
     body: JSON.stringify({ meeting_date: iso }),
   });
+  const pack = selectedSetClassPack();
   if (overlayState.game?.status === "live") {
     await ensureLiveSessionMinted(opts);
     await markClassSetComplete();
+    try {
+      await applyDeckSeedChoice();
+    } catch (err) {
+      await stayOnSetClassAfterSeedError(err, opts);
+      return;
+    }
     exitSetClassPhase();
+    await loadSavedLiveLesson(pack.module, pack.slot);
     openLiveScoring(overlayState);
     return;
   }
@@ -5551,7 +5729,14 @@ async function proceedRunLiveBegin(iso, opts = {}) {
   trackMode = null;
   await ensureLiveSessionMinted(opts);
   await markClassSetComplete();
+  try {
+    await applyDeckSeedChoice();
+  } catch (err) {
+    await stayOnSetClassAfterSeedError(err, opts);
+    return;
+  }
   exitSetClassPhase();
+  await loadSavedLiveLesson(pack.module, pack.slot);
   renderAttendanceList();
   showPanel("att");
 }
@@ -8738,10 +8923,12 @@ $("live-module-select")?.addEventListener("change", () => {
   const module = $("live-module-select")?.value || "M1";
   paintLiveClassOptions(module);
   const slot = $("live-class-select")?.value || "C1";
+  if (setupPhase) refreshDeckSeedOptions();
   applyLivePackChoice(module, slot);
 });
 
 $("live-class-select")?.addEventListener("change", () => {
+  if (setupPhase) refreshDeckSeedOptions();
   applyLivePackChoice(
     $("live-module-select")?.value || teacherState.live_module || "M1",
     $("live-class-select")?.value || "C1"
