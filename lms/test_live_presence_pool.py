@@ -9,6 +9,7 @@ runs before the view, so that error used to become Flask's HTML 500 on
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -369,3 +370,172 @@ class PresencePollDegradeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PresenceBackfillRaceTests(unittest.TestCase):
+    """Boot copies one attendee set without crashing on a duplicate token."""
+
+    def test_parallel_backfill_serializes_on_the_advisory_lock(self) -> None:
+        """Four threads copying the same attendee never insert at once."""
+        shared = {"inserts": 0, "max": 0, "guard": threading.Lock(), "advisory": threading.Lock()}
+
+        class Cursor:
+            """One scripted result."""
+
+            def __init__(self, row: dict[str, Any] | None) -> None:
+                self.row = row
+
+            def fetchone(self) -> dict[str, Any] | None:
+                """Return the scripted row."""
+                return self.row
+
+        class Raw:
+            """Postgres stand-in whose advisory lock is a thread lock."""
+
+            def __init__(self) -> None:
+                self.holding = False
+
+            def transaction(self):
+                """Act as psycopg's transaction context."""
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                if self.holding:
+                    shared["advisory"].release()
+                    self.holding = False
+                return False
+
+            def execute(self, query: str, params: Any = None, **kwargs: Any) -> Cursor:
+                """Record inserts and hold the lock across the copy."""
+                del params, kwargs
+                if "pg_advisory_xact_lock" in query:
+                    shared["advisory"].acquire()
+                    self.holding = True
+                    return Cursor(None)
+                if "INSERT INTO live_presence_attendees" in query:
+                    with shared["guard"]:
+                        shared["inserts"] += 1
+                        shared["max"] = max(shared["max"], shared["inserts"])
+                    time.sleep(0.05)
+                    with shared["guard"]:
+                        shared["inserts"] -= 1
+                    return Cursor({"id": 1, "visit_token": "tok", "live_session_id": 1, "student_id": 1, "unmatched": 0, "participant_uuid": "", "codename": "Aspen", "joined_at": "", "left_at": None, "last_heartbeat_at": None})
+                if "INSERT INTO live_presence_sessions" in query:
+                    return Cursor(None)
+                if query.strip().startswith(("SAVEPOINT", "RELEASE", "ROLLBACK")):
+                    return Cursor(None)
+                raise AssertionError(query)
+
+        def connect() -> Raw:
+            """Open one fake connection."""
+            return Raw()
+
+        store = _bare_store(connect)
+        db = sqlite3.connect(":memory:", check_same_thread=False)
+        db.row_factory = sqlite3.Row
+        db.execute(
+            """
+            CREATE TABLE live_class_sessions (
+                id INTEGER PRIMARY KEY, class_id INTEGER, status TEXT,
+                started_at TEXT, ended_at TEXT
+            )
+            """
+        )
+        db.execute(
+            """
+            CREATE TABLE live_session_attendees (
+                id INTEGER PRIMARY KEY, live_session_id INTEGER, student_id INTEGER,
+                participant_uuid TEXT, visit_token TEXT, codename TEXT,
+                unmatched INTEGER, joined_at TEXT, left_at TEXT, last_heartbeat_at TEXT
+            )
+            """
+        )
+        db.execute(
+            "INSERT INTO live_class_sessions VALUES (1, 2, 'active', 't', NULL)"
+        )
+        db.execute(
+            "INSERT INTO live_session_attendees VALUES (5, 1, 9, '', 'tok', 'Aspen', 0, 't', NULL, NULL)"
+        )
+        errors: list[BaseException] = []
+
+        def copy() -> None:
+            """Run the boot copy and remember unexpected errors."""
+            try:
+                store.backfill_active(db)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=copy) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertEqual(errors, [])
+        self.assertEqual(shared["max"], 1)
+        self.assertFalse(shared["advisory"].locked())
+
+    def test_visit_token_conflict_updates_instead_of_raising(self) -> None:
+        """A duplicate visit token becomes an update, not a worker crash."""
+
+        class Cursor:
+            """One scripted result."""
+
+            def __init__(self, row: dict[str, Any] | None) -> None:
+                self.row = row
+
+            def fetchone(self) -> dict[str, Any] | None:
+                """Return the scripted row."""
+                return self.row
+
+        class Raw:
+            """First attendee insert hits the visit_token unique index."""
+
+            def __init__(self) -> None:
+                self.inserts = 0
+
+            def execute(self, query: str, params: Any = None, **kwargs: Any) -> Cursor:
+                """Raise once, then accept the token update."""
+                del kwargs
+                if "INSERT INTO live_presence_attendees" in query:
+                    self.inserts += 1
+                    raise psycopg.errors.UniqueViolation("live_presence_attendees_token")
+                if "UPDATE live_presence_attendees" in query:
+                    return Cursor(
+                        {
+                            "id": 5,
+                            "live_session_id": 1,
+                            "student_id": 9,
+                            "participant_uuid": "",
+                            "visit_token": "tok",
+                            "codename": "Aspen",
+                            "unmatched": 0,
+                            "joined_at": "t",
+                            "left_at": None,
+                            "last_heartbeat_at": None,
+                        }
+                    )
+                raise AssertionError(query)
+
+        raw = Raw()
+        store = _bare_store(lambda: raw)
+        stored = store.upsert_attendee(
+            {
+                "id": 5,
+                "live_session_id": 1,
+                "student_id": 9,
+                "participant_uuid": "",
+                "visit_token": "tok",
+                "codename": "Aspen",
+                "unmatched": 0,
+                "joined_at": "t",
+                "left_at": None,
+                "last_heartbeat_at": None,
+            }
+        )
+        self.assertEqual(stored["visit_token"], "tok")
+        self.assertEqual(raw.inserts, 1)
+
+

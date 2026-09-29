@@ -70,6 +70,61 @@ export function boardOpKey(op) {
 }
 
 /**
+ * Remember the live run the board is drawing in.
+ *
+ * The first key is stored quietly. A later different key means the class
+ * restarted and local ink belongs to the previous run.
+ * @param {{key?: string}} state
+ * @param {unknown} runKey
+ * @returns {"empty" | "first" | "same" | "changed"}
+ */
+export function noteBoardRun(state, runKey) {
+  const next = String(runKey || "").trim();
+  if (!next) return "empty";
+  const prev = String(state?.key || "");
+  if (!prev) {
+    state.key = next;
+    return "first";
+  }
+  if (prev === next) return "same";
+  state.key = next;
+  return "changed";
+}
+
+/**
+ * Classify a board write the server refused to store.
+ *
+ * @param {number} status
+ * @param {any} data
+ * @returns {"stale" | "ended" | ""}
+ */
+export function boardWriteRejected(status, data) {
+  if (Number(status) !== 409 || !data || typeof data !== "object") return "";
+  if (data.stale_run) return "stale";
+  if (data.ended) return "ended";
+  return "";
+}
+
+/**
+ * One calm line. Not an alert and not an error dialog.
+ * @param {HTMLElement | null | undefined} anchor
+ */
+export function showBoardRefreshCue(anchor) {
+  const host =
+    anchor && anchor.parentElement instanceof HTMLElement
+      ? anchor.parentElement
+      : document.body;
+  let note = host.querySelector(".board-refresh-cue");
+  if (!(note instanceof HTMLElement)) {
+    note = document.createElement("p");
+    note.className = "board-refresh-cue";
+    note.setAttribute("role", "status");
+    host.appendChild(note);
+  }
+  note.textContent = "Board refreshed for the new class.";
+}
+
+/**
  * Poll board ops for every tab that is showing a shared board.
  *
  * One request is in flight, whether or not the tab holds a LiveNewsWire
@@ -87,7 +142,7 @@ export function createBoardDeltaPoll(opts) {
   let timer = 0;
   let inFlight = false;
   let stopped = false;
-  let delay = BOARD_DELTA_POLL_MS;
+  let delay = 0;
 
   /**
    * Arm the next poll. A stopped poll does not arm again.
@@ -201,6 +256,7 @@ export function createPresenceQueue(opts) {
   const pending = [];
   let sent = 0;
   let applied = 0;
+  let epoch = 0;
 
   /**
    * Send the next queued body when nothing else is on the wire.
@@ -211,9 +267,11 @@ export function createPresenceQueue(opts) {
     if (!body) return;
     inFlight = true;
     const req = ++sent;
+    const stamp = epoch;
     Promise.resolve()
       .then(() => opts.send(body, req))
       .then((data) => {
+        if (stamp !== epoch) return;
         if (req > applied) {
           applied = req;
           if (typeof opts.onReply === "function") opts.onReply(data, req);
@@ -222,11 +280,18 @@ export function createPresenceQueue(opts) {
       .catch(() => {})
       .finally(() => {
         inFlight = false;
-        pump();
+        if (stamp === epoch) pump();
       });
   }
 
   return {
+    /**
+     * Drop queued bodies. An in-flight reply is ignored and not retried.
+     */
+    drop() {
+      pending.length = 0;
+      epoch += 1;
+    },
     /**
      * Queue one presence body. Open stroke batches for the same id coalesce.
      * @param {Record<string, any>} body
@@ -924,6 +989,7 @@ export function bindWhiteboard(canvas, opts = {}) {
   });
   opts.eraseBtn?.addEventListener("click", () => {
     if (!strokes.length) return;
+    const gone = strokes.slice();
     strokes = [];
     redoStack = [];
     current = [];
@@ -931,6 +997,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     replayCommitted();
     paintLive();
     syncButtons();
+    if (typeof opts.onClear === "function") opts.onClear(gone);
   });
   opts.textBtn?.addEventListener("click", () => {
     tool = tool === "text" ? "draw" : "text";
@@ -1056,6 +1123,43 @@ export function bindWhiteboard(canvas, opts = {}) {
       texts = [];
       current = [];
       pending = [];
+      replayCommitted();
+      paintLive();
+      syncButtons();
+    },
+    /**
+     * Replace local ink with one server view for a new live run.
+     *
+     * Own-stroke protection and the op-id cache belong to the previous
+     * run, so both are cleared. Pending points are not replayed.
+     * @param {any} view
+     */
+    resetRun(view) {
+      strokes = [];
+      redoStack = [];
+      texts = [];
+      current = [];
+      pending = [];
+      drawing = false;
+      ownIds.clear();
+      appliedOpKeys.clear();
+      const incoming = view && typeof view === "object" ? view : {};
+      const remote = Array.isArray(incoming.strokes) ? incoming.strokes : [];
+      for (const stroke of remote) {
+        if (!stroke || typeof stroke !== "object") continue;
+        const id = String(stroke.id || "");
+        if (!id) continue;
+        const points = remotePoints(stroke);
+        if (!points.length) continue;
+        strokes.push({
+          id,
+          owner: String(stroke.owner || ""),
+          points,
+          color: String(stroke.color || color),
+          mine: false,
+        });
+      }
+      applyTexts({ texts: incoming.texts });
       replayCommitted();
       paintLive();
       syncButtons();

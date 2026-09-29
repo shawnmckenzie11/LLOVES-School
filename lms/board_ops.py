@@ -150,7 +150,25 @@ class BoardOpRejected(Exception):
 
 
 class BoardSessionClosed(Exception):
-    """Ink writes are closed because the live session is ending or ended."""
+    """A board write was rejected and must not be stored.
+
+    ``stale_run`` is true when the caller's run key is missing or belongs
+    to a different live run. An ended session leaves it false.
+
+    Args:
+        message: Short reason stored on the exception.
+        stale_run: True when the run key does not match the live run.
+    """
+
+    def __init__(self, message: str = "session has ended", *, stale_run: bool = False) -> None:
+        """Record whether the rejection is a stale run rather than an end.
+
+        Args:
+            message: Short reason.
+            stale_run: True when the run key is missing or not current.
+        """
+        super().__init__(message)
+        self.stale_run = bool(stale_run)
 
 
 def normalize_board_key(raw: Any) -> str:
@@ -896,6 +914,21 @@ class _BoardStore:
             exec_("DELETE FROM board_ops WHERE run_key = ?", (sid,))
             exec_("DELETE FROM board_counters WHERE run_key = ?", (sid,))
             exec_("DELETE FROM board_batches WHERE run_key = ?", (sid,))
+
+        self._transaction(work)
+
+    def forget_closed_runs(self) -> None:
+        """Delete close-flag rows left behind by ended runs.
+
+        The flag stays through the purge transaction so a writer racing
+        End still sees the run closed. The next live run drops those rows.
+        A stale write is rejected because its run key does not match, not
+        because one of these rows is still present.
+
+        """
+        def work(exec_: Exec) -> None:
+            """Remove every closed-run marker."""
+            exec_("DELETE FROM board_sessions WHERE closed = 1")
 
         self._transaction(work)
 

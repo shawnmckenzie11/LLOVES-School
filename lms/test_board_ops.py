@@ -513,6 +513,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.2,
                 "y": 0.3,
                 "points": [[0.2, 0.3]],
@@ -533,6 +534,7 @@ class BoardRouteTests(unittest.TestCase):
         foreign_write = aspen.post(
             f"/api/student/board/team:{int(cedar_team)}/ops",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "ops": [
                     {
                         "type": "stroke_add",
@@ -569,6 +571,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.4,
                 "y": 0.4,
                 "points": [[0.4, 0.4], [0.45, 0.5]],
@@ -579,14 +582,14 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(drawn.status_code, 200, drawn.get_json())
         stolen = birch.post(
             "/api/student/canvas-presence",
-            json={"op": "stroke_remove", "stroke_id": "aspen-undo"},
+            json={"run_key": self.school.live_board_run_key(self.session_id),"op": "stroke_remove", "stroke_id": "aspen-undo"},
         )
         self.assertEqual(stolen.status_code, 403, stolen.get_json())
         before = birch.get("/api/student/board/mine?since=0").get_json()
         seen = int(before["board_seq"])
         removed = aspen.post(
             "/api/student/canvas-presence",
-            json={"op": "stroke_remove", "stroke_id": "aspen-undo"},
+            json={"run_key": self.school.live_board_run_key(self.session_id),"op": "stroke_remove", "stroke_id": "aspen-undo"},
         )
         self.assertEqual(removed.status_code, 200, removed.get_json())
         delta = birch.get(f"/api/student/board/mine?since={seen}").get_json()
@@ -609,6 +612,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.15,
                 "y": 0.25,
                 "points": [[0.15, 0.25]],
@@ -643,6 +647,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.5,
                 "y": 0.5,
                 "point": [0.5, 0.5],
@@ -674,6 +679,7 @@ class BoardRouteTests(unittest.TestCase):
         first = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.2,
                 "y": 0.2,
                 "point": [0.2, 0.2],
@@ -685,6 +691,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.4,
                 "y": 0.4,
                 "point": [0.4, 0.4],
@@ -755,13 +762,21 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(published.status_code, 200, published.get_json())
         return tokens
 
-    def _draw(self, client, stroke_id: str, *, run_key: str | None = None):
+    def _draw(
+        self,
+        client,
+        stroke_id: str,
+        *,
+        run_key: str | None = None,
+        omit_run_key: bool = False,
+    ):
         """Post one finished stroke and return the response.
 
         Args:
             client: Student test client.
             stroke_id: Stroke id to store.
-            run_key: Optional run claim. A stale claim must be rejected.
+            run_key: Run claim. Defaults to the current live run.
+            omit_run_key: Send no run key, which the server must reject.
         """
         body = {
             "x": 0.2,
@@ -770,8 +785,10 @@ class BoardRouteTests(unittest.TestCase):
             "stroke_id": stroke_id,
             "ended": True,
         }
-        if run_key:
+        if run_key is not None:
             body["run_key"] = run_key
+        elif not omit_run_key:
+            body["run_key"] = self.school.live_board_run_key(self.session_id)
         return client.post("/api/student/canvas-presence", json=body)
 
     def _op_count(self, run_key: str) -> int:
@@ -807,6 +824,10 @@ class BoardRouteTests(unittest.TestCase):
         new_key = self.school.live_board_run_key(self.session_id)
         self.assertEqual(self.session_id, old_id)
         self.assertNotEqual(new_key, old_key)
+        closed = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_sessions WHERE closed = 1"
+        ).fetchone()
+        self.assertEqual(int(closed[0]), 0)
         tokens = self._rejoin_published_groups()
         aspen = self._student(tokens["Aspen"])
         empty = aspen.get("/api/student/board/mine?since=0")
@@ -885,13 +906,107 @@ class BoardRouteTests(unittest.TestCase):
         aspen = self._student(tokens["Aspen"])
         stale = self._draw(aspen, "stale-ink", run_key=old_key)
         self.assertEqual(stale.status_code, 409, stale.get_json())
-        self.assertTrue(stale.get_json().get("ended"))
+        stale_body = stale.get_json()
+        self.assertTrue(stale_body.get("stale_run"))
+        self.assertFalse(stale_body.get("ended"))
+        closed = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_sessions WHERE closed = 1"
+        ).fetchone()
+        self.assertEqual(int(closed[0]), 0)
         self.assertEqual(self._op_count(old_key), 0)
         self.assertEqual(self._op_count(new_key), 0)
         mine = aspen.get("/api/student/board/mine?since=0").get_json()
         self.assertFalse(mine.get("ended"))
         self.assertNotIn("stale-ink", str(mine))
         self.assertNotIn("before-restart", str(mine))
+
+
+    def test_every_board_write_route_requires_the_current_run(self) -> None:
+        """Missing or foreign run keys are 409 and do not store the stroke."""
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        run = self.school.live_board_run_key(self.session_id)
+        before = self._op_count(run)
+
+        def post(client, path: str, body: dict):
+            """POST one board write and return the response."""
+            return client.post(path, json=body)
+
+        def rejected(response, stroke_id: str) -> None:
+            """A refused write is stale_run and leaves the board unchanged."""
+            self.assertEqual(response.status_code, 409, response.get_json())
+            body = response.get_json()
+            self.assertTrue(body.get("stale_run"), body)
+            self.assertNotIn("ended", body)
+            self.assertNotIn(stroke_id, str(self.school.live_session_canvas_sync(self.session_id)))
+            self.assertEqual(self._op_count(run), before)
+
+        ink = {
+            "x": 0.2,
+            "y": 0.2,
+            "points": [[0.2, 0.2]],
+            "ended": True,
+        }
+        ops = {
+            "ops": [
+                {"type": "stroke_add", "id": "route-op", "points": [[0.4, 0.4]]}
+            ]
+        }
+        routes = [
+            (aspen, "/api/student/canvas-presence", {**ink, "stroke_id": "miss-student"}),
+            (aspen, "/api/student/board/mine/ops", {**ops, "ops": [{"type": "stroke_add", "id": "miss-mine", "points": [[0.4, 0.4]]}]}),
+            (
+                aspen,
+                f"/api/live-sessions/{self.session_id}/canvas-presence",
+                {**ink, "stroke_id": "miss-session"},
+            ),
+            (
+                aspen,
+                f"/api/live-sessions/{self.session_id}/board/mine/ops",
+                {"ops": [{"type": "stroke_add", "id": "miss-session-ops", "points": [[0.5, 0.5]]}]},
+            ),
+            (
+                self.client,
+                f"/api/live-sessions/{self.session_id}/canvas-presence",
+                {**ink, "stroke_id": "miss-staff"},
+            ),
+            (
+                self.client,
+                f"/api/live-sessions/{self.session_id}/board/teacher/ops",
+                {"ops": [{"type": "stroke_add", "id": "miss-teacher", "points": [[0.6, 0.6]]}]},
+            ),
+        ]
+        for client, path, body in routes:
+            rejected(post(client, path, body), "miss")
+        for client, path, body in routes:
+            foreign = dict(body)
+            foreign["run_key"] = "not-this-run"
+            rejected(post(client, path, foreign), "miss")
+        ok = post(
+            aspen,
+            "/api/student/canvas-presence",
+            {**ink, "stroke_id": "kept-student", "run_key": run},
+        )
+        self.assertEqual(ok.status_code, 200, ok.get_json())
+        self.assertEqual(ok.get_json().get("run_key"), run)
+        mine = aspen.get("/api/student/board/mine?since=0")
+        self.assertEqual(mine.status_code, 200, mine.get_json())
+        self.assertEqual(mine.get_json().get("run_key"), run)
+        self.assertIn("kept-student", str(mine.get_json()))
+        staff = post(
+            self.client,
+            f"/api/live-sessions/{self.session_id}/board/teacher/ops",
+            {
+                "run_key": run,
+                "ops": [{"type": "stroke_add", "id": "kept-teacher", "points": [[0.1, 0.1]]}],
+            },
+        )
+        self.assertEqual(staff.status_code, 200, staff.get_json())
+        teacher = self.client.get(
+            f"/api/live-sessions/{self.session_id}/board/teacher?since=0"
+        )
+        self.assertEqual(teacher.get_json().get("run_key"), run)
+        self.assertIn("kept-teacher", str(teacher.get_json()))
 
     def test_shared_board_poll_runs_with_or_without_a_stream(self) -> None:
         """Every shown shared-board tab polls, one request in flight."""
@@ -909,7 +1024,15 @@ class BoardRouteTests(unittest.TestCase):
         self.assertIn("stroke_add does not append points onto an existing stroke", wb)
         self.assertIn("/api/student/board/mine?", student)
         self.assertNotIn("hasStream()", student)
-        self.assertNotIn("createBoardDeltaPoll", staff)
+        self.assertNotIn("/api/student/board/mine", staff)
+        self.assertIn("/board/teacher?since=", staff)
+        self.assertIn("run_key:", student)
+        self.assertIn("run_key:", staff)
+        self.assertIn("Board refreshed for the new class.", wb)
+        self.assertNotIn("alert(", student)
+        self.assertNotIn("alert(", staff)
+        self.assertIn("drop()", student)
+        self.assertIn("drop()", staff)
         self.assertIn("hasStream()", wire)
         self.assertIn("pg_advisory_xact_lock", presence)
         self.assertIn("pg_advisory_xact_lock", boards)
@@ -955,6 +1078,47 @@ if (later === key || seen.has(later)) process.exit(7);
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
+
+    def test_client_drops_a_stale_run_without_retrying_it(self) -> None:
+        """A changed run key is remembered, and a queued op is not sent."""
+        script = """
+import { createPresenceQueue, noteBoardRun, boardWriteRejected } from './lms/static/live_whiteboard.js';
+const state = { key: '' };
+if (noteBoardRun(state, 'abc') !== 'first') process.exit(1);
+if (noteBoardRun(state, 'abc') !== 'same') process.exit(2);
+if (noteBoardRun(state, 'def') !== 'changed' || state.key !== 'def') process.exit(3);
+if (boardWriteRejected(409, { stale_run: true }) !== 'stale') process.exit(4);
+if (boardWriteRejected(409, { ended: true }) !== 'ended') process.exit(5);
+if (boardWriteRejected(409, { stale_run: true, ended: true }) !== 'stale') process.exit(6);
+if (boardWriteRejected(200, { ok: true }) !== '') process.exit(7);
+const sent = [];
+const queue = createPresenceQueue({
+  send(body) {
+    sent.push(body.stroke_id || body.op);
+    return Promise.resolve({ ok: true, run_key: 'def' });
+  },
+});
+queue.push({ stroke_id: 'a', points: [[0, 0]] });
+queue.push({ op: 'stroke_remove', stroke_id: 'b' });
+queue.drop();
+await new Promise((resolve) => setTimeout(resolve, 20));
+queue.push({ stroke_id: 'c', points: [[1, 1]], ended: true });
+await new Promise((resolve) => setTimeout(resolve, 20));
+if (sent.join(',') !== 'a,c') {
+  console.error(JSON.stringify(sent));
+  process.exit(8);
+}
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
 
 if __name__ == "__main__":

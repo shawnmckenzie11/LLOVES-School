@@ -316,6 +316,7 @@ class WhiteboardCollabTests(unittest.TestCase):
         tick = self.client.post(
             f"/api/live-sessions/{self.session_id}/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.15,
                 "y": 0.25,
                 "point": [0.15, 0.25],
@@ -541,9 +542,13 @@ class WhiteboardCollabTests(unittest.TestCase):
     def _post_as_student(self, token: str, path: str, body: dict) -> dict:
         """POST canvas presence as one joined student and return JSON."""
         client = self.app.test_client()
+        payload = dict(body)
+        payload.setdefault(
+            "run_key", self.school.live_board_run_key(self.session_id)
+        )
         response = client.post(
             path,
-            json=body,
+            json=payload,
             headers={"X-Student-Visit-Token": token},
         )
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -559,6 +564,7 @@ class WhiteboardCollabTests(unittest.TestCase):
         teacher = self.client.post(
             f"/api/live-sessions/{self.session_id}/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.5,
                 "y": 0.5,
                 "point": [0.5, 0.5],
@@ -650,4 +656,6 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.assertIn("if (stopped || inFlight) return", wb)
         self.assertNotIn("opts.hasStream()", wb)
         self.assertIn("/api/student/board/mine?", student)
-        self.assertNotIn("createBoardDeltaPoll", staff)
+        self.assertIn("createBoardDeltaPoll", staff)
+        self.assertIn("/board/teacher?since=", staff)
+        self.assertNotIn("/api/student/board/mine", staff)

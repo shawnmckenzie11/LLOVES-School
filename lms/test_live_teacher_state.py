@@ -945,6 +945,7 @@ class LiveTeacherStateApiTests(unittest.TestCase):
         posted = self.client.post(
             f"/api/live-sessions/{self.session_id}/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.2,
                 "y": 0.3,
                 "point": [0.2, 0.3],
