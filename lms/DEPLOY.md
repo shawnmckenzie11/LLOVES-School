@@ -145,7 +145,7 @@ the process is serving.
 
 Recovery under live poll load:
 
-- Image deploy (merge to `main`), or `fly machines update` on the one machine.
+- Image deploy (a merge to `main` runs tests, then the Fly deploy waits for Shawn's approval on the `production` environment), or `fly machines update` on the one machine.
 - Do not use `fly machines restart` while student and staff polls are attached.
 
 The image also refuses connections past backlog 64 (gunicorn's default
@@ -179,7 +179,7 @@ Fly secrets, after Shawn's GO (this tip does not deploy):
 fly secrets set SENTRY_DSN='…' SENTRY_DSN_LIVE='…' --app lloves-lms
 ```
 
-Paste each DSN at the prompt. The next merge to `main` ships the SDK. Events appear once those secrets exist on the machine.
+Paste each DSN at the prompt. The next approved deploy from `main` ships the SDK (tests run, then the Fly deploy waits for Shawn's approval on the `production` environment). Events appear once those secrets exist on the machine.
 
 ### Tip smoke on :8787
 

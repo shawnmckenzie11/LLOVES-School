@@ -24,11 +24,16 @@ jobs:
   attach:
     name: Attach Managed Postgres
     runs-on: ubuntu-latest
+    # Same production reviewer as deploy.yml. This job runs flyctl,
+    # fly secrets deploy, and may restart lloves-lms.
+    environment:
+      name: production
+      url: https://alc.mckenzian.com
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
 
       - name: Attach lloves-live and require live_presence=postgres
         env:
