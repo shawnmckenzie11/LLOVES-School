@@ -1,19 +1,33 @@
 name: Deploy LLOVES LMS
 
-# Commits to main deploy to https://alc.mckenzian.com, but only after the
-# LMS test suite passes. Feature branches (LLOVEMS) run tests via ci.yml and
-# never deploy; merge to main to release.
+# Push to main runs the LMS test suite immediately. Fly deploy does not
+# start until GitHub Environment "production" is approved. The required
+# reviewer is a repo setting (shawnmckenzie11), not this file. Referencing
+# the environment only auto-creates it with no protection rules; until
+# that reviewer exists, a merge still deploys after tests.
 #
-# Add repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms)
-# before Actions deploys succeed on push to main.
+# workflow_dispatch uses the same test job. Deploy still requires
+# refs/heads/main, the production environment, and the SHA guard.
+# Feature branches never run this workflow; they test via ci.yml.
+#
+# Concurrency is on the deploy job only (group deploy-lloves-lms,
+# cancel-in-progress false). Tests are not queued behind an approval,
+# and an in-flight flyctl deploy is not aborted. GitHub can leave older
+# runs sitting on "Waiting for review" after a newer merge. The SHA guard
+# refuses flyctl unless GITHUB_SHA is still origin/main.
+#
+# Not a code deploy: attach-live-postgres.yml is workflow_dispatch only.
+# It does not flyctl deploy. It can restart lloves-lms and is not on
+# the production environment.
+#
+# Repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms).
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: deploy-lloves-lms
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -61,9 +75,34 @@ jobs:
   deploy:
     name: Deploy to Fly
     needs: test
+    # workflow_dispatch can target any ref. Only main may request a
+    # production review. A red test job skips this job, so approval
+    # cannot ship a failed build.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://alc.mckenzian.com
+    # One deploy at a time. Do not cancel an in-flight flyctl deploy.
+    # Pending jobs in this group are replaced (queue single). A review
+    # hold is not this queue; the SHA guard below covers that gap.
+    concurrency:
+      group: deploy-lloves-lms
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+
+      - name: Refuse a stale main SHA
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          tip="$(git rev-parse origin/main)"
+          echo "This run:    ${GITHUB_SHA}"
+          echo "origin/main: ${tip}"
+          if [ "${GITHUB_SHA}" != "${tip}" ]; then
+            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/main is ${tip}. A newer merge landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
+            exit 1
+          fi
 
       - name: Guard against dev login in production config
         run: |
