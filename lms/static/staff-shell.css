@@ -5630,3 +5630,79 @@ body.staff-shell .rank-team-rows li.is-waiting {
   line-height: 1.3;
   color: #3d4c5c;
 }
+
+body.staff-shell .roster-names {
+  margin-top: 0.85rem;
+}
+body.staff-shell .roster-names summary {
+  cursor: pointer;
+  font-weight: 650;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+body.staff-shell .roster-names summary:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+body.staff-shell .roster-names-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+body.staff-shell .roster-name-view {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+body.staff-shell .roster-name-label,
+body.staff-shell .roster-name-pencil,
+body.staff-shell .roster-name-save {
+  min-height: 44px;
+  min-width: 44px;
+}
+body.staff-shell .roster-name-label {
+  flex: 1;
+  text-align: left;
+  background: #fff;
+  color: #12202e;
+  border: 1px solid #94a3b8;
+}
+body.staff-shell .roster-name-pencil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #64748b;
+  padding: 0;
+}
+body.staff-shell .roster-name-label:focus-visible,
+body.staff-shell .roster-name-pencil:focus-visible,
+body.staff-shell .roster-name-form input:focus-visible,
+body.staff-shell .roster-name-save:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+body.staff-shell .roster-name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+body.staff-shell .roster-name-form[hidden],
+body.staff-shell .roster-name-view[hidden] {
+  display: none;
+}
+body.staff-shell .roster-name-error {
+  margin: 0.15rem 0 0;
+  color: #9f1239;
+  font-size: 0.85rem;
+}
+@media (max-width: 420px) {
+  body.staff-shell .roster-name-label {
+    min-width: 0;
+  }
+}

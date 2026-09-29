@@ -122,6 +122,11 @@
           </div>
           {% endif %}
         </div>
+        {% if cls %}
+        {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false %}
+        {% include "staff/_roster_names.html" %}
+        {% endwith %}
+        {% endif %}
         <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
           <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>
           <p class="course-card-pack-error hint"{% if not o.pack_error %} hidden{% endif %}>{{ o.pack_error or "" }}</p>
@@ -238,6 +243,7 @@
   </dialog>
   {% endif %}
   <script type="module" src="/static/staff_home.js"></script>
+  <script type="module" src="/static/staff_roster_names.js"></script>
   <script type="module" src="/static/staff_celebration.js"></script>
 </body>
 </html>

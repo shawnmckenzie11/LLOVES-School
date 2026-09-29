@@ -921,6 +921,10 @@
       </nav>
 
       {% if ap_view == 'attendance' %}
+      {% with roster_students=roster_students, roster_class_id=cls.id, roster_open=true %}
+      {% include "staff/_roster_names.html" %}
+      {% endwith %}
+      <script type="module" src="/static/staff_roster_names.js"></script>
       <div id="attendance-root" data-class-id="{{ cls.id }}">
         <div class="topbar">
           <div class="row-actions ap-toolbar">

@@ -2447,6 +2447,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings = [
                 annotate_offering_pack(row, _library_dest(row)) for row in offerings
             ]
+            for offering in offerings:
+                for section in offering.get("classes") or []:
+                    section["roster"] = school.roster_name_entries(int(section["id"]))
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         from flask import make_response
 
@@ -2638,6 +2641,44 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             abort(404)
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
+
+    @app.route(
+        "/api/classes/<int:class_id>/students/<int:student_id>/name",
+        methods=["POST"],
+    )
+    @staff_required
+    def api_rename_roster_student(class_id: int, student_id: int):
+        """Rename one student on a class roster the staff member can open.
+
+        Uses the same staff session cookie as other JSON writes
+        (``SameSite=Lax``, HttpOnly). ``teacher_owns_class`` is the course
+        access check used for staff roster views: the assigned teacher, or
+        IT in the same tenant. The body may include ``first_name``,
+        ``last_name``, and ``display_name``. Blank names and names longer
+        than 80 characters are rejected. The response is the updated name.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "Enter a name."}), 400
+        try:
+            updated = school.rename_roster_student(
+                class_id,
+                student_id,
+                first_name=body["first_name"] if "first_name" in body else None,
+                last_name=body["last_name"] if "last_name" in body else None,
+                display_name=(
+                    body["display_name"] if "display_name" in body else None
+                ),
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Student not found."}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, **updated})
 
     @app.route("/staff/class/<int:class_id>/run-live", methods=["POST"])
     @staff_required
@@ -2870,6 +2911,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             allow_media_url_swap=live_media_url_swap_allowed(
                 testing=bool(app.config.get("TESTING"))
             ),
+            roster_students=school.roster_name_entries(class_id),
         )
 
     @app.route("/staff/class/<int:class_id>/module-pack", methods=["POST"])
