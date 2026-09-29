@@ -4727,6 +4727,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     x=body.get("x"),
                     y=body.get("y"),
                     as_teacher=False,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
             elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
                 school.remove_live_board_stroke(
@@ -4736,6 +4737,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     team_id=team_id,
                     as_teacher=False,
                     client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
             else:
                 raw_points = body.get("points")
@@ -4752,6 +4754,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     ended=bool(body.get("ended")),
                     as_teacher=False,
                     client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
         except BoardSessionClosed:
             return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
@@ -6129,6 +6132,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     x=body.get("x"),
                     y=body.get("y"),
                     as_teacher=as_teacher,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
             elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
                 school.remove_live_board_stroke(
@@ -6138,6 +6142,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     team_id=team_id,
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
             else:
                 raw_points = body.get("points")
@@ -6154,6 +6159,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     ended=bool(body.get("ended")),
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
         except BoardSessionClosed:
             return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
@@ -6299,7 +6305,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         ops = body.get("ops") if isinstance(body.get("ops"), list) else []
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
         try:
-            school.boards.append_ops(
+            school.append_live_board_ops(
                 live_session_id,
                 key,
                 owner=str(int(student_id)),
@@ -6391,12 +6397,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if str(board_key or "").strip() != "teacher":
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
             try:
-                school.boards.append_ops(
+                school.append_live_board_ops(
                     session_id,
                     "teacher",
                     owner="teacher",
                     ops=ops,
                     client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
                 )
                 reply = school.canvas_presence_reply(
                     session_id,
@@ -6425,12 +6432,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if key not in access["write"]:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         try:
-            school.boards.append_ops(
+            school.append_live_board_ops(
                 session_id,
                 key,
                 owner=str(int(student_id or 0)),
                 ops=ops,
                 client_batch_id=batch_id,
+                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
             )
             reply = school.canvas_presence_reply(
                 session_id,

@@ -2515,6 +2515,10 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN canvas_sync_json TEXT"
             )
+        if "run_key" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN run_key TEXT"
+            )
         feedback_cols = {
             str(row[1])
             for row in self.conn.execute("PRAGMA table_info(live_class_feedback)")
@@ -20860,7 +20864,7 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             raise KeyError(f"live session {session_id}")
-        rows = self.boards.load_keys(int(session_id), None)
+        rows = self.boards.load_keys(self.live_board_run_key(session_id), None)
         return fold_to_public_blob(rows)
 
     def _write_canvas_sync(
@@ -20919,6 +20923,7 @@ class SchoolDB(LovesDB):
         ended: bool = False,
         as_teacher: bool = False,
         client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
         """Append one cursor tick and a point or a points batch as board ops.
 
@@ -20966,9 +20971,9 @@ class SchoolDB(LovesDB):
             bucket=bucket,
             owner=who,
         )
-        self._require_live_board_open(session_id)
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
         return self.boards.append_ink(
-            int(session_id),
+            run_key,
             key,
             owner=who,
             name=name,
@@ -20996,6 +21001,7 @@ class SchoolDB(LovesDB):
         x: Any = None,
         y: Any = None,
         as_teacher: bool = False,
+        claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
         """Persist one whiteboard text label for this live session.
 
@@ -21029,9 +21035,9 @@ class SchoolDB(LovesDB):
             key = "shared"
         else:
             key = f"solo:{writer}"
-        self._require_live_board_open(session_id)
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
         self.boards.append_text(
-            int(session_id),
+            run_key,
             key,
             owner=writer,
             name=name,
@@ -21127,7 +21133,9 @@ class SchoolDB(LovesDB):
             team_id=team_id,
             viewer=viewer,
         )
-        blob = fold_to_public_blob(self.boards.load_keys(int(session_id), keys))
+        blob = fold_to_public_blob(
+            self.boards.load_keys(self.live_board_run_key(session_id), keys)
+        )
         return canvas_view_for(
             blob,
             align=view_align,
@@ -21234,7 +21242,9 @@ class SchoolDB(LovesDB):
         Returns:
             Since-seq payload. ``snapshot`` true includes ``canvas_view``.
         """
-        delta = self.boards.since(int(session_id), board_key, int(since_seq))
+        delta = self.boards.since(
+            self.live_board_run_key(session_id), board_key, int(since_seq)
+        )
         if delta.get("snapshot"):
             delta["canvas_view"] = self.live_session_canvas_view(
                 int(session_id),
@@ -21253,6 +21263,7 @@ class SchoolDB(LovesDB):
         team_id: int | None = None,
         as_teacher: bool = False,
         client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
         """Append ``stroke_remove`` for a stroke this caller owns.
 
@@ -21287,9 +21298,9 @@ class SchoolDB(LovesDB):
                 )
             else:
                 key = f"solo:{who}"
-        self._require_live_board_open(session_id)
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
         return self.boards.append_remove(
-            int(session_id),
+            run_key,
             key,
             owner=who,
             stroke_id=str(stroke_id or ""),
@@ -21481,21 +21492,78 @@ class SchoolDB(LovesDB):
         reply["teacher_ops"] = list(teacher.get("ops") or [])
         return reply
 
-    def _require_live_board_open(self, session_id: int) -> None:
-        """Reject ink writes once this live session is no longer active.
+    def live_board_run_key(self, session_id: int) -> str:
+        """Return the run key stored on this live session.
 
-        The board store also rejects a write that races the purge, while
-        status is still ``active``. This check covers a session that has
-        already flipped to ended.
+        An active session that has no key yet gets one minted, so a class
+        that started before the column existed can still draw. Ended
+        sessions keep the key they were given at start.
 
         Args:
             session_id: ``live_class_sessions.id``.
 
+        Returns:
+            The run key for this row.
+
         Raises:
-            BoardSessionClosed: The session is missing or not active.
+            KeyError: The session is missing or has no run key.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status, run_key FROM live_class_sessions WHERE id = ?",
+                (sid,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"live session {sid}")
+            key = str(row["run_key"] or "").strip()
+            if not key and str(row["status"] or "") == "active":
+                minted = uuid.uuid4().hex
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET run_key = ?
+                    WHERE id = ? AND status = 'active'
+                      AND (run_key IS NULL OR run_key = '')
+                    """,
+                    (minted, sid),
+                )
+                self.conn.commit()
+                fresh = self.conn.execute(
+                    "SELECT run_key FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                ).fetchone()
+                key = str(fresh["run_key"] or "").strip() if fresh else ""
+        if not key:
+            raise KeyError(f"live session {sid} has no run key")
+        return key
+
+    def _require_live_board_open(
+        self, session_id: int, claimed_run_key: str | None = None
+    ) -> str:
+        """Reject ink writes once this live run is no longer current.
+
+        The board store also rejects a write that races the purge, while
+        status is still ``active``. A claimed run key from a previous
+        live run is rejected even when the session id has been reused.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            claimed_run_key: Run key supplied by the client, if any.
+
+        Returns:
+            The current run key to store the write under.
+
+        Raises:
+            BoardSessionClosed: The session is missing, ended, or the
+                claim belongs to another run.
         """
         from board_ops import BoardSessionClosed
 
+        try:
+            key = self.live_board_run_key(session_id)
+        except KeyError as exc:
+            raise BoardSessionClosed("session has ended") from exc
         with self._lock:
             row = self.conn.execute(
                 "SELECT status FROM live_class_sessions WHERE id = ?",
@@ -21503,9 +21571,48 @@ class SchoolDB(LovesDB):
             ).fetchone()
         if row is None or str(row["status"] or "") != "active":
             raise BoardSessionClosed("session has ended")
+        claimed = str(claimed_run_key or "").strip()
+        if claimed and claimed != key:
+            raise BoardSessionClosed("session has ended")
+        return key
+
+    def append_live_board_ops(
+        self,
+        session_id: int,
+        board_key: str,
+        *,
+        owner: str,
+        ops: list[dict[str, Any]],
+        client_batch_id: str | None = None,
+        claimed_run_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append ops onto the session's current run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Destination board.
+            owner: Writer stored on each row.
+            ops: Client op objects.
+            client_batch_id: Retry token.
+            claimed_run_key: Run key supplied by the client, if any.
+
+        Returns:
+            The append result from the board store.
+
+        Raises:
+            BoardSessionClosed: The session is ended or the claim is stale.
+        """
+        run_key = self._require_live_board_open(session_id, claimed_run_key)
+        return self.boards.append_ops(
+            run_key,
+            board_key,
+            owner=owner,
+            ops=ops,
+            client_batch_id=client_batch_id,
+        )
 
     def purge_board_ops(self, session_id: int) -> None:
-        """Delete board ops for a session that has ended.
+        """Delete board ops, the seq counter, and the close flag for this run.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -21513,37 +21620,43 @@ class SchoolDB(LovesDB):
         boards = getattr(self, "boards", None)
         if boards is None:
             return
-        boards.purge(int(session_id))
+        try:
+            key = self.live_board_run_key(session_id)
+        except KeyError:
+            return
+        boards.purge(key)
         done = getattr(self, "_boards_purged", None)
         if done is None:
             done = set()
             self._boards_purged = done
-        done.add(int(session_id))
+        done.add(key)
 
     def _purge_board_ops_if_ended(self, session_id: int) -> None:
         """Drop board ops when a swept session is already ended.
 
-        Active sessions are left alone. A session id already purged is
-        not deleted again.
+        Active sessions are left alone. A run key already purged is not
+        deleted again. The cache is the run key, so a reused session id
+        does not skip the next run.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        sid = int(session_id)
-        done = getattr(self, "_boards_purged", None)
-        if done is None:
-            done = set()
-            self._boards_purged = done
-        if sid in done or getattr(self, "boards", None) is None:
+        if getattr(self, "boards", None) is None:
             return
         with self._lock:
             row = self.conn.execute(
-                "SELECT status FROM live_class_sessions WHERE id = ?",
-                (sid,),
+                "SELECT status, run_key FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
             ).fetchone()
-        if row is not None and str(row["status"] or "") != "ended":
+        if row is None or str(row["status"] or "") != "ended":
             return
-        self.purge_board_ops(sid)
+        key = str(row["run_key"] or "").strip()
+        if not key:
+            return
+        done = getattr(self, "_boards_purged", None)
+        if done is not None and key in done:
+            return
+        self.purge_board_ops(int(session_id))
 
     def _mount_meet_chain(
         self,
@@ -22380,6 +22493,7 @@ class SchoolDB(LovesDB):
                 int(row["id"]) for row in sessions if int(row["id"]) in wanted
             ]
         for sid in session_ids:
+            self.purge_board_ops(sid)
             self.clear_attendee_moods_and_characters(sid)
         try:
             self.game.clear_class_moods_and_characters(int(class_id))
@@ -23549,8 +23663,9 @@ class SchoolDB(LovesDB):
                 """
                 INSERT INTO live_class_sessions (
                     class_id, offering_id, teacher_user_id, session_code,
-                    status, started_at, ended_at, mgs_session_id, meeting_date
-                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?)
+                    status, started_at, ended_at, mgs_session_id, meeting_date,
+                    run_key
+                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)
                 """,
                 (
                     int(class_id),
@@ -23559,6 +23674,7 @@ class SchoolDB(LovesDB):
                     code,
                     now,
                     meeting_iso,
+                    uuid.uuid4().hex,
                 ),
             )
             self.conn.commit()

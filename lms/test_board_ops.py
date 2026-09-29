@@ -262,8 +262,8 @@ class SqliteBoardOpsTests(unittest.TestCase):
         self.conn.execute(
             """
             INSERT INTO board_ops (
-                session_id, board_key, board_seq, op, owner, created_at
-            ) VALUES (1, 'shared', 50, ?, '9', '2026-01-01T00:00:00')
+                run_key, board_key, board_seq, op, owner, created_at
+            ) VALUES ('1', 'shared', 50, ?, '9', '2026-01-01T00:00:00')
             """,
             (
                 json.dumps(
@@ -324,10 +324,10 @@ class SqliteBoardOpsTests(unittest.TestCase):
             thread.join(timeout=30)
         self.assertEqual(errors, [])
         leftover = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM board_ops WHERE session_id = 7"
+            "SELECT COUNT(*) AS n FROM board_ops WHERE run_key = '7'"
         ).fetchone()
         counters = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM board_counters WHERE session_id = 7"
+            "SELECT COUNT(*) AS n FROM board_counters WHERE run_key = '7'"
         ).fetchone()
         self.assertEqual(int(leftover["n"]), 0)
         self.assertEqual(int(counters["n"]), 0)
@@ -655,11 +655,12 @@ class BoardRouteTests(unittest.TestCase):
             self.session_id, self._student_id("Aspen")
         )
         key = str(access["collab_key"])
-        self.assertGreater(self.school.boards.current_seq(self.session_id, key), 0)
+        run_key = self.school.live_board_run_key(self.session_id)
+        self.assertGreater(self.school.boards.current_seq(run_key, key), 0)
         ended = self.school.end_live_class_session(self.session_id)
         self.assertEqual(ended["status"], "ended")
-        self.assertEqual(self.school.boards.load_keys(self.session_id, None), [])
-        self.assertEqual(self.school.boards.current_seq(self.session_id, key), 0)
+        self.assertEqual(self.school.boards.load_keys(run_key, None), [])
+        self.assertEqual(self.school.boards.current_seq(run_key, key), 0)
 
     def test_ending_the_session_rejects_later_ink(self) -> None:
         """Ink posted while a session is ending is 409, not a uniqueness 500.
@@ -694,7 +695,8 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(drawn.status_code, 409, drawn.get_json())
         body = drawn.get_json()
         self.assertTrue(body.get("ended"))
-        self.assertEqual(self.school.boards.load_keys(self.session_id, None), [])
+        run_key = self.school.live_board_run_key(self.session_id)
+        self.assertEqual(self.school.boards.load_keys(run_key, None), [])
         ended = self.school.end_live_class_session(self.session_id)
         self.assertEqual(ended["status"], "ended")
         with self.assertRaises(BoardSessionClosed):
@@ -705,6 +707,191 @@ class BoardRouteTests(unittest.TestCase):
                 point=[0.6, 0.6],
                 stroke_id="after-status",
             )
+
+
+    def _rejoin_published_groups(self) -> dict[str, str]:
+        """Rejoin the roster on the current session and republish the board.
+
+        End and Quit cancel the game. Cedar is already on the roster, so
+        this begins a new game without inserting that student again.
+
+        Returns:
+            Visit tokens keyed by codename.
+        """
+        students = [
+            dict(row)
+            for row in self.school.game.conn.execute(
+                "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        ]
+        mates = [row for row in students if row["codename"] in ("Aspen", "Birch")]
+        other = next(row for row in students if row["codename"] == "Cedar")
+        self.school.game.begin_game(self.class_id)
+        tokens: dict[str, str] = {}
+        for student in students:
+            joined = self.school.join_live_class_session(
+                self.session_id,
+                int(student["id"]),
+                codename=str(student["codename"]),
+            )
+            tokens[str(student["codename"])] = str(joined["attendee"]["visit_token"])
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=[int(student["id"]) for student in students],
+            assignments=[
+                {"student_id": int(student["id"]), "team_index": 0}
+                for student in mates
+            ]
+            + [{"student_id": int(other["id"]), "team_index": 1}],
+        )
+        row = self._whiteboard()
+        published = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{int(row['id'])}/publish",
+            json={"publish_mode": "group_shared"},
+        )
+        self.assertEqual(published.status_code, 200, published.get_json())
+        return tokens
+
+    def _draw(self, client, stroke_id: str, *, run_key: str | None = None):
+        """Post one finished stroke and return the response.
+
+        Args:
+            client: Student test client.
+            stroke_id: Stroke id to store.
+            run_key: Optional run claim. A stale claim must be rejected.
+        """
+        body = {
+            "x": 0.2,
+            "y": 0.3,
+            "points": [[0.2, 0.3]],
+            "stroke_id": stroke_id,
+            "ended": True,
+        }
+        if run_key:
+            body["run_key"] = run_key
+        return client.post("/api/student/canvas-presence", json=body)
+
+    def _op_count(self, run_key: str) -> int:
+        """Count board ops stored under one run key.
+
+        Args:
+            run_key: Key minted when that live run started.
+        """
+        row = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_ops WHERE run_key = ?",
+            (run_key,),
+        ).fetchone()
+        return int(row[0])
+
+    def test_restart_after_end_draws_on_an_empty_board_at_seq_1(self) -> None:
+        """A reused session id does not keep the previous run closed."""
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        first = self._draw(aspen, "old-ink")
+        self.assertEqual(first.status_code, 200, first.get_json())
+        old_id = self.session_id
+        old_key = self.school.live_board_run_key(old_id)
+        self.school.finish_live_class(
+            self.class_id,
+            celebrate=True,
+            save_attendance=False,
+            save_participation=False,
+        )
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.session_id = int(live["id"])
+        new_key = self.school.live_board_run_key(self.session_id)
+        self.assertEqual(self.session_id, old_id)
+        self.assertNotEqual(new_key, old_key)
+        tokens = self._rejoin_published_groups()
+        aspen = self._student(tokens["Aspen"])
+        empty = aspen.get("/api/student/board/mine?since=0")
+        self.assertEqual(empty.status_code, 200, empty.get_json())
+        empty_body = empty.get_json()
+        self.assertFalse(empty_body.get("ended"))
+        self.assertEqual(empty_body.get("ops") or [], [])
+        self.assertEqual(int(empty_body.get("board_seq") or 0), 0)
+        self.assertNotIn("old-ink", str(empty_body))
+        drawn = self._draw(aspen, "new-ink")
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        mine = aspen.get("/api/student/board/mine?since=0")
+        self.assertEqual(mine.status_code, 200, mine.get_json())
+        body = mine.get_json()
+        self.assertFalse(body.get("ended"))
+        seqs = [int(op["board_seq"]) for op in body.get("ops") or []]
+        self.assertEqual(seqs[0], 1)
+        self.assertIn("new-ink", str(body))
+        self.assertNotIn("old-ink", str(body))
+        self.assertEqual(self._op_count(old_key), 0)
+
+    def test_quit_live_drops_strokes_before_the_next_run(self) -> None:
+        """Quit deletes ops for that run, so a reused id starts at seq 1."""
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        first = self._draw(aspen, "quit-ink")
+        self.assertEqual(first.status_code, 200, first.get_json())
+        old_key = self.school.live_board_run_key(self.session_id)
+        self.assertGreater(self._op_count(old_key), 0)
+        self.school.finish_live_class(
+            self.class_id, persist=False, celebrate=False
+        )
+        self.assertEqual(self._op_count(old_key), 0)
+        counters = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_counters WHERE run_key = ?",
+            (old_key,),
+        ).fetchone()
+        self.assertEqual(int(counters[0]), 0)
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.session_id = int(live["id"])
+        tokens = self._rejoin_published_groups()
+        aspen = self._student(tokens["Aspen"])
+        empty = aspen.get("/api/student/board/mine?since=0").get_json()
+        self.assertFalse(empty.get("ended"))
+        self.assertNotIn("quit-ink", str(empty))
+        self.assertEqual(int(empty.get("board_seq") or 0), 0)
+        drawn = self._draw(aspen, "after-quit")
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        mine = aspen.get("/api/student/board/mine?since=0").get_json()
+        seqs = [int(op["board_seq"]) for op in mine.get("ops") or []]
+        self.assertEqual(seqs[0], 1)
+        self.assertIn("after-quit", str(mine))
+        self.assertNotIn("quit-ink", str(mine))
+
+    def test_stale_run_key_after_restart_is_rejected(self) -> None:
+        """A POST carrying the previous run key is 409 and stores nothing."""
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        first = self._draw(aspen, "before-restart")
+        self.assertEqual(first.status_code, 200, first.get_json())
+        old_key = self.school.live_board_run_key(self.session_id)
+        self.school.finish_live_class(
+            self.class_id,
+            celebrate=True,
+            save_attendance=False,
+            save_participation=False,
+        )
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        self.session_id = int(live["id"])
+        new_key = self.school.live_board_run_key(self.session_id)
+        tokens = self._rejoin_published_groups()
+        aspen = self._student(tokens["Aspen"])
+        stale = self._draw(aspen, "stale-ink", run_key=old_key)
+        self.assertEqual(stale.status_code, 409, stale.get_json())
+        self.assertTrue(stale.get_json().get("ended"))
+        self.assertEqual(self._op_count(old_key), 0)
+        self.assertEqual(self._op_count(new_key), 0)
+        mine = aspen.get("/api/student/board/mine?since=0").get_json()
+        self.assertFalse(mine.get("ended"))
+        self.assertNotIn("stale-ink", str(mine))
+        self.assertNotIn("before-restart", str(mine))
 
     def test_shared_board_poll_runs_with_or_without_a_stream(self) -> None:
         """Every shown shared-board tab polls, one request in flight."""

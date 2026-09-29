@@ -43,7 +43,7 @@ _OP_TYPES = frozenset(
 
 _SQLITE_DDL = """
 CREATE TABLE IF NOT EXISTS board_ops (
-    session_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     board_seq INTEGER NOT NULL,
     op TEXT NOT NULL,
@@ -51,36 +51,36 @@ CREATE TABLE IF NOT EXISTS board_ops (
     created_at TEXT NOT NULL,
     client_batch_id TEXT,
     stroke_id TEXT,
-    PRIMARY KEY (session_id, board_key, board_seq)
+    PRIMARY KEY (run_key, board_key, board_seq)
 );
 CREATE INDEX IF NOT EXISTS board_ops_session_key_seq
-    ON board_ops (session_id, board_key, board_seq);
+    ON board_ops (run_key, board_key, board_seq);
 CREATE INDEX IF NOT EXISTS board_ops_stroke
-    ON board_ops (session_id, board_key, stroke_id);
+    ON board_ops (run_key, board_key, stroke_id);
 CREATE TABLE IF NOT EXISTS board_counters (
-    session_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     next_seq INTEGER NOT NULL,
-    PRIMARY KEY (session_id, board_key)
+    PRIMARY KEY (run_key, board_key)
 );
 CREATE TABLE IF NOT EXISTS board_batches (
-    session_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     owner TEXT NOT NULL,
     client_batch_id TEXT NOT NULL,
     first_seq INTEGER NOT NULL,
     last_seq INTEGER NOT NULL,
-    PRIMARY KEY (session_id, board_key, owner, client_batch_id)
+    PRIMARY KEY (run_key, board_key, owner, client_batch_id)
 );
 CREATE TABLE IF NOT EXISTS board_sessions (
-    session_id INTEGER PRIMARY KEY,
+    run_key TEXT PRIMARY KEY,
     closed INTEGER NOT NULL DEFAULT 0
 );
 """
 
 _POSTGRES_DDL = """
 CREATE TABLE IF NOT EXISTS board_ops (
-    session_id BIGINT NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     board_seq BIGINT NOT NULL,
     op TEXT NOT NULL,
@@ -88,34 +88,57 @@ CREATE TABLE IF NOT EXISTS board_ops (
     created_at TEXT NOT NULL,
     client_batch_id TEXT,
     stroke_id TEXT,
-    PRIMARY KEY (session_id, board_key, board_seq)
+    PRIMARY KEY (run_key, board_key, board_seq)
 );
 CREATE INDEX IF NOT EXISTS board_ops_session_key_seq
-    ON board_ops (session_id, board_key, board_seq);
+    ON board_ops (run_key, board_key, board_seq);
 CREATE INDEX IF NOT EXISTS board_ops_stroke
-    ON board_ops (session_id, board_key, stroke_id);
+    ON board_ops (run_key, board_key, stroke_id);
 CREATE TABLE IF NOT EXISTS board_counters (
-    session_id BIGINT NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     next_seq BIGINT NOT NULL,
-    PRIMARY KEY (session_id, board_key)
+    PRIMARY KEY (run_key, board_key)
 );
 CREATE TABLE IF NOT EXISTS board_batches (
-    session_id BIGINT NOT NULL,
+    run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     owner TEXT NOT NULL,
     client_batch_id TEXT NOT NULL,
     first_seq BIGINT NOT NULL,
     last_seq BIGINT NOT NULL,
-    PRIMARY KEY (session_id, board_key, owner, client_batch_id)
+    PRIMARY KEY (run_key, board_key, owner, client_batch_id)
 );
 CREATE TABLE IF NOT EXISTS board_sessions (
-    session_id BIGINT PRIMARY KEY,
+    run_key TEXT PRIMARY KEY,
     closed BIGINT NOT NULL DEFAULT 0
 );
 """
 
 Exec = Callable[[str, tuple[Any, ...]], Any]
+
+def _run_key(value: Any) -> str:
+    """Return the board partition key for one live run.
+
+    Live session ids are reused after a row is deleted. Ops, the sequence
+    counter, and the close flag are stored under the run key minted when
+    that run started.
+
+    Args:
+        value: Run key. An int is accepted for tests that used a stand-in.
+
+    Returns:
+        The stripped key.
+
+    Raises:
+        ValueError: The key is empty.
+    """
+    token = str(value if value is not None else "").strip()
+    if not token:
+        raise ValueError("missing board run key")
+    return token[:80]
+
+
 
 
 class BoardOpRejected(Exception):
@@ -412,12 +435,12 @@ def _fold_stroke(
         current["points"].append(point)
 
 
-def _stroke_state(exec_: Exec, session_id: int, board_key: str, stroke_id: str) -> dict[str, Any] | None:
+def _stroke_state(exec_: Exec, run_key: str, board_key: str, stroke_id: str) -> dict[str, Any] | None:
     """Replay one stroke's ops into owner, life, and point count.
 
     Args:
         exec_: Transaction statement runner.
-        session_id: Live session id.
+        run_key: Key minted when this live run started.
         board_key: Board the stroke lives on.
         stroke_id: Client stroke id.
 
@@ -428,10 +451,10 @@ def _stroke_state(exec_: Exec, session_id: int, board_key: str, stroke_id: str) 
     cursor = exec_(
         """
         SELECT op, owner FROM board_ops
-        WHERE session_id = ? AND board_key = ? AND stroke_id = ?
+        WHERE run_key = ? AND board_key = ? AND stroke_id = ?
         ORDER BY board_seq ASC
         """,
-        (int(session_id), board_key, stroke_id),
+        (_run_key(run_key), board_key, stroke_id),
     )
     owner = ""
     alive = False
@@ -480,16 +503,16 @@ def _stroke_state(exec_: Exec, session_id: int, board_key: str, stroke_id: str) 
     }
 
 
-def _text_owner(exec_: Exec, session_id: int, board_key: str, text_id: str) -> str | None:
+def _text_owner(exec_: Exec, run_key: str, board_key: str, text_id: str) -> str | None:
     """Return the current owner of a text label, if one is still visible.
 
     Args:
         exec_: Transaction statement runner.
-        session_id: Live session id.
+        run_key: Key minted when this live run started.
         board_key: Board the label lives on.
         text_id: Client text id.
     """
-    state = _stroke_state(exec_, session_id, board_key, text_id)
+    state = _stroke_state(exec_, run_key, board_key, text_id)
     if state is None or not state.get("alive"):
         return None
     return str(state.get("owner") or "") or None
@@ -503,7 +526,7 @@ class _BoardStore:
 
     def append_ink(
         self,
-        session_id: int,
+        run_key: str,
         board_key: str,
         *,
         owner: str,
@@ -526,7 +549,7 @@ class _BoardStore:
         ``pts_append``. The per-stroke point cap still applies.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: ``teacher``, ``team:<id>``, ``shared``, or ``solo:<id>``.
             owner: Writer id. ``teacher`` or a roster id string.
             name: Cursor label.
@@ -553,7 +576,7 @@ class _BoardStore:
         def work(exec_: Exec) -> dict[str, Any]:
             ops = self._ink_ops(
                 exec_,
-                session_id,
+                run_key,
                 key,
                 owner=who,
                 name=label,
@@ -569,18 +592,18 @@ class _BoardStore:
             )
             return self._insert_ops(
                 exec_,
-                int(session_id),
+                _run_key(run_key),
                 key,
                 who,
                 ops,
                 client_batch_id,
             )
 
-        return self._run(work, session_id, key, who, client_batch_id)
+        return self._run(work, run_key, key, who, client_batch_id)
 
     def append_text(
         self,
-        session_id: int,
+        run_key: str,
         board_key: str,
         *,
         owner: str,
@@ -596,7 +619,7 @@ class _BoardStore:
         """Append one ``text_upsert``. Another owner's label is left as-is.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: Board the label belongs on.
             owner: Writer id.
             name: Display name stored with the label.
@@ -618,7 +641,7 @@ class _BoardStore:
         def work(exec_: Exec) -> dict[str, Any]:
             ops: list[dict[str, Any]] = []
             if sid:
-                current = _text_owner(exec_, int(session_id), key, sid)
+                current = _text_owner(exec_, _run_key(run_key), key, sid)
                 if current is not None and current != who:
                     ops = []
                 else:
@@ -637,18 +660,18 @@ class _BoardStore:
                     ]
             return self._insert_ops(
                 exec_,
-                int(session_id),
+                _run_key(run_key),
                 key,
                 who,
                 ops,
                 client_batch_id,
             )
 
-        return self._run(work, session_id, key, who, client_batch_id)
+        return self._run(work, run_key, key, who, client_batch_id)
 
     def append_remove(
         self,
-        session_id: int,
+        run_key: str,
         board_key: str,
         *,
         owner: str,
@@ -658,7 +681,7 @@ class _BoardStore:
         """Append ``stroke_remove`` for a stroke this owner drew.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: Board the stroke was written to.
             owner: Caller. Must match the stroke's owner.
             stroke_id: Stroke to drop.
@@ -675,7 +698,7 @@ class _BoardStore:
         sid = str(stroke_id or "").strip()[:80]
         op = {"type": "stroke_remove", "id": sid, "owner": who}
         return self.append_ops(
-            int(session_id),
+            _run_key(run_key),
             key,
             owner=who,
             ops=[op],
@@ -684,7 +707,7 @@ class _BoardStore:
 
     def append_ops(
         self,
-        session_id: int,
+        run_key: str,
         board_key: str,
         *,
         owner: str,
@@ -697,7 +720,7 @@ class _BoardStore:
         ``client_batch_id`` returns the original rows.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: Destination board.
             owner: Authenticated writer. Client-supplied owners are ignored.
             ops: Op objects. Unknown types are dropped.
@@ -716,20 +739,20 @@ class _BoardStore:
             raise ValueError("Too many board ops in one batch.")
 
         def work(exec_: Exec) -> dict[str, Any]:
-            prepared = self._prepare_client_ops(exec_, int(session_id), key, who, ops)
+            prepared = self._prepare_client_ops(exec_, _run_key(run_key), key, who, ops)
             return self._insert_ops(
                 exec_,
-                int(session_id),
+                _run_key(run_key),
                 key,
                 who,
                 prepared,
                 client_batch_id,
             )
 
-        return self._run(work, session_id, key, who, client_batch_id)
+        return self._run(work, run_key, key, who, client_batch_id)
 
     def since(
-        self, session_id: int, board_key: str, since_seq: int
+        self, run_key: str, board_key: str, since_seq: int
     ) -> dict[str, Any]:
         """Return ops with ``since_seq < board_seq <=`` the head read first.
 
@@ -740,7 +763,7 @@ class _BoardStore:
         list. ``since_seq`` equal to the current sequence is empty.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: One board.
             since_seq: Last sequence the caller already applied.
 
@@ -751,7 +774,7 @@ class _BoardStore:
         since_n = max(0, int(since_seq))
 
         def work(exec_: Exec) -> dict[str, Any]:
-            current = self._current_seq(exec_, int(session_id), key)
+            current = self._current_seq(exec_, _run_key(run_key), key)
             if current - since_n > MAX_DELTA_OPS:
                 return {
                     "board_key": key,
@@ -764,11 +787,11 @@ class _BoardStore:
                 """
                 SELECT board_key, board_seq, op, owner
                 FROM board_ops
-                WHERE session_id = ? AND board_key = ? AND board_seq > ? AND board_seq <= ?
+                WHERE run_key = ? AND board_key = ? AND board_seq > ? AND board_seq <= ?
                 ORDER BY board_seq ASC
                 LIMIT ?
                 """,
-                (int(session_id), key, since_n, current, MAX_DELTA_OPS + 1),
+                (_run_key(run_key), key, since_n, current, MAX_DELTA_OPS + 1),
             )
             rows = [_row_dict(row) for row in cursor.fetchall()]
             if len(rows) > MAX_DELTA_OPS:
@@ -790,27 +813,27 @@ class _BoardStore:
 
         return self._read(work)
 
-    def current_seq(self, session_id: int, board_key: str) -> int:
+    def current_seq(self, run_key: str, board_key: str) -> int:
         """Return the latest sequence on one board, or 0.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             board_key: One board.
         """
         key = normalize_board_key(board_key)
 
         def work(exec_: Exec) -> int:
-            return self._current_seq(exec_, int(session_id), key)
+            return self._current_seq(exec_, _run_key(run_key), key)
 
         return int(self._read(work))
 
     def load_keys(
-        self, session_id: int, keys: list[str] | None
+        self, run_key: str, keys: list[str] | None
     ) -> list[dict[str, Any]]:
         """Load stored rows for a session, optionally limited to board keys.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
             keys: Board keys. ``None`` loads every board in the session.
                 An empty list loads nothing.
 
@@ -827,10 +850,10 @@ class _BoardStore:
                     """
                     SELECT board_key, board_seq, op, owner, created_at, stroke_id
                     FROM board_ops
-                    WHERE session_id = ?
+                    WHERE run_key = ?
                     ORDER BY board_key ASC, board_seq ASC
                     """,
-                    (int(session_id),),
+                    (_run_key(run_key),),
                 )
             else:
                 marks = ",".join("?" for _ in cleaned)
@@ -838,16 +861,16 @@ class _BoardStore:
                     f"""
                     SELECT board_key, board_seq, op, owner, created_at, stroke_id
                     FROM board_ops
-                    WHERE session_id = ? AND board_key IN ({marks})
+                    WHERE run_key = ? AND board_key IN ({marks})
                     ORDER BY board_key ASC, board_seq ASC
                     """,
-                    (int(session_id), *cleaned),
+                    (_run_key(run_key), *cleaned),
                 )
             return [_row_dict(row) for row in cursor.fetchall()]
 
         return self._read(work)
 
-    def purge(self, session_id: int) -> None:
+    def purge(self, run_key: str) -> None:
         """Close the session and delete its ops, counters, and batches.
 
         The closed flag and the deletes share one transaction and the
@@ -857,29 +880,29 @@ class _BoardStore:
         be reused against an orphan row.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
         """
-        sid = int(session_id)
+        sid = _run_key(run_key)
 
         def work(exec_: Exec) -> None:
             exec_(
                 """
-                INSERT INTO board_sessions (session_id, closed)
+                INSERT INTO board_sessions (run_key, closed)
                 VALUES (?, 1)
-                ON CONFLICT (session_id) DO UPDATE SET closed = 1
+                ON CONFLICT (run_key) DO UPDATE SET closed = 1
                 """,
                 (sid,),
             )
-            exec_("DELETE FROM board_ops WHERE session_id = ?", (sid,))
-            exec_("DELETE FROM board_counters WHERE session_id = ?", (sid,))
-            exec_("DELETE FROM board_batches WHERE session_id = ?", (sid,))
+            exec_("DELETE FROM board_ops WHERE run_key = ?", (sid,))
+            exec_("DELETE FROM board_counters WHERE run_key = ?", (sid,))
+            exec_("DELETE FROM board_batches WHERE run_key = ?", (sid,))
 
         self._transaction(work)
 
     def _run(
         self,
         work: Callable[[Exec], dict[str, Any]],
-        session_id: int,
+        run_key: str,
         board_key: str,
         owner: str,
         client_batch_id: str | None,
@@ -888,7 +911,7 @@ class _BoardStore:
 
         Args:
             work: Transaction body.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Board key.
             owner: Writer.
             client_batch_id: Retry token, or ``None``.
@@ -902,7 +925,7 @@ class _BoardStore:
         except Exception as exc:
             if not _is_integrity(exc) or not client_batch_id:
                 raise
-            existing = self._read_batch(int(session_id), board_key, owner, client_batch_id)
+            existing = self._read_batch(_run_key(run_key), board_key, owner, client_batch_id)
             if existing is None:
                 raise
             existing["duplicate"] = True
@@ -910,7 +933,7 @@ class _BoardStore:
 
     def _read_batch(
         self,
-        session_id: int,
+        run_key: str,
         board_key: str,
         owner: str,
         client_batch_id: str,
@@ -918,7 +941,7 @@ class _BoardStore:
         """Return the ops already stored for one client batch.
 
         Args:
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Board key.
             owner: Writer.
             client_batch_id: Retry token.
@@ -928,14 +951,14 @@ class _BoardStore:
         """
 
         def work(exec_: Exec) -> dict[str, Any] | None:
-            return self._batch_result(exec_, session_id, board_key, owner, client_batch_id)
+            return self._batch_result(exec_, run_key, board_key, owner, client_batch_id)
 
         return self._read(work)
 
     def _ink_ops(
         self,
         exec_: Exec,
-        session_id: int,
+        run_key: str,
         board_key: str,
         *,
         owner: str,
@@ -954,7 +977,7 @@ class _BoardStore:
 
         Args:
             exec_: Transaction statement runner.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Destination board.
             owner: Writer.
             name: Cursor label.
@@ -991,7 +1014,7 @@ class _BoardStore:
             base["y"] = cursor[1]
         if not stroke_id:
             return []
-        state = _stroke_state(exec_, int(session_id), board_key, stroke_id)
+        state = _stroke_state(exec_, _run_key(run_key), board_key, stroke_id)
         if legacy_end or not incoming:
             if state is not None and state.get("alive") and ended:
                 return [{**base, "type": "stroke_end", "id": stroke_id}]
@@ -1023,7 +1046,7 @@ class _BoardStore:
     def _prepare_client_ops(
         self,
         exec_: Exec,
-        session_id: int,
+        run_key: str,
         board_key: str,
         owner: str,
         ops: list[dict[str, Any]],
@@ -1032,7 +1055,7 @@ class _BoardStore:
 
         Args:
             exec_: Transaction statement runner.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Destination board.
             owner: Authenticated writer.
             ops: Posted op objects.
@@ -1054,7 +1077,7 @@ class _BoardStore:
             if not sid:
                 continue
             if kind == "stroke_remove":
-                state = _stroke_state(exec_, session_id, board_key, sid)
+                state = _stroke_state(exec_, run_key, board_key, sid)
                 if state is None:
                     raise BoardOpRejected("stroke is not on this board")
                 if str(state.get("owner") or "") != owner:
@@ -1064,7 +1087,7 @@ class _BoardStore:
                 prepared.append({"type": "stroke_remove", "id": sid, "owner": owner})
                 continue
             if kind == "text_upsert":
-                current = _text_owner(exec_, session_id, board_key, sid)
+                current = _text_owner(exec_, run_key, board_key, sid)
                 if current is not None and current != owner:
                     continue
                 prepared.append(
@@ -1081,7 +1104,7 @@ class _BoardStore:
                     }
                 )
                 continue
-            state = _stroke_state(exec_, session_id, board_key, sid)
+            state = _stroke_state(exec_, run_key, board_key, sid)
             if state is not None and state.get("alive") and str(state.get("owner") or "") != owner:
                 raise BoardOpRejected("only the owner can extend a stroke")
             points = raw.get("points") if isinstance(raw.get("points"), list) else []
@@ -1100,7 +1123,7 @@ class _BoardStore:
             )
         return prepared
 
-    def _session_closed(self, exec_: Exec, session_id: int) -> bool:
+    def _session_closed(self, exec_: Exec, run_key: str) -> bool:
         """Lock this session's board row and report whether writes are closed.
 
         The upsert sets ``closed`` to its current value so the row stays
@@ -1110,20 +1133,20 @@ class _BoardStore:
 
         Args:
             exec_: Statement runner for the open transaction.
-            session_id: ``live_class_sessions.id``.
+            run_key: Key minted when this live run started.
 
         Returns:
             True when new ops must be rejected.
         """
         cursor = exec_(
             """
-            INSERT INTO board_sessions (session_id, closed)
+            INSERT INTO board_sessions (run_key, closed)
             VALUES (?, 0)
-            ON CONFLICT (session_id) DO UPDATE
+            ON CONFLICT (run_key) DO UPDATE
                 SET closed = board_sessions.closed
             RETURNING closed
             """,
-            (int(session_id),),
+            (_run_key(run_key),),
         )
         row = _row_dict(cursor.fetchone())
         return bool(int(row.get("closed") or 0))
@@ -1131,7 +1154,7 @@ class _BoardStore:
     def _insert_ops(
         self,
         exec_: Exec,
-        session_id: int,
+        run_key: str,
         board_key: str,
         owner: str,
         ops: list[dict[str, Any]],
@@ -1141,7 +1164,7 @@ class _BoardStore:
 
         Args:
             exec_: Transaction statement runner.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Destination board.
             owner: Writer stored on each row.
             ops: Prepared op objects. Empty leaves the sequence unchanged.
@@ -1153,15 +1176,15 @@ class _BoardStore:
         Raises:
             BoardSessionClosed: The session is ending or has ended.
         """
-        if self._session_closed(exec_, session_id):
+        if self._session_closed(exec_, run_key):
             raise BoardSessionClosed("session has ended")
         batch = str(client_batch_id or "").strip()[:80]
         if batch:
-            existing = self._batch_result(exec_, session_id, board_key, owner, batch)
+            existing = self._batch_result(exec_, run_key, board_key, owner, batch)
             if existing is not None:
                 existing["duplicate"] = True
                 return existing
-        current = self._current_seq(exec_, session_id, board_key)
+        current = self._current_seq(exec_, run_key, board_key)
         if not ops:
             return {
                 "board_key": board_key,
@@ -1172,20 +1195,20 @@ class _BoardStore:
         count = len(ops)
         exec_(
             """
-            INSERT INTO board_counters (session_id, board_key, next_seq)
+            INSERT INTO board_counters (run_key, board_key, next_seq)
             VALUES (?, ?, 0)
-            ON CONFLICT (session_id, board_key) DO NOTHING
+            ON CONFLICT (run_key, board_key) DO NOTHING
             """,
-            (session_id, board_key),
+            (run_key, board_key),
         )
         cursor = exec_(
             """
             UPDATE board_counters
             SET next_seq = next_seq + ?
-            WHERE session_id = ? AND board_key = ?
+            WHERE run_key = ? AND board_key = ?
             RETURNING next_seq
             """,
-            (count, session_id, board_key),
+            (count, run_key, board_key),
         )
         updated = _row_dict(cursor.fetchone())
         high = int(updated.get("next_seq") or 0)
@@ -1202,12 +1225,12 @@ class _BoardStore:
             exec_(
                 """
                 INSERT INTO board_ops (
-                    session_id, board_key, board_seq, op, owner,
+                    run_key, board_key, board_seq, op, owner,
                     created_at, client_batch_id, stroke_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    session_id,
+                    run_key,
                     board_key,
                     seq,
                     json.dumps(payload, separators=(",", ":")),
@@ -1230,10 +1253,10 @@ class _BoardStore:
             exec_(
                 """
                 INSERT INTO board_batches (
-                    session_id, board_key, owner, client_batch_id, first_seq, last_seq
+                    run_key, board_key, owner, client_batch_id, first_seq, last_seq
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, board_key, owner, batch, first, high),
+                (run_key, board_key, owner, batch, first, high),
             )
         return {
             "board_key": board_key,
@@ -1245,7 +1268,7 @@ class _BoardStore:
     def _batch_result(
         self,
         exec_: Exec,
-        session_id: int,
+        run_key: str,
         board_key: str,
         owner: str,
         client_batch_id: str,
@@ -1254,7 +1277,7 @@ class _BoardStore:
 
         Args:
             exec_: Statement runner.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Board key.
             owner: Writer.
             client_batch_id: Retry token.
@@ -1262,9 +1285,9 @@ class _BoardStore:
         cursor = exec_(
             """
             SELECT first_seq, last_seq FROM board_batches
-            WHERE session_id = ? AND board_key = ? AND owner = ? AND client_batch_id = ?
+            WHERE run_key = ? AND board_key = ? AND owner = ? AND client_batch_id = ?
             """,
-            (session_id, board_key, owner, client_batch_id),
+            (run_key, board_key, owner, client_batch_id),
         )
         found = _row_dict(cursor.fetchone())
         if not found:
@@ -1274,10 +1297,10 @@ class _BoardStore:
         ops_cur = exec_(
             """
             SELECT board_key, board_seq, op, owner FROM board_ops
-            WHERE session_id = ? AND board_key = ? AND board_seq >= ? AND board_seq <= ?
+            WHERE run_key = ? AND board_key = ? AND board_seq >= ? AND board_seq <= ?
             ORDER BY board_seq ASC
             """,
-            (session_id, board_key, first, last),
+            (run_key, board_key, first, last),
         )
         ops = [op for op in (_public_op(_row_dict(row)) for row in ops_cur.fetchall()) if op]
         return {
@@ -1287,20 +1310,20 @@ class _BoardStore:
             "duplicate": True,
         }
 
-    def _current_seq(self, exec_: Exec, session_id: int, board_key: str) -> int:
+    def _current_seq(self, exec_: Exec, run_key: str, board_key: str) -> int:
         """Read the counter for one board.
 
         Args:
             exec_: Statement runner.
-            session_id: Live session id.
+            run_key: Key minted when this live run started.
             board_key: Board key.
         """
         cursor = exec_(
             """
             SELECT next_seq FROM board_counters
-            WHERE session_id = ? AND board_key = ?
+            WHERE run_key = ? AND board_key = ?
             """,
-            (session_id, board_key),
+            (run_key, board_key),
         )
         row = _row_dict(cursor.fetchone())
         if not row:
@@ -1357,8 +1380,26 @@ class SqliteBoardOps(_BoardStore):
         self.lock = lock or threading.Lock()
 
     def ensure_schema(self) -> None:
-        """Create the sqlite board tables if they are not there yet."""
+        """Create the sqlite board tables if they are not there yet.
+
+        A table still keyed by the reusable session id is dropped first.
+        Board rows are ephemeral, so the rebuild does not keep them.
+        Running this twice leaves the run-key schema in place.
+        """
         with self.lock:
+            cols = [
+                str(row[1])
+                for row in self.conn.execute("PRAGMA table_info(board_ops)")
+            ]
+            if cols and "run_key" not in cols:
+                self.conn.executescript(
+                    """
+                    DROP TABLE IF EXISTS board_ops;
+                    DROP TABLE IF EXISTS board_counters;
+                    DROP TABLE IF EXISTS board_batches;
+                    DROP TABLE IF EXISTS board_sessions;
+                    """
+                )
             self.conn.executescript(_SQLITE_DDL)
             self.conn.commit()
 
@@ -1439,13 +1480,52 @@ class PostgresBoardOps(_BoardStore):
     def ensure_schema(self) -> None:
         """Create board tables under the same transaction advisory lock as presence.
 
-        A second call does not change an existing schema.
+        A legacy table keyed by the reusable session id is dropped in that
+        same locked transaction, then created again with ``run_key``. A
+        second call does not change an existing run-key schema.
         """
-        from live_presence import apply_locked_ddl
+        from live_presence import ddl_race
 
         statements = [part.strip() for part in _POSTGRES_DDL.split(";") if part.strip()]
         with self.presence._conn() as wrapped:
-            apply_locked_ddl(wrapped.connection, statements, _BOARD_DDL_LOCK)
+            raw = wrapped.connection
+            with raw.transaction():
+                raw.execute("SELECT pg_advisory_xact_lock(%s)", (_BOARD_DDL_LOCK,))
+                found = raw.execute(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'board_ops'
+                    """
+                ).fetchall()
+                names = set()
+                for row in found:
+                    if isinstance(row, dict):
+                        names.add(str(row.get("column_name") or ""))
+                    else:
+                        names.add(str(row[0]))
+                if names and "run_key" not in names:
+                    for table in (
+                        "board_ops",
+                        "board_counters",
+                        "board_batches",
+                        "board_sessions",
+                    ):
+                        raw.execute(f"DROP TABLE IF EXISTS {table}")
+                for statement in statements:
+                    sql = statement.strip().rstrip(";")
+                    if not sql:
+                        continue
+                    raw.execute("SAVEPOINT ddl_step")
+                    try:
+                        raw.execute(sql)
+                    except Exception as exc:
+                        raw.execute("ROLLBACK TO SAVEPOINT ddl_step")
+                        if not ddl_race(exc):
+                            raise
+                    else:
+                        raw.execute("RELEASE SAVEPOINT ddl_step")
 
     def _transaction(self, work: Callable[[Exec], Any]) -> Any:
         """Run ``work`` in one Postgres transaction on a pooled connection.
