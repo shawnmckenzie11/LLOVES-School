@@ -62,6 +62,11 @@ import {
   connectLiveNewsWire,
   newsPaintsBoardInPlace,
 } from "/static/live_news_wire.js";
+import {
+  courseDeckChoiceDisabled,
+  deckSeedHelpText,
+  deckSeedResponseIsCurrent,
+} from "/static/deck_seed_help.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -323,6 +328,10 @@ async function markClassSetComplete() {
 let deckSeedMode = "blank";
 /** @type {any} */
 let deckSeedCatalog = null;
+/** @type {"ready"|"loading"|"error"} */
+let deckSeedPhase = "ready";
+/** Latest deck-seed fetch. A smaller number is a late reply. */
+let deckSeedFetchSeq = 0;
 
 /**
  * Read the Set Class module and challenge currently selected.
@@ -336,11 +345,75 @@ function selectedSetClassPack() {
 }
 
 /**
+ * Enable or disable one live-deck chip without removing it from the group.
+ * @param {string} inputId
+ * @param {boolean} disabled
+ */
+function setDeckSeedChipDisabled(inputId, disabled) {
+  const input = $(inputId);
+  if (input instanceof HTMLInputElement) input.disabled = disabled;
+  input?.closest(".live-deck-seed-choice")?.classList.toggle("is-disabled", disabled);
+}
+
+/**
+ * Write the helper line for the current chip, load, or error state.
+ */
+function paintDeckSeedHelp() {
+  const note = $("live-deck-seed-previous-note");
+  if (!note) return;
+  const previous = deckSeedCatalog?.previous || {};
+  const decks = Array.isArray(deckSeedCatalog?.decks) ? deckSeedCatalog.decks : [];
+  note.hidden = false;
+  note.textContent = deckSeedHelpText({
+    phase: deckSeedPhase,
+    mode: deckSeedMode,
+    previousAvailable: Boolean(previous.available),
+    previousLabel: String(previous.label || ""),
+    previousSlot: previous.slot || "",
+    previousModule: String(previous.module || ""),
+    courseDeckCount: decks.length,
+  });
+}
+
+/**
  * Show the course-deck picker only when that choice is selected.
  */
 function paintDeckSeedPicker() {
   const picker = $("live-deck-seed-picker");
   if (picker) picker.hidden = deckSeedMode !== "course";
+  paintDeckSeedHelp();
+}
+
+/**
+ * Mark the chips busy while a deck-seed request is in flight.
+ * Blank stays selectable. Previous and Course deck wait for the reply.
+ */
+function markDeckSeedLoading() {
+  deckSeedPhase = "loading";
+  const field = $("live-deck-seed");
+  if (field) field.setAttribute("aria-busy", "true");
+  setDeckSeedChipDisabled("live-deck-seed-previous", true);
+  setDeckSeedChipDisabled("live-deck-seed-course", true);
+  paintDeckSeedHelp();
+}
+
+/**
+ * Ignore a deck-seed reply for a class or challenge that is no longer selected.
+ * @param {number} seq Fetch token captured when the request started.
+ * @param {{classId: number, module: string, slot: string}} requested
+ * @param {any} data Server body, or null when the request failed.
+ * @returns {boolean}
+ */
+function deckSeedFetchStillCurrent(seq, requested, data) {
+  if (seq !== deckSeedFetchSeq) return false;
+  const pack = selectedSetClassPack();
+  const selection = { classId, module: pack.module, slot: pack.slot };
+  if (!deckSeedResponseIsCurrent(requested, selection)) return false;
+  if (!data || (!data.module && !data.slot)) return true;
+  return deckSeedResponseIsCurrent(
+    { classId: requested.classId, module: data.module, slot: data.slot },
+    selection
+  );
 }
 
 /**
@@ -349,21 +422,20 @@ function paintDeckSeedPicker() {
  */
 function paintDeckSeedOptions(data) {
   deckSeedCatalog = data || null;
-  const previousInput = $("live-deck-seed-previous");
+  const field = $("live-deck-seed");
+  if (field) field.removeAttribute("aria-busy");
+  const previous = data?.previous || {};
+  const available = Boolean(previous.available);
+  setDeckSeedChipDisabled("live-deck-seed-previous", !available);
   const previousLabel = $("live-deck-seed-previous-label");
-  const note = $("live-deck-seed-previous-note");
-  const available = Boolean(data?.previous?.available);
-  if (previousInput instanceof HTMLInputElement) previousInput.disabled = !available;
-  previousLabel?.classList.toggle("is-disabled", !available);
-  if (note) {
-    const message = String(data?.previous?.message || "").trim();
-    note.hidden = available || !message;
-    note.textContent = available ? "" : message;
+  if (previousLabel) {
+    const base = "Copy previous challenge deck";
+    const label = String(previous.label || "").trim();
+    previousLabel.title = available && label ? `${base} (${label})` : base;
   }
-  if (!available && deckSeedMode === "previous") deckSeedMode = "blank";
   const select = $("live-deck-seed-source");
+  const decks = Array.isArray(data?.decks) ? data.decks : [];
   if (select instanceof HTMLSelectElement) {
-    const decks = Array.isArray(data?.decks) ? data.decks : [];
     const current = select.value;
     select.replaceChildren();
     if (!decks.length) {
@@ -382,6 +454,11 @@ function paintDeckSeedOptions(data) {
       }
     }
   }
+  // Isolated empty-list gate. courseDeckChoiceDisabled() returns false to revert.
+  const courseDisabled = courseDeckChoiceDisabled(decks.length);
+  setDeckSeedChipDisabled("live-deck-seed-course", courseDisabled);
+  if (!available && deckSeedMode === "previous") deckSeedMode = "blank";
+  if (courseDisabled && deckSeedMode === "course") deckSeedMode = "blank";
   const picked = document.querySelector(
     `input[name="live-deck-seed"][value="${deckSeedMode}"]`
   );
@@ -402,18 +479,29 @@ function paintDeckSeedOptions(data) {
 async function refreshDeckSeedOptions() {
   if (!classId || !$("live-deck-seed")) return;
   const pack = selectedSetClassPack();
+  const requested = { classId, module: pack.module, slot: pack.slot };
+  const seq = ++deckSeedFetchSeq;
+  markDeckSeedLoading();
   try {
     const data = await api(
       `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed-options`
     );
+    if (!deckSeedFetchStillCurrent(seq, requested, data)) return;
+    deckSeedPhase = "ready";
     paintDeckSeedOptions(data);
   } catch (err) {
+    if (!deckSeedFetchStillCurrent(seq, requested, null)) return;
+    deckSeedPhase = "error";
     paintDeckSeedOptions({
       previous: {
         available: false,
+        slot: null,
+        label: "",
         message: err instanceof Error ? err.message : "Could not load decks.",
       },
       decks: [],
+      module: requested.module,
+      slot: requested.slot,
     });
   }
 }
@@ -433,8 +521,8 @@ async function applyDeckSeedChoice() {
     const previous = $("live-deck-seed-previous");
     if (previous instanceof HTMLInputElement && previous.disabled) {
       const message =
-        $("live-deck-seed-previous-note")?.textContent ||
         deckSeedCatalog?.previous?.message ||
+        $("live-deck-seed-previous-note")?.textContent ||
         "No previous challenge deck.";
       throw new Error(String(message).trim() || "No previous challenge deck.");
     }

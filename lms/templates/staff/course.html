@@ -358,27 +358,29 @@
               {% endfor %}
             </select>
           </label>
-        </div>
-        <fieldset class="live-deck-seed" id="live-deck-seed">
-          <legend>Live deck</legend>
-          <label class="live-deck-seed-choice" id="live-deck-seed-previous-label">
-            <input type="radio" name="live-deck-seed" id="live-deck-seed-previous" value="previous">
-            <span>Copy previous challenge deck</span>
-          </label>
-          <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" hidden></p>
-          <label class="live-deck-seed-choice">
-            <input type="radio" name="live-deck-seed" id="live-deck-seed-course" value="course">
-            <span>Copy another deck from this course</span>
-          </label>
-          <label class="live-deck-seed-picker" id="live-deck-seed-picker" for="live-deck-seed-source" hidden>
-            <span>Deck</span>
+          <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
+            <legend>Live deck</legend>
+            <div class="live-add-type-chip-row live-deck-seed-seg">
+              <label class="live-add-type-chip live-deck-seed-choice" id="live-deck-seed-previous-label" title="Copy previous challenge deck">
+                <input type="radio" name="live-deck-seed" id="live-deck-seed-previous" value="previous">
+                <span>Previous</span>
+              </label>
+              <label class="live-add-type-chip live-deck-seed-choice" title="Copy another deck from this course">
+                <input type="radio" name="live-deck-seed" id="live-deck-seed-course" value="course">
+                <span>Course deck</span>
+              </label>
+              <label class="live-add-type-chip live-deck-seed-choice" title="Blank 7-page template">
+                <input type="radio" name="live-deck-seed" id="live-deck-seed-blank" value="blank" checked>
+                <span>Blank</span>
+              </label>
+            </div>
+            <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" aria-live="polite">Loading decks…</p>
+          </fieldset>
+          <label class="live-pack-field live-deck-seed-picker" id="live-deck-seed-picker" for="live-deck-seed-source" hidden>
+            <span>Source deck</span>
             <select id="live-deck-seed-source" aria-label="Deck from this course"></select>
           </label>
-          <label class="live-deck-seed-choice">
-            <input type="radio" name="live-deck-seed" id="live-deck-seed-blank" value="blank" checked>
-            <span>Blank 7-page template</span>
-          </label>
-        </fieldset>
+        </div>
         <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester, then Next.</p>
         <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
         <input type="hidden" id="ap-valid-date" class="ap-date-input">

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -360,3 +361,178 @@ class LiveDeckSeedTests(unittest.TestCase):
             json={"mode": "course", "source_module": "M9", "source_slot": "C2"},
         )
         self.assertEqual(missing.status_code, 400)
+
+
+class DeckSeedPickerUiTests(unittest.TestCase):
+    """Chip helper copy, stale replies, and the empty-course chip."""
+
+    def test_set_class_keeps_full_labels_on_chip_titles(self) -> None:
+        """Short chip text stays, and the old labels remain in title."""
+
+        page_html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        panel = page_html[
+            page_html.index('id="ap-panel-validate"') : page_html.index(
+                'id="live-shell-left"'
+            )
+        ]
+        self.assertLess(panel.index('id="live-class-select"'), panel.index('id="live-deck-seed"'))
+        fieldset = panel[
+            panel.index('<fieldset class="live-deck-seed"') : panel.index(
+                'id="live-deck-seed-picker"'
+            )
+        ]
+        self.assertIn("</fieldset>", fieldset)
+        self.assertIn('title="Copy previous challenge deck"', panel)
+        self.assertIn('title="Copy another deck from this course"', panel)
+        self.assertIn('title="Blank 7-page template"', panel)
+        self.assertIn(">Previous</span>", panel)
+        self.assertIn(">Course deck</span>", panel)
+        self.assertIn(">Blank</span>", panel)
+        self.assertIn(">Source deck</span>", panel)
+        self.assertIn('id="live-deck-seed-picker"', panel)
+        self.assertIn("hidden", panel[panel.index('id="live-deck-seed-picker"') : panel.index('id="live-deck-seed-picker"') + 120])
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn(".live-deck-seed-picker[hidden] { display: none !important; }", css)
+        self.assertIn('.live-deck-seed-seg input[type="radio"]', css)
+        lloves = (LMS_DIR / "static" / "lloves.css").read_text(encoding="utf-8")
+        self.assertIn("input, select, textarea {", lloves)
+
+    def test_helper_stale_guard_and_course_chip(self) -> None:
+        """Wonder copy, a mismatched class/challenge, and no other decks."""
+
+        script = r"""
+import {
+  courseDeckChoiceDisabled,
+  deckSeedHelpText,
+  deckSeedResponseIsCurrent,
+} from "./static/deck_seed_help.js";
+
+const helpCases = [
+  [
+    { mode: "previous", previousAvailable: true, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 4 },
+    "Starts from a copy of your M1 C2 deck.",
+  ],
+  [
+    { mode: "course", previousAvailable: true, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 4 },
+    "Starts from a copy of the deck you pick.",
+  ],
+  [
+    { mode: "blank", previousAvailable: true, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 4 },
+    "Starts from a blank 7-page deck.",
+  ],
+  [
+    { mode: "blank", previousAvailable: false, previousSlot: "", courseDeckCount: 4 },
+    "No earlier challenge in this module. Starting blank.",
+  ],
+  [
+    { mode: "blank", previousAvailable: false, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 4 },
+    "M1 C2 has no saved deck yet. Starting blank.",
+  ],
+  [
+    { mode: "blank", previousAvailable: false, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 0 },
+    "No other decks in this course yet.",
+  ],
+  [
+    { phase: "loading", mode: "previous", previousAvailable: true, previousLabel: "M1 C2", courseDeckCount: 4 },
+    "Loading decks…",
+  ],
+  [
+    { phase: "error", mode: "blank", courseDeckCount: 0 },
+    "Couldn't load decks. Blank still works.",
+  ],
+];
+
+let failed = 0;
+for (const [input, expected] of helpCases) {
+  const got = deckSeedHelpText(input);
+  if (got !== expected) {
+    console.error("help " + JSON.stringify({ input, expected, got }));
+    failed += 1;
+  }
+}
+
+const here = { classId: 7, module: "M1", slot: "C3" };
+if (!deckSeedResponseIsCurrent({ classId: 7, module: "M1", slot: "C3" }, here)) {
+  console.error("same class and challenge should match");
+  failed += 1;
+}
+if (!deckSeedResponseIsCurrent({ classId: 7, module: "m1", slot: "c3" }, here)) {
+  console.error("module and slot compare should ignore case");
+  failed += 1;
+}
+if (deckSeedResponseIsCurrent({ classId: 8, module: "M1", slot: "C3" }, here)) {
+  console.error("a different class must be ignored");
+  failed += 1;
+}
+if (deckSeedResponseIsCurrent({ classId: 7, module: "M1", slot: "C2" }, here)) {
+  console.error("a different challenge must be ignored");
+  failed += 1;
+}
+if (deckSeedResponseIsCurrent({ classId: 7, module: "M2", slot: "C3" }, here)) {
+  console.error("a different module must be ignored");
+  failed += 1;
+}
+if (deckSeedResponseIsCurrent({ classId: 7, module: "M1" }, here)) {
+  console.error("a reply with no challenge must be ignored");
+  failed += 1;
+}
+if (deckSeedResponseIsCurrent(null, here)) {
+  console.error("a missing reply must be ignored");
+  failed += 1;
+}
+
+if (!courseDeckChoiceDisabled(0)) {
+  console.error("an empty course list disables Course deck");
+  failed += 1;
+}
+if (!courseDeckChoiceDisabled(undefined)) {
+  console.error("a missing course list disables Course deck");
+  failed += 1;
+}
+if (courseDeckChoiceDisabled(1) || courseDeckChoiceDisabled(6)) {
+  console.error("a course with other decks keeps Course deck enabled");
+  failed += 1;
+}
+
+if (failed) process.exit(1);
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=LMS_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            result.stderr or result.stdout,
+        )
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        guard = js[
+            js.index("function deckSeedFetchStillCurrent") : js.index(
+                "function paintDeckSeedOptions"
+            )
+        ]
+        self.assertIn("deckSeedResponseIsCurrent", guard)
+        refresh = js[
+            js.index("async function refreshDeckSeedOptions") : js.index(
+                "async function applyDeckSeedChoice"
+            )
+        ]
+        self.assertLess(
+            refresh.index("deckSeedFetchStillCurrent"),
+            refresh.index("paintDeckSeedOptions"),
+        )
+        paint = js[
+            js.index("function paintDeckSeedOptions") : js.index(
+                "async function refreshDeckSeedOptions"
+            )
+        ]
+        self.assertIn("courseDeckChoiceDisabled(decks.length)", paint)
+        self.assertLess(
+            paint.index("courseDeckChoiceDisabled(decks.length)"),
+            paint.index('deckSeedMode = "blank"'),
+        )
