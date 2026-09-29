@@ -33,7 +33,11 @@ import {
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
-import { bindWhiteboard } from "/static/live_whiteboard.js";
+import {
+  bindWhiteboard,
+  createPresenceQueue,
+  normalizeBoardPoint,
+} from "/static/live_whiteboard.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -9371,10 +9375,46 @@ function paintTeacherCanvas(view, options = {}) {
   }
 }
 
+/** @type {ReturnType<typeof createPresenceQueue> | null} */
+let teacherPresence = null;
+
 /**
- * Post one canvas tick. Text commits send ``text_id``; cursors omit it.
+ * One presence POST at a time for this teacher tab.
+ * The live session id is read when the request is sent.
+ * @returns {ReturnType<typeof createPresenceQueue>}
+ */
+function teacherPresenceQueue() {
+  if (teacherPresence) return teacherPresence;
+  teacherPresence = createPresenceQueue({
+    /**
+     * @param {Record<string, any>} body
+     * @returns {Promise<any>}
+     */
+    send(body) {
+      const sessionId = liveSessionId || readLiveSessionId();
+      if (!sessionId) return Promise.resolve(null);
+      return api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    /**
+     * @param {any} data
+     */
+    onReply(data) {
+      if (data?.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });
+    },
+  });
+  return teacherPresence;
+}
+
+/**
+ * Queue a teacher stroke batch or text label.
+ *
+ * Hover cursors are not posted. A cursor rides on the drawing batch.
+ * One request is in flight; further points wait for the next batch.
  * @param {HTMLCanvasElement} canvas
- * @param {{x: number, y: number}} p
+ * @param {{x: number, y: number} | {x: number, y: number}[]} p
  * @param {{ended?: boolean, strokeId?: string, text?: {id: string, text: string}, cursorOnly?: boolean}} [extra]
  */
 function postTeacherCanvas(canvas, p, extra = {}) {
@@ -9383,28 +9423,32 @@ function postTeacherCanvas(canvas, p, extra = {}) {
   const collab = whiteboardCollabOn();
   const align = String(teacherState.canvas_align || "student");
   const text = extra.text;
-  if (!text && !collab && align === "student") return;
-  if (!text && extra.cursorOnly && !collab) return;
-  const body = {
-    x: p.x / canvas.width,
-    y: p.y / canvas.height,
-  };
+  if (extra.cursorOnly) return;
   if (text) {
-    body.text_id = text.id;
-    body.text = text.text;
-  } else if (!extra.cursorOnly) {
-    body.point = [body.x, body.y];
-    body.stroke_id = extra.strokeId || undefined;
-    body.ended = Boolean(extra.ended);
+    teacherPresenceQueue().push({
+      text_id: text.id,
+      text: text.text,
+      x: text.x,
+      y: text.y,
+    });
+    return;
   }
-  api(`/api/live-sessions/${sessionId}/canvas-presence`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  })
-    .then((res) => {
-      if (res?.canvas_view) paintTeacherCanvas(res.canvas_view, { source: "presence" });
-    })
-    .catch(() => {});
+  if (!collab && align === "student") return;
+  const samples = Array.isArray(p) ? p : [p];
+  const points = [];
+  for (const sample of samples) {
+    const norm = normalizeBoardPoint(canvas, sample);
+    if (norm) points.push([norm.x, norm.y]);
+  }
+  if (!points.length) return;
+  const tail = points[points.length - 1];
+  teacherPresenceQueue().push({
+    x: tail[0],
+    y: tail[1],
+    points,
+    stroke_id: extra.strokeId || undefined,
+    ended: Boolean(extra.ended),
+  });
 }
 
 /**
@@ -9419,14 +9463,14 @@ function bindEphemeralCanvas() {
     eraseBtn: $("live-canvas-erase"),
     textBtn: $("live-canvas-text"),
     cursorLayer: $("live-canvas-cursors"),
-    onCursor: (p) => postTeacherCanvas(canvas, p, { cursorOnly: true }),
+    owner: () => "teacher",
     onText: (label) => {
       teacherCalmFrameHeld = true;
-      postTeacherCanvas(canvas, { x: label.x * canvas.width, y: label.y * canvas.height }, { text: label });
+      postTeacherCanvas(canvas, label, { text: label });
     },
-    onPoint: (p, ended, strokeId) => {
+    onPoints: (points, ended, strokeId) => {
       teacherCalmFrameHeld = true;
-      postTeacherCanvas(canvas, p, { ended, strokeId });
+      postTeacherCanvas(canvas, points, { ended, strokeId });
     },
   });
 }

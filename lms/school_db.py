@@ -20885,14 +20885,16 @@ class SchoolDB(LovesDB):
         y: Any = None,
         stroke_id: str | None = None,
         point: Any = None,
+        points: Any = None,
         ended: bool = False,
         as_teacher: bool = False,
     ) -> dict[str, Any]:
-        """Merge one ephemeral cursor / stroke tick.
+        """Merge one ephemeral cursor tick and a point or a points batch.
 
         Unique-per-student alignment stores cursors only. Frozen-to-teacher
         publishes teacher strokes. Shared-within-group publishes team
-        strokes plus named cursors.
+        strokes plus named cursors. ``points`` is the batched payload;
+        ``point`` remains the single-sample payload.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -20902,7 +20904,8 @@ class SchoolDB(LovesDB):
             x: Cursor x in 0–1.
             y: Cursor y in 0–1.
             stroke_id: Stable stroke id while the pointer is down.
-            point: Optional ``[x, y]``.
+            point: Optional legacy ``[x, y]``.
+            points: Optional batch of ``[x, y]`` pairs.
             ended: True when the pointer lifts.
             as_teacher: True for the staff stub.
         """
@@ -20929,8 +20932,9 @@ class SchoolDB(LovesDB):
             y=y,
             stroke_id=stroke_id,
             point=point,
+            points=points if isinstance(points, list) else None,
             ended=ended,
-            publish_stroke=publish and not ended,
+            publish_stroke=publish,
             stroke_bucket=bucket,
         )
         return self._write_canvas_sync(session_id, blob)

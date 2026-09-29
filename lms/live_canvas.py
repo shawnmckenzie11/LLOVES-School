@@ -26,10 +26,16 @@ CURSOR_COLORS: tuple[str, ...] = (
 )
 
 MAX_STROKES = 80
-MAX_POINTS = 80
+# A shared stroke now arrives as a batch, not one point per pointer move.
+# 360 is still a hard bound (about six seconds at 60 Hz, or a long
+# simplified stroke). The previous cap of 80 clipped a stroke after
+# roughly a second of unbatched moves.
+MAX_POINTS = 360
 MAX_CURSORS = 40
 MAX_TEXTS = 40
 MAX_TEXT_LEN = 240
+# One POST cannot carry more samples than a stroke is allowed to keep.
+MAX_PRESENCE_BATCH = MAX_POINTS
 
 
 def default_canvas_sync() -> dict[str, Any]:
@@ -313,6 +319,28 @@ def _mark_text_ownership(
     return marked
 
 
+def _batch_points(points: Any) -> list[list[float]]:
+    """Clean a ``points`` batch, dropping junk and consecutive duplicates.
+
+    Args:
+        points: List of ``[x, y]`` pairs in 0–1. Non-lists yield nothing.
+
+    Returns:
+        At most ``MAX_PRESENCE_BATCH`` normalized points.
+    """
+    if not isinstance(points, list):
+        return []
+    cleaned: list[list[float]] = []
+    for item in points[:MAX_PRESENCE_BATCH]:
+        one = _clean_point(item)
+        if one is None:
+            continue
+        if cleaned and cleaned[-1] == one:
+            continue
+        cleaned.append(one)
+    return cleaned
+
+
 def apply_canvas_presence(
     stored: Any,
     *,
@@ -324,11 +352,17 @@ def apply_canvas_presence(
     y: Any = None,
     stroke_id: str | None = None,
     point: Any = None,
+    points: Any = None,
     ended: bool = False,
     publish_stroke: bool = False,
     stroke_bucket: str = "teacher",
 ) -> dict[str, Any]:
-    """Merge one cursor tick and optional stroke point.
+    """Merge one cursor tick and a stroke point or a ``points`` batch.
+
+    A ``points`` list is the batched payload. The single ``point`` field
+    stays valid for older clients. A legacy lift (``ended`` with no
+    ``points`` list) still does not append; a batch that includes
+    ``ended`` keeps every point in that batch.
 
     Args:
         stored: Current canvas-sync blob.
@@ -339,8 +373,9 @@ def apply_canvas_presence(
         x: Cursor x in 0–1.
         y: Cursor y in 0–1.
         stroke_id: Stable id while a pointer is down.
-        point: Optional ``[x, y]`` appended to that stroke.
-        ended: True to stop appending (leave the stroke in place).
+        point: Optional legacy ``[x, y]`` appended to that stroke.
+        points: Optional batch of ``[x, y]`` pairs. Wins over ``point``.
+        ended: True on the last batch of a stroke.
         publish_stroke: When False, only the cursor is stored.
         stroke_bucket: ``teacher`` or ``team``.
 
@@ -350,9 +385,15 @@ def apply_canvas_presence(
     blob = public_canvas_sync(stored)
     key = str(owner or "teacher").strip() or "teacher"
     tint = (color or "").strip() or cursor_color_for(key)
+    batched = isinstance(points, list)
+    incoming = _batch_points(points) if batched else []
+    if not incoming and not batched:
+        one = _clean_point(point)
+        if one is not None:
+            incoming = [one]
     cursor_point = _clean_point([x, y])
-    if cursor_point is None and point is not None:
-        cursor_point = _clean_point(point)
+    if cursor_point is None and incoming:
+        cursor_point = incoming[-1]
     if cursor_point is not None:
         blob["cursors"][key] = {
             "owner": key,
@@ -366,10 +407,10 @@ def apply_canvas_presence(
             extras = list(blob["cursors"])[MAX_CURSORS:]
             for extra in extras:
                 blob["cursors"].pop(extra, None)
-    if not publish_stroke or ended:
-        return blob
-    add_point = _clean_point(point) or cursor_point
-    if add_point is None:
+    # Older clients send the lift as ``ended`` plus one ``point`` that was
+    # already stored on the previous move. Do not append that again.
+    legacy_end = bool(ended) and not batched
+    if not publish_stroke or legacy_end or not incoming:
         return blob
     sid = str(stroke_id or "").strip()
     if not sid:
@@ -395,8 +436,14 @@ def apply_canvas_presence(
         bucket.append(target)
         if len(bucket) > MAX_STROKES:
             del bucket[0 : len(bucket) - MAX_STROKES]
-    if len(target["points"]) < MAX_POINTS:
+    for add_point in incoming:
+        if len(target["points"]) >= MAX_POINTS:
+            break
+        if target["points"] and target["points"][-1] == add_point:
+            continue
         target["points"].append(add_point)
+    if not target["points"]:
+        bucket.remove(target)
     return public_canvas_sync(blob)
 
 

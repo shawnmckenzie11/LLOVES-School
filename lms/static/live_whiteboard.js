@@ -1,17 +1,138 @@
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
- * Individual strokes stay in memory. Group publish and text labels
- * round-trip through the session canvas blob.
+ *
+ * Own ink paints on a live layer in the same frame and is never replaced
+ * by a server echo. Finished ink stays on a committed layer and is extended
+ * in place. Presence posts are batches, not one request per pointer move.
  */
+
+/** How often a drawing tab flushes queued points while the pointer is down. */
+export const PRESENCE_FLUSH_MS = 80;
+
+/** Ignore pointer samples closer than this, in logical board pixels. */
+const MIN_POINT_PX = 1.25;
+
+/**
+ * Logical board size used to normalize points. Backing-store pixels follow
+ * devicePixelRatio and are not this size.
+ * @param {HTMLCanvasElement | null | undefined} canvas
+ * @returns {{w: number, h: number}}
+ */
+export function logicalBoardSize(canvas) {
+  const w = Number(canvas?.dataset?.logicalWidth);
+  const h = Number(canvas?.dataset?.logicalHeight);
+  return {
+    w: Number.isFinite(w) && w > 0 ? w : canvas?.width || 720,
+    h: Number.isFinite(h) && h > 0 ? h : canvas?.height || 360,
+  };
+}
+
+/**
+ * Map a logical board point into the 0–1 session space.
+ * @param {HTMLCanvasElement | null | undefined} canvas
+ * @param {{x?: number, y?: number} | null | undefined} p
+ * @returns {{x: number, y: number} | null}
+ */
+export function normalizeBoardPoint(canvas, p) {
+  const size = logicalBoardSize(canvas);
+  const x = Number(p?.x);
+  const y = Number(p?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || size.w <= 0 || size.h <= 0) {
+    return null;
+  }
+  return {
+    x: Math.min(1, Math.max(0, x / size.w)),
+    y: Math.min(1, Math.max(0, y / size.h)),
+  };
+}
+
+/**
+ * One in-flight presence POST per tab. Later batches wait, and a reply
+ * older than the newest one already applied is dropped.
+ * @param {{
+ *   send: (body: Record<string, any>, req: number) => Promise<any>,
+ *   onReply?: (data: any, req: number) => void,
+ * }} opts
+ * @returns {{ push: (body: Record<string, any>) => void }}
+ */
+export function createPresenceQueue(opts) {
+  let inFlight = false;
+  /** @type {Record<string, any>[]} */
+  const pending = [];
+  let sent = 0;
+  let applied = 0;
+
+  /**
+   * Send the next queued body when nothing else is on the wire.
+   */
+  function pump() {
+    if (inFlight || pending.length === 0) return;
+    const body = pending.shift();
+    if (!body) return;
+    inFlight = true;
+    const req = ++sent;
+    Promise.resolve()
+      .then(() => opts.send(body, req))
+      .then((data) => {
+        if (req > applied) {
+          applied = req;
+          if (typeof opts.onReply === "function") opts.onReply(data, req);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        inFlight = false;
+        pump();
+      });
+  }
+
+  return {
+    /**
+     * Queue one presence body. Open stroke batches for the same id coalesce.
+     * @param {Record<string, any>} body
+     */
+    push(body) {
+      const next = { ...body };
+      if (Array.isArray(body.points)) next.points = body.points.slice();
+      const strokeId = String(next.stroke_id || "");
+      const last = pending[pending.length - 1];
+      const canMerge =
+        last &&
+        strokeId &&
+        last.stroke_id === strokeId &&
+        !last.ended &&
+        !last.text_id &&
+        !next.text_id &&
+        Array.isArray(next.points);
+      if (canMerge && last) {
+        const prev = Array.isArray(last.points) ? last.points : [];
+        last.points = prev.concat(next.points);
+        last.ended = Boolean(next.ended);
+        if (next.points.length) {
+          const tail = next.points[next.points.length - 1];
+          last.x = tail[0];
+          last.y = tail[1];
+        }
+      } else {
+        pending.push(next);
+      }
+      pump();
+    },
+  };
+}
 
 /**
  * Bind pointer drawing, text entry, and remote collab paint on one canvas.
+ *
+ * The canvas node passed in is the committed layer and is never replaced.
+ * A second canvas, added once as the next sibling, holds the in-progress stroke.
  * @param {HTMLCanvasElement} canvas
  * @param {{
  *   canDraw?: () => boolean,
  *   onPoint?: (point: {x: number, y: number}, ended: boolean, strokeId: string) => void,
- *   onCursor?: (point: {x: number, y: number}) => void,
+ *   onPoints?: (points: {x: number, y: number}[], ended: boolean, strokeId: string) => void,
  *   onText?: (label: {id: string, x: number, y: number, text: string}) => void,
+ *   owner?: string | (() => string),
  *   color?: string,
  *   lineWidth?: number,
  *   undoBtn?: HTMLElement | null,
@@ -29,7 +150,11 @@
  */
 export function bindWhiteboard(canvas, opts = {}) {
   const ctx = canvas.getContext("2d");
-  if (!ctx) {
+  const liveCanvas = document.createElement("canvas");
+  liveCanvas.className = "live-canvas-ink";
+  liveCanvas.setAttribute("aria-hidden", "true");
+  const liveCtx = liveCanvas.getContext("2d");
+  if (!ctx || !liveCtx) {
     return {
       setEnabled: () => {},
       clear: () => {},
@@ -37,21 +162,35 @@ export function bindWhiteboard(canvas, opts = {}) {
       importRemote: () => {},
     };
   }
-  /** @type {{points: {x: number, y: number}[], color: string}[]} */
+  const logicalW = canvas.width || 720;
+  const logicalH = canvas.height || 360;
+  canvas.dataset.logicalWidth = String(logicalW);
+  canvas.dataset.logicalHeight = String(logicalH);
+  canvas.dataset.boardBound = "1";
+  if (canvas.parentElement) canvas.insertAdjacentElement("afterend", liveCanvas);
+
+  /** @type {{id: string, owner: string, points: {x: number, y: number}[], color: string, mine: boolean}[]} */
   let strokes = [];
-  /** @type {{points: {x: number, y: number}[], color: string}[]} */
+  /** @type {{id: string, owner: string, points: {x: number, y: number}[], color: string, mine: boolean}[]} */
   let redoStack = [];
   /** @type {{id: string, x: number, y: number, text: string, color: string, mine: boolean}[]} */
   let texts = [];
+  /** @type {Set<string>} */
+  const ownIds = new Set();
   /** @type {{x: number, y: number}[]} */
   let current = [];
+  /** @type {{x: number, y: number}[]} */
+  let pending = [];
   let drawing = false;
   let strokeId = "";
+  let strokeOwner = "";
   let enabled = true;
   let collab = false;
   let tool = "draw";
   let editingId = "";
-  let lastCursorAt = 0;
+  let flushTimer = 0;
+  let paintQueued = false;
+  let fitting = false;
   /** @type {{nx: number, ny: number, hit: any}|null} */
   let reopen = null;
   const color = opts.color || "#12202e";
@@ -65,55 +204,264 @@ export function bindWhiteboard(canvas, opts = {}) {
   editor.setAttribute("aria-label", "Whiteboard text");
   if (stage) stage.appendChild(editor);
 
+  /**
+   * Current writer token for stroke ids.
+   * @returns {string}
+   */
+  const ownerNow = () => {
+    if (typeof opts.owner === "function") {
+      const value = opts.owner();
+      return String(value || "board");
+    }
+    return String(opts.owner || "board");
+  };
+
+  /**
+   * Stroke id unique to this owner. Not a shared clock value.
+   * @param {string} owner
+   * @returns {string}
+   */
+  const makeStrokeId = (owner) => {
+    const who = String(owner || "board").replace(/[^a-zA-Z0-9_-]/g, "") || "board";
+    let suffix = "";
+    const cryptoObj = globalThis.crypto;
+    if (cryptoObj && typeof cryptoObj.getRandomValues === "function") {
+      const bytes = new Uint8Array(8);
+      cryptoObj.getRandomValues(bytes);
+      suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    } else {
+      suffix = `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+    }
+    return `${who}-${suffix}`;
+  };
+
   const canDraw = () =>
     enabled && tool === "draw" && (typeof opts.canDraw !== "function" || opts.canDraw());
 
   /**
-   * Map a pointer event into canvas pixels.
+   * Map a pointer event into logical board pixels.
    * @param {PointerEvent} event
+   * @returns {{x: number, y: number}}
    */
   const point = (event) => {
     const rect = canvas.getBoundingClientRect();
     return {
-      x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * canvas.width,
-      y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * canvas.height,
+      x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * logicalW,
+      y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * logicalH,
     };
   };
 
   /**
-   * Map canvas pixels into the 0–1 session space.
+   * Map logical pixels into the 0–1 session space.
    * @param {{x: number, y: number}} p
+   * @returns {{x: number, y: number}}
    */
   const norm = (p) => ({
-    x: canvas.width ? p.x / canvas.width : 0,
-    y: canvas.height ? p.y / canvas.height : 0,
+    x: logicalW ? p.x / logicalW : 0,
+    y: logicalH ? p.y / logicalH : 0,
   });
 
-  const redraw = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    const paintStroke = (stroke, strokeColor) => {
-      const points = stroke.points || stroke;
-      if (!points.length) return;
-      ctx.beginPath();
-      ctx.strokeStyle = strokeColor || color;
-      ctx.lineWidth = lineWidth;
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i += 1) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-      ctx.stroke();
-    };
-    for (const stroke of strokes) paintStroke(stroke, stroke.color);
-    if (current.length) paintStroke({ points: current }, color);
+  /**
+   * Draw in logical board pixels on a device-pixel backing store.
+   * @param {CanvasRenderingContext2D} context
+   */
+  const applyTransform = (context) => {
+    const bw = canvas.width || logicalW;
+    const bh = canvas.height || logicalH;
+    context.setTransform(bw / logicalW, 0, 0, bh / logicalH, 0, 0);
+  };
+
+  /**
+   * Clear one layer in backing-store pixels, then restore logical coordinates.
+   * @param {CanvasRenderingContext2D} context
+   * @param {HTMLCanvasElement} el
+   */
+  const clearLayer = (context, el) => {
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, el.width, el.height);
+    applyTransform(context);
+  };
+
+  /**
+   * Stroke one polyline, or only its new tail.
+   * @param {CanvasRenderingContext2D} context
+   * @param {{x: number, y: number}[]} points
+   * @param {string} strokeColor
+   * @param {number} from
+   */
+  const strokeSegment = (context, points, strokeColor, from) => {
+    if (!points.length) return;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = strokeColor || color;
+    context.fillStyle = strokeColor || color;
+    context.lineWidth = lineWidth;
+    if (points.length === 1) {
+      context.beginPath();
+      context.arc(points[0].x, points[0].y, lineWidth / 2, 0, Math.PI * 2);
+      context.fill();
+      return;
+    }
+    const start = Math.max(0, from);
+    context.beginPath();
+    if (start <= 0) {
+      context.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) context.lineTo(points[i].x, points[i].y);
+    } else {
+      context.moveTo(points[start - 1].x, points[start - 1].y);
+      for (let i = start; i < points.length; i += 1) context.lineTo(points[i].x, points[i].y);
+    }
+    context.stroke();
+  };
+
+  /**
+   * Paint session labels on the committed layer.
+   */
+  const drawTexts = () => {
     ctx.font = "16px sans-serif";
     ctx.textBaseline = "top";
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
       ctx.fillStyle = label.color || color;
-      ctx.fillText(label.text, label.x * canvas.width, label.y * canvas.height);
+      ctx.fillText(label.text, label.x * logicalW, label.y * logicalH);
     }
+  };
+
+  /**
+   * Repaint finished ink. Pointer moves do not call this.
+   */
+  const replayCommitted = () => {
+    clearLayer(ctx, canvas);
+    for (const stroke of strokes) {
+      strokeSegment(ctx, stroke.points, stroke.color, 0);
+    }
+    drawTexts();
+  };
+
+  /**
+   * Paint the in-progress stroke. Clears only the live layer.
+   */
+  const paintLive = () => {
+    clearLayer(liveCtx, liveCanvas);
+    if (current.length) strokeSegment(liveCtx, current, color, 0);
+  };
+
+  /**
+   * Coalesce live-layer paints to one per frame.
+   */
+  const requestPaint = () => {
+    if (paintQueued) return;
+    paintQueued = true;
+    window.requestAnimationFrame(() => {
+      paintQueued = false;
+      paintLive();
+    });
+  };
+
+  /**
+   * Match the backing store to the CSS box and the screen density.
+   */
+  const fitBoard = () => {
+    if (fitting) return;
+    fitting = true;
+    try {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+      if (rect.width < 2 || rect.height < 2) {
+        applyTransform(ctx);
+        applyTransform(liveCtx);
+        return;
+      }
+      const bw = Math.max(1, Math.round(rect.width * dpr));
+      const bh = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width === bw && canvas.height === bh && liveCanvas.width === bw) {
+        applyTransform(ctx);
+        applyTransform(liveCtx);
+        return;
+      }
+      canvas.width = bw;
+      canvas.height = bh;
+      liveCanvas.width = bw;
+      liveCanvas.height = bh;
+      replayCommitted();
+      paintLive();
+    } finally {
+      fitting = false;
+    }
+  };
+
+  /**
+   * Send queued samples. Stroke end always flushes whatever is still held.
+   * @param {boolean} ended
+   */
+  const flushPending = (ended) => {
+    if (flushTimer) {
+      window.clearTimeout(flushTimer);
+      flushTimer = 0;
+    }
+    if (!pending.length) return;
+    const batch = pending;
+    pending = [];
+    const id = strokeId;
+    if (!id) return;
+    if (typeof opts.onPoints === "function") {
+      opts.onPoints(batch, ended, id);
+      return;
+    }
+    if (typeof opts.onPoint !== "function") return;
+    batch.forEach((p, index) => {
+      const last = ended && index === batch.length - 1;
+      opts.onPoint(p, last, id);
+    });
+  };
+
+  /**
+   * Arm the next batch flush while a stroke is open.
+   */
+  const scheduleFlush = () => {
+    if (flushTimer || !drawing) return;
+    flushTimer = window.setTimeout(() => {
+      flushTimer = 0;
+      if (!drawing) return;
+      flushPending(false);
+      if (pending.length) scheduleFlush();
+    }, PRESENCE_FLUSH_MS);
+  };
+
+  /**
+   * Keep a sample when it moves the pen far enough to matter.
+   * @param {{x: number, y: number}} p
+   * @param {boolean} force
+   * @returns {boolean}
+   */
+  const pushPoint = (p, force) => {
+    const last = current[current.length - 1];
+    if (!force && last) {
+      const dx = p.x - last.x;
+      const dy = p.y - last.y;
+      if (dx * dx + dy * dy < MIN_POINT_PX * MIN_POINT_PX) return false;
+    }
+    if (last && last.x === p.x && last.y === p.y) return false;
+    current.push(p);
+    pending.push(p);
+    return true;
+  };
+
+  /**
+   * Pointer events between animation frames, including the event itself.
+   * @param {PointerEvent} event
+   * @returns {PointerEvent[]}
+   */
+  const samplesFrom = (event) => {
+    try {
+      if (typeof event.getCoalescedEvents === "function") {
+        const rows = event.getCoalescedEvents();
+        if (rows && rows.length) return rows;
+      }
+    } catch (_err) {
+      /* fall through to the event */
+    }
+    return [event];
   };
 
   const syncButtons = () => {
@@ -125,23 +473,8 @@ export function bindWhiteboard(canvas, opts = {}) {
     }
   };
 
-  const emit = (p, ended) => {
-    if (typeof opts.onPoint === "function") opts.onPoint(p, ended, strokeId);
-  };
-
   /**
-   * @param {{x: number, y: number}} p
-   */
-  const emitCursor = (p) => {
-    if (!collab || typeof opts.onCursor !== "function") return;
-    const now = Date.now();
-    if (now - lastCursorAt < 80) return;
-    lastCursorAt = now;
-    opts.onCursor(p);
-  };
-
-  /**
-   * Paint named cursors over the board.
+   * Paint named cursors over the board. Hover does not post a cursor.
    * @param {any[]} cursors
    */
   const paintCursors = (cursors) => {
@@ -180,7 +513,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (body) {
       texts.push({ id, x: left, y: top, text: body, color, mine: true });
     }
-    redraw();
+    replayCommitted();
     if (typeof opts.onText === "function") {
       opts.onText({ id, x: left, y: top, text: body });
     }
@@ -208,18 +541,132 @@ export function bindWhiteboard(canvas, opts = {}) {
   /**
    * @param {number} nx
    * @param {number} ny
+   * @returns {{id: string, x: number, y: number, text: string} | null}
    */
   const hitText = (nx, ny) => {
-    const px = nx * canvas.width;
-    const py = ny * canvas.height;
+    const px = nx * logicalW;
+    const py = ny * logicalH;
     for (let i = texts.length - 1; i >= 0; i -= 1) {
       const label = texts[i];
       if (!label.mine) continue;
-      const lx = label.x * canvas.width;
-      const ly = label.y * canvas.height;
+      const lx = label.x * logicalW;
+      const ly = label.y * logicalH;
       if (Math.abs(px - lx) < 80 && py >= ly - 4 && py <= ly + 22) return label;
     }
     return null;
+  };
+
+  /**
+   * True when two logical points are the same ink sample.
+   * @param {{x: number, y: number}} a
+   * @param {{x: number, y: number}} b
+   * @returns {boolean}
+   */
+  const samePoint = (a, b) => Math.abs(a.x - b.x) < 0.6 && Math.abs(a.y - b.y) < 0.6;
+
+  /**
+   * True when ``next`` starts with ``prev`` and may add a tail.
+   * @param {{x: number, y: number}[]} prev
+   * @param {{x: number, y: number}[]} next
+   * @returns {boolean}
+   */
+  const isExtension = (prev, next) => {
+    if (next.length < prev.length) return false;
+    for (let i = 0; i < prev.length; i += 1) {
+      if (!samePoint(prev[i], next[i])) return false;
+    }
+    return true;
+  };
+
+  /**
+   * Logical points from one server stroke.
+   * @param {any} stroke
+   * @returns {{x: number, y: number}[]}
+   */
+  const remotePoints = (stroke) =>
+    (Array.isArray(stroke?.points) ? stroke.points : [])
+      .map((pt) => ({
+        x: Number(pt[0]) * logicalW,
+        y: Number(pt[1]) * logicalH,
+      }))
+      .filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
+
+  /**
+   * Merge remote strokes by id. Own finished and in-progress strokes stay.
+   * @param {any[]} remote
+   * @returns {boolean} True when the committed layer must be replayed.
+   */
+  const mergeRemoteStrokes = (remote) => {
+    let structural = false;
+    /** @type {{stroke: {points: {x: number, y: number}[], color: string}, from: number}[]} */
+    const jobs = [];
+    /** @type {Set<string>} */
+    const remoteIds = new Set();
+    for (const raw of remote) {
+      const id = String(raw?.id || "");
+      if (!id) continue;
+      remoteIds.add(id);
+      if (ownIds.has(id)) continue;
+      const points = remotePoints(raw);
+      if (!points.length) continue;
+      const strokeColor = String(raw.color || color);
+      const existing = strokes.find((stroke) => stroke.id === id);
+      if (!existing) {
+        const stroke = {
+          id,
+          owner: String(raw.owner || ""),
+          points,
+          color: strokeColor,
+          mine: false,
+        };
+        strokes.push(stroke);
+        jobs.push({ stroke, from: 0 });
+        continue;
+      }
+      if (isExtension(existing.points, points) && existing.color === strokeColor) {
+        const from = existing.points.length;
+        if (from === points.length) continue;
+        existing.points = points;
+        jobs.push({ stroke: existing, from });
+        continue;
+      }
+      existing.points = points;
+      existing.color = strokeColor;
+      structural = true;
+    }
+    const kept = [];
+    for (const stroke of strokes) {
+      if (ownIds.has(stroke.id) || remoteIds.has(stroke.id)) kept.push(stroke);
+      else structural = true;
+    }
+    strokes = kept;
+    if (structural) return true;
+    for (const job of jobs) strokeSegment(ctx, job.stroke.points, job.stroke.color, job.from);
+    return false;
+  };
+
+  /**
+   * Replace session labels when the editor is closed.
+   * @param {any} view
+   * @returns {boolean}
+   */
+  const applyTexts = (view) => {
+    if (editingId || !Array.isArray(view?.texts)) return false;
+    const next = view.texts
+      .map((label) => ({
+        id: String(label.id || ""),
+        x: Number(label.x),
+        y: Number(label.y),
+        text: String(label.text || ""),
+        color: String(label.color || color),
+        mine: Boolean(label.mine),
+      }))
+      .filter((label) => label.id && label.text && Number.isFinite(label.x) && Number.isFinite(label.y));
+    const prevSig = texts.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
+    const nextSig = next.map((label) => `${label.id}|${label.text}|${label.x}|${label.y}`).join("\n");
+    if (prevSig === nextSig) return false;
+    texts = next;
+    return true;
   };
 
   editor.addEventListener("keydown", (event) => {
@@ -231,7 +678,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       reopen = null;
       hideEditor();
       editor.blur();
-      redraw();
+      replayCommitted();
     }
   });
   editor.addEventListener("blur", () => {
@@ -245,9 +692,7 @@ export function bindWhiteboard(canvas, opts = {}) {
   });
 
   canvas.addEventListener("pointerdown", (event) => {
-    if (!enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) {
-      return;
-    }
+    if (!enabled || (typeof opts.canDraw === "function" && !opts.canDraw())) return;
     if (tool === "text") {
       event.preventDefault();
       const p = norm(point(event));
@@ -264,32 +709,52 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!canDraw()) return;
     drawing = true;
     redoStack = [];
-    strokeId = `wb-${Date.now()}`;
-    const p = point(event);
-    current = [p];
-    canvas.setPointerCapture(event.pointerId);
-    emit(p, false);
+    strokeOwner = ownerNow();
+    strokeId = makeStrokeId(strokeOwner);
+    ownIds.add(strokeId);
+    current = [];
+    pending = [];
+    pushPoint(point(event), true);
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (_err) {
+      /* Synthetic events and some browsers cannot capture. Drawing still proceeds. */
+    }
+    requestPaint();
+    scheduleFlush();
     syncButtons();
   });
   canvas.addEventListener("pointermove", (event) => {
-    const p = point(event);
-    emitCursor(p);
     if (!drawing || !canDraw()) return;
-    current.push(p);
-    redraw();
-    emit(p, false);
+    let moved = false;
+    for (const sample of samplesFrom(event)) {
+      if (pushPoint(point(sample), false)) moved = true;
+    }
+    if (!moved) return;
+    requestPaint();
+    scheduleFlush();
   });
+  /**
+   * Finish the open stroke, stamp it on the committed layer, and flush.
+   * @param {PointerEvent} event
+   */
   const endStroke = (event) => {
     if (!drawing) return;
-    const p = point(event);
-    if (current.length) {
-      strokes.push({ points: current, color });
-    }
-    current = [];
-    emit(p, true);
+    pushPoint(point(event), true);
+    const finished = {
+      id: strokeId,
+      owner: strokeOwner,
+      points: current.slice(),
+      color,
+      mine: true,
+    };
+    if (finished.points.length) strokes.push(finished);
     drawing = false;
+    flushPending(true);
+    current = [];
     strokeId = "";
-    redraw();
+    if (finished.points.length) strokeSegment(ctx, finished.points, finished.color, 0);
+    paintLive();
     syncButtons();
   };
   canvas.addEventListener("pointerup", endStroke);
@@ -299,14 +764,14 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!strokes.length) return;
     const last = strokes.pop();
     if (last) redoStack.push(last);
-    redraw();
+    replayCommitted();
     syncButtons();
   });
   opts.redoBtn?.addEventListener("click", () => {
     if (!redoStack.length) return;
     const next = redoStack.pop();
     if (next) strokes.push(next);
-    redraw();
+    replayCommitted();
     syncButtons();
   });
   opts.eraseBtn?.addEventListener("click", () => {
@@ -314,7 +779,9 @@ export function bindWhiteboard(canvas, opts = {}) {
     strokes = [];
     redoStack = [];
     current = [];
-    redraw();
+    pending = [];
+    replayCommitted();
+    paintLive();
     syncButtons();
   });
   opts.textBtn?.addEventListener("click", () => {
@@ -324,6 +791,12 @@ export function bindWhiteboard(canvas, opts = {}) {
     syncButtons();
   });
 
+  if (typeof ResizeObserver === "function" && stage instanceof Element) {
+    const observer = new ResizeObserver(() => fitBoard());
+    observer.observe(stage);
+  }
+  window.addEventListener("resize", () => fitBoard());
+  fitBoard();
   syncButtons();
   canvas.style.cursor = "crosshair";
   return {
@@ -336,53 +809,35 @@ export function bindWhiteboard(canvas, opts = {}) {
       redoStack = [];
       texts = [];
       current = [];
-      redraw();
+      pending = [];
+      replayCommitted();
+      paintLive();
       syncButtons();
     },
     /**
-     * Collaborative boards replace local strokes with the session view.
+     * Collaborative boards merge remote strokes instead of replacing them.
      * @param {boolean} on
      */
     setCollab: (on) => {
       collab = Boolean(on);
     },
     /**
-     * Paint a server canvas view. Collab mode replaces strokes; text
-     * always follows the session so a reload keeps labels.
+     * Paint a server canvas view.
+     *
+     * Collab merges by stroke id and leaves this tab's own strokes on the
+     * pixels that were drawn locally. The canvas element is not replaced.
      * @param {any} view
      * @param {{collab?: boolean}} [options]
      */
     importRemote: (view, options = {}) => {
       if (options.collab != null) collab = Boolean(options.collab);
-      if (collab && !drawing) {
-        const remote = Array.isArray(view?.strokes) ? view.strokes : [];
-        strokes = remote
-          .map((stroke) => {
-            const points = (Array.isArray(stroke.points) ? stroke.points : [])
-              .map((pt) => ({
-                x: Number(pt[0]) * canvas.width,
-                y: Number(pt[1]) * canvas.height,
-              }))
-              .filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
-            return { points, color: String(stroke.color || color) };
-          })
-          .filter((stroke) => stroke.points.length);
-        redoStack = [];
-      }
-      if (!editingId && Array.isArray(view?.texts)) {
-        texts = view.texts
-          .map((label) => ({
-            id: String(label.id || ""),
-            x: Number(label.x),
-            y: Number(label.y),
-            text: String(label.text || ""),
-            color: String(label.color || color),
-            mine: Boolean(label.mine),
-          }))
-          .filter((label) => label.id && label.text);
-      }
+      const textChanged = applyTexts(view);
       paintCursors(view?.cursors);
-      redraw();
+      let structural = textChanged;
+      if (collab && Array.isArray(view?.strokes)) {
+        structural = mergeRemoteStrokes(view.strokes) || structural;
+      }
+      if (structural) replayCommitted();
       syncButtons();
     },
   };
