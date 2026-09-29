@@ -418,10 +418,19 @@ class RosterNameEditTests(unittest.TestCase):
         home_again = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Edit name for River", home_again)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        pencil = css.split("body.staff-shell .roster-name-pencil", 1)[1]
+        pencil = css.split("body.staff-shell .roster-name-pencil {", 1)[1]
         self.assertIn("min-height: 44px", css)
-        self.assertIn("min-width: 44px", pencil[:400])
-        self.assertIn(":focus-visible", css[css.find(".roster-name-label") :])
+        self.assertIn("background: transparent", pencil[:500])
+        self.assertIn("border: 0", pencil[:500])
+        self.assertIn("width: 1em", css)
+        self.assertIn("height: 1em", css)
+        self.assertIn(".roster-name-pencil:hover", css)
+        self.assertIn(".roster-name-pencil:focus-visible", css)
+        self.assertIn('width="1em" height="1em"', home)
+        self.assertIn(
+            'width="1em" height="1em"',
+            (LMS_DIR / "static" / "staff_roster_names.js").read_text(encoding="utf-8"),
+        )
         self.assertIn('class="card course-card', home)
         self.assertIn(">Explore Course<", home)
         self.assertIn('<details class="roster-names">', home)

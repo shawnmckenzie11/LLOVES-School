@@ -5659,7 +5659,6 @@ body.staff-shell .roster-name-view {
   gap: 0.35rem;
 }
 body.staff-shell .roster-name-label,
-body.staff-shell .roster-name-pencil,
 body.staff-shell .roster-name-save {
   min-height: 44px;
   min-width: 44px;
@@ -5675,10 +5674,28 @@ body.staff-shell .roster-name-pencil {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
-  color: #0f172a;
-  border: 1px solid #64748b;
-  padding: 0;
+  align-self: center;
+  flex: 0 0 auto;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0.15em;
+  min-height: 0;
+  min-width: 0;
+  font: inherit;
+  line-height: 1;
+  vertical-align: middle;
+}
+body.staff-shell .roster-name-pencil svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+}
+body.staff-shell .roster-name-pencil:hover {
+  color: #0f766e;
+  background: transparent;
 }
 body.staff-shell .roster-name-label:focus-visible,
 body.staff-shell .roster-name-pencil:focus-visible,
