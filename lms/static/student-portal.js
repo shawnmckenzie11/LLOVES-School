@@ -1023,23 +1023,48 @@ function ensureStudentBoardPoll() {
       params.set("since", String(studentBoardSince));
       params.set("teacher_since", String(studentTeacherSince));
       return fetch(`/api/student/board/mine?${params}`, visitFetchInit()).then(async (res) => {
-        if (res.status === 429 || res.status >= 500) {
-          return { status: res.status, busy: true };
+        const status = Number(res.status) || 0;
+        let contentType = "";
+        try {
+          contentType = String(res.headers?.get?.("content-type") || "");
+        } catch (_err) {
+          contentType = "";
+        }
+        // A logged-out tab is sent to the login page. Stop this poll.
+        const loggedOut =
+          status === 302 ||
+          status === 401 ||
+          Boolean(res.redirected) ||
+          res.type === "opaqueredirect";
+        if (loggedOut && studentBoardPoll) {
+          studentBoardPoll.stop();
+          return { status: status || 302 };
+        }
+        if (status === 429 || status >= 500) {
+          return { status, busy: true };
         }
         let data = null;
         try {
           data = await res.json();
         } catch (_err) {
+          if (contentType.includes("text/html")) {
+            if (studentBoardPoll) studentBoardPoll.stop();
+            return { status };
+          }
           data = null;
         }
-        if (!res.ok) return { status: res.status, busy: res.status >= 500 };
-        return { ...(data || {}), status: res.status };
+        if (!res.ok) return { status, busy: status >= 500 };
+        return { ...(data || {}), status };
       });
     },
     /**
      * @param {any} data
      */
     onDelta(data) {
+      if (data && data.ended) {
+        refreshStudentBoard();
+        return;
+      }
       if (noteBoardRun(studentBoardRun, data && data.run_key) === "changed") {
         refreshStudentBoard();
         return;

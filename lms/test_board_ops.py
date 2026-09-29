@@ -1722,5 +1722,190 @@ process.exit(0);
 
 
 
+    def _run_student_board_poll(self, mode: str) -> subprocess.CompletedProcess[str]:
+        """Boot the student board poll once and let it settle.
+
+        ``ended`` is an idle class-end payload. ``auth302`` and
+        ``authhtml`` are a logged-out board read.
+
+        Args:
+            mode: ``ended``, ``auth302``, or ``authhtml``.
+
+        Returns:
+            The node process result.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+const mode = process.env.STUDENT_POLL_CASE || 'ended';
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.Element = class Element {};
+
+function makeEl() {
+  const node = {
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    parentElement: null,
+    width: 720,
+    height: 360,
+    appendChild(child) { child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener() {},
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl();
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const pane = makeEl();
+Object.setPrototypeOf(pane, HTMLElement.prototype);
+const body = makeEl();
+body.dataset = { codename: '' };
+const byId = { 'student-canvas': canvas, 'canvas-pane': pane, body };
+globalThis.document = {
+  body,
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement() { return makeEl(); },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = { origin: 'http://localhost', pathname: '/student' };
+
+let reads = 0;
+globalThis.fetch = async (url) => {
+  if (String(url || '').includes('/api/student/board/mine')) reads += 1;
+  if (mode === 'ended') {
+    return {
+      ok: true,
+      status: 200,
+      redirected: false,
+      type: 'basic',
+      headers: { get: () => 'application/json' },
+      async json() {
+        return { ok: true, ended: true, status: 'ended', run_key: 'run-1' };
+      },
+    };
+  }
+  if (mode === 'auth302') {
+    return {
+      ok: false,
+      status: 302,
+      redirected: false,
+      type: 'basic',
+      headers: { get: () => 'text/html' },
+      async json() { throw new Error('redirect'); },
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    redirected: false,
+    type: 'basic',
+    headers: { get: () => 'text/html; charset=utf-8' },
+    async json() { throw new Error('login page'); },
+  };
+};
+
+const root = '/workspace';
+const staticHref = pathToFileURL(root + '/lms/static/').href;
+let src = readFileSync(root + '/lms/static/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(root + '/tools/math-game-show/static/common.js').href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src = src.replaceAll('void tick();', '');
+src = src.replace('setInterval(tickDisplayTime, 250);', '');
+src += '\nexport { bindStudentCanvas };\n';
+const out = '/tmp/student-poll-' + mode + '-harness.mjs';
+writeFileSync(out, src);
+const mod = await import(pathToFileURL(out).href);
+let resets = 0;
+const orig = mod.bindStudentCanvas.resetRun;
+mod.bindStudentCanvas.resetRun = (view) => {
+  resets += 1;
+  return orig(view);
+};
+mod.bindStudentCanvas.setAlign('team');
+await new Promise((resolve) => setTimeout(resolve, 2000));
+if (mode === 'ended') {
+  if (resets < 1) {
+    console.error('ended poll did not reset ' + resets);
+    process.exit(2);
+  }
+  if (reads !== 2) {
+    console.error('ended poll fetched ' + reads);
+    process.exit(3);
+  }
+} else if (reads !== 1 || resets !== 0) {
+  console.error(mode + ' reads=' + reads + ' resets=' + resets);
+  process.exit(4);
+}
+process.exit(0);
+"""
+        env = os.environ.copy()
+        env["STUDENT_POLL_CASE"] = mode
+        return subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    def test_student_poll_ended_resets_an_idle_board(self) -> None:
+        """An idle student tab resets when the poll says the class ended.
+
+        The poll has already stopped, so the refresh does not schedule
+        another read.
+        """
+        completed = self._run_student_board_poll("ended")
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_student_poll_stops_on_a_logged_out_board_read(self) -> None:
+        """A 302 or a login HTML page stops the student board poll."""
+        for mode in ("auth302", "authhtml"):
+            completed = self._run_student_board_poll(mode)
+            self.assertEqual(
+                completed.returncode,
+                0,
+                f"{mode}: {completed.stderr or completed.stdout}",
+            )
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
