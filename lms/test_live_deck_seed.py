@@ -396,6 +396,8 @@ class DeckSeedPickerUiTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn(".live-deck-seed-picker[hidden] { display: none !important; }", css)
         self.assertIn('.live-deck-seed-seg input[type="radio"]', css)
+        self.assertIn("--set-class-ctl-h: 44px;", css)
+        self.assertIn("min-height: var(--set-class-ctl-h);", css)
         lloves = (LMS_DIR / "static" / "lloves.css").read_text(encoding="utf-8")
         self.assertIn("input, select, textarea {", lloves)
 
