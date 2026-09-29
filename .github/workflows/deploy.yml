@@ -1,10 +1,8 @@
 name: Deploy LLOVES LMS
 
-# Push to main runs the LMS test suite immediately. Fly deploy does not
-# start until GitHub Environment "production" is approved. The required
-# reviewer is a repo setting (shawnmckenzie11), not this file. Referencing
-# the environment only auto-creates it with no protection rules; until
-# that reviewer exists, a merge still deploys after tests.
+# Push to main runs the LMS test suite immediately. The deploy job waits
+# for approval on `production` before flyctl deploy. The required reviewer
+# is a repo setting (shawnmckenzie11), not this file.
 #
 # workflow_dispatch uses the same test job. Deploy still requires
 # refs/heads/main, the production environment, and the SHA guard.

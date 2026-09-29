@@ -96,7 +96,7 @@ Sqlite on `lloves_data` stays the catalogue (users, rosters, packs, prompts, gra
 
 **alc:** `fly.toml` does not set either secret. Until one is on the machine, the running image keeps the sqlite hot path (WAL + autocommit).
 
-Attach with Actions → **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`). Merge does not run that job. The job creates `lloves-live` (Basic, `yyz`) when missing, `fly mpg attach` sets `DATABASE_URL`, then a restart-only secret deploy if `/health` is still not `postgres`. Basic is paid. If the token cannot authorize the charge, the job prints this and stops:
+Attach with Actions → **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`). Merge does not run that job. The job waits for Shawn's approval on the `production` environment and only runs from `main`. The job creates `lloves-live` (Basic, `yyz`) when missing, `fly mpg attach` sets `DATABASE_URL`, then a restart-only secret deploy if `/health` is still not `postgres`. Basic is paid. If the token cannot authorize the charge, the job prints this and stops:
 
 ```bash
 fly mpg create --name lloves-live --org <org> --region yyz --plan basic --pg-major-version 16 --volume-size 10
