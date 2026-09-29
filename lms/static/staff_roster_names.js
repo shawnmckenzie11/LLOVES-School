@@ -4,7 +4,55 @@
  * A pencil button or the name itself opens first name plus last name or
  * display name. Enter or Save writes the staff rename route. Esc cancels.
  */
-import { api } from "/static/common.js";
+import { api, escapeHtml } from "/static/common.js";
+
+const PENCIL_SVG =
+  '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
+
+/**
+ * Markup for one in-place name editor.
+ *
+ * The closed state is the name plus a pencil. The form is the same first
+ * name and last name or display name used on the staff home roster.
+ *
+ * @param {{
+ *   classId: number|string,
+ *   studentId: number|string,
+ *   name: string,
+ *   firstName?: string,
+ *   lastName?: string,
+ *   displayName?: string,
+ *   secondKind?: string,
+ *   tag?: string,
+ * }} fields
+ * @returns {string}
+ */
+export function rosterNameEditorHtml(fields) {
+  const name = String(fields.name || "").trim();
+  const first = String(fields.firstName ?? name);
+  const last = String(fields.lastName || "");
+  const display = String(fields.displayName || name);
+  const secondKind = fields.secondKind === "last_name" ? "last_name" : "display_name";
+  const secondLabel = secondKind === "last_name" ? "Last name" : "Display name";
+  const secondValue = secondKind === "last_name" ? last : display;
+  const tag = fields.tag === "li" ? "li" : "div";
+  return `<${tag} class="roster-name-row" data-class-id="${escapeHtml(fields.classId)}" data-student-id="${escapeHtml(fields.studentId)}" data-first-name="${escapeHtml(first)}" data-last-name="${escapeHtml(last)}" data-display-name="${escapeHtml(display)}" data-second-kind="${secondKind}">
+      <div class="roster-name-view">
+        <button type="button" class="roster-name-label">${escapeHtml(name)}</button>
+        <button type="button" class="roster-name-pencil" aria-label="Edit name for ${escapeHtml(name)}">${PENCIL_SVG}</button>
+      </div>
+      <form class="roster-name-form" hidden>
+        <label>First name
+          <input name="first_name" maxlength="80" autocomplete="off" required value="${escapeHtml(first)}">
+        </label>
+        <label>${secondLabel}
+          <input name="${secondKind}" maxlength="80" autocomplete="off" required value="${escapeHtml(secondValue)}">
+        </label>
+        <button type="submit" class="roster-name-save">Save</button>
+        <p class="roster-name-error" role="alert" hidden></p>
+      </form>
+    </${tag}>`;
+}
 
 /**
  * Open the editor on one roster row and focus the first field.
@@ -127,40 +175,49 @@ async function saveEditor(row) {
   closeEditor(row);
 }
 
-document.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : null;
-  if (!target) return;
-  const opener = target.closest(".roster-name-label, .roster-name-pencil");
-  if (!opener) return;
-  const row = opener.closest(".roster-name-row");
-  if (!(row instanceof HTMLElement)) return;
-  event.preventDefault();
-  openEditor(row);
-});
+if (typeof document !== "undefined") {
+  wireRosterNameEditor();
+}
 
-document.addEventListener("submit", (event) => {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement) || !form.classList.contains("roster-name-form")) {
-    return;
-  }
-  event.preventDefault();
-  const row = form.closest(".roster-name-row");
-  if (!(row instanceof HTMLElement)) return;
-  saveEditor(row).catch((err) => {
-    const message = err instanceof Error ? err.message : "Could not save that name.";
-    showRowError(row, message);
+/**
+ * Bind pencil, Save, and Escape for every roster name editor on the page.
+ */
+function wireRosterNameEditor() {
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const opener = target.closest(".roster-name-label, .roster-name-pencil");
+    if (!opener) return;
+    const row = opener.closest(".roster-name-row");
+    if (!(row instanceof HTMLElement)) return;
+    event.preventDefault();
+    openEditor(row);
   });
-});
 
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  const target = event.target instanceof Element ? event.target : null;
-  const row = target?.closest(".roster-name-row");
-  if (!(row instanceof HTMLElement)) return;
-  const form = row.querySelector(".roster-name-form");
-  if (!(form instanceof HTMLElement) || form.hidden) return;
-  event.preventDefault();
-  closeEditor(row);
-  const pencil = row.querySelector(".roster-name-pencil");
-  if (pencil instanceof HTMLElement) pencil.focus();
-});
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.classList.contains("roster-name-form")) {
+      return;
+    }
+    event.preventDefault();
+    const row = form.closest(".roster-name-row");
+    if (!(row instanceof HTMLElement)) return;
+    saveEditor(row).catch((err) => {
+      const message = err instanceof Error ? err.message : "Could not save that name.";
+      showRowError(row, message);
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const target = event.target instanceof Element ? event.target : null;
+    const row = target?.closest(".roster-name-row");
+    if (!(row instanceof HTMLElement)) return;
+    const form = row.querySelector(".roster-name-form");
+    if (!(form instanceof HTMLElement) || form.hidden) return;
+    event.preventDefault();
+    closeEditor(row);
+    const pencil = row.querySelector(".roster-name-pencil");
+    if (pencil instanceof HTMLElement) pencil.focus();
+  });
+}

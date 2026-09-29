@@ -5706,3 +5706,20 @@ body.staff-shell .roster-name-error {
     min-width: 0;
   }
 }
+body.staff-shell .attendance-grid td.name .roster-name-view {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+body.staff-shell .attendance-grid td.name .roster-name-label {
+  flex: 0 1 auto;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.15rem;
+}
+body.staff-shell .attendance-grid td.name .roster-name-form {
+  white-space: normal;
+  min-width: 12rem;
+}

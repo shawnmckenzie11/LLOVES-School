@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,49 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+
+
+def _attendance_name_cell_html() -> str:
+    """Render one attendance name cell the way the grid script does.
+
+    Returns:
+        HTML for the Maple name cell, including the pencil editor.
+    """
+    common = (REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js").resolve()
+    names_src = (LMS_DIR / "static" / "staff_roster_names.js").read_text(encoding="utf-8")
+    att_src = (LMS_DIR / "static" / "staff_attendance.js").read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        names_path = folder / "staff_roster_names.js"
+        att_path = folder / "staff_attendance.js"
+        names_path.write_text(
+            names_src.replace('"/static/common.js"', json.dumps(common.as_uri())),
+            encoding="utf-8",
+        )
+        att_path.write_text(
+            att_src.replace('"/static/common.js"', json.dumps(common.as_uri())).replace(
+                '"/static/staff_roster_names.js"',
+                json.dumps(names_path.as_uri()),
+            ),
+            encoding="utf-8",
+        )
+        runner = folder / "run.mjs"
+        runner.write_text(
+            "import { attendanceNameCellHtml } from "
+            + json.dumps(att_path.as_uri())
+            + ";\n"
+            + "const html = attendanceNameCellHtml("
+            + "{id: 7, codename: 'Maple', first_name: 'Maple', last_display: ''}, 3);\n"
+            + "process.stdout.write(html);\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["node", str(runner)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    return result.stdout
 
 
 class _Presence:
@@ -350,11 +395,7 @@ class RosterNameEditTests(unittest.TestCase):
         )
         self.assertEqual(attendance.status_code, 200)
         att_html = attendance.get_data(as_text=True)
-        self.assertIn("roster-name-pencil", att_html)
-        self.assertIn("Edit name for Maple", att_html)
-        self.assertIn('name="first_name"', att_html)
-        self.assertIn('name="display_name"', att_html)
-        self.assertIn("roster-name-save", att_html)
+        self.assertNotIn('class="roster-names"', att_html)
         saved = self._rename(
             self.client,
             self.class_id,
@@ -365,9 +406,15 @@ class RosterNameEditTests(unittest.TestCase):
         again = self.client.get(
             f"/staff/class/{self.class_id}?tab=ap&view=attendance"
         ).get_data(as_text=True)
-        self.assertIn("Edit name for River", again)
-        self.assertIn(">River<", again)
-        self.assertNotIn("Edit name for Maple", again)
+        self.assertIn('id="attendance-grid"', again)
+        self.assertNotIn('class="roster-names"', again)
+        grid = self.client.get(
+            f"/api/classes/{self.class_id}/attendance-grid?sort=az"
+        ).get_json()
+        river = next(
+            row for row in grid["students"] if int(row["id"]) == self.maple_id
+        )
+        self.assertEqual(river["codename"], "River")
         home_again = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Edit name for River", home_again)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
@@ -375,6 +422,43 @@ class RosterNameEditTests(unittest.TestCase):
         self.assertIn("min-height: 44px", css)
         self.assertIn("min-width: 44px", pencil[:400])
         self.assertIn(":focus-visible", css[css.find(".roster-name-label") :])
+        self.assertIn('class="card course-card', home)
+        self.assertIn(">Explore Course<", home)
+        self.assertIn('<details class="roster-names">', home)
+        self.assertNotIn('<details class="roster-names" open', home)
+
+    def test_attendance_view_keeps_the_table_and_in_cell_pencil(self) -> None:
+        """Attendance stays the weekday table; the pencil lives in the name cell."""
+        attendance = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=attendance"
+        )
+        self.assertEqual(attendance.status_code, 200)
+        html = attendance.get_data(as_text=True)
+        self.assertIn("Take Attendance", html)
+        self.assertIn(
+            '<table class="sheet attendance-grid" id="attendance-grid">',
+            html,
+        )
+        self.assertIn('<th class="name">Student</th>', html)
+        self.assertIn('<th class="total">Total</th>', html)
+        self.assertIn("<tbody></tbody>", html)
+        self.assertIn('id="att-sort"', html)
+        self.assertIn('id="att-clear"', html)
+        self.assertNotIn('class="roster-names"', html)
+        self.assertIn("/static/staff_attendance.js", html)
+        att_js = (LMS_DIR / "static" / "staff_attendance.js").read_text(encoding="utf-8")
+        self.assertIn("rosterNameEditorHtml", att_js)
+        self.assertIn('td class="name"', att_js)
+        self.assertIn("<td class=\"name\">Total</td>", att_js)
+        cell = _attendance_name_cell_html()
+        self.assertIn('td class="name"', cell)
+        self.assertIn("roster-name-pencil", cell)
+        self.assertIn("Edit name for Maple", cell)
+        self.assertIn('name="first_name"', cell)
+        self.assertIn('name="display_name"', cell)
+        self.assertIn("roster-name-save", cell)
+        self.assertIn("min-height: 44px", (LMS_DIR / "static" / "staff-shell.css").read_text())
+        self.assertNotIn("<details", cell)
 
     def test_rename_propagates_to_class_list_attendee_and_student_view(self) -> None:
         """Live class reads the new name, including a stale presence copy."""
