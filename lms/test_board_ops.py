@@ -1403,5 +1403,324 @@ process.exit(0);
 
 
 
+    def test_pen_up_posts_stroke_end_when_the_point_repeats(self) -> None:
+        """A duplicate pen-up sample still posts the stroke_end batch.
+
+        ``pushPoint`` drops a point that matches the last sample, and
+        ``flushPending`` used to return when nothing new was queued. The
+        lift has to reach the server anyway. ``resetRun`` also clears
+        cursor chips.
+        """
+        script = r"""
+import { bindWhiteboard } from './lms/static/live_whiteboard.js';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.Element = class Element {};
+
+function makeEl() {
+  const listeners = {};
+  const node = {
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    innerHTML: '',
+    width: 720,
+    height: 360,
+    parentElement: null,
+    appendChild(child) { child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    querySelector() { return null; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        clientX: 0, clientY: 0, pointerId: 1, preventDefault() {},
+        stopPropagation() {}, target: node, ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl();
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const cursors = makeEl();
+Object.setPrototypeOf(cursors, HTMLElement.prototype);
+globalThis.document = {
+  body: makeEl(),
+  createElement() { return makeEl(); },
+  getElementById() { return null; },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+
+const batches = [];
+const board = bindWhiteboard(canvas, {
+  cursorLayer: cursors,
+  owner: () => 'teacher',
+  onPoints(points, ended, strokeId) {
+    batches.push({ ended: Boolean(ended), strokeId, n: points.length });
+  },
+});
+board.importRemote({
+  cursors: [{ name: 'Aspen', owner: '1', x: 0.2, y: 0.4, color: '#123456' }],
+}, { collab: false });
+if (!String(cursors.innerHTML).includes('Aspen')) {
+  console.error('cursor missing ' + cursors.innerHTML);
+  process.exit(1);
+}
+board.resetRun({ strokes: [], texts: [], cursors: [] });
+if (String(cursors.innerHTML).includes('Aspen') || String(cursors.innerHTML).includes('canvas-cursor-chip')) {
+  console.error('cursor stayed ' + cursors.innerHTML);
+  process.exit(2);
+}
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 140, clientY: 90 });
+await new Promise((resolve) => setTimeout(resolve, 120));
+const opened = batches.filter((row) => !row.ended);
+if (!opened.length) {
+  console.error('no open batch ' + JSON.stringify(batches));
+  process.exit(3);
+}
+const strokeId = opened[0].strokeId;
+canvas.dispatch('pointerup', { clientX: 140, clientY: 90 });
+await new Promise((resolve) => setTimeout(resolve, 40));
+const ended = batches.filter((row) => row.ended && row.strokeId === strokeId);
+if (!ended.length) {
+  console.error(JSON.stringify(batches));
+  process.exit(4);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_staff_ended_refresh_discards_the_open_stroke(self) -> None:
+        """End with no restart resets the teacher board and does not re-post.
+
+        The poll's ``ended`` payload and a 409 ``ended`` write both call
+        ``resetRun``. Pointer samples after that stay off the wire.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+class HTMLFormElement extends HTMLElement {}
+class HTMLDialogElement extends HTMLElement {}
+class HTMLSelectElement extends HTMLElement {}
+class HTMLIFrameElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.HTMLFormElement = HTMLFormElement;
+globalThis.HTMLDialogElement = HTMLDialogElement;
+globalThis.HTMLSelectElement = HTMLSelectElement;
+globalThis.HTMLIFrameElement = HTMLIFrameElement;
+globalThis.Element = class Element {};
+
+function makeEl(tag) {
+  const listeners = {};
+  const node = {
+    tagName: String(tag || 'div').toUpperCase(),
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    innerHTML: '',
+    appendChild(child) { node.children.push(child); child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    removeAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        clientX: 0, clientY: 0, pointerId: 1, preventDefault() {},
+        stopPropagation() {}, target: node, ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const root = makeEl('div');
+root.dataset = { classId: '1', liveSessionId: '9', apView: '' };
+const byId = { 'ap-root': root, 'live-canvas-stub': canvas };
+globalThis.document = {
+  body: makeEl('body'),
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement(tag) { return makeEl(tag); },
+  addEventListener() {},
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+};
+globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+globalThis.location = {
+  search: '', href: 'http://localhost/staff/class/1', origin: 'http://localhost',
+  pathname: '/staff/class/1',
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = location;
+window.innerWidth = 1280;
+window.confirm = () => false;
+
+const repo = '/workspace';
+const staticHref = pathToFileURL(repo + '/lms/static/').href;
+let src = readFileSync(repo + '/lms/static/staff_ap.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(repo + '/tools/math-game-show/static/common.js').href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src += '\nexport { bindEphemeralCanvas, refreshTeacherBoard, teacherBoard, teacherBoardRun, teacherState };\n';
+const out = '/tmp/staff-board-refresh-harness.mjs';
+writeFileSync(out, src);
+
+const posts = [];
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  const json = (status, data) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return data; },
+  });
+  if (target.includes('/canvas-presence') && init && init.method === 'POST') {
+    posts.push(JSON.parse(init.body));
+    return json(409, { ok: false, error: 'Session has ended.', ended: true });
+  }
+  if (target.includes('/board/teacher')) {
+    return json(200, { ok: true, ended: true, status: 'ended', run_key: 'run-old' });
+  }
+  return json(200, { ok: true });
+};
+
+const mod = await import(pathToFileURL(out).href);
+mod.bindEphemeralCanvas();
+if (!mod.teacherBoard || typeof mod.teacherBoard.resetRun !== 'function') {
+  console.error('teacher board was not bound');
+  process.exit(2);
+}
+let resets = 0;
+const origReset = mod.teacherBoard.resetRun;
+mod.teacherBoard.resetRun = (view) => {
+  resets += 1;
+  return origReset(view);
+};
+mod.teacherState.canvas_align = 'team';
+mod.teacherBoardRun.key = 'run-old';
+
+function waitFor(pred, label) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error(label + ' resets=' + resets + ' posts=' + posts.length));
+      setTimeout(tick, 15);
+    };
+    tick();
+  });
+}
+
+await waitFor(() => resets >= 1, 'poll ended');
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 150, clientY: 80 });
+await waitFor(() => posts.length >= 1, 'first post');
+const strokeId = posts[0].stroke_id;
+if (!posts[0].run_key) {
+  console.error('missing run key');
+  process.exit(3);
+}
+const after = posts.length;
+const resetsAfterPost = resets;
+canvas.dispatch('pointermove', { clientX: 220, clientY: 110 });
+canvas.dispatch('pointerup', { clientX: 260, clientY: 140 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+const replayed = posts.slice(after).filter((body) => body.stroke_id === strokeId);
+if (replayed.length || posts.length !== after) {
+  console.error(JSON.stringify(posts.map((body) => ({
+    id: body.stroke_id, ended: body.ended, n: (body.points || []).length,
+  }))));
+  process.exit(4);
+}
+if (resets < resetsAfterPost) {
+  console.error('ended write did not reset');
+  process.exit(5);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

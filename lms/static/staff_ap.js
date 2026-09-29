@@ -9410,10 +9410,15 @@ let teacherBoardPoll = null;
 function refreshTeacherBoard() {
   if (teacherBoardRefresh) return teacherBoardRefresh;
   teacherBoardRefresh = (async () => {
+    const empty = { strokes: [], texts: [], cursors: [] };
     const sessionId = liveSessionId || readLiveSessionId();
     teacherPresenceQueue().drop();
     teacherBoardSince = 0;
     teacherCalmFrameHeld = false;
+    // End the open stroke before the refetch so later flushes cannot re-post it.
+    if (teacherBoard && typeof teacherBoard.resetRun === "function") {
+      teacherBoard.resetRun(empty);
+    }
     if (!sessionId) return;
     let data = null;
     try {
@@ -9425,8 +9430,13 @@ function refreshTeacherBoard() {
     } catch (_err) {
       data = null;
     }
+    // A flush that landed in the queue during the refetch is still the old run.
+    teacherPresenceQueue().drop();
     const canvas = $("live-canvas-stub");
     if (!data || data.ended) {
+      if (data && data.ended && teacherBoard && typeof teacherBoard.resetRun === "function") {
+        teacherBoard.resetRun(empty);
+      }
       if (canvas instanceof HTMLCanvasElement) showBoardRefreshCue(canvas);
       return;
     }
@@ -9481,6 +9491,10 @@ function ensureTeacherBoardPoll() {
       });
     },
     onDelta(data) {
+      if (data && data.ended) {
+        refreshTeacherBoard();
+        return;
+      }
       if (noteBoardRun(teacherBoardRun, data && data.run_key) === "changed") {
         refreshTeacherBoard();
         return;

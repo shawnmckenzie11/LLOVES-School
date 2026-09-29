@@ -129,7 +129,9 @@ export function showBoardRefreshCue(anchor) {
  *
  * One request is in flight, whether or not the tab holds a LiveNewsWire
  * stream. Busy, 429, and 5xx back off. The timer does not send while the
- * board is hidden. ``ended`` stops the poll. This poll is not a wire signal.
+ * board is hidden. ``ended`` is delivered to ``onDelta`` once, then the
+ * poll stops, so an End with no restart can clear the open stroke.
+ * This poll is not a wire signal.
  *
  * @param {{
  *   poll: () => Promise<any>,
@@ -171,6 +173,7 @@ export function createBoardDeltaPoll(opts) {
         if (stopped) return;
         if (result && result.ended) {
           stopped = true;
+          if (typeof opts.onDelta === "function") opts.onDelta(result);
           return;
         }
         const status = Number(result && result.status) || 200;
@@ -947,7 +950,8 @@ export function bindWhiteboard(canvas, opts = {}) {
    */
   const endStroke = (event) => {
     if (!drawing) return;
-    pushPoint(point(event), true);
+    const lifted = point(event);
+    const added = pushPoint(lifted, true);
     const finished = {
       id: strokeId,
       owner: strokeOwner,
@@ -956,7 +960,13 @@ export function bindWhiteboard(canvas, opts = {}) {
       mine: true,
     };
     if (finished.points.length) strokes.push(finished);
+    const id = strokeId;
     drawing = false;
+    // Pen-up often repeats the last sample, and pushPoint drops that
+    // duplicate. The lift still has to post so the server stores stroke_end.
+    if (!added && !pending.length && id) {
+      pending.push(current[current.length - 1] || lifted);
+    }
     flushPending(true);
     current = [];
     strokeId = "";
@@ -1160,6 +1170,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         });
       }
       applyTexts({ texts: incoming.texts });
+      paintCursors(incoming.cursors || []);
       replayCommitted();
       paintLive();
       syncButtons();
