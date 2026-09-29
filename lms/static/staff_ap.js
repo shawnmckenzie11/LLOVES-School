@@ -9378,6 +9378,9 @@ function paintTeacherCanvas(view, options = {}) {
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let teacherPresence = null;
 
+/** Last applied sequence on the teacher board. */
+let teacherBoardSince = 0;
+
 /**
  * One presence POST at a time for this teacher tab.
  * The live session id is read when the request is sent.
@@ -9393,16 +9396,30 @@ function teacherPresenceQueue() {
     send(body) {
       const sessionId = liveSessionId || readLiveSessionId();
       if (!sessionId) return Promise.resolve(null);
+      const payload = { ...body, since: teacherBoardSince };
+      if (!payload.client_batch_id) {
+        payload.client_batch_id = `b-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+      }
       return api(`/api/live-sessions/${sessionId}/canvas-presence`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
     },
     /**
      * @param {any} data
      */
     onReply(data) {
-      if (data?.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });
+      if (!data) return;
+      if (typeof data.board_seq === "number") teacherBoardSince = data.board_seq;
+      if (data.snapshot && data.canvas_view) {
+        paintTeacherCanvas(data.canvas_view, { source: "presence" });
+        return;
+      }
+      if (data.ops_since && teacherBoard && typeof teacherBoard.applyDelta === "function") {
+        teacherBoard.applyDelta(data);
+        return;
+      }
+      if (data.canvas_view) paintTeacherCanvas(data.canvas_view, { source: "presence" });
     },
   });
   return teacherPresence;
@@ -9471,6 +9488,17 @@ function bindEphemeralCanvas() {
     onPoints: (points, ended, strokeId) => {
       teacherCalmFrameHeld = true;
       postTeacherCanvas(canvas, points, { ended, strokeId });
+    },
+    onUndo: (stroke) => {
+      teacherCalmFrameHeld = true;
+      teacherPresenceQueue().push({
+        op: "stroke_remove",
+        stroke_id: stroke.id,
+      });
+    },
+    onRedo: (stroke) => {
+      teacherCalmFrameHeld = true;
+      postTeacherCanvas(canvas, stroke.points, { ended: true, strokeId: stroke.id });
     },
   });
 }

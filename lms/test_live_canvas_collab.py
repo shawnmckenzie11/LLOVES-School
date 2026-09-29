@@ -307,10 +307,11 @@ class WhiteboardCollabTests(unittest.TestCase):
             )
             self.assertEqual(polled.status_code, 200, polled.get_json())
             body = polled.get_json()
-            painted = {stroke["owner"] for stroke in body["canvas_sync"]["strokes"]}
-            self.assertEqual(painted, {"teacher"})
+            self.assertNotIn("canvas_sync", body)
+            self.assertNotIn("canvas_rev", body)
             teams = body["session"]["canvas_sync"]["strokes"]["teams"]
             self.assertEqual(teams, {})
+            self.assertEqual(body["session"]["canvas_sync"]["strokes"]["teacher"], [])
             self.assertNotIn("canvas_sync_json", body["session"])
         tick = self.client.post(
             f"/api/live-sessions/{self.session_id}/canvas-presence",
@@ -332,7 +333,6 @@ class WhiteboardCollabTests(unittest.TestCase):
 
     def test_text_tool_persists_for_the_session_and_edits(self) -> None:
         """Text labels survive a reload, can be edited, and can be cleared."""
-        before = self.school.live_student_poll_stamp(self.session_id, self.class_id)
         saved = self.school.apply_live_canvas_text(
             self.session_id,
             owner="11",
@@ -349,6 +349,7 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.school.set_live_session_teacher_state(
             self.session_id, student_view={"canvas": "student"}
         )
+        before = self.school.live_student_poll_stamp(self.session_id, self.class_id)
         view = self.school.live_session_canvas_view(
             self.session_id, student_id=11
         )
@@ -370,7 +371,7 @@ class WhiteboardCollabTests(unittest.TestCase):
         )
         self.assertEqual(edited["texts"][0]["text"], "slope!")
         after = self.school.live_student_poll_stamp(self.session_id, self.class_id)
-        self.assertNotEqual(before, after)
+        self.assertEqual(before, after)
         cleared = self.school.apply_live_canvas_text(
             self.session_id,
             owner="11",
@@ -643,3 +644,10 @@ class WhiteboardCollabTests(unittest.TestCase):
         self.assertIn("normalizeBoardPoint", student)
         self.assertIn("normalizeBoardPoint", staff)
         self.assertIn('if (node !== studentCanvas) return;', student)
+        self.assertIn("export const BOARD_DELTA_POLL_MS = 1750", wb)
+        self.assertIn("function createBoardDeltaPoll", wb)
+        self.assertIn("let inFlight = false", wb)
+        self.assertIn("if (stopped || inFlight) return", wb)
+        self.assertIn("opts.hasStream()", wb)
+        self.assertIn("/api/student/board/mine?", student)
+        self.assertNotIn("createBoardDeltaPoll", staff)

@@ -294,6 +294,26 @@ def _note_live_session_gone(session_id: int) -> None:
     logger.warning("live session %s is gone; polls return ended", sid)
 
 
+from board_ops import BoardOpRejected, normalize_board_key  # noqa: E402
+
+
+def _optional_board_seq(raw: Any) -> int | None:
+    """Parse a since-seq cursor. Missing means the caller wants a full view.
+
+    Args:
+        raw: JSON or query value. ``0`` is a real cursor.
+
+    Returns:
+        Non-negative sequence, or ``None`` when the field was omitted.
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
 def _json_error(exc: BaseException):
     """Map domain exceptions to JSON API errors."""
     if isinstance(exc, KeyError):
@@ -4694,39 +4714,55 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
         name = str(ctx.get("codename") or body.get("name") or student_id).strip()
         text_id = str(body.get("text_id") or "").strip()
-        if text_id:
-            school.apply_live_canvas_text(
-                live_session_id,
-                owner=str(int(student_id)),
-                name=name or str(student_id),
-                text_id=text_id,
-                text=str(body.get("text") if body.get("text") is not None else ""),
-                team_id=team_id,
-                x=body.get("x"),
-                y=body.get("y"),
-                as_teacher=False,
-            )
-        else:
-            raw_points = body.get("points")
-            school.apply_live_canvas_presence(
-                live_session_id,
-                owner=str(int(student_id)),
-                name=name or str(student_id),
-                team_id=team_id,
-                x=body.get("x"),
-                y=body.get("y"),
-                stroke_id=str(body.get("stroke_id") or "") or None,
-                point=body.get("point"),
-                points=raw_points if isinstance(raw_points, list) else None,
-                ended=bool(body.get("ended")),
-                as_teacher=False,
-            )
-        view = school.live_session_canvas_view(
-            live_session_id, student_id=int(student_id)
+        batch_id = str(body.get("client_batch_id") or "").strip() or None
+        try:
+            if text_id:
+                school.apply_live_canvas_text(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    name=name or str(student_id),
+                    text_id=text_id,
+                    text=str(body.get("text") if body.get("text") is not None else ""),
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    as_teacher=False,
+                )
+            elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+                school.remove_live_board_stroke(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    stroke_id=str(body.get("stroke_id") or body.get("id") or ""),
+                    team_id=team_id,
+                    as_teacher=False,
+                    client_batch_id=batch_id,
+                )
+            else:
+                raw_points = body.get("points")
+                school.apply_live_canvas_presence(
+                    live_session_id,
+                    owner=str(int(student_id)),
+                    name=name or str(student_id),
+                    team_id=team_id,
+                    x=body.get("x"),
+                    y=body.get("y"),
+                    stroke_id=str(body.get("stroke_id") or "") or None,
+                    point=body.get("point"),
+                    points=raw_points if isinstance(raw_points, list) else None,
+                    ended=bool(body.get("ended")),
+                    as_teacher=False,
+                    client_batch_id=batch_id,
+                )
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        reply = school.canvas_presence_reply(
+            live_session_id,
+            student_id=int(student_id),
+            since=_optional_board_seq(body.get("since")),
+            teacher_since=_optional_board_seq(body.get("teacher_since")),
         )
-        # Own team plus the teacher. The stored blob still holds every
-        # group; this reply does not.
-        return jsonify({"ok": True, "canvas_sync": view, "canvas_view": view})
+        # Own team plus the teacher. Other groups are not in this reply.
+        return jsonify(reply)
 
     @app.route("/api/student/live-prompt/response", methods=["POST"])
     @student_required
@@ -6078,6 +6114,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 int(session_row["class_id"]), int(student_id)
             )
         text_id = str(body.get("text_id") or "").strip()
+        batch_id = str(body.get("client_batch_id") or "").strip() or None
         try:
             if text_id:
                 school.apply_live_canvas_text(
@@ -6090,6 +6127,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     x=body.get("x"),
                     y=body.get("y"),
                     as_teacher=as_teacher,
+                )
+            elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
+                school.remove_live_board_stroke(
+                    session_id,
+                    owner=owner,
+                    stroke_id=str(body.get("stroke_id") or body.get("id") or ""),
+                    team_id=team_id,
+                    as_teacher=as_teacher,
+                    client_batch_id=batch_id,
                 )
             else:
                 raw_points = body.get("points")
@@ -6105,17 +6151,290 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     points=raw_points if isinstance(raw_points, list) else None,
                     ended=bool(body.get("ended")),
                     as_teacher=as_teacher,
+                    client_batch_id=batch_id,
                 )
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        view = school.live_session_canvas_view(
+        reply = school.canvas_presence_reply(
             session_id,
             student_id=int(owner) if owner.isdigit() else None,
             as_teacher=as_teacher,
+            since=_optional_board_seq(body.get("since")),
+            teacher_since=_optional_board_seq(body.get("teacher_since")),
         )
         # Staff stays on the teacher board (#165). A student receives only
-        # their own team plus the teacher — never the all-groups blob.
-        return jsonify({"ok": True, "canvas_sync": view, "canvas_view": view})
+        # their own team plus the teacher — never another group's ops.
+        return jsonify(reply)
+
+    def _student_for_board(session_id: int) -> tuple[int | None, Any]:
+        """Return the joined student id, or an error response.
+
+        Args:
+            session_id: Live session the board belongs to.
+
+        Returns:
+            ``(student_id, None)`` or ``(None, response)``.
+        """
+        ctx = resolve_student_live_context(school, session)
+        if ctx is None or int(ctx.get("live_session_id") or 0) != int(session_id):
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        student_id = ctx.get("student_id")
+        if student_id in (None, ""):
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        token = str(ctx.get("visit_token") or visit_token_from_request() or "")
+        if not school.student_is_active_live_attendee(
+            int(session_id), int(student_id), visit_token=token
+        ):
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        return int(student_id), None
+
+    def _resolve_student_board_key(session_id: int, student_id: int, raw_key: str) -> tuple[str | None, Any]:
+        """Map ``mine`` and reject a board this student cannot read.
+
+        Args:
+            session_id: Live session id.
+            student_id: Roster id.
+            raw_key: Path key, including the ``mine`` alias.
+
+        Returns:
+            ``(key, None)`` or ``(None, 403 response)``.
+        """
+        access = school.student_board_access(int(session_id), int(student_id))
+        token = "mine" if str(raw_key or "").strip() == "mine" else str(raw_key or "").strip()
+        if token == "mine":
+            return str(access["collab_key"]), None
+        try:
+            key = normalize_board_key(token)
+        except ValueError:
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        if key not in access["read"]:
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        return key, None
+
+    def _joined_student_board() -> tuple[dict[str, Any] | None, Any]:
+        """Return the visit-token student, or an error response.
+
+        These routes sit outside ``create_app``, so they cannot call the
+        nested student helpers defined there.
+
+        Returns:
+            ``(context, None)`` or ``(None, response)``.
+        """
+        ctx = resolve_student_live_context(school, session)
+        if ctx is None:
+            return None, (jsonify({"ok": False, "error": "Not joined."}), 401)
+        student_id = ctx.get("student_id")
+        live_session_id = int(ctx.get("live_session_id") or 0)
+        if student_id in (None, "") or not live_session_id:
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        token = str(ctx.get("visit_token") or visit_token_from_request() or "")
+        if not school.student_is_active_live_attendee(
+            live_session_id, int(student_id), visit_token=token
+        ):
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        return ctx, None
+
+    @app.route("/api/student/board/<board_key>", methods=["GET"])
+    @student_required
+    def api_student_board(board_key: str):
+        """Ink since seq for this student's team board, plus teacher ink.
+
+        ``mine`` is the student's own team (or ``shared``). Another team's
+        key is 403. A wide gap returns ``snapshot`` instead of the op list.
+        """
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        student_id = int(ctx["student_id"])
+        live_session_id = int(ctx["live_session_id"])
+        key, rejected = _resolve_student_board_key(
+            live_session_id, student_id, board_key
+        )
+        if rejected is not None:
+            return rejected
+        try:
+            reply = school.read_board(
+                live_session_id,
+                str(key),
+                _optional_board_seq(request.args.get("since")) or 0,
+                student_id=student_id,
+                teacher_since=_optional_board_seq(request.args.get("teacher_since")),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route("/api/student/board/<board_key>/ops", methods=["POST"])
+    @student_required
+    def api_student_board_ops(board_key: str):
+        """Append a batch of ops to a board this student may write.
+
+        ``stroke_remove`` is rejected when the stroke is not theirs. The
+        reply piggybacks ops since the caller's cursors.
+        """
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        student_id = int(ctx["student_id"])
+        class_id = int(ctx["class_id"])
+        live_session_id = int(ctx["live_session_id"])
+        access = school.student_board_access(live_session_id, int(student_id))
+        token = str(board_key or "").strip()
+        if token == "mine":
+            key = str(access["collab_key"])
+        else:
+            try:
+                key = normalize_board_key(token)
+            except ValueError:
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if key not in access["write"]:
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        team_id = school.student_team_id_for_class(int(class_id), int(student_id))
+        try:
+            school.boards.append_ops(
+                live_session_id,
+                key,
+                owner=str(int(student_id)),
+                ops=[
+                    {**op, "team_id": team_id, "name": str(ctx.get("codename") or student_id)}
+                    if isinstance(op, dict)
+                    else op
+                    for op in ops
+                ],
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+            )
+            reply = school.canvas_presence_reply(
+                live_session_id,
+                student_id=int(student_id),
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/board/<board_key>",
+        methods=["GET"],
+    )
+    def api_live_session_board(session_id: int, board_key: str):
+        """Since-seq read. Staff may read only the teacher board.
+
+        A joined student may read their own team and the teacher board.
+        Cross-team keys are 403. Group boards are not returned to staff.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        if _can_view_live_session(session_row):
+            if str(board_key or "").strip() != "teacher":
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            try:
+                reply = school.read_board(
+                    session_id,
+                    "teacher",
+                    _optional_board_seq(request.args.get("since")) or 0,
+                    as_teacher=True,
+                )
+            except (KeyError, ValueError) as exc:
+                return _json_error(exc)
+            return jsonify(reply)
+        student_id, rejected = _student_for_board(session_id)
+        if rejected is not None:
+            return rejected
+        key, key_rejected = _resolve_student_board_key(
+            session_id, int(student_id or 0), board_key
+        )
+        if key_rejected is not None:
+            return key_rejected
+        try:
+            reply = school.read_board(
+                session_id,
+                str(key),
+                _optional_board_seq(request.args.get("since")) or 0,
+                student_id=student_id,
+                teacher_since=_optional_board_seq(request.args.get("teacher_since")),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/board/<board_key>/ops",
+        methods=["POST"],
+    )
+    def api_live_session_board_ops(session_id: int, board_key: str):
+        """Append ops. Staff write the teacher board only.
+
+        A student write to another team's board is 403. Removing someone
+        else's stroke is 403.
+        """
+        session_row = school.get_live_session(session_id)
+        if session_row is None:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        batch_id = str(body.get("client_batch_id") or "").strip() or None
+        if _can_view_live_session(session_row):
+            if str(board_key or "").strip() != "teacher":
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+            try:
+                school.boards.append_ops(
+                    session_id,
+                    "teacher",
+                    owner="teacher",
+                    ops=ops,
+                    client_batch_id=batch_id,
+                )
+                reply = school.canvas_presence_reply(
+                    session_id,
+                    as_teacher=True,
+                    since=_optional_board_seq(body.get("since")),
+                )
+            except BoardOpRejected as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 403
+            except (KeyError, ValueError) as exc:
+                return _json_error(exc)
+            return jsonify(reply)
+        student_id, rejected = _student_for_board(session_id)
+        if rejected is not None:
+            return rejected
+        access = school.student_board_access(session_id, int(student_id or 0))
+        token = str(board_key or "").strip()
+        if token == "mine":
+            key = str(access["collab_key"])
+        else:
+            try:
+                key = normalize_board_key(token)
+            except ValueError:
+                return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if key not in access["write"]:
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        try:
+            school.boards.append_ops(
+                session_id,
+                key,
+                owner=str(int(student_id or 0)),
+                ops=ops,
+                client_batch_id=batch_id,
+            )
+            reply = school.canvas_presence_reply(
+                session_id,
+                student_id=student_id,
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""
