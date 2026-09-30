@@ -4784,6 +4784,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     client_batch_id=batch_id,
                     claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
+            # The reply reads the session again. Start can delete the row
+            # in the few milliseconds after the write has already landed.
+            reply = school.canvas_presence_reply(
+                live_session_id,
+                student_id=int(student_id),
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
         except BoardSessionClosed as exc:
             return board_write_closed(exc)
         except BoardOpRejected as exc:
@@ -4794,12 +4802,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if not missing_live_session(exc):
                 raise
             return board_write_closed(BoardSessionClosed("session has ended"))
-        reply = school.canvas_presence_reply(
-            live_session_id,
-            student_id=int(student_id),
-            since=_optional_board_seq(body.get("since")),
-            teacher_since=_optional_board_seq(body.get("teacher_since")),
-        )
         # Own team plus the teacher. Other groups are not in this reply.
         return jsonify(reply)
 
@@ -5989,13 +5991,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 publish_mode=body.get("publish_mode") if has_publish else None,
                 response_mode=body.get("response_mode") if has_response else None,
             )
+            teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify(
             {
                 "ok": True,
                 "item": item,
-                "teacher_state": school.live_session_teacher_state_payload(session_id),
+                "teacher_state": teacher_state,
             }
         )
 
@@ -6195,19 +6198,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     client_batch_id=batch_id,
                     claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
+            reply = school.canvas_presence_reply(
+                session_id,
+                student_id=int(owner) if owner.isdigit() else None,
+                as_teacher=as_teacher,
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
         except BoardSessionClosed as exc:
             return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        reply = school.canvas_presence_reply(
-            session_id,
-            student_id=int(owner) if owner.isdigit() else None,
-            as_teacher=as_teacher,
-            since=_optional_board_seq(body.get("since")),
-            teacher_since=_optional_board_seq(body.get("teacher_since")),
-        )
         # Staff stays on the teacher board (#165). A student receives only
         # their own team plus the teacher — never another group's ops.
         return jsonify(reply)

@@ -1423,6 +1423,49 @@ process.exit(0);
         self.assertTrue(body.get("ended"))
         self.assertNotIn("stale_run", body)
 
+    def test_canvas_presence_reply_after_the_row_is_gone_is_409(self) -> None:
+        """A session removed after the write still returns 409 ended.
+
+        The presence reply reads the row again. Start can delete it in
+        the few milliseconds after the stroke has already been stored.
+        That KeyError is the closed response, not a 500.
+        """
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        sid = self.session_id
+        run_key = self.school.live_board_run_key(sid)
+        original = self.school.canvas_presence_reply
+
+        def drop_then_reply(*args, **kwargs):
+            """Delete the live row, then build the real reply."""
+            with self.school._lock:
+                self.school.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                )
+                self.school.conn.commit()
+            return original(*args, **kwargs)
+
+        self.school.canvas_presence_reply = drop_then_reply
+        self.app.config["PROPAGATE_EXCEPTIONS"] = False
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": run_key,
+                "x": 0.4,
+                "y": 0.4,
+                "points": [[0.4, 0.4]],
+                "stroke_id": "reply-gap",
+                "client_batch_id": "reply-gap-batch",
+            },
+        )
+        self.assertNotEqual(drawn.status_code, 500, drawn.get_data(as_text=True))
+        self.assertEqual(drawn.status_code, 409, drawn.get_data(as_text=True))
+        body = drawn.get_json()
+        self.assertTrue(body.get("ended"))
+        self.assertNotIn("stale_run", body)
+        self.assertNotIn("Internal Server Error", drawn.get_data(as_text=True))
+
 
 
 
