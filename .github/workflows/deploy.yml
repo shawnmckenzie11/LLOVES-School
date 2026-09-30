@@ -1,10 +1,8 @@
 name: Deploy LLOVES LMS
 
-# Push to main runs the LMS test suite immediately. Fly deploy does not
-# start until GitHub Environment "production" is approved. The required
-# reviewer is a repo setting (shawnmckenzie11), not this file. Referencing
-# the environment only auto-creates it with no protection rules; until
-# that reviewer exists, a merge still deploys after tests.
+# Push to main runs the LMS test suite immediately. The deploy job waits
+# for approval on `production` before flyctl deploy. The required reviewer
+# is a repo setting (shawnmckenzie11), not this file.
 #
 # workflow_dispatch uses the same test job. Deploy still requires
 # refs/heads/main, the production environment, and the SHA guard.
@@ -17,8 +15,8 @@ name: Deploy LLOVES LMS
 # refuses flyctl unless GITHUB_SHA is still origin/main.
 #
 # Not a code deploy: attach-live-postgres.yml is workflow_dispatch only.
-# It does not flyctl deploy. It can restart lloves-lms and is not on
-# the production environment.
+# It does not flyctl deploy. It can restart lloves-lms and waits on the
+# same production environment.
 #
 # Repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms).
 on:
@@ -111,7 +109,7 @@ jobs:
             exit 1
           fi
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
 
       - name: Deploy
         env:

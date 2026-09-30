@@ -4,7 +4,7 @@ Paste **one** kickoff into a **new Agent chat** (Plan mode). Each chat owns one 
 
 ## Shared rules (all three chats)
 
-- **Lane:** code — feature branch → localhost `http://127.0.0.1:8787` → PR → CI → merge `main` → Actions deploy.
+- **Lane:** code — feature branch → localhost `http://127.0.0.1:8787` → PR → CI → merge `main`. A merge runs tests, then the Fly deploy waits in GitHub Actions for Shawn's approval on the `production` environment.
 - **Do not** laptop-`flyctl deploy` unless Shawn explicitly asks.
 - **Do not** commit or push unless Shawn asks.
 - **Do not** edit files outside your file fence (below).

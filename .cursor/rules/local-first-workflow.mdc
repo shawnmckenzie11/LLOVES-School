@@ -24,13 +24,13 @@ Point at existing school rules (`elc-school`, `semester-awareness`, `repo-conven
 ## Two lanes
 
 - **ops** — no git. Live volume `/data` on Fly (`https://alc.mckenzian.com`). Semester/staff/pack actions on production data only when Shawn explicitly confirms live DB.
-- **code** — feature branch → localhost verify → PR → CI → merge `main` → Actions deploy.
+- **code** — feature branch → localhost verify → PR → CI → merge `main`. A merge runs tests, then the Fly deploy waits in GitHub Actions for Shawn's approval on the `production` environment.
 
 ## Release truth
 
-- Push/merge to **`main`** deploys ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
+- Push/merge to **`main`** runs tests, then the Fly deploy waits in GitHub Actions for Shawn's approval on the `production` environment ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
 - Other branches run tests only ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
-- Routine release = merge to `main` and watch Deploy + `/health`. Do **not** run laptop `flyctl deploy` unless Shawn explicitly asks.
+- Routine release = merge to `main`, approve `production`, and watch Deploy + `/health`. Do **not** run laptop `flyctl deploy` unless Shawn explicitly asks.
 
 ## Forbidden unless Shawn asks
 

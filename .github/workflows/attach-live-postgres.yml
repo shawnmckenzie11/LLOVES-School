@@ -5,6 +5,7 @@ name: Attach live Postgres
 #
 # Run after merge, when a rolling restart of lloves-lms is acceptable:
 # Actions → Attach live Postgres → Run workflow.
+# The job waits for Shawn's approval on the `production` environment and only runs from `main`.
 # Expect https://alc.mckenzian.com/health → "live_presence": "postgres".
 #
 # Uses the existing repository secret FLY_API_TOKEN. Does not mint a token,
@@ -23,12 +24,20 @@ concurrency:
 jobs:
   attach:
     name: Attach Managed Postgres
+    # workflow_dispatch can target any ref. Only main may request the
+    # production review; another branch is skipped, not failed.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Same production reviewer as deploy.yml. This job runs flyctl,
+    # fly secrets deploy, and may restart lloves-lms.
+    environment:
+      name: production
+      url: https://alc.mckenzian.com
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
 
       - name: Attach lloves-live and require live_presence=postgres
         env:

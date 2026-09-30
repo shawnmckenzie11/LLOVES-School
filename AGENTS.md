@@ -38,9 +38,9 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 
 Live **Curriculum** authoring is the other Cursor workspace (ALC-Curriculum / the rclone or git clone). In **LLOVES-School**, the Cursor Google Drive plugin is forbidden. Lesson Slides at class time reads LMS sqlite + `.local-data/curriculum/`, then copies/fills decks with LMS **GoogleSlidesClient** REST (`lms/GOOGLE.md`, Connect Google Slides). Folder IDs in `lms/live_class_constants.py` are documentation only for `ALC / Curriculum / {CODE}`. If a task needs to write that tree, stop and say: open that workspace. Rule: [`.cursor/rules/no-drive-plugin.mdc`](.cursor/rules/no-drive-plugin.mdc).
 
-## Local first / merge to main deploys
+## Local first / approved Fly deploy
 
-- **Code lane:** feature branch → verify at `http://127.0.0.1:8787` + unit tests → PR → CI → merge **`main`** → GitHub Actions deploys ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)). Feature branches run tests only ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+- **Code lane:** feature branch → verify at `http://127.0.0.1:8787` + unit tests → PR → CI → merge **`main`**. A merge runs tests, then the Fly deploy waits in GitHub Actions for Shawn's approval on the `production` environment ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)). Feature branches run tests only ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 - **Ops lane:** live Fly `/data` only; no git unless Shawn asks for a code change.
 - Always-on rule: [`.cursor/rules/local-first-workflow.mdc`](.cursor/rules/local-first-workflow.mdc). Skills: [`.cursor/skills/local-verify`](.cursor/skills/local-verify/SKILL.md), [`.cursor/skills/release-gate`](.cursor/skills/release-gate/SKILL.md).
 - Do **not** laptop-`flyctl deploy` for routine release; do not commit unless Shawn asks.
@@ -59,7 +59,7 @@ Slash-cloud / Cloud Agents boot a **fresh sqlite**, not the laptop DB and not Fl
 - App: `lloves-lms` (Fly.io, region `yyz`)
 - Public URL: https://alc.mckenzian.com
 - Volume: `lloves_data` → `/data` (sqlite + libraries)
-- Deploy: merge to `main` (Actions). Laptop `flyctl deploy --remote-only` only if Shawn explicitly asks.
+- Deploy: a merge to `main` runs tests, then the Fly deploy waits in GitHub Actions for Shawn's approval on the `production` environment. Laptop `flyctl deploy --remote-only` only if Shawn explicitly asks.
 
 ## Agent entry points
 
@@ -68,7 +68,7 @@ Slash-cloud / Cloud Agents boot a **fresh sqlite**, not the laptop DB and not Fl
 | Semester context | [`agents/semester-context.md`](agents/semester-context.md) | Pacing, calendars, “what week” |
 | Syllabus calendar | [`agents/syllabus-calendar.md`](agents/syllabus-calendar.md) | School-day syllabus dates (prefer `--edit`) |
 | Local verify | [`.cursor/skills/local-verify/SKILL.md`](.cursor/skills/local-verify/SKILL.md) | UI/API/staff/IT done-when on localhost |
-| Release gate | [`.cursor/skills/release-gate/SKILL.md`](.cursor/skills/release-gate/SKILL.md) | PR → CI → merge main → Deploy → `/health` |
+| Release gate | [`.cursor/skills/release-gate/SKILL.md`](.cursor/skills/release-gate/SKILL.md) | PR → CI → merge main → approve `production` → Deploy → `/health` |
 | Live lesson author | [`.cursor/agents/live-lesson-author.md`](.cursor/agents/live-lesson-author.md) | One playlist + namespaced `live_items.json` keys (MCF3M / MCR3U) |
 | Live class engineer | [`.cursor/agents/live-class-engineer.md`](.cursor/agents/live-class-engineer.md) | Run Live Class runtime (publish, scoring, numeric box, Meet poll results, media/whiteboard) |
 
