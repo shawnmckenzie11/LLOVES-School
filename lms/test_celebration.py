@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -181,11 +182,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
         self.assertIn("location.hash === \"#celebrations\"", body)
-        self.assertIn("Coming soon — the shout-outs are warming up.", body)
-        self.assertIn(
-            "Good work deserves a spotlight; we’re still setting the lights.",
-            body,
-        )
+        self.assertIn(WONDER_COPY["coming_soon_line"], body)
+        self.assertIn(WONDER_COPY["coming_soon_sub"], html.unescape(body))
         self.assertNotIn("Coming soon.", body)
         self.assertNotIn(
             "We’ll shout out strong work and engagement here when it’s ready.",
@@ -210,7 +208,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertNotIn("Most Engaged", body)
         self.assertNotIn("Most Improved", body)
         self.assertNotIn("Quietly Cooking", body)
-        self.assertNotIn("Celebrating a student", body)
+        self.assertNotIn(WONDER_COPY["award_kicker"], body)
         self.assertNotIn("A teacher will feature someone here.", body)
         self.assertNotIn("Waiting on the first attendance.", body)
         self.assertNotIn("calc.mckenzian.com", body)
@@ -227,7 +225,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(payload["copy"]["page_title"], WONDER_COPY["page_title"])
         self.assertEqual(payload["copy"]["empty_board"], WONDER_COPY["empty_board"])
         page = anon.get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
+        self.assertIn(WONDER_COPY["coming_soon_line"], page)
         self.assertIn('class="calc-coming-soon"', page)
         self.assertIn('class="calc-board"', page)
         self.assertNotIn("data-card=", page)
@@ -414,7 +412,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("/#celebrations", home)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
+        self.assertIn(WONDER_COPY["coming_soon_line"], page)
         self.assertIn('class="calc-sparkle-dot"', page)
         self.assertNotIn("data-card=", page)
         self.assertNotIn("Kept the warm-up moving.", page)
@@ -448,7 +446,7 @@ class CelebrationTests(unittest.TestCase):
             self._log_day(class_id, day, everyone, pts)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
+        self.assertIn(WONDER_COPY["coming_soon_line"], page)
         self.assertNotIn("data-card=", page)
 
         board = build_celebration_board(self.school)["cards"]

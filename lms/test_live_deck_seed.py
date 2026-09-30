@@ -844,6 +844,7 @@ const defaults = [
   [{ mode: "current", currentAvailable: true, previousAvailable: false, courseDeckCount: 0 }, "current"],
   [{ mode: "current", currentAvailable: false, previousAvailable: true, courseDeckCount: 4 }, "previous"],
   [{ mode: "current", currentAvailable: false, previousAvailable: false, courseDeckCount: 0 }, "previous"],
+  [{ mode: "current", currentAvailable: false, previousAvailable: false, courseDeckCount: 4, previousSlot: "" }, "course"],
   [{ mode: "course", currentAvailable: true, previousAvailable: true, courseDeckCount: 2 }, "course"],
   [{ mode: "course", currentAvailable: false, previousAvailable: false, courseDeckCount: 0 }, "previous"],
 ];
@@ -853,6 +854,12 @@ for (const [input, expected] of defaults) {
     console.error("default " + JSON.stringify({ input, expected, got }));
     failed += 1;
   }
+}
+const emptyFirst = defaults[3][0];
+const emptyFirstNote = deckSeedHelpText({ ...emptyFirst, mode: deckSeedDefaultMode(emptyFirst) });
+if (emptyFirstNote !== "Starts from a copy of the deck you pick.") {
+  console.error("empty first slot note " + JSON.stringify(emptyFirstNote));
+  failed += 1;
 }
 if (courseDeckChoiceDisabled(0) !== true || courseDeckChoiceDisabled(1) !== false) {
   console.error("course disable gate drifted");
