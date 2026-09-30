@@ -30,6 +30,27 @@ from board_ops import (  # noqa: E402
 )
 from live_presence import apply_locked_ddl  # noqa: E402
 
+def node_harness_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for whiteboard node harnesses.
+
+    Static paths are resolved from this file so the harness does not
+    depend on the process working directory or a fixed checkout path.
+
+    Args:
+        extra: Variables merged in after the repo paths.
+
+    Returns:
+        A copy of the process environment plus those paths.
+    """
+    env = os.environ.copy()
+    env["LLOVES_LMS_STATIC"] = str(LMS_DIR / "static")
+    env["LLOVES_COMMON_JS"] = str(
+        REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js"
+    )
+    if extra:
+        env.update(extra)
+    return env
+
 
 class SqliteBoardOpsTests(unittest.TestCase):
     """Sequence allocation and since-seq reads on a private sqlite file."""
@@ -1117,6 +1138,7 @@ if (sent.join(',') !== 'a,c') {
             capture_output=True,
             text=True,
             check=False,
+            env=node_harness_env(),
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
@@ -1224,10 +1246,10 @@ window.requestAnimationFrame = (fn) => { fn(); return 1; };
 window.location = { origin: 'http://localhost', pathname: '/student' };
 window.innerWidth = 1280;
 
-const root = '/workspace';
-const staticHref = pathToFileURL(root + '/lms/static/').href;
-let src = readFileSync(root + '/lms/static/student-portal.js', 'utf8');
-src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(root + '/tools/math-game-show/static/common.js').href));
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
 src = src.replaceAll('"/static/', '"' + staticHref);
 src = src.replace('void tick();', '');
 src = src.replace('setInterval(tickDisplayTime, 250);', '');
@@ -1356,6 +1378,7 @@ process.exit(0);
             capture_output=True,
             text=True,
             check=False,
+            env=node_harness_env(),
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
@@ -1523,6 +1546,7 @@ process.exit(0);
             capture_output=True,
             text=True,
             check=False,
+            env=node_harness_env(),
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
@@ -1629,10 +1653,10 @@ window.location = location;
 window.innerWidth = 1280;
 window.confirm = () => false;
 
-const repo = '/workspace';
-const staticHref = pathToFileURL(repo + '/lms/static/').href;
-let src = readFileSync(repo + '/lms/static/staff_ap.js', 'utf8');
-src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(repo + '/tools/math-game-show/static/common.js').href));
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/staff_ap.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
 src = src.replaceAll('"/static/', '"' + staticHref);
 src += '\nexport { bindEphemeralCanvas, refreshTeacherBoard, teacherBoard, teacherBoardRun, teacherState };\n';
 const out = '/tmp/staff-board-refresh-harness.mjs';
@@ -1716,6 +1740,7 @@ process.exit(0);
             capture_output=True,
             text=True,
             check=False,
+            env=node_harness_env(),
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
@@ -1840,10 +1865,10 @@ globalThis.fetch = async (url) => {
   };
 };
 
-const root = '/workspace';
-const staticHref = pathToFileURL(root + '/lms/static/').href;
-let src = readFileSync(root + '/lms/static/student-portal.js', 'utf8');
-src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(root + '/tools/math-game-show/static/common.js').href));
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
 src = src.replaceAll('"/static/', '"' + staticHref);
 src = src.replaceAll('void tick();', '');
 src = src.replace('setInterval(tickDisplayTime, 250);', '');
@@ -1874,8 +1899,7 @@ if (mode === 'ended') {
 }
 process.exit(0);
 """
-        env = os.environ.copy()
-        env["STUDENT_POLL_CASE"] = mode
+        env = node_harness_env({"STUDENT_POLL_CASE": mode})
         return subprocess.run(
             ["node", "--input-type=module", "-e", script],
             cwd=REPO_ROOT,
