@@ -3306,7 +3306,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
       controls += `<p class="prompt-spark-feedback">${escapeText(sparkLine)}</p>`;
     }
   } else if (kind === "numeric") {
-    const integerOnly = true;
+    const integerOnly = Boolean(data.integer_only);
     const prior = payload.my_response && payload.my_response.response;
     const priorValue =
       prior && prior.value != null

@@ -7,6 +7,8 @@ rides read ``live_session_responses``. Not a gradebook writeback.
 
 from __future__ import annotations
 
+import math
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 try:
@@ -261,6 +263,114 @@ def build_mc_tally(
     }
 
 
+def _prompt_requires_integer(payload: dict[str, Any]) -> bool:
+    """Return True when the prompt rejects fractional answers.
+
+    An absent ``integer_only`` flag allows decimals. Only an explicit
+    true value keeps the whole-number chart.
+
+    Args:
+        payload: Live-prompt payload.
+    """
+    flag = payload.get("integer_only")
+    if isinstance(flag, str):
+        return flag.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(flag)
+
+
+def _numeric_bucket_label(number: float, *, integer_only: bool) -> str | None:
+    """Return the class-chart label for one numeric answer.
+
+    Integer-only prompts keep whole numbers and drop fractions.
+    Decimal prompts collapse equivalent values (``2.50`` and ``2.5``)
+    and show at most two decimal places.
+
+    Args:
+        number: Parsed student value.
+        integer_only: When True, non-whole answers are omitted.
+
+    Returns:
+        Bucket label, or ``None`` when the value is dropped.
+    """
+    if not math.isfinite(number):
+        return None
+    if integer_only:
+        if not number.is_integer():
+            return None
+        return str(int(number))
+    try:
+        quantized = Decimal(str(number)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    except InvalidOperation:
+        return None
+    if not quantized.is_finite():
+        return None
+    if quantized == 0:
+        return "0"
+    text = format(quantized, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in {"", "-", "-0"}:
+        return "0"
+    return text
+
+
+def _numeric_expected(payload: dict[str, Any]) -> float | None:
+    """Parse the authored numeric key, if the prompt has one.
+
+    Args:
+        payload: Live-prompt payload (``key`` or ``correct_answer``).
+    """
+    raw = payload.get("key")
+    if raw in (None, ""):
+        raw = payload.get("correct_answer")
+    if raw in (None, ""):
+        correct_ids = payload.get("correct_ids") or []
+        if isinstance(correct_ids, list) and correct_ids:
+            raw = correct_ids[0]
+    if raw in (None, ""):
+        return None
+    try:
+        number = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _numeric_within_tolerance(
+    actual: float,
+    expected: float,
+    tolerance: Any,
+    tolerance_kind: Any,
+) -> bool:
+    """Return True when a numeric answer sits inside the authored window.
+
+    Matches ``SchoolDb._numeric_within_tolerance`` so a class-chart bar
+    is marked correct for the same values the roster scores as correct.
+
+    Args:
+        actual: Student value before display rounding.
+        expected: Authored correct value.
+        tolerance: Absolute delta or percent, depending on ``tolerance_kind``.
+        tolerance_kind: ``absolute`` or ``percent``.
+    """
+    try:
+        window = float(tolerance)
+    except (TypeError, ValueError):
+        window = 0.0
+    if not math.isfinite(window) or window < 0:
+        window = 0.0
+    kind = str(tolerance_kind or "absolute").strip().lower()
+    if kind in {"percent", "percentage", "pct"}:
+        if expected == 0:
+            return abs(actual) <= window
+        return abs(actual - expected) <= abs(expected) * (window / 100.0)
+    return abs(actual - expected) <= window
+
+
 def build_numeric_tally(
     prompt: Any,
     *,
@@ -268,7 +378,12 @@ def build_numeric_tally(
     present: int = 0,
     teacher_state: Any = None,
 ) -> dict[str, Any] | None:
-    """Build a class-wide histogram of integer answers.
+    """Build a class-wide histogram of numeric answers.
+
+    Whole-number prompts still drop fractions. Decimal prompts bucket
+    equivalent values together, including negatives, and sort the bars
+    by number. A bar is correct when a response in it matches the
+    authored key, including any tolerance on the prompt.
 
     Args:
         prompt: Active live-prompt row (``kind=numeric``).
@@ -286,8 +401,11 @@ def build_numeric_tally(
     item_kind = str(payload.get("kind") or "").strip().lower()
     if kind != "numeric" and item_kind != "numeric":
         return None
+    integer_only = _prompt_requires_integer(payload)
+    expected = _numeric_expected(payload)
     counts: dict[str, int] = {}
-    values: list[int] = []
+    correct_labels: set[str] = set()
+    responded = 0
     for row in responses or []:
         if not isinstance(row, dict):
             continue
@@ -299,13 +417,19 @@ def build_numeric_tally(
             number = float(raw)
         except (TypeError, ValueError):
             continue
-        if not number.is_integer():
+        label = _numeric_bucket_label(number, integer_only=integer_only)
+        if label is None:
             continue
-        key = str(int(number))
-        counts[key] = counts.get(key, 0) + 1
-        values.append(int(number))
-    labels = sorted(counts.keys(), key=lambda token: int(token))
-    responded = len(values)
+        counts[label] = counts.get(label, 0) + 1
+        responded += 1
+        if expected is not None and _numeric_within_tolerance(
+            number,
+            expected,
+            payload.get("tolerance"),
+            payload.get("tolerance_kind"),
+        ):
+            correct_labels.add(label)
+    labels = sorted(counts.keys(), key=lambda token: float(token))
     present_n = max(0, int(present), responded)
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []
@@ -320,7 +444,7 @@ def build_numeric_tally(
                 "label": label,
                 "count": count,
                 "pct": pct,
-                "correct": False,
+                "correct": label in correct_labels,
             }
         )
     ref = prompt_ref_for(prompt, teacher_state)

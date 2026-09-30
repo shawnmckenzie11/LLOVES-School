@@ -18,7 +18,12 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from live_mc import build_mc_tally, extract_choice_labels, is_mc_prompt  # noqa: E402
+from live_mc import (  # noqa: E402
+    build_mc_tally,
+    build_numeric_tally,
+    extract_choice_labels,
+    is_mc_prompt,
+)
 from live_media import DEFAULT_LIVE_MEDIA_URL  # noqa: E402
 from live_teacher_state import MINDS_ON_PROMPT_REF  # noqa: E402
 from minds_on import MINDS_ON_CHOICES, minds_on_prompt_payload  # noqa: E402
@@ -384,6 +389,116 @@ class LiveMcApiTests(unittest.TestCase):
         self.assertFalse(
             revealed.get_json()["teacher_state"]["mc_ui"]["reveal_to_students"]
         )
+
+
+class NumericTallyTests(unittest.TestCase):
+    """Decimal buckets on the numeric class chart."""
+
+    def _prompt(self, **payload: object) -> dict:
+        """Return a numeric live prompt with the given payload fields."""
+        body = {"prompt": "Evaluate", "item_id": "eval-decimal"}
+        body.update(payload)
+        return {"id": 9, "kind": "numeric", "payload": body}
+
+    def _answers(self, *values: object) -> list[dict]:
+        """Wrap raw student values as live response rows."""
+        return [{"response": {"value": value}} for value in values]
+
+    def test_decimal_buckets_merge_trailing_zeros(self) -> None:
+        """2.50 and 2.5 share one bar, labelled with at most two decimals."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="2.5"),
+            responses=self._answers(2.5, "2.50", 2.25, "1.20", 1.236, " 2.500 "),
+            present=6,
+        )
+        assert tally is not None
+        labels = [row["label"] for row in tally["choices"]]
+        self.assertEqual(labels, ["1.2", "1.24", "2.25", "2.5"])
+        by_label = {row["label"]: row for row in tally["choices"]}
+        self.assertEqual(by_label["2.5"]["count"], 3)
+        self.assertEqual(by_label["2.5"]["id"], "2.5")
+        self.assertTrue(by_label["2.5"]["correct"])
+        self.assertFalse(by_label["1.2"]["correct"])
+        self.assertEqual(tally["responded"], 6)
+        self.assertEqual(tally["kind"], "numeric")
+
+    def test_negative_decimals_sort_numerically(self) -> None:
+        """Negative decimals stay on the chart and sort by value, not text."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, key="-1.5"),
+            responses=self._answers("2.50", -1.5, "-0.25", 0, 10, -1.50),
+            present=6,
+        )
+        assert tally is not None
+        labels = [row["label"] for row in tally["choices"]]
+        self.assertEqual(labels, ["-1.5", "-0.25", "0", "2.5", "10"])
+        by_label = {row["label"]: row for row in tally["choices"]}
+        self.assertEqual(by_label["-1.5"]["count"], 2)
+        self.assertTrue(by_label["-1.5"]["correct"])
+        self.assertFalse(by_label["2.5"]["correct"])
+
+    def test_integer_only_prompt_drops_fractions(self) -> None:
+        """Whole-number prompts still skip decimals and keep integer labels."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=True, correct_answer="-2"),
+            responses=self._answers(-2, -2.0, "3", 2.5, "2.50", -1),
+            present=6,
+        )
+        assert tally is not None
+        labels = [row["label"] for row in tally["choices"]]
+        self.assertEqual(labels, ["-2", "-1", "3"])
+        by_label = {row["label"]: row for row in tally["choices"]}
+        self.assertEqual(by_label["-2"]["count"], 2)
+        self.assertTrue(by_label["-2"]["correct"])
+        self.assertFalse(by_label["3"]["correct"])
+        self.assertEqual(tally["responded"], 4)
+        self.assertNotIn("2.5", labels)
+
+    def test_decimal_correct_answer_uses_tolerance(self) -> None:
+        """A decimal key marks the matching bar, including an absolute window."""
+        tally = build_numeric_tally(
+            self._prompt(
+                integer_only=False,
+                correct_answer="2.5",
+                tolerance=0.1,
+                tolerance_kind="absolute",
+            ),
+            responses=self._answers(2.5, 2.55, 3)
+            + [{"response": {"choice": "2.50"}}],
+            present=4,
+        )
+        assert tally is not None
+        by_label = {row["label"]: row for row in tally["choices"]}
+        self.assertEqual(by_label["2.5"]["count"], 2)
+        self.assertTrue(by_label["2.5"]["correct"])
+        self.assertTrue(by_label["2.55"]["correct"])
+        self.assertFalse(by_label["3"]["correct"])
+        percent = build_numeric_tally(
+            self._prompt(
+                integer_only=False,
+                key="10",
+                tolerance=10,
+                tolerance_kind="percent",
+            ),
+            responses=self._answers(10.5, 12),
+            present=2,
+        )
+        assert percent is not None
+        percent_marks = {row["label"]: row["correct"] for row in percent["choices"]}
+        self.assertTrue(percent_marks["10.5"])
+        self.assertFalse(percent_marks["12"])
+
+    def test_missing_integer_only_keeps_decimal_buckets(self) -> None:
+        """A numeric prompt with no integer_only flag still charts decimals."""
+        tally = build_numeric_tally(
+            self._prompt(),
+            responses=self._answers(1.5, "nope", None),
+            present=1,
+        )
+        assert tally is not None
+        self.assertEqual([row["label"] for row in tally["choices"]], ["1.5"])
+        self.assertEqual(tally["responded"], 1)
+        self.assertFalse(tally["choices"][0]["correct"])
 
 
 if __name__ == "__main__":
