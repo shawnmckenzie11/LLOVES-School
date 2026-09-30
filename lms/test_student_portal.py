@@ -1458,6 +1458,8 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("function liveChoiceLabels", js)
         self.assertIn("payload?.meet_chip", js)
         self.assertIn("content.integer_only", js)
+        self.assertIn("Boolean(data.integer_only)", js)
+        self.assertNotIn("const integerOnly = true", js)
         self.assertIn("drag.pending", js)
         self.assertIn("const activePaneDrags = new Set()", js)
         self.assertIn("host.appendChild(pane)", js)
