@@ -178,11 +178,10 @@ def resolve_student_live_context(
                     student = school.game.get_student(class_id, int(student_id))
                 except (KeyError, TypeError):
                     return None
-            codename = str(
-                attendee.get("codename")
-                or (student or {}).get("codename")
-                or (student or {}).get("first_name")
-                or ""
+            from school_db import roster_shown_name
+
+            codename = roster_shown_name(student) or str(
+                attendee.get("codename") or ""
             )
             return {
                 "offering": offering,
@@ -211,6 +210,16 @@ def resolve_student_live_context(
     except KeyError:
         return None
     live_session_id = session.get("student_live_session_id")
+    from school_db import roster_shown_name
+
+    roster_name = ""
+    if not unmatched and student_id not in (None, ""):
+        try:
+            roster_name = roster_shown_name(
+                school.game.get_student(int(class_id), int(student_id))
+            )
+        except (KeyError, TypeError, ValueError):
+            roster_name = ""
     return {
         "offering": offering,
         "class_id": int(class_id),
@@ -218,7 +227,7 @@ def resolve_student_live_context(
         "live_session_id": int(live_session_id) if live_session_id else 0,
         "visit_token": str(session.get("student_visit_token") or ""),
         "participant_uuid": str(session.get("student_participant_uuid") or ""),
-        "codename": str(session.get("student_codename") or ""),
+        "codename": roster_name or str(session.get("student_codename") or ""),
         "unmatched": unmatched,
     }
 

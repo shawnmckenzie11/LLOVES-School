@@ -550,6 +550,36 @@ def round_ends_at_ms(started_at: str | None, duration_sec: int | None) -> int | 
 # another. Scoring is teacher-only until then; keep the log `from` field.
 
 
+ROSTER_NAME_MAX = 80
+
+
+def clean_roster_name(raw: str, *, label: str, allow_empty: bool = False) -> str:
+    """Trim one roster name field and enforce the empty and length rules.
+
+    Args:
+        raw: Teacher-entered text.
+        label: Field name used in the error (``first name``, ``last name``,
+            or ``name``).
+        allow_empty: When True, a blank value is kept as ``""``.
+
+    Returns:
+        The stripped name.
+
+    Raises:
+        ValueError: The value is blank when a name is required, longer than
+            80 characters, or contains a comma.
+    """
+    name = str(raw or "").strip()
+    if len(name) > ROSTER_NAME_MAX:
+        raise ValueError(f"{label} must be 80 characters or fewer.")
+    if not name and not allow_empty:
+        article = "an" if label[:1].lower() in "aeiou" else "a"
+        raise ValueError(f"Enter {article} {label}.")
+    if "," in name:
+        raise ValueError("Names cannot contain commas.")
+    return name
+
+
 def normalize_codename(raw: str) -> str:
     """Validate a LLOVES roster Codename.
 
@@ -1244,6 +1274,101 @@ class GameShowDB:
         payload = dict(row)
         payload["mood"] = self.get_mood(class_id, student_id)
         return payload
+
+    def rename_student_name(
+        self,
+        class_id: int,
+        student_id: int,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Change the names shown for one roster student.
+
+        Writes ``first_name``, ``last_display``, and ``codename`` only.
+        The stable ``canvas_id``, attendance marks, and points stay put.
+        ``None`` keeps the stored field. A LLOVES row whose first name and
+        Codename are the same single label stays in sync when only the
+        display name is sent.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Students primary key.
+            first_name: New given name, or None to keep the stored one.
+            last_name: New family name (``last_display``). None keeps it.
+                ``""`` clears it.
+            display_name: New roster Codename. None derives one from the
+                first and last name.
+
+        Returns:
+            The updated ``students`` row.
+
+        Raises:
+            KeyError: The student is not on this class.
+            ValueError: A name is blank, too long, or already on this roster.
+        """
+        if first_name is None and last_name is None and display_name is None:
+            raise ValueError("Enter a name.")
+        current = self.get_student(class_id, student_id)
+        old_first = str(current.get("first_name") or "").strip()
+        old_last = str(current.get("last_display") or "").strip()
+        old_code = str(current.get("codename") or "").strip()
+        if first_name is None:
+            first = old_first
+        else:
+            first = clean_roster_name(first_name, label="first name")
+        if last_name is None:
+            last = old_last
+        else:
+            last = clean_roster_name(last_name, label="last name", allow_empty=True)
+        if display_name is None:
+            display = f"{first} {last}".strip() if last else (first or old_code)
+            if not display:
+                raise ValueError("Enter a name.")
+        else:
+            display = clean_roster_name(display_name, label="name")
+        if (
+            first_name is None
+            and not last
+            and old_code
+            and old_first.casefold() == old_code.casefold()
+        ):
+            first = display
+        if not first:
+            first = display
+        key = display.casefold()
+        with self._lock:
+            taken = self.conn.execute(
+                """
+                SELECT id FROM students
+                WHERE class_id = ?
+                  AND id != ?
+                  AND lower(trim(COALESCE(codename, ''))) = ?
+                """,
+                (int(class_id), int(student_id), key),
+            ).fetchone()
+            if taken is not None:
+                raise ValueError("That name is already on this roster.")
+            try:
+                self.conn.execute(
+                    """
+                    UPDATE students
+                    SET first_name = ?, last_display = ?, codename = ?
+                    WHERE id = ? AND class_id = ?
+                    """,
+                    (first, last, display, int(student_id), int(class_id)),
+                )
+                self.conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("That name is already on this roster.") from exc
+            row = self.conn.execute(
+                "SELECT * FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"student {student_id}")
+        return dict(row)
 
     def set_character(self, class_id: int, student_id: int, character_key: str) -> dict[str, Any]:
         """Persist a join-screen character for one student.

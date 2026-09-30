@@ -1,0 +1,41 @@
+<details class="roster-names"{% if roster_open %} open{% endif %}>
+  <summary>Roster</summary>
+  <ul class="roster-names-list">
+    {% for student in roster_students or [] %}
+    <li class="roster-name-row"
+        data-class-id="{{ roster_class_id }}"
+        data-student-id="{{ student.id }}"
+        data-first-name="{{ student.first_name }}"
+        data-last-name="{{ student.last_name }}"
+        data-display-name="{{ student.display_name }}"
+        data-second-kind="{{ student.second_kind }}">
+      <div class="roster-name-view">
+        <button type="button" class="roster-name-label">{{ student.name }}</button>
+        <button type="button" class="roster-name-pencil" aria-label="Edit name for {{ student.name }}">
+          <svg width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+          </svg>
+        </button>
+      </div>
+      <form class="roster-name-form" hidden>
+        <label>First name
+          <input name="first_name" maxlength="80" autocomplete="off" required value="{{ student.first_name }}">
+        </label>
+        {% if student.second_kind == 'last_name' %}
+        <label>Last name
+          <input name="last_name" maxlength="80" autocomplete="off" required value="{{ student.last_name }}">
+        </label>
+        {% else %}
+        <label>Display name
+          <input name="display_name" maxlength="80" autocomplete="off" required value="{{ student.display_name }}">
+        </label>
+        {% endif %}
+        <button type="submit" class="roster-name-save">Save</button>
+        <p class="roster-name-error" role="alert" hidden></p>
+      </form>
+    </li>
+    {% else %}
+    <li class="hint">No students on this roster yet.</li>
+    {% endfor %}
+  </ul>
+</details>

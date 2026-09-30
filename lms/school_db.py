@@ -855,6 +855,28 @@ def retry_if_db_locked(fn, *, attempts: int = 4, delay_s: float = 0.4):
 LIVE_ATTENDEE_SECRET_KEYS = ("visit_token",)
 
 
+def roster_shown_name(student: dict[str, Any] | None) -> str:
+    """Return the name the roster and live class should show.
+
+    The Codename is the display name staff edit. A Canvas-style row with no
+    Codename falls back to the first name plus the last name.
+
+    Args:
+        student: ``students`` row, or None.
+
+    Returns:
+        Trimmed display name, or ``""``.
+    """
+    if not student:
+        return ""
+    code = str(student.get("codename") or "").strip()
+    if code:
+        return code
+    first = str(student.get("first_name") or "").strip()
+    last = str(student.get("last_display") or "").strip()
+    return f"{first} {last}".strip()
+
+
 def first_name_only(raw: str) -> str:
     """Keep the first token of a typed name; never persist a last name.
 
@@ -10720,6 +10742,137 @@ class SchoolDB(LovesDB):
             item["live_access_code"] = class_code or None
             out.append(item)
         return out
+
+    def roster_name_entries(self, class_id: int) -> list[dict[str, Any]]:
+        """Return roster rows for the in-place name editor.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Dicts with ``id``, ``first_name``, ``last_name``,
+            ``display_name``, ``name``, and ``second_kind``
+            (``last_name`` or ``display_name``).
+        """
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT id, first_name, last_display, codename
+                FROM students
+                WHERE class_id = ?
+                ORDER BY lower(trim(COALESCE(codename, first_name, ''))), id
+                """,
+                (int(class_id),),
+            ).fetchall()
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            first = str(item.get("first_name") or "").strip()
+            last = str(item.get("last_display") or "").strip()
+            display = roster_shown_name(item)
+            if last and not str(item.get("codename") or "").strip():
+                second_kind = "last_name"
+                second_value = last
+            else:
+                second_kind = "display_name"
+                second_value = display
+            entries.append(
+                {
+                    "id": int(item["id"]),
+                    "first_name": first or display,
+                    "last_name": last,
+                    "display_name": display,
+                    "name": display or first,
+                    "second_kind": second_kind,
+                    "second_value": second_value,
+                }
+            )
+        return entries
+
+    def rename_roster_student(
+        self,
+        class_id: int,
+        student_id: int,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Rename one roster student and push the name into live class.
+
+        The students table is the source of truth on both sqlite (local and
+        the Fly volume) and the Postgres presence copy. Attendee rows store
+        the name captured at join, so this updates those sqlite rows and
+        mirrors them into Postgres when a presence store is attached.
+        Login email, Google identity, points, and attendance are not written.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_id: ``students.id``.
+            first_name: New given name, or None to keep it.
+            last_name: New family name, or None to keep it.
+            display_name: New Codename, or None to derive it.
+
+        Returns:
+            ``student_id``, ``class_id``, ``first_name``, ``last_name``,
+            ``display_name``, and ``name``.
+
+        Raises:
+            KeyError: The student is not on this class.
+            ValueError: A name is blank, too long, or already used.
+        """
+        student = self.game.rename_student_name(
+            int(class_id),
+            int(student_id),
+            first_name=first_name,
+            last_name=last_name,
+            display_name=display_name,
+        )
+        display = roster_shown_name(student)
+        self._sync_roster_name_to_live(int(student["id"]), display)
+        return {
+            "student_id": int(student["id"]),
+            "class_id": int(student["class_id"]),
+            "first_name": str(student.get("first_name") or ""),
+            "last_name": str(student.get("last_display") or ""),
+            "display_name": display,
+            "name": display,
+        }
+
+    def _sync_roster_name_to_live(self, student_id: int, display_name: str) -> None:
+        """Copy a roster display name onto attendee rows and presence.
+
+        ClassList, teams, and the scoreboard read the students table. The
+        teacher attendee list, the welcome card, and Postgres presence read
+        the name copied at join. Matched roster rows are updated. Guest rows
+        (no student id, or unmatched) stay as the student typed them.
+
+        Args:
+            student_id: ``students.id``.
+            display_name: New roster display name.
+        """
+        name = (display_name or "").strip()
+        if not name:
+            return
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET codename = ?
+                WHERE student_id = ? AND COALESCE(unmatched, 0) = 0
+                """,
+                (name, int(student_id)),
+            )
+            self.conn.commit()
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE student_id = ? AND COALESCE(unmatched, 0) = 0
+                """,
+                (int(student_id),),
+            ).fetchall()
+        for row in rows:
+            self._mirror_presence_attendee(dict(row))
 
     def teacher_owns_class(self, teacher_user_id: int, class_id: int) -> bool:
         """True when the class belongs to this teacher in the same tenant.
@@ -21055,11 +21208,7 @@ class SchoolDB(LovesDB):
             rows.append(
                 {
                     "student_id": student_id,
-                    "codename": str(
-                        student.get("codename")
-                        or student.get("first_name")
-                        or ""
-                    ),
+                    "codename": roster_shown_name(student),
                     "present": present,
                     "joined": attendee is not None,
                     "left_at": attendee.get("left_at") if attendee else None,

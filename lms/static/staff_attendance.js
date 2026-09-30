@@ -1,9 +1,14 @@
 import { api, escapeHtml, hideError, showError } from "/static/common.js";
+import { rosterNameEditorHtml } from "/static/staff_roster_names.js";
 
-const root = document.getElementById("attendance-root");
+const root =
+  typeof document === "undefined" ? null : document.getElementById("attendance-root");
 const classId = Number(root?.dataset.classId || 0);
 const sortKey = `lloves-att-sort-${classId}`;
-let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
+let sort = "az";
+if (typeof localStorage !== "undefined") {
+  sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
+}
 let clearMode = false;
 let latestGrid = null;
 
@@ -80,7 +85,7 @@ function paint(data) {
   let body = "";
   for (const student of students) {
     const sid = Number(student.id);
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    body += `<tr>${attendanceNameCell(student)}`;
     weeks.forEach((week, weekIndex) => {
       week.forEach((iso, dayIndex) => {
         const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
@@ -139,6 +144,58 @@ function paint(data) {
 }
 
 /**
+ * Student-name cell: the same text the grid always showed, plus the rename pencil.
+ *
+ * @param {{id: number, codename?: string, first_name?: string, last_display?: string}} student
+ * @param {number} forClassId
+ * @returns {string}
+ */
+export function attendanceNameCellHtml(student, forClassId) {
+  const name = displayName(student);
+  const last = String(student.last_display || "").trim();
+  const code = String(student.codename || "").trim();
+  const first = String(student.first_name || "").trim() || name;
+  const display = code || `${first} ${last}`.trim() || name;
+  const secondKind = last && !code ? "last_name" : "display_name";
+  return `<td class="name">${rosterNameEditorHtml({
+    classId: forClassId,
+    studentId: Number(student.id),
+    name,
+    firstName: first,
+    lastName: last,
+    displayName: display,
+    secondKind,
+  })}</td>`;
+}
+
+/**
+ * Name cell for the class this page is showing.
+ *
+ * @param {{id: number, codename?: string, first_name?: string, last_display?: string}} student
+ * @returns {string}
+ */
+function attendanceNameCell(student) {
+  return attendanceNameCellHtml(student, classId);
+}
+
+/**
+ * Keep a later repaint on the name that was just saved.
+ * @param {CustomEvent} event
+ */
+function rememberRenamedStudent(event) {
+  const detail = event.detail || {};
+  if (Number(detail.classId) !== classId || !latestGrid) return;
+  const student = (latestGrid.students || []).find(
+    (row) => Number(row.id) === Number(detail.studentId)
+  );
+  if (!student) return;
+  if (detail.first_name) student.first_name = String(detail.first_name);
+  if (detail.last_name != null) student.last_display = String(detail.last_name);
+  const shown = String(detail.display_name || detail.name || "").trim();
+  if (shown) student.codename = shown;
+}
+
+/**
  * Toggle clear mode or clear one day column when a date header is clicked.
  * @param {MouseEvent} event
  */
@@ -163,6 +220,7 @@ async function onGridClick(event) {
   }
 }
 
+if (typeof document !== "undefined") {
 document.getElementById("att-sort")?.addEventListener("click", (event) => {
   event.preventDefault();
   sort = sort === "az" ? "za" : "az";
@@ -184,4 +242,9 @@ window.addEventListener("lloves-attendance-refresh", () => {
   refreshAttendanceGrid().catch((err) => showError("#att-error", err));
 });
 
+window.addEventListener("roster-name-saved", (event) => {
+  rememberRenamedStudent(event);
+});
+
 refreshAttendanceGrid().catch((err) => showError("#att-error", err));
+}
