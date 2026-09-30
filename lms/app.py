@@ -68,8 +68,10 @@ from auth import (  # noqa: E402
 )
 from bots import list_bots  # noqa: E402
 from celebration import (  # noqa: E402
+    WONDER_COPY as CELEBRATION_COPY,
     build_celebration_board,
     celebration_candidates,
+    public_celebration_board,
     set_featured_award,
 )
 from curriculum import seed_curriculum  # noqa: E402
@@ -1518,7 +1520,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def landing():
         """Public ALC logo, then Teacher / Student / Admin entry.
 
-        Celebrations live on the same page at ``/#celebrations`` (coming soon).
+        Celebrations live on the same page at ``/#celebrations``. The board
+        itself loads from ``GET /api/celebrations`` the first time that hash
+        opens, so a plain ``/`` hit does not scan class stats.
         While a live session is active, the httpOnly rejoin cookie skips
         code+name and resumes the unfinished join step (mood → character →
         home). It must not skip the required avatar pick.
@@ -1543,6 +1547,27 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def calc_awards_redirect():
         """Old /calc bookmark — send people to the ALC hash route."""
         return redirect("/#celebrations")
+
+    @app.route("/api/celebrations", methods=["GET"])
+    def public_celebrations():
+        """Public read-only celebration board for ``/#celebrations``.
+
+        Returns filled cards and the Wonder copy slots. Any failure becomes
+        an empty card list so the landing page can keep Coming soon.
+
+        Returns:
+            JSON ``{cards, copy}`` with ``Cache-Control: max-age=60``.
+        """
+        try:
+            cards = public_celebration_board(school).get("cards") or []
+            if not isinstance(cards, list):
+                cards = []
+        except Exception:
+            logger.exception("celebration board unavailable")
+            cards = []
+        resp = jsonify({"cards": cards, "copy": dict(CELEBRATION_COPY)})
+        resp.headers["Cache-Control"] = "max-age=60"
+        return resp
 
     @app.route("/request-access", methods=["GET", "POST"])
     def request_access():

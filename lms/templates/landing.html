@@ -54,10 +54,11 @@
   </div>
   <section class="wrap calc-wrap" id="celebrations" hidden>
     <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>
+    <div class="calc-board" hidden></div>
     <article class="calc-coming-soon">
-      <h2>Celebrations <span class="calc-sparkle-dot" aria-hidden="true"></span></h2>
-      <p class="calc-coming-line">Coming soon — the shout-outs are warming up.</p>
-      <p class="sub">Good work deserves a spotlight; we’re still setting the lights.</p>
+      <h2>{{ celebration_copy.page_title }} <span class="calc-sparkle-dot" aria-hidden="true"></span></h2>
+      <p class="calc-coming-line">{{ celebration_copy.coming_soon_line }}</p>
+      <p class="sub">{{ celebration_copy.coming_soon_sub }}</p>
     </article>
   </section>
   <script>
@@ -121,15 +122,146 @@
       var board = document.getElementById("celebrations");
       if (!signIn || !board) return;
 
+      var celebrationsLoaded = false;
+
       /**
-       * One-shot pulse on the Celebrations sparkle-dot (CSS no-ops under reduced motion).
+       * One-shot pulse on the visible Celebrations sparkle-dot.
+       * CSS no-ops the animation under reduced motion.
        */
       function pulseSparkle() {
-        var sparkle = board.querySelector(".calc-sparkle-dot");
+        var dots = board.querySelectorAll(".calc-sparkle-dot");
+        var sparkle = null;
+        for (var i = 0; i < dots.length; i++) {
+          if (dots[i].offsetParent !== null) {
+            sparkle = dots[i];
+            break;
+          }
+        }
+        if (!sparkle) sparkle = dots[0];
         if (!sparkle) return;
         sparkle.classList.remove("is-pulse");
         void sparkle.offsetWidth;
         sparkle.classList.add("is-pulse");
+      }
+
+      /**
+       * Build one celebration card without inserting HTML from the API.
+       * @param {Object} card
+       * @param {boolean} isAward
+       * @returns {HTMLElement}
+       */
+      function celebrationCard(card, isAward) {
+        var article = document.createElement("article");
+        article.className = isAward ? "calc-card calc-card-award" : "calc-card";
+        if (card.key) article.setAttribute("data-card", String(card.key));
+        var kicker = document.createElement("p");
+        kicker.className = "kicker";
+        kicker.textContent = card.kicker || "";
+        var heading = document.createElement("h3");
+        heading.textContent = card.title || "";
+        var winner = document.createElement("p");
+        winner.className = "calc-winner";
+        winner.textContent = card.name || "";
+        article.appendChild(kicker);
+        article.appendChild(heading);
+        article.appendChild(winner);
+        if (card.course) {
+          var course = document.createElement("p");
+          course.className = "hint";
+          course.textContent = card.course;
+          article.appendChild(course);
+        }
+        if (card.detail) {
+          var detail = document.createElement("p");
+          detail.className = "calc-detail";
+          detail.textContent = card.detail;
+          article.appendChild(detail);
+        }
+        return article;
+      }
+
+      /**
+       * Paint filled cards, or leave the Coming soon article in place.
+       * @param {Object} payload
+       */
+      function renderCelebrations(payload) {
+        var cards = payload && Array.isArray(payload.cards) ? payload.cards : [];
+        var copy = payload && payload.copy ? payload.copy : {};
+        var mount = board.querySelector(".calc-board");
+        var fallback = board.querySelector(".calc-coming-soon");
+        if (!mount || !fallback) return;
+        var filled = cards.filter(function (card) {
+          return card && String(card.name || "").trim();
+        });
+        if (!filled.length) {
+          mount.hidden = true;
+          mount.replaceChildren();
+          board.classList.remove("is-live-board");
+          fallback.hidden = false;
+          var line = fallback.querySelector(".calc-coming-line");
+          var sub = fallback.querySelector(".sub");
+          if (line && copy.empty_board) line.textContent = copy.empty_board;
+          if (sub && copy.coming_soon_sub) sub.textContent = copy.coming_soon_sub;
+          return;
+        }
+        fallback.hidden = true;
+        mount.replaceChildren();
+        var header = document.createElement("header");
+        header.className = "calc-header";
+        var title = document.createElement("h2");
+        title.appendChild(document.createTextNode(copy.page_title || "Celebrations"));
+        var dot = document.createElement("span");
+        dot.className = "calc-sparkle-dot";
+        dot.setAttribute("aria-hidden", "true");
+        title.appendChild(dot);
+        header.appendChild(title);
+        if (copy.sub_line) {
+          var subLine = document.createElement("p");
+          subLine.className = "sub";
+          subLine.textContent = copy.sub_line;
+          header.appendChild(subLine);
+        }
+        mount.appendChild(header);
+        var award = null;
+        var rest = [];
+        filled.forEach(function (card) {
+          if (!award && card.key === "award") award = card;
+          else rest.push(card);
+        });
+        if (award) mount.appendChild(celebrationCard(award, true));
+        if (rest.length) {
+          var grid = document.createElement("div");
+          grid.className = "calc-rank-grid";
+          rest.forEach(function (card) {
+            grid.appendChild(celebrationCard(card, false));
+          });
+          mount.appendChild(grid);
+        }
+        if (copy.footer) {
+          var footer = document.createElement("p");
+          footer.className = "calc-footer";
+          footer.textContent = copy.footer;
+          mount.appendChild(footer);
+        }
+        mount.hidden = false;
+        board.classList.add("is-live-board");
+      }
+
+      /**
+       * Load the public board once, the first time #celebrations opens.
+       */
+      function loadCelebrations() {
+        if (celebrationsLoaded) return;
+        celebrationsLoaded = true;
+        fetch("/api/celebrations", { credentials: "same-origin" })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            renderCelebrations(data);
+            pulseSparkle();
+          })
+          .catch(function () {
+            celebrationsLoaded = false;
+          });
       }
 
       /**
@@ -142,6 +274,7 @@
         board.hidden = !celebrations;
         if (celebrations) {
           pulseSparkle();
+          loadCelebrations();
         }
       }
 

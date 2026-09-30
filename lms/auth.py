@@ -215,6 +215,8 @@ def google_oauth_ready() -> bool:
 
 def landing_kwargs(**extra: Any) -> dict[str, Any]:
     """Template context for the public landing page."""
+    from celebration import WONDER_COPY
+
     ctx = {
         **public_brand(),
         "google_client_id": google_client_id() if google_oauth_ready() else "",
@@ -224,6 +226,11 @@ def landing_kwargs(**extra: Any) -> dict[str, Any]:
         "student_candidates": [],
         "student_code": "",
         "student_name": "",
+        "celebration_copy": {
+            "page_title": WONDER_COPY["page_title"],
+            "coming_soon_line": WONDER_COPY["coming_soon_line"],
+            "coming_soon_sub": WONDER_COPY["coming_soon_sub"],
+        },
     }
     ctx.update(extra)
     return ctx
